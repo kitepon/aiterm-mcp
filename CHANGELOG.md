@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-09-08
+
 ### Fixed
 
 - Grok／Composerの無人起動で公式`--trust`を使い、フォルダ信頼の確認画面に初回promptのEnterが消費される問題を修正した。確認画面はshellの`>`がscrollbackにあっても入力受付と判定しない。
@@ -1568,7 +1570,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.2...HEAD
+[0.31.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.1...v0.31.2
 [0.31.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.29.31...v0.30.0

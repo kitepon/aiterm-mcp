@@ -1,6 +1,6 @@
 {
   "name": "aiterm-mcp",
-  "version": "0.31.1",
+  "version": "0.31.2",
   "mcpName": "io.github.kitepon/aiterm-mcp",
   "description": "Persistent terminal MCP with one harness-based launcher for Claude Code, Codex CLI, Grok CLI, and Cursor Agent CLI, plus durable PTYs for SSH, containers, and REPLs.",
   "keywords": [

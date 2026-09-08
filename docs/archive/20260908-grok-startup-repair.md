@@ -1,4 +1,4 @@
-# Grok起動と初回送信の修理
+# Grok起動と初回送信の修理記録（完了）
 
 目的は、BellTeamの調査をGrokへ委譲できる状態へ戻すこと。2026-09-08の依頼に基づき、read-only sandbox、通常HOME、既存hookを維持し、初回promptの回答回収まで確認する。
 
@@ -21,7 +21,11 @@
 
 ## 現在地
 
-dotagentsの関連テスト、文書検査、全体CI、Mac適用が完了。Aitermは回帰テスト5件、Grok／Composer関連試験、文書検査7件が成功。未信頼の新規cwdで、修正版MCPの`agent_launch`から`outcome=done`、回答「起動確認できました」、session終了まで確認した（2026-09-08 08:48:42 UTC）。別ベンダーの反証は完了し、重大な機能欠陥はなし。公開と公開版smokeが残る。
+dotagentsの関連テスト、文書検査、全体CI、Mac適用が完了。Aitermは回帰テスト5件、Grok／Composer関連試験、文書検査7件が成功。別ベンダーの反証は完了し、重大な機能欠陥はなし。
+
+dotagentsは`f82f914`、Aitermの実装修理は`2447606`、公開commitは`651e8b7`としてmainへpushした。Aiterm 0.31.2のnpm公開とOfficial MCP Registry登録は成功した（GitHub Actions: `34211068878`、`34211079557`）。通常のmain CIは記録時点でrunner待ちであり、成功扱いにはしない。必須の手元検査と公開後smokeに基づき起動修理を受け入れた。
+
+公式npmの0.31.2をMacへglobal installし、公開packageの`dist/index.js`をMCP clientから起動した。新規の未信頼cwdでread-onlyの`agent_launch`を実行し、09:40:25 UTCに`outcome=done`と「起動確認できました」を回収した。同じsessionへの`pty_send`も09:40:33 UTCに`outcome=done`となり、「追加送信も確認できました」を回収した。`pty_close`は`closed`を返し、続く`pty_list`に対象sessionが無いことを確認した。通常HOME・既存hook・sandboxは維持した。
 
 反証の裁定: 信頼登録が保存されhook・MCP・LSPにも作用する説明をREADMEへ追加した。日本語段落はオーナーの日本語指定に従って保持する。`--hooks-only`は今回の修理で既存configを変えず工場hookを更新するため実際に使用した入口であり、保持する。実測のない追加懸念は修正根拠にしない。
 

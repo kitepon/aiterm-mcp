@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Grok／Composerの無人起動で公式`--trust`を使い、フォルダ信頼の確認画面に初回promptのEnterが消費される問題を修正した。確認画面はshellの`>`がscrollbackにあっても入力受付と判定しない。
+- Grokの完了済みhook結果`[hooks: 成功/失敗]`を実行中表示と誤認し、入力待ちのまま初回送信や追加送信が停止する問題を修正した。判定はGrok専用アダプターが所有する。
+
 ### Changed
 
 - Grok／Composerのsandbox起動拒否について、日英README、DESIGN、AGENTS、文書地図、公開後smokeの説明を同期した。検出はGrok専用アダプターが所有し、共通処理はその呼出しだけを担うこと、promptなしの起動応答は入力受付完了を示さないことを明記した。

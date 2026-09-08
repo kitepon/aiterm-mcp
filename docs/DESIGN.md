@@ -65,6 +65,11 @@ hookパスのシンボリックリンク等を拒否する判断はGrok CLIが�
 hookのコピー、設定の置換、sandboxの解除は行わない。原因を設定の管理元で修正した後、対象sessionを
 閉じて起動し直す。検出の回帰試験は`test/grok-startup.test.mjs`に置く。
 
+Grok／Composerのmanaged起動は公式`--trust`を渡し、指定cwdの信頼状態はGrok CLIが管理する。
+`grokLaunchBlockingDialog`は信頼確認を入力受付から除外し、scrollbackのshell promptを取り違えない。
+`grokTuiBusy`は応答中の表示だけを実行中の根拠にし、完了後も残る`[hooks: 成功/失敗]`を含めない。
+これらのCLI固有判定は`src/harnesses/grok.ts`が所有し、共通処理は判定を呼び出す。
+
 ## Platform contract
 
 - macOS／Linux／WSL2: tmux。

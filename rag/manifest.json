@@ -125,6 +125,40 @@
       "fetched": "2026-08-13"
     },
     {
+      "slug": "grok-hooks-folder-trust-1-0-13-20260908",
+      "topic": "agent-launchers",
+      "title": "Grok 1.0.13のhookとフォルダ信頼",
+      "source_url": "file:///Users/kite/.grok/docs/user-guide/10-hooks.md",
+      "source_type": "local_vendor_docs",
+      "path": "sources/agent-launchers/grok-hooks-folder-trust-1-0-13-20260908.md",
+      "tags": [
+        "grok",
+        "hooks",
+        "trust"
+      ],
+      "summary": "Grok配布資料の原文。プロジェクトhook、MCP、LSPの信頼を公式--trustで登録する仕様。",
+      "relevance": "確度: 公式配布資料と実機で確認。Aitermの無人起動がフォルダ信頼画面で初回promptを失う問題の根拠。",
+      "chars": 48507,
+      "fetched": "2026-09-08"
+    },
+    {
+      "slug": "grok-sandbox-hook-protection-1-0-13-20260908",
+      "topic": "agent-launchers",
+      "title": "Grok 1.0.13のsandboxとhookパス保護",
+      "source_url": "file:///Users/kite/.grok/docs/user-guide/18-sandbox.md",
+      "source_type": "local_vendor_docs",
+      "path": "sources/agent-launchers/grok-sandbox-hook-protection-1-0-13-20260908.md",
+      "tags": [
+        "grok",
+        "sandbox",
+        "symlink"
+      ],
+      "summary": "Grok配布資料の原文。read-only sandboxの書込制限と、hook sourceのsymlinkを拒否する仕様。",
+      "relevance": "確度: Direct global hook write protection節を実機で確認。hook設定の配布者が実ファイルを置き、Aitermがsandboxを変更しない責務境界の根拠。",
+      "chars": 17697,
+      "fetched": "2026-09-08"
+    },
+    {
       "slug": "ecma-48-control-functions",
       "topic": "ansi-handling",
       "title": "Standard ECMA-48 (5th ed.) - Control Functions for Coded Character Sets",
@@ -2259,5 +2293,5 @@
       "fetched": "2026-06-01"
     }
   ],
-  "updated": "2026-08-24"
+  "updated": "2026-09-08"
 }

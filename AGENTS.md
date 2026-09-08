@@ -39,7 +39,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/index.ts`: MCP toolとschema。
 - `src/core.ts`: PTY、入出力整形、出力削減、完了検出、harness共通進行。
 - `src/harnesses/`: Claude／Codex／Grok／Cursor固有の起動、ready、完了、transcript、catalog。
-- `src/harnesses/grok.ts`: Grok／Composerのsandbox起動拒否の検出と原因付きエラーも所有する。
+- `src/harnesses/grok.ts`: Grok／Composerのfolder trust、入力受付、sandbox起動拒否の検出と原因付きエラーも所有する。
   `src/core.ts`は該当harnessで判定を呼び出すだけとし、CLIの拒否文言や設定の修復処理を持たない。
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。

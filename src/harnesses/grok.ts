@@ -260,7 +260,8 @@ export function buildGrokAgentCmd(
   const parts: string[] = [shq(bin)];
   // grok / composer は同じ grok CLI をモデル違いで起動する。
   parts.push("--no-auto-update");
-  if (meta?.kind === "grok" || meta?.kind === "composer") parts.push("--no-alt-screen");
+  // 無人起動の対象cwdはCLIの公式folder trust指定で登録し、確認画面にpromptを消費させない。
+  if (meta?.kind === "grok" || meta?.kind === "composer") parts.push("--no-alt-screen", "--trust");
   parts.push("--model", shq(model ?? GROK_MODEL_DEFAULTS[kind]));
   if (effort) parts.push("--reasoning-effort", shq(effort));
   if ((meta?.kind === "grok" || meta?.kind === "composer") && meta.write_scope === "read-only") {
@@ -313,12 +314,31 @@ export function assertGrokSandboxNotRejected(screen: string): void {
   );
 }
 
+export function grokLaunchBlockingDialog(screen: string): string | null {
+  const trustAt = screen.lastIndexOf("Do you trust the contents of this directory?");
+  if (trustAt < 0) return null;
+  const afterTrust = screen.slice(trustAt);
+  if (!afterTrust.includes("Yes, proceed") || !afterTrust.includes("No, quit")) return null;
+  // 古い確認画面より後に現在の入力欄がある場合は、scrollbackだけを根拠に停止しない。
+  if (/(?:^|\n)[ \t]*(?:│[ \t]*)?[❯>]/u.test(afterTrust)) return null;
+  return "folder trust確認ダイアログ";
+}
+
 export function grokTuiReady(screen: string): boolean {
+  if (grokLaunchBlockingDialog(screen)) return false;
   // Grok Build 0.2.117 は起動完了後に製品名を消し、model footerだけを残す。
   // Composerも同じfrontendでmodel名だけが異なるため、両方をharness UIの根拠にする。
   // Windows native grok.exe（1.0.4 実測）は入力欄markerを `❯` でなく `>` で描画するため両方を受ける。
   const grokFrontend = screen.includes("Grok Build") || /\b(?:Grok|Composer)\s+[\w.()-]+/.test(screen);
   return grokFrontend && /(^|\n|\s)[❯>]/.test(screen);
+}
+
+export function grokTuiBusy(screen: string): boolean {
+  // [hooks: 成功/失敗]は完了後も残る結果表示であり、実行中の根拠にはならない。
+  return screen.includes("Waiting for response")
+    || screen.includes("Responding…")
+    || screen.includes("Responding...")
+    || screen.includes("[stop]");
 }
 
 // submit座礁観測のcomposer領域マーカー（Windows native描画の `>` も ready 判定と同様に受ける）。

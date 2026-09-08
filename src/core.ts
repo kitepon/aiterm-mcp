@@ -84,6 +84,8 @@ import {
   grokLaunchNote,
   grokEnvTokens,
   grokTuiReady,
+  grokTuiBusy,
+  grokLaunchBlockingDialog,
   assertGrokSandboxNotRejected,
   GROK_COMPOSER_MARKER_RE,
   grokFooterHasConfiguration,
@@ -2866,11 +2868,7 @@ function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
   if (kind === "cursor") return /ctrl\+c to stop/i.test(screen);
   if (kind === "codex" || kind === "claude") return /esc to interrupt/i.test(screen);
   if (kind === "grok" || kind === "composer") {
-    return screen.includes("Waiting for response")
-      || screen.includes("Responding…")
-      || screen.includes("Responding...")
-      || screen.includes("[stop]")
-      || /\[hooks:\s*\d+\/\d+\]/u.test(screen);
+    return grokTuiBusy(screen);
   }
   return false;
 }
@@ -2885,6 +2883,7 @@ function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
 // 起動側が明示応答すべき既知UI。ここで自動承認せず、ready timeoutを待たずに
 // `initial_prompt=not_sent`を返してsessionを生かしたままcallerへ制御を戻す。
 function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
+  if (kind === "grok" || kind === "composer") return grokLaunchBlockingDialog(screen) !== null;
   if (kind === "codex") {
     return codexLaunchBlockingDialog(screen) !== null
       || screen.includes("Hooks need review")
@@ -3371,7 +3370,8 @@ export async function sendInitialAgentPrompt(
   if (!ready.ready) {
     // ready失敗は成功形で返さず明示エラーにする（実被弾 2026-08-25: Codexのupdate確認ダイアログで
     // 未送信のまま成功形receiptが返り、呼び出し側が40分気づけなかった）。sessionは調査/復旧用に残る。
-    const dialog = meta.kind === "codex" ? codexLaunchBlockingDialog(ready.lastScreen) : null;
+    const dialog = meta.kind === "codex" ? codexLaunchBlockingDialog(ready.lastScreen)
+      : meta.kind === "grok" || meta.kind === "composer" ? grokLaunchBlockingDialog(ready.lastScreen) : null;
     const causeNote = dialog
       ? `${dialog}が入力を塞いでいます。pty_read(screen:true)で画面を確認し、pty_keyでダイアログに応答してから、pty_sendでpromptを送ってください。`
       : `pty_read(screen:true)で画面を確認し、入力受付になってからpty_sendでpromptを送ってください。`;

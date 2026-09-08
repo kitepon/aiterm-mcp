@@ -50,8 +50,8 @@ test('Windows固有変更はLinux共通検査とWindows検査へ分類する', (
   assert.deepEqual(plan.environments, ['linux-workstation', 'windows-native']);
 });
 
-test('共通変更と未分類変更はpush既定のLinux 1環境へ分類する', () => {
-  assert.deepEqual(PUSH_ENVIRONMENTS, ['linux-workstation']);
+test('共通変更と未分類変更はMac・Linux・Windowsへ分類する', () => {
+  assert.deepEqual(PUSH_ENVIRONMENTS, ALL_ENVIRONMENTS);
   for (const paths of [['src/core.ts'], ['new-product/file.txt'], ['.github/workflows/ci.yml'], ['package.json'], []]) {
     const plan = classifyPaths(paths);
     assert.equal(plan.productChange, true);
@@ -59,7 +59,11 @@ test('共通変更と未分類変更はpush既定のLinux 1環境へ分類する
   }
 });
 
-test('定期実行だけが全環境の全テストへ広がる', async (t) => {
+test('共通変更とWindows固有変更の混在でWindowsを落とさない', () => {
+  assert.deepEqual(classifyPaths(['src/core.ts', 'src/windows-powershell.ts']).environments, ALL_ENVIRONMENTS);
+});
+
+test('定期実行は全環境の全テストを選ぶ', async (t) => {
   const repo = await repository(t);
   const output = join(repo.root, 'github-output.txt');
   const result = spawnSync(process.execPath, [SCRIPT, 'plan'], {
@@ -89,6 +93,66 @@ test('実装変更は依存するテストだけを選ぶ', () => {
     'test/cursor-agent.test.mjs',
     'test/launcher-structured.test.mjs',
   ]);
+});
+
+test('文書が混ざっても実装の関連試験を維持し文書検査を追加する', () => {
+  const plan = selectTestFiles(['src/harnesses/cursor.ts', 'README.md'], resolve(import.meta.dirname, '..'));
+  assert.equal(plan.testScope, 'selected');
+  assert.deepEqual(plan.testFiles, ['test/cursor-agent.test.mjs', 'test/launcher-structured.test.mjs', 'test/repository-contract.test.mjs']);
+});
+
+test('plan入口は版番号だけの更新を配布確認へ絞り依存変更は全OSへ残す', async (t) => {
+  const repo = await repository(t);
+  const before = {
+    'package.json': { name: 'fixture', version: '1.0.0', dependencies: { example: '1.0.0' } },
+    'package-lock.json': { version: '1.0.0', packages: { '': { version: '1.0.0' }, 'node_modules/example': { version: '1.0.0' } } },
+    'server.json': { version: '1.0.0', packages: [{ identifier: 'fixture', version: '1.0.0' }] },
+    'mcpb/manifest.json': { version: '1.0.0' },
+  };
+  await mkdir(join(repo.root, 'mcpb'));
+  for (const [file, data] of Object.entries(before)) await writeFile(join(repo.root, file), JSON.stringify(data));
+  git(repo.root, 'add', '.');
+  git(repo.root, 'commit', '-m', '配布情報の初期値');
+  const base = git(repo.root, 'rev-parse', 'HEAD');
+  const after = structuredClone(before);
+  for (const data of Object.values(after)) data.version = '1.0.1';
+  after['package-lock.json'].packages[''].version = '1.0.1';
+  after['server.json'].packages[0].version = '1.0.1';
+  for (const [file, data] of Object.entries(after)) await writeFile(join(repo.root, file), JSON.stringify(data));
+  await writeFile(join(repo.root, 'README.md'), '# 1.0.1\n');
+  git(repo.root, 'add', '.');
+  git(repo.root, 'commit', '-m', '版番号更新');
+  const run = async (comparison = base) => {
+    const output = join(repo.root, 'github-output.txt');
+    await writeFile(output, '');
+    const result = spawnSync(process.execPath, [SCRIPT, 'plan'], {
+      cwd: repo.root, encoding: 'utf8',
+      env: { ...process.env, EVENT_NAME: 'push', BEFORE_SHA: comparison, GITHUB_SHA: git(repo.root, 'rev-parse', 'HEAD'), GITHUB_OUTPUT: output },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return Object.fromEntries((await readFile(output, 'utf8')).trim().split('\n').map((line) => line.split(/=(.*)/su).slice(0, 2)));
+  };
+  const versionOnly = await run();
+  assert.equal(versionOnly.test_scope, 'metadata');
+  assert.deepEqual(JSON.parse(versionOnly.environments), ['linux-workstation']);
+  const addedMetadata = await run(repo.head);
+  assert.equal(addedMetadata.test_scope, 'all');
+  assert.deepEqual(JSON.parse(addedMetadata.environments), ALL_ENVIRONMENTS);
+
+  after['package-lock.json'].packages['node_modules/example'].version = '2.0.0';
+  await writeFile(join(repo.root, 'package-lock.json'), JSON.stringify(after['package-lock.json']));
+  git(repo.root, 'add', 'package-lock.json');
+  git(repo.root, 'commit', '-m', '依存の変更');
+  const dependency = await run();
+  assert.equal(dependency.test_scope, 'all');
+  assert.deepEqual(JSON.parse(dependency.environments), ALL_ENVIRONMENTS);
+  const beforeDeletion = git(repo.root, 'rev-parse', 'HEAD');
+  await rm(join(repo.root, 'mcpb/manifest.json'));
+  git(repo.root, 'add', 'mcpb/manifest.json');
+  git(repo.root, 'commit', '-m', '配布設定の削除');
+  const deletedMetadata = await run(beforeDeletion);
+  assert.equal(deletedMetadata.test_scope, 'all');
+  assert.deepEqual(JSON.parse(deletedMetadata.environments), ALL_ENVIRONMENTS);
 });
 
 test('依存を確定できない変更は全テストへ広げる', () => {

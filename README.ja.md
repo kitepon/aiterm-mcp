@@ -504,9 +504,9 @@ npm test           # build してから node:test 回帰スイート（tmux ま�
 npm link           # ローカルで `aiterm-mcp` を PATH に
 ```
 
-開発中は変更に直結するfocused testを先にローカルで実行します。GitHub Actionsはpushごとにself-hostedの
-`linux-workstation` 1環境で試験を回し、Windows固有ファイルを触った変更だけ`windows-native`を加え、
-3環境（`macos-native`、`linux-workstation`、`windows-native`）の全テストは週1回の健康診断だけで回します。
+開発中は変更に直結する試験を先に実行する。GitHub Actionsは共通実装・CI自身・未分類の変更をMac・Linux・Windowsで検証し、
+Windows固有だけの変更はLinuxとWindowsを選ぶ。版番号だけの変更はLinuxの配布情報・pack確認、文書だけなら文書検査を行う。
+試験内容とOSの選択、週次・手動実行の範囲は[公開手順](docs/RELEASE.md)に従う。
 `npm run release -- <version>`がversion同期・commit・tag・GitHub Releaseを一回で行い、tag起点のnpm公開は
 tagged commitが`origin/main`の祖先であることだけを確認して、他のCI結果を待ちません。
 

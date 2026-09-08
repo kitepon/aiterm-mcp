@@ -21,6 +21,9 @@ if (scope === 'all') {
     ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
   ];
   run(process.execPath, ['--test', ...files]);
+} else if (scope === 'metadata') {
+  build();
+  run(process.execPath, ['--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
 } else if (scope === 'selected') {
   const files = JSON.parse(process.env.PRODUCT_CI_TEST_FILES ?? '[]');
   if (!Array.isArray(files) || files.length === 0 || files.some((file) => typeof file !== 'string')) {

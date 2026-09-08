@@ -3,6 +3,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 export const ALL_ENVIRONMENTS = Object.freeze([
@@ -11,9 +12,8 @@ export const ALL_ENVIRONMENTS = Object.freeze([
   'windows-native',
 ]);
 
-// push／pull requestの既定はLinux 1環境。実測（2026-09-02）ではWindows runnerが毎回critical pathを
-// 6分占め、macOSとLinuxは2分で終わる。他OSはそのOS固有pathを触った変更、定期健康診断、手動実行だけ。
-export const PUSH_ENVIRONMENTS = Object.freeze(['linux-workstation']);
+// 共通実装の変更は対応する全OSで検証する。試験の内容とOSの選択は別に決める。
+export const PUSH_ENVIRONMENTS = ALL_ENVIRONMENTS;
 
 const HOST_PATH_RULES = Object.freeze([
   Object.freeze({
@@ -40,7 +40,7 @@ const DIRECT_TEST_RULES = new Map([
 
 export function classifyPaths(paths) {
   const normalizedPaths = [...new Set(paths)].toSorted();
-  if (normalizedPaths.length === 0) return fullPlan(normalizedPaths, '差分なしをLinux全テストへ分類');
+  if (normalizedPaths.length === 0) return fullPlan(normalizedPaths, '差分なしを全OSの検査へ分類');
   if (normalizedPaths.every(isDocumentationPath)) {
     return Object.freeze({
       schema: 'aiterm.ci-plan.v1',
@@ -56,7 +56,7 @@ export function classifyPaths(paths) {
     if (isDocumentationPath(path)) continue;
     const matchedRules = HOST_PATH_RULES.filter((rule) =>
       rule.patterns.some((pattern) => pattern.test(path)));
-    if (matchedRules.length === 0) return fullPlan(normalizedPaths, '共通または未分類の変更をLinux全テストへ');
+    if (matchedRules.length === 0) return fullPlan(normalizedPaths, '共通または未分類の変更を全OSの検査へ');
     for (const rule of matchedRules) selected.add(rule.environment);
   }
 
@@ -84,8 +84,9 @@ export function verifyResults({ classifyResult, fullResult, productChange }) {
 }
 
 export function selectTestFiles(changedPaths, root = process.cwd()) {
-  const changed = [...new Set(changedPaths)].toSorted();
-  if (changed.length === 0 || changed.some((file) => isDocumentationPath(file))) {
+  const hasDocumentation = changedPaths.some(isDocumentationPath);
+  const changed = [...new Set(changedPaths)].filter((file) => !isDocumentationPath(file)).toSorted();
+  if (changed.length === 0) {
     return Object.freeze({ testScope: 'all', testFiles: Object.freeze([]) });
   }
   const tracked = execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'buffer' })
@@ -98,6 +99,7 @@ export function selectTestFiles(changedPaths, root = process.cwd()) {
 
   if (changed.every((file) => DIRECT_TEST_RULES.has(file))) {
     const direct = new Set(changed.flatMap((file) => DIRECT_TEST_RULES.get(file)));
+    if (hasDocumentation) direct.add('test/repository-contract.test.mjs');
     return Object.freeze({ testScope: 'selected', testFiles: Object.freeze([...direct].toSorted()) });
   }
 
@@ -111,7 +113,7 @@ export function selectTestFiles(changedPaths, root = process.cwd()) {
     }
   }
 
-  const selected = new Set();
+  const selected = new Set(hasDocumentation ? ['test/repository-contract.test.mjs'] : []);
   for (const start of changed) {
     const queue = [start];
     const seen = new Set(queue);
@@ -182,6 +184,22 @@ function fullPlan(paths, reason, environments = PUSH_ENVIRONMENTS) {
   });
 }
 
+function isVersionOnlyChange(paths, base, head) {
+  const jsonPaths = paths.filter((file) => !isDocumentationPath(file));
+  const releasePaths = new Set(['package.json', 'package-lock.json', 'server.json', 'mcpb/manifest.json']);
+  if (jsonPaths.length === 0 || jsonPaths.some((file) => !releasePaths.has(file))) return false;
+  // 配布設定の追加・削除は版番号更新ではない。存在しないrevisionのJSONを読まない。
+  if (git(['diff', '--no-renames', '--name-only', '--diff-filter=AD', base, head, '--', ...jsonPaths]).trim()) return false;
+  const withoutVersion = (revision, file) => {
+    const data = JSON.parse(git(['show', `${revision}:${file}`]));
+    delete data.version;
+    if (file === 'package-lock.json') delete data.packages[''].version;
+    if (file === 'server.json') for (const pkg of data.packages) delete pkg.version;
+    return data;
+  };
+  return jsonPaths.every((file) => isDeepStrictEqual(withoutVersion(base, file), withoutVersion(head, file)));
+}
+
 function git(args, options = {}) {
   return execFileSync('git', args, {
     encoding: options.encoding ?? 'utf8',
@@ -245,6 +263,14 @@ function createPlan(environment) {
 
   const raw = git(['diff', '--no-renames', '--name-only', '-z', base, head], { encoding: 'buffer' });
   const paths = raw.toString('utf8').split('\0').filter((path) => path.length > 0);
+  if (isVersionOnlyChange(paths, base, head)) {
+    return {
+      ...fullPlan(paths, '版番号だけの変更を配布情報とpackの検査へ', ['linux-workstation']),
+      comparisonBase: base,
+      testScope: 'metadata',
+      testFiles: [],
+    };
+  }
   const environmentPlan = classifyPaths(paths);
   const tests = environmentPlan.productChange
     ? selectTestFiles(paths)

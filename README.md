@@ -550,10 +550,10 @@ npm test           # build, then the node:test regression suite (requires tmux o
 npm link           # put `aiterm-mcp` on PATH locally
 ```
 
-Development uses focused local tests first. GitHub Actions runs the suite on the self-hosted
-`linux-workstation` runner for every push, adds `windows-native` only when Windows-specific files change,
-and runs all three runners (`macos-native`, `linux-workstation`, `windows-native`) once a week as a health
-check. `npm run release -- <version>` syncs the version, commits, tags, and publishes the GitHub Release in
+開発中は変更に直結する試験を先に実行する。GitHub Actionsは共通実装・CI自身・未分類の変更をMac・Linux・Windowsで検証し、
+Windows固有だけの変更はLinuxとWindowsを選ぶ。版番号だけの変更はLinuxの配布情報・pack確認、文書だけなら文書検査を行う。
+試験内容とOSの選択、週次・手動実行の範囲は[公開手順](docs/RELEASE.md)に従う。
+`npm run release -- <version>` syncs the version, commits, tags, and publishes the GitHub Release in
 one command; tag-triggered npm publishing checks only that the tagged commit is on `origin/main` and does not
 wait for another CI run. The native
 Windows runner needs psmux ≥ 3.3.8 and Git for Windows on its PATH, and must run as an

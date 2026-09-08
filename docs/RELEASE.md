@@ -5,15 +5,14 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 
 ## CIの範囲
 
-- push／pull request: `linux-workstation` 1環境。変更した実装の依存graphから試験を選び、依存を確定できない変更は
-  Linuxの全テストへ広げる。Windows固有ファイル（`src/windows-powershell.ts`、`src/psmux-send-worker.ts`、
-  `test/windows-*.test.mjs`）を触った変更だけ`windows-native`を加える。
-- 週1回の定期実行（月曜 03:00 JST）と手動実行だけが、`macos-native`、`linux-workstation`、`windows-native`の
-  3環境で全テストを回す。
+- push／pull request: 共通実装・CI自身・未分類の変更は`macos-native`、`linux-workstation`、`windows-native`を選ぶ。
+  Windows固有ファイル（`src/windows-powershell.ts`、`src/psmux-send-worker.ts`、`test/windows-*.test.mjs`）だけの変更は
+  LinuxとWindowsを選ぶ。共通変更が混ざっても対象OSを落とさない。試験は依存graphから選び、依存を確定できない変更だけ全テストへ広げる。
+- 版番号だけの変更はJSONの実差分で識別し、Linuxでbuildと配布metadata・pack・文書確認を行う。依存や実行設定の変更は省略しない。
+  文書だけなら文書検査、実装と文書の混在なら関連試験と文書検査を行う。
+- 週1回の定期実行（月曜 03:00 JST）と手動実行は、指定された環境で全テストを回す。定期実行の対象は3環境である。
 - tag push: 所有確認と、tagged commitが`origin/main`の祖先であることの確認だけを行い、npmへprovenance付きで
   publishする。同じcommitのmain CIの結果は待たない。
-
-実測（2026-09-02）: Linux 2分、macOS 2分、Windows 6分。全環境展開ではWindowsが常にcritical pathになる。
 
 ## Release手順
 

@@ -3,6 +3,8 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -15,6 +17,11 @@ async function withClient(run, prepare = () => ({})) {
     await run((name, args = {}) => client.callTool({ name, arguments: args }));
   } finally {
     await client.close();
+    // sessionを閉じてもpsmuxのwarm serverは残る。試験専用namespaceを終了してcwdのlockも解放する。
+    const cleanup = spawnSync(process.execPath, ["--input-type=module", "-e",
+      `const { killAll } = await import(${JSON.stringify(pathToFileURL(resolve("dist/core.js")).href)}); killAll();`,
+    ], { env, encoding: "utf8" });
+    assert.equal(cleanup.status, 0, cleanup.stderr);
     rmSync(root, { recursive: true, force: true });
   }
 }

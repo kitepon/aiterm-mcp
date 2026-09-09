@@ -2,8 +2,8 @@
 
 ## 目的と所有境界
 
-現在地: 公開API実装とMac・Linuxの個別実機検証、独立実装監査の1件修理まで完了。
-Windowsは先行観測試験後にSSH timeoutとなり、最新harness試験が未実施。main CI・公開・公開後smokeは未着手。
+現在地: 公開API実装と3OSの個別実機検証、独立実装監査の1件修理まで完了。
+main CIで失敗した旧fixture4件を修正し、Mac・Linuxで個別成功を確認。製品CIの最終結果待ち。公開・公開後smokeは未着手。
 判断は[ADR 0052](adr/0052-public-session-observation.md)、実測は[検証記録](evidence/20260910-public-session-api.md)を参照。
 
 Peertableが内部tmux／psmux操作とTUI文字列解析を撤去できるよう、Aitermが所有する

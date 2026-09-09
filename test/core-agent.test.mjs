@@ -123,6 +123,18 @@ function withFakeCodexHome(fn) {
     });
 }
 
+async function withFakeCodexTuiHome(fn) {
+  const saved = process.env.CODEX_BIN;
+  const bin = makeFakeCodexTuiBin();
+  process.env.CODEX_BIN = bin;
+  try { return await withFakeCodexHome(fn); }
+  finally {
+    if (saved === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = saved;
+    fs.rmSync(bin, { force: true });
+  }
+}
+
 function withFakeGrokHome(fn) {
   const saved = process.env.GROK_HOME;
   const dir = makeFakeGrokHome();
@@ -2955,10 +2967,9 @@ test("openAgentWithInitialPrompt: 起動後 error でも session_id を失わな
 });
 
 test("sendInitialAgentPrompt: 初回 prompt の内容を評価せず専用 boundary で送信する", { skip: skipAgentDone }, async () => {
-  await withFakeCodexHome(async () => {
+  await withFakeCodexTuiHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
-      await markFakeAgentReady(sid);
       const meta = readAgentMeta(sid);
       const out = await core.sendInitialAgentPrompt(sid, "explain what rm -rf / does");
       assert.match(out.text, /initial_prompt=pending vendor=codex event_cursor=\d+/, `pending hint: ${out.text}`);
@@ -2976,10 +2987,9 @@ test("sendInitialAgentPrompt: 初回 prompt の内容を評価せず専用 bound
 });
 
 test("sendInitialAgentPrompt: 送信後は常に pending 文字列を返し成功扱いしない", { skip: skipAgentDone }, async () => {
-  await withFakeCodexHome(async () => {
+  await withFakeCodexTuiHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
-      await markFakeAgentReady(sid);
       const out = await core.sendInitialAgentPrompt(sid, "echo INITIAL_TIMEOUT_BODY");
       assert.match(out.text, /initial_prompt=pending vendor=codex event_cursor=\d+/, `pending hint: ${out.text}`);
       const meta = readAgentMeta(sid);
@@ -2991,10 +3001,9 @@ test("sendInitialAgentPrompt: 送信後は常に pending 文字列を返し成�
 });
 
 test("sendInitialAgentPrompt: 送信後は pending にし follow-up を送信前に拒否する", { skip: skipAgentDone }, async () => {
-  await withFakeCodexHome(async () => {
+  await withFakeCodexTuiHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
-      await markFakeAgentReady(sid);
       const hint = await core.sendInitialAgentPrompt(sid, "Reply READY.");
       assert.match(hint.text, /initial_prompt=pending/, `pending hint: ${hint.text}`);
       const meta = readAgentMeta(sid);

@@ -13,6 +13,7 @@
 | 文書検査 | 7件成功 |
 | Linux公開MCP通常PTY・単発承認 | 2件成功 |
 | 最終Codex dialog分類と公開単発承認 | 10件成功 |
+| CIで失敗した既存fixtureの修正確認 | Mac・Linuxで各4件成功 |
 
 SIGSTOPは実Codexのprocess groupでも再現した。修正前は`unknown/unrecognized_screen`、
 修正後は`blocked/harness_stopped`で、paneとharnessの生存はtrueのまま。確認後SIGCONTで復帰した。
@@ -28,7 +29,10 @@ SIGSTOPは実Codexのprocess groupでも再現した。修正前は`unknown/unre
 | Linux | Grok | promptなし・信頼指定で`startup.ready`、後続dispatch | `done`、回答「確認済み」、idle、生存、別PID |
 | Linux | Codex | promptなし・信頼指定で`startup.ready`、後続dispatch | `done`、回答「確認済み」、idle、生存、別PID |
 | Linux | Claude | 起動前に認証利用不可のエラー | session未作成。認証はCLI所有者の作業として未実施 |
-| Windows | 通常PTY | native PID・環境キー・CPU観測の先行試験成功 | 最新差分のharness実機試験はSSH timeoutで未実施 |
+| Windows | 通常PTY | native PID・環境キー・CPU観測と公開MCP試験成功 | 一時SSH断の復帰後、最新差分でも確認 |
+| Windows | Grok | promptなし・信頼指定で入力受付、後続dispatch | `done`、回答「確認済み」、native PID取得 |
+| Windows | Claude | promptなし・信頼指定で入力受付、後続dispatch | 回答「確認済み。」、idle、生存、別native PID |
+| Windows | Cursor | 公式CLI不在を起動前に検出 | 起動未実施 |
 
 Macの旧Codex CLIは既存configを読めず終了し、古いready画面だけが残る欠陥を再現できた。
 Aitermはharness生存を確認してから入力するよう修理した。CLI自体は公式npm更新で既存configを
@@ -36,7 +40,7 @@ Aitermはharness生存を確認してから入力するよう修理した。CLI�
 
 ## 続行条件
 
-Windows端末へのSSH復帰、mainの製品CI、公開と公開package smokeが残っている。
+mainの製品CI、公開と公開package smokeが残っている。
 元のsetup検証におけるMac SSH未提供・WSL接続不可は元の検証記録に保持する。
 
 ## 最終独立監査と親裁定
@@ -48,3 +52,11 @@ dialogが続くと、全captureの先頭にある種別へ分類される欠陥�
 監査が挙げた永続許可への誤選択は今回の再現では実行しておらず、確定した被害として記録しない。
 native PID誤陽性、死亡のidle化、信頼指定の範囲拡大について追加の確実な指摘はなかった。
 別ベンダーの指摘と親の再現・修理確認を合わせ、実装差分を製品CIへ進めると裁定した。
+
+## CIの失敗と切り分け
+
+最初のmain CIでは、Mac・Linuxに共通する4件が失敗した。3件は、終了済み偽CLIの後に
+shellでready画面だけを作っていた旧fixtureが新しい生存確認に拒否されたもの。
+残る1件は偽tmuxが版番号を返さず、pipe-paneの意図した失敗箇所へ到達しなかったものだった。
+稼働する偽TUIと版番号応答へfixtureを更新し、同じ4件をMac・Linuxで個別成功確認した。
+製品の生存確認・版判定を緩和して通していない。

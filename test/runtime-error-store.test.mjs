@@ -714,7 +714,7 @@ test("pipe-pane persistence failure は openSession owner layer で固定 code �
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-fake-tmux-"));
   try {
     const fakeTmux = path.join(root, "tmux");
-    fs.writeFileSync(fakeTmux, "#!/bin/sh\ncase \" $* \" in *\" pipe-pane \"*) rm -f \"$0\"; echo pipe-failed >&2; exit 1;; *\" list-sessions \"*|*\" has-session \"*) exit 1;; *) exit 0;; esac\n");
+    fs.writeFileSync(fakeTmux, "#!/bin/sh\ncase \" $* \" in *\" -V \"*) echo 'tmux 3.6'; exit 0;; *\" pipe-pane \"*) rm -f \"$0\"; echo pipe-failed >&2; exit 1;; *\" list-sessions \"*|*\" has-session \"*) exit 1;; *) exit 0;; esac\n");
     fs.chmodSync(fakeTmux, 0o700);
     const { result, snapshot } = runOwnedFailure(
       'core.openSession("owner-persist", "bash")',

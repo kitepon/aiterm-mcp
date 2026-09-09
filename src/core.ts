@@ -14,6 +14,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { paneTokenHint } from "./harnesses/pane-tokens.js";
+import { readRuntimeProcesses, processSubtree, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -32,6 +34,7 @@ import {
   appendMarkSentinel,
   settlePaneLog,
   paneCwdArgument,
+  sessionEnvironmentLaunch,
 } from "./tmux-runtime.js";
 import {
   sleep,
@@ -70,6 +73,8 @@ import type {
   AgentDoneEvent,
   AgentWaitObservation,
   AgentLineageContext,
+  InitialPromptDelivery,
+  AgentStartupResult,
 } from "./agent-shared.js";
 import {
   GROK_MODEL_DEFAULTS,
@@ -85,6 +90,8 @@ import {
   grokEnvTokens,
   grokTuiReady,
   grokTuiBusy,
+  grokPaneObservation,
+  grokStartupAction,
   grokLaunchBlockingDialog,
   assertGrokSandboxNotRejected,
   GROK_COMPOSER_MARKER_RE,
@@ -106,6 +113,9 @@ import {
   buildCodexAgentCmd,
   codexLaunchNote,
   codexTuiReady,
+  codexPaneObservation,
+  codexApprovalDialog,
+  codexStartupAction,
   codexLaunchBlockingDialog,
   CODEX_COMPOSER_MARKER_RE,
   codexModelChoice,
@@ -131,6 +141,8 @@ import {
   buildClaudeAgentCmd,
   claudeLaunchNote,
   claudeTuiReady,
+  claudePaneObservation,
+  claudeStartupAction,
   CLAUDE_COMPOSER_MARKER_RE,
   createClaudeAgentMetadata,
   claudeSessionTranscriptPath,
@@ -151,6 +163,7 @@ import {
   cursorLaunchNote,
   cursorEffortNavigation,
   cursorTuiReady,
+  cursorPaneObservation,
   CURSOR_SUBMIT_SEQUENCE,
   CURSOR_COMPOSER_CONTENT_MARKER_RE,
   validateCursorModelEffort,
@@ -827,19 +840,20 @@ function rtkRewrite(text: string): string {
 // WSL launcher (bash.exe) に解決されてしまうため、Git for Windows の bash.exe を
 // 明示解決する（WSL 非依存の裁定に従う）。AITERM_BASH で上書き可。
 
-export function openSession(name?: string | null, shell = "bash"): [string, string] {
+export function openSession(name?: string | null, shell = "bash", envVars: string[] = []): [string, string] {
   shell = resolveWinPaneShell(shell);
+  for (const key of envVars) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_varsの環境変数名が不正です", 2);
+  }
   try {
     fs.mkdirSync(SOCKDIR, { recursive: true });
   } catch (error) {
     ownTelemetryFailure("AITERM.PERSISTENCE_WRITE_FAILED", error);
   }
-  // macOS の /bin/bash は 3.2 で、起動時に zsh 移行バナーを出して最初の read を汚す。darwin かつ bash の
-  // ときだけ -e で環境変数を渡して抑止する。-e は tmux>=3.2 が必要だが macOS の Homebrew tmux は常に該当。
-  // （古い tmux<3.2 が残る Linux/WSL で -e を渡すと new-session が落ちるため、darwin 限定にする。）
+  // macOS標準bashの移行bannerを抑止する。環境変数の注入方法はterminal runtimeが所有する。
   const banner =
     process.platform === "darwin" && path.basename(shell) === "bash"
-      ? ["-e", "BASH_SILENCE_DEPRECATION_WARNING=1"]
+      ? ["BASH_SILENCE_DEPRECATION_WARNING=1"]
       : [];
   // 並行性対策: 複数エージェントが同時に名前なし open すると autoName が同じ t{i} を返し得る（TOCTOU）。
   // 自動採番は初回のみ読みやすい t{i}、衝突したら乱数 nonce 名でリトライする（線形リトライは高並行で
@@ -853,8 +867,21 @@ export function openSession(name?: string | null, shell = "bash"): [string, stri
       if (explicit) throw new AitermError(`session '${nm}' は既に存在します（list で確認）`, 2);
     } else {
       // -f は端末個人の設定ファイルを読まないための空 config。
-      const r = tmux("new-session", "-d", "-s", nm, ...banner, "-f", TMUX_EMPTY_CONFIG, shell);
-      if (r.code === 0) break;
+      const environment = [...banner, ...envVars.filter(key => key !== "AITERM_SESSION_ID" && process.env[key] !== undefined)
+        .map(key => `${key}=${process.env[key]}`), `AITERM_SESSION_ID=${nm}`];
+      const launch = sessionEnvironmentLaunch(shell, environment);
+      const r = tmux("new-session", "-d", "-s", nm, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell);
+      if (r.code === 0) {
+        if (launch.register_after_start) for (const entry of environment) {
+          const at = entry.indexOf("=");
+          const registered = tmux("set-environment", "-t", nm, entry.slice(0, at), entry.slice(at + 1));
+          if (registered.code !== 0) {
+            tmux("kill-session", "-t", nm);
+            throw new AitermError("session環境変数を登録できません", 2);
+          }
+        }
+        break;
+      }
       // 自動採番かつ「重複名」由来の失敗（他エージェントが同名を先に取った）なら次名でリトライ。
       const dup = /duplicate|already exists/i.test(r.stderr);
       if (explicit || !dup) throw new AitermError("tmux new-session 失敗: " + r.stderr.trim(), 2);
@@ -1220,18 +1247,202 @@ export async function readOutput(name: string, o: ReadOpts = {}): Promise<string
   return body + "\n" + meta + agentMeta;
 }
 
-export function listSessions(): string {
-  const r = tmux(
-    "list-sessions",
-    "-F",
-    "#{session_name}\t#{pane_current_command}\t#{?session_attached,attached,detached}\t#{window_width}x#{window_height}",
-  );
-  if (r.code === 0 && r.stdout.trim()) {
-    return r.stdout
-      .replace(/\s+$/, "")
-      .split("\n")
-      .map((line) => {
-        const name = line.split("\t", 1)[0];
+export interface ListedSession {
+  session_id: string;
+  current_command: string;
+  attached: boolean;
+  width: number;
+  height: number;
+  harness: AgentHarness | null;
+  environment: Record<string, string | null>;
+}
+
+interface ActivitySample {
+  session_id: string;
+  pane_identity: string;
+  screen_digest: string;
+  processes: Record<string, number>;
+  background_processes: Record<string, number>;
+}
+
+export interface SessionObservation {
+  schema: "aiterm.pty-observe-result.v1";
+  session_id: string;
+  observed_at: string;
+  exists: boolean;
+  harness: AgentHarness | null;
+  launch_id: string | null;
+  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown";
+  reason: string;
+  pane_alive: boolean | null;
+  harness_alive: boolean | null;
+  pane_process: NativeProcessIdentity | null;
+  harness_process: NativeProcessIdentity | null;
+  process_identity: NativeProcessIdentity | null;
+  token_hint: number | null;
+  activity: {
+    cursor: string | null;
+    output_changed: boolean | null;
+    cpu_seconds: number | null;
+    cpu_delta_seconds: number | null;
+    cpu_delta_complete: boolean | null;
+    background_cpu_seconds: number | null;
+    background_cpu_delta_seconds: number | null;
+    background_cpu_delta_complete: boolean | null;
+  };
+}
+
+function decodeActivityCursor(cursor: string, name: string): ActivitySample {
+  let value: any;
+  try { value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); }
+  catch { throw new AitermError("活動観測cursorを読めません", 2); }
+  if (value?.session_id !== name || typeof value.pane_identity !== "string"
+    || typeof value.screen_digest !== "string" || !value.processes || typeof value.processes !== "object"
+    || Array.isArray(value.processes) || !Object.values(value.processes).every(cpu => typeof cpu === "number" && Number.isFinite(cpu) && cpu >= 0)
+    || !value.background_processes || typeof value.background_processes !== "object" || Array.isArray(value.background_processes)
+    || !Object.values(value.background_processes).every(cpu => typeof cpu === "number" && Number.isFinite(cpu) && cpu >= 0))
+    throw new AitermError("活動観測cursorが対象sessionの形式と一致しません", 2);
+  return value;
+}
+
+function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess[], subtree: RuntimeProcess[]): RuntimeProcess[] {
+  const matches = (row: RuntimeProcess): boolean => {
+    const first = /^(?:"([^"]+)"|(\S+))/.exec(row.command);
+    const executable = path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/"))
+      .replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
+    const command = row.command.replace(/\\/g, "/").replace(/\.exe(?=["\s]|$)/gi, "").replace(/"/g, "");
+    const tokens = row.command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+    const argument = tokens[1]?.replace(/^["']|["']$/g, "").replace(/\\/g, "/");
+    const launchedScript = meta.agent_executable !== undefined && argument === meta.agent_executable.replace(/\\/g, "/");
+    return launchedScript || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
+  };
+  // WindowsのMSYS execでnative親子関係が切れる場合も、launch固有引数で相関する。
+  const correlated = rows.filter(row => matches(row) && row.command.includes(meta.launch_id));
+  const candidates = correlated.length ? correlated : subtree.filter(matches);
+  const roots = candidates.filter(row => !candidates.some(parent => row.parent_pid === parent.pid));
+  return roots;
+}
+
+export function observeSession(name: string, cursor?: string): SessionObservation {
+  assertSessionName(name);
+  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
+  const listed = listSessionsResult().sessions.find(session => session.session_id === name);
+  const result: SessionObservation = {
+    schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
+    exists: !!listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
+    pane_alive: false, harness_alive: null, pane_process: null, harness_process: null, process_identity: null,
+    token_hint: null,
+    activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
+      background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null },
+  };
+  if (!listed) return result;
+  const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
+  if (pane.code !== 0) throw new AitermError("paneの生存情報を取得できません", 2);
+  const [pidText, dead] = pane.stdout.trim().split("\t");
+  const panePid = Number(pidText);
+  if (!Number.isSafeInteger(panePid) || panePid < 1 || !["0", "1"].includes(dead))
+    throw new AitermError("paneの生存情報の形式を認識できません", 2);
+  const meta = tryLoadAgentMetadata(name);
+  result.harness = meta ? agentHarness(meta.kind) : null;
+  result.launch_id = meta?.launch_id ?? null;
+  if (dead === "1") {
+    result.state = "dead"; result.reason = "pane_dead"; result.harness_alive = meta ? false : null;
+    return result;
+  }
+  const rows = readRuntimeProcesses();
+  const root = rows.find(row => row.pid === panePid);
+  result.pane_alive = root ? true : null;
+  result.state = "unknown"; result.reason = root ? "ordinary_pty" : "native_pane_process_unresolved";
+  if (!root) return result;
+  result.pane_process = processIdentity(root);
+  const subtree = processSubtree(rows, root.pid);
+  const candidates = meta ? selectHarnessProcesses(meta, rows, subtree) : [];
+  const agent = candidates.length === 1 ? candidates[0] : null;
+  if (meta) {
+    result.harness_process = agent ? processIdentity(agent) : null;
+    // Cursorにはlaunch固有argvがない。Windowsの切れた親子関係だけで死亡を断定しない。
+    result.harness_alive = candidates.length ? true : isWin && meta.kind === "cursor" ? null : false;
+    if (result.harness_alive === false) { result.state = "dead"; result.reason = "harness_exited"; }
+    else if (result.harness_alive === null) result.reason = "harness_process_unresolved";
+    else if (!agent) result.reason = "harness_process_ambiguous";
+    result.process_identity = result.harness_process;
+  } else {
+    const leaders = subtree.filter(row => row.parent_pid === root.pid && (isWin || row.process_group_id === row.pid));
+    result.process_identity = leaders.length > 1 ? null : processIdentity(leaders[0] ?? root);
+    if (leaders.length > 1) result.reason = "process_identity_ambiguous";
+  }
+  const captured = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200");
+  if (captured.code !== 0) throw new AitermError("paneの活動観測を取得できません", 2);
+  const screen = captured.stdout;
+  result.token_hint = meta ? paneTokenHint(screen) : null;
+  if (meta && agent) {
+    const observation = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(screen)
+      : meta.kind === "codex" ? codexPaneObservation(screen)
+      : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
+    result.state = observation.state; result.reason = observation.reason;
+    if (agent.stopped === true || processSubtree(rows, agent.pid).some(row =>
+      row.process_group_id === agent.process_group_id && row.stopped === true)) {
+      result.state = "blocked"; result.reason = "harness_stopped";
+    }
+  }
+  const activityRows = agent && !subtree.some(row => row.pid === agent.pid)
+    ? [...subtree, ...processSubtree(rows, agent.pid)] : subtree;
+  const processes = Object.fromEntries(activityRows.map(row => [`${row.pid}:${row.started_identity}`, row.cpu_seconds]));
+  const backgroundCpu = Object.fromEntries(backgroundProcesses(activityRows, root)
+    .map(row => [`${row.pid}:${row.started_identity}`, row.cpu_seconds]));
+  const sample: ActivitySample = {
+    session_id: name, pane_identity: `${root.pid}:${root.started_identity}`,
+    screen_digest: createHash("sha256").update(screen).digest("hex"), processes, background_processes: backgroundCpu,
+  };
+  const comparable = previous?.pane_identity === sample.pane_identity;
+  result.activity = {
+    cursor: Buffer.from(JSON.stringify(sample)).toString("base64url"),
+    output_changed: comparable ? previous.screen_digest !== sample.screen_digest : null,
+    cpu_seconds: Object.values(processes).reduce((sum, cpu) => sum + cpu, 0),
+    cpu_delta_seconds: comparable ? Object.entries(processes).reduce((sum, [identity, cpu]) => sum + cpu - (previous.processes[identity] ?? 0), 0) : null,
+    cpu_delta_complete: comparable ? Object.keys(previous.processes).every(identity => identity in processes) : null,
+    background_cpu_seconds: Object.values(backgroundCpu).reduce((sum, cpu) => sum + cpu, 0),
+    background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
+    background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
+  };
+  return result;
+}
+
+export function listSessionsResult(envKeys: string[] = []): {
+  schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
+} {
+  for (const key of envKeys) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_keysの環境変数名が不正です", 2);
+  }
+  const r = tmux("list-sessions", "-F", "#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}");
+  const sessions: ListedSession[] = [];
+  if (r.code !== 0 && !/no server running|No such file or directory/i.test(r.stderr))
+    throw new AitermError("セッション一覧を取得できません: " + r.stderr.trim(), 2);
+  if (r.code === 0) for (const line of r.stdout.trim().split("\n").filter(Boolean)) {
+    const [name, command, attached, width, height] = line.split("\t");
+    assertSessionName(name);
+    const environment: Record<string, string | null> = {};
+    for (const key of envKeys) {
+      const value = tmux("show-environment", "-t", name, key);
+      if (value.code !== 0 && !/unknown variable|not found|not set/i.test(value.stderr))
+        throw new AitermError("session環境変数を照会できません", 2);
+      // psmuxは指定以外の内部キーも出すため、要求されたキーと完全一致した行だけを返す。
+      const selected = value.stdout.split(/\r?\n/).find(entry => entry.startsWith(`${key}=`));
+      environment[key] = selected === undefined ? null : selected.slice(key.length + 1);
+    }
+    const meta = tryLoadAgentMetadata(name);
+    sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
+      width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null, environment });
+  }
+  return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
+}
+
+export function listSessions(result = listSessionsResult()): string {
+  if (result.sessions.length) {
+    return result.sessions
+      .map((session) => {
+        const name = session.session_id;
+        const line = `${name}\t${session.current_command}\t${session.attached ? "attached" : "detached"}\t${session.width}x${session.height}`;
         const meta = tryLoadAgentMetadata(name);
         if (!meta) return line;
         const agent = [
@@ -1473,6 +1684,79 @@ export interface ClaudeOperationResult {
 }
 
 export type ClaudeApprovalDecision = "approve_once" | "deny";
+
+export interface AgentApprovalResult {
+  schema: "aiterm.agent-approval-result.v1";
+  action: "inspect" | "respond";
+  status: "none" | "approval_required" | "submitted" | "blocked";
+  session_id: string;
+  harness: AgentHarness;
+  launch_id: string;
+  reason: string;
+  kind: string | null;
+  prompt: string | null;
+  prompt_digest: string | null;
+  choices: { decision: ClaudeApprovalDecision; label: string }[];
+  selected_choice: ClaudeApprovalDecision | null;
+  at: string;
+}
+
+export function runAgentApproval(options: {
+  action: "inspect" | "respond";
+  session_id: string;
+  approval_choice?: ClaudeApprovalDecision;
+  observed_prompt_digest?: string;
+}): AgentApprovalResult {
+  const { action, session_id: name, approval_choice: selected, observed_prompt_digest: expected } = options;
+  assertSessionName(name);
+  if (action === "inspect" && (selected !== undefined || expected !== undefined))
+    throw new AitermError("inspectでは承認選択とdigestを指定できません", 2);
+  if (action === "respond" && (selected === undefined || expected === undefined))
+    throw new AitermError("respondにはapproval_choiceとobserved_prompt_digestが必要です", 2);
+  const release = action === "respond" ? acquireSessionSendFileLock(name) : () => {};
+  try {
+    const meta = loadAgentMetadata(name);
+    const result: AgentApprovalResult = {
+      schema: "aiterm.agent-approval-result.v1", action, status: "blocked", session_id: name,
+      harness: agentHarness(meta.kind), launch_id: meta.launch_id, reason: "harness_unsupported",
+      kind: null, prompt: null, prompt_digest: null, choices: [], selected_choice: null, at: new Date().toISOString(),
+    };
+    if (meta.kind !== "codex") return result;
+    const captured = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200");
+    if (captured.code !== 0) throw new AitermError("現在の承認画面を取得できません", 2);
+    const screen = captured.stdout;
+    const state = codexPaneObservation(screen);
+    const dialog = codexApprovalDialog(screen);
+    if (!dialog) {
+      result.status = state.state === "blocked" || state.state === "unknown" || action === "respond" ? "blocked" : "none";
+      result.reason = state.state === "blocked" ? "unknown_dialog" : state.state === "unknown" ? "unrecognized_screen" : "no_current_dialog";
+      return result;
+    }
+    result.kind = dialog.kind;
+    result.prompt = dialog.prompt;
+    result.prompt_digest = `sha256:${createHash("sha256").update(`${meta.launch_id}\n${dialog.canonical}`).digest("hex")}`;
+    result.choices = dialog.choices.map(({ decision, label }) => ({ decision, label }));
+    result.reason = "approval_required";
+    result.status = "approval_required";
+    if (dialog.selected_index === null || dialog.choices.length === 0) {
+      result.status = "blocked"; result.reason = "unsupported_choices";
+      return result;
+    }
+    if (action === "inspect") return result;
+    if (expected !== result.prompt_digest) {
+      result.status = "blocked"; result.reason = "dialog_changed";
+      return result;
+    }
+    const choice = dialog.choices.find(entry => entry.decision === selected);
+    if (!choice) { result.status = "blocked"; result.reason = "choice_unavailable"; return result; }
+    const distance = choice.index - dialog.selected_index;
+    const keys = [...Array(Math.abs(distance)).fill(distance > 0 ? "Down" : "Up"), "Enter"];
+    const sent = tmux("send-keys", "-t", name, ...keys);
+    if (sent.code !== 0) throw new AitermError("Codex承認入力を送れませんでした", 2);
+    result.status = "submitted"; result.reason = "choice_submitted"; result.selected_choice = selected ?? null;
+    return result;
+  } finally { release(); }
+}
 
 export interface ClaudeApprovalChoice {
   decision: ClaudeApprovalDecision;
@@ -2030,6 +2314,16 @@ function loadAgentMetadata(name: string): AgentMetadata {
   if (m.event_file !== expectedEvent) {
     throw new AitermError("agent metadata の path が現在の secure state root と一致しません", 2);
   }
+  if (m.initial_prompt_delivery !== undefined && (
+    !["not_requested", "not_sent", "submitted_unconfirmed", "started"].includes(m.initial_prompt_delivery.status)
+    || typeof m.initial_prompt_delivery.reason !== "string"
+    || ![true, false, null].includes(m.initial_prompt_delivery.turn_started)
+    || (m.initial_prompt_cursor !== null && !Number.isSafeInteger(m.initial_prompt_cursor))))
+    throw new AitermError("初手delivery metadataが不正です", 2);
+  const deliveryFields = m.initial_prompt_delivery === undefined ? {} : {
+    initial_prompt_delivery: m.initial_prompt_delivery, initial_prompt_cursor: m.initial_prompt_cursor,
+  };
+  const executableFields = m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable };
   if (m.kind === "claude") {
     const expectedSettings = agentManagedClaudeSettingsPath(name, m.launch_id);
     const expectedResult = agentClaudeResultPath(name, m.launch_id);
@@ -2057,6 +2351,8 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
       vendor_session_id: m.vendor_session_id,
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
+      ...deliveryFields,
+      ...executableFields,
       launch_operation_id: launchOperationId,
       launch_request_digest: launchRequestDigest,
       hook_route: "shared_claude_settings",
@@ -2086,6 +2382,8 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
       vendor_session_id: typeof m.vendor_session_id === "string" ? m.vendor_session_id : null,
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
+      ...deliveryFields,
+      ...executableFields,
       hook_route: "shared_codex_home",
       completion_route: "codex_transcript",
       ...loadAgentLineageFields(m, true),
@@ -2113,6 +2411,8 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
       vendor_session_id: typeof m.vendor_session_id === "string" ? m.vendor_session_id : null,
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
+      ...deliveryFields,
+      ...executableFields,
       hook_route: "shared_cursor_home",
       completion_route: "cursor_transcript",
       ...loadAgentLineageFields(m, true),
@@ -2148,6 +2448,8 @@ function loadAgentMetadata(name: string): AgentMetadata {
     ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
     vendor_session_id: m.vendor_session_id,
     initial_prompt: normalizeInitialPromptState(m.initial_prompt),
+    ...deliveryFields,
+    ...executableFields,
     hook_route: "shared_grok_home",
     completion_route: "grok_transcript",
     ...loadAgentLineageFields(m, true),
@@ -2877,8 +3179,10 @@ function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
 // ready gate 用: 入力欄マーカーがあっても busy 表示中は ready と数えない。
 // frontend 推定（inferAgentFrontend）は「agent TUI が前面か」を見るだけなので isAgentTuiReady のまま。
 function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
-  if (!isAgentTuiReady(kind, screen)) return false;
-  return !isAgentTuiBusy(kind, screen);
+  const observation = kind === "grok" || kind === "composer" ? grokPaneObservation(screen)
+    : kind === "codex" ? codexPaneObservation(screen)
+    : kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
+  return observation.state === "idle";
 }
 
 // 起動側が明示応答すべき既知UI。ここで自動承認せず、ready timeoutを待たずに
@@ -2886,10 +3190,7 @@ function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
 function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
   if (kind === "grok" || kind === "composer") return grokLaunchBlockingDialog(screen) !== null;
   if (kind === "codex") {
-    return codexLaunchBlockingDialog(screen) !== null
-      || screen.includes("Hooks need review")
-      || screen.includes("Allow the room MCP server to run tool")
-      || screen.includes("Would you like to run the following command?");
+    return codexPaneObservation(screen).state === "blocked";
   }
   if (kind === "claude") {
     return /new MCP servers? found in this project/iu.test(screen)
@@ -3299,6 +3600,7 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
 
 export interface InitialAgentPromptOpts {
   ready_timeout?: number;
+  trust_project?: boolean;
 }
 
 async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
@@ -3332,6 +3634,41 @@ export interface InitialAgentPromptResult {
   event_cursor: number | null;
   // submit座礁観測。true=composerに残存を確認（未submitの疑い）/ false=残存を観測せず / null=判定不能・未実施。
   submit_residue: boolean | null;
+  initial_prompt: InitialPromptDelivery;
+}
+
+function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, cursor: number | null): void {
+  meta.initial_prompt_delivery = value;
+  meta.initial_prompt_cursor = cursor;
+  writeAgentMetadata(meta);
+}
+
+async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts): Promise<AgentStartupResult> {
+  await ensureAgentOwnsPaneInput(name, meta.kind);
+  let ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
+  const handled = new Set<string>();
+  while (!ready.ready) {
+    const action = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
+      : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
+      : meta.kind === "grok" || meta.kind === "composer" ? grokStartupAction(ready.lastScreen, options.trust_project === true) : null;
+    if (!action || handled.has(action.kind)) break;
+    handled.add(action.kind);
+    for (const key of action.keys) {
+      sendKey(name, key, { preserveAgentOperation: true });
+      await sleep(AGENT_SUBMIT_DELAY_MS);
+    }
+    ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
+  }
+  if (!ready.ready) {
+    const state = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(ready.lastScreen)
+      : meta.kind === "codex" ? codexPaneObservation(ready.lastScreen)
+      : meta.kind === "claude" ? claudePaneObservation(ready.lastScreen) : cursorPaneObservation(ready.lastScreen);
+    return { status: "blocked", reason: state.reason };
+  }
+  const live = observeSession(name);
+  if (live.harness_alive !== true || live.harness_process === null || live.state !== "idle")
+    return { status: "blocked", reason: live.reason };
+  return { status: "ready", reason: "composer_ready" };
 }
 
 export async function sendInitialAgentPrompt(
@@ -3351,34 +3688,13 @@ export async function sendInitialAgentPrompt(
     );
   }
   setInitialPromptState(meta, "not_sent");
-  // 起動直後の hooks 実行で bash が前面に残ると ready gate が恒久 false になり、brief 未送信で
-  // 席が巻き戻る（実測 2026-09-04: Codex 0.153 の初回起動が3回中2回）。打鍵の前に前面と raw を整える。
-  await ensureAgentOwnsPaneInput(name, meta.kind);
-  let ready = await waitAgentTuiReady(name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
-  // 無人Claude起動でCLI自身が順に出す、bypass mode確認とworkspace trustだけを
-  // 起動処理の一部として進める。通常turn中の権限確認やMCP承認には触れない。
-  for (
-    let confirmations = 0;
-    !ready.ready && meta.kind === "claude" && confirmations < 3 && isClaudeManagedLaunchConfirmation(ready.lastScreen);
-    confirmations++
-  ) {
-    sendKey(name, "Down", { preserveAgentOperation: true });
-    await sleep(AGENT_SUBMIT_DELAY_MS);
-    sendKey(name, "Enter", { preserveAgentOperation: true });
-    await sleep(AGENT_SUBMIT_DELAY_MS);
-    ready = await waitAgentTuiReady(name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
-  }
-  if (!ready.ready) {
-    // ready失敗は成功形で返さず明示エラーにする（実被弾 2026-08-25: Codexのupdate確認ダイアログで
-    // 未送信のまま成功形receiptが返り、呼び出し側が40分気づけなかった）。sessionは調査/復旧用に残る。
-    const dialog = meta.kind === "codex" ? codexLaunchBlockingDialog(ready.lastScreen)
-      : meta.kind === "grok" || meta.kind === "composer" ? grokLaunchBlockingDialog(ready.lastScreen) : null;
-    const causeNote = dialog
-      ? `${dialog}が入力を塞いでいます。pty_read(screen:true)で画面を確認し、pty_keyでダイアログに応答してから、pty_sendでpromptを送ってください。`
-      : `pty_read(screen:true)で画面を確認し、入力受付になってからpty_sendでpromptを送ってください。`;
+  setInitialDelivery(meta, { status: "not_sent", reason: "preparing", turn_started: false }, null);
+  const startup = await prepareAgentInput(name, meta, o);
+  if (startup.status !== "ready") {
+    setInitialDelivery(meta, { status: "not_sent", reason: startup.reason, turn_started: false }, null);
     throw new AitermError(
-      `initial_prompt=not_sent vendor=${meta.kind} ready=false samples=${ready.samples} harness=${agentHarness(meta.kind)}\n` +
-        `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態にならず、prompt は送信していません。${causeNote}`,
+      `initial_prompt=not_sent vendor=${meta.kind} ready=false harness=${agentHarness(meta.kind)}\n` +
+        `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}`,
       2,
     );
   }
@@ -3389,6 +3705,7 @@ export async function sendInitialAgentPrompt(
       prepareSendText(text, { raw: false });
       reserveAnonymousClaudeTurn(meta);
     }
+    setInitialDelivery(meta, { status: "submitted_unconfirmed", reason: "dispatch_in_progress", turn_started: null }, startOffset);
     await sendAgentPromptText(name, promptText, meta.kind);
     setInitialPromptState(meta, "pending");
   } catch (e) {
@@ -3417,6 +3734,29 @@ export async function sendInitialAgentPrompt(
     setInitialPromptState(meta, "failed");
     throw e;
   }
+  let delivery: InitialPromptDelivery = { status: "submitted_unconfirmed", reason: "start_unconfirmed", turn_started: null };
+  const deadline = performance.now() + 3000;
+  do {
+    const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    const state = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(screen)
+      : meta.kind === "codex" ? codexPaneObservation(screen)
+      : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
+    if (state.state === "busy") {
+      delivery = { status: "started", reason: "turn_running", turn_started: true }; break;
+    }
+    if (state.state === "blocked" && ["command_approval", "mcp_approval", "tool_approval"].includes(state.reason)) {
+      delivery = { status: "started", reason: "approval_required", turn_started: true }; break;
+    }
+    const completed = await observeAgentDone(name, { cursor: startOffset, timeout: 0 });
+    if (completed.outcome === "done") {
+      delivery = { status: "started", reason: "turn_completed", turn_started: true }; break;
+    }
+    if (state.state === "blocked" || completed.outcome === "error" || completed.outcome === "rate_limited") {
+      delivery.reason = state.state === "blocked" ? state.reason : completed.outcome; break;
+    }
+    await sleep(100);
+  } while (performance.now() < deadline);
+  setInitialDelivery(meta, delivery, startOffset);
   return {
     text:
       `initial_prompt=pending vendor=${meta.kind} event_cursor=${startOffset} harness=${agentHarness(meta.kind)}\n` +
@@ -3424,6 +3764,7 @@ export async function sendInitialAgentPrompt(
       agentSubmitResidueWarning(name, residue.residue),
     event_cursor: startOffset,
     submit_residue: residue.residue,
+    initial_prompt: delivery,
   };
 }
 
@@ -4201,7 +4542,7 @@ export function openAgent(
   let sid: string;
   let hint: string;
   try {
-    [sid, hint] = openSession(opts.session_name ?? null, "bash");
+    [sid, hint] = openSession(opts.session_name ?? null, "bash", envVars);
   } catch (error) {
     if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
       requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
@@ -4230,7 +4571,11 @@ export function openAgent(
           ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
           : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
       : null;
-    if (meta) agentMetadataNegativeCache.delete(sid);
+    if (meta) {
+      meta.agent_executable = bin;
+      writeAgentMetadata(meta);
+      agentMetadataNegativeCache.delete(sid);
+    }
     launchNote = buildAgentLaunchNote(kind, model, effort, meta);
     const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta);
     const envPrefix = agentEnvPrefix(meta, sid, envVars);
@@ -4271,6 +4616,14 @@ export function openAgent(
 }
 
 
+export class AgentLaunchPromptError extends AitermError {
+  constructor(message: string, code: number, readonly session_id: string,
+    readonly initial_prompt: InitialPromptDelivery, readonly event_cursor: number | null,
+    readonly startup: AgentStartupResult = { status: "blocked", reason: initial_prompt.reason }) {
+    super(message, code);
+  }
+}
+
 export async function openAgentWithInitialPrompt(
   kind: AgentKind,
   opts: {
@@ -4285,8 +4638,9 @@ export async function openAgentWithInitialPrompt(
     throughline_source_session?: string | null;
     throughline_supplement_file?: string | null;
     env_vars?: string[];
+    trust_project?: boolean;
   } = {},
-): Promise<[string, string, number | null, boolean | null]> {
+): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult]> {
   const mission = opts.prompt ?? null;
   const sourceSessionId = opts.throughline_source_session ?? null;
   const supplementFile = opts.throughline_supplement_file ?? null;
@@ -4328,7 +4682,25 @@ export async function openAgentWithInitialPrompt(
       write_scope: opts.write_scope,
       env_vars: opts.env_vars,
     });
-    return [sid, hint, null, null];
+    const delivery: InitialPromptDelivery = { status: "not_requested", reason: "not_requested", turn_started: false };
+    let startup: AgentStartupResult = { status: "not_checked", reason: "startup_not_requested" };
+    if (opts.trust_project === true) {
+      try {
+        startup = await prepareAgentInput(sid, loadAgentMetadata(sid), {
+          trust_project: true, ready_timeout: opts.ready_timeout ?? undefined,
+        });
+      } catch (error) {
+        throw new AgentLaunchPromptError(
+          `session_id: ${sid}\n起動準備中に失敗しました。${error instanceof Error ? error.message : String(error)}`,
+          error instanceof AitermError ? error.code : 1, sid, delivery, null,
+          { status: "blocked", reason: "startup_failed" },
+        );
+      }
+      if (startup.status !== "ready") throw new AgentLaunchPromptError(
+        `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}`, 2, sid, delivery, null, startup,
+      );
+    }
+    return [sid, hint, null, null, delivery, startup];
   }
   const [sid, hint] = openAgent(kind, {
     session_name: opts.session_name ?? null,
@@ -4344,15 +4716,21 @@ export async function openAgentWithInitialPrompt(
   try {
     const initial = await sendInitialAgentPrompt(sid, prompt, {
       ready_timeout: opts.ready_timeout ?? undefined,
+      trust_project: opts.trust_project,
     });
-    return [sid, `${hint}\n${initial.text}`, initial.event_cursor, initial.submit_residue];
+    return [sid, `${hint}\n${initial.text}`, initial.event_cursor, initial.submit_residue, initial.initial_prompt,
+      { status: "ready", reason: "composer_ready" }];
   } catch (e) {
     const code = e instanceof AitermError ? e.code : 1;
     const message = e instanceof Error ? e.message : String(e);
-    throw new AitermError(
+    const meta = loadAgentMetadata(sid);
+    throw new AgentLaunchPromptError(
       `session_id: ${sid}\n` +
         `起動後の初回 prompt 処理で失敗しました。session は調査/復旧用に残しています。\n${message}`,
-      code,
+      code, sid, meta.initial_prompt_delivery ?? { status: "not_sent", reason: "startup_failed", turn_started: false },
+      meta.initial_prompt_cursor ?? null,
+      { status: meta.initial_prompt_delivery?.status === "submitted_unconfirmed" ? "ready" : "blocked",
+        reason: meta.initial_prompt_delivery?.reason ?? "startup_failed" },
     );
   }
 }

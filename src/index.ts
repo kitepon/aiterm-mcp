@@ -120,11 +120,12 @@ server.registerTool(
     inputSchema: {
       name: z.string().nullish().describe("セッション名（省略時は t1, t2... を自動採番）"),
       shell: z.string().default(DEFAULT_PTY_SHELL).describe(`起動シェル（既定 ${DEFAULT_PTY_SHELL}）`),
+      env_vars: z.array(z.string()).optional().describe("現在のMCP processからsessionへ継承する環境変数名"),
     },
   },
-  async ({ name, shell }) => {
+  async ({ name, shell, env_vars }) => {
     try {
-      const [sid, hint] = core.openSession(name ?? null, shell);
+      const [sid, hint] = core.openSession(name ?? null, shell, env_vars);
       return ok(`session_id: ${sid}\n${hint}`);
     } catch (e) {
       return fail(e);
@@ -445,14 +446,86 @@ server.registerTool(
   "pty_list",
   {
     description: "握っているセッション一覧（名前 / 現在の前面コマンド / attach 状態 / サイズ / agent 情報）。",
-    inputSchema: {},
+    inputSchema: {
+      env_keys: z.array(z.string()).optional().describe("帰属確認用の非秘密環境変数名。指定したキーだけを返す"),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.pty-list-result.v1"),
+      observed_at: z.string(),
+      sessions: z.array(z.object({
+        session_id: z.string(), current_command: z.string(), attached: z.boolean(),
+        width: z.number(), height: z.number(),
+        harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+        environment: z.record(z.string(), z.string().nullable()),
+      })),
+    },
   },
-  async () => {
+  async ({ env_keys }) => {
     try {
-      return ok(core.listSessions());
+      const result = core.listSessionsResult(env_keys);
+      return { ...ok(core.listSessions(result)), structuredContent: { ...result } };
     } catch (e) {
       return fail(e);
     }
+  },
+);
+
+const nativeProcessIdentitySchema = z.object({
+  pid: z.number().int(), process_group_id: z.number().int().nullable(),
+  started_identity: z.string(), argv_digest: z.string(),
+});
+
+server.registerTool(
+  "pty_observe",
+  {
+    description: "指定sessionの存在、paneとharnessの生存、状態と理由、native process identity、画面変化とCPU活動を構造化して観測する。画面本文と生argvは返さない。",
+    inputSchema: {
+      session_id: z.string(),
+      cursor: z.string().optional().describe("前回のactivity.cursor。省略・session再作成時は活動差分をnullで返す"),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.pty-observe-result.v1"), session_id: z.string(), observed_at: z.string(),
+      exists: z.boolean(), harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+      launch_id: z.string().nullable(), state: z.enum(["busy", "idle", "blocked", "dead", "missing", "unknown"]),
+      reason: z.string(), pane_alive: z.boolean().nullable(), harness_alive: z.boolean().nullable(),
+      pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
+      process_identity: nativeProcessIdentitySchema.nullable(),
+      token_hint: z.number().nullable(),
+      activity: z.object({ cursor: z.string().nullable(), output_changed: z.boolean().nullable(),
+        cpu_seconds: z.number().nullable(), cpu_delta_seconds: z.number().nullable(), cpu_delta_complete: z.boolean().nullable(),
+        background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable() }),
+    },
+  },
+  async ({ session_id, cursor }) => {
+    try {
+      const result = core.observeSession(session_id, cursor);
+      return { ...ok(JSON.stringify(result)), structuredContent: { ...result } };
+    } catch (e) { return fail(e); }
+  },
+);
+
+server.registerTool(
+  "agent_approval",
+  {
+    description: "Codexの現在の承認をinspectし、digestへ束縛した単発許可または拒否をrespondする。恒久許可は選ばない。Claudeは既存claude_approvalを使う。未知dialogはblockedのtyped errorで返す。",
+    inputSchema: {
+      action: z.enum(["inspect", "respond"]), session_id: z.string(),
+      approval_choice: z.enum(["approve_once", "deny"]).optional(), observed_prompt_digest: z.string().optional(),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.agent-approval-result.v1"), action: z.enum(["inspect", "respond"]),
+      status: z.enum(["none", "approval_required", "submitted", "blocked"]), session_id: z.string(),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]), launch_id: z.string(),
+      reason: z.string(), kind: z.string().nullable(), prompt: z.string().nullable(), prompt_digest: z.string().nullable(),
+      choices: z.array(z.object({ decision: z.enum(["approve_once", "deny"]), label: z.string() })),
+      selected_choice: z.enum(["approve_once", "deny"]).nullable(), at: z.string(),
+    },
+  },
+  async (options) => {
+    try {
+      const result = core.runAgentApproval(options);
+      return { ...ok(JSON.stringify(result)), structuredContent: { ...result }, ...(result.status === "blocked" ? { isError: true } : {}) };
+    } catch (e) { return fail(e); }
   },
 );
 
@@ -626,21 +699,28 @@ const agentEnvironmentDesc =
   `aitermは完了相関stateだけをlaunch単位で所有する。起動されたagentにはsub-agent自己認識、親session、` +
   `delegation depth/lineage、delegation_allowed=trueを注入し、必要な追加委譲は許可する。`;
 
+const initialPromptDeliverySchema = z.object({
+  status: z.enum(["not_requested", "not_sent", "submitted_unconfirmed", "started"]),
+  reason: z.string(), turn_started: z.boolean().nullable(),
+});
+const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "blocked"]), reason: z.string() });
+
 async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, env_vars, cwd, session_name, launch_operation_id, write_scope } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project } = args;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
       throw new core.AitermError("claude-code harnessはwrite_scopeに対応していません。指定を外してください", 2);
     }
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
-    const [sid, hint, eventCursor, submitResidue] = await core.openAgentWithInitialPrompt(kind, {
+    const [sid, hint, eventCursor, submitResidue, initialDelivery, startup] = await core.openAgentWithInitialPrompt(kind, {
       prompt: initialPrompt,
       throughline_source_session,
       throughline_supplement_file,
       model: model ?? undefined,
       reasoning_effort: reasoning_effort ?? undefined,
       env_vars,
+      trust_project,
       cwd: cwd ?? undefined,
       session_name: session_name ?? undefined,
       launch_operation_id: launch_operation_id ?? undefined,
@@ -656,6 +736,8 @@ async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
       wait_process: eventCursor === null ? null : core.agentWaitProcess(sid, eventCursor),
       wait_command: eventCursor === null ? null : `aiterm-wait --session ${sid} --cursor ${eventCursor}`,
       submit_residue: submitResidue,
+      initial_prompt: initialDelivery,
+      startup,
       ...(supportsWriteScope && write_scope !== undefined
         ? {
             write_scope,
@@ -669,8 +751,21 @@ async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
     return {
       content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}` }],
       structuredContent: structured,
+      ...(initialDelivery.status === "submitted_unconfirmed" ? { isError: true } : {}),
     };
   } catch (e) {
+    if (e instanceof core.AgentLaunchPromptError) {
+      return {
+        ...fail(e),
+        structuredContent: {
+          schema: "aiterm.agent-launch-result.v1", provider: kind, harness: core.agentHarness(kind),
+          session_id: e.session_id, managed_completion: true, event_cursor: e.event_cursor,
+          wait_process: e.event_cursor === null ? null : core.agentWaitProcess(e.session_id, e.event_cursor),
+          wait_command: e.event_cursor === null ? null : `aiterm-wait --session ${e.session_id} --cursor ${e.event_cursor}`,
+          submit_residue: null, initial_prompt: e.initial_prompt, startup: e.startup,
+        },
+      };
+    }
     return fail(e);
   }
 }
@@ -721,6 +816,7 @@ function registerAgentTool(
         // CLI／model側の値集合が版で変わるため公開enumでは縛らない（core側も同方針）。
         reasoning_effort: z.string().nullish().describe(agentEffortDesc(kind)),
         env_vars: z.array(z.string()).optional().describe("起動したagentへ現在のMCP processから継承する環境変数名。値はtool引数へ渡さない"),
+        trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
         cwd: z.string().nullish().describe("作業ディレクトリ（対象リポのルート等・任意）"),
         session_name: z.string().nullish().describe("セッション名（省略で自動採番）"),
         ...writeScopeInputSchema,
@@ -728,6 +824,8 @@ function registerAgentTool(
       },
       outputSchema: {
         schema: z.literal("aiterm.agent-launch-result.v1"),
+        initial_prompt: initialPromptDeliverySchema,
+        startup: agentStartupSchema,
         provider: z.literal(kind),
         harness: z.literal(core.agentHarness(kind)),
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
@@ -764,6 +862,7 @@ server.registerTool(
       model: z.string().nullish().describe("harnessが選ぶモデル。provider名ではなくlive catalog上のmodel ID"),
       reasoning_effort: z.string().nullish().describe("harness adapterが標準CLI表現へ変換する思考レベル。Cursorではmodel同時指定が必要"),
       env_vars: z.array(z.string()).optional().describe("現在のMCP processから継承する環境変数名"),
+      trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
       cwd: z.string().nullish().describe("作業ディレクトリ（絶対パス・任意）"),
       session_name: z.string().nullish().describe("Aiterm session名（省略で自動採番）"),
       write_scope: z.string().min(1).optional().describe("能力宣言。read-onlyは対応harnessの標準read-only面で実効禁止する"),
@@ -771,6 +870,8 @@ server.registerTool(
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-launch-result.v1"),
+      initial_prompt: initialPromptDeliverySchema,
+      startup: agentStartupSchema,
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       provider: z.enum(["claude", "codex", "grok", "composer", "cursor"]).describe("旧互換field。新規連携はharnessを使う"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),

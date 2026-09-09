@@ -208,6 +208,22 @@ export function pasteBufferBaseArgs(): string[] {
 // new-session -f 用の空 config（端末個人の設定ファイルを読まない）。Windows は NUL デバイス。
 export const TMUX_EMPTY_CONFIG = isWin ? "NUL" : "/dev/null";
 
+export function sessionEnvironmentLaunch(shell: string, environment: string[], version?: string): {
+  shell: string; args: string[]; register_after_start: boolean;
+} {
+  let modern = isWin;
+  if (!isWin) {
+    const observed = version ?? spawnSync(resolveTmux(), ["-V"], { encoding: "utf8", timeout: 5000 }).stdout;
+    const match = /^tmux (\d+)\.(\d+)/.exec(observed ?? "");
+    if (!match) throw new AitermError("tmuxの環境変数機能を判定できません", 2);
+    modern = Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2]) >= 2);
+  }
+  if (modern) return { shell, args: environment.flatMap(entry => ["-e", entry]), register_after_start: false };
+  // tmux <3.2はnew-session -eを持たない。子への継承とsession台帳への登録を製品内で完結する。
+  const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
+  return { shell: `exec /usr/bin/env ${environment.map(quote).join(" ")} ${quote(shell)}`, args: [], register_after_start: true };
+}
+
 // 人が同じ session を覗く/介入するための attach コマンド。
 // Windows は native psmux（tmux CLI 互換）を -L namespace で叩く。
 export function attachCommand(name: string): string {
@@ -226,13 +242,15 @@ export function normalizePaneCommand(cmd: string): string {
 // PowerShellの状態構文を使い、それ以外は既存のPOSIX形式を維持する。
 const WINDOWS_POWERSHELL_COMMANDS = new Set(["powershell", "pwsh"]);
 export function appendMarkSentinel(text: string, foreground: string): string {
+  // 複数行入力の末尾はheredoc／here-string終端になり得るため、独立した次行へ置く。
+  const separator = text.includes("\n") ? "\n" : "; ";
   if (isWin && WINDOWS_POWERSHELL_COMMANDS.has(foreground)) {
     // command echoに完成済みrc=<数字>を含めない。{0}を実行時formatして早期誤完了を防ぐ。
-    return text +
-      "; if ($?) { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 0)) }" +
+    return text + separator +
+      "if ($?) { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 0)) }" +
       " else { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 1)) }";
   }
-  return text + `; printf '\\n<<<AITERM_DONE rc=%d>>>\\n' "$?"`;
+  return text + separator + `printf '\\n<<<AITERM_DONE rc=%d>>>\\n' "$?"`;
 }
 
 // Windows の fs.Stats.mode は POSIX permission bit を持たず、常に 666/777 相当を報告する

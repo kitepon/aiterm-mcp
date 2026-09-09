@@ -112,7 +112,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-16ツール: 6つのPTYツール、正規のagent起動入口`agent_launch`、実行中のCodex／Grokを誘導する`agent_steer`、移行用の旧4alias、`agent_configure`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+18ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、実行中のCodex／Grokを誘導する`agent_steer`、移行用の旧4alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。Composerは別harnessではなく、`harness:"grok-cli", model:"grok-composer-2.5-fast"`で表す。旧4起動ツールは同じ実装へ流れる互換alias。
 
@@ -215,7 +215,7 @@ Grok／Composerの無人起動は公式`--trust`で指定された作業フォ�
 
 Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。例えばhookのパスにシンボリックリンクがあるとGrok CLIは起動を拒否する。設定の管理元で原因を修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
-この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなしの`agent_launch`は起動要求を返すため、その応答だけでは入力受付済みと判断しない。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
+この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
 
 ```text
 agent_launch({ harness: "codex-cli", session_name: "codex1", cwd: "/repo",
@@ -314,7 +314,7 @@ Throughline自体が不要である。
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm が connected・16 ツール公開、と出る
+/mcp        # aiterm が connected・18 ツール公開、と出る
 ```
 
 最初のセッション——4 回の呼び出しで、1 個の永続端末:
@@ -355,7 +355,7 @@ MCP クライアントが aiterm を stdio 越しにプログラムから駆動�
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · agent_launch · agent_steer · agent_configure · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 16 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_steer · agent_configure · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>再起動を跨ぐ"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -427,15 +427,48 @@ aiterm は同じ核心の洞察——端末を出会いの場にする——を�
 
 ## ツール
 
+### セッション観測と起動準備
+
+`pty_open`の既定shellはPOSIXでbash、WindowsでPowerShell 7。通常PTYとagentの内側では
+`AITERM_SESSION_ID`で自分のsessionを識別できる。`env_vars`はMCP processから継承する名前の配列で、
+`pty_list({ env_keys: ["JOB_OWNER"] })`は指定した非秘密キーだけを`environment`へ返す。未設定値はnull。
+一覧の`aiterm.pty-list-result.v1`は`observed_at`と`sessions`を持ち、各行に`session_id`、`current_command`、
+`attached`、`width`、`height`、`harness`、`environment`を返す。従来のtextも維持する。
+
+`pty_observe({ session_id, cursor? })`は`aiterm.pty-observe-result.v1`で`exists`、`observed_at`、
+`state`（busy／idle／blocked／dead／missing／unknown）、`reason`、`pane_alive`、`harness_alive`を返す。
+`pane_process`と`harness_process`は別のidentityで、`process_identity`はagentならharness、通常PTYなら
+一意な子process group leader、子がなければpaneを指す。identityは`pid`、`process_group_id`、
+`started_identity`、`argv_digest`を持ち、特定不能はnull。WindowsのPIDはnative PIDで、process groupはnull。
+開始識別はPOSIXの`LC_ALL=C ps lstart`、WindowsのUTC ISOミリ秒、argv digestはSHA-256のhexである。
+
+`activity.cursor`を次の照会へ渡すと、`output_changed`と`cpu_delta_seconds`を返す。初回と再作成後はnull。
+`cpu_seconds`は現在のsubtreeの累積値で、区間中にprocessが消えた場合、増分は観測できた分だけとなり
+`cpu_delta_complete=false`を付ける。`background_cpu_seconds`、`background_cpu_delta_seconds`、
+`background_cpu_delta_complete`はpane開始から60秒以降に生成された子孫だけの同じ観測で、起動時MCPを除外する。
+`token_hint`は画面の直近token表示値またはnull。画面本文や生argvを解析する必要はない。
+
+`agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
+進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
+初手の`initial_prompt.status`は`not_requested`／`not_sent`／`submitted_unconfirmed`／`started`を区別する。
+未送信・未確認の失敗もsession付きstructuredContentを保持する。未確認のpromptを再送せず、返ったcursorで観測する。
+
+Codexの実行中承認は`agent_approval({ action: "inspect", session_id })`の`prompt`と`choices`を確認し、
+`respond`へ`observed_prompt_digest`と`approval_choice`（`approve_once`／`deny`）を渡す。
+未知・変更済みのdialogは`status="blocked"`と`isError:true`で返し、入力しない。恒久許可は扱わない。
+Claudeの相関済み承認は既存の`claude_approval`を使う。
+
 | ツール | 役割 | 主な引数 |
 | --- | --- | --- |
-| `pty_open` | 端末を 1 個握り `session_id` を返す | `name?`, `shell="bash"` |
+| `pty_open` | 端末を1個開き`session_id`を返す | `name?`, `shell?`, `env_vars?` |
 | `pty_send` | テキストを送る。agent sessionでは非ブロックdispatchとして`event_cursor`を返す | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
-| `pty_list` | セッション一覧（agent行は正規`harness=<id>`と互換`agent=<kind>`を含む） | （なし） |
-| `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
+| `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
+| `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `agent_steer` | 実行中のCodex／Grok turnへtextを差し込む。idleなら送信せず`idle`を返す | `session_id`, `text` |
 | `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | deprecated互換alias | 旧launcher引数 |
 | `agent_configure` | 起動中のClaude／Codex／Grok／Composer／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |

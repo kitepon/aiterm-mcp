@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pty_list`の構造化結果と明示した非秘密環境変数の照会、`pty_observe`によるpane／harnessの生存、native process identity、状態、token hint、画面・CPU活動の観測を追加した。
+- 通常PTYにも`AITERM_SESSION_ID`を注入し、`pty_open`の`env_vars`で帰属情報を継承できる。古いtmuxの環境注入も製品内で扱う。
+- `agent_approval`でCodexのcommand／MCP承認をinspectし、digestへ束縛した単発許可・拒否を送れる。
+- `agent_launch`へ`trust_project`、起動準備の`startup`、初手の`initial_prompt` receiptを追加した。promptなしでも明示したproject信頼に基づく既知の起動準備を完了する。
+
+### Fixed
+
+- Grokの通信失敗＋Waiting表示、Codexの過去の承認画面を稼働状態と誤認しない。初手は実行表示または相関した完了で開始を確認する。
+- Codexの設定読込失敗でCLIが終了した後、残った起動画面へpromptを送る問題を修理した。送信前にharnessの生存を確認し、未送信の構造化エラーで返す。
+- `mark:true`でheredoc終端へsentinelを連結して構文を壊す問題を修理した。
+
 ## [0.32.0] - 2026-09-09
 
 ### Added

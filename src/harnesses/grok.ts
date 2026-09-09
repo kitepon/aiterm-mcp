@@ -25,7 +25,7 @@ import {
   GROK_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
 } from "../agent-shared.js";
-import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext } from "../agent-shared.js";
+import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext, HarnessPaneObservation } from "../agent-shared.js";
 
 const GROK_MODELS_MAX_BYTES = 1024 * 1024;
 const GROK_MODELS_TIMEOUT_MS = 15_000;
@@ -300,6 +300,7 @@ export function grokEnvTokens(meta: AgentMetadata): string[] {
   return [
     ...(meta.grok_auth_path ? [`GROK_AUTH_PATH=${shq(meta.grok_auth_path)}`] : []),
     "GROK_DISABLE_AUTOUPDATER=1",
+    "GROK_PRIVACY_NOTICE_ROLLOUT=0",
   ];
 }
 
@@ -342,6 +343,22 @@ export function grokTuiBusy(screen: string): boolean {
     || screen.includes("Responding…")
     || screen.includes("Responding...")
     || screen.includes("[stop]");
+}
+
+export function grokPaneObservation(screen: string): HarnessPaneObservation {
+  // 通信失敗後もWaitingが残る実画面を、稼働中として返さない。
+  const tail = screen.split("\n").slice(-32).join("\n");
+  if (/Connection failed|reqwest error stream|Check your network and try again/i.test(tail))
+    return { state: "blocked", reason: "connection_failed" };
+  if (/Help improve Grok/.test(tail)) return { state: "blocked", reason: "privacy_choice" };
+  if (grokLaunchBlockingDialog(tail)) return { state: "blocked", reason: "startup_dialog" };
+  if (grokTuiBusy(tail)) return { state: "busy", reason: "turn_running" };
+  if (grokTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
+  return { state: "unknown", reason: "unrecognized_screen" };
+}
+
+export function grokStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
+  return trustProject && grokLaunchBlockingDialog(screen) ? { kind: "workspace_trusted", keys: ["y"] } : null;
 }
 
 // submit座礁観測のcomposer領域マーカー（Windows native描画の `>` も ready 判定と同様に受ける）。

@@ -248,15 +248,17 @@ function sessionLogPath(sid) {
   return path.join(process.env.TMPDIR, "claude-tmux-sockets", `${sid}.log`);
 }
 
-function makeFakeCodexTuiBin() {
+function makeFakeCodexTuiBin(busy = false, exitAfterReady = false) {
   const bin = path.join(process.env.TMPDIR, `fake-codex-tui-${Date.now().toString(36)}.sh`);
   fs.writeFileSync(
     bin,
     [
       "#!/bin/sh",
       "printf 'OpenAI Codex\\n› ready\\n'",
+      ...(exitAfterReady ? ["exit 0"] : []),
       "while IFS= read -r line; do",
       "  printf '%s\\n' \"$line\"",
+      ...(busy ? ["  printf '• Working (1s • esc to interrupt)\\n'"] : []),
       "done",
       "",
     ].join("\n"),
@@ -2445,6 +2447,9 @@ test("openAgentWithInitialPrompt: TUI ready 失敗は明示エラーにし promp
           ready_timeout: 0,
         }),
         (e) => {
+          assert.equal(e.initial_prompt.status, "not_sent");
+          assert.equal(e.initial_prompt.turn_started, false);
+          assert.equal(typeof e.session_id, "string");
           assert.match(e.message, /initial_prompt=not_sent/, `ready failure error: ${e.message}`);
           assert.match(e.message, /session は調査\/復旧用に残しています/, `session保全の明示: ${e.message}`);
           sid = e.message.match(/session_id: (\S+)/)?.[1] ?? null;
@@ -2535,6 +2540,73 @@ test("codexTuiReady: 現行Codexのdefault effort footerを入力待ちとして
   assert.equal(codexHarness.codexTuiReady(screen), true);
 });
 
+test("openAgentWithInitialPrompt: 終了したharnessの残画面へpromptを送らない", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fakeBin = makeFakeCodexTuiBin(false, true);
+  process.env.CODEX_BIN = fakeBin;
+  const sid = `initial_exited_${Date.now().toString(36)}`;
+  try {
+    await withFakeCodexHome(async () => {
+      await assert.rejects(core.openAgentWithInitialPrompt("codex", { session_name: sid, prompt: "SHOULD_NOT_REACH_SHELL" }), error => {
+        assert.equal(error.initial_prompt.status, "not_sent");
+        assert.equal(error.initial_prompt.reason, "harness_exited");
+        return true;
+      });
+      const output = await core.readOutput(sid, { screen: true, raw: true });
+      assert.ok(!output.includes("SHOULD_NOT_REACH_SHELL"));
+    });
+  } finally {
+    core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
+  }
+});
+
+test("observeSession: SIGSTOPしたharnessを残画面に関係なくblockedにする", { skip: skipAgentDone || process.platform === "win32" }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fakeBin = makeFakeCodexTuiBin();
+  process.env.CODEX_BIN = fakeBin;
+  const sid = `observe_stopped_${Date.now().toString(36)}`;
+  let pid;
+  try {
+    await withFakeCodexHome(async () => {
+      await core.openAgentWithInitialPrompt("codex", { session_name: sid, trust_project: true });
+      pid = core.observeSession(sid).harness_process.pid;
+      process.kill(pid, "SIGSTOP");
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const stopped = core.observeSession(sid);
+      assert.equal(stopped.harness_alive, true);
+      assert.equal(stopped.state, "blocked");
+      assert.equal(stopped.reason, "harness_stopped");
+    });
+  } finally {
+    if (pid) process.kill(pid, "SIGCONT");
+    core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
+  }
+});
+
+test("openAgentWithInitialPrompt: 送信後の実行表示だけを開始確認に使う", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fakeBin = makeFakeCodexTuiBin(true);
+  process.env.CODEX_BIN = fakeBin;
+  const sid = `initial_started_${Date.now().toString(36)}`;
+  try {
+    await withFakeCodexHome(async () => {
+      const result = await core.openAgentWithInitialPrompt("codex", { session_name: sid, prompt: "開始確認" });
+      assert.deepEqual(result[4], { status: "started", reason: "turn_running", turn_started: true });
+    });
+  } finally {
+    core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
+  }
+});
+
 test("openAgentWithInitialPrompt: prompt を shell argv に載せず pending event_cursor を返す", { skip: skipAgentDone }, async () => {
   const savedBin = process.env.CODEX_BIN;
   const fakeBin = makeFakeCodexTuiBin();
@@ -2544,12 +2616,14 @@ test("openAgentWithInitialPrompt: prompt を shell argv に載せず pending eve
       const sid = `initial_success_${Date.now().toString(36)}`;
       const marker = "AITERM_OPEN_AGENT_INITIAL_OK";
       try {
-        const [actualSid, out, launchCursor, submitResidue] = await core.openAgentWithInitialPrompt("codex", {
+        const [actualSid, out, launchCursor, submitResidue, initialDelivery] = await core.openAgentWithInitialPrompt("codex", {
           session_name: sid,
           prompt: `日本語の複数行 prompt です。\n${marker}\nこの token だけを返してください。`,
           agent_done: true,
         });
         assert.equal(actualSid, sid);
+        assert.equal(initialDelivery.status, "submitted_unconfirmed");
+        assert.equal(initialDelivery.turn_started, null);
         assert.match(out, /initial_prompt=pending vendor=codex event_cursor=\d+/, `pending hint: ${out}`);
         assert.ok(
           submitResidue === null || typeof submitResidue === "boolean",

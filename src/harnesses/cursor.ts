@@ -463,3 +463,10 @@ export function cursorTuiReady(screen: string): boolean {
   return /Cursor Agent/i.test(screen) &&
     (CURSOR_COMPOSER_MARKER_RE.test(screen) || CURSOR_START_PROMPT_MARKER_RE.test(screen));
 }
+
+export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
+  const tail = screen.split("\n").slice(-32).join("\n");
+  if (/ctrl\+c to stop/i.test(tail)) return { state: "busy", reason: "turn_running" };
+  if (cursorTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
+  return { state: "unknown", reason: "unrecognized_screen" };
+}

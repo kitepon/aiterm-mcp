@@ -1,5 +1,5 @@
 // smoke: 実際に `node dist/index.js` を起動し、initialize + tools/list を stdin にパイプ。
-// 検証: stdout は改行区切り JSON-RPC のみ（診断混入なし）／16 ツールが公開されている。
+// 検証: stdout は改行区切り JSON-RPC のみ（診断混入なし）／18 ツールが公開されている。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -38,7 +38,7 @@ test("smoke: Windows backend公開面はpsmux 3.3.8以上で一致する", () =>
   assert.doesNotMatch(readmeJa, /同じ tmux ソケット/);
 });
 
-test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 16 ツール公開", async () => {
+test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公開", async () => {
   const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-diagnostics-"));
   const child = spawn(process.execPath, [ENTRY], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -90,6 +90,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 16 ツール公�
   assert.equal(responses.get(1)?.result?.serverInfo?.version, PACKAGE.version, "initialize version");
   const names = (toolsResp.result?.tools ?? []).map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "agent_approval",
     "agent_configure",
     "agent_launch",
     "agent_steer",
@@ -103,6 +104,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 16 ツール公�
     "pty_close",
     "pty_key",
     "pty_list",
+    "pty_observe",
     "pty_open",
     "pty_read",
     "pty_send",

@@ -114,7 +114,7 @@ Aiterm and is not a runtime dependency.
 
 **Measured, not claimed:** in the recorded 203-test benchmark, a `pty_read` puts **~7.1× fewer tokens** in your context than the raw log — and the pass/fail verdict survives the fold. → [When to reach for it vs. the built-in shell](#when-to-reach-for-it-vs-the-built-in-shell)
 
-Sixteen tools: six **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` — to open, drive, and read one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; `agent_steer` for an active Codex or Grok turn; four deprecated launcher aliases kept for migration; `agent_configure`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
+Eighteen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; `agent_steer` for an active Codex or Grok turn; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
 **v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Grok Composer is a Grok CLI model preset, not another harness: use `harness: "grok-cli", model: "grok-composer-2.5-fast"`. The old four launcher tools are thin compatibility aliases over the same implementation.
 
@@ -237,7 +237,7 @@ Grok／Composerの無人起動は公式`--trust`で指定された作業フォ�
 
 Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。hookパスのシンボリックリンクなど、CLIが示した原因を設定の管理元で修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
-この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなしの`agent_launch`は起動要求を返すため、その応答だけでは入力受付済みと判断しない。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
+この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
 
 For a correlated Claude turn stopped at `Do you want to proceed?`, use `claude_approval(action: "inspect", ...)` to capture the active operation and SHA-256 screen digest, review the displayed command, then call `respond` with that exact digest and either `approve_once` or `deny`. The relay rechecks the operation and screen under the send lock, never exposes arbitrary input or permanent approval, keeps the active marker intact, and records a prompt-free owner-only receipt. `pty_send(force: true)` does not bypass this boundary.
 
@@ -344,7 +344,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm should show as connected, exposing 16 tools
+/mcp        # aiterm should show as connected, exposing 18 tools
 ```
 
 Your first session — four calls, one persistent terminal:
@@ -385,7 +385,7 @@ The terminal is real and shared, so a human *can* jump in ([A human can watch](#
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · agent_launch · agent_steer · agent_configure · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 16 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_steer · agent_configure · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>survive restarts"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -459,15 +459,50 @@ On top of that sits a productized layer a raw tmux bridge doesn't have: **token-
 
 ## Tools
 
+### Session observation and startup
+
+`pty_open` defaults to bash on POSIX and PowerShell 7 on Windows. Ordinary terminals and agents receive
+`AITERM_SESSION_ID`. Pass environment-variable names in `env_vars` to inherit ownership information from the MCP process.
+`pty_list({ env_keys: ["JOB_OWNER"] })` returns only the requested non-secret values in `environment`; missing values are null.
+Its `aiterm.pty-list-result.v1` receipt contains `observed_at` and `sessions`, whose entries include `session_id`,
+`current_command`, `attached`, `width`, `height`, `harness`, and `environment`. Existing text remains available.
+
+`pty_observe({ session_id, cursor? })` returns `aiterm.pty-observe-result.v1` with `exists`, `observed_at`, `state`
+(busy/idle/blocked/dead/missing/unknown), `reason`, `pane_alive`, and `harness_alive`. `pane_process` and `harness_process`
+are separate identities. `process_identity` selects the harness for agents, or the unique child process-group leader
+for an ordinary terminal, using the pane when no child leader exists. An identity contains `pid`, `process_group_id`,
+`started_identity`, and `argv_digest`; unresolved identities are null. Windows PIDs are native and its process-group field
+is null. Start identity uses POSIX `LC_ALL=C ps lstart` or Windows UTC ISO milliseconds; the argv digest is SHA-256 hex.
+
+Pass `activity.cursor` into the next observation to obtain `output_changed` and `cpu_delta_seconds`; first observations and
+recreated panes return null differences. `cpu_seconds` is the current subtree's cumulative CPU. If a process disappeared
+between observations, the delta covers only observed increments and `cpu_delta_complete` is false.
+`background_cpu_seconds`, `background_cpu_delta_seconds`, and `background_cpu_delta_complete` apply the same measurement
+only to descendants created at least 60 seconds after the pane, excluding startup MCP processes. `token_hint` is the latest
+displayed token count or null. Callers do not need raw argv or pane-text parsing.
+
+`agent_launch({ harness, cwd, trust_project: true })` completes known workspace, project-hook, and project-MCP startup
+consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.
+A prompt-free launch without this option retains `startup.status="not_checked"`. `initial_prompt.status` distinguishes
+`not_requested`, `not_sent`, `submitted_unconfirmed`, and `started`. Failure responses retain structured session information.
+Do not resend an unconfirmed prompt; observe or wait using its returned cursor.
+
+For a live Codex approval, inspect with `agent_approval({ action: "inspect", session_id })`, review `prompt` and `choices`,
+then respond with `observed_prompt_digest` and `approval_choice` (`approve_once` or `deny`). Unknown or changed dialogs return
+`status="blocked"` and `isError:true` without sending input. Permanent approval is not exposed. Correlated Claude approvals
+continue to use `claude_approval`.
+
 | Tool | Role | Key args |
 | --- | --- | --- |
-| `pty_open` | Grab one terminal, return a `session_id` | `name?`, `shell="bash"` |
+| `pty_open` | Open one terminal and return a `session_id` | `name?`, `shell?`, `env_vars?` |
 | `pty_send` | Send text; on an agent session this is a non-blocking **dispatch** returning an `event_cursor` | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
-| `pty_list` | List sessions (agent rows carry canonical `harness=<id>` plus compatibility `agent=<kind>`) | (none) |
-| `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `pty_list` | Text and structured session list, with explicitly requested non-secret environment values | `env_keys?` |
+| `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
+| `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `agent_steer` | Inject text into the active Codex or Grok turn; return `idle` without sending when no turn is active | `session_id`, `text` |
 | `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | Deprecated compatibility aliases | legacy launcher arguments |
 | `agent_configure` | Change model/effort in a running Claude, Codex, Grok, Composer, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |

@@ -11,6 +11,27 @@ export type AgentKind = "claude" | "codex" | "grok" | "composer" | "cursor";
 export type AgentHarness = "claude-code" | "codex-cli" | "grok-cli" | "cursor-cli";
 export type InitialPromptState = "none" | "not_sent" | "sent" | "pending" | "done" | "failed";
 
+export interface HarnessPaneObservation {
+  state: "busy" | "idle" | "blocked" | "unknown";
+  reason: string;
+}
+
+export interface InitialPromptDelivery {
+  status: "not_requested" | "not_sent" | "submitted_unconfirmed" | "started";
+  reason: string;
+  turn_started: boolean | null;
+}
+
+export interface StartupAction {
+  kind: string;
+  keys: string[];
+}
+
+export interface AgentStartupResult {
+  status: "ready" | "not_checked" | "blocked";
+  reason: string;
+}
+
 export interface AgentMetadata {
   kind: AgentKind;
   aiterm_session: string;
@@ -22,6 +43,9 @@ export interface AgentMetadata {
   write_scope?: string;
   vendor_session_id: string | null;
   initial_prompt: InitialPromptState;
+  initial_prompt_delivery?: InitialPromptDelivery;
+  initial_prompt_cursor?: number | null;
+  agent_executable?: string;
   launch_operation_id?: string | null;
   launch_request_digest?: string | null;
   hook_route: "shared_claude_settings" | "shared_codex_home" | "shared_grok_home" | "shared_cursor_home";

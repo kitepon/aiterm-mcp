@@ -54,6 +54,10 @@
       "description": "List the persistent terminal sessions owned by aiterm."
     },
     {
+      "name": "pty_observe",
+      "description": "Observe session and harness liveness, native process identity, and terminal activity."
+    },
+    {
       "name": "agent_launch",
       "description": "Launch an agent through a canonical harness-based interface."
     },
@@ -76,6 +80,14 @@
     {
       "name": "agent_configure",
       "description": "Change the model or reasoning effort of a running Claude, Codex, Grok, Composer, or Cursor session."
+    },
+    {
+      "name": "agent_steer",
+      "description": "Steer an active Codex or Grok turn without starting a new turn."
+    },
+    {
+      "name": "agent_approval",
+      "description": "Inspect a Codex approval and submit a digest-bound one-time approval or denial."
     },
     {
       "name": "claude_turn",

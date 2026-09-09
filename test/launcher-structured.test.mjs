@@ -85,6 +85,8 @@ test("claude_agent: text contentを維持しClaude managed launch receiptをstru
       wait_command: null,
       // promptなし＝submit座礁観測の対象なし
       submit_residue: null,
+      initial_prompt: { status: "not_requested", reason: "not_requested", turn_started: false },
+      startup: { status: "not_checked", reason: "startup_not_requested" },
     });
 
     child.stdin.write(`${JSON.stringify({
@@ -192,6 +194,8 @@ test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振�
       wait_process: null,
       wait_command: null,
       submit_residue: null,
+      initial_prompt: { status: "not_requested", reason: "not_requested", turn_started: false },
+      startup: { status: "not_checked", reason: "startup_not_requested" },
       write_scope: "read-only",
       write_scope_enforcement: "enforced_read_only",
     });

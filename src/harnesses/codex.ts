@@ -24,7 +24,7 @@ import {
   CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
 } from "../agent-shared.js";
-import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext } from "../agent-shared.js";
+import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext, HarnessPaneObservation } from "../agent-shared.js";
 
 export function realCodexHome(): string {
   return process.env.CODEX_HOME || path.join(process.env.HOME ?? os.homedir(), ".codex");
@@ -409,11 +409,108 @@ export function codexLaunchNote(
 }
 
 export function codexTuiReady(screen: string): boolean {
+  if (codexStartupFailure(screen)) return false;
   // 起動直後は製品header、長寿命sessionでは常駐footerがCodex TUIの識別子になる。
   // capture-paneは直近45行だけなので、会話が進むとheaderは正常に画面外へ流れる。
   const codexFrontend = screen.includes("OpenAI Codex")
     || /(^|\n)\s*\S+\s+(?:default|low|medium|high|xhigh|max|ultra)(?:\s+fast)?\s+·\s+\S.*$/m.test(screen);
-  return codexFrontend && /(^|\n)\s*[›>]/.test(screen);
+  return codexFrontend && /(^|\n)[ \t]*[›>](?![ \t]*\d+\.)/.test(screen);
+}
+
+function currentCodexDialog(screen: string): string {
+  const footers = [...screen.matchAll(/Press enter to confirm or esc to cancel|enter to submit\s*\|\s*esc to cancel/gi)];
+  // 過去の完了footerより前の質問・選択番号を、現在のdialogへ持ち込まない。
+  const previousFooter = footers.at(-2);
+  const current = previousFooter ? screen.slice(previousFooter.index! + previousFooter[0].length) : screen;
+  const heading = [...current.matchAll(/Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!/g)].at(-1);
+  return heading ? current.slice(heading.index) : current;
+}
+
+export function codexPaneObservation(screen: string): HarnessPaneObservation {
+  const failure = codexStartupFailure(screen);
+  if (failure) return { state: "blocked", reason: failure };
+  const tail = screen.split("\n").slice(-24).join("\n");
+  // 現在のmodal footerがある時だけ、折返しで上へ出た質問を画面全体から探す。
+  const lastComposer = [...tail.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
+  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to cancel|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!/gi)].at(-1)?.index ?? -1;
+  const modal = lastDialog > lastComposer;
+  if (!modal) {
+    if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
+    if (codexTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
+  }
+  const current = modal ? currentCodexDialog(screen) : tail;
+  if (/Would you like to run the following command\?/.test(current))
+    return { state: "blocked", reason: "command_approval" };
+  if (/Allow the .+ MCP server to run tool/.test(current))
+    return { state: "blocked", reason: "mcp_approval" };
+  if (/Hooks need review/.test(current)) return { state: "blocked", reason: "hooks_review" };
+  if (codexLaunchBlockingDialog(current)) return { state: "blocked", reason: "startup_dialog" };
+  if (modal) return { state: "blocked", reason: "unknown_dialog" };
+  return { state: "unknown", reason: "unrecognized_screen" };
+}
+
+export function codexStartupFailure(screen: string): string | null {
+  return /(?:^|\n)[ \t]*[›>]?[ \t]*Error loading config\.toml:/m.test(screen)
+    ? "configuration_error" : null;
+}
+
+export interface CodexApprovalDialog {
+  kind: "command_approval" | "mcp_approval";
+  prompt: string;
+  canonical: string;
+  selected_index: number | null;
+  choices: { decision: "approve_once" | "deny"; index: number; label: string }[];
+}
+
+export function codexApprovalDialog(screen: string): CodexApprovalDialog | null {
+  const observation = codexPaneObservation(screen);
+  if (observation.state !== "blocked" || !["command_approval", "mcp_approval"].includes(observation.reason)) return null;
+  screen = currentCodexDialog(screen);
+  const question = observation.reason === "command_approval"
+    ? screen.lastIndexOf("Would you like to run the following command?")
+    : [...screen.matchAll(/Allow the [^\n]+ MCP server to run tool[^\n]*\?/g)].at(-1)?.index ?? -1;
+  const lines = screen.slice(question).split("\n");
+  const choices: CodexApprovalDialog["choices"] = [];
+  let selectedIndex: number | null = null;
+  let firstChoice = lines.length;
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^[ \t]*(›[ \t]*)?(\d+)\.[ \t]+(.+)$/.exec(lines[index]);
+    if (!match) continue;
+    firstChoice = Math.min(firstChoice, index);
+    if (match[1]) selectedIndex = Number(match[2]);
+    const label = match[3].trim().split(/\s{2,}/)[0];
+    const decision = /^(?:Yes, proceed(?: \(y\))?|Allow)$/i.test(label) ? "approve_once"
+      : /^(?:No, and tell Codex what to do differently(?: \(esc\))?|Cancel)$/i.test(label) ? "deny" : null;
+    if (decision) choices.push({ decision, index: Number(match[2]), label });
+  }
+  if (new Set(choices.map(choice => choice.decision)).size !== choices.length)
+    throw new AitermError("Codex承認の単発選択肢が重複しています", 2);
+  return {
+    kind: observation.reason as CodexApprovalDialog["kind"],
+    prompt: lines.slice(0, firstChoice).join("\n").trim(),
+    canonical: lines.map(line => line.replace(/^[ \t]*›[ \t]*/, "").trimEnd()).join("\n").trim(),
+    selected_index: selectedIndex, choices,
+  };
+}
+
+export function codexStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
+  if (codexPaneObservation(screen).state !== "blocked") return null;
+  screen = currentCodexDialog(screen);
+  let kind: string;
+  let wanted: RegExp;
+  if (screen.includes("Update available!") && screen.includes("Update now")) {
+    kind = "update_deferred"; wanted = /^Not now\b/i;
+  } else if (trustProject && screen.includes("Do you trust the contents of this directory")) {
+    kind = "workspace_trusted"; wanted = /^Yes, continue\b/i;
+  } else if (trustProject && screen.includes("Hooks need review")) {
+    kind = "project_hooks_trusted"; wanted = /^Trust all\b/i;
+  } else return null;
+  const choices = [...screen.matchAll(/^[ \t]*(›[ \t]*)?(\d+)\.[ \t]+(.+)$/gm)];
+  const selected = choices.filter(match => match[1]).at(-1);
+  const target = choices.filter(match => wanted.test(match[3])).at(-1);
+  if (!selected || !target) return null;
+  const distance = Number(target[2]) - Number(selected[2]);
+  return { kind, keys: [...Array(Math.abs(distance)).fill(distance > 0 ? "Down" : "Up"), "Enter"] };
 }
 
 // submit座礁観測のcomposer領域マーカー（ready判定と同じ記号を行頭基準で探す）。

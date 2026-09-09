@@ -20,8 +20,12 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - Node.js 18以上。POSIXはtmux、Windows nativeはpsmux 3.3.8以上＋Git for Windowsを使う。
   Windowsの対話shellはPowerShell 7だけとし、Windows PowerShell 5.1、PowerShell 6、`cmd.exe`、
   WSL bridgeへfallbackしない。
-- 公開面は16 tools。PTY 6、標準`agent_launch` 1、deprecated互換launcher 4、
-  `agent_configure`、`agent_steer`、`claude_turn`、`claude_approval`、`diagnostics`である。
+- 公開面は18 tools。PTY 7、標準`agent_launch` 1、deprecated互換launcher 4、
+  `agent_configure`、`agent_steer`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`である。
+- `pty_list`は明示した非秘密envキーだけを照会し、`pty_observe`はpaneとharnessの生存・native PID・
+  状態・活動を区別する。取得不能はnull／unknownで返し、生argvと画面本文を観測receiptへ出さない。
+- `trust_project:true`のlaunchはpromptなしでも既知の起動準備とharness生存を確認する。
+  初手の未送信・送信済み未確認・開始確認を区別し、終了したharnessの残画面へ送信しない。
 - `agent_launch`はharnessとmodelを別軸にする。harnessはagent loop、認証、hook、session、
   transcriptを所有し、modelはそのharness上で選ぶ。ComposerはGrok CLIのmodel presetである。
 - launcherは直接CLIと同じ通常`HOME`、project／user設定、MCP、plugin、skill、permission、trust、
@@ -47,6 +51,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/core.ts`は該当harnessで判定を呼び出すだけとし、CLIの拒否文言や設定の修復処理を持たない。
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
+- `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
 - `src/runtime-error-*.ts`: 製品所有のoffline error aggregate。
 - `src/rtk.ts`: 自前reducer。pytestはrtk 0.42.0と一致し、`FAILED`理由全文保持だけ意図的に異なる。
 - `prototype/python/`: 旧MVPとreducer移植元。参照専用。

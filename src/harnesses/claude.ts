@@ -247,7 +247,37 @@ export function claudeTuiReady(screen: string): boolean {
   // Claude Code 2.1.251 のworkspace trust UIも選択カーソルに❯を使う。
   // 最後のmarker行だけを見ることで、古いtrust表示がscrollbackに残っていても
   // その下に描画された現在のcomposerを優先する。
-  return !/^❯\s*(?:\d+\.\s*)?(?:No,\s*exit|Yes,\s*I trust this folder)(?:\s|$)/iu.test(lastMarker);
+  return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b)/iu.test(lastMarker);
+}
+
+export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
+  const tail = screen.split("\n").slice(-32).join("\n");
+  if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
+    return { state: "blocked", reason: "tool_approval" };
+  if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
+  if (claudeTuiReady(screen)) return { state: "idle", reason: "composer_ready" };
+  if (/new MCP servers? found in this project/i.test(tail)) return { state: "blocked", reason: "project_mcp_consent" };
+  if (claudeStartupAction(screen, false)) return { state: "blocked", reason: "startup_dialog" };
+  return { state: "unknown", reason: "unrecognized_screen" };
+}
+
+export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
+  // 既存launcherで扱っていた2確認は従来の起動契約を維持する。
+  if (screen.includes("Is this a project you created or one you trust")
+    && screen.includes("No, exit") && screen.includes("Yes, I trust this folder"))
+    return { kind: "workspace_trusted", keys: ["Down", "Enter"] };
+  if (screen.includes("Claude Code running in Bypass Permissions mode")
+    && screen.includes("No, exit") && screen.includes("Yes, I accept"))
+    return { kind: "configured_permission_mode_confirmed", keys: ["Down", "Enter"] };
+  if (!trustProject) return null;
+  if (/New MCP server found in this project:/.test(screen))
+    return { kind: "project_mcp_enabled", keys: ["Down", "Enter"] };
+  if (/new MCP servers found in this project/i.test(screen) && screen.includes("Enable selected")) {
+    const selected = screen.split("\n").filter(line => /\[✔\]/u.test(line));
+    if (selected.length && selected.some(line => /❯/.test(line)))
+      return { kind: "project_mcp_enabled", keys: [...selected.map(() => "Down"), "Enter"] };
+  }
+  return null;
 }
 
 // submit座礁観測のcomposer領域マーカー（ready判定と同じ記号を行頭基準で探す）。

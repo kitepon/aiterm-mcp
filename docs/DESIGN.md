@@ -26,6 +26,18 @@ Windows nativeではpsmux 3.3.8以上に保存され、MCP serverやclientの再
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。
 
+`pty_list`はtextと構造化したsession一覧を返す。`env_keys`は帰属等の非秘密キーの明示照会だけで、
+psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AITERM_SESSION_ID`を注入し、
+`env_vars`の継承とsessionへの登録もAitermが所有する。古いtmuxは子へのenv注入とsession登録を使う。
+
+`pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
+PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
+POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
+画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
+初回とpane再作成後の差分はnull。区間中にprocessが消えた時は観測できたCPU増分だけを返し、
+`cpu_delta_complete=false`を付ける。background活動はpane開始から60秒以降に生成された子孫だけを数える。
+`token_hint`は画面の直近表示であり、usageの累積正本ではない。
+
 ## Agent model
 
 標準入口`agent_launch`は`claude-code`、`codex-cli`、`grok-cli`、`cursor-cli`のharnessとmodelを別軸で選ぶ。
@@ -41,6 +53,15 @@ Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
 
+`trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
+promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は
+従来どおり`startup.not_checked`で返す。初手receiptは未要求・未送信・送信済み未確認・開始確認を分ける。
+開始の証拠は送信後の実行表示、実行中の既知承認、または同じcursor以降の完了だけとし、残存なしでは代用しない。
+Codexの設定エラー等でCLIが終了した場合は、残った画面へ送らず未送信で止める。
+
+`agent_approval`はCodexの現在のcommand／MCP承認を検査し、launch IDを含むdigestと単発の選択へ束縛する。
+応答はsend lock内で再観測し、変更・未知・取得失敗では入力しない。Claudeの既存`claude_approval`は維持する。
+
 ## Layer ownership
 
 ```text
@@ -52,7 +73,7 @@ MCP schema (index)
 ```
 
 harness固有のready、auth、catalog、transcriptは`src/harnesses/`、OSとmultiplexer差は
-`src/tmux-runtime.ts`／`src/agent-resolver.ts`、共通進行は`src/core.ts`に置く。
+`src/tmux-runtime.ts`／`src/agent-resolver.ts`／`src/process-runtime.ts`、共通進行は`src/core.ts`に置く。
 stdio stdoutはJSON-RPC専用とし、diagnostic logを混ぜない。
 
 Aitermはtransport、schema、turn相関だけを検証する。command／prompt本文の意味を分類して拒否せず、
@@ -70,7 +91,7 @@ Grok／Composerのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は
 Grok／Composerの場合だけこの判定を呼び、`GROK_SANDBOX_STARTUP_FAILED`で原因と未送信を返す。
 初回prompt付き起動と通常dispatchに適用され、他harnessの入力受付判定には適用しない。
-promptなしの起動応答はPTYへの起動要求を示し、入力受付の確認は後続の送信時に行う。
+`trust_project`指定なしのpromptなし起動応答はPTYへの起動要求を示し、入力受付の確認は後続の送信時に行う。
 
 hookパスのシンボリックリンク等を拒否する判断はGrok CLIが所有する。AitermはCLIが出した拒否を伝え、
 hookのコピー、設定の置換、sandboxの解除は行わない。原因を設定の管理元で修正した後、対象sessionを

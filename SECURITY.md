@@ -61,7 +61,7 @@ that transfer is not intended.
 
 ### Selected launcher environment values are not secret transport
 
-Canonical `agent_launch` and its four compatibility aliases accept `env_vars` as an allowlist of environment-variable
+`pty_open`, canonical `agent_launch`, and its four compatibility aliases accept `env_vars` as an allowlist of environment-variable
 names. At launch, aiterm reads present values from its current MCP process and
 shell-quotes them into the one harness launch command. This deliberately bypasses
 the potentially stale environment of a tmux server that was started earlier.
@@ -74,6 +74,13 @@ or workflow routing that the selected harness and host user are allowed to see.
 Do not use it as a credential or secret-delivery mechanism. Missing names are
 omitted, invalid shell variable names fail before session creation, and aiterm
 does not copy the whole environment or mutate/restart the tmux server.
+
+`pty_list({ env_keys: [...] })` explicitly returns the requested session environment values to the caller.
+Only request non-secret ownership or routing keys; omitted keys are never included, including extra values emitted by psmux.
+This opt-in query is separate from `diagnostics`, which continues to return no environment values.
+`pty_observe` returns process identifiers, an argv digest, and activity measurements without raw argv or pane text.
+`agent_approval` exposes the current Codex approval subject for a caller's decision, but only one-time approval or denial.
+Project startup consent requires `trust_project: true`; it does not grant permanent runtime command or MCP approval.
 
 ### The destructive-command gate is a TRIPWIRE, not a sandbox
 

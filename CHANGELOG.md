@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-09-09
+
 ### Added
 
 - `pty_list`の構造化結果と明示した非秘密環境変数の照会、`pty_observe`によるpane／harnessの生存、native process identity、状態、token hint、画面・CPU活動の観測を追加した。
@@ -1596,7 +1598,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.2...v0.32.0
 [0.31.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.1...v0.31.2
 [0.31.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.0...v0.31.1

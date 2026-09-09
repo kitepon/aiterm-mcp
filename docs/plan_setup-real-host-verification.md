@@ -1,10 +1,9 @@
-# 公開setupの実機導入確認
+# 公開setupの実機導入確認：完了
 
-- 対象: Aitermの公開npm版と、その製品が所有する実機導入・AI登録。
-- 確認済み基準: npm 0.32.0、origin/main 800f14d。公開後差分はOS別テスト期待値のみ。3環境CIは既存成功を再利用する。
-- 受入: Aiterm永続PTY内のSSHで公式npm導入、setup初回・再実行、既存設定保持、公開MCPの端末作成・実行・読取・終了を確認する。
-- 実行: 親が実機操作と受入を担当する。共有AI設定への同時書込みを避けるため導入は端末ごとに直列。子への委譲は行わない。
-- 範囲外: 他製品repoの変更、既存setupの作り直し、根拠のない試験反復・増版。
-- 既知の前提: Windowsの既存実績は引継ぎを保持する。SSHログイン環境と既存導入prefixの一致を実測する。MacへのSSHは接続拒否のため接続条件を確認中。
-- 現在地: LinuxとWindowsの公開0.32.0導入、setup初回・再実行、設定保持、公開MCP端末操作と診断を確認。MacはSSH接続拒否、WSLはSSHタイムアウト。WindowsはCodex CLI未検出。全対象の受入は未完了。
-- 実測: [確認記録](evidence/20260910-setup-real-host-verification.md)。接続条件が整った対象だけ同じ実機確認を再開し、成功済み項目は反復しない。
+Macローカル、Linux、Windows nativeの公開版導入と検証は完了した。
+MacへのSSHは不要、廃止済みWSLは対象外。接続待ちの残件はない。
+最終判断は[ADR 0054](adr/0054-setup-real-host-completion.md)、検証は
+[公開版の実機記録](evidence/20260910-public-session-api.md)を参照。
+
+このfileは過去の証拠・ADRの固定参照を保持するhistory stubである。
+訂正前の計画は[archive](archive/plan_setup-real-host-verification.md)に保存した。

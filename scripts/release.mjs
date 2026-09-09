@@ -10,6 +10,11 @@ import { fileURLToPath } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const version = process.argv[2];
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  process.stderr.write("releaseはnpm run release -- <version>から起動してください。\n");
+  process.exit(2);
+}
 if (!/^\d+\.\d+\.\d+$/u.test(version ?? "")) {
   process.stderr.write("usage: npm run release -- <x.y.z>\n");
   process.exit(2);
@@ -87,7 +92,8 @@ run("git", ["push", "origin", "main"], { stdio: "inherit" });
 run("git", ["tag", `v${version}`]);
 run("git", ["push", "origin", `v${version}`], { stdio: "inherit" });
 
-run("npm", ["run", "mcpb:build"], { stdio: "inherit" });
+// Windowsのnpm.cmdも、起動元npmのJS入口をNodeへ渡してshell差を吸収する。
+run(process.execPath, [npmCli, "run", "mcpb:build"], { stdio: "inherit" });
 const escaped = version.replace(/\./gu, "\\.");
 const notes = nextChangelog.match(new RegExp(`^## \\[${escaped}\\][^\\n]*\\n\\n([\\s\\S]*?)(?=^## \\[)`, "mu"))[1].trim();
 run("gh", ["release", "create", `v${version}`, "dist/aiterm-mcp.mcpb", "--title", `v${version}`, "--notes", notes], { stdio: "inherit" });

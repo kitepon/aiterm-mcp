@@ -91,7 +91,8 @@ export function assertGrokModelAvailable(bin: string, cwd: string, model: string
 
 export function grokSessionDirectory(meta: AgentMetadata): string | null {
   if ((meta.kind !== "grok" && meta.kind !== "composer") || !meta.grok_home || !meta.vendor_session_id) return null;
-  const cwd = meta.cwd ?? process.cwd();
+  // Grok CLIは起動cwdをOSの絶対パスへ正規化して保存する。
+  const cwd = path.resolve(meta.cwd ?? process.cwd());
   return path.join(meta.grok_home, "sessions", encodeURIComponent(cwd), meta.vendor_session_id);
 }
 
@@ -134,7 +135,9 @@ export function latestGrokCompletion(
   for (const line of readTranscriptLines(transcript)) {
     if (!line.trim()) continue;
     try {
-      latest = grokCompletionEvent(meta, JSON.parse(line)) ?? latest;
+      const record = JSON.parse(line);
+      // 次のturn開始後は前の完了eventを現在の回答に結び付けない。
+      latest = record?.type === "turn_started" ? null : grokCompletionEvent(meta, record) ?? latest;
     } catch {
       // 末尾書込み中のlineは次の観測で完結してから読む。
     }
@@ -362,17 +365,9 @@ export function grokTranscriptText(
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
 ): string {
-  if (!meta.grok_home || !meta.vendor_session_id) transcriptUnavailable();
-  // cwd 未指定で起動した TUI はサーバープロセスの cwd を継承する。metadata に null が残る既存
-  // launch との互換のため、その実際の起動 cwd を path 導出に使う（launch 側は変更しない）。
-  const cwd = meta.cwd ?? process.cwd();
-  const transcript = path.join(
-    meta.grok_home,
-    "sessions",
-    encodeURIComponent(cwd),
-    meta.vendor_session_id,
-    "chat_history.jsonl",
-  );
+  const directory = grokSessionDirectory(meta);
+  if (!directory) transcriptUnavailable();
+  const transcript = path.join(directory, "chat_history.jsonl");
   const lines = readTranscriptLines(transcript);
   let lastUser = -1;
   const records: any[] = [];

@@ -32,7 +32,9 @@ claude mcp add --scope user --transport stdio aiterm -- aiterm-mcp
 
 | File | Responsibility |
 | --- | --- |
-| `src/index.ts` | The MCP surface — exposes 15 tools over stdio via `@modelcontextprotocol/sdk` + `zod`: 6 PTY tools, canonical `agent_launch`, 4 deprecated launcher aliases, `agent_configure`, `claude_turn`, `claude_approval`, and read-only `diagnostics`. |
+| `src/index.ts` | stdioの16 tools: PTY 6、`agent_launch`、旧launcher 4、`agent_configure`、`agent_steer`、`claude_turn`、`claude_approval`、`diagnostics`。 |
+| `src/setup.ts` / `src/setup-cli.ts` | 一括導入の順序、公開JSON、終了コード。 |
+| `src/setup-platform.ts` / `src/setup-integrations.ts` | OS別の公式依存導入とAI別のMCP登録・確認。 |
 | `src/core.ts` | Harness-neutral orchestration: PTY operations, output reduction, completion dispatch, the destructive-command tripwire, correlation and approval relay, selected `env_vars`, optional Throughline context acquisition, and session-name validation. |
 | `src/harnesses/{claude,codex,grok,cursor}.ts` | Harness-owned launch arguments, readiness, completion/transcript attribution, model configuration, and auth/catalog preflight. Composer is a Grok CLI model preset, not a separate harness. |
 | `src/tmux-runtime.ts` / `src/agent-resolver.ts` | All tmux/psmux and OS-specific executable-resolution behavior. Harness adapters must not grow their own platform branches. |
@@ -64,7 +66,7 @@ Tests skip gracefully when the platform multiplexer is absent (`tmux -V` on POSI
 - **Never pollute stdout.** stdout is the JSON-RPC channel and nothing else. All diagnostics, notes, and warnings go to **stderr** (e.g. the `resolveTmux()` discovery note). A regression test (`smoke.test.mjs`) asserts every stdout line is JSON-RPC — a stray `console.log` will break it.
 - **No silent fallbacks.** When something can't be done, surface a clear error (the macOS work replaced an empty-stderr failure with an explicit "install tmux with brew" diagnostic). Don't paper over failures.
 - **Comments stay bilingual.** The codebase uses Japanese explanatory comments alongside the code (see `src/core.ts`). Match that style — explain the *why* and the non-obvious tradeoffs, in the same voice as the surrounding comments.
-- **Keep the PTY surface thin.** The project currently ships 15 tools — 6 PTY primitives, canonical `agent_launch`, 4 deprecated launcher aliases, `agent_configure`, `claude_turn`, `claude_approval`, and read-only `diagnostics`. SSH, containers, and REPLs are nested via `pty_send`, not added as tools — new session *kinds* reached by nesting are not new tools.
+- **PTYの公開面を小さく保つ。** 現行は16 tools。SSH、container、REPLは`pty_send`から入れ子で操作し、専用toolを増やさない。
 - **Keep harness and model separate.** Harness-specific behavior belongs in `src/harnesses/`; OS differences belong in `src/tmux-runtime.ts` or `src/agent-resolver.ts`. A Cursor-selected GPT, Claude, or Grok model still uses Cursor completion and transcript semantics.
 - **Keep portable context behind Throughline's CLI boundary.** Do not read `~/.throughline/throughline.db` from aiterm. Canonical `agent_launch` and its compatibility aliases share the same optional `throughline_source_session` path, and an external command failure must occur before PTY creation without falling back to a context-free launch.
 - **Keep `env_vars` narrow.** It accepts variable names only and reads present values from the current MCP process at launch. Do not turn it into an arbitrary name/value map, a whole-environment snapshot, or a tmux-server mutation. Values enter the PTY launch command and `.lastcmd`, so tests and docs must not describe it as secret transport.

@@ -6,6 +6,16 @@ Aitermは、AIがローカルshell、SSH、container、REPL、別agentの対話T
 操作するstdio MCP serverである。install、session、state、schema、diagnostics、recovery、releaseは
 このrepositoryが所有し、外部の工場管理製品がなくても単独で動く。
 
+## 導入と登録
+
+`aiterm-setup`はglobal packageからだけ実行し、依存準備、公開MCP経由の端末実行、
+検出したAIのユーザー設定への登録と読戻しを連続実行する。npm lifecycleでユーザー設定を変更しない。
+共通の順序と結果は`src/setup.ts`、公式package managerとOS差は`src/setup-platform.ts`、
+各AIの登録形式は`src/setup-integrations.ts`が所有する。既存の他サーバーは保持し、
+Claude／CursorのJSONは参照先を原子的に更新して変更前backupを残す。Codex／Grokは公式CLIで登録・確認する。
+各AIの読戻しは登録内容の確認であり、端末の実動作はその前の公開MCP試験で確認する。
+失敗は理由付きJSONと非ゼロ終了で返す。対応外の自動導入と全AI未検出を成功扱いしない。
+
 ## Terminal model
 
 プリミティブはlocal PTYを1つ開き、text／keyを送り、画面を読み、閉じることだけである。
@@ -26,6 +36,7 @@ Throughlineの補足記憶はpathを透過搬送するだけで、内容、proje
 agent turnは常に非ブロックdispatchである。receiptの`event_cursor`がturn境界、`wait_process`が
 platform nativeな別process起動情報を返す。waiterは純readerで、親のforeground turnを塞がない。
 回答はharness所有transcriptから同じturnへ相関して回収し、欠落・曖昧・timeout時にpromptを再送しない。
+Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
 `agent_steer`は実行中のCodex／Grok turnへ追加textを差し込み、idleなら送信せず状態を返す。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。

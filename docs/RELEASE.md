@@ -35,6 +35,10 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 
 ## 公開後smoke
 
+setupを変更した場合は、公開packageのglobal install後に`aiterm-setup --json`を実行し、
+端末実行と検出した各AIの登録結果を確認する。初回と再実行は一時設定領域でも試験し、所有外の設定保持を確かめる。
+WindowsのGrokパス変更ではスラッシュ区切りcwdで起動し、同じturnの完了通知と回答回収を確認する。
+
 公式npm packageを隔離またはglobal installし、変更に触れたharnessの起動、non-blocking dispatch、wait outcome、
 transcript回収、`pty_close`後の残骸ゼロを確認する。
 
@@ -45,12 +49,20 @@ timeoutや再送案内へ変わらないことを確認する。拒否を検証�
 
 ## 利用者の更新と巻き戻し
 
-global installはnpmの公開packageだけで完結する。
+更新はnpmの公開packageから行う。
 
 ```bash
 npm install -g aiterm-mcp@latest
+aiterm-setup --json
+```
+
+巻き戻しは既知の正常版を指定する。
+
+```bash
 npm install -g "aiterm-mcp@<known-good-version>"
 ```
+
+setupを持つ版では`aiterm-setup --json`を再実行する。どちらもMCP clientを再起動する。
 
 `npx`をMCP設定から使う場合は、package引数を`aiterm-mcp@latest`へ変えると更新でき、
 `aiterm-mcp@<known-good-version>`へ変えると固定・巻き戻しできる。変更後はMCP clientを再起動する。

@@ -24,12 +24,12 @@ export function resolveWindowsPowerShell7(probe: WindowsPowerShellProbe = defaul
   const located = probe("where.exe", [WINDOWS_POWERSHELL_7_COMMAND]);
   const resolved = located.stdout?.split(/\r?\n/u)
     .find(candidate => path.win32.isAbsolute(candidate)
-      && path.win32.basename(candidate).toLowerCase() === WINDOWS_POWERSHELL_7_COMMAND);
+      && path.win32.basename(candidate).toLowerCase() === WINDOWS_POWERSHELL_7_COMMAND)
+    ?? path.win32.join(process.env.ProgramFiles ?? "C:\\Program Files", "PowerShell", "7", WINDOWS_POWERSHELL_7_COMMAND);
   const fail = (): never => { throw new AitermError(
     `PowerShell 7が必要です。Microsoft公式経路で導入してください: ${WINDOWS_POWERSHELL_7_INSTALL}`,
     2,
   ); };
-  if (located.status !== 0 || typeof resolved !== "string") fail();
   const executable = resolved as string;
   const version = probe(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
     '[ordered]@{ edition = $PSVersionTable.PSEdition; major = $PSVersionTable.PSVersion.Major } | ConvertTo-Json -Compress']);

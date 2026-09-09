@@ -28,6 +28,24 @@
 
 ## MCPクライアントへ導入
 
+検出したClaude Code・Codex・Grok・Cursorのユーザー設定へ登録する標準入口:
+
+```bash
+npm install -g aiterm-mcp@latest
+aiterm-setup --json
+```
+
+`aiterm-setup`は端末の依存準備、MCP経由の端末実行、登録と読戻しまでを一回で行う。
+WindowsはwingetでPowerShell 7・Git for Windows・psmux、macOSはHomebrewでtmux、
+Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package managerと実行権限は事前に必要。
+他のLinuxでも既存tmuxを利用できるが、自動導入は`unsupported`で停止する。
+既存設定の他サーバーを保持し、JSON設定は変更前の`.aiterm-backup`を残す。
+結果の`status`は`ready`／`unsupported`／`failed`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
+登録先はglobal packageのNodeとMCP入口の絶対パスで、npm一時cacheやsource checkoutは登録しない。
+更新後も同じ入口を実行し、MCP clientを再起動する。npm install自体はユーザー設定を変更しない。
+公開JSONは`schema: "aiterm.setup-result.v1"`、全体の`status`、端末の`backend`、
+AI別の`integrations`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、それ以外は2となる。
+
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:
 
 ```bash
@@ -158,8 +176,8 @@ Publishing）で公開し、GitHub Release が Official MCP Registry を再登�
 ### 更新と巻き戻し
 
 npm packageが単独配布の正本であり、dotagentsは介在しません。global installは
-`npm install -g aiterm-mcp@latest`で更新します。巻き戻す時は
-`npm install -g "aiterm-mcp@<known-good-version>"`のように既知の正常versionを明示し、MCP clientを再起動します。
+`npm install -g aiterm-mcp@latest`で更新し、`aiterm-setup --json`を再実行します。巻き戻す時は
+`npm install -g "aiterm-mcp@<known-good-version>"`のように既知の正常versionを明示します。setupを持つ版では同じ入口を再実行し、MCP clientを再起動します。
 `npx`設定では`aiterm-mcp@latest`へ変えると更新でき、`aiterm-mcp@<version>`へ変えると固定・巻き戻し
 できます。downgrade前に[変更履歴](CHANGELOG.md)でstate／schema互換を確認してください。maintainer向けの
 公開物とreleaseの巻き戻しは、製品所有の[release手順](docs/RELEASE.md)を正とします。
@@ -293,7 +311,7 @@ Throughline自体が不要である。
 
 ## 最初の実行（約60秒）
 
-Claude Code を再起動して、接続を確認:
+`aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
 /mcp        # aiterm が connected・16 ツール公開、と出る
@@ -514,10 +532,11 @@ tagged commitが`origin/main`の祖先であることだけを確認して、他
 
 ## 試す
 
-1 コマンド、clone もビルドも不要:
+公開packageを導入して、検出したAIへ登録する。cloneやビルドは不要:
 
 ```bash
-claude mcp add --scope user --transport stdio aiterm -- npx -y aiterm-mcp
+npm install -g aiterm-mcp@latest
+aiterm-setup --json
 ```
 
 aiterm が、あなたの AI に別のエージェントへ仕事を渡させたなら——あるいはトークンの往復を 1 回でも省けたなら——**[リポジトリに star](https://github.com/kitepon/aiterm-mcp)** を。他の人に見つけてもらう一番安い方法です。

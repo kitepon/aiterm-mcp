@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `aiterm-setup`を追加した。公式package managerによる依存準備、MCP経由の端末実行、検出したClaude Code・Codex・Grok・Cursorへの登録と確認を製品が所有する。対応外・未検出・失敗は公開JSONで区別する。
+
+### Fixed
+
+- Windowsでスラッシュ区切りのcwdを指定したGrok／Composerの完了通知と回答を取得できない問題を修正した。Grok CLIと同じ絶対パスへ正規化して両方の記録を読む。
+- Grok／Composerの次turn開始後に、途中の回答を前turnの完了ID付きで返す問題を修正した。
+- psmuxの最低版を実際のpsmux版数で検証し、winget導入直後の既存PATHからも公式配置を解決する。
+- Windowsでrelease中のnpm起動がENOENTになる問題を修正し、起動元npmのJS入口をNodeで呼ぶ。
+
 ## [0.31.2] - 2026-09-08
 
 ### Fixed

@@ -15,6 +15,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 
 ## 現行契約
 
+- 導入後の正規入口は`aiterm-setup`。依存準備、MCP端末の実行、検出したAIのユーザー登録と読戻しを所有する。
+  npm lifecycleからは設定を変更せず、外部工場の設定補完を前提にしない。
 - Node.js 18以上。POSIXはtmux、Windows nativeはpsmux 3.3.8以上＋Git for Windowsを使う。
   Windowsの対話shellはPowerShell 7だけとし、Windows PowerShell 5.1、PowerShell 6、`cmd.exe`、
   WSL bridgeへfallbackしない。
@@ -36,6 +38,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 
 ## コード所有
 
+- `src/setup.ts`／`src/setup-cli.ts`: 導入の順序・公開結果。`src/setup-platform.ts`: OSと公式導入経路。
+  `src/setup-integrations.ts`: AI別のMCP登録と読戻し。
 - `src/index.ts`: MCP toolとschema。
 - `src/core.ts`: PTY、入出力整形、出力削減、完了検出、harness共通進行。
 - `src/harnesses/`: Claude／Codex／Grok／Cursor固有の起動、ready、完了、transcript、catalog。

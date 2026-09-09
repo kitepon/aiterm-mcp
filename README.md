@@ -28,6 +28,24 @@ Built and maintained by [Quo at kitepon.dev](https://kitepon.dev/en).
 
 ## Install in your MCP client
 
+検出したClaude Code・Codex・Grok・Cursorのユーザー設定へ登録する標準入口:
+
+```bash
+npm install -g aiterm-mcp@latest
+aiterm-setup --json
+```
+
+`aiterm-setup`は端末の依存準備、MCP経由の端末実行、登録と読戻しまでを一回で行う。
+WindowsはwingetでPowerShell 7・Git for Windows・psmux、macOSはHomebrewでtmux、
+Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package managerと実行権限は事前に必要。
+他のLinuxでも既存tmuxを利用できるが、自動導入は`unsupported`で停止する。
+既存設定の他サーバーを保持し、JSON設定は変更前の`.aiterm-backup`を残す。
+結果の`status`は`ready`／`unsupported`／`failed`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
+登録先はglobal packageのNodeとMCP入口の絶対パスで、npm一時cacheやsource checkoutは登録しない。
+更新後も同じ入口を実行し、MCP clientを再起動する。npm install自体はユーザー設定を変更しない。
+公開JSONは`schema: "aiterm.setup-result.v1"`、全体の`status`、端末の`backend`、
+AI別の`integrations`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、それ以外は2となる。
+
 No clone or build is required. Each client launches the published package with:
 
 ```bash
@@ -174,8 +192,8 @@ Release re-registers the Official MCP Registry entry.
 ### Update and rollback
 
 The npm package is the standalone distribution; dotagents is not involved. For a global install,
-update with `npm install -g aiterm-mcp@latest`. To roll back, install a known-good immutable version,
-for example `npm install -g "aiterm-mcp@<known-good-version>"`, then restart the MCP client. For an `npx` configuration,
+update with `npm install -g aiterm-mcp@latest` and `aiterm-setup --json`. To roll back, install a known-good immutable version,
+for example `npm install -g "aiterm-mcp@<known-good-version>"`, then restart the MCP client. setupを持つ版では再起動前に`aiterm-setup --json`を再実行する。For an `npx` configuration,
 use `aiterm-mcp@latest` to update or replace it with `aiterm-mcp@<version>` to pin or roll back.
 Check the [CHANGELOG](CHANGELOG.md) for state/schema compatibility before downgrading. Maintainer
 release and artifact rollback are specified in the product-owned [release procedure](docs/RELEASE.md).
@@ -323,7 +341,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 
 ## First run (≈60 seconds)
 
-Restart Claude Code, then verify the connection:
+`aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
 /mcp        # aiterm should show as connected, exposing 16 tools
@@ -564,10 +582,11 @@ Logic lives in `src/core.ts` (tmux control, reduction, completion detection, saf
 
 ## Try it
 
-One command, no clone, no build:
+公開packageを導入して、検出したAIへ登録する。cloneやビルドは不要:
 
 ```bash
-claude mcp add --scope user --transport stdio aiterm -- npx -y aiterm-mcp
+npm install -g aiterm-mcp@latest
+aiterm-setup --json
 ```
 
 If aiterm let your AI hand a task to another agent — or saved you a round-trip of tokens — **[star the repo](https://github.com/kitepon/aiterm-mcp)**. It's the cheapest way to help others find it.

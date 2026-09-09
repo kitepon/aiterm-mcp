@@ -9,7 +9,7 @@ aiterm-mcp is published from a single `0.x` line on npm. Security fixes land on 
 | Latest published `0.x` | Yes — fixes released here |
 | Any older `0.x` | No — upgrade to the latest |
 
-If you are pinned to an older version, upgrade (`npm i -g aiterm-mcp@latest`, or just `npx -y aiterm-mcp`, which always fetches the latest) before reporting an issue, in case it is already fixed.
+古い版を使っている場合は、報告前に`npm install -g aiterm-mcp@latest`で更新し、`aiterm-setup --json`を再実行してMCP clientを再起動する。手動npx設定は`npx -y aiterm-mcp@latest`で確認する。
 
 ## Reporting a vulnerability
 

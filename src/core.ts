@@ -2536,6 +2536,7 @@ export async function readAgentTranscriptResult(
   } else if (meta.kind === "codex") {
     text = codexTranscriptText(meta, turnId, readTranscriptLines, transcriptUnavailable);
   } else {
+    if (!done) transcriptUnavailable();
     text = grokTranscriptText(meta, readTranscriptLines, transcriptUnavailable);
   }
 

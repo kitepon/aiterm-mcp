@@ -5,7 +5,7 @@ dotagentsは任意の工場統合を担うが、Aitermの製品正典や実行�
 
 ## 現行正典
 
-- [README](../README.md)／[日本語README](../README.ja.md): 公開API、install、利用、復旧。
+- [README](../README.md)／[日本語README](../README.ja.md): 公開API、`aiterm-setup`による依存準備とAI登録、利用、復旧。
 - [AGENTS](https://github.com/kitepon/aiterm-mcp/blob/main/AGENTS.md): AI作業者向けの製品境界と変更規律。
 - [DESIGN](DESIGN.md): 現行アーキテクチャと不変条件。
 - [RELEASE](RELEASE.md): version同期、検証、公開、公開後smoke、巻き戻し。

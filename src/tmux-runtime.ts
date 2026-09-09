@@ -30,10 +30,18 @@ export const WIN_NS = `aiterm-${createHash("sha1").update(SOCKDIR).digest("hex")
 // psmux は tmux CLI 互換の Windows ネイティブ実装（ConPTY・WSL 不要）。AITERM_PSMUX で
 // バイナリを明示上書きできる（POSIX の AITERM_TMUX に対応）。
 function psmuxBin(): string {
-  return process.env.AITERM_PSMUX || "psmux";
+  if (process.env.AITERM_PSMUX) return process.env.AITERM_PSMUX;
+  const wingetLink = process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", "psmux.exe");
+  return wingetLink && fs.existsSync(wingetLink) ? wingetLink : "psmux";
+}
+export function psmuxVersionSupported(output: string): boolean {
+  const match = /^psmux (\d+)\.(\d+)\.(\d+)(?:\s|$)/mu.exec(output);
+  if (!match) return false;
+  const [major, minor, patch] = match.slice(1).map(Number);
+  return major > 3 || (major === 3 && (minor > 3 || (minor === 3 && patch >= 8)));
 }
 let winPsmuxOk = false;
-function ensureWinPsmux(observe = true): void {
+export function ensureWinPsmux(observe = true): void {
   if (winPsmuxOk) return;
   const r = spawnSync(psmuxBin(), ["-V"], { encoding: "utf8", timeout: 10000 });
   if (r.error) {
@@ -47,6 +55,8 @@ function ensureWinPsmux(observe = true): void {
   }
   if (r.status !== 0)
     ptyDependencyError("psmux -V が失敗しました。`psmux -V` が通るか確認してください。", observe);
+  if (!psmuxVersionSupported(r.stdout ?? ""))
+    ptyDependencyError("psmux 3.3.8以上が必要です。winget upgrade --id marlocarlo.psmux --source winget で更新してください。", observe);
   winPsmuxOk = true;
 }
 

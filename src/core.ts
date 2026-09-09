@@ -32,6 +32,7 @@ import {
   attachCommand,
   normalizePaneCommand,
   appendMarkSentinel,
+  markShellCommand,
   settlePaneLog,
   paneCwdArgument,
   sessionEnvironmentLaunch,
@@ -415,11 +416,8 @@ export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): P
 
 function paneCurrentCommandForMark(name: string): string {
   const foreground = paneCurrentCommand(name);
-  if (!isWin || foreground === "powershell" || foreground === "pwsh") return foreground;
-  // psmuxはnew-session直後だけpane_current_commandへ起動元shellを返すことがある。
-  // 現在の末尾画面にPowerShell promptが描画済みなら、mark構文はその実効shellへ合わせる。
-  const screen = captureScreen(name, 4).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-  return /(?:^|\n)PS [^\r\n]*>\s*$/m.test(screen) ? "pwsh" : foreground;
+  if ((!isWin && foreground !== "ssh") || foreground === "powershell" || foreground === "pwsh") return foreground;
+  return markShellCommand(foreground, captureScreen(name, 4));
 }
 
 function pasteBufferSupportsNoSanitizeFlag(): boolean {

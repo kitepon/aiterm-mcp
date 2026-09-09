@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 
-import { appendMarkSentinel, isWin, sessionEnvironmentLaunch } from "../dist/tmux-runtime.js";
+import { appendMarkSentinel, isWin, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
 
 test("appendMarkSentinel: POSIX形式は既存byte列を維持する", () => {
   assert.equal(
@@ -20,7 +20,7 @@ test("appendMarkSentinel: heredocの終端を保ち終了コードを取得す�
   }
 });
 
-test("appendMarkSentinel: Windows native PowerShellは数字sentinelを実行時生成する", { skip: !isWin }, () => {
+test("appendMarkSentinel: 実行hostによらずPowerShellは数字sentinelを実行時生成する", () => {
   for (const shell of ["powershell", "pwsh"]) {
     const command = appendMarkSentinel("Write-Output ok", shell);
     assert.match(command, /if \(\$\?\)/);
@@ -28,6 +28,14 @@ test("appendMarkSentinel: Windows native PowerShellは数字sentinelを実行時
     assert.doesNotMatch(command, /<<<AITERM_DONE rc=[0-9]+>>>/);
     assert.doesNotMatch(command, /printf/);
   }
+});
+
+test("markShellCommand: SSH先の現在のPowerShell promptを使い過去画面を拾わない", () => {
+  assert.equal(markShellCommand('ssh', 'PowerShell 7.6.5\nPS C:\\Users\\kite_>\n\n'), 'pwsh');
+  assert.equal(markShellCommand('ssh', 'PS C:\\Users\\kite_> exit\nkite@ubuntu:~$\n'), 'ssh');
+  assert.equal(markShellCommand('ssh', 'PS C:\\Users\\kite_>\n処理中\n'), 'ssh');
+  assert.equal(markShellCommand('ssh', 'PS C:\\Users\\kite_> hostname\n'), 'ssh');
+  assert.equal(markShellCommand('pwsh', ''), 'pwsh');
 });
 
 test("旧tmuxにもsession識別を注入しnew-session -eを要求しない", { skip: isWin }, () => {

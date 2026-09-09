@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS・Linux上のAitermからSSH先のPowerShellへ`pty_send(mark:true)`するとPOSIXの`printf`を送っていた不具合を修理した。現在のPowerShell promptで方言を判定し、成功・失敗の完了マーカーを生成する。古いpromptや入力途中の行は使わない。
+
 ## [0.33.0] - 2026-09-09
 
 ### Added

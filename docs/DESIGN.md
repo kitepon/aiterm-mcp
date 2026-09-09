@@ -25,6 +25,8 @@ Windows nativeではpsmux 3.3.8以上に保存され、MCP serverやclientの再
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。
+sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在の標準PowerShell promptを
+検出した場合は、Aiterm hostのOSに関係なくPowerShell構文を使う。過去のpromptでは切り替えない。
 
 `pty_list`はtextと構造化したsession一覧を返す。`env_keys`は帰属等の非秘密キーの明示照会だけで、
 psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AITERM_SESSION_ID`を注入し、

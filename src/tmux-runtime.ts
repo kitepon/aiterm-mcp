@@ -238,13 +238,20 @@ export function normalizePaneCommand(cmd: string): string {
   return path.basename(cmd).replace(/\.exe$/i, "").toLowerCase();
 }
 
-// mark sentinel のOS差は端末runtimeが所有する。Windows native paneでPowerShellが前面なら
-// PowerShellの状態構文を使い、それ以外は既存のPOSIX形式を維持する。
-const WINDOWS_POWERSHELL_COMMANDS = new Set(["powershell", "pwsh"]);
+// 完了マーカーの方言は実効shellで決める。SSH先のshellはhost OSやsshのprocess名と異なる。
+const POWERSHELL_COMMANDS = new Set(["powershell", "pwsh"]);
+export function markShellCommand(foreground: string, screen: string): string {
+  if (POWERSHELL_COMMANDS.has(foreground)) return foreground;
+  if (!isWin && foreground !== "ssh") return foreground;
+  // psmux起動直後の古いprocess名も、SSH先も、現在の末尾promptだけを実効shellの証拠にする。
+  const current = screen.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trimEnd();
+  return /(?:^|\n)PS [^\r\n]*>$/.test(current) ? "pwsh" : foreground;
+}
+
 export function appendMarkSentinel(text: string, foreground: string): string {
   // 複数行入力の末尾はheredoc／here-string終端になり得るため、独立した次行へ置く。
   const separator = text.includes("\n") ? "\n" : "; ";
-  if (isWin && WINDOWS_POWERSHELL_COMMANDS.has(foreground)) {
+  if (POWERSHELL_COMMANDS.has(foreground)) {
     // command echoに完成済みrc=<数字>を含めない。{0}を実行時formatして早期誤完了を防ぐ。
     return text + separator +
       "if ($?) { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 0)) }" +

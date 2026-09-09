@@ -544,6 +544,8 @@ When an agent's answer is longer than the on-screen tail (pane height ≈ 24 lin
 
 ### Completion detection (5 layers)
 
+For PowerShell over SSH, `mark:true` recognizes the current standard `PS ...>` prompt and emits PowerShell syntax even when Aiterm runs on macOS or Linux. A prompt left in earlier output is not used to select the syntax.
+
 `pty_read({ wait: true })` decides "is the command done?" via five layers: process exit / a `mark:true` sentinel / an `until` match / output quiescence with shell return / timeout. `mark` emits the shell's exit status on POSIX shells and `0` (success) or `1` (failure) on PowerShell; fish/csh/tcsh are rejected before send because they do not share either status syntax. When `mark` or `until` is active, that requested evidence takes precedence and a momentarily quiet shell cannot complete the read as quiescent. Agent sessions add a sixth exact layer: Codex observes normal rollout `task_complete`; Grok/Composer observe normal session `turn_ended`; Claude observes its additive launch-correlated Stop event; Cursor observes `turn_ended(status:"success")` in the launch-bound normal agent transcript. `aiterm-wait --cursor` performs that harness-specific observation without the parent blocking or polling. Pre-send readiness failures are MCP errors, and late completion remains recoverable without resending.
 
 ### Completion push for parent agents (`aiterm-wait`)

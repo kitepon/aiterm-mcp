@@ -808,7 +808,7 @@ test("claudeSessionTranscriptPath: cwdの英数字以外を1文字ずつ '-' に
   try {
     assert.equal(
       claudeHarness.claudeSessionTranscriptPath({ kind: "claude", cwd: "/srv/bellteam/bots/bot-f4d0f046", vendor_session_id: "20442ef4-595d-4753-8584-71f53aff4002" }),
-      "/cfg/projects/-srv-bellteam-bots-bot-f4d0f046/20442ef4-595d-4753-8584-71f53aff4002.jsonl",
+      path.join("/cfg", "projects", "-srv-bellteam-bots-bot-f4d0f046", "20442ef4-595d-4753-8584-71f53aff4002.jsonl"),
     );
     assert.equal(claudeHarness.claudeSessionTranscriptPath({ kind: "grok", cwd: "/x", vendor_session_id: "s" }), null);
     assert.equal(claudeHarness.claudeSessionTranscriptPath({ kind: "claude", cwd: "/x", vendor_session_id: null }), null);

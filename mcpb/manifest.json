@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "aiterm-mcp",
   "display_name": "aiterm-mcp — Persistent AI terminals",
-  "version": "0.31.2",
+  "version": "0.32.0",
   "description": "Launch Claude Code, Codex CLI, Grok CLI, or Cursor Agent CLI through one harness API, plus durable terminals.",
   "long_description": "Give any MCP client one persistent terminal for SSH, containers, REPLs, and interactive coding-agent TUIs. The canonical agent_launch tool selects the execution harness separately from its model, so Cursor may run GPT, Claude, or Grok while Cursor still owns the session, hooks, and transcript. Reads are token-reduced, sessions survive client restarts, and humans can attach to the shared tmux session or native Windows psmux 3.3.8+ session.",
   "author": {

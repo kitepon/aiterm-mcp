@@ -18,6 +18,7 @@ Grok／Composerのsandbox起動拒否については、[DESIGNの失敗と復旧
 検出の所有と適用範囲、[RELEASEの公開後smoke](RELEASE.md#公開後smoke)に検証条件を置く。
 
 Codex親への回答の自動配送は[DESIGN](DESIGN.md#codex親への自動配送)に、対応範囲と失敗時の状態を置く。
+Claude Code親の非同期hookによる受信は[DESIGN](DESIGN.md#claude-code親への自動配送)を参照する。
 
 ## 履歴と証拠
 

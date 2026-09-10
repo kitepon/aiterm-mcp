@@ -31,8 +31,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - launcherは直接CLIと同じ通常`HOME`、project／user設定、MCP、plugin、skill、permission、trust、
   memory、historyを使う。Aitermはlaunch相関、完了event、bounded result、cleanup metadataだけを所有し、
   credential／設定をcopy、snapshot、filterしない。
-- agentへの送信は非ブロックdispatchで即返す。Codex親にはMCP要求のthreadIdへ回答本文を自動配送し、
-  親はwaiterと回答回収を呼ばない。それ以外の親はreceiptの`wait_process`を別processとして起動し、
+- agentへの送信は非ブロックdispatchで即返す。Codex親には公式queue、Claude Code親には公式asyncRewake hookで
+  回答本文を自動配送し、親はwaiterと回答回収を呼ばない。それ以外の親はreceiptの`wait_process`を別processとして起動し、
   `outcome`を判定して`pty_read(agent_transcript:true)`または`claude_turn recover`で回収する。
   親自身のturnをforeground waiterで止めず、timeout後にpromptを再送しない。
 - 公開復旧は`pty_list`で対象を確認し、該当sessionを`pty_close`して同じIDで作り直す。
@@ -53,6 +53,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/parent-delivery.ts`: 子の完了観測・回答保存・配送state。
   `src/codex-parent-receiver.ts`: Codex親の識別と公式受信キュー。
+  `src/claude-parent-receiver.ts`／`src/claude-parent-hook.ts`: Claude親の要求相関と公式hookへの回答出力。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
 - `src/runtime-error-*.ts`: 製品所有のoffline error aggregate。

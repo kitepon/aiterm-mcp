@@ -3,8 +3,10 @@ import { test } from "node:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from 'node:child_process';
 import { ParentDeliveryManager } from "../dist/parent-delivery.js";
 import { CodexDeliveryError } from "../dist/codex-parent-receiver.js";
+import { prepareClaudeHookRequest, claudeParentFromRequest, runClaudeResultHook, closeClaudeParentSession, submitClaudeParentAnswer } from "../dist/claude-parent-receiver.js";
 
 const parent = (suffix = "1") => ({ thread_id: `11111111-2222-4333-8444-55555555555${suffix}`, codex_home: path.join(os.tmpdir(), "親のCodex") });
 const boundary = (session = "child", cursor = 0) => ({ session_id: session, launch_id: "a".repeat(32), vendor: "codex", harness: "codex-cli", event_cursor: cursor, operation_id: null });
@@ -90,6 +92,77 @@ test("親ごとの宛先を記録し、子の完了後に本文を一度ずつ�
   assert.match(h.submitted.find(v => v.target.thread_id === parent("1").thread_id).text, /一つ目の回答$/);
   assert.match(h.submitted.find(v => v.target.thread_id === parent("2").thread_id).text, /二つ目の回答$/);
   assert.equal("text" in manager.status("one")[0], false, "観測receiptへ本文を出さない");
+});
+
+test("Claude親の初手とfollow-upをそれぞれのhookへ渡し、前の本文を保持する", async t => {
+  const h = setup(t, { submit: submitClaudeParentAnswer });
+  const root = path.join(h.root, 'hooks');
+  const manager = h.create();
+  for (const [n, turn] of [[1, 'turn-1'], [2, 'turn-2']]) {
+    const input = { session_id: 'dd95c72d-aa83-42fe-a6c5-19b202c39478', tool_use_id: `toolu_follow_${n}` };
+    prepareClaudeHookRequest(input, root);
+    const parent = claudeParentFromRequest('claude-code', { 'claudecode/toolUseId': input.tool_use_id }, root);
+    const request = manager.request(parent);
+    const b = boundary('claude-child', n * 100);
+    await request.before_send(b);
+    let text;
+    const hook = runClaudeResultHook(input, value => { text = value; }, root);
+    h.finish(b, turn);
+    assert.equal(await hook, 2);
+    await until(() => request.result().state === 'submitted');
+    assert.ok(text.endsWith(h.answers.get(turn)));
+  }
+  const saved = records(h.root).filter(item => item.value.boundary.session_id === 'claude-child');
+  assert.deepEqual(saved.map(item => item.value.text).sort(), ['一つ目の回答', '二つ目の回答'].sort());
+});
+
+test("Claude親終了後にMCPを再起動しても、子の確定本文を保存して配送失敗を明示する", async t => {
+  const h = setup(t, { submit: submitClaudeParentAnswer });
+  const root = path.join(h.root, 'hooks');
+  const input = { session_id: 'dd95c72d-aa83-42fe-a6c5-19b202c39478', tool_use_id: 'toolu_closed_recovery' };
+  prepareClaudeHookRequest(input, root);
+  const parent = claudeParentFromRequest('claude-code', { 'claudecode/toolUseId': input.tool_use_id }, root);
+  const first = h.create();
+  await first.request(parent).before_send(boundary('closed-parent-child'));
+  await first.close();
+  closeClaudeParentSession(input, root);
+  const next = h.create();
+  await next.recover();
+  h.finish(boundary('closed-parent-child'));
+  await until(() => next.status('closed-parent-child')[0]?.state === 'failed');
+  assert.equal(records(h.root)[0].value.text, '一つ目の回答');
+  assert.equal(next.status('closed-parent-child')[0].error_code, 'CLAUDE_PARENT_SESSION_CLOSED');
+});
+
+test("Claudeの記録は旧版の保存場所へ混ぜず、Codexと同じ子の予約を共有する", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiterm-parent-namespaces-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const code = `
+    import assert from 'node:assert/strict';
+    import * as fs from 'node:fs';
+    import * as path from 'node:path';
+    import { ParentDeliveryManager } from './dist/parent-delivery.js';
+    import { ensureStateRoot } from './dist/agent-shared.js';
+    import { prepareClaudeHookRequest, claudeParentFromRequest } from './dist/claude-parent-receiver.js';
+    const dependencies = { processes: () => [{pid:process.pid,started_identity:'fixture'}], verify: async()=>{},
+      observe: async(_id,o) => { if(o.timeout===0) return {outcome:'running'}; return new Promise((_r,reject)=>o.signal.addEventListener('abort',()=>reject(new Error('終了')))); } };
+    const claude = new ParentDeliveryManager({parent_kind:'claude',dependencies});
+    const codex = new ParentDeliveryManager({dependencies});
+    const root=path.join(ensureStateRoot(),'hooks');
+    prepareClaudeHookRequest({session_id:'dd95c72d-aa83-42fe-a6c5-19b202c39478',tool_use_id:'toolu_namespaces'},root);
+    const p=claudeParentFromRequest('claude-code',{'claudecode/toolUseId':'toolu_namespaces'},root);
+    const b=${JSON.stringify(boundary('shared-child'))};
+    await claude.request(p).before_send(b);
+    assert.equal(codex.status('shared-child').length,1);
+    await assert.rejects(codex.request(${JSON.stringify(parent())}).before_send(b), /PARENT_RESULT_PENDING/);
+    const codexActive=path.join(ensureStateRoot(),'parent-deliveries','active');
+    for(const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive,owner)),['owner.json']);
+    await claude.close(); await codex.close();
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    encoding: 'utf8', timeout: 10000, env: { ...process.env, TMPDIR: dir, TEMP: dir, XDG_RUNTIME_DIR: dir },
+  });
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test("初手が即完了しても回収し、保存した本文は次の回答で置換されない", async (t) => {

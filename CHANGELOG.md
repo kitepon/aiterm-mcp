@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code親への回答自動配送を追加した。公式`asyncRewake` hookが子の回答を受け取り、idle中の親も再開する。待機中も親は別作業と次のturnへ進める。
+- `aiterm-setup`がClaude Codeの専用hookを登録し、MCP要求とhookの実際の会話を照合する。親のwaiter・回答回収と子への返送指示は不要。
+- `/clear`等の会話終了後は未送信の旧回答を新しい会話へ出さず、本文を保持して配送失敗を明示する。hookの出力中断は結果不明とし、自動再送しない。
+
+### Compatibility
+
+- Claude Code親は2.1.259以上の対話sessionと有効なcommand hookを必要とする。Claude Desktopチャット・Web・native subagentは対象外。起動時のChannels flagは不要。
+- Claude用配送記録を分け、旧版のCodex readerとの互換性を維持する。旧版へ戻す前に`aiterm-setup --remove-claude-parent-hooks`でAiterm専用hookだけを解除する。
+
 ## [0.34.0] - 2026-09-10
 
 ### Added

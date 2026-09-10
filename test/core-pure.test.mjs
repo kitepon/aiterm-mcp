@@ -691,6 +691,15 @@ test("agentDispatchGuide: 先頭で待たないことを宣言し、待ちコマ
   assert.match(guide, /pty_read\(agent_transcript:true\)/, "回収経路を示す");
 });
 
+test("Claude Code親へのdispatchはwaiter起動を要求せず、自動配送を案内する", () => {
+  try {
+    core.setParentClient("claude-code");
+    assert.match(core.agentDispatchGuide("child", 100), /Claude Code親へ自動配送/);
+    assert.doesNotMatch(core.agentDispatchGuide("child", 100), /aiterm-wait|Bash\(/);
+    assert.match(core.agentWaitGuide("child"), /自動配送/);
+  } finally { core.setParentClient(null); }
+});
+
 test("agentWaitGuide: 復旧案内は取りこぼしゼロの --cursor 0 を維持する", () => {
   // cursor 省略時の既定は waiter 起動時 EOF＝案内表示〜実行の間に届いた done を読み飛ばす race。
   const guide = core.agentWaitGuide("t9");

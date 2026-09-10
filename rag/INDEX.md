@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **118** 件 / 更新: 2026-09-10
+- 総数: **121** 件 / 更新: 2026-09-10
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 29件
+## 完了境界の検出 (completion-detection) — 32件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -103,6 +103,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Terminal-Shell integration - a proposed specification (Per Bothner)](sources/completion-detection/bothner-shell-integration-proposal.md) — OSC 133系セマンティックプロンプトの設計思想と要件を整理した提案記事。FinalTerm/iTerm2/DomTermの実装差を横断。
   - 出典: <https://per.bothner.com/blog/2019/shell-integration-proposal/> (article, 10489 chars)
   - 効きどころ: 完了境界(プロンプト開始/コマンド開始/出力開始/終了+exit code)をなぜ・どう区切るかの原典的論拠。我々の境界検出設計の出発点になる。
+- [Claude Code Channels: 起動条件と順番待ち](sources/completion-detection/claude-channels-2026-09-10.md) — Claude Codeの公式Channelsによる既存親へのpush受信。有効化・組織policy・対応認証を説明する。
+  - 出典: <https://code.claude.com/docs/en/channels.md> (official_docs, 23837 chars)
+  - 効きどころ: Claude親への自動配送の正規受信口と導入条件を決める。
+- [Claude Code Channels reference: MCP通知契約](sources/completion-detection/claude-channels-reference-2026-09-10.md) — claude/channel capabilityとnotifications/claude/channelを規定する。通知ACKはなく、有効化されていない親は通知を黙示破棄する。
+  - 出典: <https://code.claude.com/docs/en/channels-reference.md> (official_docs, 50246 chars)
+  - 効きどころ: 通知書込みと受領を区別し、親の識別・有効化・切断時の契約を検証する。
+- [Claude Code hooks: asyncRewakeと非ブロック受信](sources/completion-detection/claude-hooks-2026-09-10.md) — command hookのexec形式、PreToolUse/PostToolUse/SessionEndとasyncRewakeの公式契約。asyncRewakeはバックグラウンドで動き、exit 2でidle中の親も再開する。
+  - 出典: <https://code.claude.com/docs/en/hooks.md> (official_docs, 319948 chars)
+  - 効きどころ: 起動flagを増やさずClaude親へ結果を届け、MCP requestのtoolUseIdとhookのtool_use_idで宛先を相関する。
 - [Codex 0.154.0: MCP要求へのthreadId付与](sources/completion-detection/codex-0154-mcp-call-metadata.md) — モデルからのMCP呼出しに正規threadIdを_metaとして加える。ソース確認済み。
   - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/core/src/mcp_tool_call.rs> (source_code, 84041 chars)
   - 効きどころ: 親モデルに宛先IDを入力させず、依頼単位で配送先を固定する。

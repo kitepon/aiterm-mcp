@@ -163,7 +163,7 @@ v0.20では、待たずに一度だけ観測する
 `running`（exit 5）で返すようにしました。v0.19系では相関済みClaude approval中継を追加し、
 複数行shell配送を維持し、native Windowsのfactory diagnosticsを拡張しました。
 v0.16/0.17以来、親エージェントはaiterm上で一切ブロックしません:
-agent session への send は常に非ブロック dispatch になり、Codex親には回答本文を自動配送し、それ以外の親の完了待ちは `aiterm-wait`
+agent session への send は常に非ブロック dispatch になり、Codex／Claude Code親には回答本文を自動配送し、それ以外の親の完了待ちは `aiterm-wait`
 （exit code が receipt の outcome を映す: 0=done / 3=timeout=未完了 /
 4=closed / 5=running=待たない観測）、初回 prompt 付き
 launch は structured receipt にコピペ可能な `wait_command` を含む。factory diagnostics と local
@@ -205,7 +205,7 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 同じprimitiveが別エージェントのTUIを宿す。`agent_launch`の`harness`はagent loop・認証・hook・session・transcriptを所有する実行基盤、`model`は独立した選択。起動processは直接CLIと同じproject/user環境を使い、通常config、MCP、plugin、skill、permission、trust、memory、historyをcopy・filter・置換しない。
 
-`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。`pty_send`は非ブロックdispatchで、vendor別完了境界を表すopaqueな整数`event_cursor`を返し、Codex親には回答本文を公式受信キューへ自動配送する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
+`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。`pty_send`は非ブロックdispatchで、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は公式受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
 
 `agent_launch`・`pty_send`（agent dispatch）・`agent_steer`は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
@@ -225,7 +225,7 @@ agent_launch({ harness: "codex-cli", session_name: "codex1", cwd: "/repo",
                                     → { session_id: "codex1", … }   # Codex が永続端末で稼働開始
 pty_read("codex1", { screen: true })   → 何をしているか読む（トークン削減）
 pty_send("codex1", "also fix the imports it broke")   # 非ブロックdispatch＝event_cursor入りreceipt
-# Codex親には回答が自動で届く。それ以外の親:
+# Codex／Claude Code親には回答が自動で届く。それ以外の親:
 $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeout(未完了) / 4=closed / 7=error(APIエラー等でturn打ち切り)。回収は pty_read(agent_transcript:true)
                                     → 操舵し、Codex の次の入力境界で返る
 ```
@@ -514,13 +514,19 @@ SSH先がPowerShellの場合、`mark:true`は現在の標準`PS ...>`プロン�
 
 `pty_read({ wait: true })`は通常PTYを、process終了／`mark:true` sentinel／`until`一致／shell復帰を伴う出力静止／timeoutの5層で判定する。agent sessionは第6の正確な層を使い、Codexは通常rollout、Grokは通常session event、Claudeはlaunch相関Stop event、Cursorは通常agent transcriptの`turn_ended`を`aiterm-wait --cursor`が観測する。親はブロックもポーリングもしない。
 
-### Codex親への回答自動配送
+### Codex／Claude Code親への回答自動配送
 
-Codexから子を起動・通常dispatchした後は、別作業へ進むか親のturnを終了するだけでよい。Aitermが完了を観測し、加工前の回答を保存して、依頼元Codexの公式受信キューへ送る。親はidleになった後に回答を処理する。waiter、`pty_read`による回答回収、子への送信指示は不要。Desktop固有の接続を使わず、CLIでも同じ経路になる。子は全対応harnessから選べる。Claude等の親は既存のwaiter経路を使う。
+Codex／Claude Codeから子を起動・通常dispatchした後は、別作業へ進むか親のturnを終了するだけでよい。Aitermが完了を観測し、加工前の回答を保存して親へ届ける。waiter、`pty_read`による回答回収、子への送信指示は不要。子は全対応harnessから選べる。
 
-自動配送時はreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はキューの受付済みであり、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
+自動配送時はreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexのキュー受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
 
 CodexにはMCPの`_meta.threadId`と公式`thread/queue` APIが必要で、Codex CLI 0.154.0で確認している。`aiterm-setup`はインストールされた公式queue入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。Codexのnative sub-agentは外部からのqueue入力を拒否するため、自動配送の親としては未対応。
+
+Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が専用の`PreToolUse`、`PostToolUse`、`SessionEnd`を登録するため、Channelsの起動flagは不要。公式`asyncRewake` hookだけが裏で待ち、親はその間も次のturnへ進める。回答は`Stop hook feedback`として届く。hookのexit 2は親の再開信号であり、子の成功・失敗は本文の`outcome`で区別する。
+
+`/clear`などで会話を終了すると未送信の旧回答の配送を止め、本文は保存する。受信hookの上限は24時間で、終了や出力失敗を成功扱いしない。hookが無効な場合は送信前に明示errorにし、waiterへ黙って切り替えない。Claude Desktopのチャット、Web、native subagentはこの受信契約に含めない。
+
+hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
 
 
 ### トークン削減

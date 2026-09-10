@@ -1,4 +1,4 @@
-// Aitermが所有する、子の完了観測・回答本文の保存・Codex親への配送。
+// Aitermが所有する、子の完了観測・回答本文の保存・親への配送。
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -7,6 +7,7 @@ import { observeAgentDone, readAgentTranscriptResult } from "./core.js";
 import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitObservation } from "./agent-shared.js";
 import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
+import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
 import { AitermError } from "./errors.js";
 
 const recordSchema = z.object({
@@ -14,7 +15,7 @@ const recordSchema = z.object({
   delivery_id: z.uuid(),
   created_at: z.string(),
   updated_at: z.string(),
-  parent: z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict(),
+  parent: z.union([z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict(), claudeParentSchema]),
   boundary: z.object({
     session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     launch_id: z.string().regex(/^[0-9a-f]{32}$/),
@@ -34,12 +35,23 @@ type DeliveryRecord = z.infer<typeof recordSchema>;
 export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
 type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void> };
 type Owner = { pid: number; started_identity: string; closed: boolean };
+type Parent = CodexParent | ClaudeParent;
+const isClaude = (parent: Parent): parent is ClaudeParent => "kind" in parent && parent.kind === "claude";
+
+async function verifyParent(parent: Parent): Promise<void> {
+  if (isClaude(parent)) verifyClaudeParent(parent);
+  else await verifyCodexParent(parent);
+}
+
+async function submitParentAnswer(parent: Parent, deliveryId: string, text: string): Promise<{ queued_submission_id: string | null }> {
+  return isClaude(parent) ? submitClaudeParentAnswer(parent, deliveryId, text) : submitCodexParentAnswer(parent, deliveryId, text);
+}
 
 export interface ParentDeliveryDependencies {
   observe: typeof observeAgentDone;
   answer: typeof readAgentTranscriptResult;
-  submit: typeof submitCodexParentAnswer;
-  verify: typeof verifyCodexParent;
+  submit: typeof submitParentAnswer;
+  verify: typeof verifyParent;
   processes: () => RuntimeProcess[];
 }
 
@@ -72,6 +84,7 @@ function answerMessage(record: DeliveryRecord): string {
 export class ParentDeliveryManager {
   private readonly deps: ParentDeliveryDependencies;
   private readonly root: string;
+  private readonly recordRoots: string[];
   private readonly active: string;
   private readonly results: string;
   private readonly claims: string;
@@ -84,13 +97,16 @@ export class ParentDeliveryManager {
   private serviceError: Error | null = null;
   private closing = false;
 
-  constructor(options: { root?: string; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
-    this.deps = { observe: observeAgentDone, answer: readAgentTranscriptResult, submit: submitCodexParentAnswer,
-      verify: verifyCodexParent, processes: readRuntimeProcesses, ...options.dependencies };
-    this.root = options.root ?? path.join(ensureStateRoot(), "parent-deliveries");
+  constructor(options: { root?: string; parent_kind?: "claude"; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
+    this.deps = { observe: observeAgentDone, answer: readAgentTranscriptResult, submit: submitParentAnswer,
+      verify: verifyParent, processes: readRuntimeProcesses, ...options.dependencies };
+    const stateRoot = ensureStateRoot();
+    this.root = options.root ?? path.join(stateRoot, options.parent_kind === "claude" ? "claude-parent-deliveries" : "parent-deliveries");
+    // 旧版のCodex readerへ未知のparentを渡さない。公開照会と子の予約だけは両方で共有する。
+    this.recordRoots = options.root ? [options.root] : [path.join(stateRoot, "parent-deliveries"), path.join(stateRoot, "claude-parent-deliveries")];
     this.active = path.join(this.root, "active");
     this.results = path.join(this.root, "results");
-    this.claims = path.join(this.root, "claims");
+    this.claims = path.join(options.root ?? path.join(stateRoot, "parent-deliveries"), "claims");
     const ownProcess = this.deps.processes().find((entry) => entry.pid === process.pid);
     if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
     this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false };
@@ -111,14 +127,14 @@ export class ParentDeliveryManager {
     process.stderr.write("aiterm: PARENT_DELIVERY_STATE_UNAVAILABLE（配送状態を確認してください）\n");
   }
 
-  async prepare(parent: CodexParent): Promise<void> {
+  async prepare(parent: Parent): Promise<void> {
     if (this.closing) throw new AitermError("PARENT_DELIVERY_CLOSED: MCP接続を終了しています", 2);
     if (this.serviceError) throw this.serviceError;
     await this.recover();
     await this.deps.verify(parent);
   }
 
-  request(parent: CodexParent): {
+  request(parent: Parent): {
     before_send: (boundary: AgentTurnBoundary) => Promise<void>;
     result: () => ParentDeliveryReceipt | null;
     failed: (error: unknown) => void;
@@ -146,6 +162,7 @@ export class ParentDeliveryManager {
             }
             throw error;
           }
+          if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
           this.jobs.set(record.delivery_id, job);
           this.watch(job);
         });
@@ -245,7 +262,7 @@ export class ParentDeliveryManager {
       job.record.queued_submission_id = result.queued_submission_id;
       job.record.state = "submitted";
     } catch (error) {
-      job.record.state = error instanceof CodexDeliveryError && !error.outcome_unknown ? "failed" : "unknown";
+      job.record.state = (error instanceof CodexDeliveryError || error instanceof ClaudeDeliveryError) && !error.outcome_unknown ? "failed" : "unknown";
       job.record.error = error instanceof Error ? error.message : String(error);
     }
     this.finish(job);
@@ -271,11 +288,17 @@ export class ParentDeliveryManager {
   }
 
   private files(): string[] {
-    const files = fs.readdirSync(this.results).filter((name) => name.endsWith(".json")).map((name) => path.join(this.results, name));
-    for (const owner of fs.readdirSync(this.active, { withFileTypes: true })) {
-      if (!owner.isDirectory()) continue;
-      const directory = path.join(this.active, owner.name);
-      files.push(...fs.readdirSync(directory).filter((name) => name !== "owner.json" && name.endsWith(".json")).map((name) => path.join(directory, name)));
+    const files: string[] = [];
+    for (const root of this.recordRoots) {
+      const results = path.join(root, "results");
+      if (fs.existsSync(results)) files.push(...fs.readdirSync(results).filter((name) => name.endsWith(".json")).map((name) => path.join(results, name)));
+      const active = path.join(root, "active");
+      if (!fs.existsSync(active)) continue;
+      for (const owner of fs.readdirSync(active, { withFileTypes: true })) {
+        if (!owner.isDirectory()) continue;
+        const directory = path.join(active, owner.name);
+        files.push(...fs.readdirSync(directory).filter((name) => name !== "owner.json" && name.endsWith(".json")).map((name) => path.join(directory, name)));
+      }
     }
     return files;
   }
@@ -330,9 +353,11 @@ export class ParentDeliveryManager {
           this.finish(job);
         } else if (record.state === "waiting" || record.state === "ready") {
           try {
-            await this.deps.verify(record.parent);
             if (record.state === "waiting") this.watch(job);
-            else job.delivery = this.deliver(job).catch((error) => this.reportServiceError(error));
+            else {
+              await this.deps.verify(record.parent);
+              job.delivery = this.deliver(job).catch((error) => this.reportServiceError(error));
+            }
           } catch (error) {
             record.state = "failed";
             record.error = error instanceof Error ? error.message : String(error);

@@ -2985,9 +2985,11 @@ export function agentWaitProcess(
   };
 }
 
-// 親ホストの識別（MCP initialize の clientInfo.name）。完了待ちコマンドを「親のターンを塞がない
-// 起動形」で名指しするためだけに使う。分からない時は汎用文へ落ち、機能は一切変えない。
+// 親ホストの識別（MCP initialize の clientInfo.name）。配送の可否はMCP入口が検証し、ここは案内だけを作る。
 let parentClientName: string | null = null;
+function autoDeliveryParent(): string | null {
+  return parentClientName === "codex-mcp-client" ? "Codex" : parentClientName === "claude-code" ? "Claude Code" : null;
+}
 
 export function setParentClient(name: string | null): void {
   const trimmed = typeof name === "string" ? name.trim() : "";
@@ -3005,8 +3007,9 @@ export function agentWaitLaunchForm(command: string): string {
 
 // dispatch / 起動時 prompt 送信後の共通案内。第一文で「待たない」を宣言し、待ち方は後段に置く。
 export function agentDispatchGuide(session: string, cursor: number): string {
-  if (parentClientName === "codex-mcp-client") {
-    return "回答本文はAitermがこのCodex親へ自動配送する。wait起動・ポーリング・通常の回答回収は不要。" +
+  const parent = autoDeliveryParent();
+  if (parent) {
+    return `回答本文はAitermがこの${parent}親へ自動配送する。wait起動・ポーリング・通常の回答回収は不要。` +
       "親は作業を続けるかターンを終え、順番待ちから届く子の回答で続行する。";
   }
   const cmd = `aiterm-wait --session ${session} --cursor ${cursor}`;
@@ -3019,7 +3022,8 @@ export function agentDispatchGuide(session: string, cursor: number): string {
 
 // 未完了 session へ触った時の共通案内。ここでも待つのは waiter プロセスであって親ではない。
 export function agentWaitGuide(session?: string): string {
-  if (parentClientName === "codex-mcp-client") return "回答本文はこのCodex親へ自動配送される。親は作業を続けるかターンを終える。";
+  const parent = autoDeliveryParent();
+  if (parent) return `回答本文はこの${parent}親へ自動配送される。親は作業を続けるかターンを終える。`;
   const cmd = `aiterm-wait --session ${session ?? "<session_id>"} --cursor 0`;
   return `完了通知は ${agentWaitLaunchForm(cmd)} で受ける（親はここで待たない・polling 不要）。receipt の outcome=done を確認してから再取得する。`;
 }
@@ -4621,7 +4625,7 @@ export function openAgent(
   const driveHint =
     agentDone
       ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-        `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${parentClientName === "codex-mcp-client" ? "回答本文はCodex親へ自動配送する" : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
+        `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
         `Stopが来ない場合の解除はpty_close(${sid})を使う。`
       : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
         `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;

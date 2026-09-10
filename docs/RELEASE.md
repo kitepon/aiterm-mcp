@@ -39,6 +39,10 @@ setupを変更した場合は、公開packageのglobal install後に`aiterm-setu
 端末実行と検出した各AIの登録結果を確認する。初回と再実行は一時設定領域でも試験し、所有外の設定保持を確かめる。
 WindowsのGrokパス変更ではスラッシュ区切りcwdで起動し、同じturnの完了通知と回答回収を確認する。
 
+親への自動配送を変更した場合は、通常HOMEの親から子を起動し、親がwaiter・回収を呼ばずに
+初手と同じ子への追加依頼の回答を受け取ることを確認する。Claudeではhook待機中に別のturnへ進めること、
+`/clear`後に未送信の旧回答が届かず、Aitermに本文が保存されることも確認する。
+
 公式npm packageを隔離またはglobal installし、変更に触れたharnessの起動、non-blocking dispatch、wait outcome、
 transcript回収、`pty_close`後の残骸ゼロを確認する。
 
@@ -57,6 +61,9 @@ aiterm-setup --json
 ```
 
 巻き戻しは既知の正常版を指定する。
+
+Claude親配送hookのない旧版へ戻す場合は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を
+実行する。Aiterm専用の3 hookだけを解除し、他製品のhookと設定を保持する。
 
 ```bash
 npm install -g "aiterm-mcp@<known-good-version>"

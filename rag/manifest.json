@@ -883,6 +883,58 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "claude-channels-2026-09-10",
+      "topic": "completion-detection",
+      "title": "Claude Code Channels: 起動条件と順番待ち",
+      "source_url": "https://code.claude.com/docs/en/channels.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/claude-channels-2026-09-10.md",
+      "tags": [
+        "claude-code",
+        "channels",
+        "parent-delivery"
+      ],
+      "summary": "Claude Codeの公式Channelsによる既存親へのpush受信。有効化・組織policy・対応認証を説明する。",
+      "relevance": "Claude親への自動配送の正規受信口と導入条件を決める。",
+      "chars": 23837,
+      "fetched": "2026-09-10"
+    },
+    {
+      "slug": "claude-channels-reference-2026-09-10",
+      "topic": "completion-detection",
+      "title": "Claude Code Channels reference: MCP通知契約",
+      "source_url": "https://code.claude.com/docs/en/channels-reference.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/claude-channels-reference-2026-09-10.md",
+      "tags": [
+        "claude-code",
+        "mcp",
+        "channels"
+      ],
+      "summary": "claude/channel capabilityとnotifications/claude/channelを規定する。通知ACKはなく、有効化されていない親は通知を黙示破棄する。",
+      "relevance": "通知書込みと受領を区別し、親の識別・有効化・切断時の契約を検証する。",
+      "chars": 50246,
+      "fetched": "2026-09-10"
+    },
+    {
+      "slug": "claude-hooks-2026-09-10",
+      "topic": "completion-detection",
+      "title": "Claude Code hooks: asyncRewakeと非ブロック受信",
+      "source_url": "https://code.claude.com/docs/en/hooks.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/claude-hooks-2026-09-10.md",
+      "tags": [
+        "claude-code",
+        "hooks",
+        "asyncRewake",
+        "parent-delivery"
+      ],
+      "summary": "command hookのexec形式、PreToolUse/PostToolUse/SessionEndとasyncRewakeの公式契約。asyncRewakeはバックグラウンドで動き、exit 2でidle中の親も再開する。",
+      "relevance": "起動flagを増やさずClaude親へ結果を届け、MCP requestのtoolUseIdとhookのtool_use_idで宛先を相関する。",
+      "chars": 319948,
+      "fetched": "2026-09-10"
+    },
+    {
       "slug": "codex-0154-mcp-call-metadata",
       "topic": "completion-detection",
       "title": "Codex 0.154.0: MCP要求へのthreadId付与",

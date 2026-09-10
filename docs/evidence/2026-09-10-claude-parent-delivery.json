@@ -1,0 +1,18 @@
+{
+  "schema": "aiterm.claude-parent-delivery-evidence.v1",
+  "observed_at": "2026-09-10",
+  "phase": "implementation",
+  "claude_cli_version": "2.1.259",
+  "platform": "darwin",
+  "receiver": "official-asyncRewake-hook",
+  "live_cases": [
+    { "case": "initial-child-answer", "state": "submitted", "parent_received": true, "record_sha256": "3f87ddd6b0c7a8087b6028c424d0b4d9da1ca4038b8ff934f99cd3573b938482" },
+    { "case": "same-child-followup", "state": "submitted", "parent_received": true, "record_sha256": "98a85bd37567541cb0e02eb71d0e66962be5ac9180ce425a6b7f5906c3b245cc" },
+    { "case": "clear-cancels-unsent-result", "state": "failed", "error_code": "CLAUDE_PARENT_SESSION_CLOSED", "answer_saved": true, "new_session_received": false, "record_sha256": "0be6c9b49ea59e7ae1af9cb636f5429c057849e2a1c81beadf500fab0e4d925b" },
+    { "case": "parent-next-turn-while-hook-waits", "hook_wait_seconds": 45, "next_turn_completed_after_seconds": 16, "rewake_after_hook_exit": true },
+    { "case": "long-japanese-hook-result", "characters": 32164, "first_last_and_final_line_verified": true }
+  ],
+  "related_tests": { "passed": 103, "failed": 0, "stdout_sha256": "5b7afc9c542bf466b9281095497f7e0429cb3da4b17351058554b6ed92e05f36" },
+  "review": "pending",
+  "release_acceptance": "pending"
+}

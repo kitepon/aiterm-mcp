@@ -49,6 +49,7 @@ Throughlineの補足記憶はpathを透過搬送するだけで、内容、proje
 
 agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
 Codex親にはAitermのMCP processが完了を観測し、回答本文を公式受信キューへ自動配送する。
+Claude Code親は公式の非同期hookで本文を受け取り、待機中も新しいturnへ進める。
 それ以外の親には`wait_process`がplatform nativeな別process起動情報を返す。
 waiterは純readerで、親のforeground turnを塞がない。
 回答はharness所有transcriptから同じturnへ相関して回収し、欠落・曖昧・timeout時にpromptを再送しない。
@@ -72,11 +73,40 @@ native sub-agentを親にした外部queue入力はCodex自身が拒否するた
 `pty_observe`の`parent_deliveries`で状態を確認できる。`submitted`はキュー受付済みを示し、modelの読了を意味しない。
 次の依頼へ進める前に前回の回答を保存し、harness所有記録を後の回答と取り違えない。
 
-配送記録と本文はAiterm stateの`parent-deliveries`へ保存する。ownerのPIDと開始識別子で生存を判定し、
+Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存する。ownerのPIDと開始識別子で生存を判定し、
 再接続後は終了したownerの記録だけを原子的に引き継ぐ。`waiting`は同じ境界から観測を再開し、
 `ready`は保存した本文を送る。送信中断は`unknown`として本文を残し、自動再送しない。
 受信口が明示拒否した場合は`failed`、子の異常終了はそのoutcomeを配送する。
 このstateは既存のPTY／harness stateと独立し、旧版は配送を再開しない。
+
+### Claude Code親への自動配送
+
+`aiterm-setup`はClaude Code 2.1.259以上を確認し、ユーザー設定へAiterm専用の`PreToolUse`、
+`PostToolUse`、`SessionEnd`を追加する。他製品のhookと設定は保持し、`disableAllHooks`の解除は行わない。
+hookはNodeの実行ファイルと引数配列で直接起動し、shellやWindowsのnpm shimを介さない。
+
+`PreToolUse`の`tool_use_id`／`session_id`とMCP要求の`_meta["claudecode/toolUseId"]`を照合する。
+起動時のsession環境変数は`/clear`で古くなるため宛先に使わない。hookがない場合とnative subagentは
+子への送信前に明示errorにする。親がIDや待機方法を引数で指定する必要はない。
+
+本文の保存と同じ子への連続依頼の制御は`parent-delivery.ts`を共有する。Claude用記録は
+`claude-parent-deliveries`へ分け、旧版のCodex readerに未知のparentを読ませない。
+子の予約は既存の`parent-deliveries/claims`で共有し、親の種類をまたぐ並行送信を防ぐ。
+hookとの受け渡しはAiterm stateの`claude-parent-hooks`へ置く。
+
+`PostToolUse`は`asyncRewake:true`で待機し、保存済み本文をstderrへ出してexit 2を返す。
+exit 2はClaudeが規定する再開信号であり、子の成功・失敗は本文の`outcome`で区別する。
+親は待機中も別作業や次のturnへ進める。Claudeの画面では`Stop hook feedback`として届く。
+`submitted`はhookへの本文出力を確認した状態であり、modelの読了を示さない。
+hook出力の切断・中断は`failed`または`unknown`とし、本文を残して自動再送しない。
+
+`SessionEnd`はその会話の未送信の依頼を終了させる。`/clear`後の新しい会話へ古い回答を出さず、
+確定本文は保存する。受信hookのtimeoutは24時間であり、timeoutとprocess終了は配送失敗として観測する。
+CLIを終了した後に自動再開するdaemon、Channelsの有効化flag、子の返送コマンドは使わない。
+hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`で専用hookだけを解除する。
+
+Claude Desktopのチャット、Web、native subagentはこの受信契約の対象に含めない。
+対応対象は公式command hookとMCP metadataを提供するClaude Codeの対話sessionである。
 
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
 promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は

@@ -17,6 +17,7 @@ import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { createRequire } from "node:module";
 import { ParentDeliveryManager } from "./parent-delivery.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
+import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -29,9 +30,10 @@ let parentDelivery: ParentDeliveryManager | null = null;
 type DeliveryRequest = ReturnType<ParentDeliveryManager["request"]>;
 
 async function deliveryForRequest(extra: { _meta?: unknown }): Promise<DeliveryRequest | null> {
-  const parent = codexParentFromRequest(server.server.getClientVersion()?.name, extra._meta);
+  const clientName = server.server.getClientVersion()?.name;
+  const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta);
   if (!parent) return null;
-  parentDelivery ??= new ParentDeliveryManager();
+  parentDelivery ??= new ParentDeliveryManager({ parent_kind: clientName === "claude-code" ? "claude" : undefined });
   await parentDelivery.prepare(parent);
   return parentDelivery.request(parent);
 }
@@ -45,7 +47,7 @@ type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean
  */
 const NON_BLOCKING_RULE =
   "dispatch した子は投げっぱなしでよい＝親はここで待たない。" +
-  "Codex親にはAitermが回答本文を自動配送する。parent_deliveryがある場合はwait起動も通常の回答回収も不要。親は作業を続けるかターンを終える。" +
+  "Codex親とClaude Code親にはAitermが回答本文を自動配送する。parent_deliveryがある場合はwait起動も通常の回答回収も不要。親は作業を続けるかターンを終える。" +
   "その他の親では、完了通知をreceiptの `wait_process.executable` と `wait_process.args` をそのまま親のターンを塞がない別プロセスAPIへ渡して受け、" +
   "PowerShell 7のStart-Processだけは `windows_start_process_argument_list` を単一文字列として渡す。" +
   `exit を完了通知として扱う（${core.AITERM_WAIT_OUTCOME_NOTE}。ポーリング不要）。` +
@@ -972,7 +974,7 @@ async function main(): Promise<void> {
   server.server.oninitialized = () => {
     const name = server.server.getClientVersion()?.name;
     core.setParentClient(name ?? null);
-    if (name === "codex-mcp-client") parentDelivery ??= new ParentDeliveryManager();
+    if (name === "codex-mcp-client" || name === "claude-code") parentDelivery ??= new ParentDeliveryManager({ parent_kind: name === "claude-code" ? "claude" : undefined });
   };
   server.server.onclose = () => {
     void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));

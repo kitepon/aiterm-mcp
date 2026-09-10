@@ -15,6 +15,8 @@ import { z } from "zod";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { createRequire } from "node:module";
+import { ParentDeliveryManager } from "./parent-delivery.js";
+import { codexParentFromRequest } from "./codex-parent-receiver.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -23,6 +25,16 @@ import { createRequire } from "node:module";
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
 const server = new McpServer({ name: "aiterm", version: pkg.version });
+let parentDelivery: ParentDeliveryManager | null = null;
+type DeliveryRequest = ReturnType<ParentDeliveryManager["request"]>;
+
+async function deliveryForRequest(extra: { _meta?: unknown }): Promise<DeliveryRequest | null> {
+  const parent = codexParentFromRequest(server.server.getClientVersion()?.name, extra._meta);
+  if (!parent) return null;
+  parentDelivery ??= new ParentDeliveryManager();
+  await parentDelivery.prepare(parent);
+  return parentDelivery.request(parent);
+}
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -33,7 +45,8 @@ type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean
  */
 const NON_BLOCKING_RULE =
   "dispatch した子は投げっぱなしでよい＝親はここで待たない。" +
-  "完了通知はreceiptの `wait_process.executable` と `wait_process.args` をそのまま親のターンを塞がない別プロセスAPIへ渡して受け、" +
+  "Codex親にはAitermが回答本文を自動配送する。parent_deliveryがある場合はwait起動も通常の回答回収も不要。親は作業を続けるかターンを終える。" +
+  "その他の親では、完了通知をreceiptの `wait_process.executable` と `wait_process.args` をそのまま親のターンを塞がない別プロセスAPIへ渡して受け、" +
   "PowerShell 7のStart-Processだけは `windows_start_process_argument_list` を単一文字列として渡す。" +
   `exit を完了通知として扱う（${core.AITERM_WAIT_OUTCOME_NOTE}。ポーリング不要）。` +
   "`wait_command` は人間向け互換表示でありprocess境界へ使わない。foreground実行で親のターンを塞がない。";
@@ -45,6 +58,12 @@ const waitProcessOutputSchema = z
     windows_start_process_argument_list: z.string().nullable(),
   })
   .nullable();
+
+const parentDeliveryOutputSchema = z.object({
+  delivery_id: z.string(), state: z.enum(["waiting", "ready", "sending", "submitted", "failed", "unknown"]),
+  child_outcome: z.enum(["done", "closed", "rate_limited", "error"]).nullable(),
+  child_turn_id: z.string().nullable(), queued_submission_id: z.string().nullable(), error_code: z.string().nullable(),
+});
 
 function ok(s: string): ToolResult {
   return { content: [{ type: "text", text: s }] };
@@ -141,7 +160,7 @@ server.registerTool(
       "agent session（launcher起動）への send は自動で dispatch になる: TUI の ready gate と submit 分離を通して即返り、" +
       "receipt の event_cursor を返す。" +
       NON_BLOCKING_RULE +
-      "結果回収は pty_read(agent_transcript:true)、Claude の durable turn は claude_turn を使う。" +
+      "自動配送以外の結果回収は pty_read(agent_transcript:true)、Claude の durable turn は claude_turn を使う。" +
       "force:true は非Claude agent sessionへの手動介入用の素送信。aiterm相関付きClaudeの承認UIはclaude_approvalを使う。",
     inputSchema: {
       session_id: z.string(),
@@ -178,6 +197,7 @@ server.registerTool(
       session_id: z.string(),
       event_cursor: z.number().int().nullable(),
       wait_process: waitProcessOutputSchema,
+      parent_delivery: parentDeliveryOutputSchema.optional(),
       launch_id: z.string().nullable(),
       vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]).nullable(),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
@@ -188,14 +208,16 @@ server.registerTool(
       pane_input_recovery: z.array(z.string()).optional(),
     },
   },
-  async ({ session_id, text, enter, mark, force, rtk, raw, image }) => {
+  async ({ session_id, text, enter, mark, force, rtk, raw, image }, extra) => {
+    let delivery: DeliveryRequest | null = null;
     try {
       if (!force && core.isAgentSession(session_id)) {
         if (enter === false) throw new Error("agent session への dispatch は enter:false と併用できません（手動介入は force:true）");
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
-        const receipt = await core.dispatchAgentTurn(session_id, core.attachImages(text, image), { raw });
-        const waitProcess = core.agentWaitProcess(receipt.session_id, receipt.event_cursor);
+        delivery = await deliveryForRequest(extra);
+        const receipt = await core.dispatchAgentTurn(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send });
+        const waitProcess = delivery ? null : core.agentWaitProcess(receipt.session_id, receipt.event_cursor);
         return {
           content: [
             {
@@ -212,6 +234,7 @@ server.registerTool(
             session_id: receipt.session_id,
             event_cursor: receipt.event_cursor,
             wait_process: waitProcess,
+            ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
             launch_id: receipt.launch_id,
             vendor: receipt.vendor,
             harness: receipt.harness,
@@ -239,6 +262,7 @@ server.registerTool(
         },
       };
     } catch (e) {
+      delivery?.failed(e);
       return fail(e);
     }
   },
@@ -431,6 +455,7 @@ server.registerTool(
   },
   async ({ session_id }) => {
     try {
+      await parentDelivery?.beforeChange(session_id);
       const result = core.closeSessionResult(session_id);
       return {
         content: [{ type: "text" as const, text: `closed ${session_id}` }],
@@ -491,6 +516,7 @@ server.registerTool(
       pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
       process_identity: nativeProcessIdentitySchema.nullable(),
       token_hint: z.number().nullable(),
+      parent_deliveries: z.array(parentDeliveryOutputSchema).optional(),
       activity: z.object({ cursor: z.string().nullable(), output_changed: z.boolean().nullable(),
         cpu_seconds: z.number().nullable(), cpu_delta_seconds: z.number().nullable(), cpu_delta_complete: z.boolean().nullable(),
         background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable() }),
@@ -498,7 +524,8 @@ server.registerTool(
   },
   async ({ session_id, cursor }) => {
     try {
-      const result = core.observeSession(session_id, cursor);
+      const observation = core.observeSession(session_id, cursor);
+      const result = { ...observation, ...(parentDelivery ? { parent_deliveries: parentDelivery.status(session_id) } : {}) };
       return { ...ok(JSON.stringify(result)), structuredContent: { ...result } };
     } catch (e) { return fail(e); }
   },
@@ -552,21 +579,26 @@ server.registerTool(
       // issue時のみdispatch由来のsubmit座礁観測（additive）。true=composerに残存を確認（submit未成立の疑い）/
       // false=残存を観測せず（成立の保証ではない）/ recover等はnull。
       submit_residue: z.boolean().nullable(),
+      parent_delivery: parentDeliveryOutputSchema.optional(),
     },
   },
-  async ({ action, session_id, operation_id, text }) => {
+  async ({ action, session_id, operation_id, text }, extra) => {
+    let delivery: DeliveryRequest | null = null;
     try {
+      if (action === "issue") delivery = await deliveryForRequest(extra);
       const result = await core.runClaudeOperation({
         action,
         session_id,
         operation_id,
         text: text ?? undefined,
+        before_send: delivery?.before_send,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
-        structuredContent: { ...result },
+        structuredContent: { ...result, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) },
       };
     } catch (e) {
+      delivery?.failed(e);
       return fail(e);
     }
   },
@@ -687,13 +719,7 @@ const agentEffortDesc = (kind: core.AgentKind) =>
         : "Grok Build reasoning effort。利用可能値はCLI／modelのlive catalogに従う。省略時はCLI／model既定。";
 // 全launcher共通の完了受信ガイド。machine callerはreceiptのwait_processをそのまま別process APIへ渡す。
 // wait_commandは人間向け互換表示。文型は NON_BLOCKING_RULE と同じく「待たない」が先。
-const agentCompletionDesc =
-  `起動して投げたら投げっぱなしでよい＝親はここで待たない。` +
-  `完了通知は起動応答またはpty_send dispatch receiptの wait_processを、親のターンを塞がない` +
-  `別プロセスAPIへexecutable／argsの境界を保ったまま渡して受ける` +
-  `（PowerShell 7のStart-Processはwindows_start_process_argument_listを使う）` +
-  `（${core.AITERM_WAIT_OUTCOME_NOTE}。ポーリング不要・foreground実行はしない）。` +
-  `wait_commandは人間向け互換表示。結果回収は pty_read(agent_transcript:true)。`;
+const agentCompletionDesc = NON_BLOCKING_RULE + "自動配送以外の結果回収は pty_read(agent_transcript:true)。";
 const agentEnvironmentDesc =
   `通常CLIと同じHOME・cwd・project/user/local設定・MCP・plugin・skill・permission/trustを共有する。` +
   `aitermは完了相関stateだけをlaunch単位で所有する。起動されたagentにはsub-agent自己認識、親session、` +
@@ -705,14 +731,16 @@ const initialPromptDeliverySchema = z.object({
 });
 const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "blocked"]), reason: z.string() });
 
-async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
+async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
   const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project } = args;
+  let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
       throw new core.AitermError("claude-code harnessはwrite_scopeに対応していません。指定を外してください", 2);
     }
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
+    if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
     const [sid, hint, eventCursor, submitResidue, initialDelivery, startup] = await core.openAgentWithInitialPrompt(kind, {
       prompt: initialPrompt,
       throughline_source_session,
@@ -721,6 +749,7 @@ async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
       reasoning_effort: reasoning_effort ?? undefined,
       env_vars,
       trust_project,
+      before_send: delivery?.before_send,
       cwd: cwd ?? undefined,
       session_name: session_name ?? undefined,
       launch_operation_id: launch_operation_id ?? undefined,
@@ -733,8 +762,9 @@ async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
       session_id: sid,
       managed_completion: true,
       event_cursor: eventCursor,
-      wait_process: eventCursor === null ? null : core.agentWaitProcess(sid, eventCursor),
-      wait_command: eventCursor === null ? null : `aiterm-wait --session ${sid} --cursor ${eventCursor}`,
+      wait_process: eventCursor === null || delivery ? null : core.agentWaitProcess(sid, eventCursor),
+      wait_command: eventCursor === null || delivery ? null : `aiterm-wait --session ${sid} --cursor ${eventCursor}`,
+      ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
       submit_residue: submitResidue,
       initial_prompt: initialDelivery,
       startup,
@@ -754,14 +784,16 @@ async function launchAgent(kind: core.AgentKind, args: any): Promise<any> {
       ...(initialDelivery.status === "submitted_unconfirmed" ? { isError: true } : {}),
     };
   } catch (e) {
+    delivery?.failed(e);
     if (e instanceof core.AgentLaunchPromptError) {
       return {
         ...fail(e),
         structuredContent: {
           schema: "aiterm.agent-launch-result.v1", provider: kind, harness: core.agentHarness(kind),
           session_id: e.session_id, managed_completion: true, event_cursor: e.event_cursor,
-          wait_process: e.event_cursor === null ? null : core.agentWaitProcess(e.session_id, e.event_cursor),
-          wait_command: e.event_cursor === null ? null : `aiterm-wait --session ${e.session_id} --cursor ${e.event_cursor}`,
+          wait_process: e.event_cursor === null || delivery ? null : core.agentWaitProcess(e.session_id, e.event_cursor),
+          wait_command: e.event_cursor === null || delivery ? null : `aiterm-wait --session ${e.session_id} --cursor ${e.event_cursor}`,
+          ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
           submit_residue: null, initial_prompt: e.initial_prompt, startup: e.startup,
         },
       };
@@ -835,13 +867,14 @@ function registerAgentTool(
         event_cursor: z.number().int().nullable(),
         wait_process: waitProcessOutputSchema,
         wait_command: z.string().nullable(),
+        parent_delivery: parentDeliveryOutputSchema.optional(),
         // 初回prompt dispatch後のsubmit座礁観測（additive）。true=composerに残存を確認（submit未成立の疑い）/
         // false=残存を観測せず（submit成立の保証ではない）/ null=promptなし・判定不能。
         submit_residue: z.boolean().nullable(),
         ...writeScopeOutputSchema,
       },
     },
-    async (args: any) => launchAgent(kind, args),
+    async (args: any, extra) => launchAgent(kind, args, extra),
   );
 }
 
@@ -879,12 +912,13 @@ server.registerTool(
       event_cursor: z.number().int().nullable(),
       wait_process: waitProcessOutputSchema,
       wait_command: z.string().nullable(),
+      parent_delivery: parentDeliveryOutputSchema.optional(),
       submit_residue: z.boolean().nullable(),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
     },
   },
-  async ({ harness, ...args }: any) => launchAgent(kindForHarness(harness), args),
+  async ({ harness, ...args }: any, extra) => launchAgent(kindForHarness(harness), args, extra),
 );
 
 registerAgentTool(
@@ -936,7 +970,12 @@ async function main(): Promise<void> {
   // そのホストの実際の起動形で名指しする（実測: claude-code は initialize → notifications/initialized
   // → tools/list の順で送るため、どの tool 呼び出しより先に確定する）。取れない時は汎用文へ落ちるだけ。
   server.server.oninitialized = () => {
-    core.setParentClient(server.server.getClientVersion()?.name ?? null);
+    const name = server.server.getClientVersion()?.name;
+    core.setParentClient(name ?? null);
+    if (name === "codex-mcp-client") parentDelivery ??= new ParentDeliveryManager();
+  };
+  server.server.onclose = () => {
+    void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
   };
   const transport = new StdioServerTransport();
   await server.connect(transport);

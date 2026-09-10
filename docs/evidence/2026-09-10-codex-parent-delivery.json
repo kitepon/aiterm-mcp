@@ -1,0 +1,50 @@
+{
+  "schema": "aiterm.codex-parent-delivery-evidence.v1",
+  "observed_at": "2026-09-10",
+  "phase": "implementation",
+  "codex_cli_version": "0.154.0",
+  "platform": "darwin",
+  "live_cases": [
+    {
+      "case": "codex-child",
+      "status": "passed",
+      "receipt_sha256": "3067415d5f0712fffc220e2e9ec193a4f38e0b5809a571de18184676ba774861",
+      "tool_calls": [
+        "agent_launch",
+        "pty_close"
+      ],
+      "parent_thread_id": "01a0890b-6392-7811-903c-c650f5e61698",
+      "final": "PARENT-AUTO-RECEIVED-0910",
+      "wait_process": null
+    },
+    {
+      "case": "claude-child-followup",
+      "status": "passed",
+      "receipt_sha256": "fcab01897ffe75242a40e97ee4e3f6213e8778735a5a6dc961ec17743180bfec",
+      "tool_calls": [
+        "agent_launch",
+        "pty_send",
+        "pty_close"
+      ],
+      "parent_thread_id": "01a08913-0999-7941-8481-77b331ff30c5",
+      "final": "CLAUDE-PARENT-AUTO-RECEIVED-0910",
+      "wait_process": null
+    }
+  ],
+  "focused_cases": {
+    "parent_delivery": 9,
+    "exact_transcript": 10
+  },
+  "review": {
+    "harness": "grok-cli",
+    "model": "grok-4.6",
+    "effort": "high",
+    "finding": "turn ID付きoutput_text形式を配送経路でも回収する",
+    "resolution": "既存fixtureで失敗を再現し、同じturn IDの本文だけを対象に回収して修正後に成功した。現行CLIのtask_complete本文形式は実機で成功済み。"
+  },
+  "race": {
+    "reproduction": "同じ子への別MCP接続からの並行予約が2件とも成功した。",
+    "resolution": "hard linkの原子的作成で未回収の依頼を一つに限定し、同じ再現試験で1件だけ成功した。"
+  },
+  "release_acceptance": "pending"
+}

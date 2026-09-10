@@ -59,6 +59,13 @@ export function configureIntegrations(home: string, registration: Registration, 
           : process.env.CLAUDE_CONFIG_DIR ? join(process.env.CLAUDE_CONFIG_DIR, ".claude.json") : join(home, ".claude.json");
         mergeJsonMcp(file, client === "claude" ? { type: "stdio", ...registration } : registration);
       } else if (client === "codex") {
+        // 親threadがないsetupでは公式queue入口まで確認し、宛先は各dispatchで検証する。
+        let queueHelp: string;
+        try { queueHelp = run(executable!, ["queue", "--help"]); }
+        catch { throw new SetupError("codex_parent_delivery_unavailable", "Codexの公式受信キューを使えません。公式CLIを更新してください"); }
+        if (!queueHelp.includes("--thread") || !queueHelp.includes("--message")) {
+          throw new SetupError("codex_parent_delivery_unavailable", "Codexの公式受信キューを確認できません。公式CLIを更新してください");
+        }
         const servers = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
         if (!Array.isArray(servers)) throw new SetupError("config_readback_failed", "CodexのMCP一覧形式を確認できません");
         const existing = servers.find((entry: Record<string, unknown>) => entry.name === "aiterm");

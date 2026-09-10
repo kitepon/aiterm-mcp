@@ -2796,14 +2796,17 @@ export interface AgentTranscriptResult {
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */
 export async function readAgentTranscriptResult(
   name: string,
-  o: { lines?: number | null; operation_id?: string | null } = {},
+  o: { lines?: number | null; operation_id?: string | null; completion?: AgentWaitObservation; raw?: boolean } = {},
 ): Promise<AgentTranscriptResult> {
   const meta = loadAgentMetadata(name);
+  if (o.completion && (o.completion.outcome !== "done" || o.completion.launch_id !== meta.launch_id || o.completion.session_id !== name)) {
+    throw new AitermError("回収対象の完了情報がagent launchと一致しません", 2);
+  }
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id付き回収はClaude agent sessionだけで使用できます", 2);
   }
-  if (meta.kind === "claude") {
+  if (meta.kind === "claude" && !o.completion) {
     let active = readClaudeOperationMarker(meta);
     if (active) active = await settlePublishedClaudeCompletionMarker(meta, active);
     if (active) {
@@ -2822,10 +2825,13 @@ export async function readAgentTranscriptResult(
   }
 
   const done = latestAgentDoneEvent(meta, operationId);
+  if (o.completion && meta.kind !== "codex" && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
+    throw new AitermError("回収対象の完了情報が置換されました。別の回答は配送しません", 2);
+  }
   if (operationId && !done) {
     throw new AitermError(`operation ${operationId} はまだ完了していません。同じoperation_idで後から再取得してください。${agentWaitGuide(name)}`, 2);
   }
-  const turnId = done?.turn_id ?? null;
+  const turnId = o.completion?.turn_id ?? done?.turn_id ?? null;
   let text = "";
 
   if (meta.kind === "claude") {
@@ -2834,7 +2840,7 @@ export async function readAgentTranscriptResult(
   } else if (meta.kind === "cursor") {
     text = cursorTranscriptText(meta, readTranscriptLines, transcriptUnavailable);
   } else if (meta.kind === "codex") {
-    text = codexTranscriptText(meta, turnId, readTranscriptLines, transcriptUnavailable);
+    text = codexTranscriptText(meta, turnId, readTranscriptLines, transcriptUnavailable, o.completion !== undefined);
   } else {
     if (!done) transcriptUnavailable();
     text = grokTranscriptText(meta, readTranscriptLines, transcriptUnavailable);
@@ -2843,7 +2849,7 @@ export async function readAgentTranscriptResult(
   if (!text.trim()) transcriptNotFound(meta.kind);
   if (o.lines != null) text = text.split("\n").slice(-o.lines).join("\n");
   const rawChars = text.length;
-  const [body, outputMeta] = reduceOutput(text, name, true);
+  const [body, outputMeta] = o.raw ? [text, ""] : reduceOutput(text, name, true);
   const transcriptMeta = [
     "agent_transcript",
     `vendor=${meta.kind}`,
@@ -2999,6 +3005,10 @@ export function agentWaitLaunchForm(command: string): string {
 
 // dispatch / 起動時 prompt 送信後の共通案内。第一文で「待たない」を宣言し、待ち方は後段に置く。
 export function agentDispatchGuide(session: string, cursor: number): string {
+  if (parentClientName === "codex-mcp-client") {
+    return "回答本文はAitermがこのCodex親へ自動配送する。wait起動・ポーリング・通常の回答回収は不要。" +
+      "親は作業を続けるかターンを終え、順番待ちから届く子の回答で続行する。";
+  }
   const cmd = `aiterm-wait --session ${session} --cursor ${cursor}`;
   return (
     `投げっぱなしでよい＝ここで待たない。親は自分の作業へ戻るか、このターンを終える。\n` +
@@ -3009,6 +3019,7 @@ export function agentDispatchGuide(session: string, cursor: number): string {
 
 // 未完了 session へ触った時の共通案内。ここでも待つのは waiter プロセスであって親ではない。
 export function agentWaitGuide(session?: string): string {
+  if (parentClientName === "codex-mcp-client") return "回答本文はこのCodex親へ自動配送される。親は作業を続けるかターンを終える。";
   const cmd = `aiterm-wait --session ${session ?? "<session_id>"} --cursor 0`;
   return `完了通知は ${agentWaitLaunchForm(cmd)} で受ける（親はここで待たない・polling 不要）。receipt の outcome=done を確認してから再取得する。`;
 }
@@ -3050,7 +3061,7 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
 // 行わない（waiterは観測者であって所有者でない）。
 export async function observeAgentDone(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; signal?: AbortSignal } = {},
 ): Promise<AgentWaitObservation> {
   const meta = loadAgentMetadata(name);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
@@ -3062,13 +3073,13 @@ export async function observeAgentDone(
   }
   const timeout = o.timeout ?? DEFAULT_AGENT_DONE_TIMEOUT;
   if (meta.kind === "codex" && meta.completion_route === "codex_transcript") {
-    return observeCodexDone(meta, timeout, o.cursor, detectAgentRateLimit);
+    return observeCodexDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
   }
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
-    return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit);
+    return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
   }
   if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
-    return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit);
+    return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
   }
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   // 境界の優先順: dispatch receipt の event_cursor（起動順序に依存しない）→ operation相関
@@ -3104,6 +3115,7 @@ export async function observeAgentDone(
     error: apiError?.text ?? null,
   });
   for (;;) {
+    o.signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
     const size = safeStatSize(meta.event_file);
     if (size < cursor) {
@@ -3599,6 +3611,7 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
 export interface InitialAgentPromptOpts {
   ready_timeout?: number;
   trust_project?: boolean;
+  before_send?: import("./agent-shared.js").BeforeAgentSend;
 }
 
 async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
@@ -3698,6 +3711,9 @@ export async function sendInitialAgentPrompt(
   }
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
+  prepareSendText(promptText, { raw: false });
+  await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
+    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null });
   try {
     if (meta.kind === "claude") {
       prepareSendText(text, { raw: false });
@@ -4034,7 +4050,7 @@ export function attachImages(text: string, images: readonly string[] | undefined
 export async function dispatchAgentTurn(
   name: string,
   text: string,
-  o: { operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean } = {},
+  o: { operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend } = {},
 ): Promise<AgentDispatchReceipt> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
@@ -4070,6 +4086,9 @@ export async function dispatchAgentTurn(
   const dispatchText = meta.kind === "cursor" && !meta.vendor_session_id
     ? `${subagentInstruction(meta)}\n\n${text}`
     : text;
+  prepareSendText(dispatchText, { raw: o.raw });
+  await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
+    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
   if (meta.kind === "claude") {
     // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
     // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
@@ -4168,11 +4187,13 @@ export async function runClaudeOperation({
   action,
   operation_id: operationIdInput,
   text,
+  before_send,
 }: {
   session_id: string;
   action: "issue" | "recover";
   operation_id: string;
   text?: string | null;
+  before_send?: import("./agent-shared.js").BeforeAgentSend;
 }): Promise<ClaudeOperationResult> {
   assertSessionName(name);
   if (action !== "issue" && action !== "recover") {
@@ -4188,7 +4209,7 @@ export async function runClaudeOperation({
       throw new AitermError("claude_turn issueには空でないtextが必要です", 2);
     }
     // v0.16.0: issue は dispatch-only。完了通知は aiterm-wait --operation、回収は recover が担う。
-    dispatchReceipt = await dispatchAgentTurn(name, text, { operation_id: operationId });
+    dispatchReceipt = await dispatchAgentTurn(name, text, { operation_id: operationId, before_send });
   } else {
     if (text != null) throw new AitermError("claude_turn recoverにtextは指定できません", 2);
   }
@@ -4600,7 +4621,7 @@ export function openAgent(
   const driveHint =
     agentDone
       ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-        `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch＝投げっぱなしでよい・完了通知はaiterm-wait）。中断はpty_key(${sid}, "C-c")、` +
+        `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${parentClientName === "codex-mcp-client" ? "回答本文はCodex親へ自動配送する" : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
         `Stopが来ない場合の解除はpty_close(${sid})を使う。`
       : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
         `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;
@@ -4637,6 +4658,7 @@ export async function openAgentWithInitialPrompt(
     throughline_supplement_file?: string | null;
     env_vars?: string[];
     trust_project?: boolean;
+    before_send?: import("./agent-shared.js").BeforeAgentSend;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult]> {
   const mission = opts.prompt ?? null;
@@ -4715,6 +4737,7 @@ export async function openAgentWithInitialPrompt(
     const initial = await sendInitialAgentPrompt(sid, prompt, {
       ready_timeout: opts.ready_timeout ?? undefined,
       trust_project: opts.trust_project,
+      before_send: opts.before_send,
     });
     return [sid, `${hint}\n${initial.text}`, initial.event_cursor, initial.submit_residue, initial.initial_prompt,
       { status: "ready", reason: "composer_ready" }];

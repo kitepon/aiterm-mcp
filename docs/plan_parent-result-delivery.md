@@ -1,6 +1,6 @@
 # 子の回答をCodex親へ自動配送する設計・実装計画
 
-状態: 設計案。Codex親から先に対応する方針はオーナー合意済み。製品実装は未着手。
+状態: 実装中。Codex親から先に対応する方針と実装開始はオーナー合意済み。
 
 作成: 2026-09-10
 
@@ -36,6 +36,14 @@ Codex親がAitermへ子の仕事を依頼すると、Aitermが完了を検知し
 この実測時のCodex CLIは0.154.0。
 CodexのDesktopに同梱されたruntimeは0.153.4だった。
 これらは試験時の記録であり、最低対応版の決定ではない。
+
+実装開始時の追加実測:
+
+- 公式app-serverのstdio接続から `thread/queue/add` が成立。日本語・改行・引用符を含む60,000文字、
+  UTF-8で136,000 bytesを送り、受付結果の本文が完全一致した。試験メッセージは同じ公式APIで削除した。
+- Codexの実モデルから試験用MCPを呼び、`clientInfo.name=codex-mcp-client` と `_meta.threadId` を取得した。
+  取得値はその親のthread/start結果と一致し、`_meta.itemId` も存在した。
+- 変更前のbuildと `test/aiterm-wait.test.mjs`、`test/public-session-api.test.mjs` は31件成功した。
 
 ## 3. 構成
 
@@ -180,9 +188,14 @@ APIエラー・利用上限・子の異常終了には成功回答を作らず�
   Codexの自動配送失敗を隠すために、この契約へ切り替えない。
 
 公開挙動を実装するcommitで日英README、DESIGN、関連ADR、CHANGELOG、必要な配布metadataを同期する。
-本計画は設計案なので、現行契約はまだ書き換えない。
+実装に合わせて公開契約を更新した。実機の途中証拠は[evidence](evidence/2026-09-10-codex-parent-delivery.json)に保存する。
 
 ## 8. 実装順序と受入
+
+実行管理: 単一repoで、受信口の成立確認から配送実装、3環境受入、公開後確認へ受入が連鎖するため統括レーン。
+Fは宛先・公開契約・配送状態・受入・公開、Aは確定した実装とfocused test、Hは外部CIと配布完了の待機。
+公開の実行と技術的な合否は親が担当する。Latticeは使わない。
+並列化は、受信口の実測が配送処理の仕様を決めるため実装を直列とし、独立反証だけ別担当へ依頼する。
 
 | 工程 | 作業 | 終了条件 |
 | --- | --- | --- |
@@ -212,7 +225,7 @@ macOS・Linux・Windows nativeで、Codex親の通常登録から一往復を行
 
 個別検証と関連gate完了後に `npm test` を一度行う。
 公開工程は[RELEASE](RELEASE.md)のmain祖先gate、製品CI、公開、導入、公開後smokeに従う。
-今回の計画作成では文書と取り込んだ資料だけを検証し、製品の通し試験・公開は行わない。
+現在地: 自動配送実装、Codex子とClaude子の実機受信、focused test、独立反証を完了。製品CIと公開後smokeを進行中。
 
 ## 9. 根拠
 

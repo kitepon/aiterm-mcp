@@ -47,13 +47,36 @@ harnessがagent loop、認証、hook、session、transcript、model catalogを�
 project／user環境を置換せず、launch相関と完了回収に必要なstateだけを加える。
 Throughlineの補足記憶はpathを透過搬送するだけで、内容、project束縛、context予算はThroughlineが所有する。
 
-agent turnは常に非ブロックdispatchである。receiptの`event_cursor`がturn境界、`wait_process`が
-platform nativeな別process起動情報を返す。waiterは純readerで、親のforeground turnを塞がない。
+agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
+Codex親にはAitermのMCP processが完了を観測し、回答本文を公式受信キューへ自動配送する。
+それ以外の親には`wait_process`がplatform nativeな別process起動情報を返す。
+waiterは純readerで、親のforeground turnを塞がない。
 回答はharness所有transcriptから同じturnへ相関して回収し、欠落・曖昧・timeout時にpromptを再送しない。
 Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
 `agent_steer`は実行中のCodex／Grok turnへ追加textを差し込み、idleなら送信せず状態を返す。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
+
+### Codex親への自動配送
+
+`src/parent-delivery.ts`が依頼の送信前に宛先と完了境界を保存し、完了観測、加工前の回答保存、配送を所有する。
+宛先はCodexのMCP handshakeと各要求の`_meta.threadId`から取得する。modelが指定したIDや環境変数で代用しない。
+`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、`thread/read`と
+`thread/queue/list`で宛先を確認した後、`thread/queue/add`へ本文をJSONで渡す。
+親のload／resume、Desktop固有通信、子への送信指示、別daemonは使わない。
+setupは公式`queue`入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。
+native sub-agentを親にした外部queue入力はCodex自身が拒否するため、子への送信前に明示errorにする。
+
+通常結果は親の実行中turnを中断せず、親がidleになった後に処理される。
+`parent_delivery`が配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullになる。
+`pty_observe`の`parent_deliveries`で状態を確認できる。`submitted`はキュー受付済みを示し、modelの読了を意味しない。
+次の依頼へ進める前に前回の回答を保存し、harness所有記録を後の回答と取り違えない。
+
+配送記録と本文はAiterm stateの`parent-deliveries`へ保存する。ownerのPIDと開始識別子で生存を判定し、
+再接続後は終了したownerの記録だけを原子的に引き継ぐ。`waiting`は同じ境界から観測を再開し、
+`ready`は保存した本文を送る。送信中断は`unknown`として本文を残し、自動再送しない。
+受信口が明示拒否した場合は`failed`、子の異常終了はそのoutcomeを配送する。
+このstateは既存のPTY／harness stateと独立し、旧版は配送を再開しない。
 
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
 promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は

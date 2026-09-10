@@ -218,6 +218,7 @@ export async function observeCursorDone(
   timeout: number,
   requestedCursor: number | null | undefined,
   detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
+  signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   let transcript = cursorTranscript(meta);
@@ -245,6 +246,7 @@ export async function observeCursorDone(
   });
 
   for (;;) {
+    signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
     transcript ??= cursorTranscript(meta);
     if (transcript) {

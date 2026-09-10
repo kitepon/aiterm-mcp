@@ -3609,8 +3609,53 @@ test("readAgentTranscript: Codex の単一 output_text を直近完了 turn か�
       const out = await core.readAgentTranscript(sid);
       assert.match(out, /Codex single answer/);
       assert.match(out, /vendor=codex turn_id=transcript-turn-single harness=codex-cli raw_chars=19/);
+      const completion = await core.observeAgentDone(sid, { cursor: 0, timeout: 0 });
+      assert.equal((await core.readAgentTranscriptResult(sid, { completion, raw: true })).text, "Codex single answer");
     } finally {
       core.closeSession(sid);
+    }
+  });
+});
+
+test("readAgentTranscript: 配送用本文は完了turnを指定して無削減で回収する", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const vendorSessionId = "delivery-codex";
+      const turnId = "delivery-turn";
+      const meta = bindTranscriptTurn(sid, vendorSessionId, turnId);
+      const answer = Array.from({ length: 100 }, (_, i) => `回答 ${i}\n引用符\"`).join("\n");
+      writeCodexTranscript(meta, vendorSessionId, [
+        { type: "session_meta", payload: { id: vendorSessionId } },
+        { type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: answer } },
+      ]);
+      const completion = await core.observeAgentDone(sid, { cursor: 0, timeout: 0 });
+      appendCodexTranscript(meta, vendorSessionId, [
+        { type: "event_msg", payload: { type: "task_complete", turn_id: "later-turn", last_agent_message: "後続の回答" } },
+      ]);
+      const out = await core.readAgentTranscriptResult(sid, { completion, raw: true });
+      assert.equal(out.text, answer);
+      assert.equal(out.turn_id, turnId);
+      assert.equal(out.raw_chars, answer.length);
+      await assert.rejects(core.readAgentTranscriptResult(sid, { completion: { ...completion, launch_id: "b".repeat(32) }, raw: true }), /launchと一致しません/);
+    } finally { core.closeSession(sid); }
+  });
+});
+
+test("配送記録の保存に失敗した初手とfollow-upは、子へ本文を送らない", { skip: skipAgentDone }, async () => {
+  await withFakeCodexTuiHome(async () => {
+    for (const initial of [true, false]) {
+      const [sid] = core.openAgent("codex", { agent_done: true });
+      try {
+        let recorded;
+        const options = { before_send: async (boundary) => { recorded = boundary; throw new Error("配送先の保存失敗"); } };
+        const call = initial ? core.sendInitialAgentPrompt(sid, "配送前に止まる本文", options) : core.dispatchAgentTurn(sid, "配送前に止まる本文", options);
+        await assert.rejects(call, /配送先の保存失敗/);
+        assert.equal(recorded.session_id, sid);
+        assert.equal(recorded.launch_id, readAgentMeta(sid).launch_id);
+        assert.equal(typeof recorded.event_cursor, "number");
+        assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /配送前に止まる本文/);
+      } finally { core.closeSession(sid); }
     }
   });
 });

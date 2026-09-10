@@ -171,6 +171,7 @@ export async function observeGrokDone(
   timeout: number,
   requestedCursor: number | null | undefined,
   detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
+  signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   const transcript = grokEventsTranscript(meta);
@@ -203,6 +204,7 @@ export async function observeGrokDone(
   });
 
   for (;;) {
+    signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
     if (fs.existsSync(transcript)) {
       if (!initializedBoundary) {

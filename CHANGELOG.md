@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Codex親への子の回答自動配送を追加した。起動・通常dispatch・Claude durable turnの完了をAitermが観測し、回答本文を公式受信キューへ送る。親の待機コマンドと回答回収、子への送信指示は不要になった。
+- 配送IDと状態をreceipt／`pty_observe`へ追加した。再接続後は未送信の記録を再開し、送信結果が不明な場合は本文を保持して自動再送しない。
+- `aiterm-setup`はCodexの公式queue入口を確認する。各dispatchでMCP要求の親threadを確認し、未対応の受信口へ子を送らない。
+
+### Compatibility
+
+- Codex親は公式の`_meta.threadId`と`thread/queue` APIを提供する環境が必要。Codex CLI 0.154.0で確認した。native sub-agentを親とする外部queue入力はCodexの制約により未対応。
+- Claude等の親の既存waiter契約は維持する。旧版へ戻すと新しい配送記録は処理されないが、既存PTY／harness stateの形式は変わらない。
+
 ## [0.33.1] - 2026-09-09
 
 ### Fixed

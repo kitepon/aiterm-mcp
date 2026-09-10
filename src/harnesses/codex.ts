@@ -272,6 +272,7 @@ export async function observeCodexDone(
   timeout: number,
   requestedCursor: number | null | undefined,
   detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
+  signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   let transcript = codexRootTranscript(meta);
@@ -303,6 +304,7 @@ export async function observeCodexDone(
   });
 
   for (;;) {
+    signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
     transcript ??= codexRootTranscript(meta);
     if (transcript) {
@@ -570,11 +572,33 @@ export function codexTranscriptText(
   turnId: string | null,
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
+  exactCompletion = false,
 ): string {
   if (!meta.codex_home || !meta.vendor_session_id) transcriptUnavailable();
   const transcript = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
   if (!transcript) transcriptUnavailable();
   const lines = readTranscriptLines(transcript);
+  if (exactCompletion) {
+    // 同じturnの本文だけを使う。完了event内の本文と、turn ID付きoutput_textの両形式を扱う。
+    const matching: string[] = [];
+    for (const line of lines) {
+      let record: any;
+      try { record = JSON.parse(line); } catch { continue; }
+      const payload = record?.payload;
+      if (record?.type === "response_item" && payload?.type === "message" && payload?.role === "assistant"
+        && payload?.internal_chat_message_metadata_passthrough?.turn_id === turnId && Array.isArray(payload?.content)) {
+        for (const item of payload.content) {
+          if (item?.type === "output_text" && typeof item.text === "string") matching.push(item.text);
+        }
+      }
+      if (record?.type === "event_msg" && payload?.type === "task_complete" && payload.turn_id === turnId) {
+        if (typeof payload.last_agent_message === "string") return payload.last_agent_message;
+        if (matching.length > 0) return matching.join("\n");
+        transcriptUnavailable();
+      }
+    }
+    transcriptUnavailable();
+  }
   const matching: string[] = [];
   let finalAnswer = "";
   for (const line of lines) {

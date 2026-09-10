@@ -52,6 +52,7 @@ test('4 clientの登録と公開CLIの読戻しを同じ意図で実行する', 
   const calls = [];
   const run = (command, args) => {
     calls.push([command, args]);
+    if (args[0] === 'queue') return '--thread <ID> --message <TEXT>';
     if (args[1] === 'get') return JSON.stringify({ transport: { type: 'stdio', ...registration } });
     if (args[1] === 'list') return JSON.stringify([{ name: 'aiterm', ...registration }]);
     return '';
@@ -61,6 +62,7 @@ test('4 clientの登録と公開CLIの読戻しを同じ意図で実行する', 
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.cursor', 'mcp.json'), 'utf8')).mcpServers.aiterm, registration);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.claude', '.claude.json'), 'utf8')).mcpServers.aiterm, { type: 'stdio', ...registration });
   assert.deepEqual(calls, [
+    ['codex', ['queue', '--help']],
     ['codex', ['mcp', 'list', '--json']],
     ['codex', ['mcp', 'add', 'aiterm', '--', registration.command, ...registration.args]],
     ['codex', ['mcp', 'get', 'aiterm', '--json']],
@@ -68,4 +70,18 @@ test('4 clientの登録と公開CLIの読戻しを同じ意図で実行する', 
     ['grok', ['mcp', 'add', '--scope', 'user', 'aiterm', '--', registration.command, ...registration.args]],
     ['grok', ['mcp', 'list', '--json']],
   ]);
+});
+
+test('Codexの受信キューがない場合は登録前に更新が必要と返す', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-old-codex-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const response of [() => '', () => { throw new Error('unknown command'); }]) {
+    const calls = [];
+    const result = configureIntegrations(dir, registration, (_command, args) => {
+      calls.push(args);
+      return response();
+    }, client => client === 'codex' ? 'codex' : null);
+    assert.deepEqual(result.codex, { status: 'failed', reason_code: 'codex_parent_delivery_unavailable' });
+    assert.deepEqual(calls, [['queue', '--help']]);
+  }
 });

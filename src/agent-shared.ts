@@ -32,6 +32,18 @@ export interface AgentStartupResult {
   reason: string;
 }
 
+/** 子へ送る直前の相関情報。MCP親への配送方法は含めない。 */
+export interface AgentTurnBoundary {
+  session_id: string;
+  launch_id: string;
+  vendor: AgentKind;
+  harness: AgentHarness;
+  event_cursor: number;
+  operation_id: string | null;
+}
+
+export type BeforeAgentSend = (boundary: AgentTurnBoundary) => Promise<void>;
+
 export interface AgentMetadata {
   kind: AgentKind;
   aiterm_session: string;

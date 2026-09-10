@@ -176,8 +176,8 @@ a non-blocking `aiterm-wait --timeout 0` observation (`running`, exit 5) from a 
 wait. The v0.19 line added the correlated Claude approval relay,
 preserved multiline shell delivery, and extended factory diagnostics on native
 Windows. As of v0.16/0.17 a parent agent never blocks on aiterm:
-every send to an agent session is a non-blocking dispatch, completion is one
-universal `aiterm-wait` waiter whose exit codes mirror the receipt outcome
+every send to an agent session is a non-blocking dispatch. Codex parents now receive the complete answer automatically; other parents use the
+`aiterm-wait` waiter whose exit codes mirror the receipt outcome
 (`0`=done / `3`=timeout, not finished / `4`=closed / `5`=running for a
 zero-time observation), and a launch with an
 initial prompt returns a ready-made `wait_command` in its structured receipt.
@@ -227,7 +227,7 @@ pty_read(id, { wait: true })       → read the token-reduced output, completion
 
 The same primitive hosts another agent's TUI. `agent_launch` starts a selected execution harness inside a fresh persistent terminal and returns a `session_id`. `harness` names the component that owns the agent loop, authentication, hooks, session, and transcript; `model` remains an independent choice. The launched process sees the same project and user environment as a direct CLI invocation: normal configuration, MCPs, plugins, skills, permissions, trust decisions, memory, and history are not copied, filtered, or replaced. Aiterm adds only completion correlation and a non-user sub-agent context containing `role=subagent`, the parent session, delegation depth, lineage, and `delegation_allowed=true`.
 
-The human-readable launch text is accompanied by an `aiterm.agent-launch-result.v1` structured receipt containing the canonical `harness`; the old `provider` field remains for compatibility. The same `harness` is carried by agent dispatch, `aiterm-wait`, `agent_configure`, and agent rows in `pty_list`, while their old vendor/provider/agent fields remain compatibility fields. Codex completion comes from its normal durable rollout transcript, Grok CLI from its normal session events, Claude Code from a launch-specific Stop hook settings addition, and Cursor from its normal agent transcript's terminal `turn_ended` record. Sending to any agent session is a non-blocking **dispatch** — the call returns immediately with an opaque, harness-specific integer `event_cursor`, and completion arrives via [`aiterm-wait`](#completion-push-for-parent-agents-aiterm-wait). The Cursor adapter translates submit into the current CLI's extended keyboard protocol. If submitted text remains in Cursor's composer, its dispatch fails instead of returning a successful receipt.
+The human-readable launch text is accompanied by an `aiterm.agent-launch-result.v1` structured receipt containing the canonical `harness`; the old `provider` field remains for compatibility. The same `harness` is carried by agent dispatch, `aiterm-wait`, `agent_configure`, and agent rows in `pty_list`, while their old vendor/provider/agent fields remain compatibility fields. Codex completion comes from its normal durable rollout transcript, Grok CLI from its normal session events, Claude Code from a launch-specific Stop hook settings addition, and Cursor from its normal agent transcript's terminal `turn_ended` record. Sending to any agent session is a non-blocking **dispatch** — the call returns immediately with an opaque, harness-specific integer `event_cursor`, and Codex parents receive the answer automatically through the official input queue. Other parents use [`aiterm-wait`](#completion-push-for-parent-agents-aiterm-wait). The Cursor adapter translates submit into the current CLI's extended keyboard protocol. If submitted text remains in Cursor's composer, its dispatch fails instead of returning a successful receipt.
 
 `agent_launch`, `pty_send` (agent dispatch), and `agent_steer` accept an optional `image`: an array of absolute paths to image files (png/jpg/jpeg/gif/webp). Aiterm appends an attachment block to the prompt, and every harness opens the path with its own file-reading tool and sees the image; the caller never learns harness-specific attachment tricks. Invalid paths are rejected before anything is sent.
 
@@ -250,6 +250,7 @@ agent_launch({ harness: "codex-cli", session_name: "codex1", cwd: "/repo",
 pty_read("codex1", { screen: true })   → read what it's doing (token-reduced)
 pty_send("codex1", "also fix the imports it broke")
                                     → non-blocking dispatch; receipt carries event_cursor
+# Codex parents receive the answer automatically. For other parents:
 $ aiterm-wait --session codex1 --cursor <event_cursor>   # never in the parent's foreground; exit 0=done, 3=timeout (not done), 4=closed, 7=error (turn aborted by an API error)
 pty_read("codex1", { agent_transcript: true })           → collect the full answer
 ```
@@ -550,7 +551,13 @@ For PowerShell over SSH, `mark:true` recognizes the current standard `PS ...>` p
 
 ### Completion push for parent agents (`aiterm-wait`)
 
-As of v0.16 a parent agent **never blocks** on aiterm — there is no wait parameter anywhere (v0.17 makes the waiter's exit codes mirror its outcome). The whole flow is dispatch + one universal waiter:
+**Codex parents receive child answers automatically.** Launch or send a request, then continue other work or end the turn. Aiterm observes the child, saves the unabridged answer, and submits it to the requesting parent's official Codex input queue. The parent processes it when idle. No waiter, `pty_read`, child callback instructions, or Desktop-specific connection is needed. This covers all supported child harnesses; Claude and other parent hosts retain the waiter flow below.
+
+Automatic receipts include `parent_delivery` and set `wait_process` / `wait_command` to null. `pty_observe` exposes `parent_deliveries`: `waiting`, `ready`, `sending`, `submitted`, `failed`, or `unknown`. `submitted` means accepted by the queue, not read by the model. Aiterm retains the answer and resumes unsent work after an MCP restart. An interrupted submission becomes `unknown` and is not blindly retried.
+
+Use a Codex runtime that supplies MCP `_meta.threadId` and the official `thread/queue` API (verified with Codex CLI 0.154.0). `aiterm-setup` checks the installed queue entry point; Aiterm verifies the requesting thread before each dispatch. Codex native sub-agents reject external queue input and cannot be automatic-delivery parents. Ordinary CLI and Desktop parents use the same supported route.
+
+**For other parent hosts**, dispatch and start the receipt's waiter in a separate process:
 
 1. Launch the child with `agent_launch({ harness: ... })`; every launch shares the normal project/user environment and adds only completion correlation plus lineage. Send a turn with plain `pty_send` (or `claude_turn issue` for durable Claude operations). The call returns immediately with an `event_cursor` in its structured receipt.
 2. Pass the receipt's `wait_process.executable` and `wait_process.args` unchanged to a true argv process API. PowerShell 7's `Start-Process` is the exception because it joins `-ArgumentList` arrays; pass `windows_start_process_argument_list` as its one ready-made argument string instead. This invokes the bundled waiter through the exact Node runtime that is already running aiterm, including on native Windows where npm's human-facing bin is a PowerShell script shim and install paths may contain spaces. `wait_command` remains a compatibility display string for humans. The waiter observes the harness-owned completion source, plus Claude's additive launch hook, as a **pure reader** and exits with a one-line `aiterm.agent-wait-result.v1` receipt. **Exit ≠ done**: the receipt's `outcome` is authoritative (`0` = `done`, `3` = `timeout`, `4` = `closed`, `1` = error).

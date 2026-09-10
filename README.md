@@ -561,6 +561,8 @@ Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が�
 
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
 
+Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
+
 **For other parent hosts**, dispatch and start the receipt's waiter in a separate process:
 
 1. Launch the child with `agent_launch({ harness: ... })`; every launch shares the normal project/user environment and adds only completion correlation plus lineage. Send a turn with plain `pty_send` (or `claude_turn issue` for durable Claude operations). The call returns immediately with an `event_cursor` in its structured receipt.

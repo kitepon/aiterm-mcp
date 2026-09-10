@@ -293,6 +293,8 @@ export function createClaudeAgentMetadata(
   model: string | null,
   effort: string | null,
 ): AgentMetadata {
+  // Claude Codeはリンクを解決したcwdでproject slugを作る。起動時に固定し、記録の監視時に再解決しない。
+  const transcriptCwd = cwd === null ? null : fs.realpathSync(cwd);
   const launchId = randomBytes(16).toString("hex");
   const eventFile = agentEventPath(name, launchId);
   const resultFile = agentClaudeResultPath(name, launchId);
@@ -305,7 +307,7 @@ export function createClaudeAgentMetadata(
     launch_id: launchId,
     event_file: eventFile,
     created_at: new Date().toISOString(),
-    cwd,
+    cwd: transcriptCwd,
     vendor_session_id: randomUUID(),
     initial_prompt: initialPrompt,
     launch_operation_id: launchOperationId,

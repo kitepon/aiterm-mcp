@@ -111,6 +111,9 @@ Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`で�
 この受信契約の対象に含めない。
 対応対象は公式command hookとMCP metadataを提供するClaude Codeの対話sessionである。
 
+Claudeの起動metadataには指定cwdの実体パスを保存する。Claude Codeが実体パスから作るproject slugと
+APIエラー監視の参照先を一致させ、監視中のリンク変更で保存場所を取り違えない。
+
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
 promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は
 従来どおり`startup.not_checked`で返す。初手receiptは未要求・未送信・送信済み未確認・開始確認を分ける。

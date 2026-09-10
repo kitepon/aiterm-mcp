@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claudeの起動時に、指定された作業ディレクトリの実体パスを記録する。macOSの`/var`やリンク経由のcwdでも、会話記録を使うAPIエラー検出が正しい保存場所を参照する。
+
 ## [0.35.0] - 2026-09-10
 
 ### Added

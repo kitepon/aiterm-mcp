@@ -528,6 +528,8 @@ Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が�
 
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
 
+Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
+
 
 ### トークン削減
 

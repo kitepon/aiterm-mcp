@@ -1070,6 +1070,24 @@ test("target contract: Codexは通常CODEX_HOMEを共有しsub-agent lineageだ�
   });
 });
 
+test("Claudeはリンク経由のcwdを起動時に実体へ固定して会話記録を探す", async () => {
+  const claudeHarness = await import("../dist/harnesses/claude.js");
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR, "claude-cwd-"));
+  const actual = path.join(root, "actual");
+  const linked = path.join(root, "linked");
+  fs.mkdirSync(actual);
+  fs.symlinkSync(actual, linked, process.platform === "win32" ? "junction" : "dir");
+  try {
+    const meta = claudeHarness.createClaudeAgentMetadata("claude_cwd", linked, "none", null, null,
+      { agentRole: "subagent", parentSessionId: "test", delegationDepth: 1, lineage: "test", delegationAllowed: true }, null, null);
+    assert.equal(meta.cwd, fs.realpathSync(actual));
+    assert.equal(claudeHarness.claudeSessionTranscriptPath(meta), path.join(claudeHarness.claudeConfigDir(),
+      "projects", claudeHarness.claudeProjectSlug(fs.realpathSync(actual)), `${meta.vendor_session_id}.jsonl`));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("target contract: Claudeは通常3 scopeを共有してlaunch固有hookとlineageだけを加算する", { skip: skipAgentDone }, async () => {
   const userConfig = path.join(fakeHome, ".claude.json");
   const configBody = JSON.stringify({ theme: "dark", mcpServers: { fixture: { command: "fixture-mcp" } } }) + "\n";

@@ -1,6 +1,6 @@
-# 子の回答を親へ自動配送する設計・実装計画
+# 子の回答をCodex親へ自動配送する設計・実装計画
 
-状態: 設計案。目標はオーナー合意済み。製品実装は未着手。
+状態: 設計案。Codex親から先に対応する方針はオーナー合意済み。製品実装は未着手。
 
 作成: 2026-09-10
 
@@ -8,7 +8,7 @@
 
 ## 1. 到達点
 
-親AIがAitermへ子の仕事を依頼すると、Aitermが完了を検知して回答本文を親へ届ける。
+Codex親がAitermへ子の仕事を依頼すると、Aitermが完了を検知して回答本文を親へ届ける。
 親は別の仕事を続けるかターンを終え、届いた回答で続行する。
 通常利用では親による `aiterm-wait` の起動、完了確認のポーリング、回答を取りに行くtool callを必要としない。
 子に送信コマンドを実行させる指示も不要にする。
@@ -17,7 +17,8 @@
 待機中なら親の処理が始まり、実行中なら現在のターン終了後に受け取る。
 完了報告による割込みは今回追加しない。
 
-対象はClaude Code親とCodex親。子はAitermが現在扱う各harnessを対象にし、
+今回の対象はCodex親だけ。Claude Code親への自動配送は後続の作業へ分け、今回の成立条件に含めない。
+子はAitermが現在扱う各harnessを対象にし、Claude Codeの子も含める。
 親の種類と子のharnessを別々に扱う。Desktop独自のtool・IPCには依存しない。
 既存の通常HOME、認証、MCP、plugin、skill、permission設定を使う。
 
@@ -30,11 +31,9 @@
 | この調査を行う親の受信 | 投入した本文が順番待ちに表示され、親のターン終了後にモデル入力として届いた |
 | Aitermの子から親への一往復 | 子自身が公式CLIを一度実行し、その本文で親が自動再開した。自動配送の製品実装は含まない |
 | Codexの宛先取得 | 対象ソースではモデルのMCP呼出しに `_meta.threadId` を付ける。Aitermでの受取りは実装時に実測する |
-| Claudeの受信口 | 公式Channelsの契約に本文のpushと順番待ちがある。今回の環境での実機試験は未実施 |
-| Claudeの導入 | Channelsを有効にする条件と、実際に利用可能なことの確認が残っている |
 | Aitermの既存実装 | 完了観測と回答回収はある。親への配送管理はない |
 
-この実測時のCLIはCodex 0.154.0、Claude Code 2.1.259。
+この実測時のCodex CLIは0.154.0。
 CodexのDesktopに同梱されたruntimeは0.153.4だった。
 これらは試験時の記録であり、最低対応版の決定ではない。
 
@@ -42,7 +41,7 @@ CodexのDesktopに同梱されたruntimeは0.153.4だった。
 
 ```mermaid
 sequenceDiagram
-    participant P as 親AI
+    participant P as Codex親
     participant A as Aiterm
     participant C as 子エージェント
     participant Q as 親の公式受信口
@@ -64,12 +63,12 @@ sequenceDiagram
 
 | 所有箇所 | 責務 |
 | --- | --- |
-| `src/index.ts` | MCP呼出し元の情報を取り出し、配送先を依頼へ渡す。Claudeの通知用接続を渡す |
+| `src/index.ts` | CodexのMCP呼出し元情報を取り出し、配送先を依頼へ渡す |
 | `src/core.ts` と `src/harnesses/` | 既存の入力・完了判定を使い、完了した依頼の回答本文を取得する |
 | 新設 `src/parent-delivery.ts` | 依頼との対応、完了観測、本文の確保、配送状態を管理する |
-| 新設 `src/parent-receivers.ts` | Claude／Codexの公式受信口への送信だけを扱う |
+| 新設 `src/codex-parent-receiver.ts` | Codexの公式受信キューへの送信だけを扱う |
 | `src/agent-shared.ts` | 既存相関情報と配送記録の型・保存処理 |
-| `src/setup.ts`／`src/setup-integrations.ts` | 受信に必要な導入と、その実効確認 |
+| `src/setup.ts`／`src/setup-integrations.ts` | Codexの対応条件と、公式受信キューを利用できることの確認 |
 
 配送管理から既存coreを利用する。harness moduleへ親の配送方法を持ち込まない。
 既存の `state-root.ts` が定めるAiterm所有領域へ状態を置く。
@@ -83,14 +82,13 @@ sequenceDiagram
 親モデルにsession IDや配送コマンドを組み立てさせる公開パラメータは追加しない。
 
 - Codex: MCP要求の `_meta.threadId` を使う。同じ実行環境のCodex設定・storeに対して配送する。
-- Claude: 依頼を受けた公式Channels接続を使う。会話の切替や再接続を識別できる条件を最初の実測で確定する。
 - 既存の `parent_session_id=host-root` はlineage表示であり、配送先として使わない。
 - 環境変数だけからCodexの宛先を決めない。複数の親からの呼出しを混同しないよう、呼出し単位のmetadataを使う。
 - 以後の `pty_send` も、その依頼を行った親へ返す。実行中の依頼の宛先は後続の操作で書き換えない。
 
-親の種類・宛先・受信条件を確認できないとき、自動配送を成功予定として案内しない。
-既知の親で受信準備ができていなければ、子へ仕事を送る前に原因付きで返す。
-利用AIへ代替経路の選択を委ねない。
+Codex親と判定した呼出しで宛先・受信条件を確認できなければ、子へ仕事を送る前に原因付きで返す。
+利用AIへ代替経路の選択を委ねない。Claude Code親など今回の対象外の呼出しには、
+既存の待機・明示回収契約を維持し、自動配送を案内しない。
 
 ### 回答
 
@@ -131,28 +129,11 @@ Claudeの現在の結果ファイルはlaunchごとに上書きされるため�
 queue/addの応答はキューへの受付を意味する。モデルによる処理完了とは区別する。
 同じ送信を再実行した場合の受信口の重複排除は、実測するまで保証に含めない。
 
-### Claude Code
+### 後続のClaude Code親対応
 
-既存のAiterm MCP serverにChannels capabilityを宣言し、
-`notifications/claude/channel` の本文に子の回答を載せる構成を候補とする。
-既存接続で届くため、外部HTTP listenerや独自IPCは不要。
-
-公式資料には、次の条件がある。
-
-- serverをMCPへ登録するだけでは足りず、sessionでChannelsを有効にする必要がある。
-- 独自serverの試験には現在 `--dangerously-load-development-channels server:aiterm` が案内されている。
-  組織policyによる制限はこのflagでも変わらない。
-- 送信APIの完了はtransportへの書込み完了で、Claudeによる受信ACKはない。
-- busy中のeventは順番待ちになり、複数件は次のターンでまとめて扱われる。
-
-したがって、capability宣言だけで自動配送対応を名乗らない。
-最初の工程で、通常のClaude起動を保った導入方法、sessionの有効化確認、再接続時の宛先識別を実測する。
-`/clear`や別sessionへのresume後に以前の回答を混入させないことも確認する。
-
-`aiterm-setup` は公式に可能な準備と検証を所有する。
-必要な起動flagを利用AIへ毎回思い出させる運用や、私製のClaude置換wrapperを完成形にしない。
-現在の公式機能だけでこの導入契約を満たせなければ、Claudeの自動配送は未成立として明示する。
-この未確認部分を解消する前に、従来経路の一括撤去や両親対応のreleaseを行わない。
+Claude Code親の受信方式と導入条件は、後続の設計で扱う。
+今回、Channelsの実装・有効化・起動方法の変更は行わない。
+Codexの配送実装に、未実装の親を想定したadapter登録機構は追加しない。
 
 ## 6. 配送状態と失敗
 
@@ -165,8 +146,7 @@ queue/addの応答はキューへの受付を意味する。モデルによる�
 4. `submitted`: 受信口の契約に従った送信結果を記録した。
 5. `failed`／`unknown`: 明確な失敗／送れたか不明。原因と本文を保持する。
 
-`submitted` の意味はadapterごとに記録する。
-Codexではキュー受付、Claudeではtransport書込みまでであり、モデル処理済みと表現しない。
+`submitted` はCodexのキュー受付を意味し、モデル処理済みと表現しない。
 通常の一回の配送を重複起動しない。送信と結果記録の間でprocessが終了した場合は、
 受信口の重複排除が確認できない限り自動で再送しない。
 
@@ -179,24 +159,25 @@ APIエラー・利用上限・子の異常終了には成功回答を作らず�
 診断集計へ本文・認証情報・生stderrを載せない。
 正常実行中の子は固定600秒で配送終了にせず、完了または明示的終了まで観測する。
 
-長文の受信上限は各受信口で実測して決める。
+長文の受信上限はCodexの受信口で実測して決める。
 超過時に無断で要約・末尾切落し・ファイル参照だけへの置換をしない。
 送れない本文は保持し、サイズ超過として明示する。
 
 ## 7. 公開APIと移行
 
-- `agent_launch(prompt=...)`、agentへの `pty_send`、MCPからの `claude_turn issue` の通常経路へ配送を接続する。
+- Codex親による `agent_launch(prompt=...)`、agentへの `pty_send`、MCPからの `claude_turn issue` へ配送を接続する。
+  `claude_turn issue` はClaudeの子への依頼であり、Codex親への返答として扱う。
 - promptなしlaunchは子を起動するだけ。実際の依頼時に配送を登録する。
 - 旧launcher aliasは標準入口と同じ動作を使う。
 - `agent_steer` は既存の子への追加指示として維持する。親への配送を新規登録しない。
-- receiptに自動配送の状態を追加し、対応した経路では `wait_process`／`wait_command` をnullにする。
-  descriptionから親によるwait起動と通常回収の手順を外す。
+- receiptに自動配送の状態を追加し、Codex親の対応した経路では `wait_process`／`wait_command` をnullにする。
+  descriptionはCodex親の自動配送と、それ以外の親の既存手順を明示する。
 - `pty_read` は画面確認・手動調査・失敗時の明示的回収に残す。配送状況も既存の観測面で確認できるようにする。
 - 自動配送のためだけの新しい公開toolは増やさない。
-- `aiterm-wait` binaryは通常経路から外し、既存machine callerの消費者を確認してから廃止する。
-  互換期間中も、自動配送の裏で起動する構成にはしない。
-- AI親を持たないcore API利用者や他の親harnessには、対応済みと誤認させず既存の明示回収契約を維持する。
-  Claude／Codexの自動配送失敗を隠すために、この契約へ切り替えない。
+- `aiterm-wait` はCodex親の通常経路から外す。Claude Code親や既存machine callerが使うためbinaryは維持する。
+  Codexの自動配送の裏で起動する構成にはしない。
+- AI親を持たないcore API利用者やClaude Codeなど他の親harnessには、既存の待機・明示回収契約を維持する。
+  Codexの自動配送失敗を隠すために、この契約へ切り替えない。
 
 公開挙動を実装するcommitで日英README、DESIGN、関連ADR、CHANGELOG、必要な配布metadataを同期する。
 本計画は設計案なので、現行契約はまだ書き換えない。
@@ -205,13 +186,12 @@ APIエラー・利用上限・子の異常終了には成功回答を作らず�
 
 | 工程 | 作業 | 終了条件 |
 | --- | --- | --- |
-| 1. 公式受信口の成立確認 | CodexのMCP metadataとqueue/add経路、Claude Channelsの有効化・接続識別・受信を小さな試験で確認する | それぞれの最小構成・対応条件・受信挙動を実測で決定できる |
+| 1. 公式受信口の成立確認 | CodexのMCP metadataとqueue/add経路を小さな試験で確認する | Codexの最小構成・対応条件・受信挙動を実測で決定できる |
 | 2. 本文と配送先の保持 | 呼出し元を依頼へ対応付け、既存完了情報から本文を確保する | 同じ子への連続依頼、別の親、即完了でも本文と宛先が一致する |
-| 3. 自動配送の接続 | MCP process内の配送管理と親別adapterを加え、receiptとsetupを接続する | 親がwait起動も回収もせず、子の確定回答を受信して続行する |
+| 3. 自動配送の接続 | MCP process内の配送管理とCodexへの送信を加え、receiptとsetupを接続する | Codex親がwait起動も回収もせず、子の確定回答を受信して続行する |
 | 4. 移行・公開 | 既存消費者を確認し、案内・文書・配布物を更新する | 関連試験、製品CI、release・導入・公開後smokeが成立する |
 
-工程1でClaudeの成立条件を解消できなければ、その理由を記録する。
-Codexだけの成果を両親対応の完了と数えず、目標と必要な外部条件を維持する。
+Codex親だけで本計画の実装・検証・releaseを完結する。Claude Code親対応の成立待ちは設けない。
 実装着手時の作業レーンは、その時点の受入・外部依存に従って決定する。Latticeの新規導入は含めない。
 
 focused testは以下に絞る。
@@ -220,14 +200,14 @@ focused testは以下に絞る。
 - 子の即完了、初手、follow-up、同じ子の連続回答で、それぞれの本文を一度ずつ配送する。
 - 次の回答が保存された後も、確保済みの前の回答が変化しない。
 - 日本語・改行・引用符・長文をJSONで往復し、受信本文が一致する。
-- 不明な宛先、未有効化の受信口、明確な送信拒否、送信結果不明を成功へ丸めない。
+- Codexの不明な宛先、未対応runtime、明確な送信拒否、送信結果不明を成功へ丸めない。
 - MCP再接続、会話切替、明示closeで、誤配送と無断再送がない。
 - APIエラー・利用上限・中断の状態通知を成功回答と区別する。
-- 従来の直接core利用、画面確認、agentへのsteerを壊さない。
+- Claude Code親の既存待機・回収、直接core利用、画面確認、agentへのsteerを壊さない。
 
-実機ではClaude親／Codex CLI親を必須とし、Codex Desktop親も同じ共通経路で確認する。
+実機ではCodex CLI親を必須とし、Codex Desktop親も同じ共通経路で確認する。
 子のharnessごとの完了回収はfocused testで先に確認し、親の配送試験へ進む。
-macOS・Linux・Windows nativeで、各親の通常登録から一往復を行う。
+macOS・Linux・Windows nativeで、Codex親の通常登録から一往復を行う。
 通常利用の受入では、子のpromptに返送コマンドを含めない。
 
 個別検証と関連gate完了後に `npm test` を一度行う。
@@ -238,8 +218,6 @@ macOS・Linux・Windows nativeで、各親の通常登録から一往復を行�
 
 取得・確認日: 2026-09-10。ソース確認と実機確認を上表で区別した。
 
-- [公式Channels仕様](https://code.claude.com/docs/en/channels-reference): capability、通知本文、待機中の処理、受信ACKの範囲。
-- [公式Channels導入条件](https://code.claude.com/docs/en/channels): sessionでの有効化と組織設定、プレビューの条件。
 - [Codex公式app-server説明](https://learn.chatgpt.com/docs/app-server): stdioを含む公開接続方式。
 - [取り込んだCodex queue入口](../rag/sources/completion-detection/codex-0154-session-queue.md): 版を固定した公式ソース。
 - [取り込んだCodex受信キュー](../rag/sources/completion-detection/codex-0154-queue-service.md): 別processからの投入とidle時の開始。

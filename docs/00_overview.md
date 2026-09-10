@@ -17,9 +17,7 @@ dotagentsは任意の工場統合を担うが、Aitermの製品正典や実行�
 Grok／Composerのsandbox起動拒否については、[DESIGNの失敗と復旧](DESIGN.md#failure-and-recovery)に
 検出の所有と適用範囲、[RELEASEの公開後smoke](RELEASE.md#公開後smoke)に検証条件を置く。
 
-## 設計中
-
-- [子の回答を親へ自動配送する設計・実装計画](https://github.com/kitepon/aiterm-mcp/blob/main/docs/plan_parent-result-delivery.md): Claude Code／Codex親への本文配送。設計案であり、現行APIは未変更。
+Codex親への回答の自動配送は[DESIGN](DESIGN.md#codex親への自動配送)に、対応範囲と失敗時の状態を置く。
 
 ## 履歴と証拠
 

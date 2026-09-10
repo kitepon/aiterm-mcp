@@ -1,0 +1,127 @@
+{
+  "schema": "aiterm.codex-parent-delivery-release-evidence.v1",
+  "observed_at": "2026-09-10T02:46:05.534Z",
+  "phase": "release_acceptance",
+  "status": "passed",
+  "version": "0.34.0",
+  "commit": "994242af1a7c7a4d1d4c7935c7086773a8c9ce1f",
+  "prior_evidence": "2026-09-10-codex-parent-delivery.json",
+  "validation": {
+    "full_test": {
+      "tests": 453,
+      "passed": 445,
+      "skipped": 8,
+      "failed": 0,
+      "duration_ms": 166838,
+      "stdout_sha256": "b8ef61195b9b74f0b1adc0e023a2e2d9e2b26e4b18f8e6c885c2c3e44b032dcb"
+    },
+    "product_ci": "https://github.com/kitepon/aiterm-mcp/actions/runs/34429029391",
+    "release_ci": "https://github.com/kitepon/aiterm-mcp/actions/runs/34429624645"
+  },
+  "publication": {
+    "github_release": "https://github.com/kitepon/aiterm-mcp/releases/tag/v0.34.0",
+    "mcpb_bytes": 3553294,
+    "npm_publish_ci": "https://github.com/kitepon/aiterm-mcp/actions/runs/34429626390",
+    "npm_provenance": "https://registry.npmjs.org/-/npm/v1/attestations/aiterm-mcp@0.34.0",
+    "mcp_registry_ci": "https://github.com/kitepon/aiterm-mcp/actions/runs/34429633281",
+    "mcp_registry_version": "0.34.0",
+    "mcp_registry_status": "active",
+    "mcp_registry_published_at": "2026-09-10T02:32:08.35835Z"
+  },
+  "setup": [
+    {
+      "platform": "darwin",
+      "backend": "tmux",
+      "first_run": "ready",
+      "repeat_run": "ready",
+      "integrations": [
+        "claude",
+        "codex",
+        "grok",
+        "cursor"
+      ],
+      "codex_cli": "0.154.0"
+    },
+    {
+      "platform": "linux",
+      "backend": "tmux",
+      "first_run": "ready",
+      "repeat_run": "ready",
+      "integrations": [
+        "claude",
+        "codex",
+        "grok",
+        "cursor"
+      ],
+      "codex_cli": "0.154.0"
+    },
+    {
+      "platform": "win32",
+      "backend": "psmux",
+      "first_run": "ready",
+      "repeat_run": "ready",
+      "integrations": [
+        "claude",
+        "codex",
+        "grok",
+        "cursor"
+      ],
+      "codex_cli": "0.154.0"
+    }
+  ],
+  "public_smokes": [
+    {
+      "status": "passed",
+      "version": "0.34.0",
+      "platform": "darwin",
+      "parent_session": "delivery-parent-darwin-mtuwysnr",
+      "child_session": "delivery-child-darwin-mtuwysnr",
+      "parent_thread_id": "01a0892a-7050-72f0-bea1-50860f6f1bf8",
+      "parent_turn_id": "01a0892b-1297-72e2-86a4-510801aea0d1",
+      "child_turn_id": "01a0892a-e237-7f62-a702-b88077b97725",
+      "delivery_id": "5bbc1013-9135-4e6e-95e8-cae2a2aefa2d",
+      "queued_submission_id": "01a0892b-0004-7b51-a056-dbed2cc217de",
+      "child_answer": "CHILD-PUBLISHED-darwin-mtuwysnr:323",
+      "parent_answer": "子の完了結果を確認しました。指定されたセッションを閉じます。\nPARENT-PUBLISHED-darwin-mtuwysnr:323"
+    },
+    {
+      "status": "passed",
+      "version": "0.34.0",
+      "platform": "linux",
+      "parent_session": "delivery-parent-linux-mtuwz6br",
+      "child_session": "delivery-child-linux-mtuwz6br",
+      "parent_thread_id": "01a0892a-b7c3-7fd2-9507-0aa1f32c96d3",
+      "parent_turn_id": "01a0892f-215a-7b53-9abc-c28e77cbd765",
+      "child_turn_id": "01a0892f-112f-74c3-ac50-4b9d554d7433",
+      "delivery_id": "d7542791-5dcc-4532-b7d0-d1ebe725c0ad",
+      "queued_submission_id": "01a0892f-2044-7263-b61e-eccf1e2266bb",
+      "child_answer": "CHILD-PUBLISHED-linux-mtuwz6br:323",
+      "parent_answer": "子の回答を確認しました。指定セッションを閉じます。\nPARENT-PUBLISHED-linux-mtuwz6br:323"
+    },
+    {
+      "status": "passed",
+      "version": "0.34.0",
+      "platform": "win32",
+      "parent_session": "delivery-parent-win32-mtuwz67r",
+      "child_session": "delivery-child-win32-mtuwz67r",
+      "parent_thread_id": "01a0892a-c0c2-7381-ae22-6cf37529bdd3",
+      "parent_turn_id": "01a0892b-82a0-7880-aca1-3f23d4b931c3",
+      "child_turn_id": "01a0892b-5121-70d0-bd61-1e9f5f31d21f",
+      "delivery_id": "28909f4c-80e8-4d2a-94cc-e651d28be305",
+      "queued_submission_id": "01a0892b-6c6c-77f3-894e-162c28ddda57",
+      "child_answer": "CHILD-PUBLISHED-win32-mtuwz67r:323",
+      "parent_answer": "子の所定回答を受領しました。指定されたセッションを `pty_close` で閉じます。\nPARENT-PUBLISHED-win32-mtuwz67r:323"
+    }
+  ],
+  "smoke_contract": {
+    "parent": "codex-cli",
+    "child": "codex-cli",
+    "normal_home": true,
+    "normal_mcp_registration": true,
+    "parent_wait_or_result_read": false,
+    "child_return_command": false,
+    "verified": "保存した子の回答と宛先が一致し、キュー受付後に親がその内容で次ターンを完了した。",
+    "linux_approval": "通常のMCP起動・終了の承認を今回の試験について一回ずつ許可した。",
+    "collector_correction": "通常の手動回収は同じturnの進捗文も含むため最終行を照合した。LinuxはSSH shellとtmux内MCPのXDG環境差により、実際の配送journal保存先を指定して読み取った。製品コードの変更や試験promptの再送は行っていない。"
+  }
+}

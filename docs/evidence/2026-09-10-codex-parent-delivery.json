@@ -46,5 +46,10 @@
     "reproduction": "同じ子への別MCP接続からの並行予約が2件とも成功した。",
     "resolution": "hard linkの原子的作成で未回収の依頼を一つに限定し、同じ再現試験で1件だけ成功した。"
   },
-  "release_acceptance": "pending"
+  "release_acceptance": "pending",
+  "ci_correction": {
+    "failed_run": "https://github.com/kitepon/aiterm-mcp/actions/runs/34428697524",
+    "cause": "初回promptのサイズ検査が既存の失敗状態を記録するtryの外へ移っていた。",
+    "focused_validation": "起動後エラーでもsessionを保持する試験と、配送記録の保存失敗時に送信しない試験の2件が成功。"
+  }
 }

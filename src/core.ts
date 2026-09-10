@@ -3711,10 +3711,10 @@ export async function sendInitialAgentPrompt(
   }
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
-  prepareSendText(promptText, { raw: false });
-  await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null });
   try {
+    prepareSendText(promptText, { raw: false });
+    await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
+      harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null });
     if (meta.kind === "claude") {
       prepareSendText(text, { raw: false });
       reserveAnonymousClaudeTurn(meta);

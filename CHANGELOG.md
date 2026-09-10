@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-09-10
+
 ### Fixed
 
 - Claudeの起動時に、指定された作業ディレクトリの実体パスを記録する。macOSの`/var`やリンク経由のcwdでも、会話記録を使うAPIエラー検出が正しい保存場所を参照する。
@@ -1638,7 +1640,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...HEAD
+[0.35.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.0...v0.33.1

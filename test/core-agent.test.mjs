@@ -3782,6 +3782,39 @@ test("readAgentTranscript: Grok は最後の実 user 入力以降の確定assist
   }
 });
 
+test("readAgentTranscript: Grokのsteerで次turnが始まっても完了済み回答の配送を失わない", { skip: skipGrokFakeBin }, async () => {
+  const savedBin = process.env.GROK_BIN;
+  process.env.GROK_BIN = "/bin/echo";
+  try {
+    await withFakeGrokHome(async () => {
+      const [sid] = core.openAgent("grok", { agent_done: true, cwd: process.cwd() });
+      try {
+        const meta = readAgentMeta(sid);
+        writeGrokTranscript(meta, meta.vendor_session_id, [
+          { type: "user", prompt_index: 0, content: "最初の依頼" },
+          { type: "assistant", content: "先に完了した回答" },
+          { type: "user", prompt_index: 1, content: "追加依頼" },
+          { type: "assistant", content: "後の回答" },
+        ]);
+        const events = path.join(meta.grok_home, "sessions", encodeURIComponent(meta.cwd), meta.vendor_session_id, "events.jsonl");
+        fs.writeFileSync(events, [
+          { type: "turn_started", turn_number: 0 },
+          { type: "turn_ended", outcome: "completed", ts: "first-completion" },
+          { type: "turn_started", turn_number: 1 },
+        ].map(JSON.stringify).join("\n") + "\n");
+        const completion = await core.observeAgentDone(sid, { cursor: 0, timeout: 0 });
+        assert.equal(completion.turn_id, "first-completion");
+        assert.equal((await core.readAgentTranscriptResult(sid, { completion, raw: true })).text, "先に完了した回答");
+        fs.appendFileSync(events, JSON.stringify({ type: "turn_ended", outcome: "completed", ts: "later-completion" }) + "\n");
+        assert.equal((await core.readAgentTranscriptResult(sid, { completion, raw: true })).text, "先に完了した回答");
+      } finally { core.closeSession(sid); }
+    });
+  } finally {
+    if (savedBin === undefined) delete process.env.GROK_BIN;
+    else process.env.GROK_BIN = savedBin;
+  }
+});
+
 test("readAgentTranscript: 非 agent session は既存の明示エラーを返す", async () => {
   await assert.rejects(
     () => core.readAgentTranscript("not_an_agent_transcript"),

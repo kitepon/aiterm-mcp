@@ -13,9 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aiterm-setup`がClaude Codeの専用hookを登録し、MCP要求とhookの実際の会話を照合する。親のwaiter・回答回収と子への返送指示は不要。
 - `/clear`等の会話終了後は未送信の旧回答を新しい会話へ出さず、本文を保持して配送失敗を明示する。hookの出力中断は結果不明とし、自動再送しない。
 
+### Fixed
+
+- Grok／Composerで追加メッセージが直ちに次turnを開始した場合も、完了したturnの回答を指定して回収する。最新turnの切替で前の回答の自動配送が失敗する競合を修正した。
+
 ### Compatibility
 
-- Claude Code親は2.1.259以上の対話sessionと有効なcommand hookを必要とする。Claude Desktopチャット・Web・native subagentは対象外。起動時のChannels flagは不要。
+- Claude Code親は2.1.259以上の対話sessionと有効なcommand hookを必要とする。Claude Desktopチャット・Web・`agent_id`付きの会話（`--agent`起動とnative subagent）は対象外。起動時のChannels flagは不要。
 - Claude用配送記録を分け、旧版のCodex readerとの互換性を維持する。旧版へ戻す前に`aiterm-setup --remove-claude-parent-hooks`でAiterm専用hookだけを解除する。
 
 ## [0.34.0] - 2026-09-10

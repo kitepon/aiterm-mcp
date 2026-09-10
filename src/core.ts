@@ -2825,7 +2825,8 @@ export async function readAgentTranscriptResult(
   }
 
   const done = latestAgentDoneEvent(meta, operationId);
-  if (o.completion && meta.kind !== "codex" && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
+  if (o.completion && meta.kind !== "codex" && meta.kind !== "grok" && meta.kind !== "composer"
+    && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
     throw new AitermError("回収対象の完了情報が置換されました。別の回答は配送しません", 2);
   }
   if (operationId && !done) {
@@ -2842,8 +2843,8 @@ export async function readAgentTranscriptResult(
   } else if (meta.kind === "codex") {
     text = codexTranscriptText(meta, turnId, readTranscriptLines, transcriptUnavailable, o.completion !== undefined);
   } else {
-    if (!done) transcriptUnavailable();
-    text = grokTranscriptText(meta, readTranscriptLines, transcriptUnavailable);
+    if (!done && !o.completion) transcriptUnavailable();
+    text = grokTranscriptText(meta, readTranscriptLines, transcriptUnavailable, o.completion?.turn_id);
   }
 
   if (!text.trim()) transcriptNotFound(meta.kind);

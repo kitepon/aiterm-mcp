@@ -1,0 +1,37 @@
+{
+  "schema": "aiterm.claude-parent-delivery-review.v1",
+  "observed_at": "2026-09-10",
+  "review": {
+    "harness": "grok-cli",
+    "model": "grok-4.6",
+    "effort": "high",
+    "mode": "read-only",
+    "consolidated_findings": 16,
+    "critical_implementation_findings": 0,
+    "accepted": [
+      { "finding": "agent_idはnative subagentだけでなく--agentの主会話にも付く", "resolution": "既存の拒否範囲をREADME日英、DESIGN、CHANGELOGとerror本文へ明記した。通常起動の対応範囲は維持した。" }
+    ],
+    "language_finding": "日本語での出力指示に従い、READMEの今回の追加説明も日本語で維持した。"
+  },
+  "grok_completion_race": {
+    "first_completed_at": "2026-09-10T04:24:31.344Z",
+    "next_started_at": "2026-09-10T04:24:31.365Z",
+    "before": "AGENT_RESULT_UNAVAILABLE: 回収対象の完了情報が置換されました",
+    "cause": "steerの追加入力が次turnを開始し、確定済みの回答を最新turnだけから回収する処理が拒否した",
+    "repair": "turn_ended.tsから直前のturn_started.turn_numberを取得し、user.prompt_indexに対応する回答区間だけを読む",
+    "focused_reproduction": "修正前は後の回答を返して失敗し、修正後は対象回答を回収した",
+    "actual_history_verified": true,
+    "answer_characters": 3447,
+    "answer_sha256": "59ea2c61cc69c3250098932660e707ed7e1322bd08cec624800a216d517013a8",
+    "focused_grok_tests_passed": 3,
+    "related_transcript_tests_passed": 10,
+    "independent_review": "pending"
+  },
+  "implementation_ci": {
+    "commit": "fbc662b65090edcead537fe1f18158a46dba8ea7",
+    "url": "https://github.com/kitepon/aiterm-mcp/actions/runs/34436928675",
+    "macos_native": "passed",
+    "linux_workstation": "passed",
+    "windows_native": "passed"
+  }
+}

@@ -557,7 +557,7 @@ Use a Codex runtime that supplies MCP `_meta.threadId` and the official `thread/
 
 Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が専用の`PreToolUse`、`PostToolUse`、`SessionEnd`を登録するため、Channelsの起動flagは不要。公式`asyncRewake` hookだけが裏で待ち、親はその間も次のturnへ進める。回答は`Stop hook feedback`として届く。hookのexit 2は親の再開信号であり、子の成功・失敗は本文の`outcome`で区別する。
 
-`/clear`等の会話終了後は未送信の旧回答を送らず、本文を保存する。受信hookの上限は24時間。hookの終了・出力失敗・無効化を成功扱いせず、別の待機経路へ黙って切り替えない。Claude Desktopのチャット、Web、native subagentはこの受信契約に含めない。
+`/clear`等の会話終了後は未送信の旧回答を送らず、本文を保存する。受信hookの上限は24時間。hookの終了・出力失敗・無効化を成功扱いせず、別の待機経路へ黙って切り替えない。Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`起動とnative subagent）はこの受信契約に含めない。
 
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
 

@@ -54,6 +54,8 @@ Claude Code親は公式の非同期hookで本文を受け取り、待機中も�
 waiterは純readerで、親のforeground turnを塞がない。
 回答はharness所有transcriptから同じturnへ相関して回収し、欠落・曖昧・timeout時にpromptを再送しない。
 Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
+配送用のGrok回答は`turn_ended.ts`から同じturnの`turn_started.turn_number`を取得し、
+`chat_history.jsonl`の`user.prompt_index`と相関する。次turnが既に始まっていても対象回答だけを回収する。
 `agent_steer`は実行中のCodex／Grok turnへ追加textを差し込み、idleなら送信せず状態を返す。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
@@ -86,7 +88,7 @@ Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存す�
 hookはNodeの実行ファイルと引数配列で直接起動し、shellやWindowsのnpm shimを介さない。
 
 `PreToolUse`の`tool_use_id`／`session_id`とMCP要求の`_meta["claudecode/toolUseId"]`を照合する。
-起動時のsession環境変数は`/clear`で古くなるため宛先に使わない。hookがない場合とnative subagentは
+起動時のsession環境変数は`/clear`で古くなるため宛先に使わない。hookがない場合と`agent_id`付きの会話は
 子への送信前に明示errorにする。親がIDや待機方法を引数で指定する必要はない。
 
 本文の保存と同じ子への連続依頼の制御は`parent-delivery.ts`を共有する。Claude用記録は
@@ -105,7 +107,8 @@ hook出力の切断・中断は`failed`または`unknown`とし、本文を残�
 CLIを終了した後に自動再開するdaemon、Channelsの有効化flag、子の返送コマンドは使わない。
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`で専用hookだけを解除する。
 
-Claude Desktopのチャット、Web、native subagentはこの受信契約の対象に含めない。
+Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`で選んだ主会話とnative subagent）は
+この受信契約の対象に含めない。
 対応対象は公式command hookとMCP metadataを提供するClaude Codeの対話sessionである。
 
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。

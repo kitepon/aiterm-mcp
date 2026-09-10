@@ -378,11 +378,12 @@ export function grokFooterHasConfiguration(screen: string, model: string | null,
   });
 }
 
-// 最後のuser発話以降に確定した最後のassistantメッセージをchat_history.jsonlから抽出する。
+// 配送では完了eventのturn_numberと履歴のprompt_indexを相関する。通常照会は直近の実user発話を読む。
 export function grokTranscriptText(
   meta: AgentMetadata,
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
+  completedTurnId?: string | null,
 ): string {
   const directory = grokSessionDirectory(meta);
   if (!directory) transcriptUnavailable();
@@ -400,8 +401,29 @@ export function grokTranscriptText(
       // 外部 transcript の壊れた1行は残りの完結行を読む妨げにしない。
     }
   }
+  let end = records.length;
+  if (completedTurnId !== undefined) {
+    let activePrompt: number | null = null;
+    let completedPrompt: number | null = null;
+    for (const line of readTranscriptLines(path.join(directory, "events.jsonl"))) {
+      if (!line.trim()) continue;
+      let event: any;
+      try { event = JSON.parse(line); } catch { continue; }
+      if (event.type === "turn_started") activePrompt = Number.isSafeInteger(event.turn_number) && event.turn_number >= 0 ? event.turn_number : null;
+      else if (completedTurnId !== null && grokCompletionEvent(meta, event)?.turn_id === completedTurnId) {
+        completedPrompt = activePrompt;
+        break;
+      }
+    }
+    const starts = records.flatMap((record, index) => record.type === "user" && !("synthetic_reason" in record)
+      && completedPrompt !== null && record.prompt_index === completedPrompt ? [index] : []);
+    if (starts.length !== 1) throw new AitermError("GROK_TRANSCRIPT_TURN_UNAVAILABLE: 完了turnと回答の相関を確認できません。別turnの回答は使いません", 2);
+    lastUser = starts[0];
+    const next = records.findIndex((record, index) => index > lastUser && record.type === "user" && !("synthetic_reason" in record));
+    if (next >= 0) end = next;
+  }
   const replies = records
-    .slice(lastUser + 1)
+    .slice(lastUser + 1, end)
     .filter((record) => record?.type === "assistant" && typeof record?.content === "string")
     .map((record) => record.content.trim())
     .filter(Boolean);

@@ -39,3 +39,29 @@ test("次のGrok turn開始後は以前の完了を途中回答へ結び付け�
   records.push({ type: "turn_ended", outcome: "completed", ts: "current" });
   assert.equal(latestGrokCompletion(meta, read).turn_id, "current");
 });
+
+test("Grokの次turnが始まっても、配送対象の完了turnとprompt_indexを相関して本文を回収する", () => {
+  const meta = { kind: "grok", grok_home: "/fixture", cwd: process.cwd(), vendor_session_id: "fixture" };
+  const events = [
+    { type: "turn_started", turn_number: 0 },
+    { type: "turn_ended", outcome: "completed", ts: "first" },
+    { type: "turn_started", turn_number: 1 },
+    { type: "turn_ended", outcome: "completed", ts: "second" },
+  ];
+  const history = [
+    { type: "user", content: "初期設定" },
+    { type: "user", prompt_index: 0, content: "最初の依頼" },
+    { type: "assistant", content: "途中の報告" },
+    { type: "user", synthetic_reason: "reminder", content: "内部通知" },
+    { type: "assistant", content: "最初の確定回答" },
+    { type: "user", prompt_index: 1, content: "追加依頼" },
+    { type: "assistant", content: "後の回答" },
+  ];
+  const read = file => (path.basename(file) === "events.jsonl" ? events : history).map(JSON.stringify);
+  const unavailable = () => { throw new Error("回答取得失敗"); };
+  assert.equal(grokTranscriptText(meta, read, unavailable, "first"), "最初の確定回答");
+  assert.equal(grokTranscriptText(meta, read, unavailable, "second"), "後の回答");
+  assert.throws(() => grokTranscriptText(meta, read, unavailable, "missing"), /GROK_TRANSCRIPT_TURN_UNAVAILABLE/);
+  delete history[1].prompt_index;
+  assert.throws(() => grokTranscriptText(meta, read, unavailable, "first"), /GROK_TRANSCRIPT_TURN_UNAVAILABLE/);
+});

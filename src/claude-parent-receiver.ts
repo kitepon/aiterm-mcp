@@ -70,7 +70,7 @@ export function claudeParentFromRequest(clientName: string | undefined, metadata
 
 export function verifyClaudeParent(parent: ClaudeParent): void {
   const invocation = readInvocation(parent);
-  if (invocation.agent_id) throw new ClaudeDeliveryError("CLAUDE_PARENT_SUBAGENT_UNSUPPORTED", "Claudeのnative subagentへの自動配送には対応していません");
+  if (invocation.agent_id) throw new ClaudeDeliveryError("CLAUDE_PARENT_SUBAGENT_UNSUPPORTED", "agent_id付きのClaude会話（--agent起動またはnative subagent）への自動配送には対応していません");
   assertOpen(parent);
 }
 

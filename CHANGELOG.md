@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-09-10
+
 ### Added
 
 - Claude Code親への回答自動配送を追加した。公式`asyncRewake` hookが子の回答を受け取り、idle中の親も再開する。待機中も親は別作業と次のturnへ進める。
@@ -1632,7 +1634,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.32.0...v0.33.0

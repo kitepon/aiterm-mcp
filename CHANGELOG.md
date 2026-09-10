@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-09-10
+
 ### Added
 
 - Codex親への子の回答自動配送を追加した。起動・通常dispatch・Claude durable turnの完了をAitermが観測し、回答本文を公式受信キューへ送る。親の待機コマンドと回答回収、子への送信指示は不要になった。
@@ -1615,7 +1617,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.31.2...v0.32.0

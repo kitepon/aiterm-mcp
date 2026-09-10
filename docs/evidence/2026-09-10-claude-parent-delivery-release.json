@@ -1,0 +1,267 @@
+{
+  "schema": "aiterm.claude-parent-release-evidence.v1",
+  "observed_at": "2026-09-10T05:09:10.649Z",
+  "phase": "release_acceptance",
+  "version": "0.35.1",
+  "release_commit": "f3f4e0fc4715b790d29e1dcef36bad5285e386bf",
+  "source_ci": {
+    "url": "https://github.com/kitepon/aiterm-mcp/actions/runs/34439099915",
+    "commit": "6c0260d29b3701d3c7e3720d22de880282489b62",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "ownership",
+        "conclusion": "success"
+      },
+      {
+        "name": "full / classify",
+        "conclusion": "success"
+      },
+      {
+        "name": "full / full (windows-native)",
+        "conclusion": "success"
+      },
+      {
+        "name": "full / full (linux-workstation)",
+        "conclusion": "success"
+      },
+      {
+        "name": "full / full (macos-native)",
+        "conclusion": "success"
+      },
+      {
+        "name": "full / gate",
+        "conclusion": "success"
+      },
+      {
+        "name": "publish",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "release_ci": [
+    {
+      "url": "https://github.com/kitepon/aiterm-mcp/actions/runs/34439577237",
+      "event": "release",
+      "name": "Publish to MCP Registry",
+      "conclusion": "success"
+    },
+    {
+      "url": "https://github.com/kitepon/aiterm-mcp/actions/runs/34439572008",
+      "event": "push",
+      "name": "CI",
+      "conclusion": "success"
+    },
+    {
+      "url": "https://github.com/kitepon/aiterm-mcp/actions/runs/34439570293",
+      "event": "push",
+      "name": "CI",
+      "conclusion": "success"
+    }
+  ],
+  "publication": {
+    "github_release": "https://github.com/kitepon/aiterm-mcp/releases/tag/v0.35.1",
+    "mcpb": [
+      {
+        "name": "aiterm-mcp.mcpb",
+        "url": "https://github.com/kitepon/aiterm-mcp/releases/download/v0.35.1/aiterm-mcp.mcpb"
+      }
+    ],
+    "npm_integrity": "sha512-t55dwJELDRvwm+VyBMTqpgEbbUdd8bi1Uz1ZHlFBec/FF/D1w8EcOMfr1tPGL6fRLTI+b9Ipq9p/sy8ATAgzZQ==",
+    "npm_provenance": "https://registry.npmjs.org/-/npm/v1/attestations/aiterm-mcp@0.35.1",
+    "mcp_registry": "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.kitepon%2Faiterm-mcp/versions/0.35.1",
+    "registry_status": "active",
+    "registry_published_at": "2026-09-10T05:06:05.7396Z"
+  },
+  "platforms": [
+    {
+      "status": "passed",
+      "platform": "darwin",
+      "version": "0.35.1",
+      "parent_session": "claude-parent-darwin-mtv2e4ly",
+      "child_session": "claude-child-darwin-mtv2e4ly",
+      "parent_answer": "RECEIVED-darwin-mtv2e4ly",
+      "tool_calls": [
+        "ToolSearch",
+        "mcp__aiterm__agent_launch",
+        "mcp__aiterm__pty_send",
+        "mcp__aiterm__pty_close"
+      ],
+      "deliveries": [
+        {
+          "delivery_id": "3f5fc8c5-2d9c-4414-9f9d-19d58da49145",
+          "state": "submitted",
+          "text": "SECOND-darwin-mtv2e4ly",
+          "session_id": "4440e717-0d87-4477-a841-ed7800bda6d0"
+        },
+        {
+          "delivery_id": "fc408e8c-884e-4d2b-a1c9-d3ebf96c24ce",
+          "state": "submitted",
+          "text": "FIRST-darwin-mtv2e4ly",
+          "session_id": "4440e717-0d87-4477-a841-ed7800bda6d0"
+        }
+      ],
+      "setup": {
+        "schema": "aiterm.setup-result.v1",
+        "status": "ready",
+        "backend": {
+          "kind": "tmux",
+          "status": "ready"
+        },
+        "integrations": {
+          "claude": {
+            "status": "ready"
+          },
+          "codex": {
+            "status": "ready"
+          },
+          "grok": {
+            "status": "ready"
+          },
+          "cursor": {
+            "status": "ready"
+          }
+        }
+      },
+      "cleanup_verified": true,
+      "receipt_sha256": "072ba85d0af9c13ef47a821e5692dfb8dc3e310874f0783dab3499fab4d7b0b8",
+      "install_log_sha256": "2cf5506a6228f521e364853eb60983245494f4a2926d7e56f3908d1061305b94",
+      "smoke_log_sha256": "2cf5506a6228f521e364853eb60983245494f4a2926d7e56f3908d1061305b94"
+    },
+    {
+      "status": "passed",
+      "platform": "linux",
+      "version": "0.35.1",
+      "parent_session": "claude-parent-linux-mtv2f7yt",
+      "child_session": "claude-child-linux-mtv2f7yt",
+      "parent_answer": "RECEIVED-linux-mtv2f7yt",
+      "tool_calls": [
+        "ToolSearch",
+        "mcp__aiterm__agent_launch",
+        "mcp__aiterm__pty_send",
+        "mcp__aiterm__pty_close"
+      ],
+      "deliveries": [
+        {
+          "delivery_id": "5d9d9cf8-3b5f-47ff-b7fa-e9c21b231075",
+          "state": "submitted",
+          "text": "SECOND-linux-mtv2f7yt",
+          "session_id": "704fdc08-3879-449a-a8f8-2c97758b3495"
+        },
+        {
+          "delivery_id": "a4893ca8-f550-4e66-8b80-b2a50c1c33aa",
+          "state": "submitted",
+          "text": "FIRST-linux-mtv2f7yt",
+          "session_id": "704fdc08-3879-449a-a8f8-2c97758b3495"
+        }
+      ],
+      "setup": {
+        "schema": "aiterm.setup-result.v1",
+        "status": "ready",
+        "backend": {
+          "kind": "tmux",
+          "status": "ready"
+        },
+        "integrations": {
+          "claude": {
+            "status": "ready"
+          },
+          "codex": {
+            "status": "ready"
+          },
+          "grok": {
+            "status": "ready"
+          },
+          "cursor": {
+            "status": "ready"
+          }
+        }
+      },
+      "cleanup_verified": true,
+      "receipt_sha256": "b2c45987784b7ff20680c9109670eefc6ed5e493c2d29143760340f597b25f8f",
+      "install_log_sha256": "664eba82b9024e10652a179ab534970f9ff7ee73e0ef1d25e09546fb587a426d",
+      "smoke_log_sha256": "0c3d100014d1cd3cf486ec4cb64007ec1a5f46e5f45738d55827a6891090ea81"
+    },
+    {
+      "status": "passed",
+      "platform": "win32",
+      "version": "0.35.1",
+      "parent_session": "claude-parent-win32-mtv2e75y",
+      "child_session": "claude-child-win32-mtv2e75y",
+      "parent_answer": "RECEIVED-win32-mtv2e75y",
+      "tool_calls": [
+        "ToolSearch",
+        "mcp__aiterm__agent_launch",
+        "ToolSearch",
+        "mcp__aiterm__pty_send",
+        "ToolSearch",
+        "mcp__aiterm__pty_close"
+      ],
+      "deliveries": [
+        {
+          "delivery_id": "32ec9562-ff82-4865-9db0-7b980eb6918d",
+          "state": "submitted",
+          "text": "FIRST-win32-mtv2e75y",
+          "session_id": "cddbdb10-ea5f-4d0c-a664-55b2568a424d"
+        },
+        {
+          "delivery_id": "aeef6c50-e33c-47b9-b14b-dc78189c38a4",
+          "state": "submitted",
+          "text": "SECOND-win32-mtv2e75y",
+          "session_id": "cddbdb10-ea5f-4d0c-a664-55b2568a424d"
+        }
+      ],
+      "setup": {
+        "schema": "aiterm.setup-result.v1",
+        "status": "ready",
+        "backend": {
+          "kind": "psmux",
+          "status": "ready"
+        },
+        "integrations": {
+          "claude": {
+            "status": "ready"
+          },
+          "codex": {
+            "status": "ready"
+          },
+          "grok": {
+            "status": "ready"
+          },
+          "cursor": {
+            "status": "ready"
+          }
+        }
+      },
+      "cleanup_verified": true,
+      "receipt_sha256": "99a720dc8c1516748d9448f6dd36d66089764e75a779975794de3f83f212c0f9",
+      "install_log_sha256": "eb1ccd9779582b2178792b6038a532ea029e08e53dbf6b3c45405229e194fa16",
+      "smoke_log_sha256": "eb1ccd9779582b2178792b6038a532ea029e08e53dbf6b3c45405229e194fa16"
+    }
+  ],
+  "cwd_repair": {
+    "cause": "Claudeが実体パスから作るproject slugと、指定cwdをそのまま保存したmetadataが一致しなかった",
+    "fix": "起動時に指定cwdの実体パスを記録する",
+    "red_reproduced": true,
+    "focused_tests_passed": 3,
+    "docs_tests_passed": 7,
+    "focused_stdout_sha256": "4ef4f74b379f55df2d14de96a72ee4fdca11d60101ea7f621d484e4392b45df4",
+    "source_smoke_sha256": "b3a8413dd649e8a4424218786632334369f9f4d54c6fbd0bf55252ba7f68a4b3"
+  },
+  "implementation_evidence": "docs/evidence/2026-09-10-claude-parent-delivery.json",
+  "independent_review": "docs/evidence/2026-09-10-claude-parent-delivery-review.json",
+  "startup_observation": {
+    "platform": "linux",
+    "first_attempt": "startup_dialogで起動準備未完了。initial_prompt=not_sent",
+    "reproduction_attempt": "再現せず、同じ公開版・通常設定で初回と追加依頼の自動受信が成功",
+    "cause": "未確定。最初の試験は終了処理でpaneを閉じ、起動画面を保存していなかった",
+    "product_code_changed_for_this_observation": false,
+    "automatic_retry_added": false,
+    "initial_log_sha256": "664eba82b9024e10652a179ab534970f9ff7ee73e0ef1d25e09546fb587a426d",
+    "reproduction_log_sha256": "0c3d100014d1cd3cf486ec4cb64007ec1a5f46e5f45738d55827a6891090ea81"
+  },
+  "limitations": [
+    "submittedはhookへの本文出力でありmodelの読了ではない。実機試験では後続の親回答も別に確認した。",
+    "稼働中の旧MCP接続は再接続が必要。Claude Code 2.1.259以上の通常対話sessionが対象。"
+  ]
+}

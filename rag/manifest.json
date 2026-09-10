@@ -883,6 +883,57 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "codex-0154-mcp-call-metadata",
+      "topic": "completion-detection",
+      "title": "Codex 0.154.0: MCP要求へのthreadId付与",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/core/src/mcp_tool_call.rs",
+      "source_type": "source_code",
+      "path": "sources/completion-detection/codex-0154-mcp-call-metadata.md",
+      "tags": [
+        "codex",
+        "parent-delivery",
+        "confirmed-source"
+      ],
+      "summary": "モデルからのMCP呼出しに正規threadIdを_metaとして加える。ソース確認済み。",
+      "relevance": "親モデルに宛先IDを入力させず、依頼単位で配送先を固定する。",
+      "chars": 84041,
+      "fetched": "2026-09-10"
+    },
+    {
+      "slug": "codex-0154-queue-service",
+      "topic": "completion-detection",
+      "title": "Codex 0.154.0: 外部キュー監視と待機中ターンの開始",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/ext/queue/src/service.rs",
+      "source_type": "source_code",
+      "path": "sources/completion-detection/codex-0154-queue-service.md",
+      "tags": [
+        "codex",
+        "parent-delivery",
+        "confirmed-source"
+      ],
+      "summary": "共有storeの変更監視と待機中threadへの配送、実行中threadの次ターン処理を所有する。ソース確認済み。",
+      "relevance": "CLIとDesktopで共通の受信・再開処理。受信待ちと割込みを区別する根拠。",
+      "chars": 21232,
+      "fetched": "2026-09-10"
+    },
+    {
+      "slug": "codex-0154-session-queue",
+      "topic": "completion-detection",
+      "title": "Codex 0.154.0: 既存セッションへのキュー投入",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/tui/src/session_queue_commands.rs",
+      "source_type": "source_code",
+      "path": "sources/completion-detection/codex-0154-session-queue.md",
+      "tags": [
+        "codex",
+        "parent-delivery",
+        "confirmed-source"
+      ],
+      "summary": "公式codex queueはthread/queue/addへ要求し、宛先UUIDと本文を渡す。ソース確認済み。",
+      "relevance": "親を別processでresumeせず、公開受信キューへ回答を渡す実装根拠。",
+      "chars": 5132,
+      "fetched": "2026-09-10"
+    },
+    {
       "slug": "codex-agent-prompt-ux-adversarial-review-2026-07-09",
       "topic": "completion-detection",
       "title": "codex_agent prompt UX adversarial review",
@@ -2293,5 +2344,5 @@
       "fetched": "2026-06-01"
     }
   ],
-  "updated": "2026-09-08"
+  "updated": "2026-09-10"
 }

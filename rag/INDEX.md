@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **115** 件 / 更新: 2026-09-08
+- 総数: **118** 件 / 更新: 2026-09-10
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 26件
+## 完了境界の検出 (completion-detection) — 29件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -103,6 +103,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Terminal-Shell integration - a proposed specification (Per Bothner)](sources/completion-detection/bothner-shell-integration-proposal.md) — OSC 133系セマンティックプロンプトの設計思想と要件を整理した提案記事。FinalTerm/iTerm2/DomTermの実装差を横断。
   - 出典: <https://per.bothner.com/blog/2019/shell-integration-proposal/> (article, 10489 chars)
   - 効きどころ: 完了境界(プロンプト開始/コマンド開始/出力開始/終了+exit code)をなぜ・どう区切るかの原典的論拠。我々の境界検出設計の出発点になる。
+- [Codex 0.154.0: MCP要求へのthreadId付与](sources/completion-detection/codex-0154-mcp-call-metadata.md) — モデルからのMCP呼出しに正規threadIdを_metaとして加える。ソース確認済み。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/core/src/mcp_tool_call.rs> (source_code, 84041 chars)
+  - 効きどころ: 親モデルに宛先IDを入力させず、依頼単位で配送先を固定する。
+- [Codex 0.154.0: 外部キュー監視と待機中ターンの開始](sources/completion-detection/codex-0154-queue-service.md) — 共有storeの変更監視と待機中threadへの配送、実行中threadの次ターン処理を所有する。ソース確認済み。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/ext/queue/src/service.rs> (source_code, 21232 chars)
+  - 効きどころ: CLIとDesktopで共通の受信・再開処理。受信待ちと割込みを区別する根拠。
+- [Codex 0.154.0: 既存セッションへのキュー投入](sources/completion-detection/codex-0154-session-queue.md) — 公式codex queueはthread/queue/addへ要求し、宛先UUIDと本文を渡す。ソース確認済み。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/tui/src/session_queue_commands.rs> (source_code, 5132 chars)
+  - 効きどころ: 親を別processでresumeせず、公開受信キューへ回答を渡す実装根拠。
 - [codex_agent prompt UX adversarial review](sources/completion-detection/codex-agent-prompt-ux-adversarial-review-2026-07-09.md) — codex_agent(prompt=...) の長文/日本語 prompt と初回 agent_done 待ち計画を、aiterm Codex とサブエージェントで敵対的検証し、実装後に Codex の単一行/長い日本語/複数行日本語 initial prompt wait smoke を通した。Grok/Composer は OAuth approval 画面で initial_prompt=not_sent になり、prompt 未送信の安全側挙動を確認したため、初回 prompt wait は公開 schema に出さない。
   - 出典: <local:aiterm-mcp-codex-agent-prompt-ux-adversarial-review-2026-07-09> (local_probe, 5968 chars)
   - 効きどころ: 初回 prompt を shell argv から降ろす実装の採用ゲートと実装後検証。Stop hook event の帰属、initial_prompt state、TUI 直接投入、通常 read metadata、pending 中の通常 pty_send 拒否、Grok/Composer OAuth approval 時の not_sent 挙動と未公開判断、final answer API の責務分離を再調査しないためのローカル証跡。

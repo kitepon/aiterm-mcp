@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-09-13
+
 ### 修正
 
 - WindowsのCodexでhook確認画面の見出しが画面上部へ出た場合も認識し、`trust_project: true`による起動準備を完了する。
@@ -1669,7 +1671,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...HEAD
+[0.37.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...v0.35.1

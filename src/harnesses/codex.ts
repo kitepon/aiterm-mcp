@@ -420,7 +420,7 @@ export function codexTuiReady(screen: string): boolean {
 }
 
 function currentCodexDialog(screen: string): string {
-  const footers = [...screen.matchAll(/Press enter to confirm or esc to cancel|enter to submit\s*\|\s*esc to cancel/gi)];
+  const footers = [...screen.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel/gi)];
   // 過去の完了footerより前の質問・選択番号を、現在のdialogへ持ち込まない。
   const previousFooter = footers.at(-2);
   const current = previousFooter ? screen.slice(previousFooter.index! + previousFooter[0].length) : screen;
@@ -434,7 +434,7 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const tail = screen.split("\n").slice(-24).join("\n");
   // 現在のmodal footerがある時だけ、折返しで上へ出た質問を画面全体から探す。
   const lastComposer = [...tail.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
-  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to cancel|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!/gi)].at(-1)?.index ?? -1;
+  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!/gi)].at(-1)?.index ?? -1;
   const modal = lastDialog > lastComposer;
   if (!modal) {
     if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };

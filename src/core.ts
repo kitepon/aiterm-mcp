@@ -1303,7 +1303,7 @@ function decodeActivityCursor(cursor: string, name: string): ActivitySample {
   return value;
 }
 
-function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess[], subtree: RuntimeProcess[]): RuntimeProcess[] {
+export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess[], subtree: RuntimeProcess[]): RuntimeProcess[] {
   const matches = (row: RuntimeProcess): boolean => {
     const first = /^(?:"([^"]+)"|(\S+))/.exec(row.command);
     const executable = path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/"))
@@ -1317,7 +1317,19 @@ function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess[], sub
   // WindowsのMSYS execでnative親子関係が切れる場合も、launch固有引数で相関する。
   const correlated = rows.filter(row => matches(row) && row.command.includes(meta.launch_id));
   const candidates = correlated.length ? correlated : subtree.filter(matches);
-  const roots = candidates.filter(row => !candidates.some(parent => row.parent_pid === parent.pid));
+  const byPid = new Map(rows.map(row => [row.pid, row]));
+  const candidatePids = new Set(candidates.map(row => row.pid));
+  // npm shimとnative本体の間にNodeなどの非候補processがいても、同じ起動の祖先を辿る。
+  const roots = candidates.filter(row => {
+    const seen = new Set<number>();
+    let parent = byPid.get(row.parent_pid);
+    while (parent && !seen.has(parent.pid)) {
+      if (candidatePids.has(parent.pid)) return false;
+      seen.add(parent.pid);
+      parent = byPid.get(parent.parent_pid);
+    }
+    return true;
+  });
   return roots;
 }
 

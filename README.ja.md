@@ -57,7 +57,7 @@ aiterm-setup --json --codex-steer enable
 
 公式Codex Desktopに同梱されたApp Serverを使い、実行中の親には同じターンへ回答を送り、
 終了後に届いた回答でも同じタスクを自動再開します。App Serverの改造・再ビルド・別配布は不要です。
-Steerの初回設定後は`restart_required`（終了コード3）を返します。Codexを完全終了して再起動し、
+新しいlauncherを設定した場合は`restart_required`（終了コード3）を返します。Codexを完全終了して再起動し、
 `aiterm-setup --codex-steer status`で`ready`を確認してください。接続できない時にキューへ自動退避しません。
 
 選択と復元情報は`~/.config/aiterm-mcp/codex-relay/`へ保存します。macOSはユーザーLaunchAgent、
@@ -475,6 +475,7 @@ aiterm は同じ核心の洞察——端末を出会いの場にする——を�
 
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
+WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
 初手の`initial_prompt.status`は`not_requested`／`not_sent`／`submitted_unconfirmed`／`started`を区別する。
 未送信・未確認の失敗もsession付きstructuredContentを保持する。未確認のpromptを再送せず、返ったcursorで観測する。
 

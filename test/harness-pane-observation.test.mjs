@@ -2,6 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
 import { codexPaneObservation, codexApprovalDialog, codexStartupAction } from "../dist/harnesses/codex.js";
+
+test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
+  const screen = ['  Hooks need review', '  8 hooks are new or changed.',
+    '  Hooks can run outside the sandbox after you trust them.', '',
+    '› 1. Review hooks', '  2. Trust all and continue',
+    "  3. Continue without trusting (hooks won't run)", '',
+    '  Press enter to confirm or esc to go back', ...Array(21).fill('')].join('\n');
+  assert.deepEqual(codexPaneObservation(screen), { state: 'blocked', reason: 'hooks_review' });
+  assert.equal(codexStartupAction(screen, false), null);
+  assert.deepEqual(codexStartupAction(screen, true), { kind: 'project_hooks_trusted', keys: ['Down', 'Enter'] });
+});
 import { claudeStartupAction, claudePaneObservation } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
 

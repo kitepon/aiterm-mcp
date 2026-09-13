@@ -34,6 +34,8 @@ psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AIT
 
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
+同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。
+祖先を共有しない候補は別々に残し、複数候補を一つと推測しない。
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
 画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
 初回とpane再作成後の差分はnull。区間中にprocessが消えた時は観測できたCPU増分だけを返し、

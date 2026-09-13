@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsのCodexでhook確認画面の見出しが画面上部へ出た場合も認識し、`trust_project: true`による起動準備を完了する。
+- npmのshell shimとnative Codexの間にNode processがある場合、同じ起動を複数候補と誤判定して停止する問題を修正した。
+
 ## [0.37.0] - 2026-09-13
 
 ### 追加

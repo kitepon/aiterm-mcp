@@ -10,6 +10,18 @@ process.env.AITERM_TEST_OWNER = "観測担当";
 const core = await import("../dist/core.js");
 after(() => { core.killAll(); rmSync(directory, { recursive: true, force: true }); });
 
+test("同じlaunchのnpm shimとnative Codexは中間Nodeを跨いだ一つの起動として識別する", () => {
+  const meta = { kind: 'codex', launch_id: 'launch-fixture', agent_executable: 'C:/Users/test/npm/codex' };
+  const rows = [
+    { pid: 10, parent_pid: 1, command: '"C:\\Program Files\\Git\\usr\\bin\\sh.exe" C:/Users/test/npm/codex launch-fixture' },
+    { pid: 11, parent_pid: 10, command: 'node.exe C:/Users/test/npm/node_modules/@openai/codex/bin/codex.js launch-fixture' },
+    { pid: 12, parent_pid: 11, command: 'C:/Users/test/npm/node_modules/@openai/codex/vendor/codex.exe launch-fixture' },
+  ];
+  assert.deepEqual(core.selectHarnessProcesses(meta, rows, rows).map(row => row.pid), [10]);
+  const separate = { ...rows[2], pid: 20, parent_pid: 2 };
+  assert.deepEqual(core.selectHarnessProcesses(meta, [...rows, separate], rows).map(row => row.pid), [10, 20]);
+});
+
 test("通常PTYの自己識別と明示キーだけの環境照会", async () => {
   const name = "ordinary";
   core.openSession(name, process.platform === "win32" ? "pwsh" : "bash", ["AITERM_TEST_OWNER"]);

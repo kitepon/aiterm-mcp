@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-09-13
+
 ### 修正
 
 - Codex Steerの引数、通信中継、設定の有効化・復元をmacOSとWindowsで共通化した。OS差は起動API・接続・権限・設定保存に限定する。
@@ -1677,7 +1679,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...HEAD
+[0.37.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...v0.37.2
 [0.37.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...v0.36.0

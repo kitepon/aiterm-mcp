@@ -1,7 +1,8 @@
 # 公式バイナリとstdio中継の試験
 
-確認日: 2026-09-13。隔離試験は成功。初回Desktop再起動では起動引数の扱いに不備が見つかり、
-修正後の実機受入は再度の再起動後に確認する。
+確認日: 2026-09-13。隔離試験とmacOS Desktopの接続試験は成功。
+実行中のSteer、終了後の同じtaskの自動再開、アプリ内ツールによるtask読取りを実測した。
+Aitermの製品配送・選択導入の完了を意味するものではない。
 
 ## 試作と実測
 
@@ -38,13 +39,13 @@ Unix transportの公式実装は最初のSIGTERMで実行中turnの完了を待�
 独立した反証は、上記の終了契約の穴を指摘した。再現・修正後の実ファイルを読み、
 残る具体的なP0/P1なしとして修正受入可と回答した。検証者は実認証やDesktopへ接続していない。
 
-## Desktopで次に確認すること
+## Desktop試験の準備と復元
 
 オーナーの「じゃぁ試してご覧」に基づく試験。起動入口だけを私有の中継launcherへ指定する。
 実行されるApp Serverは上記の公式バイナリであり、アプリ本体・署名・認証情報は変更しない。
 接続先は本人所有0700の試験ディレクトリ内の、公式実装が作る0600のsocketだけを使う。
 
-再起動後に確認する項目:
+再起動前に定めた確認項目:
 
 1. Desktopの直接の子が上記公式バイナリで、親taskが同じsocketから見えること。
 2. 通常のアプリ内ツールと既存MCPが使えること。
@@ -72,10 +73,45 @@ launcherは先頭がapp-serverの場合だけ中継し、それ以外を公式CL
 この引数順をfocused testへ追加するとsocketディレクトリが作られず失敗し、原因を再現できた。
 root設定引数とその値を認識し、元の引数を保持してapp-serverの位置を判断するよう修正した。
 修正後は配送とactive中のEOFの2試験が成功し、Desktopに指定した起動入口でも同じ並びのsmokeが成功した。
-既に起動しているprocessは通常起動のままなので、実機中継の観測にはもう一度の再起動が必要である。
+この時点のprocessは通常起動のままだったため、修正後にもう一度の再起動を依頼した。
 認証情報、署名、アプリ本体、今回のGUI設定はこの修正では変更していない。
+
+## 2回目の再起動と実際の親への配送
+
+2回目の再起動では、Desktop PID 40776の直接の子PID 40807が上記の公式バイナリであり、
+`/tmp/aiterm-codex-relay-501/40807.sock` が本人所有・mode 0600で存在した。
+追加クライアントの `thread/loaded/list` と `thread/read` で、承認済みの親taskを確認した。
+中継稼働中もアプリ内ツールの `read_thread`、AitermのPTY操作、AIShellが成功した。
+
+実機で送った本文は、オーナー承認済みの試験マーカーだけである。
+同じtask `01a098cd-2fc8-7261-9d69-d99550653b22` に対する結果を示す。
+
+| 項目 | 実行中の配送 | 終了後の配送 |
+| --- | --- | --- |
+| マーカー | `AITERM_OFFICIAL_RELAY_STEER_20260913` | `AITERM_OFFICIAL_RELAY_WAKE_20260913` |
+| 実行したRPC | `turn/steer` | `turn/start` |
+| 送信前のturn | `01a099fe-3a6e-7100-99e3-8ae72e2bb14a`（実行中） | 同じturnの完了を観測 |
+| 受理されたturn | 送信前と同じ | `01a09a04-8059-71c0-a9d1-c09624baafe2`（新規） |
+| 受理時刻（UTC） | 2026-09-13T09:01:40.303Z | 2026-09-13T09:06:21.411Z |
+| 親による実受信 | 同じturnで受信を報告 | 同じtaskが自動再開し、受信を報告 |
+| 試験process | 正常終了 | 終了コード0 |
+
+終了後のreceiptは `previous_turn_completed: true`、`method: "turn/start"`、
+`new_turn: true` を記録している。アプリ内ツールのtask読取りでも、受理された新turnが
+同じtaskで `inProgress` になったことを確認した。送信は各1回で、失敗時の再送は行わない。
+
+私有ディレクトリ内のreceiptのSHA-256:
+
+- `official-relay-live-steer.json`: `c6ca8b5eb7f6a00bc5f84b2ee5599f196494e2107aaf2433a1eb32e4156ff927`
+- `official-relay-live-wake-after-idle.json`: `27b844fdd236073dee72a2f9b6843a5e5a377ab54a935b30c0511b271f8f7f35`
+
+アプリ内ツールの成功は上記の読取り操作についての実測であり、全ツール・モデル選択UI・
+権限要求UIを網羅した試験ではない。入力メッセージの画面表示は未確認で、機能追加も依頼されていない。
+Keychain要求の連発の発生経路を今回特定したとは扱わない。公式バイナリと署名は維持した。
+
+技術判定は [ADR 0062](../adr/0062-codex-official-relay-connection-observation.md) に固定する。
 
 ## 未完了
 
-Desktop実機連携、Windows nativeとLinux実機、Aitermの製品配送・選択導入は未完了。
+Windows nativeとLinux実機、Aitermの製品配送・選択導入は未完了。
 今回の試作はnpmの公開物へ組み込まない。通常製品の配送は引き続き既存のqueueである。

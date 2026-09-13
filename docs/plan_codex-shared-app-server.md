@@ -26,10 +26,21 @@ Desktopの実argvは `codex -c <設定> app-server --analytics-default-enabled -
 試作が先頭app-serverだけを認識したことが原因。同じ引数順の試験でsocket未作成を再現した。
 root設定引数とその値を保持してサブコマンドを判定するよう修正し、配送・active中のEOFの2試験と
 実際の起動入口のsmokeが成功した。初回にアプリ内ツールが使えたことを中継方式の受入には数えない。
-現在地: 修正後の隔離試験と実際の中継起動入口のsmokeは成功。次回Desktop起動用の
-`CODEX_CLI_PATH` を私有の中継launcherへ指定し、他3キーの不在とともに読戻しを確認済み。
-通常構成への復元コマンドは用意済み。修正の反映にはもう一度の完全終了・再起動が必要で、
-実機連携・製品としての受入は未完了。Control revision 6に再起動観測を記録した。
+2回目の再起動で本人所有0600の中継socketが作られ、公式App ServerがDesktopの直接の子であることを確認した。
+中継稼働中のアプリ内ツールによる同じtaskの読取りも成功した。
+`AITERM_OFFICIAL_RELAY_STEER_20260913` を同じ実行中turnへ送り、RPCの同一turn ID応答と
+親での実受信を確認した。receiptは `official-relay-live-steer.json`。
+続く `AITERM_OFFICIAL_RELAY_WAKE_20260913` は前turnの完了を観測してから一度だけ送り、
+同じtaskの新turnで実受信した。`official-relay-live-wake-after-idle.json` は
+`previous_turn_completed: true`、`method: "turn/start"`、`new_turn: true` を記録し、
+アプリ内ツールのtask読取りでも同じ新turnの実行中状態を確認した。試験processは終了コード0で終了した。
+現在地: macOS実機の中継接続、アプリ内ツールによるtask読取り、実行中Steer、
+終了後の同じtaskの自動再開は成功。再起動観測は
+[接続試験の判定](adr/0062-codex-official-relay-connection-observation.md)で完了として受け入れる。
+私有の中継launcherを指定する `CODEX_CLI_PATH` と他3キーの不在は読戻し済みで、
+現在のDesktopもこの中継で稼働している。通常構成への復元コマンドは用意済み。
+Aiterm製品の回答配送、選択導入、Windows native・Linuxの実機確認は未完了であり、この依頼の続きとして保持する。
+入力メッセージの画面表示はオーナーから機能追加を依頼されておらず、受入条件へ追加しない。
 障害時にオーナーが許可・拒否を混在して押したことは調査記録へ追記済み。
 Keychainの失敗件数から署名による自動拒否を断定せず、アプリ内ツールの署名検査と分けて扱う。
 
@@ -116,7 +127,7 @@ MCP状態一覧が接続先ごとにKeyringを読むこと、同じ起動中に�
 - [x] 公式App Serverの既存stdio起動・環境継承を保つ改造箇所を最小再現で確定する。
 - [x] 公式ソースへのパッチとfocused testを実装し、ビルドする。
 - [ ] Aitermの単品／Steer付き導入の入口と、回答配送を実装する。
-- [ ] 改造版でSteer・終了後再開・Desktop連携を実機確認する。
+- [x] 公式ソース改造版のDesktop試験は不合格と判定し、承認済みの公式バイナリ中継でSteer・終了後再開・アプリ内ツールのtask読取りを実機確認する。
 - [ ] パッチ再適用とビルド手順、OSごとの確認結果、変更の正本を保存する。
 
 公式 `openai/codex` の `rust-v0.154.0`、commit
@@ -139,8 +150,8 @@ WebSocket圧縮を無効にした公式 `codex app-server proxy --sock` 経由�
 公式Cloneの機能commitは `dee88f61f`、ビルド準備のlock同期は `bbdd4d0de`。
 Aiterm製品コード改造・選択導入は未完了。
 
-以下は改造版を最初に再起動する前の履歴である。現在は公式通常構成へ復旧済みで、
-承認された公式バイナリの中継試作を本書冒頭の順序で進めている。
+以下は改造版を最初に再起動する前の履歴である。公式通常構成への復旧を経て、
+現在は本書冒頭に記録した公式バイナリの中継で稼働している。
 GUIユーザーの `CODEX_CLI_PATH` を私有試験packageへ指定し、共有daemon用の
 `CODEX_APP_SERVER_WS_URL` を解除して読戻しを確認した。
 この時点では設定準備だけが完了しており、Desktop自体はまだ再起動していなかった。

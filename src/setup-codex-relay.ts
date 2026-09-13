@@ -12,6 +12,7 @@ import { codexRelayLauncher } from "./codex-relay-launcher.js";
 import { withCodexRelay } from "./codex-relay-client.js";
 import { readRuntimeProcesses } from "./process-runtime.js";
 import { installRelayLogin, removeRelayLogin } from "./codex-relay-login.js";
+import { configureWindowsCodexSteer } from "./windows-codex-setup.js";
 
 export type CodexSteerAction = "enable" | "disable" | "status";
 export type CodexSteerResult = {
@@ -66,7 +67,7 @@ export async function verifyRelayLauncher(launcher: string): Promise<void> {
   const temporary = fs.mkdtempSync(path.join(tmpdir(), "aiterm-relay-setup-"));
   fs.mkdirSync(path.join(temporary, ".codex"));
   const child = spawn(launcher, ["-c", 'cli_auth_credentials_store="file"', "-c", 'mcp_oauth_credentials_store="file"', "app-server"], {
-    env: { ...process.env, HOME: temporary, CODEX_HOME: path.join(temporary, ".codex") }, stdio: ["pipe", "pipe", "ignore"],
+    env: { ...process.env, HOME: temporary, CODEX_HOME: path.join(temporary, ".codex") }, stdio: ["pipe", "pipe", "ignore"], windowsHide: true,
   });
   const reader = createInterface({ input: child.stdout });
   const exited = new Promise<number | null>(resolve => child.once("close", resolve));
@@ -122,6 +123,7 @@ function writeConfig(directory: string, config: RelayConfig): void {
 }
 
 export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<Runtime> = {}): Promise<CodexSteerResult> {
+  if ((overrides.platform ?? process.platform) === "win32") return configureWindowsCodexSteer(action, overrides);
   const runtime: Runtime = {
     platform: process.platform, directory: relayConfigDirectory(), socket_root: `/tmp/aiterm-codex-${process.getuid?.() ?? 0}`,
     node: process.execPath, relay: fileURLToPath(new URL("./codex-stdio-relay.js", import.meta.url)),

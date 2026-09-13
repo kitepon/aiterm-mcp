@@ -82,7 +82,18 @@ macOSのユーザーLaunchAgentはログイン時に同じ起動設定を適用�
 保存した元の`CODEX_CLI_PATH`へ戻す。他から変更された設定は上書きしない。
 `status=ready`は公式binary・Desktopの直接子・同じsocketのRPC応答を確認した場合だけ返す。
 初回の設定保存後は`restart_required`であり、Desktopの完全終了・再起動を要する。
-Linux/WindowsのSteer選択は`unsupported`とする。通常の単品導入・queue配送は両OSで維持する。
+WindowsはAitermのnative launcherからNode中継と公式Desktop CLIを起動し、通常の親子関係を保つ。
+Windows標準の.NET Frameworkでlauncherを作り、引数とstdioをそのまま中継する。
+公式Desktopが展開した4実行ファイルを配布元のSHA-256と照合し、AitermがCodexをコピー・再配布しない。
+公式CLIの認証付きloopback WebSocketを使い、本人専用ACLのtokenと接続記録をAitermのsessions下へ置く。
+Windowsのprocess情報はprocess-runtimeが所有し、接続はPID・開始時刻・実行ファイル・token引数で照合する。
+MCP processの祖先から親を選び、同じloaded taskへ送る。開始時刻は小数桁の表記差を正規化して比較する。
+stdio EOFで自分が起動した公式serverを停止し、接続記録を削除する。
+既存の互換launcherは公式serverからlauncherとDesktopへの祖先関係、ACL、RPCが成立した場合だけ共有する。
+対応する接続記録はaiterm.windows-relay.v1とgpt-connector.windows-relay.v1で、後者もAiterm内で解釈する。
+共有時はlauncherとprevious_cli_pathを同値で記録し、enableとdisableで所有外の起動設定を変更しない。
+接続共有は任意であり、他製品のコード・設定・コマンドはAiterm単独導入の前提にならない。
+LinuxのSteer選択はunsupportedとする。通常の単品導入・queue配送は全対応OSで維持する。
 
 単品導入のqueue配送は親の実行中turnを中断せず、親がidleになった後に処理される。
 `parent_delivery`が配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullになる。

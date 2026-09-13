@@ -13,6 +13,7 @@ export interface NativeProcessIdentity {
 }
 
 export interface RuntimeProcess extends NativeProcessIdentity {
+  executable?: string;
   parent_pid: number;
   cpu_seconds: number;
   command: string;
@@ -59,7 +60,7 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
     "$ErrorActionPreference='Stop'",
     "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
     "@(Get-CimInstance Win32_Process | Where-Object { $null -ne $_.CreationDate -and $null -ne $_.CommandLine } | ForEach-Object {",
-    "[ordered]@{ pid=[int]$_.ProcessId; parent_pid=[int]$_.ParentProcessId; started_identity=$_.CreationDate.ToUniversalTime().ToString('o'); command=$_.CommandLine; cpu_seconds=([double]$_.KernelModeTime+[double]$_.UserModeTime)/10000000 }",
+    "[ordered]@{ pid=[int]$_.ProcessId; parent_pid=[int]$_.ParentProcessId; executable=[string]$_.ExecutablePath; started_identity=$_.CreationDate.ToUniversalTime().ToString('o'); command=$_.CommandLine; cpu_seconds=([double]$_.KernelModeTime+[double]$_.UserModeTime)/10000000 }",
     "}) | ConvertTo-Json -Compress",
   ].join("\n");
   const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
@@ -77,6 +78,7 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
     const command = row.command.trim();
     return {
       pid: row.pid, parent_pid: row.parent_pid, process_group_id: null, stopped: null,
+      executable: row.executable,
       started_identity: new Date(row.started_identity).toISOString(),
       command, cpu_seconds: row.cpu_seconds, argv_digest: createHash("sha256").update(command).digest("hex"),
     };

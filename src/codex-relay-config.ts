@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { z } from "zod";
 import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
+import { findWindowsParentSocket } from "./windows-codex-connection.js";
 
 export const relayConfigSchema = z.object({
   schema: z.literal("aiterm.codex-relay.v1"),
@@ -45,7 +46,10 @@ export function verifyRelaySocket(socket: string): void {
   }
 }
 
-export function parentRelaySocket(config: RelayConfig, processes: RuntimeProcess[] = readRuntimeProcesses(), pid = process.pid): string {
+export function parentRelaySocket(config: RelayConfig, processes?: RuntimeProcess[], pid = process.pid): string {
+  if (process.platform === "win32") return findWindowsParentSocket(undefined, pid,
+    config.launcher === config.previous_cli_path ? undefined : config.socket_root);
+  processes ??= readRuntimeProcesses();
   const rows = new Map(processes.map(row => [row.pid, row]));
   const seen = new Set<number>();
   let current = rows.get(pid)?.parent_pid;

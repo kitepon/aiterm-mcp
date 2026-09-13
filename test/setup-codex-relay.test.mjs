@@ -63,7 +63,7 @@ test('GUI適用失敗は記録を残し、同じenableで元の復元値を維�
 
 test('未対応OSと既存共有接続は、変更前に理由を返す', async t => {
   const f = fixture(t);
-  for (const platform of ['win32', 'linux']) {
+  for (const platform of ['linux']) {
     assert.deepEqual(await configureCodexSteer('enable', { ...f.runtime, platform }), { status: 'unsupported', reason_code: 'codex_steer_platform_unsupported' });
   }
   f.values.set('CODEX_APP_SERVER_WS_URL', '既存値');

@@ -31,7 +31,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - launcherは直接CLIと同じ通常`HOME`、project／user設定、MCP、plugin、skill、permission、trust、
   memory、historyを使う。Aitermはlaunch相関、完了event、bounded result、cleanup metadataだけを所有し、
   credential／設定をcopy、snapshot、filterしない。
-- agentへの送信は非ブロックdispatchで即返す。Codex親は単品導入なら公式queue、macOSのSteer選択時は同じ公式App Serverの
+- agentへの送信は非ブロックdispatchで即返す。Codex親は単品導入なら公式queue、macOS・WindowsのSteer選択時は同じ公式App Serverの
   `turn/start`による実行中Steer／終了後再開、Claude Code親は公式asyncRewake hookで
   回答本文を自動配送し、親はwaiterと回答回収を呼ばない。それ以外の親はreceiptの`wait_process`を別processとして起動し、
   `outcome`を判定して`pty_read(agent_transcript:true)`または`claude_turn recover`で回収する。
@@ -56,6 +56,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/codex-parent-receiver.ts`: Codex親の識別と選択した公式受信口。
   `src/codex-relay-*.ts`／`src/codex-stdio-relay.ts`: 公式socketの識別、接続、POSIX launcherと中継。
   `src/setup-codex-relay.ts`: Steerの明示選択、設定・解除・実効確認。
+  `src/windows-codex-*.ts`: Windowsの公式CLI起動、認証付き接続、native launcher、ACLと選択導入。
   `src/claude-parent-receiver.ts`／`src/claude-parent-hook.ts`: Claude親の要求相関と公式hookへの回答出力。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。

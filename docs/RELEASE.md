@@ -39,8 +39,11 @@ Codex Steerを変更した場合は、公式バイナリを指定した`test/cod
 実行中Steer・終了後再開・承認応答・stdio終了を先に確認する。公開packageの
 `aiterm-setup --json --codex-steer enable`で選択導入し、`restart_required`なら人がDesktopを完全再起動する。
 再起動後の`aiterm-setup --codex-steer status`が`ready`であることと、通常の親からの子の回答配送を確認する。
-socketがあるだけで成功とせず、公式binaryとDesktopの直接の子であることまで確認する。
-Linux/Windowsの単品導入と、未対応のSteer選択が理由付きで停止することもCIで確認する。
+接続があるだけで成功とせず、公式binaryとDesktopの親子関係まで確認する。
+Windowsは`AITERM_TEST_CODEX_BINARY`に公式Desktopの実行fileを指定し、
+`test/windows-codex.test.mjs`で単独launcher、ACL、親識別、既存接続共有、設定解除も確認する。
+同じ環境変数で`test/codex-relay-official.test.mjs`の実行中Steer・終了後再開・承認中継・EOFを確認できる。
+Linuxの未対応Steer選択が理由付きで停止することもCIで確認する。
 
 setupを変更した場合は、公開packageのglobal install後に`aiterm-setup --json`を実行し、
 端末実行と検出した各AIの登録結果を確認する。初回と再実行は一時設定領域でも試験し、所有外の設定保持を確かめる。
@@ -70,7 +73,8 @@ aiterm-setup --json
 巻き戻しは既知の正常版を指定する。
 
 Steerを持たない旧版へ戻す時は、install前に`aiterm-setup --codex-steer disable`を実行する。
-専用LaunchAgentの解除と元のGUI起動設定の復元を確認し、MCP clientを再起動する。
+macOSは専用LaunchAgentの解除、Windowsは元のユーザー環境変数の復元を確認し、MCP clientを再起動する。
+互換launcherを共有していた場合はAitermのSteer選択だけを解除し、所有外の起動設定を保持する。
 回答record schemaは従来と共通であり、Steer送信済みrecordの`queued_submission_id`はnullとなる。
 
 Claude親配送hookのない旧版へ戻す場合は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を

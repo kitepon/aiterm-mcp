@@ -47,7 +47,7 @@ Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package mana
 AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、再起動待ちは3、それ以外は2となる。
 
 
-### Codex DesktopへSteerを有効にする（macOS）
+### Codex DesktopへSteerを有効にする（macOS・Windows）
 
 対話実行の`aiterm-setup`で「Aiterm単品」と「Steer付き」を選べます。無人導入では明示します。
 
@@ -60,11 +60,15 @@ aiterm-setup --json --codex-steer enable
 Steerの初回設定後は`restart_required`（終了コード3）を返します。Codexを完全終了して再起動し、
 `aiterm-setup --codex-steer status`で`ready`を確認してください。接続できない時にキューへ自動退避しません。
 
-選択と復元情報は`~/.config/aiterm-mcp/codex-relay/`へ保存し、ユーザーLaunchAgentがログイン時にも
-起動設定を適用します。更新時の`aiterm-setup --json`は選択を維持して中継を更新します。
+選択と復元情報は`~/.config/aiterm-mcp/codex-relay/`へ保存します。macOSはユーザーLaunchAgent、
+Windowsはユーザー環境変数`CODEX_CLI_PATH`で起動設定を維持します。更新時の`aiterm-setup --json`は選択を維持して中継を更新します。
 解除・旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
-SteerはmacOSのCodex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
-Windows・LinuxのSteer付き導入は理由付き`unsupported`を返します。Aiterm単品は従来どおり利用できます。
+SteerはmacOS・Windowsの公式Codex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
+Windowsでは公式Desktopが展開した実行ファイルを照合し、認証付きのローカル接続へ中継します。
+Aitermのpackageがlauncher・中継・設定・親への配送を含み、gpt-connectorやdotagentsの導入は不要です。
+既存の互換launcherがある場合は、稼働中のDesktop接続を確認した時だけ共有し、その起動設定を変更しません。
+互換性を確認できない設定は理由付きで停止します。WindowsのDesktop更新後はsetupを再実行してください。
+LinuxのSteer付き導入は理由付き`unsupported`を返します。Aiterm単品は従来どおり利用できます。
 
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- WindowsのCodex Desktop親へのSteerと終了後再開に対応。公式CLI、認証付きloopback接続、native launcher、設定・解除をAitermだけで提供する。
+- 稼働中の互換launcherは親process・ACL・公式RPCを確認した時だけ共有し、既存の起動設定を保持する。
+
 ## [0.36.0] - 2026-09-13
 
 ### 追加

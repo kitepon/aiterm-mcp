@@ -2,18 +2,26 @@ import { createConnection } from "node:net";
 import WebSocket from "ws";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { verifyRelaySocket } from "./codex-relay-config.js";
+import { windowsSocketConnection } from "./windows-codex-connection.js";
 
 export type RelayRequest = (method: string, params: unknown) => Promise<any>;
 
 /** 公式受付へ追加接続する。Desktopへの承認要求や通知には応答しない。 */
 export async function withCodexRelay<T>(socketPath: string, action: (request: RelayRequest) => Promise<T>, timeout = 15_000): Promise<T> {
-  try { verifyRelaySocket(socketPath); }
+  let connection: { url: string; options: WebSocket.ClientOptions };
+  try {
+    if (process.platform === "win32") connection = windowsSocketConnection(socketPath);
+    else {
+      verifyRelaySocket(socketPath);
+      connection = { url: "ws://localhost/rpc", options: { createConnection: () => createConnection(socketPath) } };
+    }
+  }
   catch (error) {
     if (error instanceof CodexDeliveryError) throw error;
     throw new CodexDeliveryError("CODEX_RELAY_UNAVAILABLE", "公式App Serverのsocketがありません。Codexを再起動してください");
   }
-  const socket = new WebSocket("ws://localhost/rpc", {
-    createConnection: () => createConnection(socketPath), handshakeTimeout: timeout, perMessageDeflate: false,
+  const socket = new WebSocket(connection.url, {
+    ...connection.options, handshakeTimeout: timeout, perMessageDeflate: false,
   });
   let sequence = 0;
   let failure: string | null = null;

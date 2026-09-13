@@ -17,7 +17,7 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.exitCode = 2;
   }
 } else if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
-  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS対応で、初回はCodexの再起動が必要です。disableは元の起動設定へ戻し、statusは実際の接続を確認します。--jsonは対話せず、Steerの選択を維持します。\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n");
+  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS・Windows対応で、初回はCodexの再起動が必要です。disableは元の起動設定へ戻し、statusは実際の接続を確認します。--jsonは対話せず、Steerの選択を維持します。\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n");
 } else {
   try {
     let action: CodexSteerAction | undefined;
@@ -28,7 +28,7 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
       else throw new Error("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]");
     }
     const onlySteer = action === "disable" || action === "status";
-    if (!action && !json && process.stdin.isTTY && process.stderr.isTTY && process.platform === "darwin") {
+    if (!action && !json && process.stdin.isTTY && process.stderr.isTTY && ["darwin", "win32"].includes(process.platform)) {
       const enabled = readRelayConfig()?.enabled ?? false;
       const prompt = createInterface({ input: process.stdin, output: process.stderr });
       try {

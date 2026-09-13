@@ -28,7 +28,8 @@ node --test test/codex-relay-stdio.test.mjs test/codex-relay-official.test.mjs t
 - npm pack内の文書参照と製品所有契約。
 
 独立したCodexレビューでは新規ファイルと差分を読み、Macと共通のprocess・stdio関係と共通処理への移行を確認した。
-追加のGrokレビュー、3環境CI、公開packageと再起動後Desktopの確認は、この記録時点では未完了。
+Grokの追加レビューは約20分で結論を得られず終了したため、成功したレビューには数えない。
+公開packageと再起動後Desktopの確認は、この記録時点では未完了。
 この隔離試験を再起動後の実機成功とは扱わない。
 
 ## CIで見つかった接続直後の応答取りこぼし
@@ -37,4 +38,6 @@ node --test test/codex-relay-stdio.test.mjs test/codex-relay-official.test.mjs t
 接続完了のawait後に受信handlerを登録していたため、upgradeと最初のframeが同じ受信単位に入ると、
 handler登録前に応答が到着する順序があった。接続通知と同時に応答を発生させるfixtureでWindowsでも再現した。
 共通中継の受信handlerを接続開始時に登録し、focused testの3件が成功した。待機時間の延長や再試行は加えていない。
-修正後の3環境CIは再確認する。
+公式CLI試験の2件も再実行して成功した。受信順の差分に対する独立したCodexレビューでも、
+接続前の再試行、接続後の終了、EOFに新たな欠陥は見つからず、RPC再送が加わっていないことを確認した。
+修正後の[3環境CI](https://github.com/kitepon/aiterm-mcp/actions/runs/34764959849)はすべて成功した。

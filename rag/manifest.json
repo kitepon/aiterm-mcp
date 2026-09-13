@@ -864,6 +864,57 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "apple-code-signing-requirements",
+      "topic": "completion-detection",
+      "title": "Apple: 更新を同一プログラムと認識する署名要件",
+      "source_url": "https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/apple-code-signing-requirements.md",
+      "tags": [
+        "macos",
+        "codesign",
+        "keychain"
+      ],
+      "summary": "Apple一次資料。指定要件が署名済みコードの同一性と更新時の許可継承を決める。cdhash要件と署名者・識別子による要件を区別する。",
+      "relevance": "改造App Serverのad-hoc署名が更新追従に適さない理由と、継続した署名の設計根拠。",
+      "chars": 23746,
+      "fetched": "2026-09-13"
+    },
+    {
+      "slug": "apple-keychain-access-control-lists",
+      "topic": "completion-detection",
+      "title": "Apple: macOS Keychain項目ごとのアプリ許可",
+      "source_url": "https://developer.apple.com/documentation/security/access-control-lists.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/apple-keychain-access-control-lists.md",
+      "tags": [
+        "macos",
+        "keychain",
+        "acl"
+      ],
+      "summary": "Apple一次資料。Keychain項目の操作と信頼アプリの一覧でアクセスを判定し、未許可アプリには利用者の確認を求める。",
+      "relevance": "OpenAI向けの既存許可を独自署名の改造版へ無条件に継承できないことの根拠。",
+      "chars": 9975,
+      "fetched": "2026-09-13"
+    },
+    {
+      "slug": "apple-keychain-user-interaction",
+      "topic": "completion-detection",
+      "title": "Apple: Keychain Servicesの対話制御と適用上の注意",
+      "source_url": "https://developer.apple.com/documentation/security/seckeychainsetuserinteractionallowed(_:).md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/apple-keychain-user-interaction.md",
+      "tags": [
+        "macos",
+        "keychain",
+        "noninteractive"
+      ],
+      "summary": "Apple一次資料。対話を無効化したKeychain操作はエラーを返す。旧APIであり、再有効化しない場合の他クライアントへの影響も説明する。",
+      "relevance": "無人のMCP状態取得でダイアログを連発しない設計の候補。全体のon/offを各読取りの一時ガードにする案の注意点。",
+      "chars": 2605,
+      "fetched": "2026-09-13"
+    },
+    {
       "slug": "bothner-shell-integration-proposal",
       "topic": "completion-detection",
       "title": "Terminal-Shell integration - a proposed specification (Per Bothner)",
@@ -1009,6 +1060,23 @@
       "relevance": "初回 prompt を shell argv から降ろす実装の採用ゲートと実装後検証。Stop hook event の帰属、initial_prompt state、TUI 直接投入、通常 read metadata、pending 中の通常 pty_send 拒否、Grok/Composer OAuth approval 時の not_sent 挙動と未公開判断、final answer API の責務分離を再調査しないためのローカル証跡。",
       "chars": 5968,
       "fetched": "2026-07-09"
+    },
+    {
+      "slug": "codex-auth-storage-20260913",
+      "topic": "completion-detection",
+      "title": "OpenAI: Codexの認証保存先とログイン共有",
+      "source_url": "https://developers.openai.com/codex/auth/",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/codex-auth-storage-20260913.md",
+      "tags": [
+        "codex",
+        "auth",
+        "keyring"
+      ],
+      "summary": "OpenAI一次資料。認証情報の保存先file/keyring/auto/ephemeral、共有ログイン、ファイル中のトークンの取扱いを説明する。",
+      "relevance": "保存先変更は明示的な認証設計であり、改造版による既存Keychainの読出しを隠す自動移送として扱わない。",
+      "chars": 45092,
+      "fetched": "2026-09-13"
     },
     {
       "slug": "codex-cli-stop-hook",
@@ -2396,5 +2464,5 @@
       "fetched": "2026-06-01"
     }
   ],
-  "updated": "2026-09-10"
+  "updated": "2026-09-13"
 }

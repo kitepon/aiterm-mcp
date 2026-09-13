@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **121** 件 / 更新: 2026-09-10
+- 総数: **125** 件 / 更新: 2026-09-13
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 32件
+## 完了境界の検出 (completion-detection) — 36件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -100,6 +100,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [agent-stuff tmux skill (send-keys + capture-pane completion polling)](sources/completion-detection/agent-stuff-tmux-skill.md) — エージェントがtmux send-keys/capture-paneで対話プログラムを操る実践手順。完了テキストをポーリングで待つ方式。
   - 出典: <https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/skills/tmux/SKILL.md> (github_readme, 5549 chars)
   - 効きどころ: tmuxバックエンドでsend-keys後にcapture-pane差分+完了文字列(sentinel)で境界を取る具体パターン。実装の即戦力レシピ。
+- [Apple: 更新を同一プログラムと認識する署名要件](sources/completion-detection/apple-code-signing-requirements.md) — Apple一次資料。指定要件が署名済みコードの同一性と更新時の許可継承を決める。cdhash要件と署名者・識別子による要件を区別する。
+  - 出典: <https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements.md> (official_docs, 23746 chars)
+  - 効きどころ: 改造App Serverのad-hoc署名が更新追従に適さない理由と、継続した署名の設計根拠。
+- [Apple: macOS Keychain項目ごとのアプリ許可](sources/completion-detection/apple-keychain-access-control-lists.md) — Apple一次資料。Keychain項目の操作と信頼アプリの一覧でアクセスを判定し、未許可アプリには利用者の確認を求める。
+  - 出典: <https://developer.apple.com/documentation/security/access-control-lists.md> (official_docs, 9975 chars)
+  - 効きどころ: OpenAI向けの既存許可を独自署名の改造版へ無条件に継承できないことの根拠。
+- [Apple: Keychain Servicesの対話制御と適用上の注意](sources/completion-detection/apple-keychain-user-interaction.md) — Apple一次資料。対話を無効化したKeychain操作はエラーを返す。旧APIであり、再有効化しない場合の他クライアントへの影響も説明する。
+  - 出典: <https://developer.apple.com/documentation/security/seckeychainsetuserinteractionallowed(_:).md> (official_docs, 2605 chars)
+  - 効きどころ: 無人のMCP状態取得でダイアログを連発しない設計の候補。全体のon/offを各読取りの一時ガードにする案の注意点。
 - [Terminal-Shell integration - a proposed specification (Per Bothner)](sources/completion-detection/bothner-shell-integration-proposal.md) — OSC 133系セマンティックプロンプトの設計思想と要件を整理した提案記事。FinalTerm/iTerm2/DomTermの実装差を横断。
   - 出典: <https://per.bothner.com/blog/2019/shell-integration-proposal/> (article, 10489 chars)
   - 効きどころ: 完了境界(プロンプト開始/コマンド開始/出力開始/終了+exit code)をなぜ・どう区切るかの原典的論拠。我々の境界検出設計の出発点になる。
@@ -124,6 +133,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [codex_agent prompt UX adversarial review](sources/completion-detection/codex-agent-prompt-ux-adversarial-review-2026-07-09.md) — codex_agent(prompt=...) の長文/日本語 prompt と初回 agent_done 待ち計画を、aiterm Codex とサブエージェントで敵対的検証し、実装後に Codex の単一行/長い日本語/複数行日本語 initial prompt wait smoke を通した。Grok/Composer は OAuth approval 画面で initial_prompt=not_sent になり、prompt 未送信の安全側挙動を確認したため、初回 prompt wait は公開 schema に出さない。
   - 出典: <local:aiterm-mcp-codex-agent-prompt-ux-adversarial-review-2026-07-09> (local_probe, 5968 chars)
   - 効きどころ: 初回 prompt を shell argv から降ろす実装の採用ゲートと実装後検証。Stop hook event の帰属、initial_prompt state、TUI 直接投入、通常 read metadata、pending 中の通常 pty_send 拒否、Grok/Composer OAuth approval 時の not_sent 挙動と未公開判断、final answer API の責務分離を再調査しないためのローカル証跡。
+- [OpenAI: Codexの認証保存先とログイン共有](sources/completion-detection/codex-auth-storage-20260913.md) — OpenAI一次資料。認証情報の保存先file/keyring/auto/ephemeral、共有ログイン、ファイル中のトークンの取扱いを説明する。
+  - 出典: <https://developers.openai.com/codex/auth/> (official_docs, 45092 chars)
+  - 効きどころ: 保存先変更は明示的な認証設計であり、改造版による既存Keychainの読出しを隠す自動移送として扱わない。
 - [Codex CLI Stop hook as turn-done signal](sources/completion-detection/codex-cli-stop-hook.md) — Codex CLI の Stop hook はターン終了時に発火する。exec、直接TUI、aiterm openAgent相当のtmux経路で発火を実測した。ただし co-located Stop hook の decision:block continuation で初回Stopは final done ではなくなる。
   - 出典: <https://developers.openai.com/codex/hooks> (official_docs_and_local_probe, 6163 chars)
   - 効きどころ: Codex TUI の画面文言や静止状態ではなく、CLIライフサイクルイベントで done を捕まえる根拠。同時に、既存 Stop hook へ単純appendする bridge が誤doneする反証でもある。

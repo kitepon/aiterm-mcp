@@ -8,8 +8,8 @@
 - [x] 公式 `turn/start` の実行中Steer／終了後startを製品の受信処理へ組み込む。
 - [x] POSIX shellのexecとNode中継を同梱し、Pythonへの追加依存を除く。
 - [x] `aiterm-setup` にSteerの選択・設定・状態確認・解除を追加する。
-- [ ] focused test、隔離した公式バイナリ試験、独立反証、関連CIを通す。
-- [ ] 日英文書と公開metadataを同期し、npm・GitHub Release・MCP Registryへ公開する。
+- [x] focused test、隔離した公式バイナリ試験、独立反証、新機能の3環境CIを通す。
+- [x] 日英文書と公開metadataを同期し、npm・GitHub Release・MCP Registryへ公開する。
 - [ ] 公開packageを導入し、必要な再起動後に製品の親配送を実測する。
 
 公開契約・配送・導入・公開の裁定は親が担当する。配送と導入は接続契約に依存するため、
@@ -30,10 +30,23 @@ macOS Desktopの選択導入を今回のSteer対応とする。Linuxでは共通
 公式試験は本文の各1回保存とモデルへの反映、承認拒否、同じPID/親PID、通常/実行中の終了も確認した。
 独立反証の2件（ログイン後の設定消失・単独App Serverのfalse ready）を最小試験で再現し、
 専用LaunchAgentとDesktopの直接子の照合で修正した。再確認で両修正に残る具体的P1なし。
-契約の決定は[ADR 0063](adr/0063-codex-steer-installation.md)。CI・公開・公開後導入はこれから行う。
+契約の決定は[ADR 0063](adr/0063-codex-steer-installation.md)。公開と実機導入の結果は
+[再起動前の記録](evidence/codex-steer-public-install-20260913.md)に保存した。
 
 最初のclean cloneからの公開は、配布物検査より前にbuildしない公開コマンドの不備で停止した。
-commit・tag・publishの前の失敗であり、未公開。公開入口にbuildを追加してから再実行する。
+commit・tag・publishの前の失敗であり、その時点では未公開だった。公開入口にbuildを追加し、次のclean cloneで検査に成功した。
+
+公開packageの初回setup・通常の再実行とも4つのAI登録と端末がreadyとなり、Desktopについては
+`restart_required`と終了コード3を確認した。試作GUI設定を元の未設定へ復元してから製品を有効化し、
+解除時の復元先へ試作launcherを残していない。公式binaryの署名・hash、製品launcherの読戻し、
+専用LaunchAgentの登録、公開runtimeとrelease buildの一致を確認した。
+
+次の工程は人によるCodex Desktopの完全再起動。その後は公開`aiterm-setup --codex-steer status`のready、
+公式binaryとDesktopの親子関係、アプリ内toolを確認し、通常のAiterm子起動・同じ子への追加依頼から
+回答を受信する。実行中は同じturn、終了後は同じtaskの再開であることと配送receiptを突合する。
+親はwaiterや回答回収を呼ばず、送信結果不明を再送しない。
+Control revision 8の`public-package-desktop-observation`が再起動後の観測を保持する。
+公開入口のbuild前提修正を含むCI run 34750604482のWindows完了も確認する。
 
 
 ## 公式バイナリと通信中継の試作（2026-09-13）

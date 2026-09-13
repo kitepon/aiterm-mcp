@@ -78,26 +78,20 @@ export function windowsSocketConnection(file: string): { url: string; options: {
   return { url: record.endpoint, options: { headers: { Authorization: `Bearer ${token}` } } };
 }
 
-/** 登録済みlauncherとDesktopの子孫にある、対応する公式接続だけを共有できる。 */
-export function windowsDesktopRelay(launcher: string, rows = readWindowsProcesses()): string | null {
+/** 公式CLIの直接の親がDesktopであり、選択したlauncherの接続先を使っていることを確認する。 */
+export function windowsDesktopRelay(launcher: string, rows = readWindowsProcesses(), root = join(dirname(launcher), "sessions")): string | null {
   const parents = new Map(rows.map(row => [row.pid, row]));
   for (const server of rows) {
     if (basename(server.executable).toLowerCase() !== "codex.exe" || !server.command.includes("--ws-token-file")) continue;
-    let row = parents.get(server.parent_pid);
-    let matchedLauncher = false;
-    let matchedDesktop = false;
-    const seen = new Set<number>();
-    while (row && !seen.has(row.pid)) {
-      seen.add(row.pid);
-      if (row.executable.toLowerCase() === launcher.toLowerCase()) matchedLauncher = true;
-      if (/\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(?:ChatGPT|Codex)\.exe$/i.test(row.executable)) { matchedDesktop = true; break; }
-      row = parents.get(row.parent_pid);
-    }
-    if (!matchedLauncher || !matchedDesktop) continue;
+    const desktop = parents.get(server.parent_pid);
+    if (!desktop || !/\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(?:ChatGPT|Codex)\.exe$/i.test(desktop.executable)) continue;
+    if (!rows.some(row => row.parent_pid === desktop.pid && row.executable.toLowerCase() === launcher.toLowerCase())) continue;
     const token = /(?:^|\s)--ws-token-file\s+(?:"([^"]+)"|(\S+))/.exec(server.command);
     const tokenFile = token?.[1] ?? token?.[2];
     if (!tokenFile || !isAbsolute(tokenFile) || basename(tokenFile) !== "token") continue;
     const file = join(dirname(tokenFile), "connection.json");
+    const location = relative(root, file);
+    if (isAbsolute(location) || location === ".." || location.startsWith("..\\") || location.startsWith("../")) continue;
     if (readWindowsRelay(file, rows).serverPid !== server.pid) invalid("Steer接続記録と親Codexが一致しません。");
     return file;
   }

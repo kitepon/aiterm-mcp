@@ -802,6 +802,42 @@
       "fetched": "2026-08-16"
     },
     {
+      "slug": "windows-create-process",
+      "topic": "codex-relay",
+      "title": "CreateProcessW: Windows native processの作成",
+      "source_url": "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/processthreadsapi/nf-processthreadsapi-createprocessw.md",
+      "source_type": "official_docs",
+      "path": "sources\\codex-relay\\windows-create-process.md",
+      "tags": [
+        "windows",
+        "process",
+        "codex",
+        "stdio"
+      ],
+      "summary": "公式processを起動元の直接の子として起動し、指定したstdio handleだけを引き継ぐためのWindows標準API。",
+      "relevance": "Macと共通の起動・中継構成をWindowsへ適合させる根拠。",
+      "chars": 24342,
+      "fetched": "2026-09-13"
+    },
+    {
+      "slug": "windows-process-parent-and-handles",
+      "topic": "codex-relay",
+      "title": "UpdateProcThreadAttribute: 親processと継承handleの指定",
+      "source_url": "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute.md",
+      "source_type": "official_docs",
+      "path": "sources\\codex-relay\\windows-process-parent-and-handles.md",
+      "tags": [
+        "windows",
+        "process",
+        "codex",
+        "stdio"
+      ],
+      "summary": "公式processを起動元の直接の子として起動し、指定したstdio handleだけを引き継ぐためのWindows標準API。",
+      "relevance": "Macと共通の起動・中継構成をWindowsへ適合させる根拠。",
+      "chars": 34845,
+      "fetched": "2026-09-13"
+    },
+    {
       "slug": "agent-cli-done-phase0-smoke-2026-07-07",
       "topic": "completion-detection",
       "title": "Phase 0 multi-agent smoke: AI CLI TUI done detection",

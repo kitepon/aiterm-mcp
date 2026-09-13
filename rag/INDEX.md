@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **125** 件 / 更新: 2026-09-13
+- 総数: **127** 件 / 更新: 2026-09-13
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -364,6 +364,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Grok 1.0.13のsandboxとhookパス保護](sources/agent-launchers/grok-sandbox-hook-protection-1-0-13-20260908.md) — Grok配布資料の原文。read-only sandboxの書込制限と、hook sourceのsymlinkを拒否する仕様。
   - 出典: <file:///Users/kite/.grok/docs/user-guide/18-sandbox.md> (local_vendor_docs, 17697 chars)
   - 効きどころ: 確度: Direct global hook write protection節を実機で確認。hook設定の配布者が実ファイルを置き、Aitermがsandboxを変更しない責務境界の根拠。
+
+## codex-relay — 2件
+
+- [CreateProcessW: Windows native processの作成](sources\codex-relay\windows-create-process.md) — 公式processを起動元の直接の子として起動し、指定したstdio handleだけを引き継ぐためのWindows標準API。
+  - 出典: <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/processthreadsapi/nf-processthreadsapi-createprocessw.md> (official_docs, 24342 chars)
+  - 効きどころ: Macと共通の起動・中継構成をWindowsへ適合させる根拠。
+- [UpdateProcThreadAttribute: 親processと継承handleの指定](sources\codex-relay\windows-process-parent-and-handles.md) — 公式processを起動元の直接の子として起動し、指定したstdio handleだけを引き継ぐためのWindows標準API。
+  - 出典: <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute.md> (official_docs, 34845 chars)
+  - 効きどころ: Macと共通の起動・中継構成をWindowsへ適合させる根拠。
 
 ## discoverability — 12件
 

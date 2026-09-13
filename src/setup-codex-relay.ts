@@ -7,28 +7,16 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { SetupError } from "./setup-platform.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
-import { readRelayConfig, relayConfigDirectory, prepareRelayDirectory, type RelayConfig } from "./codex-relay-config.js";
+import { relayConfigDirectory, prepareRelayDirectory, type RelayConfig } from "./codex-relay-config.js";
 import { codexRelayLauncher } from "./codex-relay-launcher.js";
 import { withCodexRelay } from "./codex-relay-client.js";
 import { readRuntimeProcesses } from "./process-runtime.js";
 import { installRelayLogin, removeRelayLogin } from "./codex-relay-login.js";
-import { configureWindowsCodexSteer } from "./windows-codex-setup.js";
+import { windowsCodexRuntime } from "./windows-codex-setup.js";
+import { configureRelay, type RelaySetupRuntime, type CodexSteerAction, type CodexSteerResult } from "./codex-relay-setup.js";
 
-export type CodexSteerAction = "enable" | "disable" | "status";
-export type CodexSteerResult = {
-  status: "ready" | "disabled" | "restart_required" | "unsupported" | "failed";
-  reason_code?: string;
-};
-type Runtime = {
-  platform: string; directory: string; socket_root: string; node: string; relay: string;
-  findBinary: () => string;
-  getGui: (key: string) => string | null;
-  setGui: (key: string, value: string | null) => void;
-  persist: (launcher: string) => void;
-  unpersist: (launcher: string) => void;
-  verify: (launcher: string) => Promise<void>;
-  live: (config: RelayConfig) => Promise<boolean>;
-};
+export type { CodexSteerAction, CodexSteerResult } from "./codex-relay-setup.js";
+type Runtime = RelaySetupRuntime & { platform: string; relay: string; verify: (launcher: string) => Promise<void> };
 
 function command(executable: string, args: string[]): string {
   const result = spawnSync(executable, args, { encoding: "utf8", timeout: 15_000 });
@@ -123,51 +111,25 @@ function writeConfig(directory: string, config: RelayConfig): void {
 }
 
 export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<Runtime> = {}): Promise<CodexSteerResult> {
-  if ((overrides.platform ?? process.platform) === "win32") return configureWindowsCodexSteer(action, overrides);
+  if ((overrides.platform ?? process.platform) === "win32") return configureRelay(action, windowsCodexRuntime(overrides));
   const runtime: Runtime = {
     platform: process.platform, directory: relayConfigDirectory(), socket_root: `/tmp/aiterm-codex-${process.getuid?.() ?? 0}`,
     node: process.execPath, relay: fileURLToPath(new URL("./codex-stdio-relay.js", import.meta.url)),
     findBinary: findDesktopBinary, getGui,
     setGui: (key, value) => { command("/bin/launchctl", value === null ? ["unsetenv", key] : ["setenv", key, value]); },
     persist: installRelayLogin, unpersist: removeRelayLogin,
-    verify: verifyRelayLauncher, live: liveRelay, ...overrides,
+    verify: verifyRelayLauncher, live: liveRelay, prepare: prepareRelayDirectory, save: writeConfig,
+    build: async binary => {
+      const launcher = path.join(runtime.directory, "codex");
+      const candidate = path.join(runtime.directory, `codex-${randomUUID()}`);
+      fs.writeFileSync(candidate, codexRelayLauncher({ binary, node: runtime.node, relay: runtime.relay, socket_root: runtime.socket_root }), { mode: 0o700, flag: "wx" });
+      try { await runtime.verify(candidate); fs.renameSync(candidate, launcher); }
+      finally { if (fs.existsSync(candidate)) fs.unlinkSync(candidate); }
+      return launcher;
+    }, ...overrides,
   };
   if (runtime.platform !== "darwin") {
     return action === "enable" ? { status: "unsupported", reason_code: "codex_steer_platform_unsupported" } : { status: "disabled" };
   }
-  const previous = readRelayConfig(runtime.directory);
-  if (action === "status") {
-    if (!previous?.enabled) return { status: "disabled" };
-    if (runtime.getGui("CODEX_CLI_PATH") !== previous.launcher) return { status: "failed", reason_code: "codex_steer_configuration_changed" };
-    return await runtime.live(previous) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
-  }
-  if (action === "disable") {
-    if (!previous?.enabled) return { status: "disabled" };
-    if (![previous.launcher, previous.previous_cli_path].includes(runtime.getGui("CODEX_CLI_PATH"))) throw new SetupError("codex_steer_configuration_changed", "起動設定が他から変更されています。所有外の値は上書きしません");
-    runtime.unpersist(previous.launcher);
-    runtime.setGui("CODEX_CLI_PATH", previous.previous_cli_path);
-    if (runtime.getGui("CODEX_CLI_PATH") !== previous.previous_cli_path) throw new SetupError("codex_steer_readback_failed", "元の起動設定を確認できません");
-    writeConfig(runtime.directory, { ...previous, enabled: false });
-    return { status: "restart_required", reason_code: "codex_restart_required" };
-  }
-  for (const key of ["CODEX_APP_SERVER_WS_URL", "CODEX_APP_SERVER_USE_LOCAL_DAEMON", "CODEX_APP_SERVER_FORCE_CLI"]) {
-    if (runtime.getGui(key)) throw new SetupError("codex_steer_configuration_conflict", `${key}が設定されています。既存の接続設定は上書きしません`);
-  }
-  const binary = runtime.findBinary();
-  const current = runtime.getGui("CODEX_CLI_PATH");
-  if (previous?.enabled && ![previous.launcher, previous.previous_cli_path].includes(current)) throw new SetupError("codex_steer_configuration_changed", "起動設定が他から変更されています");
-  prepareRelayDirectory(runtime.directory);
-  const launcher = path.join(runtime.directory, "codex");
-  const config: RelayConfig = { schema: "aiterm.codex-relay.v1", enabled: true, binary, node: runtime.node,
-    launcher, socket_root: runtime.socket_root, previous_cli_path: previous?.enabled ? previous.previous_cli_path : current };
-  const candidate = path.join(runtime.directory, `codex-${randomUUID()}`);
-  fs.writeFileSync(candidate, codexRelayLauncher({ ...config, relay: runtime.relay }), { mode: 0o700, flag: "wx" });
-  try { await runtime.verify(candidate); fs.renameSync(candidate, launcher); }
-  finally { if (fs.existsSync(candidate)) fs.unlinkSync(candidate); }
-  // 起動設定の変更前に復元値を保存する。読戻し不一致を成功扱いしない。
-  writeConfig(runtime.directory, config);
-  runtime.persist(launcher);
-  runtime.setGui("CODEX_CLI_PATH", launcher);
-  if (runtime.getGui("CODEX_CLI_PATH") !== launcher) throw new SetupError("codex_steer_readback_failed", "Steerの起動設定を確認できません");
-  return await runtime.live(config) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
+  return configureRelay(action, runtime);
 }

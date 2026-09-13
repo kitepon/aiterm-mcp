@@ -2,6 +2,8 @@
 
 日付: 2026-09-13。状態: 採択。
 
+起動構成とWindows固有の共有設定は[ADR 0066](0066-codex-relay-platform-parity.md)で置き換えた。以下は採択時の判断を保持する。
+
 ## 判断
 
 Windowsの公式Codex Desktopが提供する認証付きloopback WebSocketを使用する。

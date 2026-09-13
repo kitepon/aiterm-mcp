@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codex Steerの引数、通信中継、設定の有効化・復元をmacOSとWindowsで共通化した。OS差は起動API・接続・権限・設定保存に限定する。
+- Windowsで公式Codexの直接の親がDesktopではなくなり、他アプリの公式CLI検出を妨げていた構成を修正した。公式CodexをDesktopの直接の子、中継を公式Codexの子として起動する。
+- Windowsだけの既存launcher共有を廃止し、Macと同じくAitermのlauncherへ設定して解除時に元へ戻す。旧共有設定も次のenableで移行する。
+
 ## [0.37.1] - 2026-09-13
 
 ### 修正

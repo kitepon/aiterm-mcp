@@ -41,7 +41,7 @@ Codex Steerを変更した場合は、公式バイナリを指定した`test/cod
 再起動後の`aiterm-setup --codex-steer status`が`ready`であることと、通常の親からの子の回答配送を確認する。
 接続があるだけで成功とせず、公式binaryとDesktopの親子関係まで確認する。
 Windowsは`AITERM_TEST_CODEX_BINARY`に公式Desktopの実行fileを指定し、
-`test/windows-codex.test.mjs`で単独launcher、ACL、親識別、既存接続共有、設定解除も確認する。
+`test/windows-codex.test.mjs`で単独launcher、ACL、親識別、元の起動設定の保存と解除も確認する。
 同じ環境変数で`test/codex-relay-official.test.mjs`の実行中Steer・終了後再開・承認中継・EOFを確認できる。
 Linuxの未対応Steer選択が理由付きで停止することもCIで確認する。
 

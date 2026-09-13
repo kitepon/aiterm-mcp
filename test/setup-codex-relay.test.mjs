@@ -17,7 +17,7 @@ function fixture(t) {
     getGui: key => values.get(key) ?? null,
     setGui: (key, value) => { events.push('set'); values.set(key, value); },
     persist: () => { events.push('persist'); }, unpersist: () => { events.push('unpersist'); },
-    verify: async candidate => { events.push('verify'); assert.match(readFileSync(candidate, 'utf8'), /exec "\$binary"/); },
+    verify: async candidate => { events.push('verify'); assert.match(readFileSync(candidate, 'utf8'), /exec \/bin\/sh -c/); },
     live: async () => false };
   return { root, runtime, values, events };
 }

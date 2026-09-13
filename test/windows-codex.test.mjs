@@ -49,14 +49,16 @@ test("Windows: native launcherは空白・日本語・引用符・末尾backslas
     const echo = join(directory, "echo.mjs");
     await writeFile(echo, "console.log(JSON.stringify(process.argv.slice(2)));\n");
     try {
-        const source = windowsLauncherSource(process.execPath, echo, "binary with space", "root with space");
+        const source = windowsLauncherSource(process.execPath, resolve('dist/windows-codex-relay.js'), process.execPath, join(directory, 'sessions'));
         const launcher = buildWindowsLauncher(directory, source);
         const args = ['a"b', "a b", "日本語", "last\\", "", "\\\"quoted"];
-        const child = spawn(launcher, args, { windowsHide: true });
+        const child = spawn(launcher, [echo, ...args], { windowsHide: true });
         let output = "";
+        let error = "";
         child.stdout.on("data", data => { output += data; });
-        assert.equal((await once(child, "close"))[0], 0);
-        assert.deepEqual(JSON.parse(output), ["binary with space", "root with space", ...args]);
+        child.stderr.on("data", data => { error += data; });
+        assert.equal((await once(child, "close"))[0], 0, error);
+        assert.deepEqual(JSON.parse(output), args);
         assert.equal(buildWindowsLauncher(directory, source), launcher);
     }
     finally {
@@ -68,8 +70,8 @@ test("Windows: native launcherはstdinをEOF前に転送する", { skip: process
     ensurePrivateDirectory(directory);
     const echo = join(directory, "echo.mjs");
     await writeFile(echo, "process.stdin.on('data', data => process.stdout.write(data));\n");
-    const launcher = buildWindowsLauncher(directory, windowsLauncherSource(process.execPath, echo, "binary", "root"));
-    const child = spawn(launcher, [], { windowsHide: true });
+    const launcher = buildWindowsLauncher(directory, windowsLauncherSource(process.execPath, resolve('dist/windows-codex-relay.js'), process.execPath, join(directory, 'sessions')));
+    const child = spawn(launcher, [echo], { windowsHide: true });
     const exited = once(child, "close");
     const reader = createInterface({ input: child.stdout });
     const controller = new AbortController();
@@ -168,21 +170,21 @@ test("Windows: setupは検証後に起動設定を保存し、再実行・解除
     }
 });
 
-test("Windows: 既存の互換接続を実測した時だけ共有し、解除で所有外の設定を変更しない", { skip: process.platform !== "win32" }, async t => {
-    const directory = await mkdtemp(join(tmpdir(), "aiterm-shared-"));
+test("Windows: Macと同じく元の起動設定を保存し、解除時に復元する", { skip: process.platform !== "win32" }, async t => {
+    const directory = await mkdtemp(join(tmpdir(), "aiterm-existing-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
-    let compatible = false;
-    const runtime = { platform: 'win32', directory, getGui: key => key === 'CODEX_CLI_PATH' ? 'existing.exe' : null,
-        setGui: () => { throw new Error('所有外の設定変更'); },
-        shared: async () => compatible ? { binary: 'official.exe', root: 'existing-sessions' } : null,
-        live: async () => compatible };
-    await assert.rejects(configureWindowsCodexSteer('enable', runtime), error => error.code === 'codex_steer_configuration_conflict');
-    assert.equal(readRelayConfig(directory), null);
-    compatible = true;
-    assert.equal((await configureCodexSteer('enable', runtime)).status, 'ready');
+    let gui = 'existing.exe';
+    const runtime = { platform: 'win32', directory, getGui: key => key === 'CODEX_CLI_PATH' ? gui : null,
+        setGui: (_key, value) => { gui = value; }, findBinary: () => 'official.exe',
+        verify: async () => {}, live: async () => false };
+    assert.equal((await configureCodexSteer('enable', runtime)).status, 'restart_required');
+    assert.notEqual(gui, 'existing.exe');
     assert.equal(readRelayConfig(directory).previous_cli_path, 'existing.exe');
-    assert.equal((await configureWindowsCodexSteer('enable', runtime)).status, 'ready');
+    assert.equal((await configureWindowsCodexSteer('enable', runtime)).status, 'restart_required');
+    // GUI適用が元に戻っていても、Macと同じく解除を完了できる。
+    gui = 'existing.exe';
     assert.equal((await configureWindowsCodexSteer('disable', runtime)).status, 'restart_required');
+    assert.equal(gui, 'existing.exe');
     assert.equal(readRelayConfig(directory).enabled, false);
 });
 

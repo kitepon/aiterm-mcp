@@ -68,7 +68,7 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 宛先はCodexのMCP handshakeと各要求の`_meta.threadId`から取得する。modelが指定したIDや環境変数で代用しない。
 単品導入の`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、
 `thread/read`と`thread/queue/list`で宛先を確認してから`thread/queue/add`へ本文をJSONで渡す。
-Steerを選択したmacOS Desktopでは、MCP processの祖先にある公式App Serverの本人所有socketへ接続する。
+Steerを選択したmacOS・Windows Desktopでは、MCP processの祖先にある公式App Serverの本人専用接続へ接続する。
 `thread/loaded/list`と`thread/read`で同じ親を確認し、公式`turn/start`へ一度だけ送る。
 公式の`start_or_steer_turn`が実行中なら同じturnへ追加入力し、終了後なら同じtaskの次turnを開始する。
 状態を読んでから送信方法を選ぶraceや再送は作らない。model・権限のoverrideも渡さない。
@@ -84,17 +84,20 @@ macOSのユーザーLaunchAgentはログイン時に同じ起動設定を適用�
 保存した元の`CODEX_CLI_PATH`へ戻す。他から変更された設定は上書きしない。
 `status=ready`は公式binary・Desktopの直接子・同じsocketのRPC応答を確認した場合だけ返す。
 初回の設定保存後は`restart_required`であり、Desktopの完全終了・再起動を要する。
-WindowsはAitermのnative launcherからNode中継と公式Desktop CLIを起動し、通常の親子関係を保つ。
-Windows標準の.NET Frameworkでlauncherを作り、引数とstdioをそのまま中継する。
+引数の解釈、JSONL中継、設定の有効化・競合・復元は両OSで共通の処理を使う。
+Windows標準の.NET Frameworkでlauncherを作り、`CreateProcessW`の親process属性と継承handle一覧で、
+公式CLIをDesktopの直接の子、中継Nodeを公式CLIの直接の子として起動する。
+launcherは終了監視だけを担い、JSON-RPCを通さない。Windowsには同一PIDでのexecがないためPIDは変わるが、
+公式binary、起動元との直接の親子関係、通常の環境とstdioは維持する。
 公式Desktopが展開した4実行ファイルを配布元のSHA-256と照合し、AitermがCodexをコピー・再配布しない。
 公式CLIの認証付きloopback WebSocketを使い、本人専用ACLのtokenと接続記録をAitermのsessions下へ置く。
 Windowsのprocess情報はprocess-runtimeが所有し、接続はPID・開始時刻・実行ファイル・token引数で照合する。
 MCP processの祖先から親を選び、同じloaded taskへ送る。開始時刻は小数桁の表記差を正規化して比較する。
-stdio EOFで自分が起動した公式serverを停止し、接続記録を削除する。
-既存の互換launcherは公式serverからlauncherとDesktopへの祖先関係、ACL、RPCが成立した場合だけ共有する。
-対応する接続記録はaiterm.windows-relay.v1とgpt-connector.windows-relay.v1で、後者もAiterm内で解釈する。
-共有時はlauncherとprevious_cli_pathを同値で記録し、enableとdisableで所有外の起動設定を変更しない。
-接続共有は任意であり、他製品のコード・設定・コマンドはAiterm単独導入の前提にならない。
+stdio EOFで自分が起動した公式serverを停止し、接続記録を削除する。native launcherはJob Objectで
+所有するprocessだけを終了し、公式serverの終了確認後に戻る。
+両OSとも有効化前に元の起動設定を保存し、Aitermのlauncherを設定する。解除は元の値へ戻す。
+旧Windows版で既存launcherを共有した設定は読取り可能だが、次のenableでAitermのlauncherへ移行する。
+起動・配送・設定・診断は他製品のコード、設定、コマンドへ依存しない。
 LinuxのSteer選択はunsupportedとする。通常の単品導入・queue配送は全対応OSで維持する。
 
 単品導入のqueue配送は親の実行中turnを中断せず、親がidleになった後に処理される。

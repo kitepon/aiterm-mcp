@@ -18,7 +18,7 @@ import { codexRelayLauncher } from '../dist/codex-relay-launcher.js';
 import { verifyCodexParent, submitCodexParentAnswer } from '../dist/codex-parent-receiver.js';
 import { buildWindowsLauncher, windowsLauncherSource } from '../dist/windows-codex-setup.js';
 import { ensurePrivateDirectory } from '../dist/windows-codex-state.js';
-import { windowsSocketConnection, readWindowsProcesses, readWindowsRelay } from '../dist/windows-codex-connection.js';
+import { windowsSocketConnection, readWindowsProcesses, readWindowsRelay, windowsDesktopRelay } from '../dist/windows-codex-connection.js';
 const windows = process.platform === 'win32';
 
 class Rpc {
@@ -145,9 +145,12 @@ stream_max_retries = 0
     const processes = readWindowsProcesses();
     serverPid = readWindowsRelay(socketPath, processes).serverPid;
     const server = processes.find(row => row.pid === serverPid);
-    const relay = processes.find(row => row.pid === server.parent_pid);
-    assert.equal(relay.parent_pid, child.pid);
-    assert.equal(processes.find(row => row.pid === child.pid).parent_pid, process.pid);
+    assert.equal(server.parent_pid, process.pid, '公式Codexの直接の親を起動元として維持する');
+    assert.ok(processes.some(row => row.parent_pid === server.pid && row.command.includes('windows-codex-relay.js') && row.command.includes('--serve')), '中継を公式Codexの子として起動する');
+    assert.equal(server.executable.toLowerCase(), binary.toLowerCase());
+    const desktopRows = processes.map(row => row.pid === process.pid ? { ...row, executable: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_fixture\\app\\ChatGPT.exe' } : row);
+    assert.equal(windowsDesktopRelay(launcher, desktopRows, sockets), socketPath);
+    assert.equal(windowsDesktopRelay(launcher, desktopRows.map(row => row.pid === serverPid ? { ...row, parent_pid: child.pid } : row), sockets), null, '中間processを挟む旧構成をreadyと判定しない');
   } else {
     assert.equal((await stat(sockets)).mode & 0o777, 0o700);
     assert.equal((await stat(socketPath)).mode & 0o777, 0o600);

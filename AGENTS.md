@@ -54,7 +54,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/parent-delivery.ts`: 子の完了観測・回答保存・配送state。
   `src/codex-parent-receiver.ts`: Codex親の識別と選択した公式受信口。
-  `src/codex-relay-*.ts`／`src/codex-stdio-relay.ts`: 公式socketの識別、接続、POSIX launcherと中継。
+  `src/codex-relay-arguments.ts`／`src/codex-relay-stdio.ts`／`src/codex-relay-setup.ts`: 全OS共通の引数・中継・設定処理。
+  その他の`src/codex-relay-*.ts`／`src/codex-stdio-relay.ts`: 公式socketの識別、接続、POSIX起動と終了の適合。
   `src/setup-codex-relay.ts`: Steerの明示選択、設定・解除・実効確認。
   `src/windows-codex-*.ts`: Windowsの公式CLI起動、認証付き接続、native launcher、ACLと選択導入。
   `src/claude-parent-receiver.ts`／`src/claude-parent-hook.ts`: Claude親の要求相関と公式hookへの回答出力。

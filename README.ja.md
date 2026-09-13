@@ -66,8 +66,9 @@ Windowsはユーザー環境変数`CODEX_CLI_PATH`で起動設定を維持しま
 SteerはmacOS・Windowsの公式Codex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
 Windowsでは公式Desktopが展開した実行ファイルを照合し、認証付きのローカル接続へ中継します。
 Aitermのpackageがlauncher・中継・設定・親への配送を含み、gpt-connectorやdotagentsの導入は不要です。
-既存の互換launcherがある場合は、稼働中のDesktop接続を確認した時だけ共有し、その起動設定を変更しません。
-互換性を確認できない設定は理由付きで停止します。WindowsのDesktop更新後はsetupを再実行してください。
+両OSで公式CodexをDesktopの直接の子として保ち、中継は公式Codexの子として動きます。
+有効化時は元の起動設定を保存してAitermのlauncherを設定し、解除時に元へ戻します。選択後に他から変更された値は上書きしません。
+WindowsのDesktop更新後はsetupを再実行してください。
 LinuxのSteer付き導入は理由付き`unsupported`を返します。Aiterm単品は従来どおり利用できます。
 
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:

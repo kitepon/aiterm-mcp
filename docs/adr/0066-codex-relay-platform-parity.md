@@ -1,0 +1,36 @@
+# ADR 0066: Codex中継の仕組みをOS間で共通にする
+
+日付: 2026-09-14。状態: 採択。
+
+## 判断
+
+引数の解釈、JSONL中継、設定の有効化・競合・復元は共通処理にする。
+OS固有の処理は、同じ仕組みをshell、process API、接続transport、権限、設定保存へ適合させる部分だけとする。
+両OSで起動元→公式Codex→Node中継の直接の親子関係を維持する。
+Aitermの導入・起動・配送・診断はこのrepositoryと公開packageだけで成立し、他製品の導入や修理を必要条件にしない。
+
+POSIXはshellのexecを使う。Windowsは標準の`CreateProcessW`で親processと継承handleを指定する。
+公式CLIのstdioは中継Nodeへ引き継ぎ、公式CLI自身のstdinとstdoutはNULへ接続する。
+Windowsのlauncherは終了監視だけを担い、JSON-RPCを通さない。Job Objectの対象は自分が起動したprocessだけとし、
+公式serverの終了を確認してからlauncherも終了する。Windowsではlauncherと公式CLIのPIDは異なる。
+
+Windowsの認証付きloopback WebSocketとACL、POSIXの本人専用Unix socketは、それぞれのOSの接続適合として維持する。
+送信済みRPCの再送、公式binaryの改造・コピー、processへのコード注入は行わない。
+
+設定は両OSで、起動検証→元の設定保存→Aitermの起動先の適用→読戻し→実効確認の順にする。
+解除は保存した元の値へ戻す。選択後に第三者が変更した値は上書きしない。
+旧Windows版の共有設定は次のenableでAiterm自身のlauncherへ移行し、元の復元値を保つ。
+
+## 根拠
+
+旧Windows版は起動元→launcher→Node中継→公式Codexとなり、Throughlineの公式CLI検出が使う直接の親子関係を変更した。
+旧試験もWindowsだけ祖先関係を許していた。直接の親を同じ受入条件にすると修正前に失敗した。
+
+Windows標準APIの隔離実証で、通常の環境、stdio、直接の親子関係を維持できることを確認した。
+公式CLIをローカルResponses fixtureへ接続し、Steer、終了後再開、承認応答、接続分離とEOF終了を検証する。
+単独launcherの日本語・空白・引用符・末尾backslash、接続前の入力とEOF、不正な応答もfocused testで確認する。
+実利用者の認証や外部モデルは試験に使わない。
+
+一次資料は[親processと継承handleの指定](../../rag/sources/codex-relay/windows-process-parent-and-handles.md)と
+[Windows native processの作成](../../rag/sources/codex-relay/windows-create-process.md)に保存した。
+ADR 0065の起動構成とWindows固有の共有設定の判断は、本ADRで置き換える。

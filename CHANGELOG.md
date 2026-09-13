@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.3] - 2026-09-13
+
 ### 修正
 
 - WindowsのMSIX仮想AppDataにAitermがある場合、Codex Desktopの中継起動が`MODULE_NOT_FOUND`で失敗する問題を修正した。起動済みの中継が自身の実体パスを後続processへ渡す。
@@ -1683,7 +1685,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...HEAD
+[0.37.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...v0.37.3
 [0.37.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...v0.37.2
 [0.37.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...v0.37.0

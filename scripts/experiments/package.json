@@ -1,0 +1,9 @@
+{
+  "name": "aiterm-codex-relay-experiment",
+  "private": true,
+  "type": "module",
+  "description": "公式App Serverとstdio中継の隔離試験",
+  "dependencies": {
+    "ws": "8.21.3"
+  }
+}

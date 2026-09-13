@@ -1,5 +1,7 @@
 # Windows Codex親へのSteer対応
 
+状態: 完了。検証・公開・実機配送の結果は[公開確認記録](../evidence/windows-codex-steer-20260913.md)を参照する。
+
 2026-09-13。依頼: gpt-connectorのWindows実装を参考に、Aiterm単独で動くSteerを提供する。
 
 ## 成功条件
@@ -25,7 +27,7 @@ WindowsのNode named pipeとCodex AF_UNIXは相互接続できないため、公
 Desktopが展開した公式実行ファイルを配布元と照合する。通常CLIの代替配布は作らない。
 既存の他製品launcherは上書きせず競合を明示する。Steer設定後の通信失敗はqueueへ退避しない。
 
-## 現在地
+## 完了時点
 
 mainをorigin/mainの0.36.0までfast-forwardして着手した。開始時の未commit差分・stashなし。
 Windows単独実装と任意の既存接続共有、公開文書、ADRを作成済み。
@@ -35,7 +37,10 @@ Windows単独実装と任意の既存接続共有、公開文書、ADRを作成�
 この端末は既存の互換接続を検証して共有したため、launcherの再起動待ちはない。
 Aiterm自身のlauncher生成・設定・解除も、公開packageと一時設定領域で確認した。
 実機配送試験の起動時にCodexのhook画面認識とnpm shimのprocess相関の欠陥を再現して修理した。
-関連11試験と実機の入力待ち到達は成功。0.37.1の公開・導入・初手と追加の配送確認が残る。
+関連11試験と実機の入力待ち到達は成功。0.37.1の公開・導入・初手と追加の配送・session終了まで確認した。
+起動修理の3環境CI、公開commitの配布CI、npm provenance、GitHub ReleaseとMCPB、Official Registryはすべて成功。
+新しく起動した公開MCPから、この実際のCodex親taskへ両方の本文がSteerで届いた。
+この会話が元から持つ旧MCP接続の切替だけはDesktop完全再起動で反映する。接続の切替完了とは報告していない。
 
 WindowsではControl Record v1がPLATFORM_UNVERIFIEDの対象であるため、writer委譲を行わず、
 計画・ADR・試験結果をAiterm内に記録する。製品の実行・受入へdotagentsの追加導入を要求しない。

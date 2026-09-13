@@ -1,0 +1,17 @@
+{
+  "schema": "aiterm.codex-source-patch.v1",
+  "upstream_repository": "https://github.com/openai/codex.git",
+  "upstream_tag": "rust-v0.154.0",
+  "upstream_commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+  "patch_commit": "dee88f61f2610cc872ef4654980fda866be81761",
+  "patch": "0001-aiterm-stdio-socket.patch",
+  "patch_sha256": "94bd021256176c7211d86be0305ac8dbebf93072f63a66c642d09471d29e861f",
+  "socket_relative_directory": "aiterm",
+  "socket_filename": "<PID>.sock",
+  "delivery_rpc": "turn/start",
+  "platform_verification": {
+    "darwin-arm64": "focused_tests_passed",
+    "linux": "not_run",
+    "win32": "not_run"
+  }
+}

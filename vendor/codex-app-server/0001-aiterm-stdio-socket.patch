@@ -1,0 +1,327 @@
+diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
+index c4ec80c9b..1eaa05936 100644
+--- a/codex-rs/app-server/src/lib.rs
++++ b/codex-rs/app-server/src/lib.rs
+@@ -10,7 +10,6 @@ use codex_core::config::Config;
+ use codex_core::config::UnsupportedUntrustedApprovalPolicyError;
+ use codex_core::resolve_installation_id;
+ use codex_login::AuthManager;
+-#[cfg(debug_assertions)]
+ use codex_utils_absolute_path::AbsolutePathBuf;
+ use codex_utils_cli::CliConfigOverrides;
+ use std::collections::HashMap;
+@@ -737,6 +736,21 @@ pub async fn run_main_with_transport_options(
+ 
+     match &transport {
+         AppServerTransport::Stdio => {
++            // Desktopのstdio接続と同じプロセスへAitermの回答を届ける。
++            let socket_path = AbsolutePathBuf::from_absolute_path(
++                config
++                    .codex_home
++                    .join("aiterm")
++                    .join(format!("{}.sock", std::process::id())),
++            )?;
++            let accept_handle = start_control_socket_acceptor(
++                socket_path,
++                transport_event_tx.clone(),
++                transport_shutdown_token.clone(),
++                DaemonShutdownAccess::Disabled,
++            )
++            .await?;
++            transport_accept_handles.push(accept_handle);
+             let (stdio_client_name_tx, stdio_client_name_rx) = oneshot::channel::<String>();
+             app_server_client_name_rx = Some(stdio_client_name_rx);
+             start_stdio_connection(
+diff --git a/codex-rs/app-server/tests/suite/v2/aiterm_stdio_socket.rs b/codex-rs/app-server/tests/suite/v2/aiterm_stdio_socket.rs
+new file mode 100644
+index 000000000..2e2bb0fc2
+--- /dev/null
++++ b/codex-rs/app-server/tests/suite/v2/aiterm_stdio_socket.rs
+@@ -0,0 +1,275 @@
++use anyhow::Context;
++use anyhow::Result;
++use anyhow::bail;
++use app_test_support::TestAppServer;
++use app_test_support::create_command_execution_sse_response;
++use app_test_support::create_final_assistant_message_sse_response;
++use app_test_support::create_mock_responses_server_sequence_unchecked;
++use app_test_support::write_mock_responses_config_toml_with_chatgpt_base_url;
++use codex_app_server_protocol::ThreadLoadedListResponse;
++use codex_app_server_protocol::ThreadStartParams;
++use futures::SinkExt;
++use futures::StreamExt;
++use pretty_assertions::assert_eq;
++use serde_json::Value;
++use serde_json::json;
++use std::os::unix::fs::PermissionsExt;
++use std::path::Path;
++use std::path::PathBuf;
++use tempfile::TempDir;
++use tokio::net::UnixStream;
++use tokio::time::Duration;
++use tokio::time::timeout;
++use tokio_tungstenite::WebSocketStream;
++use tokio_tungstenite::client_async;
++use tokio_tungstenite::tungstenite::Message;
++
++type SocketClient = WebSocketStream<UnixStream>;
++const READ_TIMEOUT: Duration = Duration::from_secs(30);
++
++async fn connect_socket(codex_home: &Path) -> Result<(SocketClient, PathBuf)> {
++    let paths = std::fs::read_dir(codex_home.join("aiterm"))?
++        .map(|entry| entry.map(|entry| entry.path()))
++        .collect::<std::io::Result<Vec<_>>>()?;
++    assert_eq!(paths.len(), 1, "専用CODEX_HOMEにはソケットが一つだけある");
++    let path = paths.into_iter().next().context("ソケットがない")?;
++    let stream = UnixStream::connect(&path).await?;
++    let (mut client, _) = client_async("ws://localhost/rpc", stream).await?;
++    rpc(
++        &mut client,
++        1,
++        "initialize",
++        json!({"clientInfo": {"name": "aiterm-test", "version": "1"}}),
++    )
++    .await?;
++    client
++        .send(Message::Text(
++            json!({"method": "initialized"}).to_string().into(),
++        ))
++        .await?;
++    Ok((client, path))
++}
++
++async fn rpc(client: &mut SocketClient, id: i64, method: &str, params: Value) -> Result<Value> {
++    client
++        .send(Message::Text(
++            json!({"id": id, "method": method, "params": params})
++                .to_string()
++                .into(),
++        ))
++        .await?;
++    timeout(READ_TIMEOUT, async {
++        while let Some(message) = client.next().await {
++            if let Message::Text(text) = message? {
++                let message: Value = serde_json::from_str(&text)?;
++                if message["id"] == id {
++                    if let Some(error) = message.get("error") {
++                        bail!("RPCエラー: {error}");
++                    }
++                    return Ok(message["result"].clone());
++                }
++            }
++        }
++        bail!("RPC応答前に切断された")
++    })
++    .await?
++}
++
++#[tokio::test]
++async fn aiterm_socket_shares_stdio_threads_and_disconnect_preserves_parent() -> Result<()> {
++    let server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
++    let codex_home = TempDir::new()?;
++    write_mock_responses_config_toml_with_chatgpt_base_url(
++        codex_home.path(),
++        &server.uri(),
++        &server.uri(),
++    )?;
++    let mut parent = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .build_initialized()
++        .await?;
++    let thread = parent
++        .start_thread(ThreadStartParams::default())
++        .await?
++        .thread;
++    let (mut client, path) = connect_socket(codex_home.path()).await?;
++    assert_eq!(
++        std::fs::metadata(&path)?.permissions().mode() & 0o777,
++        0o600
++    );
++
++    // 同じ要求IDでもstdioとソケットの応答先を混同しない。
++    let id = parent
++        .send_request("thread/loaded/list", Some(json!({})))
++        .await?;
++    let socket_threads = rpc(&mut client, id, "thread/loaded/list", json!({})).await?;
++    let stdio_threads: ThreadLoadedListResponse =
++        timeout(READ_TIMEOUT, parent.read_response(id)).await??;
++    assert_eq!(socket_threads["data"], json!(stdio_threads.data));
++    assert!(stdio_threads.data.contains(&thread.id));
++
++    client.close(None).await?;
++    let id = parent
++        .send_request("thread/loaded/list", Some(json!({})))
++        .await?;
++    let threads: ThreadLoadedListResponse =
++        timeout(READ_TIMEOUT, parent.read_response(id)).await??;
++    assert!(threads.data.contains(&thread.id));
++    assert!(
++        timeout(READ_TIMEOUT, parent.shutdown_gracefully())
++            .await??
++            .success()
++    );
++    assert!(!path.exists(), "stdio終了後にソケットを残さない");
++    Ok(())
++}
++
++#[tokio::test]
++async fn aiterm_socket_cannot_keep_server_alive_after_stdio_closes() -> Result<()> {
++    let codex_home = TempDir::new()?;
++    let mut parent = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .build_initialized()
++        .await?;
++    let (mut client, path) = connect_socket(codex_home.path()).await?;
++    assert!(
++        timeout(READ_TIMEOUT, parent.shutdown_gracefully())
++            .await??
++            .success()
++    );
++    assert!(!path.exists());
++    timeout(READ_TIMEOUT, async {
++        while let Some(message) = client.next().await {
++            if matches!(message, Ok(Message::Close(_)) | Err(_)) {
++                break;
++            }
++        }
++    })
++    .await?;
++    Ok(())
++}
++
++#[tokio::test]
++async fn aiterm_socket_steers_active_turn_and_starts_after_completion() -> Result<()> {
++    let codex_home = TempDir::new()?;
++    let server = create_mock_responses_server_sequence_unchecked(vec![
++        create_command_execution_sse_response(
++            vec!["sleep".to_string(), "2".to_string()],
++            None,
++            Some(10_000),
++            "aiterm_wait",
++        )?,
++        create_final_assistant_message_sse_response("実行中の回答を受信")?,
++        create_final_assistant_message_sse_response("終了後の回答を受信")?,
++    ])
++    .await;
++    write_mock_responses_config_toml_with_chatgpt_base_url(
++        codex_home.path(),
++        &server.uri(),
++        &server.uri(),
++    )?;
++    let mut parent = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .without_managed_config()
++        .build_initialized()
++        .await?;
++    let thread = parent
++        .start_thread(ThreadStartParams::default())
++        .await?
++        .thread;
++    let id = parent
++        .send_request(
++            "turn/start",
++            Some(json!({
++                "threadId": thread.id,
++                "input": [{"type": "text", "text": "待機を実行する"}],
++            })),
++        )
++        .await?;
++    let started: Value = timeout(READ_TIMEOUT, parent.read_response(id)).await??;
++    timeout(
++        READ_TIMEOUT,
++        parent.read_stream_until_notification_message("turn/started"),
++    )
++    .await??;
++
++    let (mut client, _) = connect_socket(codex_home.path()).await?;
++    let steered = rpc(
++        &mut client,
++        2,
++        "turn/start",
++        json!({
++            "threadId": thread.id,
++            "clientUserMessageId": "aiterm-active-answer",
++            "input": [{"type": "text", "text": "AITERM_ACTIVE_ANSWER"}],
++        }),
++    )
++    .await?;
++    assert_eq!(steered["turn"]["id"], started["turn"]["id"]);
++    let completed = timeout(
++        READ_TIMEOUT,
++        parent.read_stream_until_notification_message("turn/completed"),
++    )
++    .await??;
++    assert_eq!(
++        completed.params.context("完了通知にparamsがない")?["turn"]["id"],
++        started["turn"]["id"]
++    );
++
++    let resumed = rpc(
++        &mut client,
++        3,
++        "turn/start",
++        json!({
++            "threadId": thread.id,
++            "clientUserMessageId": "aiterm-late-answer",
++            "input": [{"type": "text", "text": "AITERM_LATE_ANSWER"}],
++        }),
++    )
++    .await?;
++    assert_ne!(resumed["turn"]["id"], started["turn"]["id"]);
++    timeout(
++        READ_TIMEOUT,
++        parent.read_stream_until_notification_message("turn/completed"),
++    )
++    .await??;
++
++    let history = rpc(
++        &mut client,
++        4,
++        "thread/read",
++        json!({
++            "threadId": thread.id, "includeTurns": true,
++        }),
++    )
++    .await?;
++    let turns = history["thread"]["turns"]
++        .as_array()
++        .context("turn履歴がない")?;
++    assert_eq!(turns.len(), 2);
++    for (index, marker) in ["AITERM_ACTIVE_ANSWER", "AITERM_LATE_ANSWER"]
++        .iter()
++        .enumerate()
++    {
++        let messages = turns[index]["items"].as_array().context("入力履歴がない")?;
++        let matching = messages
++            .iter()
++            .filter(|item| {
++                item["type"] == "userMessage"
++                    && item["content"].as_array().is_some_and(|content| {
++                        content
++                            .iter()
++                            .any(|part| part["text"].as_str() == Some(*marker))
++                    })
++            })
++            .count();
++        assert_eq!(matching, 1, "各回答が想定したturnに一度だけ保存される");
++    }
++    client.close(None).await?;
++    assert!(
++        timeout(READ_TIMEOUT, parent.shutdown_gracefully())
++            .await??
++            .success()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/app-server/tests/suite/v2/mod.rs b/codex-rs/app-server/tests/suite/v2/mod.rs
+index 281c3814f..f8a461c00 100644
+--- a/codex-rs/app-server/tests/suite/v2/mod.rs
++++ b/codex-rs/app-server/tests/suite/v2/mod.rs
+@@ -1,5 +1,7 @@
+ mod account;
+ mod account_thread_usage;
++#[cfg(unix)]
++mod aiterm_stdio_socket;
+ mod analytics;
+ mod app_installed;
+ mod app_list;

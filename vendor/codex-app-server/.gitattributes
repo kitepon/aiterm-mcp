@@ -1,0 +1,2 @@
+# patchの空白は差分形式に含まれるため、適用後のRustソースで検証する。
+*.patch -whitespace

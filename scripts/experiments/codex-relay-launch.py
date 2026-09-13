@@ -20,14 +20,26 @@ def main():
         command = command[1:]
     if os.name != 'posix':
         raise RuntimeError('この試作はPOSIX専用です')
-    if command[:1] != ['app-server']:
+    # Desktopは -c の後にapp-serverを置く。値をサブコマンドと取り違えない。
+    position = 0
+    while position < len(command):
+        arg = command[position]
+        if arg in ('-c', '--config', '--enable', '--disable'):
+            if position + 1 == len(command):
+                raise RuntimeError('起動設定の値がありません')
+            position += 2
+        elif arg.startswith(('--config=', '--enable=', '--disable=')) or (arg.startswith('-c') and arg != '-c'):
+            position += 1
+        else:
+            break
+    if command[position:position + 1] != ['app-server']:
         os.execv(args.binary, [args.binary, *command])
 
     # 初回試作は通常のapp-server起動だけを扱う。別サブコマンドは変更しない。
-    if any(arg in ('proxy', 'start', 'stop', 'status', 'generate-ts', 'generate-json-schema') for arg in command[1:]):
+    if any(arg in ('proxy', 'start', 'stop', 'status', 'generate-ts', 'generate-json-schema') for arg in command[position + 1:]):
         os.execv(args.binary, [args.binary, *command])
-    forwarded = ['app-server']
-    index = 1
+    forwarded = command[:position + 1]
+    index = position + 1
     while index < len(command):
         arg = command[index]
         if arg == '--stdio':

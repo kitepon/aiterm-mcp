@@ -106,7 +106,7 @@ supports_websockets = false
 request_max_retries = 0
 stream_max_retries = 0
 `, { mode: 0o600 });
-  const child = spawn(python, [join(here, 'codex-relay-launch.py'), '--binary', binary, '--node', process.execPath, '--socket-root', sockets, '--', 'app-server', '--listen', 'stdio://'], {
+  const child = spawn(python, [join(here, 'codex-relay-launch.py'), '--binary', binary, '--node', process.execPath, '--socket-root', sockets, '--', '-c', 'model_reasoning_effort="low"', 'app-server', '-c', 'analytics.enabled=false', '--listen', 'stdio://'], {
     cwd: root,
     env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' },
     stdio: ['pipe', 'pipe', 'pipe'],

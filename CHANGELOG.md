@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-09-13
+
 ### 追加
 
 - macOSのCodex Desktop向けにSteerの選択導入を追加。`aiterm-setup`の対話選択または`--codex-steer enable`で、同じ公式App Serverへ回答を送り、実行中は同じターンへ反映、終了後は同じタスクを再開する。
@@ -1655,7 +1657,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.33.1...v0.34.0

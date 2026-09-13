@@ -191,7 +191,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.35.1** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.36.0** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 

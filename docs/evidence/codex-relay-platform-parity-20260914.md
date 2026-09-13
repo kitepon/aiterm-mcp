@@ -97,3 +97,28 @@ WindowsのNTFS記録で、以前のAitermがMSIXの`LocalCache/Roaming/npm`へ�
 試験fixtureの初回は`package.json`のコピー漏れで失敗したため補正し、それを製品の失敗・成功には数えない。
 関連する公式CLI・Windows・設定試験は15件中11成功、Mac専用4件skip、失敗0だった。
 MSIX回帰試験の1件は別に成功し、公式CLIは0.154.0-alpha.6.2を使用した。
+
+独立したCodexレビューは実装・fixture・旧版失敗と修正版成功のログを読み、準備processへの論理パスを
+残したまま修理が成立することを確認した。公開を妨げる指摘はなく、設定・親子関係・stdio・終了の変更もなかった。
+
+## 0.37.3の公開・導入と残る実機確認
+
+- 修理commit `f4723f1`の[3環境CI](https://github.com/kitepon/aiterm-mcp/actions/runs/34767966859)はすべて成功。
+- mainの`dc9a1f5062e576cdf20e0f915ddd6bdd2b9d19c2`から`npm run release -- 0.37.3`で公開。tagのmain祖先を確認。
+- 配布metadata・文書の14試験は成功し、[release commit CI](https://github.com/kitepon/aiterm-mcp/actions/runs/34768404227)も成功。
+- [npm provenance付き公開](https://github.com/kitepon/aiterm-mcp/actions/runs/34768405338)、
+  [GitHub ReleaseとMCPB](https://github.com/kitepon/aiterm-mcp/releases/tag/v0.37.3)、
+  [Official MCP Registry登録](https://github.com/kitepon/aiterm-mcp/actions/runs/34768419685)を確認。
+
+npmの取得先へ反映された後、公開0.37.3だけを独立prefixへ導入した。
+公式CLI試験2件とMSIX回帰試験1件がすべて成功し、skip・失敗は0だった。
+実行中Steer、終了後再開、承認応答、接続分離、直接親、EOF・接続削除とMSIX起動を確認した。
+
+設定を非公開tarへ退避してから通常の`npm install -g aiterm-mcp@0.37.3`と
+`aiterm-setup --json --codex-steer enable`を実行した。端末実行とCodex・Grok・Cursorの登録はready、
+Claudeはnot_detected。Steerは起動設定を保存し、読戻しが一致して`restart_required`、exit 3だった。
+実体は通常のnpm global領域にあり、仮想AppDataへ移っていない。
+保存した実際のlauncherもMSIX contextからinitialize・EOFが成功した。
+
+稼働中Desktopは停止しておらず、新しいlauncherを使う完全再起動後の通常MCP配送とThroughlineの
+実機確認を残す。復旧後0.37.2での通常配送成功と、0.37.3での隔離試験成功は区別する。

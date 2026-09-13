@@ -57,7 +57,14 @@ gpt-connectorはオーナーが別途修理するため、この作業の変更�
 復旧した0.37.2では通常MCPから初手と追加のSteer配送を受信し、ThroughlineのDesktop検出と
 公開handoff previewがreadyになることを確認した。handoffの実行は行っていない。
 
-現在は工程5で見つかったAiterm起動欠陥を修理中。MSIX仮想AppDataへ置いた旧版で、ファイルが存在しても
+工程5で見つかったAiterm起動欠陥を修理した。MSIX仮想AppDataへ置いた旧版で、ファイルが存在しても
 native子が論理パスを読めず写真と同じエラーになることを隔離再現した。
 起動準備が自身の実体パスを返す修理を実装し、同じMSIX条件でinitialize・EOFの回帰試験が成功した。
-旧版での回帰試験失敗、関連試験、独立反証、公開・導入を続ける。稼働中Desktopの停止は行わない。
+旧版での回帰試験失敗、関連試験、独立反証、3環境CIを確認し、mainの`dc9a1f5`から0.37.3を公開・導入した。
+公開packageだけの公式CLI試験2件とMSIX起動試験1件がすべて成功した。
+正規setupは端末実行と検出したCodex・Grok・Cursorの登録を確認し、起動設定を保存した。Claudeは未検出だった。
+保存したlauncher自体もMSIX contextからinitialize・EOFが成功し、通常npm global領域にある実体を確認した。
+
+現在は新しい起動設定を反映する完全再起動のH。statusは`restart_required`であり、稼働中Desktopは停止していない。
+オーナーの再起動後、通常MCPの初手・追加Steer配送とThroughlineのDesktop検出を確認して完了する。
+公開・隔離試験の成功を、新しいlauncherでのDesktop再起動成功とは扱わない。

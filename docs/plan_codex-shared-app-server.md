@@ -32,6 +32,9 @@ macOS Desktopの選択導入を今回のSteer対応とする。Linuxでは共通
 専用LaunchAgentとDesktopの直接子の照合で修正した。再確認で両修正に残る具体的P1なし。
 契約の決定は[ADR 0063](adr/0063-codex-steer-installation.md)。CI・公開・公開後導入はこれから行う。
 
+最初のclean cloneからの公開は、配布物検査より前にbuildしない公開コマンドの不備で停止した。
+commit・tag・publishの前の失敗であり、未公開。公開入口にbuildを追加してから再実行する。
+
 
 ## 公式バイナリと通信中継の試作（2026-09-13）
 

@@ -81,7 +81,9 @@ for (const readme of ["README.md", "README.ja.md"]) {
   writeText(readme, text.replace(marker, `v${version}`));
 }
 
-run("node", ["--test", "test/release-metadata.test.mjs", "test/repository-contract.test.mjs"], { stdio: "inherit" });
+// clean cloneでも配布物を検査できるよう、検査前に現行metadataからbuildする。
+run(process.execPath, [npmCli, "run", "build"], { stdio: "inherit" });
+run(process.execPath, ["--test", "test/release-metadata.test.mjs", "test/repository-contract.test.mjs"], { stdio: "inherit" });
 
 const files = [
   "CHANGELOG.md", "package.json", "package-lock.json", "server.json", "mcpb/manifest.json", "README.md", "README.ja.md",

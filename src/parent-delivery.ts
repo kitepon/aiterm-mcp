@@ -237,7 +237,7 @@ export class ParentDeliveryManager {
       }
       record.state = "ready";
       this.save(job);
-      // 次の依頼へ進める時点は本文保存まで。親のキュー受付を待たせない。
+      // 次の依頼へ進める時点は本文保存まで。親の受付を待たせない。
       job.delivery = this.deliver(job).catch((error) => this.reportServiceError(error));
     })();
     return job.capture;
@@ -349,7 +349,7 @@ export class ParentDeliveryManager {
         this.jobs.set(record.delivery_id, job);
         if (record.state === "sending") {
           record.state = "unknown";
-          record.error = "PARENT_DELIVERY_INTERRUPTED: キュー送信中にMCP processが終了しました。自動再送はしていません";
+          record.error = "PARENT_DELIVERY_INTERRUPTED: 回答送信中にMCP processが終了しました。自動再送はしていません";
           this.finish(job);
         } else if (record.state === "waiting" || record.state === "ready") {
           try {

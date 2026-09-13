@@ -40,11 +40,31 @@ WindowsはwingetでPowerShell 7・Git for Windows・psmux、macOSはHomebrewでt
 Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package managerと実行権限は事前に必要。
 他のLinuxでも既存tmuxを利用できるが、自動導入は`unsupported`で停止する。
 既存設定の他サーバーを保持し、JSON設定は変更前の`.aiterm-backup`を残す。
-結果の`status`は`ready`／`unsupported`／`failed`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
+結果の`status`は`ready`／`unsupported`／`failed`／`restart_required`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
 登録先はglobal packageのNodeとMCP入口の絶対パスで、npm一時cacheやsource checkoutは登録しない。
 更新後も同じ入口を実行し、MCP clientを再起動する。npm install自体はユーザー設定を変更しない。
 公開JSONは`schema: "aiterm.setup-result.v1"`、全体の`status`、端末の`backend`、
-AI別の`integrations`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、それ以外は2となる。
+AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、再起動待ちは3、それ以外は2となる。
+
+
+### Codex DesktopへSteerを有効にする（macOS）
+
+対話実行の`aiterm-setup`で「Aiterm単品」と「Steer付き」を選べます。無人導入では明示します。
+
+```bash
+aiterm-setup --json --codex-steer enable
+```
+
+公式Codex Desktopに同梱されたApp Serverを使い、実行中の親には同じターンへ回答を送り、
+終了後に届いた回答でも同じタスクを自動再開します。App Serverの改造・再ビルド・別配布は不要です。
+Steerの初回設定後は`restart_required`（終了コード3）を返します。Codexを完全終了して再起動し、
+`aiterm-setup --codex-steer status`で`ready`を確認してください。接続できない時にキューへ自動退避しません。
+
+選択と復元情報は`~/.config/aiterm-mcp/codex-relay/`へ保存し、ユーザーLaunchAgentがログイン時にも
+起動設定を適用します。更新時の`aiterm-setup --json`は選択を維持して中継を更新します。
+解除・旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
+SteerはmacOSのCodex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
+Windows・LinuxのSteer付き導入は理由付き`unsupported`を返します。Aiterm単品は従来どおり利用できます。
 
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:
 
@@ -205,7 +225,7 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 同じprimitiveが別エージェントのTUIを宿す。`agent_launch`の`harness`はagent loop・認証・hook・session・transcriptを所有する実行基盤、`model`は独立した選択。起動processは直接CLIと同じproject/user環境を使い、通常config、MCP、plugin、skill、permission、trust、memory、historyをcopy・filter・置換しない。
 
-`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。`pty_send`は非ブロックdispatchで、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は公式受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
+`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。`pty_send`は非ブロックdispatchで、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたは受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
 
 `agent_launch`・`pty_send`（agent dispatch）・`agent_steer`は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
@@ -518,9 +538,9 @@ SSH先がPowerShellの場合、`mark:true`は現在の標準`PS ...>`プロン�
 
 Codex／Claude Codeから子を起動・通常dispatchした後は、別作業へ進むか親のturnを終了するだけでよい。Aitermが完了を観測し、加工前の回答を保存して親へ届ける。waiter、`pty_read`による回答回収、子への送信指示は不要。子は全対応harnessから選べる。
 
-自動配送時はreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexのキュー受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
+自動配送時はreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexの公式受信口での受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
 
-CodexにはMCPの`_meta.threadId`と公式`thread/queue` APIが必要で、Codex CLI 0.154.0で確認している。`aiterm-setup`はインストールされた公式queue入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。Codexのnative sub-agentは外部からのqueue入力を拒否するため、自動配送の親としては未対応。
+単品導入のCodexにはMCPの`_meta.threadId`と公式`thread/queue` APIが必要で、Codex CLI 0.154.0で確認している。`aiterm-setup`はインストールされた公式queue入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。Codexのnative sub-agentは外部からのqueue入力を拒否するため、自動配送の親としては未対応。
 
 Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が専用の`PreToolUse`、`PostToolUse`、`SessionEnd`を登録するため、Channelsの起動flagは不要。公式`asyncRewake` hookだけが裏で待ち、親はその間も次のturnへ進める。回答は`Stop hook feedback`として届く。hookのexit 2は親の再開信号であり、子の成功・失敗は本文の`outcome`で区別する。
 

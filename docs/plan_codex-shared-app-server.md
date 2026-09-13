@@ -1,5 +1,38 @@
 # Codex公式App ServerへのパッチとAitermの選択導入
 
+## 製品への組み込み（2026-09-13、完遂の追加承認）
+
+オーナーの「Aitermの改良の完遂まで進めてくれ」に基づき、配送・選択導入・検証・公開・導入まで進める。
+配布物はAitermのnpm packageにまとめ、既存の公式バイナリを使う。独自App Serverのbuildは不要。
+
+- [x] 公式 `turn/start` の実行中Steer／終了後startを製品の受信処理へ組み込む。
+- [x] POSIX shellのexecとNode中継を同梱し、Pythonへの追加依存を除く。
+- [x] `aiterm-setup` にSteerの選択・設定・状態確認・解除を追加する。
+- [ ] focused test、隔離した公式バイナリ試験、独立反証、関連CIを通す。
+- [ ] 日英文書と公開metadataを同期し、npm・GitHub Release・MCP Registryへ公開する。
+- [ ] 公開packageを導入し、必要な再起動後に製品の親配送を実測する。
+
+公開契約・配送・導入・公開の裁定は親が担当する。配送と導入は接続契約に依存するため、
+同じrepoへの書込みは親が直列に実施する。OS接続と契約は独立したread-only反証を並行して確認する。
+既存Controlを継続し、Latticeと更新監視は作らない。
+
+公式sourceの `turn_processor.rs` は `turn/start` を `start_or_steer_turn` へ渡し、
+実行中は同じturnへ入力、終了済みなら新turnを開始する。状態読取りと送信の間のraceを避けるため、
+この入口へ一度だけ送る。相関IDを重複排除の保証とは解釈せず、結果不明の送信を再送しない。
+Steerを有効にした環境で接続が失敗した時は明示エラーにし、queueへ自動退避しない。
+
+macOS Desktopの選択導入を今回のSteer対応とする。Linuxでは共通POSIX処理を検証するが、
+未検証のDesktop起動設定を配布しない。Windowsの公式Unix受付はAF_UNIXで、NodeのIPCはnamed pipeのため、
+同じ中継では接続できない。両OSのSteer選択は理由付きunsupportedを返し、Aiterm単品の対応は維持する。
+アプリ本体・署名・認証情報・画面表示機能は変更しない。継続build運用や新しいnative helperは追加しない。
+
+製品コードの関連34試験、文書7試験、公式同梱CLIを使う隔離2試験が成功した。
+公式試験は本文の各1回保存とモデルへの反映、承認拒否、同じPID/親PID、通常/実行中の終了も確認した。
+独立反証の2件（ログイン後の設定消失・単独App Serverのfalse ready）を最小試験で再現し、
+専用LaunchAgentとDesktopの直接子の照合で修正した。再確認で両修正に残る具体的P1なし。
+契約の決定は[ADR 0063](adr/0063-codex-steer-installation.md)。CI・公開・公開後導入はこれから行う。
+
+
 ## 公式バイナリと通信中継の試作（2026-09-13）
 
 オーナーは、公式App Serverを無改造で動かし通信だけを中継する提案に

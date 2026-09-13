@@ -8,6 +8,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { prepareBackend, runSetupCommand, SetupError, type SetupRun } from "./setup-platform.js";
 import { configureIntegrations, type Registration, type IntegrationResult } from "./setup-integrations.js";
+import { configureCodexSteer, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-relay.js";
+import { readRelayConfig } from "./codex-relay-config.js";
 
 export function globalRegistration(run: SetupRun = runSetupCommand): Registration {
   const root = run(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"]).trim();
@@ -43,12 +45,13 @@ export async function verifySetupRuntime(registration: Registration): Promise<vo
   } finally { await client.close(); }
 }
 
-type SetupStatus = "ready" | "unsupported" | "failed";
+type SetupStatus = "ready" | "unsupported" | "failed" | "restart_required";
 export type SetupResult = {
   schema: "aiterm.setup-result.v1";
   status: SetupStatus;
   backend: { kind: "psmux" | "tmux"; status: SetupStatus; reason_code?: string };
   integrations: Record<string, IntegrationResult>;
+  codex_steer?: CodexSteerResult;
   reason_code?: string;
 };
 
@@ -58,6 +61,8 @@ export async function runSetup(options: {
   verify?: (registration: Registration) => Promise<void>;
   configure?: (home: string, registration: Registration) => Record<string, IntegrationResult>;
   progress?: (message: string) => void;
+  codex_steer?: CodexSteerAction;
+  steer?: (action: CodexSteerAction) => Promise<CodexSteerResult>;
 } = {}): Promise<SetupResult> {
   const result: SetupResult = { schema: "aiterm.setup-result.v1", status: "failed", backend: { kind: process.platform === "win32" ? "psmux" : "tmux", status: "failed" }, integrations: {} };
   const progress = options.progress ?? ((message: string) => process.stderr.write(`aiterm-setup: ${message}\n`));
@@ -81,6 +86,16 @@ export async function runSetup(options: {
       result.status = "unsupported";
       result.reason_code = "clients_not_detected";
     } else result.status = "ready";
+    if (result.status === "ready") {
+      stage = "codex_steer";
+      result.codex_steer = await (options.steer ?? configureCodexSteer)(options.codex_steer ?? (readRelayConfig()?.enabled ? "enable" : "status"));
+      if (["failed", "unsupported", "restart_required"].includes(result.codex_steer.status)) {
+        result.status = result.codex_steer.status as SetupStatus;
+        result.reason_code = result.codex_steer.reason_code;
+      }
+      if (result.codex_steer.status === "restart_required") progress("起動設定を保存しました。Codexを完全終了して再起動し、aiterm-setup --codex-steer statusで確認してください");
+      if (result.codex_steer.status === "unsupported") progress("このOSのCodex Desktop Steerは未対応です。Aiterm単品の導入・利用は可能です");
+    }
   } catch (error) {
     const code = error instanceof SetupError ? error.code : `${stage}_failed`;
     result.status = code === "platform_unsupported" ? "unsupported" : "failed";

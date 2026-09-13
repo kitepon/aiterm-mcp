@@ -48,7 +48,7 @@ project／user環境を置換せず、launch相関と完了回収に必要なsta
 Throughlineの補足記憶はpathを透過搬送するだけで、内容、project束縛、context予算はThroughlineが所有する。
 
 agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
-Codex親にはAitermのMCP processが完了を観測し、回答本文を公式受信キューへ自動配送する。
+Codex親にはAitermのMCP processが完了を観測し、選択設定に応じて公式Steerまたはqueueへ本文を自動配送する。
 Claude Code親は公式の非同期hookで本文を受け取り、待機中も新しいturnへ進める。
 それ以外の親には`wait_process`がplatform nativeな別process起動情報を返す。
 waiterは純readerで、親のforeground turnを塞がない。
@@ -64,15 +64,30 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 
 `src/parent-delivery.ts`が依頼の送信前に宛先と完了境界を保存し、完了観測、加工前の回答保存、配送を所有する。
 宛先はCodexのMCP handshakeと各要求の`_meta.threadId`から取得する。modelが指定したIDや環境変数で代用しない。
-`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、`thread/read`と
-`thread/queue/list`で宛先を確認した後、`thread/queue/add`へ本文をJSONで渡す。
-親のload／resume、Desktop固有通信、子への送信指示、別daemonは使わない。
-setupは公式`queue`入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。
-native sub-agentを親にした外部queue入力はCodex自身が拒否するため、子への送信前に明示errorにする。
+単品導入の`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、
+`thread/read`と`thread/queue/list`で宛先を確認してから`thread/queue/add`へ本文をJSONで渡す。
+Steerを選択したmacOS Desktopでは、MCP processの祖先にある公式App Serverの本人所有socketへ接続する。
+`thread/loaded/list`と`thread/read`で同じ親を確認し、公式`turn/start`へ一度だけ送る。
+公式の`start_or_steer_turn`が実行中なら同じturnへ追加入力し、終了後なら同じtaskの次turnを開始する。
+状態を読んでから送信方法を選ぶraceや再送は作らない。model・権限のoverrideも渡さない。
+親のload／resumeは行わず、接続不能・未load・native sub-agentは明示errorにする。
+Steer設定がある場合にqueueへ自動退避することはない。
 
-通常結果は親の実行中turnを中断せず、親がidleになった後に処理される。
+`aiterm-setup`の`--codex-steer enable|disable|status`が選択導入を所有する。
+設定とPOSIX launcherは`~/.config/aiterm-mcp/codex-relay/`、一時socketは`/tmp/aiterm-codex-<uid>/`へ置く。
+launcherはNodeのstdio中継を起動してから公式CLIへ同じPIDでexecし、Desktopとの親子関係・署名・通常環境を保つ。
+Python・独自App Server・認証情報のコピーは使わない。中継はRPCと承認応答を透過搬送し、追加clientは承認へ応答しない。
+stdio EOFは公式の2段階終了へ伝える。受付開始待ちはexec直後だけに限定し、送信済みRPCは再送しない。
+macOSのユーザーLaunchAgentはログイン時に同じ起動設定を適用する。解除は専用LaunchAgentを停止・削除し、
+保存した元の`CODEX_CLI_PATH`へ戻す。他から変更された設定は上書きしない。
+`status=ready`は公式binary・Desktopの直接子・同じsocketのRPC応答を確認した場合だけ返す。
+初回の設定保存後は`restart_required`であり、Desktopの完全終了・再起動を要する。
+Linux/WindowsのSteer選択は`unsupported`とする。通常の単品導入・queue配送は両OSで維持する。
+
+単品導入のqueue配送は親の実行中turnを中断せず、親がidleになった後に処理される。
 `parent_delivery`が配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullになる。
-`pty_observe`の`parent_deliveries`で状態を確認できる。`submitted`はキュー受付済みを示し、modelの読了を意味しない。
+`pty_observe`の`parent_deliveries`で状態を確認できる。`submitted`は公式受信口の受付済みを示し、modelの読了を意味しない。
+Steer配送の`queued_submission_id`はnullである。既存の配送record schemaは維持する。
 次の依頼へ進める前に前回の回答を保存し、harness所有記録を後の回答と取り違えない。
 
 Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存する。ownerのPIDと開始識別子で生存を判定し、

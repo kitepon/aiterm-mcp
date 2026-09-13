@@ -1,20 +1,17 @@
-// Codex親の公式受信キューへの接続。親threadのload／resumeやDesktop固有通信は行わない。
+// Codex親の配送。Steerを選択した環境は同じ公式App Server、それ以外は公式queueを使う。
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import * as path from "node:path";
 import { resolveAgentBin } from "./agent-resolver.js";
 import { realCodexHome } from "./harnesses/codex.js";
-import { AitermError } from "./errors.js";
+import { CodexDeliveryError } from "./codex-delivery-error.js";
+import { readRelayConfig, parentRelaySocket } from "./codex-relay-config.js";
+import { withCodexRelay, verifyLoadedParent } from "./codex-relay-client.js";
+export { CodexDeliveryError } from "./codex-delivery-error.js";
 
 export interface CodexParent {
   thread_id: string;
   codex_home: string;
-}
-
-export class CodexDeliveryError extends AitermError {
-  constructor(readonly delivery_code: string, message: string, readonly outcome_unknown = false) {
-    super(`${delivery_code}: ${message}`, 2);
-  }
 }
 
 /** modelの引数ではなく、CodexがMCP要求へ付けるmetadataだけを宛先にする。 */
@@ -32,6 +29,13 @@ export interface CodexReceiverRuntime {
   executable?: string;
   args?: string[];
   timeout_ms?: number;
+  socket_path?: string;
+}
+
+function relaySocket(runtime?: CodexReceiverRuntime): string | null {
+  if (runtime) return runtime.socket_path ?? null;
+  const config = readRelayConfig();
+  return config?.enabled ? parentRelaySocket(config) : null;
 }
 
 type Pending = {
@@ -119,6 +123,11 @@ async function withCodexReceiver<T>(
 
 /** 子へ送る前に、同じstoreの宛先と公式キューの対応を確認する。本文は保存・表示しない。 */
 export async function verifyCodexParent(parent: CodexParent, runtime?: CodexReceiverRuntime): Promise<void> {
+  const socket = relaySocket(runtime);
+  if (socket) {
+    await withCodexRelay(socket, request => verifyLoadedParent(request, parent.thread_id), runtime?.timeout_ms);
+    return;
+  }
   await withCodexReceiver(parent, async (request) => {
     const response = await request("thread/read", { threadId: parent.thread_id, includeTurns: false });
     if (response?.thread?.id !== parent.thread_id) {
@@ -137,7 +146,20 @@ export async function submitCodexParentAnswer(
   deliveryId: string,
   text: string,
   runtime?: CodexReceiverRuntime,
-): Promise<{ queued_submission_id: string }> {
+): Promise<{ queued_submission_id: string | null }> {
+  const socket = relaySocket(runtime);
+  if (socket) {
+    return withCodexRelay(socket, async request => {
+      await verifyLoadedParent(request, parent.thread_id);
+      // 公式の同一処理内で、実行中はSteer、終了済みなら開始する。本文は一度だけ送る。
+      const result = await request("turn/start", { threadId: parent.thread_id,
+        input: [{ type: "text", text, text_elements: [] }], clientUserMessageId: deliveryId });
+      if (typeof result?.turn?.id !== "string" || !result.turn.id) {
+        throw new CodexDeliveryError("CODEX_RECEIVER_INVALID_RESPONSE", "配送先turnの受付IDを確認できません", true);
+      }
+      return { queued_submission_id: null };
+    }, runtime?.timeout_ms);
+  }
   return withCodexReceiver(parent, async (request) => {
     const result = await request("thread/queue/add", {
       threadId: parent.thread_id,

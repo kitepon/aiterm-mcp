@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- macOSのCodex Desktop向けにSteerの選択導入を追加。`aiterm-setup`の対話選択または`--codex-steer enable`で、同じ公式App Serverへ回答を送り、実行中は同じターンへ反映、終了後は同じタスクを再開する。
+- 中継・POSIX起動処理をnpm packageへ同梱。公式App Serverの再ビルド、別配布、Pythonの追加導入は不要。公式バイナリのPID・Desktopとの親子関係・署名・通常環境を維持する。
+- `--codex-steer status|disable`で実効状態の確認と元の設定への復元を行う。ログイン時の設定は専用LaunchAgentで維持する。初回は`restart_required`と終了コード3を返し、Codexの完全再起動を必要とする。
+- Steerを選択した環境で接続できない時は明示エラーとし、queueへ自動退避しない。送信結果不明の回答は従来どおり保存し、自動再送しない。配送record schemaは維持し、Steer受付済みの`queued_submission_id`はnullとなる。
+- Steerを持たない旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行する。Windows・LinuxのSteer選択は未対応を明示し、単品導入と通常のqueue配送は維持する。
+
 ### 修正
 
 - 同一エラーの再発時に`product_version`を更新し、snapshotに最終実発生時の版を公開する。

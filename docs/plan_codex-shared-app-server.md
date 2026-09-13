@@ -1,5 +1,31 @@
 # Codex公式App ServerへのパッチとAitermの選択導入
 
+## 緊急復旧: 改造版起動後のKeychain要求（2026-09-13）
+
+改造版でDesktopを再起動した後、オーナーからKeychain要求が大量・無限に出ると報告された。
+Desktop実機の受入は不合格であり、改造版の再有効化と製品導入を進めない。
+署名の読み取りでは、試用CLIはad-hoc署名・TeamIdentifierなし、公式CLIは
+OpenAIのDeveloper ID署名だった。実行中Desktopの子processが試用CLIであることも確認した。
+署名変更による既存Keychain項目のアクセス確認が有力な原因だが、要求項目と反復箇所は未特定。
+認証コードを変更していなくても、再ビルドでOSから見た実行ファイルの同一性が変わることを
+実機投入前に評価できていなかった。模擬認証のfocused testを実認証の受入に代用しない。
+
+止血としてGUI起動環境の `CODEX_CLI_PATH`、`CODEX_APP_SERVER_WS_URL`、
+`CODEX_APP_SERVER_USE_LOCAL_DAEMON`、`CODEX_APP_SERVER_FORCE_CLI` を解除し、
+`launchctl print gui/501` の対象キーで全件不在を確認した。
+共有daemonへの接続も解除し、次のDesktop起動は公式の通常構成に戻す。
+実行中の試用processは設定解除だけでは止まらないため、オーナーへ完全終了・再起動を依頼した。
+Codex自身のアプリ操作は禁止されているため、別の入口で終了を代行しない。
+再起動後、試用processが存在せず、Desktopの子processがアプリ同梱の
+`/Applications/ChatGPT.app/Contents/Resources/codex` へ戻ったことを確認した。
+同梱CLIのOpenAI Developer ID署名とGUI上書き設定4件の不在も確認した。
+オーナーから「キーチェーンの要求は止まったよ」と報告があり、今回の止血・復旧は完了した。
+改造版の実認証互換性と大量要求の詳細な発生経路は未解決であり、改造版の再投入は行っていない。
+秘密値の読み取り、Keychainの許可変更、署名検査の回避は行っていない。
+復旧前設定と読戻しreceiptは `.git/aiterm-experiments/codex-shared-20260913/keychain-containment-*.json` に保存した。
+復旧後の根拠と次に必要な観測は
+[Keychain障害の復旧記録](evidence/codex-patched-stdio-20260913-keychain-recovery.md) に保存した。
+
 ## 2026-09-13の最新ユーザー指示（以降の作業の正本）
 
 オーナーは共有daemonへの接続試験の続きとして、公式App Serverを基礎にした改造を明示した。

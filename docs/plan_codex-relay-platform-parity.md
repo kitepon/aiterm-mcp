@@ -35,7 +35,9 @@ Windows Control v1は`PLATFORM_UNVERIFIED`のため利用せず、判断と証�
 直接親の旧実装での失敗を再現し、Windows標準APIで起動元→公式Codex→Node中継を作る実装へ変更した。
 引数、JSONL中継、設定の有効化・競合・復元は共通処理へ移した。公式CLIの配送試験、終了確認のfocused test、
 日本語・引用符・末尾backslash、接続前の入力とEOF、不正応答の試験は成功した。
-2026-09-14の関連試験は24件中20成功、Mac専用4件skip、失敗0。3環境CIと公開は未実施。
+2026-09-14の関連試験は24件中20成功、Mac専用4件skip、失敗0。
+最初のCIではMac・Windowsが成功、Linuxで接続通知と応答の同時到着による取りこぼしを検出した。
+同じ順序をWindowsでも最小再現し、受信handlerの登録順を修理した。focused testの3件が成功し、公式CLIと3環境CIを再確認中。
 工場の共通正典へのOS適合原則の追記はdotagentsの`70f0fb7`でpush済み。
 
 2026-09-13の追加確認: 完了条件はAiterm単独での成立であり、gpt-connectorの導入・更新を必須にしない。

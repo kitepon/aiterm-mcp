@@ -21,11 +21,25 @@ export async function relayCodexStdio(adapter: {
   const end = () => { ending = true; void stop().catch(error => { failure = error; }); socket?.terminate(); input.close(); process.stdin.destroy(); };
   const outputFailed = (error: Error) => { failure = error; end(); };
   process.stdout.once("error", outputFailed);
+  const drain = () => socket?.resume();
+  process.stdout.on("drain", drain);
   try {
     const deadline = Date.now() + 15_000;
     while (!ending) {
       if (!adapter.alive()) throw new Error("公式App Serverが起動中に終了しました");
       socket = adapter.socket();
+      const candidate = socket;
+      let opened = false;
+      candidate.once("open", () => { opened = true; });
+      // upgradeと最初のframeが同じ受信単位でも、openのawaitより先に受け付ける。
+      candidate.on("message", (data, binary) => {
+        if (binary) { failure = new Error("公式App Serverから予期しないバイナリ応答を受信しました"); end(); return; }
+        if (!process.stdout.write(data.toString() + "\n")) candidate.pause();
+      });
+      candidate.on("error", error => { if (opened) { failure = error; end(); } });
+      candidate.on("close", () => {
+        if (opened && !ending) { failure = new Error("公式App Serverとの接続が終了しました"); end(); }
+      });
       try { await once(socket, "open"); break; }
       catch (error) {
         socket.on("error", () => {}); socket.terminate();
@@ -38,21 +52,9 @@ export async function relayCodexStdio(adapter: {
     if (ending) { if (failure) throw failure; return; }
     const connected = socket!;
     adapter.connected?.();
-    connected.on("message", (data, binary) => {
-      if (binary) { failure = new Error("公式App Serverから予期しないバイナリ応答を受信しました"); end(); return; }
-      if (!process.stdout.write(data.toString() + "\n")) connected.pause();
-    });
-    const drain = () => connected.resume();
-    process.stdout.on("drain", drain);
-    connected.on("error", error => { failure = error; end(); });
-    connected.on("close", () => {
-      if (!ending) { failure = new Error("公式App Serverとの接続が終了しました"); end(); }
-    });
-    try {
-      for await (const line of lines) await new Promise<void>((resolve, reject) => connected.send(line, error => error ? reject(error) : resolve()));
-      if (failure) throw failure;
-    } finally { process.stdout.off("drain", drain); }
+    for await (const line of lines) await new Promise<void>((resolve, reject) => connected.send(line, error => error ? reject(error) : resolve()));
+    if (failure) throw failure;
   } finally {
-    end(); await stop(); process.stdout.off("error", outputFailed);
+    end(); await stop(); process.stdout.off("error", outputFailed); process.stdout.off("drain", drain);
   }
 }

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
 
-for (const mode of ['startup-eof', 'binary']) test(`共通中継: ${mode === 'startup-eof' ? '接続前の入力とEOFを順序どおり処理する' : '不正な応答は失敗として終了する'}`, { timeout: 10_000 }, async t => {
+for (const mode of ['startup-eof', 'binary', 'immediate-binary']) test(`共通中継: ${mode === 'startup-eof' ? '接続前の入力とEOFを順序どおり処理する' : mode === 'binary' ? '不正な応答は失敗として終了する' : '接続通知と同時の応答も受信する'}`, { timeout: 10_000 }, async t => {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1', verifyClient: (_info, done) => setTimeout(() => done(true), 60) });
   await once(server, 'listening');
   const messages = [];
@@ -19,7 +19,12 @@ for (const mode of ['startup-eof', 'binary']) test(`共通中継: ${mode === 'st
     let stopped = 0;
     try {
       await relayCodexStdio({ alive: () => true,
-        socket: () => new WebSocket('ws://127.0.0.1:${server.address().port}'),
+        socket: () => {
+          const socket = new WebSocket('ws://127.0.0.1:${server.address().port}');
+          // upgradeと最初のframeが一度に届く順序をOSによらず再現する。
+          if (${JSON.stringify(mode)} === 'immediate-binary') socket.once('open', () => socket.emit('message', Buffer.from('不正な応答'), true));
+          return socket;
+        },
         stop: async () => { stopped++; },
       });
     } catch (error) { process.stderr.write(error.message); process.exitCode = 1; }
@@ -35,7 +40,7 @@ for (const mode of ['startup-eof', 'binary']) test(`共通中継: ${mode === 'st
   });
   if (mode === 'startup-eof') child.stdin.end('{"id":1,"method":"initialize"}\n');
   const [code] = await exited;
-  assert.equal(code, mode === 'binary' ? 1 : 0, error);
+  assert.equal(code, mode === 'startup-eof' ? 0 : 1, error);
   if (mode === 'startup-eof') assert.deepEqual(messages, ['{"id":1,"method":"initialize"}']);
   else assert.match(error, /バイナリ応答/);
 });

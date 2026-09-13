@@ -43,6 +43,10 @@ Codex Steerを変更した場合は、公式バイナリを指定した`test/cod
 Windowsは`AITERM_TEST_CODEX_BINARY`に公式Desktopの実行fileを指定し、
 `test/windows-codex.test.mjs`で単独launcher、ACL、親識別、元の起動設定の保存と解除も確認する。
 同じ環境変数で`test/codex-relay-official.test.mjs`の実行中Steer・終了後再開・承認中継・EOFを確認できる。
+Windowsの中継起動を変更した場合は、公式Desktopが入った端末で`AITERM_TEST_CODEX_PACKAGE`に
+そのpackage family名を指定し、`test/windows-codex-msix.test.mjs`も実行する。公式の
+`Invoke-CommandInDesktopPackage`で仮想AppDataからのinitialize・EOFを確認し、稼働中Desktopや
+ユーザー設定は変更しない。packageと公式binaryを指定しないCIではこの実機試験をskipする。
 Linuxの未対応Steer選択が理由付きで停止することもCIで確認する。
 
 setupを変更した場合は、公開packageのglobal install後に`aiterm-setup --json`を実行し、

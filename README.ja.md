@@ -65,6 +65,7 @@ Windowsはユーザー環境変数`CODEX_CLI_PATH`で起動設定を維持しま
 解除・旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
 SteerはmacOS・Windowsの公式Codex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
 Windowsでは公式Desktopが展開した実行ファイルを照合し、認証付きのローカル接続へ中継します。
+Windowsの仮想AppDataからの起動にも対応し、中継へ実際の保存先を引き継ぎます。
 Aitermのpackageがlauncher・中継・設定・親への配送を含み、gpt-connectorやdotagentsの導入は不要です。
 両OSで公式CodexをDesktopの直接の子として保ち、中継は公式Codexの子として動きます。
 有効化時は元の起動設定を保存してAitermのlauncherを設定し、解除時に元へ戻します。選択後に他から変更された値は上書きしません。

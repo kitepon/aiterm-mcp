@@ -89,6 +89,9 @@ Windows標準の.NET Frameworkでlauncherを作り、`CreateProcessW`の親proce
 公式CLIをDesktopの直接の子、中継Nodeを公式CLIの直接の子として起動する。
 launcherは終了監視だけを担い、JSON-RPCを通さない。Windowsには同一PIDでのexecがないためPIDは変わるが、
 公式binary、起動元との直接の親子関係、通常の環境とstdioは維持する。
+MSIXの仮想AppDataはnative子へ同じ論理パスを渡しても見えない場合があるため、準備processが
+自身の`realpathSync.native`を起動計画へ返し、後続の中継Nodeはその実体を起動する。
+解決は起動時に行い、設定時の保存先で固定しない。
 公式Desktopが展開した4実行ファイルを配布元のSHA-256と照合し、AitermがCodexをコピー・再配布しない。
 公式CLIの認証付きloopback WebSocketを使い、本人専用ACLのtokenと接続記録をAitermのsessions下へ置く。
 Windowsのprocess情報はprocess-runtimeが所有し、接続はPID・開始時刻・実行ファイル・token引数で照合する。

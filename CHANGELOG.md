@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsのMSIX仮想AppDataにAitermがある場合、Codex Desktopの中継起動が`MODULE_NOT_FOUND`で失敗する問題を修正した。起動済みの中継が自身の実体パスを後続processへ渡す。
+
 ## [0.37.2] - 2026-09-13
 
 ### 修正

@@ -62,3 +62,38 @@ Windowsでは重要なAI設定を非公開tarへ退避した後、`npm install -
 Steerは`restart_required`（exit 3）となった。GUIの起動設定がAitermのlauncherを指すことと、
 以前の起動設定が復元用に保存されていることを読戻して確認した。
 Desktop本体は停止していない。通常MCPの配送とThroughlineは完全再起動後の確認を残す。
+
+## 再起動時の障害と復旧後の確認
+
+オーナーが完全再起動するとDesktopは起動しなかった。提供された当時の写真は、Node.js 24.19.0が
+`windows-codex-relay.js`を`MODULE_NOT_FOUND`として終了したことを示す。
+Desktopのアンインストール・再インストールは、この障害が起きた後の復旧操作だった。
+それを最初の起動失敗の原因とした推測は撤回した。
+
+別タスクが通常のnpm global領域へ0.37.2を再導入し、同じ`CODEX_CLI_PATH`でDesktopを復旧した。
+復旧後は正規setupのSteer statusとMCP diagnosticsがreadyとなった。
+通常MCPから起動した同じCodex子について、初手と追加依頼の回答本文が親へ自動配送された。
+親はwaiter・回答回収を使わず、確認後にその子sessionを閉じた。
+Throughlineの既存Desktop検出は`desktop-process`で公式CLIを識別し、公開handoff previewは
+`fresh_thread_handoff_start_ready`を返した。handoffの実行は行っていない。
+
+## MSIXでの最小再現とパス適合修理
+
+WindowsのNTFS記録で、以前のAitermがMSIXの`LocalCache/Roaming/npm`へ仮想化されていたことを確認した。
+その領域の削除は後続のアンインストールと対応し、初回障害の証拠とは分けた。
+生のファイル履歴と個人パスは非公開の試験領域だけに保存した。
+
+公式`Invoke-CommandInDesktopPackage`で一意の仮想AppData試験領域を作り、公開0.37.2の中継を起動した。
+`--version`は成功するが、`app-server`のnative子が同じ論理パスを開けず、写真と同じ
+`windows-codex-relay.js`の`MODULE_NOT_FOUND`、exit 1、signal nullを再現した。
+ファイルは実在し、アプリの削除や稼働中Desktopの停止は必要なかった。
+
+修正版は`--prepare`で読み込んだ自身の実体パスを`realpathSync.native`で取得して起動計画へ返し、
+`--serve`のNodeへ渡す。準備processへの論理パス、直接親、stdio、終了、設定管理は維持する。
+設定時の実体パス固定や一般的な仮想領域禁止は加えていない。
+
+追加した`test/windows-codex-msix.test.mjs`は、準備processに論理パスを渡したまま検証する。
+同じ試験が公開0.37.2のコピーでは失敗し、修正版ではinitialize・EOFとも成功した。
+試験fixtureの初回は`package.json`のコピー漏れで失敗したため補正し、それを製品の失敗・成功には数えない。
+関連する公式CLI・Windows・設定試験は15件中11成功、Mac専用4件skip、失敗0だった。
+MSIX回帰試験の1件は別に成功し、公式CLIは0.154.0-alpha.6.2を使用した。

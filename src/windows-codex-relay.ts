@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, rmSync, realpathSync } from "node:fs";
 import WebSocket from "ws";
 import { ensurePrivateDirectory, makeFilePrivate } from "./windows-codex-state.js";
 import { readWindowsProcesses, type WindowsRelay } from "./windows-codex-connection.js";
@@ -16,6 +16,8 @@ export { codexServerArguments as windowsServerArguments } from "./codex-relay-ar
 export async function prepareWindowsRelay(root: string, args: string[]) {
   const serverArgs = codexServerArguments(args);
   if (!serverArgs) return { directory: null, endpoint: null, arguments: args };
+  // MSIXの仮想AppData名はnative子から見えないため、起動済みの自身の実体を渡す。
+  const relay = realpathSync.native(fileURLToPath(import.meta.url));
   const directory = join(root, randomUUID());
   ensurePrivateDirectory(directory);
   try {
@@ -27,7 +29,7 @@ export async function prepareWindowsRelay(root: string, args: string[]) {
     const port = (reservation.address() as { port: number }).port;
     await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
     const endpoint = "ws://127.0.0.1:" + port;
-    return { directory, endpoint, arguments: [...serverArgs, "--listen", endpoint, "--ws-auth", "capability-token", "--ws-token-file", tokenFile] };
+    return { directory, endpoint, relay, arguments: [...serverArgs, "--listen", endpoint, "--ws-auth", "capability-token", "--ws-token-file", tokenFile] };
   } catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
 }
 

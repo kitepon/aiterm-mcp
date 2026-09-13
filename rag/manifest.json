@@ -820,6 +820,40 @@
       "fetched": "2026-09-13"
     },
     {
+      "slug": "windows-msix-filesystem-virtualization",
+      "topic": "codex-relay",
+      "title": "MSIXのファイルシステム仮想化",
+      "source_url": "https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes",
+      "source_type": "official_docs",
+      "path": "sources\\codex-relay\\windows-msix-filesystem-virtualization.md",
+      "tags": [
+        "windows",
+        "msix",
+        "appdata"
+      ],
+      "summary": "MSIXでのAppData書込みの仮想化、既存ファイルの扱い、アンインストール時の仮想領域削除。",
+      "relevance": "中継起動元とnative子で同じ論理パスが異なる実体を指す問題の根拠。",
+      "chars": 15714,
+      "fetched": "2026-09-14"
+    },
+    {
+      "slug": "windows-msix-package-process-test",
+      "topic": "codex-relay",
+      "title": "Invoke-CommandInDesktopPackageの公式試験入口",
+      "source_url": "https://learn.microsoft.com/en-us/powershell/module/appx/invoke-commandindesktoppackage?view=windowsserver2025-ps",
+      "source_type": "official_docs",
+      "path": "sources\\codex-relay\\windows-msix-package-process-test.md",
+      "tags": [
+        "windows",
+        "msix",
+        "testing"
+      ],
+      "summary": "package identityと仮想ファイルシステムを持つprocessを起動する開発用コマンド。子へのcontext継承とPreventBreakawayの指定。",
+      "relevance": "稼働中Desktopを停止せず、MSIX仮想AppDataからAiterm中継を起動する回帰試験に使う。製品の起動経路には使わない。",
+      "chars": 8133,
+      "fetched": "2026-09-14"
+    },
+    {
       "slug": "windows-process-parent-and-handles",
       "topic": "codex-relay",
       "title": "UpdateProcThreadAttribute: 親processと継承handleの指定",
@@ -2500,5 +2534,5 @@
       "fetched": "2026-06-01"
     }
   ],
-  "updated": "2026-09-13"
+  "updated": "2026-09-14"
 }

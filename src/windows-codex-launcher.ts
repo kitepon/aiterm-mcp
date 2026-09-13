@@ -15,6 +15,7 @@ ${windowsNativeProcessSource}
 [DataContract] public sealed class LaunchPlan {
   [DataMember] public string directory;
   [DataMember] public string endpoint;
+  [DataMember] public string relay;
   [DataMember] public string[] arguments;
 }
 public static class AitermLauncher {
@@ -46,7 +47,7 @@ public static class AitermLauncher {
         if(plan.directory==null) return server.Wait();
         // 中継は公式CLIのjobを継承する。launcherは終了監視だけを担い、JSON-RPCを通さない。
         using(var bridge=AitermNativeProcess.Start(server.Pid,${literal(node)},new string[] {
-          ${literal(relay)},"--serve",${literal(binary)},plan.directory,plan.endpoint,server.Pid.ToString()
+          plan.relay,"--serve",${literal(binary)},plan.directory,plan.endpoint,server.Pid.ToString()
         },false,null)) {
           int code=bridge.Wait();
           lifetime.Dispose();

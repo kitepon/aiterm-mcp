@@ -34,3 +34,13 @@ Windows標準APIの隔離実証で、通常の環境、stdio、直接の親子�
 一次資料は[親processと継承handleの指定](../../rag/sources/codex-relay/windows-process-parent-and-handles.md)と
 [Windows native processの作成](../../rag/sources/codex-relay/windows-create-process.md)に保存した。
 ADR 0065の起動構成とWindows固有の共有設定の判断は、本ADRで置き換える。
+
+## 2026-09-14のWindowsパス適合修理
+
+MSIX仮想AppDataの論理パスは、起動準備processでは読めてもnative子で読めない場合があった。
+中継を開始する準備processが自身の実体パスを`LaunchPlan.relay`へ返し、native子へ渡す。
+起動時に読み込んだ同じ中継を使い、直接親、stdio、終了、設定管理の共通契約は維持する。
+
+公式のMSIX試験入口で旧版の`MODULE_NOT_FOUND`を再現し、同じ条件で修正版のinitializeとEOFを確認する。
+[MSIXの仮想化仕様](../../rag/sources/codex-relay/windows-msix-filesystem-virtualization.md)と
+[公式の試験入口](../../rag/sources/codex-relay/windows-msix-package-process-test.md)を保存した。

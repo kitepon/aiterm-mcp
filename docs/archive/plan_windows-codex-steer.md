@@ -44,3 +44,6 @@ Aiterm自身のlauncher生成・設定・解除も、公開packageと一時設�
 
 WindowsではControl Record v1がPLATFORM_UNVERIFIEDの対象であるため、writer委譲を行わず、
 計画・ADR・試験結果をAiterm内に記録する。製品の実行・受入へdotagentsの追加導入を要求しない。
+
+追記: 同日13:56 UTC、利用者のDesktop完全再起動後に通常MCPの0.37.1への切替とSteerのreadyを確認。
+通常の`agent_launch`からの回答がこの親taskへ自動配送され、試験sessionの終了まで完了した。

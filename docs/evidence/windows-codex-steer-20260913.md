@@ -54,3 +54,12 @@ Codex adapterの画面認識とAitermのprocess相関を修理した。手動承
 この親taskで元から接続されているMCP processは0.36.0のままなので、公開版の新しいMCP processを通常の親から
 起動して実測した。通常のtool接続を0.37.1へ切り替えるにはCodexの完全終了・再起動が必要であり、
 この記録は既存MCP接続の切替完了を主張しない。
+
+## Desktop再起動後の通常接続
+
+同日13:56 UTC、利用者によるDesktop完全再起動後に、通常の`diagnostics`が`version=0.37.1`・
+`overall=ready`を返した。`aiterm-setup --codex-steer status`も`ready`だった。
+通常のMCP tool `agent_launch`から確認用のCodex子を起動し、親のwaiter・transcript回収を使わず、
+本文「再起動後の通常MCPからSteer配送を確認」をこの親taskで実受信した。
+配送は`child_outcome=done`・`state=submitted`・`queued_submission_id=null`・`error_code=null`。
+`pty_close`後の`pty_observe.exists=false`も確認し、通常接続の新版反映と実配送まで完了した。

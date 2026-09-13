@@ -9,7 +9,7 @@ export { defaultRuntimeErrorPaths, windowsPrivateDaclCommand, windowsPrivateDacl
 import { fileURLToPath } from "node:url";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
-const STORE_SCHEMA = "aiterm-mcp.runtime-errors.v1" as const;
+const STORE_SCHEMA = "aiterm-mcp.runtime-errors.v2" as const;
 const STATE_SCHEMA = "1.0" as const;
 const MAX_CONFIG_BYTES = 16 * 1024;
 const MAX_STORE_BYTES = 1024 * 1024;
@@ -261,8 +261,14 @@ export class RuntimeErrorStore {
     let text: string;
     try { text = readBoundedFile(this.storePath, MAX_STORE_BYTES, this.platform, this.platform !== "win32"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return EMPTY_STATE(); throw error; }
-    const state = validateState(JSON.parse(text), this.maxRecords);
+    const value: unknown = JSON.parse(text);
+    const legacy = isObject(value) && value.schema_version === "aiterm-mcp.runtime-errors.v1";
+    const state = validateState(legacy ? { ...value, schema_version: STORE_SCHEMA } : value, this.maxRecords);
     if (!state) throw new Error("runtime error store schema が不正です");
+    // 旧集約は初回版だけを保持した。複数回発生した記録の最終発生版は復元できない。
+    if (legacy) for (const record of state.records) {
+      if (record.occurrence_count > 1) record.product_version = "unknown";
+    }
     return state;
   }
 
@@ -495,6 +501,7 @@ export class RuntimeErrorStore {
       const seen = this.now().toISOString();
       const sequence = state.cursor + 1;
       if (record) {
+        record.product_version = this.productVersion;
         record.occurrence_count += 1; record.last_seen = seen; record.status = "open";
         record.resolved_at = null; record.reason_code = null; record.sequence = sequence;
       } else {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 同一エラーの再発時に`product_version`を更新し、snapshotに最終実発生時の版を公開する。
+- runtime storeをv2へ移行する。旧v1の単発記録は版を保持し、複数回の旧集約は最終発生版を復元できないため`unknown`にする。読取りで状態JSONを書き戻さず、次のロック内更新でv2を保存する。
+- v2を保存したstoreは旧writerで開かない。consumerを先に更新し、旧プロセスを終了してから新writerへ切り替える。旧版へ戻す場合は製品のバックアップを使い、v2をv1に偽装しない。
+
 ## [0.35.1] - 2026-09-10
 
 ### Fixed

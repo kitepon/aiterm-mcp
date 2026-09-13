@@ -67,6 +67,41 @@ function fixture(enabled = true) {
   };
 }
 
+test("旧集約の複数回発生は版不明へ移行し、次の実発生から版を記録する", () => {
+  const f = fixture();
+  try {
+    f.store.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" });
+    const legacy = JSON.parse(fs.readFileSync(f.storePath, "utf8"));
+    legacy.schema_version = "aiterm-mcp.runtime-errors.v1";
+    fs.writeFileSync(f.storePath, JSON.stringify(legacy));
+    assert.equal(f.store.snapshot().records[0].product_version, "0.12.1-test");
+    legacy.records[0].occurrence_count = 2;
+    fs.writeFileSync(f.storePath, JSON.stringify(legacy));
+    assert.equal(f.store.snapshot().records[0].product_version, "unknown");
+    assert.equal(JSON.parse(fs.readFileSync(f.storePath, "utf8")).schema_version, "aiterm-mcp.runtime-errors.v1");
+    const current = new RuntimeErrorStore({ configPath: f.configPath, storePath: f.storePath,
+      platform: f.platform, productVersion: "0.35.2", now: () => new Date("2026-09-13T00:00:00.000Z") });
+    current.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" });
+    assert.equal(current.snapshot().records[0].product_version, "0.35.2");
+    assert.equal(current.snapshot().schema_version, "aiterm-mcp.runtime-errors.v2");
+    assert.equal(current.snapshot().records[0].occurrence_count, 3);
+    assert.equal(JSON.parse(fs.readFileSync(f.storePath, "utf8")).schema_version, "aiterm-mcp.runtime-errors.v2");
+  } finally { f.cleanup(); }
+});
+
+test("別の版での再発は発生版を更新し、読取りでは更新しない", () => {
+  const f = fixture();
+  try {
+    f.store.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" });
+    const current = new RuntimeErrorStore({ configPath: f.configPath, storePath: f.storePath,
+      platform: f.platform, productVersion: "0.35.2", now: () => new Date("2026-09-13T00:00:00.000Z") });
+    assert.equal(current.snapshot().records[0].product_version, "0.12.1-test");
+    current.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" });
+    assert.equal(current.snapshot().records[0].product_version, "0.35.2");
+    assert.equal(current.snapshot().records[0].occurrence_count, 2);
+  } finally { f.cleanup(); }
+});
+
 test("collection は missing/disabled/malformed config で fail closed", () => {
   const f = fixture(false);
   try {

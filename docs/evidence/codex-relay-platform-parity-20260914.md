@@ -29,7 +29,7 @@ node --test test/codex-relay-stdio.test.mjs test/codex-relay-official.test.mjs t
 
 独立したCodexレビューでは新規ファイルと差分を読み、Macと共通のprocess・stdio関係と共通処理への移行を確認した。
 Grokの追加レビューは約20分で結論を得られず終了したため、成功したレビューには数えない。
-公開packageと再起動後Desktopの確認は、この記録時点では未完了。
+再起動後Desktopの確認は、この記録時点では未完了。公開packageの結果は後段に記録する。
 この隔離試験を再起動後の実機成功とは扱わない。
 
 ## CIで見つかった接続直後の応答取りこぼし
@@ -41,3 +41,24 @@ handler登録前に応答が到着する順序があった。接続通知と同�
 公式CLI試験の2件も再実行して成功した。受信順の差分に対する独立したCodexレビューでも、
 接続前の再試行、接続後の終了、EOFに新たな欠陥は見つからず、RPC再送が加わっていないことを確認した。
 修正後の[3環境CI](https://github.com/kitepon/aiterm-mcp/actions/runs/34764959849)はすべて成功した。
+
+## 公開とWindows導入
+
+`npm run release -- 0.37.2`でmainの`11a1db6537625660386af9a8d1efc7eadce5a131`から公開した。
+配布metadataと文書の試験は14件成功し、tagがorigin/mainの祖先であることを確認した。
+
+- [npm provenance付き公開](https://github.com/kitepon/aiterm-mcp/actions/runs/34765560818): 成功。
+- [GitHub ReleaseとMCPB](https://github.com/kitepon/aiterm-mcp/releases/tag/v0.37.2): 公開済み。
+- [Official MCP Registry登録](https://github.com/kitepon/aiterm-mcp/actions/runs/34765576008): 成功。公開APIで0.37.2を読戻した。
+- [release commitの配布CI](https://github.com/kitepon/aiterm-mcp/actions/runs/34765559381): 成功。
+
+npmは公開受理後に配布準備中と返し、最初の導入は未掲載で失敗した。公開確認後に同じnpm入口で再実行した。
+隔離したディレクトリへ公開packageだけをnpm installし、公式CLI試験fixtureを配置して実行した。
+製品コードは公開packageだけを使い、2件成功、skipと失敗は0だった。
+直接親の保持、実行中Steer、終了後再開、承認拒否の返送、接続分離、EOFでの終了と片付けを確認した。
+
+Windowsでは重要なAI設定を非公開tarへ退避した後、`npm install -g aiterm-mcp@0.37.2`と
+`aiterm-setup --json --codex-steer enable`を実施した。psmuxと全4種AIの登録はready、
+Steerは`restart_required`（exit 3）となった。GUIの起動設定がAitermのlauncherを指すことと、
+以前の起動設定が復元用に保存されていることを読戻して確認した。
+Desktop本体は停止していない。通常MCPの配送とThroughlineは完全再起動後の確認を残す。

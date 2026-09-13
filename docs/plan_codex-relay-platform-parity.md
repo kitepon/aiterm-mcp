@@ -16,7 +16,7 @@ Macはlauncherを公式Codexへexecし、Desktopとの直接の親子関係を�
 WindowsはDesktop→launcher→Node中継→公式Codexとなり、Throughlineの直接親による公式binary検出を外す。
 既存試験の`parent_preserved`はWindowsだけ中間processを含む祖先関係を確認しており、Macと同じ条件ではなかった。
 この端末はgpt-connectorの中継をAitermが共有している。現在の共有接続も同じ問題を持つ。
-起動設定はまだ変更していない。
+この再現時点では起動設定を変更していない。
 
 ## 工程
 
@@ -39,10 +39,15 @@ Windows Control v1は`PLATFORM_UNVERIFIED`のため利用せず、判断と証�
 最初のCIではMac・Windowsが成功、Linuxで接続通知と応答の同時到着による取りこぼしを検出した。
 同じ順序をWindowsでも最小再現し、受信handlerの登録順を修理した。focused testの3件と公式CLI試験の2件が成功した。
 修正後の3環境CI（34764959849）は成功し、Codexによる全体レビューと受信順修正の追加レビューでも新たな欠陥は見つからなかった。
-Grokの追加レビューは結論を得られず終了し、成功したレビューには数えない。現在は公開・導入の工程へ進む。
+Grokの追加レビューは結論を得られず終了し、成功したレビューには数えない。
+0.37.2をmainの`11a1db6`から公開し、npm provenance、MCPB、GitHub Release、Official MCP Registryを確認した。
+公開npm packageだけを隔離導入した公式CLI試験は2件とも成功した。Windowsへのglobal installと正規setupも実施した。
+setupは全AIの登録と端末の実行を確認し、`restart_required`（exit 3）となった。現在は工程4のHである。
 工場の共通正典へのOS適合原則の追記はdotagentsの`70f0fb7`でpush済み。
 
 2026-09-13の追加確認: 完了条件はAiterm単独での成立であり、gpt-connectorの導入・更新を必須にしない。
 gpt-connectorはオーナーが別途修理するため、この作業の変更・調査・レビュー・公開対象から除外する。
 範囲外に作った差分はAitermの`.git/aiterm-experiments/windows-parity-20260913/`へ退避して取り消し、追加生成物も撤去した。
-現在のDesktopは従来のgpt-connector中継で動いている。起動設定の切替と再起動後の他アプリへの影響は未確認。
+起動設定はAitermの専用launcherへ変更済みで、元の設定の保存とGUI設定の読戻しを確認した。
+重要なAI設定は変更前に非公開tarへ退避した。現在のDesktopは再起動前の経路で動いており、
+新しい経路での通常MCP配送とThroughlineの正規入口は、Desktop完全再起動後に確認する。

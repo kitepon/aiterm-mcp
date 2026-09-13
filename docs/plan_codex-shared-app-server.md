@@ -46,7 +46,7 @@ commit・tag・publishの前の失敗であり、その時点では未公開だ�
 回答を受信する。実行中は同じturn、終了後は同じtaskの再開であることと配送receiptを突合する。
 親はwaiterや回答回収を呼ばず、送信結果不明を再送しない。
 Control revision 8の`public-package-desktop-observation`が再起動後の観測を保持する。
-公開入口のbuild前提修正を含むCI run 34750604482のWindows完了も確認する。
+公開入口のbuild前提修正を含むCI run 34750604482もmacOS・Linux・Windowsすべて成功した。
 
 
 ## 公式バイナリと通信中継の試作（2026-09-13）

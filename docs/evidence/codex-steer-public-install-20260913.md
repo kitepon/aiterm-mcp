@@ -10,6 +10,7 @@
 | 公開入口のbuild前提修正 | `2aca3c7e8c66a0fceb091bb1f729bf6e23730476` |
 | 公開commit | `07304553b3ef44fe0a6e792ae5591bbb43a70bf9`、main上の`v0.36.0` |
 | 新機能の3環境CI | [macOS・Linux・Windowsで成功](https://github.com/kitepon/aiterm-mcp/actions/runs/34750375443) |
+| 公開入口修正の3環境CI | [macOS・Linux・Windowsで成功](https://github.com/kitepon/aiterm-mcp/actions/runs/34750604482) |
 | 公開commitのCI | [配布metadata・文書・packの確認が成功](https://github.com/kitepon/aiterm-mcp/actions/runs/34750613078) |
 | npm | [provenance付きpublishが成功](https://github.com/kitepon/aiterm-mcp/actions/runs/34750613765)。`npm view aiterm-mcp@0.36.0 version`で`0.36.0`を確認 |
 | GitHub Release | [v0.36.0とMCPB](https://github.com/kitepon/aiterm-mcp/releases/tag/v0.36.0)を公開 |

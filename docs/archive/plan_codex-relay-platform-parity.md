@@ -65,6 +65,8 @@ native子が論理パスを読めず写真と同じエラーになることを�
 正規setupは端末実行と検出したCodex・Grok・Cursorの登録を確認し、起動設定を保存した。Claudeは未検出だった。
 保存したlauncher自体もMSIX contextからinitialize・EOFが成功し、通常npm global領域にある実体を確認した。
 
-現在は新しい起動設定を反映する完全再起動のH。statusは`restart_required`であり、稼働中Desktopは停止していない。
-オーナーの再起動後、通常MCPの初手・追加Steer配送とThroughlineのDesktop検出を確認して完了する。
-公開・隔離試験の成功を、新しいlauncherでのDesktop再起動成功とは扱わない。
+2026-09-14、オーナーによる完全再起動後に0.37.3のMCP diagnosticsとSteer statusがreadyとなった。
+新しいlauncher、Desktop→公式Codex→中継Nodeの直接の親子関係を稼働processで確認した。
+通常MCPで同じCodex子の初手・追加回答が親へ自動配送され、waiter・回答回収なしで両方を受信した。
+Throughlineの既存検出が同じ公式Codexを`desktop-process`で識別し、公開handoff previewもreadyだった。
+試験用の子sessionを閉じ、公開・導入・再起動後の受入まで完了した。Throughlineのhandoff実行は行っていない。

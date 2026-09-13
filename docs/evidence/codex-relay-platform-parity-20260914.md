@@ -122,3 +122,26 @@ Claudeはnot_detected。Steerは起動設定を保存し、読戻しが一致し
 
 稼働中Desktopは停止しておらず、新しいlauncherを使う完全再起動後の通常MCP配送とThroughlineの
 実機確認を残す。復旧後0.37.2での通常配送成功と、0.37.3での隔離試験成功は区別する。
+
+## 0.37.3の完全再起動後: 受入完了
+
+2026-09-14、オーナーの完全再起動後、通常MCPのdiagnosticsはversion 0.37.3、overall readyとなった。
+`aiterm-setup --json --codex-steer status`はready、exit 0だった。
+設定した`codex-5aaa09d252ea9f41.exe`が動作し、実体パスを渡す起動計画を使用していることを確認した。
+稼働processはDesktop PID 9676 → 公式Codex PID 30100 → 中継Node PID 35604で、直接の親子関係が一致した。
+
+通常の`agent_launch`からCodex子をread-onlyで起動し、同じ子へ`pty_send`で追加依頼した。
+親は作業中に両回答を自動Steer配送で受信し、waiterや回答回収は呼んでいない。
+
+| 配送 | delivery ID | outcome |
+| --- | --- | --- |
+| 初手 | `6617e1a1-5384-45f3-91a9-a91d7b549e69` | done |
+| 同じ子への追加 | `0d0a497f-ca8e-44d7-acb3-c2d001ab444e` | done |
+
+両方のlaunch IDは`31e651413a0984c5ac9db85240d09bae`で一致し、確認後の`pty_close`はclosedだった。
+Throughlineの既存`resolveCodexRuntime({host: "desktop"})`は`desktop-process`で同じ公式Codexを識別した。
+公開`codex-handoff-start --open-host desktop`のpreviewは`fresh_thread_handoff_start_ready`を返した。
+Throughlineのコード・設定変更とhandoff実行は行っていない。この確認はDesktop検出と公開previewの成立を示す。
+
+Aiterm単独での公開・導入・再起動・通常配送・他アプリの既存検出という受入条件を満たした。
+工程文書は完了履歴として`docs/archive/plan_codex-relay-platform-parity.md`へ移した。

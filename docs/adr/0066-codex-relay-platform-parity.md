@@ -44,3 +44,10 @@ MSIX仮想AppDataの論理パスは、起動準備processでは読めてもnativ
 公式のMSIX試験入口で旧版の`MODULE_NOT_FOUND`を再現し、同じ条件で修正版のinitializeとEOFを確認する。
 [MSIXの仮想化仕様](../../rag/sources/codex-relay/windows-msix-filesystem-virtualization.md)と
 [公式の試験入口](../../rag/sources/codex-relay/windows-msix-package-process-test.md)を保存した。
+
+## 受入判断
+
+2026-09-14、公開0.37.3の完全再起動後に、通常MCPから同じ子の初手・追加回答を自動受信し、
+公式Codexの直接親とThroughlineの既存Desktop検出が一致することを確認した。
+公開・導入・再起動後の受入を完了とする。
+試験と公開の記録は[検証記録](../evidence/codex-relay-platform-parity-20260914.md)を参照する。

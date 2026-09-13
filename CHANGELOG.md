@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-09-13
+
 ### 追加
 
 - WindowsのCodex Desktop親へのSteerと終了後再開に対応。公式CLI、認証付きloopback接続、native launcher、設定・解除をAitermだけで提供する。
@@ -1662,7 +1664,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.34.0...v0.35.0

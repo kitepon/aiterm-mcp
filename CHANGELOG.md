@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.4] - 2026-09-19
+
 ### 修正
 
 - HomebrewのNode更新後にCodex Desktopの中継起動が終了コード127で失敗する問題を修正した。MCP登録と中継launcherは、削除されるCellarの版別実体ではなく、同じformulaの`opt`経由でNodeを起動する。`node@22`等の選択を維持し、GUIのPATHへ依存しない。
@@ -1690,7 +1692,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...HEAD
+[0.37.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...v0.37.4
 [0.37.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...v0.37.3
 [0.37.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...v0.37.2
 [0.37.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.0...v0.37.1

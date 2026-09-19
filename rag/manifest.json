@@ -1189,6 +1189,24 @@
       "fetched": "2026-07-06"
     },
     {
+      "slug": "codex-hooks-20260919",
+      "topic": "completion-detection",
+      "title": "Codex公式hook: 同一ターンへの文脈追加とStop継続",
+      "source_url": "https://learn.chatgpt.com/docs/hooks.md",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/codex-hooks-20260919.md",
+      "tags": [
+        "codex",
+        "hooks",
+        "steer",
+        "queue"
+      ],
+      "summary": "PostToolUseのadditionalContextとStopの継続指示、非同期hookの到達時点を規定する。",
+      "relevance": "Codexの起動を差し替えず、公式キューの回答を同一ターンへ渡す方式の一次根拠。",
+      "chars": 45547,
+      "fetched": "2026-09-19"
+    },
+    {
       "slug": "contour-osc-133-spec",
       "topic": "completion-detection",
       "title": "OSC 133 - Shell Integration (Contour Terminal)",

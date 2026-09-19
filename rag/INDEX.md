@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **131** 件 / 更新: 2026-09-19
+- 総数: **132** 件 / 更新: 2026-09-19
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 36件
+## 完了境界の検出 (completion-detection) — 37件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -142,6 +142,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Codex exec --json turn.completed as structured done signal](sources/completion-detection/codex-exec-json-turn-completed.md) — Codex の non-interactive mode は `codex exec --json` で JSONL を出し、`turn.completed` / `turn.failed` を機械可読なターン境界として読める。
   - 出典: <https://developers.openai.com/codex/noninteractive> (official_docs_and_local_probe, 2300 chars)
   - 効きどころ: Codex をTUI画面ではなく構造化stdoutで委譲する場合の最も堅い done 検知経路。
+- [Codex公式hook: 同一ターンへの文脈追加とStop継続](sources/completion-detection/codex-hooks-20260919.md) — PostToolUseのadditionalContextとStopの継続指示、非同期hookの到達時点を規定する。
+  - 出典: <https://learn.chatgpt.com/docs/hooks.md> (official_docs, 45547 chars)
+  - 効きどころ: Codexの起動を差し替えず、公式キューの回答を同一ターンへ渡す方式の一次根拠。
 - [OSC 133 - Shell Integration (Contour Terminal)](sources/completion-detection/contour-osc-133-spec.md) — OSC 133のA/B/C/Dを書式(OSC 133;Cmd[;Params]ST)とパラメータ付きで明示した仕様ページ。
   - 出典: <https://contour-terminal.org/vt-extensions/osc-133-shell-integration/> (spec, 6171 chars)
   - 効きどころ: パラメータ(click_events, cmdline_url, exit code)まで含むパース仕様。read層でOSC 133を解釈する際の実装基準。

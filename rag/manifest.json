@@ -1772,6 +1772,40 @@
       "fetched": "2026-07-26"
     },
     {
+      "slug": "homebrew-opt-prefix",
+      "topic": "installation",
+      "title": "HomebrewのCellarとopt prefix",
+      "source_url": "https://docs.brew.sh/Manpage",
+      "source_type": "docs",
+      "path": "sources/installation/homebrew-opt-prefix.md",
+      "tags": [
+        "homebrew",
+        "node",
+        "setup"
+      ],
+      "summary": "Cellarは版別の実体を置き、opt prefixは有効なkegへのsymlinkを維持する。",
+      "relevance": "NodeのMCP登録とCodex中継を、同じformulaの更新後も有効なoptパスへ保存する根拠。",
+      "chars": 134990,
+      "fetched": "2026-09-19"
+    },
+    {
+      "slug": "node-process-execpath",
+      "topic": "installation",
+      "title": "Node.js process.execPath",
+      "source_url": "https://nodejs.org/api/process.html",
+      "source_type": "docs",
+      "path": "sources/installation/node-process-execpath.md",
+      "tags": [
+        "node",
+        "symlink",
+        "setup"
+      ],
+      "summary": "process.execPathはNode実行ファイルの絶対パスを返し、symlinkを解決する。",
+      "relevance": "HomebrewのCellar実体を永続する起動設定へ固定してはいけない根拠。",
+      "chars": 179959,
+      "fetched": "2026-09-19"
+    },
+    {
       "slug": "aider-in-chat-commands",
       "topic": "prior-art",
       "title": "Aider In-chat commands (/run, /test)",
@@ -2534,5 +2568,5 @@
       "fetched": "2026-06-01"
     }
   ],
-  "updated": "2026-09-14"
+  "updated": "2026-09-19"
 }

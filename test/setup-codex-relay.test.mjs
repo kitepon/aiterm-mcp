@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync, readFileSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync, readFileSync, chmodSync, mkdirSync, writeFileSync, symlinkSync, unlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { configureCodexSteer } from '../dist/setup-codex-relay.js';
 import { readRelayConfig } from '../dist/codex-relay-config.js';
@@ -21,6 +22,42 @@ function fixture(t) {
     live: async () => false };
   return { root, runtime, values, events };
 }
+
+for (const formula of ['node', 'node@22']) test(`Homebrewの${formula}更新後も保存済みlauncherが最小PATHで起動する`, { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t);
+  const oldKeg = join(f.root, 'Cellar', formula, '1.0.0');
+  const newKeg = join(f.root, 'Cellar', formula, '1.0.1');
+  const opt = join(f.root, 'opt', formula);
+  mkdirSync(join(f.root, 'opt'));
+  for (const keg of [oldKeg, newKeg]) {
+    mkdirSync(join(keg, 'bin'), { recursive: true });
+    writeFileSync(join(keg, 'bin', 'node'), `#!/bin/sh\nexec '${process.execPath.replace(/'/g, `'"'"'`)}' "$@"\n`, { mode: 0o700 });
+  }
+  symlinkSync(oldKeg, opt);
+  const launch = candidate => spawnSync(candidate, ['aiterm-node-test'], { env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  await configureCodexSteer('enable', { ...f.runtime, node: join(oldKeg, 'bin', 'node'),
+    relay: resolve('dist/codex-stdio-relay.js'), findBinary: () => '/bin/echo',
+    verify: async candidate => { assert.equal(launch(candidate).status, 0); } });
+  const config = readRelayConfig(f.root);
+  const before = readFileSync(config.launcher, 'utf8');
+  unlinkSync(opt);
+  symlinkSync(newKeg, opt);
+  rmSync(oldKeg, { recursive: true });
+  const result = launch(config.launcher);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'aiterm-node-test');
+  assert.equal(config.node, join(opt, 'bin', 'node'));
+  assert.equal(readFileSync(config.launcher, 'utf8'), before, '更新後の再生成は不要');
+});
+
+test('Homebrewのoptが欠けていたら設定を変更せず理由を返す', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t);
+  f.runtime.node = join(f.root, 'Cellar', 'node', '1.0.0', 'bin', 'node');
+  await assert.rejects(configureCodexSteer('enable', f.runtime), error => error.code === 'node_runtime_unavailable');
+  assert.deepEqual(f.events, []);
+  assert.equal(readRelayConfig(f.root), null);
+  assert.equal((await configureCodexSteer('disable', f.runtime)).status, 'disabled');
+});
 
 test('明示enableだけが設定し、実効接続がなければ再起動待ちを返す', { skip: process.platform === 'win32' }, async t => {
   const f = fixture(t);

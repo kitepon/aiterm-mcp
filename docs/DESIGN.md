@@ -76,6 +76,10 @@ Steerを選択したmacOS・Windows Desktopでは、MCP processの祖先にあ�
 Steer設定がある場合にqueueへ自動退避することはない。
 
 `aiterm-setup`の`--codex-steer enable|disable|status`が選択導入を所有する。
+MCP登録とmacOSの中継launcherへ保存するNodeの起動先は`src/setup-node.ts`が決める。
+HomebrewのCellar実体は同じformulaの`opt/<formula>/bin/node`へ変換し、実行できることを確認する。
+`node@22`等のformulaを維持し、GUIのPATH探索や別のNodeへの自動切替は行わない。
+Homebrew以外の起動先は変更しない。既存の版別パスは`aiterm-setup --json`で再生成する。
 設定とPOSIX launcherは`~/.config/aiterm-mcp/codex-relay/`、一時socketは`/tmp/aiterm-codex-<uid>/`へ置く。
 launcherはNodeのstdio中継を起動してから公式CLIへ同じPIDでexecし、Desktopとの親子関係・署名・通常環境を保つ。
 Python・独自App Server・認証情報のコピーは使わない。中継はRPCと承認応答を透過搬送し、追加clientは承認へ応答しない。

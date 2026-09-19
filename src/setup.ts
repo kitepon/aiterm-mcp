@@ -10,6 +10,7 @@ import { prepareBackend, runSetupCommand, SetupError, type SetupRun } from "./se
 import { configureIntegrations, type Registration, type IntegrationResult } from "./setup-integrations.js";
 import { configureCodexSteer, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-relay.js";
 import { readRelayConfig } from "./codex-relay-config.js";
+import { setupNodeExecutable } from "./setup-node.js";
 
 export function globalRegistration(run: SetupRun = runSetupCommand): Registration {
   const root = run(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"]).trim();
@@ -19,7 +20,7 @@ export function globalRegistration(run: SetupRun = runSetupCommand): Registratio
   if (realpathSync(installedRoot) !== realpathSync(packageRoot)) {
     throw new SetupError("global_package_required", "npm install -g aiterm-mcp後にaiterm-setupを実行してください。一時npm cacheやsource checkoutは登録しません");
   }
-  return { command: process.execPath, args: [join(installedRoot, "dist", "index.js")] };
+  return { command: setupNodeExecutable(), args: [join(installedRoot, "dist", "index.js")] };
 }
 
 export async function verifySetupRuntime(registration: Registration): Promise<void> {

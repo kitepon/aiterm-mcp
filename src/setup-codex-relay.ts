@@ -14,6 +14,7 @@ import { readRuntimeProcesses } from "./process-runtime.js";
 import { installRelayLogin, removeRelayLogin } from "./codex-relay-login.js";
 import { windowsCodexRuntime } from "./windows-codex-setup.js";
 import { configureRelay, type RelaySetupRuntime, type CodexSteerAction, type CodexSteerResult } from "./codex-relay-setup.js";
+import { setupNodeExecutable } from "./setup-node.js";
 
 export type { CodexSteerAction, CodexSteerResult } from "./codex-relay-setup.js";
 type Runtime = RelaySetupRuntime & { platform: string; relay: string; verify: (launcher: string) => Promise<void> };
@@ -131,5 +132,6 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
   if (runtime.platform !== "darwin") {
     return action === "enable" ? { status: "unsupported", reason_code: "codex_steer_platform_unsupported" } : { status: "disabled" };
   }
+  if (action === "enable") runtime.node = setupNodeExecutable(runtime.node);
   return configureRelay(action, runtime);
 }

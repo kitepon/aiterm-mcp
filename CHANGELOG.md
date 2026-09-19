@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- HomebrewのNode更新後にCodex Desktopの中継起動が終了コード127で失敗する問題を修正した。MCP登録と中継launcherは、削除されるCellarの版別実体ではなく、同じformulaの`opt`経由でNodeを起動する。`node@22`等の選択を維持し、GUIのPATHへ依存しない。
+- 既存の登録とlauncherは、更新後の`aiterm-setup --json`で修復できる。
+
 ## [0.37.3] - 2026-09-13
 
 ### 修正

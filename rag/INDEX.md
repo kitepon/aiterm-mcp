@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **129** 件 / 更新: 2026-09-14
+- 総数: **131** 件 / 更新: 2026-09-19
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -418,3 +418,12 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Smithery API: Update a server](sources/discoverability/smithery-update-server-api.md) — SmitheryのdisplayName・description・repository・icon・visibilityを更新する公式API仕様。
   - 出典: <https://smithery.ai/docs/api-reference/servers/update-a-server> (docs, 13461 chars)
   - 効きどころ: aiterm-mcp公開ページの訴求、リポジトリ導線、MITライセンス、アイコンを正規APIで設定する根拠。
+
+## installation — 2件
+
+- [HomebrewのCellarとopt prefix](sources/installation/homebrew-opt-prefix.md) — Cellarは版別の実体を置き、opt prefixは有効なkegへのsymlinkを維持する。
+  - 出典: <https://docs.brew.sh/Manpage> (docs, 134990 chars)
+  - 効きどころ: NodeのMCP登録とCodex中継を、同じformulaの更新後も有効なoptパスへ保存する根拠。
+- [Node.js process.execPath](sources/installation/node-process-execpath.md) — process.execPathはNode実行ファイルの絶対パスを返し、symlinkを解決する。
+  - 出典: <https://nodejs.org/api/process.html> (docs, 179959 chars)
+  - 効きどころ: HomebrewのCellar実体を永続する起動設定へ固定してはいけない根拠。

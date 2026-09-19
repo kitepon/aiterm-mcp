@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsのPowerShellへ複数行を送ると、改行が`Ctrl+Enter`として解釈されて行順が反転し、完了印が処理より先に出る問題を修正した。POSIX shellと同じくscript全体を一括で渡し、現在のshellの変数・作業場所とEnterによる実行開始を保持する。
+
 ## [0.37.5] - 2026-09-19
 
 ### 修正

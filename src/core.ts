@@ -31,6 +31,7 @@ import {
   TMUX_EMPTY_CONFIG,
   attachCommand,
   normalizePaneCommand,
+  atomicShellMultiline,
   appendMarkSentinel,
   markShellCommand,
   settlePaneLog,
@@ -181,11 +182,6 @@ export const DEFAULT_TIMEOUT = 10.0;
 const POLL = 0.25;
 const STABLE_POLLS = 2; // 連続でログサイズ不変ならば静止とみなす回数
 const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
-// 通常PTYへ複数行をそのままpasteすると、途中で起動したpager/REPLが後続行を
-// キー入力として消費する。POSIX shell前面では改行を持たないeval 1行へ包み、
-// script全体をshell内部へ取り込んでから実行する。fish等の非POSIX shellや
-// ssh/REPL前面は従来の生pasteを維持する。
-const ATOMIC_MULTILINE_SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
 // mark の sentinel は POSIX シェル構文（; と "$?"）に依存する。これらの非 POSIX 対話シェルが
 // 前面のときは "$?" が正しく展開されず sentinel が壊れるので mark を拒否する（B8）。ssh/docker で
 // リモート POSIX シェルに入っている場合は前面が "ssh"/"docker" 等で本集合に含まれず＝許可される。
@@ -452,21 +448,6 @@ function splitPtyText(text: string): string[] {
   }
   if (chunk) chunks.push(chunk);
   return chunks;
-}
-
-function quoteForPrintfB(text: string): string {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")
-    .replace(/'/g, `'"'"'`);
-}
-
-function atomicShellMultiline(text: string): string {
-  // POSIX printf %bで元の改行・backslashを復元し、evalは現在shell内で実行する。
-  // command substitutionが末尾LFを落とす点は、pty_sendのsubmitを担うEnterと同値。
-  return `eval "$(command printf '%b' '${quoteForPrintfB(text)}')"`;
 }
 
 function assertSendTextSize(text: string, context = "送信文字列"): void {
@@ -993,8 +974,8 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     if (o.mark) text = appendMarkSentinel(text, fg);
     assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
     const reportedText = text;
-    if (!o.raw && text.includes("\n") && ATOMIC_MULTILINE_SHELLS.has(paneCurrentCommand(name))) {
-      text = atomicShellMultiline(text);
+    if (!o.raw && text.includes("\n")) {
+      text = atomicShellMultiline(text, fg || paneCurrentCommand(name));
     }
     if (o.mark) {
       try {

@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 
-import { appendMarkSentinel, isWin, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
+import { appendMarkSentinel, atomicShellMultiline, isWin, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
+
+test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {
+  const source = "文字列'\\\n2行目\r\n";
+  for (const shell of ["bash", "sh", "zsh", "dash", "pwsh", "powershell"]) {
+    assert.doesNotMatch(atomicShellMultiline(source, shell), /[\r\n]/u, shell);
+  }
+  for (const command of ["node", "ssh", "fish"]) {
+    assert.equal(atomicShellMultiline(source, command), source, command);
+  }
+});
 
 test("appendMarkSentinel: POSIX形式は既存byte列を維持する", () => {
   assert.equal(

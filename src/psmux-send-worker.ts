@@ -3,7 +3,8 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-const MAX_PAYLOAD_BYTES = 64 * 1024 + 12;
+// 公開本文64KiBをPowerShellの一括入力へBase64化した長さと構文・paste markerを含む。
+const MAX_PAYLOAD_BYTES = Math.ceil(64 * 1024 / 3) * 4 + 128;
 const PTY_CHUNK_BYTES = 256;
 const MAX_FINAL_DRAIN_MS = 3_000;
 const SESSION_BASE_RE = /^[A-Za-z0-9_-]{1,160}$/;

@@ -22,6 +22,12 @@ Claude／CursorのJSONは参照先を原子的に更新して変更前backupを�
 SSHやcontainerを別toolにせず、PTY内で実行するcommandとして扱う。sessionはPOSIXではtmux、
 Windows nativeではpsmux 3.3.8以上に保存され、MCP serverやclientの再起動をまたぐ。
 
+sanitize済みの複数行は、POSIX shellでもPowerShellでもscript全体を取り込んでから記述順に実行する。
+`src/tmux-runtime.ts`が改行を持たない1回の入力へ適合させ、POSIXは`eval`、PowerShellは
+UTF-8のBase64を復元したscriptblockのdot-sourceを使う。変数と作業場所は現在のshellに残す。
+生LFをPowerShellへキー入力として流さないため、Windowsの`Ctrl+Enter`による行順の反転を防ぐ。
+単一行、`raw:true`、非shell前面は直接PTYへ送る。`enter:false`では後続のEnterまで実行しない。
+
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。

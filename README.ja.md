@@ -571,7 +571,7 @@ Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対
 
 `pty_send` はコマンドやpromptの意味を判定せず、指定された本文を端末へ送る。既定ではESC・ブラケットペースト終端などをサニタイズし、`pty_read`も制御文字を無害化して返す（`raw: true`はそのまま扱う）。コマンドの許可・拒否はshell、接続先、起動したharnessが所有する。
 
-1回の `pty_send` が受理する本文はUTF-8で最大64KiB。同一sessionへの送信はaiterm processをまたいで直列化し、chunk同士の混線を防ぐ。全OSで長いPTY入力の欠落を避けるためplatformのmultiplexerへUTF-8境界を壊さない256-byte単位でpasteし、chunk間に10msのdrain間隔を置く。POSIX shellが前面にいる時のsanitize済み複数行は、改行を含まない単一の`eval`入力へ符号化する。shellがscript全体を所有してから先頭行を実行するため、途中で起動したpager／REPLが後続行を対話キーとして奪わない。単一行、`raw:true`、非shell前面は従来どおり直接PTYへpasteする。agent dispatchはtmux互換のbracketed paste操作（`paste-buffer -p`）を使う: bracketed paste modeを要求しているpaneへは各chunkを`ESC[200~/201~`で包んで届け、chunk投入中のキー解釈による語中文字化け・submit取り落としを抑える。途中chunkが失敗した場合は部分送信済みであることを明示し、自動でEnterを押さない。送信processの異常終了でlockが残った場合は送信前にfail-closedする。`pty_list`で対象sessionを確認し、`pty_close`で閉じてから同じsession IDを作り直す。公開の一括停止toolは存在しない。
+1回の `pty_send` が受理する本文はUTF-8で最大64KiB。同一sessionへの送信はaiterm processをまたいで直列化し、chunk同士の混線を防ぐ。全OSで長いPTY入力の欠落を避けるためplatformのmultiplexerへUTF-8境界を壊さない256-byte単位でpasteし、chunk間に10msのdrain間隔を置く。POSIX shellまたはPowerShellが前面にいる時のsanitize済み複数行は、改行を含まない単一入力へ符号化する。POSIXは`eval`、PowerShellはUTF-8のBase64を復元したscriptblockのdot-sourceを使い、変数と作業場所を現在のshellに保つ。shellがscript全体を所有してから先頭行を実行するため、途中で起動したpager／REPLが後続行を対話キーとして奪わない。単一行、`raw:true`、非shell前面は従来どおり直接PTYへpasteする。agent dispatchはtmux互換のbracketed paste操作（`paste-buffer -p`）を使う: bracketed paste modeを要求しているpaneへは各chunkを`ESC[200~/201~`で包んで届け、chunk投入中のキー解釈による語中文字化け・submit取り落としを抑える。途中chunkが失敗した場合は部分送信済みであることを明示し、自動でEnterを押さない。送信processの異常終了でlockが残った場合は送信前にfail-closedする。`pty_list`で対象sessionを確認し、`pty_close`で閉じてから同じsession IDを作り直す。公開の一括停止toolは存在しない。
 
 ## 人が覗く
 

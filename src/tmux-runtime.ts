@@ -240,6 +240,23 @@ export function normalizePaneCommand(cmd: string): string {
 
 // 完了マーカーの方言は実効shellで決める。SSH先のshellはhost OSやsshのprocess名と異なる。
 const POWERSHELL_COMMANDS = new Set(["powershell", "pwsh"]);
+const POSIX_ATOMIC_SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
+
+// shellにscript全体を取り込ませてから現在のscopeで実行する。生LFはWindowsの
+// Console.ReadKeyでCtrl+Enterとなり、PSReadLineでは行が逆順に挿入される。
+// OSで仕組みを変えず、同じ一括入力を各shellの構文へ適合させる。
+export function atomicShellMultiline(text: string, foreground: string): string {
+  if (POWERSHELL_COMMANDS.has(foreground)) {
+    const encoded = Buffer.from(text, "utf8").toString("base64");
+    return `. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))))`;
+  }
+  if (!POSIX_ATOMIC_SHELLS.has(foreground)) return text;
+  const quoted = text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/'/g, `'"'"'`);
+  // printf %bで本文を復元する。末尾LFの除去はpty_sendのsubmit Enterと同値。
+  return `eval "$(command printf '%b' '${quoted}')"`;
+}
+
 export function markShellCommand(foreground: string, screen: string): string {
   if (POWERSHELL_COMMANDS.has(foreground)) return foreground;
   if (!isWin && foreground !== "ssh") return foreground;

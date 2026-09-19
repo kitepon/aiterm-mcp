@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.7] - 2026-09-19
+
 ### 修正
 
 - Codex親hookの再導入で既存の登録位置を保持する。後から別のhookが追加された環境でも順序を変えず、同じ設定の再実行で不要な`restart_required`を返さない。
@@ -1710,7 +1712,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...HEAD
+[0.37.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...v0.37.7
 [0.37.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...v0.37.6
 [0.37.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...v0.37.5
 [0.37.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...v0.37.4

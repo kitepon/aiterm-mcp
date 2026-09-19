@@ -11,13 +11,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { configureCodexSteer } from '../dist/setup-codex-hooks.js';
 import { verifyCodexParent, submitCodexParentAnswer } from '../dist/codex-parent-receiver.js';
+import { codexInputDirectory } from '../dist/codex-hook-state.js';
 const binary = process.env.AITERM_TEST_CODEX_BINARY;
 
 function connect(executable, root, env) {
   const child = spawn(executable, ['app-server', '-c', 'analytics.enabled=false'], {
-    cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: root, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const exited = once(child, 'exit');
+  const exited = once(child, 'close');
   const pending = new Map();
   const events = [];
   const listeners = new Set();
@@ -97,7 +98,7 @@ for (const mode of ['tool', 'stop', 'late', 'missing', 'transition', 'other', 'u
     const number = requests.length;
     if (number === 1) { firstArrived(); await firstGate; }
     const item = number === 1 && (mode === 'tool' || mode === 'other')
-      ? { type: 'function_call', call_id: 'probe_tool', name: 'exec_command', arguments: JSON.stringify({ cmd: process.platform === 'win32' ? 'Write-Output fixture' : 'true', yield_time_ms: 1000 }) }
+      ? { type: 'function_call', call_id: 'probe_tool', namespace: 'mcp__aiterm_hook_probe', name: 'read', arguments: '{}' }
       : { type: 'message', role: 'assistant', id: `message-${number}`, content: [{ type: 'output_text', text: `試験応答${number}` }] };
     const id = `response-${number}`;
     response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -110,6 +111,20 @@ for (const mode of ['tool', 'stop', 'late', 'missing', 'transition', 'other', 'u
   http.listen(0, '127.0.0.1');
   await once(http, 'listening');
   const url = `http://127.0.0.1:${http.address().port}`;
+  // OSのshell承認に依存せず、読取専用MCPの完了でPostToolUseを発火させる。
+  const probe = join(root, 'mcp-probe.mjs');
+  await writeFile(probe, `
+    import {createInterface} from 'node:readline';
+    createInterface({input:process.stdin}).on('line',line=>{
+      const request=JSON.parse(line); if(request.id===undefined)return;
+      const result=request.method==='initialize'
+        ? {protocolVersion:request.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'aiterm_hook_probe',version:'1'}}
+        : request.method==='tools/list'
+          ? {tools:[{name:'read',description:'試験用の固定文字列を返す',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}}]}
+          : request.method==='tools/call' ? {content:[{type:'text',text:'fixture'}]} : {};
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result})+'\\n');
+    });
+  `);
   await writeFile(join(home, 'config.toml'), `model = "mock-model"
 model_provider = "mock_provider"
 approval_policy = "never"
@@ -124,6 +139,9 @@ wire_api = "responses"
 supports_websockets = false
 request_max_retries = 0
 stream_max_retries = 0
+[mcp_servers.aiterm_hook_probe]
+command = ${JSON.stringify(process.execPath)}
+args = [${JSON.stringify(probe)}]
 `, { mode: 0o600 });
   const directory = join(root, 'aiterm');
   const hook = join(root, 'product-hook.mjs');
@@ -143,7 +161,8 @@ stream_max_retries = 0
   assert.equal((await configureCodexSteer('enable', setupRuntime)).status, 'ready');
   assert.equal((await configureCodexSteer('status', setupRuntime)).status, 'ready');
   assert(!((await readFile(join(home,'config.toml'),'utf8')).includes('bypass_hook_trust')), '通常のhook承認を使う');
-  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:root, TMP:root} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
+  // PATHEXTを落とすと、PowerShellが.exeを関連付け起動して標準入出力を失う。
+  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, PATHEXT:process.env.PATHEXT, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:root, TMP:root} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
   if (mode === 'transition') env.AITERM_HOOK_PROBE_BARRIER = `${url}/hook-release`;
   const parent = connect(binary, root, env);
   let sender;
@@ -179,6 +198,14 @@ stream_max_retries = 0
   releaseHook();
   if (mode !== 'late') await parent.event('turn/completed', p => p.turn.id === first.turn.id);
   if (['late', 'missing', 'transition', 'other'].includes(mode)) await parent.event('turn/completed', p => p.turn.id !== first.turn.id);
+  if (['tool', 'stop', 'untrusted-other', 'other'].includes(mode)) {
+    // キューによる次ターン開始を、同一ターン配送の成功と取り違えない。
+    const claim = JSON.parse(await readFile(join(codexInputDirectory(directory, home, thread.id), 'claims', '11111111-2222-4333-8444-555555555555.json'), 'utf8'));
+    assert.equal(claim.state, 'emitted');
+    assert.equal(claim.turn_id, first.turn.id, 'hookが最初のターンへ回答を渡した');
+    const completed = parent.events.filter(event => event.method === 'hook/completed' && event.params.turnId === first.turn.id);
+    assert(completed.some(event => event.params.run.eventName === (['tool', 'other'].includes(mode) ? 'postToolUse' : 'stop') && event.params.run.entries.some(entry => entry.text.includes(marker))), `想定したhookが回答本文を出力した: ${JSON.stringify({hooks:completed.map(event => event.params.run),toolOutput:requests[1]?.input?.filter(item=>item.type==='function_call_output')})}`);
+  }
   const history = (await parent.request('thread/read', { threadId: thread.id, includeTurns: true })).thread;
   assert.equal(history.turns.length, ['tool','stop','untrusted-other'].includes(mode) ? 1 : 2, '想定したターン数');
   assert.equal(requests.length, mode === 'other' ? 3 : 2, '投入した入力に対応したモデル呼出しだけ');

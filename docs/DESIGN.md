@@ -90,6 +90,8 @@ Steerを選択したmacOS・Windowsでも配送の入口は公式キューとす
 `aiterm-setup --codex-steer enable|disable|status`は`src/setup-codex-hooks.ts`が所有する。
 `CODEX_HOME/hooks.json`の他の登録を保持し、専用の同期hookを追加する。
 再導入ではAitermの既存の登録位置を保ち、内容が同じならhook設定を変更しない。
+hookコマンドはCodexが使うshellで評価される。Windowsでは引用したPowerShell 7の実行パスを
+呼出し演算子`&`で起動し、標準入出力と終了コードを保持する。回答の取得・配送処理はOS間で共通とする。
 公式`hooks/list`から得た2件のkeyとhashだけを公式`config/batchWrite`で承認し、再読して有効・承認済みであることを確認する。
 承認省略flagを恒久設定へ書かない。利用者の別hookを承認しない。
 選択と配送の所有記録は`~/.config/aiterm-mcp/codex-parent-hooks/`に置く。

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsのCodex親hookをPowerShellの呼出し演算子付きで登録する。引用した実行パスが構文エラーになり、承認済みでも同じターンへ回答が届かなかった問題を修正した。
+- 公式hook試験でWindowsの実行環境を保持し、別窓のNode起動を防ぐ。回答の取得記録とhookイベントを親のターンIDまで照合する。
+
 ## [0.37.7] - 2026-09-19
 
 ### 修正

@@ -21,7 +21,8 @@ export function codexSteerSelected(): boolean { return readCodexHookConfig()?.en
 export function codexHookCommand(node: string, hook: string, directory: string, platform = process.platform): string {
   if (platform === "win32") {
     const script = `& ${[node, hook, directory].map(quotePowerShell).join(" ")}; exit $LASTEXITCODE`;
-    return `"${resolveWindowsPowerShell7()}" -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}`;
+    // Codexは利用中のPowerShellでhookを評価する。引用した実行パスには呼出し演算子が必要。
+    return `& ${quotePowerShell(resolveWindowsPowerShell7())} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}`;
   }
   return [node, hook, directory].map(value => "'" + value.replace(/'/g, "'\"'\"'") + "'").join(" ");
 }

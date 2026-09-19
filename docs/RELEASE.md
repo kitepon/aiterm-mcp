@@ -39,6 +39,8 @@ Codex Steerを変更した場合は、公式バイナリを指定した`test/cod
 通常stdio起動、公式hookの個別承認、同一ターン配送、終了後再開、hook消失、終了との競合、利用者キューの保持を確認する。
 `AITERM_TEST_CODEX_BINARY`に公式Desktopの同梱実行ファイルを指定し、一時HOMEと模擬モデルで実行する。
 試験は実認証と稼働中Desktopの設定を使わない。指定のないCIではこの実機試験をskipする。
+実行途中の受信は読取専用MCPで発火し、取得記録のturn IDと`PostToolUse`の出力を照合する。
+Windowsの隔離環境にも`PATHEXT`を引き継ぎ、試験processの標準入出力が閉じてから一時領域を削除する。
 公開packageの`aiterm-setup --json --codex-steer enable`で選択導入し、`restart_required`ならDesktopを完全再起動する。
 再起動後に`aiterm-setup --codex-steer status`が`ready`となり、通常の親が同じターンで子の回答を受け取ることを確認する。
 アプリ内ツールと通常起動も確認し、公式バイナリの隔離試験だけでDesktop統合を完了扱いしない。

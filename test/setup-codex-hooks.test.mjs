@@ -3,8 +3,21 @@ import test from 'node:test';
 import * as fs from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {configureCodexSteer,mergeCodexParentHooks} from '../dist/setup-codex-hooks.js';
+import {configureCodexSteer,mergeCodexParentHooks,codexHookCommand} from '../dist/setup-codex-hooks.js';
 import {readCodexHookConfig} from '../dist/codex-hook-state.js';
+import {spawnSync} from 'node:child_process';
+import {resolveWindowsPowerShell7} from '../dist/windows-powershell.js';
+
+test('WindowsのhookコマンドはPowerShellから標準入出力と引用符を保って実行できる',{skip:process.platform!=='win32'},t=>{
+  const root=fs.mkdtempSync(join(tmpdir(),"aiterm hook ' 日本語 "));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const hook=join(root,'hook.mjs');
+  fs.writeFileSync(hook,"let input='';for await(const chunk of process.stdin)input+=chunk;process.stdout.write(JSON.stringify({input,directory:process.argv[2]}));");
+  const input=JSON.stringify({message:'日本語の回答'});
+  const result=spawnSync(resolveWindowsPowerShell7(),['-NoLogo','-NoProfile','-NonInteractive','-Command',codexHookCommand(process.execPath,hook,root)],{input,encoding:'utf8',timeout:10000,windowsHide:true});
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout),{input,directory:root});
+});
 
 function fixture(t) {
   const root=fs.mkdtempSync(join(tmpdir(),'aiterm hook setup '));

@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **132** 件 / 更新: 2026-09-19
+- 総数: **133** 件 / 更新: 2026-09-19
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -430,3 +430,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Node.js process.execPath](sources/installation/node-process-execpath.md) — process.execPathはNode実行ファイルの絶対パスを返し、symlinkを解決する。
   - 出典: <https://nodejs.org/api/process.html> (docs, 179959 chars)
   - 効きどころ: HomebrewのCellar実体を永続する起動設定へ固定してはいけない根拠。
+
+## terminal-automation — 1件
+
+- [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
+  - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
+  - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。

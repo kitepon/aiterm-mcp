@@ -63,6 +63,7 @@ Codexの起動プログラムと通常のstdio通信は変更しません。hook
 `aiterm-setup`は`CODEX_HOME/hooks.json`へ専用の`PostToolUse`と`Stop`を追加し、公式APIでその2件だけを承認・読戻しします。
 他のhookや承認は保持します。選択と配送の所有記録は`~/.config/aiterm-mcp/codex-parent-hooks/`へ保存します。
 同じ設定で再実行しても既存hookの順序を変えず、新たな再起動要求を発生させません。
+WindowsのhookはPowerShell 7で実行します。更新後のsetupで、既存のAiterm hookコマンドも更新します。
 既存の中継は新しいhookの確認後に解除し、保存していた`CODEX_CLI_PATH`を復元します。macOSの専用LaunchAgentも解除します。
 移行前から動いているCodexがあれば`restart_required`（終了コード3）を返します。完全終了・再起動後に
 `aiterm-setup --codex-steer status`で`ready`を確認してください。旧設定は移行を実行するまで維持します。

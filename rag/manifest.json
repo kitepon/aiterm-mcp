@@ -2584,6 +2584,24 @@
       "relevance": "PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。",
       "chars": 16092,
       "fetched": "2026-06-01"
+    },
+    {
+      "slug": "powershell-native-command-20260919",
+      "topic": "terminal-automation",
+      "title": "PowerShell: Windows実行形式の判定と関連付け起動",
+      "source_url": "https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs",
+      "source_type": "official_source",
+      "path": "sources/terminal-automation/powershell-native-command-20260919.md",
+      "tags": [
+        "powershell",
+        "windows",
+        "PATHEXT",
+        "stdio"
+      ],
+      "summary": "WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。",
+      "relevance": "隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。",
+      "chars": 104301,
+      "fetched": "2026-09-19"
     }
   ],
   "updated": "2026-09-19"

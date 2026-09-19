@@ -45,6 +45,20 @@ test('承認が拒否された時は旧中継を解除せず、readyを記録し
   assert.deepEqual(f.events,[]); assert.equal(readCodexHookConfig(f.runtime.directory),null);
 });
 
+test('後続hookが増えても再導入は既存位置を保ち、不要な再起動を要求しない',async t=>{
+  const f=fixture(t); const file=join(f.home,'hooks.json');
+  assert.equal((await configureCodexSteer('enable',f.runtime)).status,'ready');
+  const value=JSON.parse(fs.readFileSync(file,'utf8'));
+  const foreign={hooks:[{type:'command',command:'later-hook'}]};
+  for(const event of ['PostToolUse','Stop']) value.hooks[event].push(foreign);
+  fs.writeFileSync(file,JSON.stringify(value));
+  const before=fs.readFileSync(file,'utf8');
+  f.setProcesses([{pid:20,started_identity:'current',command:'/official/codex app-server'}]);
+  assert.equal((await configureCodexSteer('enable',f.runtime)).status,'ready');
+  assert.equal(fs.readFileSync(file,'utf8'),before);
+  assert.deepEqual(readCodexHookConfig(f.runtime.directory).stale_processes,[]);
+});
+
 test('旧起動設定の解除失敗は新設定を残し、再実行で移行を続行する',async t=>{
   const f=fixture(t); f.setLegacy({enabled:true});
   await assert.rejects(configureCodexSteer('enable',{...f.runtime,disableLegacy:async()=>{throw new Error('解除失敗');}}),/解除失敗/);

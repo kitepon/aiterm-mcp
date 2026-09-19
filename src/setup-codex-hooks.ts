@@ -43,9 +43,17 @@ export function mergeCodexParentHooks(file: string, command: string | null, prev
   for (const event of ["PostToolUse", "Stop"]) {
     const groups = hooks[event] ?? [];
     if (!Array.isArray(groups) || groups.some(group => !object(group) || !Array.isArray(group.hooks))) throw new SetupError("codex_hook_config_invalid", `${event}のhook設定を読めません`);
-    hooks[event] = groups.map(group => ({ ...group, hooks: group.hooks.filter((hook: any) =>
-      !(hook?.type === "command" && ((command !== null && hook.command === command) || (previousCommand && hook.command === previousCommand)))) })).filter(group => group.hooks.length);
-    if (command !== null) hooks[event].push({ ...(event === "PostToolUse" ? { matcher: ".*" } : {}),
+    // 既存の位置で置換する。末尾へ移すと同じ設定の再導入でも変更扱いになり、
+    // 稼働中のCodexへ不要な再起動を要求してしまう。
+    hooks[event] = [];
+    let insertionIndex: number | null = null;
+    for (const group of groups) {
+      const remaining = group.hooks.filter((hook: any) =>
+        !(hook?.type === "command" && ((command !== null && hook.command === command) || (previousCommand && hook.command === previousCommand))));
+      if (remaining.length !== group.hooks.length && insertionIndex === null) insertionIndex = hooks[event].length;
+      if (remaining.length) hooks[event].push({ ...group, hooks: remaining });
+    }
+    if (command !== null) hooks[event].splice(insertionIndex ?? hooks[event].length, 0, { ...(event === "PostToolUse" ? { matcher: ".*" } : {}),
       hooks: [{ type: "command", command, timeout: 20, ...(event === "PostToolUse" ? { additionalContextLimit: 0 } : {}) }] });
     if (!hooks[event].length) delete hooks[event];
   }

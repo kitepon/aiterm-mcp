@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codex親hookの再導入で既存の登録位置を保持する。後から別のhookが追加された環境でも順序を変えず、同じ設定の再実行で不要な`restart_required`を返さない。
+
 ## [0.37.6] - 2026-09-19
 
 ### 修正

@@ -9,6 +9,7 @@ import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js"
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
 import { AitermError } from "./errors.js";
+import { codexHookDeliveryState } from "./codex-hook-state.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -68,9 +69,12 @@ function readRecord(file: string): DeliveryRecord {
 }
 
 function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
-  return { delivery_id: record.delivery_id, state: record.state, child_outcome: record.child_outcome,
+  const hookState = !isClaude(record.parent) && record.state === "submitted"
+    ? codexHookDeliveryState(record.parent.codex_home, record.parent.thread_id, record.delivery_id) : null;
+  return { delivery_id: record.delivery_id, state: hookState ?? record.state, child_outcome: record.child_outcome,
     child_turn_id: record.child_turn_id, queued_submission_id: record.queued_submission_id,
-    error_code: record.error ? /^[A-Z][A-Z0-9_]+(?=:)/.exec(record.error)?.[0] ?? "PARENT_DELIVERY_FAILED" : null };
+    error_code: hookState === "unknown" ? "CODEX_HOOK_DELIVERY_UNCONFIRMED"
+      : record.error ? /^[A-Z][A-Z0-9_]+(?=:)/.exec(record.error)?.[0] ?? "PARENT_DELIVERY_FAILED" : null };
 }
 
 function answerMessage(record: DeliveryRecord): string {

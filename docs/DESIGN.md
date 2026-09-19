@@ -68,49 +68,39 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 宛先はCodexのMCP handshakeと各要求の`_meta.threadId`から取得する。modelが指定したIDや環境変数で代用しない。
 単品導入の`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、
 `thread/read`と`thread/queue/list`で宛先を確認してから`thread/queue/add`へ本文をJSONで渡す。
-Steerを選択したmacOS・Windows Desktopでは、MCP processの祖先にある公式App Serverの本人専用接続へ接続する。
-`thread/loaded/list`と`thread/read`で同じ親を確認し、公式`turn/start`へ一度だけ送る。
-公式の`start_or_steer_turn`が実行中なら同じturnへ追加入力し、終了後なら同じtaskの次turnを開始する。
-状態を読んでから送信方法を選ぶraceや再送は作らない。model・権限のoverrideも渡さない。
-親のload／resumeは行わず、接続不能・未load・native sub-agentは明示errorにする。
-Steer設定がある場合にqueueへ自動退避することはない。
+Steerを選択したmacOS・Windowsでも配送の入口は公式キューとする。
+`src/codex-parent-hooks.ts`の同期`PostToolUse`がAitermの回答を同じターンの文脈へ渡し、
+`Stop`が最終応答の生成中に届いた回答で同じターンを継続する。
+取り込まれていない回答は公式キューに残り、親がidleになった時に通常配送される。終了後の再開には約10秒かかる場合がある。
+親を別processでload／resumeせず、modelや権限のoverrideを渡さない。native sub-agentは自動配送の親にしない。
 
-`aiterm-setup`の`--codex-steer enable|disable|status`が選択導入を所有する。
-MCP登録とmacOSの中継launcherへ保存するNodeの起動先は`src/setup-node.ts`が決める。
-HomebrewのCellar実体は同じformulaの`opt/<formula>/bin/node`へ変換し、実行できることを確認する。
-`node@22`等のformulaを維持し、GUIのPATH探索や別のNodeへの自動切替は行わない。
-Homebrew以外の起動先は変更しない。既存の版別パスは`aiterm-setup --json`で再生成する。
-設定とPOSIX launcherは`~/.config/aiterm-mcp/codex-relay/`、一時socketは`/tmp/aiterm-codex-<uid>/`へ置く。
-launcherはNodeのstdio中継を起動してから公式CLIへ同じPIDでexecし、Desktopとの親子関係・署名・通常環境を保つ。
-Python・独自App Server・認証情報のコピーは使わない。中継はRPCと承認応答を透過搬送し、追加clientは承認へ応答しない。
-stdio EOFは公式の2段階終了へ伝える。受付開始待ちはexec直後だけに限定し、送信済みRPCは再送しない。
-macOSのユーザーLaunchAgentはログイン時に同じ起動設定を適用する。解除は専用LaunchAgentを停止・削除し、
-保存した元の`CODEX_CLI_PATH`へ戻す。他から変更された設定は上書きしない。
-`status=ready`は公式binary・Desktopの直接子・同じsocketのRPC応答を確認した場合だけ返す。
-初回の設定保存後は`restart_required`であり、Desktopの完全終了・再起動を要する。
-引数の解釈、JSONL中継、設定の有効化・競合・復元は両OSで共通の処理を使う。
-Windows標準の.NET Frameworkでlauncherを作り、`CreateProcessW`の親process属性と継承handle一覧で、
-公式CLIをDesktopの直接の子、中継Nodeを公式CLIの直接の子として起動する。
-launcherは終了監視だけを担い、JSON-RPCを通さない。Windowsには同一PIDでのexecがないためPIDは変わるが、
-公式binary、起動元との直接の親子関係、通常の環境とstdioは維持する。
-MSIXの仮想AppDataはnative子へ同じ論理パスを渡しても見えない場合があるため、準備processが
-自身の`realpathSync.native`を起動計画へ返し、後続の中継Nodeはその実体を起動する。
-解決は起動時に行い、設定時の保存先で固定しない。
-公式Desktopが展開した4実行ファイルを配布元のSHA-256と照合し、AitermがCodexをコピー・再配布しない。
-公式CLIの認証付きloopback WebSocketを使い、本人専用ACLのtokenと接続記録をAitermのsessions下へ置く。
-Windowsのprocess情報はprocess-runtimeが所有し、接続はPID・開始時刻・実行ファイル・token引数で照合する。
-MCP processの祖先から親を選び、同じloaded taskへ送る。開始時刻は小数桁の表記差を正規化して比較する。
-stdio EOFで自分が起動した公式serverを停止し、接続記録を削除する。native launcherはJob Objectで
-所有するprocessだけを終了し、公式serverの終了確認後に戻る。
-両OSとも有効化前に元の起動設定を保存し、Aitermのlauncherを設定する。解除は元の値へ戻す。
-旧Windows版で既存launcherを共有した設定は読取り可能だが、次のenableでAitermのlauncherへ移行する。
-起動・配送・設定・診断は他製品のコード、設定、コマンドへ依存しない。
-LinuxのSteer選択はunsupportedとする。通常の単品導入・queue配送は全対応OSで維持する。
+`src/codex-hook-state.ts`は同じCodex home・thread・配送UUID・本文hashへの所有記録を保持する。
+キューの全ページを読んでから所有分を取り出し、他の利用者入力には触れない。
+同時hookの取得は本人専用ディレクトリ内の排他的hard linkで一つに決め、公式の削除結果がtrueの本文だけを出力する。
+削除中はprocess開始識別子を記録する。中断と出力失敗は`unknown`で本文を残し、自動再送しない。
+`parent_deliveries`はその状態と`CODEX_HOOK_DELIVERY_UNCONFIRMED`を表示する。
+`emitted`はhookへの出力完了でありmodelの読了ではない。公式キューが先に通常配送した入力の所有記録は次のhookで整理する。
 
-単品導入のqueue配送は親の実行中turnを中断せず、親がidleになった後に処理される。
-`parent_delivery`が配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullになる。
-`pty_observe`の`parent_deliveries`で状態を確認できる。`submitted`は公式受信口の受付済みを示し、modelの読了を意味しない。
-Steer配送の`queued_submission_id`はnullである。既存の配送record schemaは維持する。
+`aiterm-setup --codex-steer enable|disable|status`は`src/setup-codex-hooks.ts`が所有する。
+`CODEX_HOME/hooks.json`の他の登録を保持し、専用の同期hookを追加する。
+公式`hooks/list`から得た2件のkeyとhashだけを公式`config/batchWrite`で承認し、再読して有効・承認済みであることを確認する。
+承認省略flagを恒久設定へ書かない。利用者の別hookを承認しない。
+選択と配送の所有記録は`~/.config/aiterm-mcp/codex-parent-hooks/`に置く。
+Nodeは`src/setup-node.ts`でHomebrewの同じformulaの`opt`へ正規化し、更新で消えるCellar実体を保存しない。
+
+新規の起動差し替えは作らない。旧中継の設定は新しいhookの確認後に従来の解除処理で復元する。
+macOSの専用LaunchAgent、Windowsのユーザー環境変数、所有外の値の保持は旧adapterが担う。
+旧中継の互換読取りと移行用コードは残し、setupを実行するまでは旧設定の配送を維持する。
+移行が中断した場合は保存済みの所有情報を使って次のsetupで継続し、未完了をreadyにしない。
+有効化前から動いている公式processのPIDと開始識別子を保存し、それが残っている間はrestart_requiredとする。
+`ready`は公式APIによるhook登録・承認の読戻しと、更新前processの終了を確認した状態である。
+Codexの通常起動はAitermのNode、module、socketに依存しない。
+Windowsでは公式Desktopが展開した実行ファイルを照合して配送用の公式APIへ接続する。Desktop更新後はsetupで再検出する。
+LinuxのSteer選択はunsupportedとし、単品のキュー配送は全対応OSで維持する。
+
+`parent_delivery`は配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullとなる。
+`submitted`は公式キューの受付またはhook出力の完了を示す。キューIDはSteer相当の選択時も保持する。
+長いStop継続入力はCodex自身のhook処理で抜粋と全文ファイルへの参照になる場合がある。
 次の依頼へ進める前に前回の回答を保存し、harness所有記録を後の回答と取り違えない。
 
 Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存する。ownerのPIDと開始識別子で生存を判定し、

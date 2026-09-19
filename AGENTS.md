@@ -31,8 +31,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - launcherは直接CLIと同じ通常`HOME`、project／user設定、MCP、plugin、skill、permission、trust、
   memory、historyを使う。Aitermはlaunch相関、完了event、bounded result、cleanup metadataだけを所有し、
   credential／設定をcopy、snapshot、filterしない。
-- agentへの送信は非ブロックdispatchで即返す。Codex親は単品導入なら公式queue、macOS・WindowsのSteer選択時は同じ公式App Serverの
-  `turn/start`による実行中Steer／終了後再開、Claude Code親は公式asyncRewake hookで
+- agentへの送信は非ブロックdispatchで即返す。Codex親は公式queueへ配送し、macOS・WindowsのSteer選択時は公式の同期hookで
+  同じターンへ取り込み、終了後は公式queueで再開する。Claude Code親は公式asyncRewake hookで
   回答本文を自動配送し、親はwaiterと回答回収を呼ばない。それ以外の親はreceiptの`wait_process`を別processとして起動し、
   `outcome`を判定して`pty_read(agent_transcript:true)`または`claude_turn recover`で回収する。
   親自身のturnをforeground waiterで止めず、timeout後にpromptを再送しない。
@@ -53,10 +53,12 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/core.ts`は該当harnessで判定を呼び出すだけとし、CLIの拒否文言や設定の修復処理を持たない。
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/parent-delivery.ts`: 子の完了観測・回答保存・配送state。
-  `src/codex-parent-receiver.ts`: Codex親の識別と選択した公式受信口。
+  `src/codex-parent-receiver.ts`: Codex親の識別と公式キューの受信口。
+  `src/codex-parent-hooks.ts`／`src/codex-parent-hook.ts`／`src/codex-hook-state.ts`: 同一ターンへの公式hook配送と所有記録。
+  `src/setup-codex-hooks.ts`: hookの選択導入、公式APIでの承認・読戻し、旧中継からの移行。
   `src/codex-relay-arguments.ts`／`src/codex-relay-stdio.ts`／`src/codex-relay-setup.ts`: 全OS共通の引数・中継・設定処理。
   その他の`src/codex-relay-*.ts`／`src/codex-stdio-relay.ts`: 公式socketの識別、接続、POSIX起動と終了の適合。
-  `src/setup-codex-relay.ts`: Steerの明示選択、設定・解除・実効確認。
+  `src/setup-codex-relay.ts`: 旧中継の互換読取り・解除と公式バイナリの検出。
   `src/windows-codex-*.ts`: Windowsの公式CLI起動、認証付き接続、native launcher、ACLと選択導入。
   `src/claude-parent-receiver.ts`／`src/claude-parent-hook.ts`: Claude親の要求相関と公式hookへの回答出力。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。

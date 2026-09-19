@@ -42,7 +42,7 @@ Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package mana
 既存設定の他サーバーを保持し、JSON設定は変更前の`.aiterm-backup`を残す。
 結果の`status`は`ready`／`unsupported`／`failed`／`restart_required`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
 登録先はglobal packageのNodeとMCP入口の絶対パスで、npm一時cacheやsource checkoutは登録しない。
-HomebrewのNodeは更新後も有効な`opt`のパスをMCP登録とCodex中継に使う。旧版の登録でNode更新後に起動できなくなった場合も、更新後の`aiterm-setup --json`で修復できる。
+HomebrewのNodeは更新後も有効な`opt`のパスをMCP登録とCodexのhookに使う。旧版の登録でNode更新後に起動できなくなった場合も、更新後の`aiterm-setup --json`で修復できる。
 更新後も同じ入口を実行し、MCP clientを再起動する。npm install自体はユーザー設定を変更しない。
 公開JSONは`schema: "aiterm.setup-result.v1"`、全体の`status`、端末の`backend`、
 AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、再起動待ちは3、それ以外は2となる。
@@ -56,22 +56,24 @@ AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`re
 aiterm-setup --json --codex-steer enable
 ```
 
-公式Codex Desktopに同梱されたApp Serverを使い、実行中の親には同じターンへ回答を送り、
-終了後に届いた回答でも同じタスクを自動再開します。App Serverの改造・再ビルド・別配布は不要です。
-新しいlauncherを設定した場合は`restart_required`（終了コード3）を返します。Codexを完全終了して再起動し、
-`aiterm-setup --codex-steer status`で`ready`を確認してください。接続できない時にキューへ自動退避しません。
+公式キューと公式hookを使い、実行中の親には同じターンの次の推論へ回答を渡し、終了後は同じ会話を自動再開します。
+Codexの起動プログラムと通常のstdio通信は変更しません。hookの実行ファイルが失われてもCodexの起動・応答は継続します。
+終了後の再開は公式キューの監視周期に従い、約10秒かかる場合があります。
 
-選択と復元情報は`~/.config/aiterm-mcp/codex-relay/`へ保存します。macOSはユーザーLaunchAgent、
-Windowsはユーザー環境変数`CODEX_CLI_PATH`で起動設定を維持します。更新時の`aiterm-setup --json`は選択を維持して中継を更新します。
-解除・旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
-SteerはmacOS・Windowsの公式Codex Desktopと同梱CLI 0.154以上に対応します。Steer有効時の宛先は中継で起動したDesktopに限ります。
-Windowsでは公式Desktopが展開した実行ファイルを照合し、認証付きのローカル接続へ中継します。
-Windowsの仮想AppDataからの起動にも対応し、中継へ実際の保存先を引き継ぎます。
-Aitermのpackageがlauncher・中継・設定・親への配送を含み、gpt-connectorやdotagentsの導入は不要です。
-両OSで公式CodexをDesktopの直接の子として保ち、中継は公式Codexの子として動きます。
-有効化時は元の起動設定を保存してAitermのlauncherを設定し、解除時に元へ戻します。選択後に他から変更された値は上書きしません。
-WindowsのDesktop更新後はsetupを再実行してください。
-LinuxのSteer付き導入は理由付き`unsupported`を返します。Aiterm単品は従来どおり利用できます。
+`aiterm-setup`は`CODEX_HOME/hooks.json`へ専用の`PostToolUse`と`Stop`を追加し、公式APIでその2件だけを承認・読戻しします。
+他のhookや承認は保持します。選択と配送の所有記録は`~/.config/aiterm-mcp/codex-parent-hooks/`へ保存します。
+既存の中継は新しいhookの確認後に解除し、保存していた`CODEX_CLI_PATH`を復元します。macOSの専用LaunchAgentも解除します。
+移行前から動いているCodexがあれば`restart_required`（終了コード3）を返します。完全終了・再起動後に
+`aiterm-setup --codex-steer status`で`ready`を確認してください。旧設定は移行を実行するまで維持します。
+
+hookはAiterm自身の配送記録と本文が一致する回答だけを取り出し、利用者がキューに入れた入力は保持します。
+取り出し中断や出力失敗は`parent_deliveries`に`unknown`と`CODEX_HOOK_DELIVERY_UNCONFIRMED`で現れ、本文を保存します。
+自動再送はしません。長い回答はCodexの公式hook処理で抜粋と全文ファイルへの参照になる場合があります。
+
+解除・hook未対応の旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
+macOS・Windowsの公式Codex Desktopと、公式キュー・hookに対応する同梱CLIを対象にします。
+WindowsのDesktop更新後はsetupを再実行してください。LinuxのSteer付き導入は理由付き`unsupported`を返します。
+Aiterm単品の公式キュー配送は従来どおり利用できます。
 
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:
 

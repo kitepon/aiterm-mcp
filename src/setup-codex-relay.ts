@@ -32,7 +32,7 @@ function getGui(key: string): string | null {
   return result.stdout.trim() || null;
 }
 
-function findDesktopBinary(): string {
+export function findDesktopBinary(): string {
   const search = spawnSync("/usr/bin/mdfind", ["kMDItemCFBundleIdentifier == 'com.openai.codex'"], { encoding: "utf8", timeout: 10_000 });
   const candidates = [...new Set(["/Applications/Codex.app", "/Applications/ChatGPT.app", ...(search.status === 0 ? search.stdout.trim().split("\n") : [])])];
   const found = candidates.filter(app => {

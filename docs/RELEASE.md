@@ -35,19 +35,18 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 
 ## 公開後smoke
 
-Codex Steerを変更した場合は、公式バイナリを指定した`test/codex-relay-official.test.mjs`で
-実行中Steer・終了後再開・承認応答・stdio終了を先に確認する。公開packageの
-`aiterm-setup --json --codex-steer enable`で選択導入し、`restart_required`なら人がDesktopを完全再起動する。
-再起動後の`aiterm-setup --codex-steer status`が`ready`であることと、通常の親からの子の回答配送を確認する。
-接続があるだけで成功とせず、公式binaryとDesktopの親子関係まで確認する。
-Windowsは`AITERM_TEST_CODEX_BINARY`に公式Desktopの実行fileを指定し、
-`test/windows-codex.test.mjs`で単独launcher、ACL、親識別、元の起動設定の保存と解除も確認する。
-同じ環境変数で`test/codex-relay-official.test.mjs`の実行中Steer・終了後再開・承認中継・EOFを確認できる。
-Windowsの中継起動を変更した場合は、公式Desktopが入った端末で`AITERM_TEST_CODEX_PACKAGE`に
-そのpackage family名を指定し、`test/windows-codex-msix.test.mjs`も実行する。公式の
-`Invoke-CommandInDesktopPackage`で仮想AppDataからのinitialize・EOFを確認し、稼働中Desktopや
-ユーザー設定は変更しない。packageと公式binaryを指定しないCIではこの実機試験をskipする。
-Linuxの未対応Steer選択が理由付きで停止することもCIで確認する。
+Codex Steerを変更した場合は、公式バイナリを指定した`test/codex-parent-hooks-official.test.mjs`で
+通常stdio起動、公式hookの個別承認、同一ターン配送、終了後再開、hook消失、終了との競合、利用者キューの保持を確認する。
+`AITERM_TEST_CODEX_BINARY`に公式Desktopの同梱実行ファイルを指定し、一時HOMEと模擬モデルで実行する。
+試験は実認証と稼働中Desktopの設定を使わない。指定のないCIではこの実機試験をskipする。
+公開packageの`aiterm-setup --json --codex-steer enable`で選択導入し、`restart_required`ならDesktopを完全再起動する。
+再起動後に`aiterm-setup --codex-steer status`が`ready`となり、通常の親が同じターンで子の回答を受け取ることを確認する。
+アプリ内ツールと通常起動も確認し、公式バイナリの隔離試験だけでDesktop統合を完了扱いしない。
+
+旧中継の移行を変更した場合は`test/setup-codex-relay.test.mjs`と`test/windows-codex.test.mjs`で
+元の起動設定・専用LaunchAgent・ユーザー環境変数の復元と、所有外の値の保持を確認する。
+新しいhookの読戻し失敗では旧設定を解除しないこと、解除中断では再実行で移行を完了できることも確認する。
+新方式の登録と配送stateは`test/setup-codex-hooks.test.mjs`と`test/codex-parent-hooks.test.mjs`が検証する。
 
 setupを変更した場合は、公開packageのglobal install後に`aiterm-setup --json`を実行し、
 端末実行と検出した各AIの登録結果を確認する。初回と再実行は一時設定領域でも試験し、所有外の設定保持を確かめる。
@@ -76,10 +75,10 @@ aiterm-setup --json
 
 巻き戻しは既知の正常版を指定する。
 
-Steerを持たない旧版へ戻す時は、install前に`aiterm-setup --codex-steer disable`を実行する。
-macOSは専用LaunchAgentの解除、Windowsは元のユーザー環境変数の復元を確認し、MCP clientを再起動する。
+新しいCodex親hookを持たない旧版へ戻す時は、install前に`aiterm-setup --codex-steer disable`を実行する。
+専用hookの解除を確認し、Codexを完全再起動する。旧中継が残っている場合は、macOSの専用LaunchAgentとWindowsのユーザー環境変数も復元する。
 互換launcherを共有していた場合はAitermのSteer選択だけを解除し、所有外の起動設定を保持する。
-回答record schemaは従来と共通であり、Steer送信済みrecordの`queued_submission_id`はnullとなる。
+回答record schemaは従来と共通であり、新方式のSteer相当配送も`queued_submission_id`を保持する。
 
 Claude親配送hookのない旧版へ戻す場合は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を
 実行する。Aiterm専用の3 hookだけを解除し、他製品のhookと設定を保持する。

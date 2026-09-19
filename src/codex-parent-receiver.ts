@@ -1,4 +1,4 @@
-// Codex親の配送。Steerを選択した環境は同じ公式App Server、それ以外は公式queueを使う。
+// Codex親の配送は公式queueを使う。旧中継の選択はsetupで移行するまで維持する。
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import * as path from "node:path";
@@ -7,6 +7,7 @@ import { realCodexHome } from "./harnesses/codex.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { readRelayConfig, parentRelaySocket } from "./codex-relay-config.js";
 import { withCodexRelay, verifyLoadedParent } from "./codex-relay-client.js";
+import { finishCodexHookSubmission, assertCodexHookParentCurrent, assertCodexHooksReady, codexHookDirectory, readCodexHookConfig, registerCodexHookInput } from "./codex-hook-state.js";
 export { CodexDeliveryError } from "./codex-delivery-error.js";
 
 export interface CodexParent {
@@ -30,10 +31,12 @@ export interface CodexReceiverRuntime {
   args?: string[];
   timeout_ms?: number;
   socket_path?: string;
+  hook_directory?: string;
 }
 
 function relaySocket(runtime?: CodexReceiverRuntime): string | null {
   if (runtime) return runtime.socket_path ?? null;
+  if (readCodexHookConfig()?.enabled) return null;
   const config = readRelayConfig();
   return config?.enabled ? parentRelaySocket(config) : null;
 }
@@ -45,12 +48,13 @@ type Pending = {
   method: string;
 };
 
-async function withCodexReceiver<T>(
+export async function withCodexReceiver<T>(
   parent: CodexParent,
   action: (request: (method: string, params: unknown) => Promise<any>) => Promise<T>,
   runtime: CodexReceiverRuntime = {},
 ): Promise<T> {
-  const executable = runtime.executable ?? resolveAgentBin("codex");
+  const config = runtime.executable ? null : readCodexHookConfig();
+  const executable = runtime.executable ?? (config?.enabled ? config.binary : null) ?? resolveAgentBin("codex");
   if (!executable) throw new CodexDeliveryError("CODEX_RECEIVER_UNAVAILABLE", "Codexの実行ファイルを確認できません");
   const child = spawn(executable, runtime.args ?? ["app-server", "--listen", "stdio://"], {
     stdio: ["pipe", "pipe", "ignore"],
@@ -138,6 +142,11 @@ export async function verifyCodexParent(parent: CodexParent, runtime?: CodexRece
       throw new CodexDeliveryError("CODEX_PARENT_UNSUPPORTED", "Codexのnative sub-agentは外部processからのキュー入力を受け付けません");
     }
     await request("thread/queue/list", { threadId: parent.thread_id, limit: 1 });
+    const config = runtime ? (runtime.hook_directory ? readCodexHookConfig(runtime.hook_directory) : null) : readCodexHookConfig();
+    if (config?.enabled) {
+      assertCodexHookParentCurrent(config);
+      assertCodexHooksReady(await request("hooks/list", { cwds: [response.thread.cwd] }), config.command, path.join(parent.codex_home, "hooks.json"));
+    }
   }, runtime);
 }
 
@@ -160,7 +169,10 @@ export async function submitCodexParentAnswer(
       return { queued_submission_id: null };
     }, runtime?.timeout_ms);
   }
-  return withCodexReceiver(parent, async (request) => {
+  const root = runtime ? runtime.hook_directory : codexHookDirectory();
+  const hook = root && readCodexHookConfig(root)?.enabled;
+  if (hook) registerCodexHookInput(parent.codex_home, parent.thread_id, deliveryId, text, root);
+  try { return await withCodexReceiver(parent, async (request) => {
     const result = await request("thread/queue/add", {
       threadId: parent.thread_id,
       input: [{ type: "text", text, text_elements: [] }],
@@ -170,5 +182,6 @@ export async function submitCodexParentAnswer(
       throw new CodexDeliveryError("CODEX_RECEIVER_INVALID_RESPONSE", "キューの受付IDを確認できません", true);
     }
     return { queued_submission_id: result.queuedSubmission.id };
-  }, runtime);
+  }, runtime); }
+  finally { if (hook) finishCodexHookSubmission(parent.codex_home, parent.thread_id, deliveryId, root); }
 }

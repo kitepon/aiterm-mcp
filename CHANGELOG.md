@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codex親へのSteer相当の配送を、公式キューと同期hookへ変更する。ツール実行後または回答終了直前に同じターンへ追加し、終了後は公式キューで同じ会話を再開する。終了後の再開には約10秒かかる場合がある。
+- 選択導入は専用hookだけを公式APIで承認・読戻しし、その後に旧中継の起動差し替えを解除する。Codexの通常起動はAitermのNodeとmoduleに依存しない。
+- 利用者自身のキュー入力は保持する。並行hookの取得を一つに制限し、取り出し中断・出力失敗は本文を保存して`unknown`として照会できる。
+
 ## [0.37.4] - 2026-09-19
 
 ### 修正

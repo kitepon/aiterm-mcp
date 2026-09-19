@@ -8,8 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { prepareBackend, runSetupCommand, SetupError, type SetupRun } from "./setup-platform.js";
 import { configureIntegrations, type Registration, type IntegrationResult } from "./setup-integrations.js";
-import { configureCodexSteer, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-relay.js";
-import { readRelayConfig } from "./codex-relay-config.js";
+import { configureCodexSteer, codexSteerSelected, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-hooks.js";
 import { setupNodeExecutable } from "./setup-node.js";
 
 export function globalRegistration(run: SetupRun = runSetupCommand): Registration {
@@ -89,7 +88,7 @@ export async function runSetup(options: {
     } else result.status = "ready";
     if (result.status === "ready") {
       stage = "codex_steer";
-      result.codex_steer = await (options.steer ?? configureCodexSteer)(options.codex_steer ?? (readRelayConfig()?.enabled ? "enable" : "status"));
+      result.codex_steer = await (options.steer ?? configureCodexSteer)(options.codex_steer ?? (codexSteerSelected() ? "enable" : "status"));
       if (["failed", "unsupported", "restart_required"].includes(result.codex_steer.status)) {
         result.status = result.codex_steer.status as SetupStatus;
         result.reason_code = result.codex_steer.reason_code;

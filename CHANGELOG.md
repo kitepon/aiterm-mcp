@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.6] - 2026-09-19
+
 ### 修正
 
 - WindowsのPowerShellへ複数行を送ると、改行が`Ctrl+Enter`として解釈されて行順が反転し、完了印が処理より先に出る問題を修正した。POSIX shellと同じくscript全体を一括で渡し、現在のshellの変数・作業場所とEnterによる実行開始を保持する。
@@ -1704,7 +1706,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...HEAD
+[0.37.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...v0.37.6
 [0.37.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...v0.37.5
 [0.37.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...v0.37.4
 [0.37.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...v0.37.3

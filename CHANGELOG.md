@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.8] - 2026-09-19
+
 ### 修正
 
 - WindowsのCodex親hookをPowerShellの呼出し演算子付きで登録する。引用した実行パスが構文エラーになり、承認済みでも同じターンへ回答が届かなかった問題を修正した。
@@ -1717,7 +1719,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...HEAD
+[0.37.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...v0.37.8
 [0.37.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...v0.37.7
 [0.37.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...v0.37.6
 [0.37.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...v0.37.5

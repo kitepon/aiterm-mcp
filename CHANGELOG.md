@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.5] - 2026-09-19
+
 ### 修正
 
 - Codex親へのSteer相当の配送を、公式キューと同期hookへ変更する。ツール実行後または回答終了直前に同じターンへ追加し、終了後は公式キューで同じ会話を再開する。終了後の再開には約10秒かかる場合がある。
@@ -1698,7 +1700,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...HEAD
+[0.37.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.4...v0.37.5
 [0.37.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.3...v0.37.4
 [0.37.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.2...v0.37.3
 [0.37.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.1...v0.37.2

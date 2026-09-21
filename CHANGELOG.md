@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.9] - 2026-09-21
+
 ### 修正
 
 - Grok／Composerで前のターンのweekly-limitパネルが残っていても、通常の`pty_send`が一度閉じて今回の本文を送れるようにした。同じsessionを保ち、解除記録をreceiptへ返す。
@@ -1724,7 +1726,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...HEAD
+[0.37.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...v0.37.9
 [0.37.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...v0.37.8
 [0.37.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...v0.37.7
 [0.37.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.5...v0.37.6

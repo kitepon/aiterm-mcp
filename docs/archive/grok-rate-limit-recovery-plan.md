@@ -1,6 +1,7 @@
 # Grokの過去の利用上限表示からの復帰 — 実装設計
 
-状態: 実装中。2026-09-21、オーナーの実装指示により公開・BellTeam導入まで進める。
+状態: 完了（2026-09-21）。実装・公開・BellTeam導入・通常応答を確認済み。
+判断と受入の正本は[ADR 0069](../adr/0069-grok-rate-limit-recovery.md)。元の停止PTYでの実CLI解除は未観測。
 設計後にオーナーの指示でBellTeamの既存公開版を更新し、元の停止PTYは終了した。
 元の同一sessionでの実機復帰は現在再現できない。保存済み画面と実PTYで解除・送信を検証し、
 公開packageとBellTeamの通常経路は別途実機確認する。未観測を復帰成功と報告しない。
@@ -69,14 +70,14 @@ Help improve Grok                         [Opt out] [Opt in]
 
 ## 一次資料と操作の選定
 
-公式資料は固定commitから[RAG](../rag/INDEX.md)へ原文保存済み。
+公式資料は固定commitから[RAG](../../rag/INDEX.md)へ原文保存済み。
 以下の公開source commitは調査時の公式mainであり、本番実行ファイルとの同一性は主張しない。
 
-- [キーボード操作](../rag/sources/agent-launchers/grok-dialog-keyboard-20260921.md):
+- [キーボード操作](../../rag/sources/agent-launchers/grok-dialog-keyboard-20260921.md):
   質問カードの `Shift+X` は閉じる操作。`Esc` はカードを残してscrollbackへ移るので使わない。
-- [利用上限パネル](../rag/sources/agent-launchers/grok-billing-dialog-20260921.md):
+- [利用上限パネル](../../rag/sources/agent-launchers/grok-billing-dialog-20260921.md):
   上限表示はローカルの質問カード。`Try Again` は保管された前のpromptを再投入する。
-- [privacy案内](../rag/sources/agent-launchers/grok-privacy-banner-20260921.md):
+- [privacy案内](../../rag/sources/agent-launchers/grok-privacy-banner-20260921.md):
   通常agent画面の案内として描画する。表示の存在だけで入力を拒否しない。
 
 `Shift+X` を対象のベルへ送った結果は、この設計段階では未検証。
@@ -211,35 +212,37 @@ node --test --test-name-pattern='Grok|grok|Composer|composer|rate.limit|上限' 
 npm run test:docs
 ```
 
-通し試験は実装確認に使わず、[RELEASE](RELEASE.md)の現行手順と製品CIに従う。
+通し試験は実装確認に使わず、[RELEASE](../RELEASE.md)の現行手順と製品CIに従う。
 設計段階では製品コードを変更していないため、製品の全試験は実行しない。
 
-## 実装後の公開・本番受入の順序
+## 実装と検証の記録
 
-1. 実装差分とfocused testを確認し、Aitermの通常release手順を完了する。
-   公開versionはrelease時に決め、本書へ現役版を固定しない。
-2. 本番を再buildする前に、公開済みpackageを標準の
-   `npm exec --yes --package=aiterm-mcp@<公開版> -- aiterm-mcp`
-   で短命のMCP接続として起動する。通常のBot用環境と同じHOME/stateを使う。
-   開発版distのcopyや本番設定の直接編集は行わない。
-3. 保存してある停止中のベルに対し、公開 `pty_send` を一度呼び、
-   復帰記録、同じsession/launch、今回のreceipt cursor以後のturn、
-   `wait_process` のdone、今回の確定回答を確認する。
-   実機では未知の操作を探しながら送らず、設計したX一回で失敗したら記録して止める。
-   上限が本当に継続中なら失敗をそのまま残し、復帰成功とは報告しない。
-4. BellTeamの `Dockerfile` の `AITERM_VERSION` だけを公開版へ更新する。
-   本番反映はBellTeam正典の `scripts/deploy.sh "<日本語メッセージ>"` を使う。
-   これでBotが停止するため、同一セッションでの復帰検証を必ず先に終える。
-5. BellTeamの通常配送経路で一回の確認メッセージを届け、確定回答まで確認する。
-   Bot台帳、共有CLI設定、待機行列、失敗済み履歴は手編集しない。
-   他の停止Botへ一括再開メッセージを送らない。
+- 実装commit: `e88e0e2178c162891606ed84c8ff53ad789ba0d5`。
+- 新規試験は一つの`test/grok-rate-limit.test.mjs`へ集約した。画面判定、wait分類、
+  模擬CLIへの実PTY入力、Grok/Composerの同一session維持、解除後cursor、
+  未終了・harness不在・解除失敗の未送信、読取非変更、auth不在を確認した（10件）。
+- 既存Grok/Composer関連試験: 31成功、Windows専用1件skip。文書検査7成功。
+- `npm test`: 517成功、27件skip、失敗0。独立した読取専用反証でも重大な指摘なし。
+- `npm run release -- 0.37.9`で既定branchへのversion commit、tag、GitHub Releaseを作成。
+  npm公開jobは成功し、配信準備の後に取得を確認した。Official MCP Registryでも同じ版を確認した。
+  公開version値はこの作業の履歴である。
+- BellTeamはDockerfileの固定版だけを変更し、169試験が成功。正規deployで導入を完了した。
 
-公開packageでの同一セッション復帰と、BellTeamへ導入後の通常配送の両方が実装の完了条件。
-設計担当はここを未実施のまま実装担当へ渡す。本番の停止状態は設計中に消さない。
+## 公開・本番受入の実施
 
-## 実装担当への引継ぎ
+1. 公開npm packageを一時領域へ標準installし、公開distに対する復帰試験10件が全成功。
+2. BellTeamの正規deployを実行。healthはok、実MCP接続が`aiterm 0.37.9`を返した。
+   ローカルcommitは`ea92d07`、本番commitは`1e33dcb`。
+3. ベルへの通常配送が2026-09-21T01:04:11.686Zに`AITERM_0_37_9_OK`を返し、deliveredを確認。
+4. [実装commitのCI](https://github.com/kitepon/aiterm-mcp/actions/runs/35549055987)は
+   macOS・Linux・Windowsの全環境で成功。独立反証と実測を根拠に受入し、本書をarchiveした。
 
-この設計を読み、対象関数の現行コードを確認してから、上記の変更範囲だけを実装する。
-設計上の選択は確定済みであり、汎用の復帰フレームワークや新APIへ作り替えない。
-実物と設計の前提が違ったら、その差分を報告し、別のキーや復旧経路を推測して追加しない。
-実装前の文書commitに製品修理・公開・実機復帰を実施済みと書かない。
+元の停止PTYでの復帰観測は、設計後に依頼された既存版更新でそのPTYが終了したため実施不能。
+保存済み画面を使った同一sessionの実PTY試験と、本番Grokの通常送信を区別して報告する。
+
+## CIで別途観測した既存問題
+
+変更前の設計commitの[CI](https://github.com/kitepon/aiterm-mcp/actions/runs/35547487016)は、
+Windowsの`test/windows-codex.test.mjs`のsetup/復元/失敗時復元の3件で
+`CODEX_WINDOWS_OPERATION_FAILED`となった。Grok修正前から存在し、対象のWindows実装は変更していない。
+今回の3環境CIでは全件成功し、再発しなかった。原因未確認のWindows実装は変更していない。

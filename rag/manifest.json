@@ -56,6 +56,23 @@
       "fetched": "2026-08-24"
     },
     {
+      "slug": "grok-billing-dialog-20260921",
+      "topic": "agent-launchers",
+      "title": "Grokの利用上限パネルの生成と選択処理",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/src/app/dispatch/billing.rs",
+      "source_type": "official_source",
+      "path": "sources/agent-launchers/grok-billing-dialog-20260921.md",
+      "tags": [
+        "grok",
+        "rate-limit",
+        "recovery"
+      ],
+      "summary": "公式ソース。利用上限パネルの表示、再試行、購入操作の責務を確認する。",
+      "relevance": "過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。",
+      "chars": 22892,
+      "fetched": "2026-09-21"
+    },
+    {
       "slug": "grok-build-cli-agent-parity-e5fd481",
       "topic": "agent-launchers",
       "title": "Grok Build CLI model, reasoning effort, and sandbox flags",
@@ -125,6 +142,23 @@
       "fetched": "2026-08-13"
     },
     {
+      "slug": "grok-dialog-keyboard-20260921",
+      "topic": "agent-launchers",
+      "title": "Grokの質問カードの終了とフォーカス操作",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/docs/user-guide/03-keyboard-shortcuts.md",
+      "source_type": "official_source",
+      "path": "sources/agent-launchers/grok-dialog-keyboard-20260921.md",
+      "tags": [
+        "grok",
+        "rate-limit",
+        "recovery"
+      ],
+      "summary": "公式ショートカット資料。Shift+Xで質問を閉じ、Escはスクロールバックへ移る。",
+      "relevance": "過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。",
+      "chars": 31915,
+      "fetched": "2026-09-21"
+    },
+    {
       "slug": "grok-hooks-folder-trust-1-0-13-20260908",
       "topic": "agent-launchers",
       "title": "Grok 1.0.13のhookとフォルダ信頼",
@@ -140,6 +174,23 @@
       "relevance": "確度: 公式配布資料と実機で確認。Aitermの無人起動がフォルダ信頼画面で初回promptを失う問題の根拠。",
       "chars": 48507,
       "fetched": "2026-09-08"
+    },
+    {
+      "slug": "grok-privacy-banner-20260921",
+      "topic": "agent-launchers",
+      "title": "Grokのプライバシー案内表示",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/src/views/privacy_banner.rs",
+      "source_type": "official_source",
+      "path": "sources/agent-launchers/grok-privacy-banner-20260921.md",
+      "tags": [
+        "grok",
+        "rate-limit",
+        "recovery"
+      ],
+      "summary": "公式ソース。プライバシー案内と通常入力欄の共存を確認する。",
+      "relevance": "過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。",
+      "chars": 14169,
+      "fetched": "2026-09-21"
     },
     {
       "slug": "grok-sandbox-hook-protection-1-0-13-20260908",
@@ -2604,5 +2655,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-09-19"
+  "updated": "2026-09-21"
 }

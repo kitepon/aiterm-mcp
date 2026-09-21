@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **133** 件 / 更新: 2026-09-19
+- 総数: **136** 件 / 更新: 2026-09-21
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -338,7 +338,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://invisible-island.net/xterm/xterm-paste64.html> (spec, 16092 chars)
   - 効きどころ: PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。
 
-## agent-launchers — 9件
+## agent-launchers — 12件
 
 - [Cursor Agent CLI installation](sources/agent-launchers/cursor-agent-cli-installation-2026-08-24.md) — Cursor Agent CLIの公式installer、cursor-agent/agentコマンド、update経路の公式仕様。
   - 出典: <https://cursor.com/docs/cli/installation> (official_docs, 7794 chars)
@@ -349,6 +349,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Cursor Plugins Reference](sources/agent-launchers/cursor-plugins-reference-2026-08-24.md) — Cursor plugin manifest、component discovery、hooks/hooks.jsonの公式仕様。
   - 出典: <https://prod.cursor.com/docs/reference/plugins> (official-docs, 42122 chars)
   - 効きどころ: Aitermのlaunch単位Cursor pluginがuser/project設定を書換えずStop hookを加算する根拠。
+- [Grokの利用上限パネルの生成と選択処理](sources/agent-launchers/grok-billing-dialog-20260921.md) — 公式ソース。利用上限パネルの表示、再試行、購入操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/src/app/dispatch/billing.rs> (official_source, 22892 chars)
+  - 効きどころ: 過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。
 - [Grok Build CLI model, reasoning effort, and sandbox flags](sources/agent-launchers/grok-build-cli-agent-parity-e5fd481.md) — Grok Build TUIの--model、--reasoning-effort（--effort alias）、--sandbox引数の一次実装。
   - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/e5fd4816d43260c15ba785f103990c1ed6cea230/crates/codegen/xai-grok-pager/src/app/cli.rs> (official_source, 59351 chars)
   - 効きどころ: grok_agent/composer_agentの起動時model・effort・read-only同等化の根拠。
@@ -361,9 +364,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Grok Build /model command](sources/agent-launchers/grok-build-model-command-e5fd481.md) — 対話TUIの/modelコマンドがmodelと任意effortを受ける一次実装。
   - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/e5fd4816d43260c15ba785f103990c1ed6cea230/crates/codegen/xai-grok-pager/src/slash/commands/model.rs> (official_source, 19345 chars)
   - 効きどころ: agent_configureで同一PTY・同一会話のままGrok/Composer modelとeffortを変更する根拠。
+- [Grokの質問カードの終了とフォーカス操作](sources/agent-launchers/grok-dialog-keyboard-20260921.md) — 公式ショートカット資料。Shift+Xで質問を閉じ、Escはスクロールバックへ移る。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/docs/user-guide/03-keyboard-shortcuts.md> (official_source, 31915 chars)
+  - 効きどころ: 過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。
 - [Grok 1.0.13のhookとフォルダ信頼](sources/agent-launchers/grok-hooks-folder-trust-1-0-13-20260908.md) — Grok配布資料の原文。プロジェクトhook、MCP、LSPの信頼を公式--trustで登録する仕様。
   - 出典: <file:///Users/kite/.grok/docs/user-guide/10-hooks.md> (local_vendor_docs, 48507 chars)
   - 効きどころ: 確度: 公式配布資料と実機で確認。Aitermの無人起動がフォルダ信頼画面で初回promptを失う問題の根拠。
+- [Grokのプライバシー案内表示](sources/agent-launchers/grok-privacy-banner-20260921.md) — 公式ソース。プライバシー案内と通常入力欄の共存を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-pager/src/views/privacy_banner.rs> (official_source, 14169 chars)
+  - 効きどころ: 過去の利用上限表示からの復帰設計の一次根拠。実機版との同一性は主張せず、表示契約を実画面と照合する。
 - [Grok 1.0.13のsandboxとhookパス保護](sources/agent-launchers/grok-sandbox-hook-protection-1-0-13-20260908.md) — Grok配布資料の原文。read-only sandboxの書込制限と、hook sourceのsymlinkを拒否する仕様。
   - 出典: <file:///Users/kite/.grok/docs/user-guide/18-sandbox.md> (local_vendor_docs, 17697 chars)
   - 効きどころ: 確度: Direct global hook write protection節を実機で確認。hook設定の配布者が実ファイルを置き、Aitermがsandboxを変更しない責務境界の根拠。

@@ -20,6 +20,10 @@ Grok／Composerのsandbox起動拒否については、[DESIGNの失敗と復旧
 Codex親への回答の自動配送は[DESIGN](DESIGN.md#codex親への自動配送)に、対応範囲と失敗時の状態を置く。
 Claude Code親の非同期hookによる受信は[DESIGN](DESIGN.md#claude-code親への自動配送)を参照する。
 
+## 実装待ちの設計
+
+- [Grokの過去の利用上限表示からの復帰](https://github.com/kitepon/aiterm-mcp/blob/main/docs/grok-rate-limit-recovery-plan.md): 設計完了・実装未着手。通常dispatchでのパネル解除、現在の画面による上限観測、試験と実機受入を定める。
+
 ## 履歴と証拠
 
 - [`archive/`](https://github.com/kitepon/aiterm-mcp/tree/main/docs/archive): 完了・棄却・中断・失効・置換により現行制御から外れたsnapshot。

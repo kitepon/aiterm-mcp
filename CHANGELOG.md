@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.10] - 2026-09-21
+
 ### 修正
 
 - Codex 0.155.1 の「Approaching rate limits」model切替dialogを専用に認識する。通常の`pty_send`と`agent_configure`は同じsessionで一時的な「Keep current model」だけを選び、入力受付を再確認してから進める。model変更と今後の表示抑止は選ばない。復旧不能時はtyped errorで本文・設定変更を送らない。
@@ -1730,7 +1732,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...HEAD
+[0.37.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...v0.37.10
 [0.37.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...v0.37.9
 [0.37.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...v0.37.8
 [0.37.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.6...v0.37.7

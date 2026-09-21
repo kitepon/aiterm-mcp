@@ -279,6 +279,40 @@ function makeFakeCodexTuiBin(busy = false, exitAfterReady = false) {
   return bin;
 }
 
+function makeFakeCodexRateLimitTuiBin(cursor, mode) {
+  const stem = `fake-codex-rate-limit-${Date.now().toString(36)}`;
+  const bin = path.join(process.env.TMPDIR, `${stem}.sh`);
+  const driverDir = path.join(process.env.TMPDIR, stem);
+  const driver = path.join(driverDir, "codex");
+  const input = path.join(process.env.TMPDIR, `${stem}.jsonl`);
+  fs.mkdirSync(driverDir, { mode: 0o700 });
+  fs.writeFileSync(input, "", { mode: 0o600 });
+  fs.writeFileSync(driver, `#!${process.execPath}
+const fs = require("node:fs");
+const input = ${JSON.stringify(input)};
+const cursor = ${JSON.stringify(cursor)};
+const mode = ${JSON.stringify(mode)};
+const modal = () => process.stdout.write(["Approaching rate limits", "Switch to gpt-5.6-luna for lower credit usage?", ...[1, 2, 3].map(i => (i === cursor ? "› " : "  ") + i + ". " + (i === 1 ? "Switch to gpt-5.6-luna                 Fast and affordable agentic coding\\n                                            model." : i === 2 ? "Keep current model" : "Keep current model (never show again)  Hide future rate limit reminders\\n                                            about switching models.")), "Press enter to confirm or esc to go back"].join("\\n") + "\\n");
+const ready = () => process.stdout.write("OpenAI Codex\\n› Ask Codex to do anything\\ngpt-5.6-terra high · ~/work\\n");
+const model = () => process.stdout.write("Select Model and Effort\\n› 1. gpt-5.6-sol\\n  2. gpt-5.6-terra\\n");
+const effort = () => process.stdout.write("Select Reasoning Level\\n› 1. Low  Fast responses\\n  2. High  Greater reasoning depth\\n");
+let phase = "modal";
+process.stdin.setRawMode(true); process.stdin.resume(); modal();
+process.stdin.on("data", chunk => {
+  const text = chunk.toString();
+  fs.appendFileSync(input, JSON.stringify({ phase, text }) + "\\n");
+  if (phase === "modal" && text === "2") { if (mode === "stuck") return; phase = "ready"; ready(); return; }
+  if (phase === "ready" && text.includes("/model")) { phase = "model"; model(); return; }
+  if (phase === "model" && text === "1") { phase = "effort"; effort(); return; }
+  if (phase === "effort" && text === "1") { phase = "ready"; process.stdout.write("Model changed to gpt-5.6-sol\\n"); ready(); }
+});
+`, { mode: 0o700 });
+  fs.writeFileSync(bin, `#!/bin/sh
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(driver)}
+`, { mode: 0o700 });
+  return { bin, input, driverDir };
+}
+
 function makeFakeThroughlineBin(
   context = "## Throughline Context\nSOURCE_CONTEXT_MARKER",
   expectedSupplementFile = null,
@@ -728,6 +762,141 @@ test("agent_configure: Codexのmodel／effort選択肢を現在の/model画面�
   });
   const advanced = "  Advanced Reasoning\n› 1. Max  For difficult problems when quality matters more than speed";
   assert.equal(core.__testCodexConfigureChoices(advanced, "missing", "max").effort, "1");
+});
+
+
+function readFakeTuiInput(input) {
+  const content = fs.readFileSync(input, "utf8").trim();
+  return content ? content.split("\n").map((line) => JSON.parse(line)) : [];
+}
+
+test("Codex上限接近modal: cursor位置を問わず一時keepだけで同じsessionへ本文を一度送る", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  try {
+    for (const cursor of [1, 2, 3]) {
+      const fake = makeFakeCodexRateLimitTuiBin(cursor, "recover");
+      const sid = `codex_rate_limit_${cursor}_${Date.now().toString(36)}`;
+      process.env.CODEX_BIN = fake.bin;
+      try {
+        await withFakeCodexHome(async () => {
+          const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+          const receipt = await core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY", { ready_timeout: 2_000 });
+          assert.equal(receipt.session_id, actualSid);
+          assert.ok(receipt.pane_input_recovery.includes("codex_rate_limit_model_switch_kept_current"));
+          assert.match(core.listSessions(), new RegExp(`(^|\\n)${actualSid}\\t`), "同じsessionを保つ");
+          const input = readFakeTuiInput(fake.input);
+          assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
+          assert.equal(input.filter((entry) => entry.text.includes("RATE_LIMIT_BODY")).length, 1, "本文は一度だけ送る");
+        });
+      } finally {
+        try { core.closeSession(sid); } catch {}
+        fs.rmSync(fake.bin, { force: true });
+        fs.rmSync(fake.driverDir, { recursive: true, force: true });
+        fs.rmSync(fake.input, { force: true });
+      }
+    }
+  } finally {
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+  }
+});
+
+test("Codex上限接近modal: agent_approvalはreasonだけを返し選択肢を公開しない", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fake = makeFakeCodexRateLimitTuiBin(2, "recover");
+  const sid = `codex_rate_limit_inspect_${Date.now().toString(36)}`;
+  process.env.CODEX_BIN = fake.bin;
+  try {
+    await withFakeCodexHome(async () => {
+      const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+      await core.readOutput(actualSid, { wait: true, until: "Approaching rate limits", timeout: 5, raw: true });
+      const inspected = core.runAgentApproval({ action: "inspect", session_id: actualSid });
+      assert.deepEqual(inspected, {
+        schema: "aiterm.agent-approval-result.v1",
+        action: "inspect",
+        status: "blocked",
+        session_id: actualSid,
+        harness: "codex-cli",
+        launch_id: readAgentMeta(actualSid).launch_id,
+        reason: "rate_limit_model_switch",
+        kind: null,
+        prompt: null,
+        prompt_digest: null,
+        choices: [],
+        selected_choice: null,
+        at: inspected.at,
+      });
+      assert.match(inspected.at, /^\d{4}-\d{2}-\d{2}T/);
+      assert.deepEqual(readFakeTuiInput(fake.input), []);
+    });
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true });
+    fs.rmSync(fake.driverDir, { recursive: true, force: true });
+    fs.rmSync(fake.input, { force: true });
+  }
+});
+
+test("Codex上限接近modal: readyへ戻らなければ本文を送らずtyped errorにする", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fake = makeFakeCodexRateLimitTuiBin(1, "stuck");
+  const sid = `codex_rate_limit_stuck_${Date.now().toString(36)}`;
+  process.env.CODEX_BIN = fake.bin;
+  try {
+    await withFakeCodexHome(async () => {
+      const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+      await assert.rejects(
+        () => core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY_MUST_NOT_SEND", { ready_timeout: 150 }),
+        (error) => error.code === 2
+          && /CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED/.test(error.message)
+          && /文字列は送信していません/.test(error.message),
+      );
+      const input = readFakeTuiInput(fake.input);
+      assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
+      assert.equal(input.some((entry) => entry.text.includes("RATE_LIMIT_BODY_MUST_NOT_SEND")), false);
+    });
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true });
+    fs.rmSync(fake.driverDir, { recursive: true, force: true });
+    fs.rmSync(fake.input, { force: true });
+  }
+});
+
+test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで設定する", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fake = makeFakeCodexRateLimitTuiBin(3, "recover");
+  const sid = `codex_rate_limit_configure_${Date.now().toString(36)}`;
+  process.env.CODEX_BIN = fake.bin;
+  try {
+    await withFakeCodexHome(async () => {
+      const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+      const result = await core.configureAgent(actualSid, { model: "gpt-5.6-sol", reasoning_effort: "low" });
+      assert.deepEqual(result, {
+        schema: "aiterm.agent-configure-result.v1",
+        session_id: actualSid,
+        provider: "codex",
+        harness: "codex-cli",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "low",
+      });
+      assert.match(core.listSessions(), new RegExp(`(^|\\n)${actualSid}\\t`), "同じsessionを保つ");
+      const input = readFakeTuiInput(fake.input);
+      assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
+      assert.ok(input.some((entry) => entry.phase === "ready" && entry.text.includes("/model")));
+    });
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (savedBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true });
+    fs.rmSync(fake.driverDir, { recursive: true, force: true });
+    fs.rmSync(fake.input, { force: true });
+  }
 });
 
 test("agent_configure: Claudeへ/modelと/effortを同じsessionのまま送る", { skip: skipAgentDone }, async () => {

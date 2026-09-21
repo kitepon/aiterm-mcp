@@ -117,6 +117,7 @@ import {
   codexLaunchNote,
   codexTuiReady,
   codexPaneObservation,
+  codexRateLimitModelSwitchDialog,
   codexApprovalDialog,
   codexStartupAction,
   codexLaunchBlockingDialog,
@@ -1721,7 +1722,7 @@ export function runAgentApproval(options: {
     const dialog = codexApprovalDialog(screen);
     if (!dialog) {
       result.status = state.state === "blocked" || state.state === "unknown" || action === "respond" ? "blocked" : "none";
-      result.reason = state.state === "blocked" ? "unknown_dialog" : state.state === "unknown" ? "unrecognized_screen" : "no_current_dialog";
+      result.reason = state.state === "blocked" ? state.reason : state.state === "unknown" ? "unrecognized_screen" : "no_current_dialog";
       return result;
     }
     result.kind = dialog.kind;
@@ -3799,7 +3800,7 @@ export interface AgentDispatchReceipt {
   // submit座礁観測。true=composerに残存を確認（未submitの疑い）/ false=残存を観測せず
   // （submit成立の保証ではない）/ null=判定不能。
   submit_residue: boolean | null;
-  // 打鍵前の入力回復（"fg" / "fg_stopped" / "stty_raw" / "grok_rate_limit_dialog_dismissed"）。何もしなければ空。
+  // 打鍵前の入力回復（"fg" / "fg_stopped" / "stty_raw" / "grok_rate_limit_dialog_dismissed" / "codex_rate_limit_model_switch_kept_current"）。何もしなければ空。
   pane_input_recovery: string[];
 }
 
@@ -3868,6 +3869,37 @@ function sendMenuChoice(name: string, choice: string): void {
   }
 }
 
+/** Codexの上限接近modalは承認APIへ出さず、一時keepの2だけを選んで共通ready gateへ戻す。 */
+async function recoverCodexRateLimitModelSwitch(name: string, meta: AgentMetadata): Promise<boolean> {
+  const dialog = meta.kind === "codex"
+    ? codexRateLimitModelSwitchDialog(captureScreen(name, AGENT_TUI_READY_LINES))
+    : null;
+  if (!dialog) return false;
+  const live = observeSession(name);
+  if (live.harness_alive !== true) {
+    throw new AitermError(
+      `CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_BLOCKED: ${live.reason}。今回の文字列は送信していません。`, 2,
+    );
+  }
+  sendMenuChoice(name, String(dialog.keepCurrentIndex));
+  return true;
+}
+
+/** ready待機中に現れたCodex利用上限modalも、同じ一時keep復旧へ戻す。 */
+async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
+  name: string,
+  meta: AgentMetadata,
+  timeoutMs: number,
+): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
+  let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
+  let ready = await waitAgentTuiReady(name, meta, timeoutMs);
+  if (!ready.ready && !codexRateLimitModelSwitch) {
+    codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
+    if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs);
+  }
+  return { ready, codexRateLimitModelSwitch };
+}
+
 /** 同じ対話sessionを保ったまま、harness標準の操作でmodel／effortを変更する。 */
 export async function configureAgent(
   name: string,
@@ -3882,8 +3914,17 @@ export async function configureAgent(
   }
   const meta = loadAgentMetadata(name);
   bindCompletedInitialPrompt(meta);
-  const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
-  if (!ready.ready) throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
+  const { ready, codexRateLimitModelSwitch } = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
+    name, meta, AGENT_TUI_READY_TIMEOUT_MS,
+  );
+  if (!ready.ready) {
+    if (codexRateLimitModelSwitch) {
+      throw new AitermError(
+        `CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED: ${codexPaneObservation(ready.lastScreen).reason}。設定変更は送信していません。`, 2,
+      );
+    }
+    throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
+  }
 
   if (meta.kind === "claude") {
     if (model) {
@@ -4070,6 +4111,7 @@ export async function dispatchAgentTurn(
     && agentCompletionCursor(meta) === 0
     && readClaudeOperationMarker(meta) === null;
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
+  let codexRateLimitModelSwitch = false;
   const limitDialog = meta.kind === "grok" || meta.kind === "composer"
     ? grokRateLimitDialog(captureScreen(name, 0)) : null;
   if (limitDialog) {
@@ -4084,8 +4126,17 @@ export async function dispatchAgentTurn(
     sendKey(name, limitDialog.dismissKey);
   }
   if (meta.kind !== "claude" || claudeColdStart) {
-    const ready = await waitAgentTuiReady(name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
+    const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
+      name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS,
+    );
+    codexRateLimitModelSwitch = recovery.codexRateLimitModelSwitch;
+    const { ready } = recovery;
     if (!ready.ready) {
+      if (codexRateLimitModelSwitch) {
+        throw new AitermError(
+          `CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED: ${codexPaneObservation(ready.lastScreen).reason}。今回の文字列は送信していません。`, 2,
+        );
+      }
       if (limitDialog) {
         const reason = grokPaneObservation(ready.lastScreen).reason;
         throw new AitermError(
@@ -4099,6 +4150,7 @@ export async function dispatchAgentTurn(
       );
     }
   }
+  if (codexRateLimitModelSwitch) paneInputRecovery.push("codex_rate_limit_model_switch_kept_current");
   if (limitDialog) paneInputRecovery.push("grok_rate_limit_dialog_dismissed");
   const startOffset = agentCompletionCursor(meta);
   // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexPaneObservation, codexApprovalDialog, codexStartupAction } from "../dist/harnesses/codex.js";
+import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -85,4 +85,27 @@ test("Codexの承認と起動操作は最後のdialogだけを使う", () => {
   const hooks = "Hooks need review\n› 1. Review hooks\n  2. Trust all hooks for this project";
   assert.equal(codexApprovalDialog(`${old}\n${hooks}`), null);
   assert.deepEqual(codexStartupAction(`${old}\n${hooks}`, true).keys, ["Down", "Enter"]);
+});
+
+test("Codexの上限接近model switchは現在の完全な3択だけを専用modalとして扱う", () => {
+  const modal = (cursor) => [
+    "Approaching rate limits",
+    "Switch to gpt-5.6-luna for lower credit usage?",
+    `${cursor === 1 ? "› " : "  "}1. Switch to gpt-5.6-luna                 Fast and affordable agentic coding`,
+    "                                            model.",
+    `${cursor === 2 ? "› " : "  "}2. Keep current model`,
+    `${cursor === 3 ? "› " : "  "}3. Keep current model (never show again)  Hide future rate limit reminders`,
+    "                                            about switching models.",
+    "Press enter to confirm or esc to go back",
+  ].join("\n");
+  for (const cursor of [1, 2, 3]) {
+    assert.deepEqual(codexPaneObservation(modal(cursor)), { state: "blocked", reason: "rate_limit_model_switch" });
+    assert.deepEqual(codexRateLimitModelSwitchDialog(modal(cursor)), { keepCurrentIndex: 2, selectedIndex: cursor });
+    assert.equal(codexApprovalDialog(modal(cursor)), null);
+  }
+  const old = modal(1);
+  const composer = "› Ask Codex to do anything\ngpt-5.6-terra high · ~/work";
+  assert.deepEqual(codexPaneObservation(`${old}\n${composer}`), { state: "idle", reason: "composer_ready" });
+  assert.equal(codexRateLimitModelSwitchDialog(`${old}\n${composer}`), null);
+  assert.equal(codexRateLimitModelSwitchDialog(modal(1).replace("3. Keep current model (never show again)", "3. Keep current model")), null);
 });

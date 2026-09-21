@@ -270,6 +270,8 @@ Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信
 
 この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
 
+Codex 0.155.1の「Approaching rate limits」model切替dialogは、通常の`pty_send`と`agent_configure`で同じsessionのまま一時的な**2. Keep current model**だけを選ぶ。入力受付を再確認してから本文または設定変更を進め、dispatch receiptの`pane_input_recovery`には`codex_rate_limit_model_switch_kept_current`を記録する。model切替と今後の表示抑止は選ばない。入力受付へ戻らなければ`CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED`となり、本文・設定変更は未送信。このdialogは`agent_approval`の対象ではなく、inspectは`reason="rate_limit_model_switch"`だけを返し、prompt digestとchoicesを出さない。
+
 For a correlated Claude turn stopped at `Do you want to proceed?`, use `claude_approval(action: "inspect", ...)` to capture the active operation and SHA-256 screen digest, review the displayed command, then call `respond` with that exact digest and either `approve_once` or `deny`. The relay rechecks the operation and screen under the send lock, never exposes arbitrary input or permanent approval, keeps the active marker intact, and records a prompt-free owner-only receipt. `pty_send(force: true)` does not bypass this boundary.
 
 ```text

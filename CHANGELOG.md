@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codex 0.155.1 の「Approaching rate limits」model切替dialogを専用に認識する。通常の`pty_send`と`agent_configure`は同じsessionで一時的な「Keep current model」だけを選び、入力受付を再確認してから進める。model変更と今後の表示抑止は選ばない。復旧不能時はtyped errorで本文・設定変更を送らない。
+
 ## [0.37.9] - 2026-09-21
 
 ### 修正

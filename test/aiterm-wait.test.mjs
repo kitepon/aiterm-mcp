@@ -498,14 +498,15 @@ function writePaneLog(name, text) {
   return p;
 }
 
-test("detectAgentRateLimit: grok の実バナー（ANSI混じり）を検知する", () => {
+test("detectAgentRateLimit: Grokの過去logだけでは現在の上限にしない", () => {
   const name = `rl-unit-${process.pid}`;
   const log = writePaneLog(
     name,
     "\x1b[1m  You hit your weekly limit.\x1b[0m\n  You can continue by purchasing more credits.\n"
   );
   try {
-    assert.equal(core.detectAgentRateLimit("grok", name), "You hit your weekly limit");
+    assert.equal(core.detectAgentRateLimit("grok", name), null);
+    assert.equal(core.detectAgentRateLimit("composer", name), null);
     assert.equal(core.detectAgentRateLimit("codex", name), null);
   } finally {
     fs.rmSync(log, { force: true });
@@ -523,7 +524,7 @@ test("detectAgentRateLimit: バナー無し・log無しは null（誤検知し�
   }
 });
 
-test("cli: Grok auth消失でも上限バナーがあれば AGENT_RATE_LIMITED / exit 6", async () => {
+test("cli: Grok auth不在と過去上限logは認証エラーを維持する", async () => {
   await withStateRoot(async (agents) => {
     const name = "rl-authgone";
     const grokHome = path.join(path.dirname(agents), "grok-home-empty");
@@ -538,10 +539,9 @@ test("cli: Grok auth消失でも上限バナーがあれば AGENT_RATE_LIMITED /
     try {
       const res = runCli(["--session", name, "--timeout", "0"], path.dirname(path.dirname(agents)));
       const body = JSON.parse(res.stdout.trim().split("\n").pop());
-      assert.equal(res.status, 6);
-      assert.equal(body.code, "AGENT_RATE_LIMITED");
-      assert.equal(body.vendor, "grok");
-      assert.equal(body.rate_limit, "You hit your weekly limit");
+      assert.equal(res.status, 1);
+      assert.equal(body.code, "AITERM_WAIT_FAILED");
+      assert.match(body.message, /Grok 認証正本/);
     } finally {
       fs.rmSync(log, { force: true });
     }

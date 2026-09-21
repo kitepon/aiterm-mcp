@@ -93,6 +93,7 @@ import {
   grokTuiReady,
   grokTuiBusy,
   grokPaneObservation,
+  grokRateLimitDialog,
   grokStartupAction,
   grokLaunchBlockingDialog,
   assertGrokSandboxNotRejected,
@@ -3024,20 +3025,21 @@ export function agentWaitGuide(session?: string): string {
 
 export type { AgentWaitObservation } from "./agent-shared.js";
 
-// harness 別の利用上限バナー。検知は「報告」専用で、完了判定や自動復旧には使わない。
+// harness別の利用上限観測。Grok/Composerは現在の質問カード、他harnessは既存logを使う。
 // 出典（2026-08-22）: grok は live 実バナーで検証、codex/claude はインストール済み実バイナリの
 // 埋込文字列から抽出（codex: "You've hit your usage limit for" / claude: "Usage limit reached ·
 // continuing automatically when it resets"。Claude Code はリセット時に自動継続する設計なので、
 // この報告は「今は上限で止まっている」の観測であり恒久停止を意味しない）。
 const AGENT_RATE_LIMIT_PATTERNS: Partial<Record<AgentKind, RegExp[]>> = {
-  grok: [/You hit your weekly limit/i, /Weekly limit left:\s*0%/i],
-  composer: [/You hit your weekly limit/i, /Weekly limit left:\s*0%/i],
   codex: [/You'?ve hit your usage limit/i],
   claude: [/Usage limit reached/i],
 };
 const AGENT_RATE_LIMIT_SCAN_BYTES = 16 * 1024;
 // pane log の末尾から上限バナーを探す。読めない・無い・対象 harness でないは全て null（誤検知より取りこぼし側へ倒す）。
 export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): string | null {
+  if (kind === "grok" || kind === "composer") {
+    return grokRateLimitDialog(captureScreen(aitermSession, 0))?.message ?? null;
+  }
   const patterns = AGENT_RATE_LIMIT_PATTERNS[kind];
   if (!patterns) return null;
   const file = logpath(aitermSession);
@@ -3797,7 +3799,7 @@ export interface AgentDispatchReceipt {
   // submit座礁観測。true=composerに残存を確認（未submitの疑い）/ false=残存を観測せず
   // （submit成立の保証ではない）/ null=判定不能。
   submit_residue: boolean | null;
-  // 打鍵前に行った pane 入力の回復（"fg" / "fg_stopped" / "stty_raw"）。何もしなければ空配列。
+  // 打鍵前の入力回復（"fg" / "fg_stopped" / "stty_raw" / "grok_rate_limit_dialog_dismissed"）。何もしなければ空。
   pane_input_recovery: string[];
 }
 
@@ -4068,9 +4070,28 @@ export async function dispatchAgentTurn(
     && agentCompletionCursor(meta) === 0
     && readClaudeOperationMarker(meta) === null;
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
+  const limitDialog = meta.kind === "grok" || meta.kind === "composer"
+    ? grokRateLimitDialog(captureScreen(name, 0)) : null;
+  if (limitDialog) {
+    const live = observeSession(name);
+    const done = latestAgentDoneEvent(meta);
+    if (live.harness_alive !== true || done?.done_status !== "turn_error") {
+      const reason = live.harness_alive !== true ? live.reason : "latest_turn_not_error";
+      throw new AitermError(
+        `GROK_RATE_LIMIT_RECOVERY_BLOCKED: ${reason}。終了済み上限パネルと確認できません。今回の文字列は送信していません。`, 2,
+      );
+    }
+    sendKey(name, limitDialog.dismissKey);
+  }
   if (meta.kind !== "claude" || claudeColdStart) {
     const ready = await waitAgentTuiReady(name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
     if (!ready.ready) {
+      if (limitDialog) {
+        const reason = grokPaneObservation(ready.lastScreen).reason;
+        throw new AitermError(
+          `GROK_RATE_LIMIT_RECOVERY_FAILED: ${reason}。上限パネル解除後の入力受付を確認できません。今回の文字列は送信していません。`, 2,
+        );
+      }
       throw new AitermError(
         `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。` +
           "少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。",
@@ -4078,6 +4099,7 @@ export async function dispatchAgentTurn(
       );
     }
   }
+  if (limitDialog) paneInputRecovery.push("grok_rate_limit_dialog_dismissed");
   const startOffset = agentCompletionCursor(meta);
   // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。
   // その1回だけlaunch contextを加え、以後はbind済みconversationへ通常textだけを送る。

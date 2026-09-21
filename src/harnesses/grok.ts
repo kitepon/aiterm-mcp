@@ -238,7 +238,11 @@ export async function observeGrokDone(
           }
           try {
             const done = grokCompletionEvent(meta, JSON.parse(line));
-            if (done) return observation(done.done_status === "turn_error" ? "error" : "done", done);
+            if (done) {
+              const limited = done.done_status === "turn_error"
+                ? detectRateLimit(meta.kind, meta.aiterm_session) : null;
+              return observation(limited ? "rate_limited" : done.done_status === "turn_error" ? "error" : "done", done, limited);
+            }
           } catch {
             malformedEvents++;
           }
@@ -347,12 +351,33 @@ export function grokTuiBusy(screen: string): boolean {
     || screen.includes("[stop]");
 }
 
+// 現在の質問カードだけを認識する。選択肢が空でも操作欄は残る。
+// footer後に描画があれば過去のカードなので、会話履歴からキー操作を起こさない。
+export function grokRateLimitDialog(screen: string): { message: string; dismissKey: "X" } | null {
+  const clean = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const headings = [...clean.matchAll(/^[ \t]*[┃│]?[ \t]*You hit your weekly limit\.[ \t]*[┃│]?[ \t]*$/gm)];
+  const heading = headings.at(-1);
+  if (!heading) return null;
+  const afterHeading = clean.slice(heading.index! + heading[0].length);
+  const footer = /Tab\s*:\s*next\s+answer\s*[│┃]?\s*Esc\s*:\s*scrollback\s*[│┃]?\s*Shift\+x\s*:\s*dismiss/i.exec(afterHeading);
+  if (!footer || afterHeading.slice(footer.index + footer[0].length).trim()) return null;
+  const body = afterHeading.slice(0, footer.index);
+  if (grokTuiBusy(body) || /(?:^|\n)[ \t]*(?:│[ \t]*)?[❯>]/u.test(body)) return null;
+  return { message: "You hit your weekly limit.", dismissKey: "X" };
+}
+
+function grokFramedComposer(screen: string): boolean {
+  return /^[ \t]*│[ \t]*[❯>][^\n]*\n(?:[ \t]*│[^\n]*\n)*[ \t]*╰[^\n]*\b(?:Grok|Composer)\s+[\w.()-]+[^\n]*╯[ \t]*(?:\n|$)/mu.test(screen);
+}
+
 export function grokPaneObservation(screen: string): HarnessPaneObservation {
   // 通信失敗後もWaitingが残る実画面を、稼働中として返さない。
   const tail = screen.split("\n").slice(-32).join("\n");
   if (/Connection failed|reqwest error stream|Check your network and try again/i.test(tail))
     return { state: "blocked", reason: "connection_failed" };
-  if (/Help improve Grok/.test(tail)) return { state: "blocked", reason: "privacy_choice" };
+  if (grokRateLimitDialog(tail)) return { state: "blocked", reason: "rate_limited" };
+  if (/Help improve Grok/.test(tail) && !grokFramedComposer(tail.slice(tail.lastIndexOf("Help improve Grok"))))
+    return { state: "blocked", reason: "privacy_choice" };
   if (grokLaunchBlockingDialog(tail)) return { state: "blocked", reason: "startup_dialog" };
   if (grokTuiBusy(tail)) return { state: "busy", reason: "turn_running" };
   if (grokTuiReady(tail)) return { state: "idle", reason: "composer_ready" };

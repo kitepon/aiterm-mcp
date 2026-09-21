@@ -264,6 +264,8 @@ The same primitive hosts another agent's TUI. `agent_launch` starts a selected e
 
 Grok／Composerの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
 
+Grok／Composerで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
+
 Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。hookパスのシンボリックリンクなど、CLIが示した原因を設定の管理元で修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
 この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。

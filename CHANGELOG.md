@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Grok／Composerで前のターンのweekly-limitパネルが残っていても、通常の`pty_send`が一度閉じて今回の本文を送れるようにした。同じsessionを保ち、解除記録をreceiptへ返す。
+- Grokの利用上限は現在の画面から判定する。古い上限logによる新しいターンの待機打切りと、入力欄に重なったprivacy案内による誤停止を修正した。
+
 ## [0.37.8] - 2026-09-19
 
 ### 修正

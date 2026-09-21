@@ -86,8 +86,8 @@ export async function main(argv: string[]): Promise<void> {
     });
   } catch (e) {
     // Grok は利用上限に達すると auth 正本を自壊させることがあり（2026-08-22 実測）、
-    // metadata 検証が「未ログイン」という嘘の原因で落ちる。pane log に上限バナーが
-    // あるなら、誤診でなく rate_limited として typed に回答する。
+    // metadata検証が認証不在で止まる。現在のviewportに上限パネルがある場合だけ
+    // rate_limitedとして返し、古いlogで現在の認証エラーを置き換えない。
     if (e instanceof AitermError && /Grok 認証正本/.test(e.message)) {
       const limited = detectAgentRateLimit("grok", cmd.session);
       if (limited) {

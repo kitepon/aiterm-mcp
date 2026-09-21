@@ -200,6 +200,19 @@ Grok／Composerのmanaged起動は公式`--trust`を渡し、指定cwdの信頼�
 `grokTuiBusy`は応答中の表示だけを実行中の根拠にし、完了後も残る`[hooks: 成功/失敗]`を含めない。
 これらのCLI固有判定は`src/harnesses/grok.ts`が所有し、共通処理は判定を呼び出す。
 
+Grok／Composerの終了済みerrorターンにweekly-limit質問カードが残る場合、通常dispatchだけが
+現在のviewportを読み、harness生存と最新turnのエラー完了を確かめて`X`を一回送る。
+既存の入力受付待機を通した後に完了cursorを取得し、今回の本文だけを送る。
+実施した解除は既存receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`として載る。
+解除条件の不成立は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は
+`GROK_RATE_LIMIT_RECOVERY_FAILED`で未送信を返す。読取・観測・設定・steerはこの解除を行わない。
+
+`grokRateLimitDialog`が見出しと操作footerの組を所有し、過去logや後続UIのあるカードは採用しない。
+privacy案内は現在の枠付きcomposerとmodel footerが見える場合だけ入力受付を妨げない。
+完了観測は成功eventを優先し、今回のerror eventと現在のカードが揃えばturn情報付きの`rate_limited`を返す。
+新turnの完了前に古いlogだけで上限を返さない。購入・再認証・過去prompt再送・定期再試行は行わない。
+画面判定と模擬CLIの実PTY試験は`test/grok-rate-limit.test.mjs`に置く。
+
 ## Platform contract
 
 - macOS／Linux／WSL2: tmux。

@@ -24,14 +24,16 @@ Cursor固有の識別、会話への束縛、差し込み、idle時の受け口�
 `stop` hookの`followup_message`は親の次ターンを自動開始するため使わない。
 Cursor Cloud Agent／Background Agentはhookが載らないため対象にしない。
 
-## 未実施
+## 実測
 
-通常HOMEのCursor親から子を起動し、差し込みと背景受け口の両方で本文が届くことは、この判断の時点では未実施。
-公開前の受入で確認する。
+2026-09-22、公開版0.38.1をこの端末へ導入した。Cursorのhookへ渡るtool結果は`content`本文だけで、
+`structuredContent`は含まれない。dispatch本文の`delivery_id`行から会話へ束縛する。
+通常HOMEのCursor親からGrok子へ初手`ping`と同じ子への追加依頼`pong2`を送り、
+親は`pty_read`を呼ばず、次のツール返りへ本文が差し込まれた。
 
 ## 根拠
 
 - [Cursor Hooks](https://prod.cursor.com/docs/hooks)（`rag/sources/completion-detection/cursor-hooks-2026-08-24.md`）
 - gpt-connectorのCursor親配送（`cursor-parent.ts`、`cursor-hook.ts`、`cursor-inbox.ts`）
 - [ADR 0058](0058-claude-parent-hook-receiver.md)
-- [実装計画](../plan_cursor-parent-result-delivery.md)
+- [実装計画](../archive/plan_cursor-parent-result-delivery.md)

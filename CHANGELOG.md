@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-09-22
+
 ### 修正
 
 - Cursor親のhookへ渡るtool結果は本文だけで、`structuredContent`の`delivery_id`が落ちる。dispatchの本文へ`delivery_id`行を出し、hookがその行から会話へ束縛する。
@@ -1742,7 +1744,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.1...HEAD
+[0.38.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...v0.38.0
 [0.37.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...v0.37.10
 [0.37.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...v0.37.9

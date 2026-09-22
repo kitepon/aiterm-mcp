@@ -45,6 +45,11 @@ async function deliveryForRequest(extra: { _meta?: unknown }): Promise<DeliveryR
   return parentDelivery.request(parent);
 }
 
+function deliveryIdLine(delivery: DeliveryRequest | null): string {
+  const id = delivery?.result()?.delivery_id;
+  return id ? `\ndelivery_id=${id}` : "";
+}
+
 function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
   if (eventCursor === null) return { wait_process: null, wait_command: null };
   if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
@@ -241,7 +246,8 @@ server.registerTool(
               text:
                 `dispatchした（harness=${receipt.harness}, vendor=${receipt.vendor}）。\n` +
                 core.agentDispatchGuide(receipt.session_id, receipt.event_cursor) +
-                core.agentSubmitResidueWarning(receipt.session_id, receipt.submit_residue),
+                core.agentSubmitResidueWarning(receipt.session_id, receipt.submit_residue) +
+                deliveryIdLine(delivery),
             },
           ],
           structuredContent: {
@@ -794,7 +800,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
         : {}),
     };
     return {
-      content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}` }],
+      content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}${deliveryIdLine(delivery)}` }],
       structuredContent: structured,
       ...(initialDelivery.status === "submitted_unconfirmed" ? { isError: true } : {}),
     };

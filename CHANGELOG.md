@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Cursor親のhookへ渡るtool結果は本文だけで、`structuredContent`の`delivery_id`が落ちる。dispatchの本文へ`delivery_id`行を出し、hookがその行から会話へ束縛する。
+
 ## [0.38.0] - 2026-09-22
 
 ### 追加

@@ -83,6 +83,22 @@ test("dispatch結果から会話へ束縛し、本文を作られた順に差し
   assert.equal(again.additional_context, undefined);
 });
 
+test("Cursorが渡す本文中のdelivery_id行から会話へ束縛する", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-cursor-line-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const hookRoot = path.join(dir, "hook");
+  const id = randomUUID();
+  prepareCursorDelivery({ kind: "cursor", hook_root: hookRoot }, id);
+  await handleCursorHook(JSON.stringify({
+    hook_event_name: "afterMCPExecution",
+    conversation_id: "conv-line",
+    tool_name: "agent_launch",
+    result_json: JSON.stringify({ content: [{ type: "text", text: `session_id: child\ndelivery_id=${id}\n` }] }),
+  }), hookRoot);
+  const bound = JSON.parse(fs.readFileSync(path.join(hookRoot, "deliveries", id, "bind.json"), "utf8"));
+  assert.equal(bound.conversation_id, "conv-line");
+});
+
 test("hookと受け口は同じ回答を一度だけ出す", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-cursor-claim-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -127,11 +127,19 @@ function deliveryIdFromResult(value: unknown, depth = 0): string | null {
       if (entry !== null && typeof entry === "object" && (entry as { type?: unknown }).type === "text") {
         const text = (entry as { text?: unknown }).text;
         if (typeof text === "string") {
-          const id = deliveryIdFromResult(text, depth + 1);
+          const id = deliveryIdFromResult(text, depth + 1) ?? deliveryIdInText(text);
           if (id) return id;
         }
       }
     }
+  }
+  return null;
+}
+
+function deliveryIdInText(text: string): string | null {
+  for (const line of text.split("\n")) {
+    const match = /^delivery_id=([0-9a-f-]{36})$/i.exec(line.trim());
+    if (match && deliveryIdSchema.safeParse(match[1]).success) return match[1];
   }
   return null;
 }

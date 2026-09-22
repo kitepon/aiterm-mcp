@@ -33,7 +33,9 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   credential／設定をcopy、snapshot、filterしない。
 - agentへの送信は非ブロックdispatchで即返す。Codex親は公式queueへ配送し、macOS・WindowsのSteer選択時は公式の同期hookで
   同じターンへ取り込み、終了後は公式queueで再開する。Claude Code親は公式asyncRewake hookで
-  回答本文を自動配送し、親はwaiterと回答回収を呼ばない。それ以外の親はreceiptの`wait_process`を別processとして起動し、
+  回答本文を自動配送し、親はwaiterと回答回収を呼ばない。Cursor親は公式hookの`additional_context`で
+  次のツール返りへ本文を差し込み、idle時はreceiptの`wait_process`（`cursor-parent-receive`）の終了で起きる。
+  それ以外の親はreceiptの`wait_process`を別processとして起動し、
   `outcome`を判定して`pty_read(agent_transcript:true)`または`claude_turn recover`で回収する。
   親自身のturnをforeground waiterで止めず、timeout後にpromptを再送しない。
 - 公開復旧は`pty_list`で対象を確認し、該当sessionを`pty_close`して同じIDで作り直す。
@@ -61,6 +63,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/setup-codex-relay.ts`: 旧中継の互換読取り・解除と公式バイナリの検出。
   `src/windows-codex-*.ts`: Windowsの公式CLI起動、認証付き接続、native launcher、ACLと選択導入。
   `src/claude-parent-receiver.ts`／`src/claude-parent-hook.ts`: Claude親の要求相関と公式hookへの回答出力。
+  `src/cursor-parent-receiver.ts`／`src/cursor-parent-hook.ts`／`src/cursor-parent-receive.ts`: Cursor親の会話束縛、公式hookへの差し込み、idle時の受け口。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
 - `src/runtime-error-*.ts`: 製品所有のoffline error aggregate。

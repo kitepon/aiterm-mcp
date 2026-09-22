@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
+import { ensureStateRoot, waitForFileState, writeJson0600 } from "./agent-shared.js";
 import { readRuntimeProcesses } from "./process-runtime.js";
 import { AitermError } from "./errors.js";
 
@@ -90,30 +90,6 @@ export function closeClaudeParentSession(input: unknown, root = defaultRoot()): 
     const invocation = invocationSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
     if (invocation.session_id === session_id) writeJson0600(path.join(root, entry.name, "closed.json"), { session_id });
   }
-}
-
-// filesystemの通知を先に登録してから状態を読む。producerの終了は低頻度のprocess照合でも検出する。
-function waitForFileState<T>(dir: string, inspect: () => T | undefined): Promise<T> {
-  return new Promise((resolve, reject) => {
-    let finished = false;
-    let timer: NodeJS.Timeout | undefined;
-    const watcher = fs.watch(dir, () => check());
-    const finish = (error: unknown, value?: T) => {
-      if (finished) return;
-      finished = true;
-      watcher.close();
-      if (timer) clearInterval(timer);
-      if (error) reject(error); else resolve(value!);
-    };
-    const check = () => {
-      if (finished) return;
-      try { const value = inspect(); if (value !== undefined) finish(null, value); }
-      catch (error) { finish(error); }
-    };
-    watcher.on("error", error => finish(error));
-    timer = setInterval(check, 5000);
-    check();
-  });
 }
 
 function assertParentAlive(invocation: Invocation): void {

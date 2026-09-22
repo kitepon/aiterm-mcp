@@ -189,6 +189,35 @@ export function agentsDir(): string {
   return path.join(ensureStateRoot(), "agents");
 }
 
+/** directory内の状態変化を待つ。inspectが値を返した時点でresolveする。timeoutMsを省くと期限なし。 */
+export function waitForFileState<T>(dir: string, inspect: () => T | undefined, timeoutMs?: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let timer: NodeJS.Timeout | undefined;
+    let timeout: NodeJS.Timeout | undefined;
+    const watcher = fs.watch(dir, () => check());
+    const finish = (error: unknown, value?: T) => {
+      if (finished) return;
+      finished = true;
+      watcher.close();
+      if (timer) clearInterval(timer);
+      if (timeout) clearTimeout(timeout);
+      if (error) reject(error); else resolve(value as T);
+    };
+    const check = () => {
+      if (finished) return;
+      try {
+        const value = inspect();
+        if (value !== undefined) finish(null, value);
+      } catch (error) { finish(error); }
+    };
+    watcher.on("error", error => finish(error));
+    timer = setInterval(check, 5000);
+    if (timeoutMs !== undefined) timeout = setTimeout(() => finish(new Error("WAIT_FOR_FILE_TIMEOUT")), timeoutMs);
+    check();
+  });
+}
+
 export function agentEventPath(name: string, launchId: string): string {
   assertSessionName(name);
   if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);

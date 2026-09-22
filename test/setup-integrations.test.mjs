@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { configureIntegrations, mergeJsonMcp, mergeClaudeParentHooks, removeClaudeParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
+import { configureIntegrations, mergeJsonMcp, mergeClaudeParentHooks, removeClaudeParentHooks, mergeCursorParentHooks, removeCursorParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
 
 const registration = { command: '/usr/local/bin/node', args: ['/opt/aiterm/dist/index.js'] };
 test('初回登録と再実行で自エントリ以外を保持する', (t) => {
@@ -62,6 +62,7 @@ test('4 clientの登録と公開CLIの読戻しを同じ意図で実行する', 
   const result = configureIntegrations(dir, registration, run, client => client);
   assert.deepEqual(Object.values(result).map(item => item.status), ['ready', 'ready', 'ready', 'ready']);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.cursor', 'mcp.json'), 'utf8')).mcpServers.aiterm, registration);
+  assert.match(JSON.parse(readFileSync(join(dir, '.cursor', 'hooks.json'), 'utf8')).hooks.postToolUse.at(-1).command, /cursor-parent-hook\.js/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.claude', '.claude.json'), 'utf8')).mcpServers.aiterm, { type: 'stdio', ...registration });
   assert.deepEqual(calls, [
     ['claude', ['--version']],
@@ -122,4 +123,52 @@ test('Codexの受信キューがない場合は登録前に更新が必要と返
     assert.deepEqual(result.codex, { status: 'failed', reason_code: 'codex_parent_delivery_unavailable' });
     assert.deepEqual(calls, [['queue', '--help']]);
   }
+});
+
+test('Cursorの親配送hookは他のhookと順序を保持し、再実行で増殖しない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-cursor-hooks-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'hooks.json');
+  const other = { command: '/opt/homebrew/bin/gpt-connector cursor-hook', timeout: 5 };
+  const original = { version: 1, hooks: { postToolUse: [other], stop: [other] } };
+  writeFileSync(file, JSON.stringify(original));
+  assert.equal(mergeCursorParentHooks(file, registration), 'configured');
+  const value = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(value.hooks.stop, [other]);
+  assert.deepEqual(value.hooks.postToolUse[0], other);
+  assert.match(value.hooks.postToolUse[1].command, /cursor-parent-hook\.js/);
+  assert.match(value.hooks.afterMCPExecution[0].command, /cursor-parent-hook\.js/);
+  const before = statSync(file).mtimeMs;
+  assert.equal(mergeCursorParentHooks(file, registration), 'unchanged');
+  assert.equal(statSync(file).mtimeMs, before);
+  value.hooks.postToolUse[1] = { command: 'old node cursor-parent-hook.js', timeout: 1 };
+  writeFileSync(file, JSON.stringify(value));
+  assert.equal(mergeCursorParentHooks(file, registration), 'configured');
+  const replaced = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(replaced.hooks.postToolUse.length, 2);
+  assert.deepEqual(replaced.hooks.postToolUse[0], other);
+  assert.equal(replaced.hooks.postToolUse[1].timeout, 15);
+  assert.equal(removeCursorParentHooks(file), 'removed');
+  const removed = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(removed.hooks.postToolUse, [other]);
+  assert.equal(removed.hooks.afterMCPExecution, undefined);
+  assert.deepEqual(removed.hooks.stop, [other]);
+  assert.equal(removeCursorParentHooks(file), 'unchanged');
+});
+
+test('壊れたCursor hook設定は上書きしない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-cursor-hooks-invalid-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'hooks.json');
+  for (const value of ['{broken', '[]', '{"hooks":[]}']) {
+    writeFileSync(file, value);
+    assert.throws(() => mergeCursorParentHooks(file, registration), /hook|hooks|JSON/);
+    assert.equal(readFileSync(file, 'utf8'), value);
+  }
+  const target = join(dir, 'real.json');
+  writeFileSync(target, '{"version":1,"hooks":{}}');
+  const link = join(dir, 'link.json');
+  symlinkSync(target, link);
+  assert.equal(mergeCursorParentHooks(link, registration), 'configured');
+  assert.match(readFileSync(target, 'utf8'), /cursor-parent-hook\.js/);
 });

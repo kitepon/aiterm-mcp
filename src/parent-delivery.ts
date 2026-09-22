@@ -8,6 +8,8 @@ import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitO
 import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
+import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitCursorParentAnswer, verifyCursorParent, type CursorParent } from "./cursor-parent-receiver.js";
+import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
 
@@ -16,7 +18,7 @@ const recordSchema = z.object({
   delivery_id: z.uuid(),
   created_at: z.string(),
   updated_at: z.string(),
-  parent: z.union([z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict(), claudeParentSchema]),
+  parent: z.union([z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict(), claudeParentSchema, cursorParentSchema]),
   boundary: z.object({
     session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     launch_id: z.string().regex(/^[0-9a-f]{32}$/),
@@ -36,16 +38,21 @@ type DeliveryRecord = z.infer<typeof recordSchema>;
 export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
 type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void> };
 type Owner = { pid: number; started_identity: string; closed: boolean };
-type Parent = CodexParent | ClaudeParent;
+type Parent = CodexParent | ClaudeParent | CursorParent;
 const isClaude = (parent: Parent): parent is ClaudeParent => "kind" in parent && parent.kind === "claude";
+const isCursor = (parent: Parent): parent is CursorParent => "kind" in parent && parent.kind === "cursor";
+const isCodex = (parent: Parent): parent is CodexParent => !isClaude(parent) && !isCursor(parent);
 
 async function verifyParent(parent: Parent): Promise<void> {
   if (isClaude(parent)) verifyClaudeParent(parent);
+  else if (isCursor(parent)) verifyCursorParent(parent);
   else await verifyCodexParent(parent);
 }
 
 async function submitParentAnswer(parent: Parent, deliveryId: string, text: string): Promise<{ queued_submission_id: string | null }> {
-  return isClaude(parent) ? submitClaudeParentAnswer(parent, deliveryId, text) : submitCodexParentAnswer(parent, deliveryId, text);
+  if (isClaude(parent)) return submitClaudeParentAnswer(parent, deliveryId, text);
+  if (isCursor(parent)) return submitCursorParentAnswer(parent, deliveryId, text);
+  return submitCodexParentAnswer(parent, deliveryId, text);
 }
 
 export interface ParentDeliveryDependencies {
@@ -69,7 +76,7 @@ function readRecord(file: string): DeliveryRecord {
 }
 
 function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
-  const hookState = !isClaude(record.parent) && record.state === "submitted"
+  const hookState = isCodex(record.parent) && record.state === "submitted"
     ? codexHookDeliveryState(record.parent.codex_home, record.parent.thread_id, record.delivery_id) : null;
   return { delivery_id: record.delivery_id, state: hookState ?? record.state, child_outcome: record.child_outcome,
     child_turn_id: record.child_turn_id, queued_submission_id: record.queued_submission_id,
@@ -101,13 +108,19 @@ export class ParentDeliveryManager {
   private serviceError: Error | null = null;
   private closing = false;
 
-  constructor(options: { root?: string; parent_kind?: "claude"; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
+  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
     this.deps = { observe: observeAgentDone, answer: readAgentTranscriptResult, submit: submitParentAnswer,
       verify: verifyParent, processes: readRuntimeProcesses, ...options.dependencies };
     const stateRoot = ensureStateRoot();
-    this.root = options.root ?? path.join(stateRoot, options.parent_kind === "claude" ? "claude-parent-deliveries" : "parent-deliveries");
-    // 旧版のCodex readerへ未知のparentを渡さない。公開照会と子の予約だけは両方で共有する。
-    this.recordRoots = options.root ? [options.root] : [path.join(stateRoot, "parent-deliveries"), path.join(stateRoot, "claude-parent-deliveries")];
+    const directory = options.parent_kind === "claude" ? "claude-parent-deliveries"
+      : options.parent_kind === "cursor" ? "cursor-parent-deliveries" : "parent-deliveries";
+    this.root = options.root ?? path.join(stateRoot, directory);
+    // 旧版のCodex／Claude readerへ未知のparentを渡さない。公開照会と子の予約だけは保存場所を横断する。
+    this.recordRoots = options.root ? [options.root] : [
+      path.join(stateRoot, "parent-deliveries"),
+      path.join(stateRoot, "claude-parent-deliveries"),
+      path.join(stateRoot, "cursor-parent-deliveries"),
+    ];
     this.active = path.join(this.root, "active");
     this.results = path.join(this.root, "results");
     this.claims = path.join(options.root ?? path.join(stateRoot, "parent-deliveries"), "claims");
@@ -142,6 +155,7 @@ export class ParentDeliveryManager {
     before_send: (boundary: AgentTurnBoundary) => Promise<void>;
     result: () => ParentDeliveryReceipt | null;
     failed: (error: unknown) => void;
+    wait_process: () => ReturnType<typeof cursorReceiveProcess> | null;
   } {
     let job: OwnedRecord | null = null;
     return {
@@ -167,6 +181,15 @@ export class ParentDeliveryManager {
             throw error;
           }
           if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
+          if (isCursor(parent)) {
+            try { prepareCursorDelivery(parent, record.delivery_id); }
+            catch (error) {
+              this.releaseClaim(job);
+              fs.unlinkSync(job.file);
+              job = null;
+              throw error;
+            }
+          }
           this.jobs.set(record.delivery_id, job);
           this.watch(job);
         });
@@ -175,6 +198,7 @@ export class ParentDeliveryManager {
         finally { if (this.registering.get(boundary.session_id) === registration) this.registering.delete(boundary.session_id); }
       },
       result: () => job ? receipt(job.record) : null,
+      wait_process: () => job && isCursor(parent) ? cursorReceiveProcess(job.record.delivery_id) : null,
       failed: (error) => {
         if (!job || job.record.state !== "waiting") return;
         job.controller.abort();
@@ -266,7 +290,8 @@ export class ParentDeliveryManager {
       job.record.queued_submission_id = result.queued_submission_id;
       job.record.state = "submitted";
     } catch (error) {
-      job.record.state = (error instanceof CodexDeliveryError || error instanceof ClaudeDeliveryError) && !error.outcome_unknown ? "failed" : "unknown";
+      const known = error instanceof CodexDeliveryError || error instanceof ClaudeDeliveryError || error instanceof CursorDeliveryError;
+      job.record.state = known && !error.outcome_unknown ? "failed" : "unknown";
       job.record.error = error instanceof Error ? error.message : String(error);
     }
     this.finish(job);

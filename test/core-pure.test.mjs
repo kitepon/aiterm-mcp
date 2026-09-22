@@ -700,6 +700,19 @@ test("Claude Code親へのdispatchはwaiter起動を要求せず、自動配送�
   } finally { core.setParentClient(null); }
 });
 
+test("Cursor親へのdispatchは回答の差し込みと背景のwait_processを案内する", () => {
+  try {
+    core.setParentClient("cursor-vscode");
+    const guide = core.agentDispatchGuide("child", 100);
+    assert.match(guide, /この会話へ自動で届く/);
+    assert.match(guide, /wait_process/);
+    assert.doesNotMatch(guide, /aiterm-wait/);
+    assert.match(core.agentWaitGuide("child"), /wait_process/);
+    core.setParentClient("cursor-vscode (via mcp-remote 0.1.29)");
+    assert.match(core.agentDispatchGuide("child", 100), /この会話へ自動で届く/);
+  } finally { core.setParentClient(null); }
+});
+
 test("agentWaitGuide: 復旧案内は取りこぼしゼロの --cursor 0 を維持する", () => {
   // cursor 省略時の既定は waiter 起動時 EOF＝案内表示〜実行の間に届いた done を読み飛ばす race。
   const guide = core.agentWaitGuide("t9");

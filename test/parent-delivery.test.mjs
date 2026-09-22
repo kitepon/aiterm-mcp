@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { ParentDeliveryManager } from "../dist/parent-delivery.js";
 import { CodexDeliveryError } from "../dist/codex-parent-receiver.js";
 import { prepareClaudeHookRequest, claudeParentFromRequest, runClaudeResultHook, closeClaudeParentSession, submitClaudeParentAnswer } from "../dist/claude-parent-receiver.js";
+import { cursorParentFromRequest, handleCursorHook, submitCursorParentAnswer } from "../dist/cursor-parent-receiver.js";
 
 const parent = (suffix = "1") => ({ thread_id: `11111111-2222-4333-8444-55555555555${suffix}`, codex_home: path.join(os.tmpdir(), "親のCodex") });
 const boundary = (session = "child", cursor = 0) => ({ session_id: session, launch_id: "a".repeat(32), vendor: "codex", harness: "codex-cli", event_cursor: cursor, operation_id: null });
@@ -163,6 +164,85 @@ test("Claudeの記録は旧版の保存場所へ混ぜず、Codexと同じ子の
     encoding: 'utf8', timeout: 10000, env: { ...process.env, TMPDIR: dir, TEMP: dir, XDG_RUNTIME_DIR: dir },
   });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("Cursorの記録は専用の保存場所へ分け、子の予約はCodexと共有する", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-cursor-namespace-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const code = `
+    import assert from 'node:assert/strict';
+    import * as fs from 'node:fs';
+    import * as path from 'node:path';
+    import { ParentDeliveryManager } from './dist/parent-delivery.js';
+    import { ensureStateRoot } from './dist/agent-shared.js';
+    import { cursorParentFromRequest } from './dist/cursor-parent-receiver.js';
+    const dependencies = { processes: () => [{pid:process.pid,started_identity:'fixture'}], verify: async()=>{},
+      observe: async(_id,o) => { if(o.timeout===0) return {outcome:'running'}; return new Promise((_r,reject)=>o.signal.addEventListener('abort',()=>reject(new Error('終了')))); } };
+    const hooksFile = path.join(${JSON.stringify(dir)}, 'hooks.json');
+    fs.writeFileSync(hooksFile, JSON.stringify({ hooks: { postToolUse: [{ command: 'node cursor-parent-hook.js' }], afterMCPExecution: [{ command: 'node cursor-parent-hook.js' }] } }));
+    const cursor = new ParentDeliveryManager({ parent_kind: 'cursor', dependencies });
+    const codex = new ParentDeliveryManager({ dependencies });
+    const parent = cursorParentFromRequest('cursor-vscode', { hookRoot: path.join(${JSON.stringify(dir)}, 'hook-state'), hooksFile });
+    const b = ${JSON.stringify(boundary("cursor-shared"))};
+    await cursor.request(parent).before_send(b);
+    assert.equal(codex.status('cursor-shared').length, 1);
+    await assert.rejects(codex.request(${JSON.stringify(parent())}).before_send(b), /PARENT_RESULT_PENDING/);
+    const cursorActive = path.join(ensureStateRoot(), 'cursor-parent-deliveries', 'active');
+    assert.ok(fs.readdirSync(cursorActive).some(name => fs.readdirSync(path.join(cursorActive, name)).some(file => file.endsWith('.json') && file !== 'owner.json')));
+    const codexActive = path.join(ensureStateRoot(), 'parent-deliveries', 'active');
+    for (const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive, owner)), ['owner.json']);
+    await cursor.close(); await codex.close();
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+    encoding: "utf8", timeout: 10000, env: { ...process.env, TMPDIR: dir, TEMP: dir, XDG_RUNTIME_DIR: dir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("Cursor親は回答を保存し、hookが受け取るとsubmittedになる", async (t) => {
+  const h = setup(t, { submit: (target, id, text) => submitCursorParentAnswer(target, id, text, 2000) });
+  const hookRoot = path.join(h.root, "cursor-hooks");
+  const hooksFile = path.join(h.root, "hooks.json");
+  fs.writeFileSync(hooksFile, JSON.stringify({ version: 1, hooks: {
+    postToolUse: [{ command: "node cursor-parent-hook.js" }],
+    afterMCPExecution: [{ command: "node cursor-parent-hook.js" }],
+  } }));
+  const cursorParent = cursorParentFromRequest("cursor-vscode", { hookRoot, hooksFile });
+  const request = h.create().request(cursorParent);
+  const b = boundary("cursor-child");
+  await request.before_send(b);
+  const deliveryId = request.result().delivery_id;
+  assert.equal(request.wait_process().args[2], deliveryId);
+  h.finish(b);
+  const answer = path.join(hookRoot, "deliveries", deliveryId, "answer.json");
+  await until(() => fs.existsSync(answer));
+  const early = await handleCursorHook(JSON.stringify({ hook_event_name: "postToolUse", conversation_id: "conv-1", tool_name: "Read" }), hookRoot);
+  assert.equal(early.additional_context, undefined);
+  await handleCursorHook(JSON.stringify({
+    hook_event_name: "afterMCPExecution", conversation_id: "conv-1", tool_name: "MCP:agent_launch",
+    result_json: { structuredContent: { parent_delivery: { delivery_id: deliveryId } } },
+  }), hookRoot);
+  const injected = await handleCursorHook(JSON.stringify({ hook_event_name: "postToolUse", conversation_id: "conv-1", tool_name: "Shell" }), hookRoot);
+  assert.match(injected.additional_context, /一つ目の回答$/);
+  await until(() => request.result().state === "submitted");
+  assert.equal(request.result().error_code, null);
+});
+
+test("Cursor親が受け取らないとfailedになり、本文は残る", async (t) => {
+  const h = setup(t, { submit: (target, id, text) => submitCursorParentAnswer(target, id, text, 30) });
+  const hookRoot = path.join(h.root, "cursor-hooks");
+  const hooksFile = path.join(h.root, "hooks.json");
+  fs.writeFileSync(hooksFile, JSON.stringify({ hooks: {
+    postToolUse: [{ command: "x cursor-parent-hook.js" }],
+    afterMCPExecution: [{ command: "x cursor-parent-hook.js" }],
+  } }));
+  const request = h.create().request(cursorParentFromRequest("cursor-vscode", { hookRoot, hooksFile }));
+  const b = boundary("cursor-unclaimed");
+  await request.before_send(b);
+  h.finish(b);
+  await until(() => request.result().state === "failed");
+  assert.equal(request.result().error_code, "CURSOR_PARENT_DELIVERY_UNCLAIMED");
+  assert.match(records(h.root).find(item => item.value.boundary.session_id === "cursor-unclaimed").value.text, /一つ目の回答$/);
 });
 
 test("初手が即完了しても回収し、保存した本文は次の回答で置換されない", async (t) => {

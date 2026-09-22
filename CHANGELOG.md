@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- Cursor親（`cursor-vscode`）へ子の回答を自動配送する。`aiterm-setup`が`~/.cursor/hooks.json`へ`afterMCPExecution`と`postToolUse`を追加し、作業中は次のツール返りへ`additional_context`で本文を差し込む。ターンを終える前にreceiptの`wait_process`を背景で起動すると、idle中の完了でも受け口が本文を出して起きる。hook未登録は送信前に`CURSOR_PARENT_HOOK_UNAVAILABLE`で止める。解除は`aiterm-setup --remove-cursor-parent-hooks`。Codex／Claude Codeの配送契約は変えない。
+
 ## [0.37.10] - 2026-09-21
 
 ### 修正

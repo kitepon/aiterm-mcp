@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { runSetup } from "./setup.js";
-import { removeClaudeParentHooks } from "./setup-integrations.js";
+import { removeClaudeParentHooks, removeCursorParentHooks } from "./setup-integrations.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -15,8 +15,16 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 2;
   }
+} else if (args.length === 1 && args[0] === "--remove-cursor-parent-hooks") {
+  try {
+    const status = removeCursorParentHooks(join(process.env.CURSOR_HOME ?? join(process.env.HOME ?? homedir(), ".cursor"), "hooks.json"));
+    process.stdout.write(`${JSON.stringify({ schema: "aiterm.cursor-parent-hooks-remove-result.v1", status })}\n`);
+  } catch (error) {
+    process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 2;
+  }
 } else if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
-  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS・Windows対応で、初回はCodexの再起動が必要です。disableは専用hookを解除し、statusは公式hookの登録・承認と再起動の必要性を確認します。旧中継はhook導入後に解除します。--jsonは対話せず、Steerの選択を維持します。\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n");
+  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS・Windows対応で、初回はCodexの再起動が必要です。disableは専用hookを解除し、statusは公式hookの登録・承認と再起動の必要性を確認します。旧中継はhook導入後に解除します。--jsonは対話せず、Steerの選択を維持します。\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n旧版へ戻す前のCursor専用hook解除: --remove-cursor-parent-hooks\n");
 } else {
   try {
     let action: CodexSteerAction | undefined;

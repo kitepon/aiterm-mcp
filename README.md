@@ -587,9 +587,9 @@ For PowerShell over SSH, `mark:true` recognizes the current standard `PS ...>` p
 
 ### Completion push for parent agents (`aiterm-wait`)
 
-**Codex／Claude Code親には子の回答本文が自動で届く。** 子を起動・dispatchした後は、別作業へ進むか親のturnを終える。Aitermが完了を観測し、加工前の本文を保存して親へ渡す。waiter、`pty_read`による回答回収、子への返送指示は不要。子は全対応harnessから選べる。
+**Codex／Claude Code／Cursor親には子の回答本文が自動で届く。** Codex／Claude Codeでは、子を起動・dispatchした後は別作業へ進むか親のturnを終える。Aitermが完了を観測し、加工前の本文を保存して親へ渡す。waiter、`pty_read`による回答回収、子への返送指示は不要。子は全対応harnessから選べる。
 
-自動配送のreceiptには`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexの公式受信口での受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、出力中断で結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
+Codex／Claude Codeの自動配送ではreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexの公式受信口での受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、出力中断で結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
 
 For queue delivery, use a Codex runtime that supplies MCP `_meta.threadId` and the official `thread/queue` API (verified with Codex CLI 0.154.0). `aiterm-setup` checks the installed queue entry point; Aiterm verifies the requesting thread before each dispatch. Codex native sub-agents reject external queue input and cannot be automatic-delivery parents. Steer相当の選択時も公式キューへ投入し、専用hookが同一ターンへ取り込みます。
 
@@ -598,6 +598,8 @@ Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が�
 `/clear`等の会話終了後は未送信の旧回答を送らず、本文を保存する。受信hookの上限は24時間。hookの終了・出力失敗・無効化を成功扱いせず、別の待機経路へ黙って切り替えない。Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`起動とnative subagent）はこの受信契約に含めない。
 
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
+
+Cursor parents (`clientInfo.name` of `cursor-vscode`) use the same completion capture. `aiterm-setup` adds `afterMCPExecution` and `postToolUse` to `~/.cursor/hooks.json` and keeps every other hook and its position. A missing registration fails the dispatch with `CURSOR_PARENT_HOOK_UNAVAILABLE` before the child is sent. While the parent keeps calling tools, the answer is injected through `additional_context` on the next tool result. If the parent ends the turn, start the receipt `wait_process` in the background first; that receiver exits when the answer arrives. `wait_command` is null. `submitted` means the hook or the receiver claimed the text, not that the model has read it. No claim within 24 hours is `failed`, the text is kept, and nothing is resent. Remove only Aiterm's entries with `aiterm-setup --remove-cursor-parent-hooks`. Cursor Cloud Agents and Background Agents are outside this contract.
 
 Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
 

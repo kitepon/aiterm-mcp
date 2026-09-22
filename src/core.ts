@@ -2984,7 +2984,10 @@ export function agentWaitProcess(
 // 親ホストの識別（MCP initialize の clientInfo.name）。配送の可否はMCP入口が検証し、ここは案内だけを作る。
 let parentClientName: string | null = null;
 function autoDeliveryParent(): string | null {
-  return parentClientName === "codex-mcp-client" ? "Codex" : parentClientName === "claude-code" ? "Claude Code" : null;
+  if (parentClientName === "codex-mcp-client") return "Codex";
+  if (parentClientName === "claude-code") return "Claude Code";
+  if (parentClientName === "cursor-vscode" || parentClientName?.startsWith("cursor-vscode ")) return "Cursor";
+  return null;
 }
 
 export function setParentClient(name: string | null): void {
@@ -3004,6 +3007,11 @@ export function agentWaitLaunchForm(command: string): string {
 // dispatch / 起動時 prompt 送信後の共通案内。第一文で「待たない」を宣言し、待ち方は後段に置く。
 export function agentDispatchGuide(session: string, cursor: number): string {
   const parent = autoDeliveryParent();
+  if (parent === "Cursor") {
+    return "回答はこの会話へ自動で届く。作業を続ければ次のツール返りに差し込まれる。" +
+      "ターンを終える前にreceiptのwait_processを背景（block_until_ms: 0）で起動しておけば、idle中に完了しても起きられる。" +
+      "ポーリング・pty_read(agent_transcript:true)は不要。";
+  }
   if (parent) {
     return `回答本文はAitermがこの${parent}親へ自動配送する。wait起動・ポーリング・通常の回答回収は不要。` +
       "親は作業を続けるかターンを終え、順番待ちから届く子の回答で続行する。";
@@ -3019,6 +3027,7 @@ export function agentDispatchGuide(session: string, cursor: number): string {
 // 未完了 session へ触った時の共通案内。ここでも待つのは waiter プロセスであって親ではない。
 export function agentWaitGuide(session?: string): string {
   const parent = autoDeliveryParent();
+  if (parent === "Cursor") return "回答はこの会話へ届く。完了通知はreceiptのwait_processを背景で起動して受ける。ポーリングは不要。";
   if (parent) return `回答本文はこの${parent}親へ自動配送される。親は作業を続けるかターンを終える。`;
   const cmd = `aiterm-wait --session ${session ?? "<session_id>"} --cursor 0`;
   return `完了通知は ${agentWaitLaunchForm(cmd)} で受ける（親はここで待たない・polling 不要）。receipt の outcome=done を確認してから再取得する。`;

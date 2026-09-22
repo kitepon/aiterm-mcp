@@ -18,6 +18,7 @@ import { createRequire } from "node:module";
 import { ParentDeliveryManager } from "./parent-delivery.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
+import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -29,13 +30,25 @@ const server = new McpServer({ name: "aiterm", version: pkg.version });
 let parentDelivery: ParentDeliveryManager | null = null;
 type DeliveryRequest = ReturnType<ParentDeliveryManager["request"]>;
 
+function deliveryParentKind(clientName: string | undefined): "claude" | "cursor" | undefined {
+  if (clientName === "claude-code") return "claude";
+  if (isCursorMcpClient(clientName)) return "cursor";
+  return undefined;
+}
+
 async function deliveryForRequest(extra: { _meta?: unknown }): Promise<DeliveryRequest | null> {
   const clientName = server.server.getClientVersion()?.name;
-  const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta);
+  const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
   if (!parent) return null;
-  parentDelivery ??= new ParentDeliveryManager({ parent_kind: clientName === "claude-code" ? "claude" : undefined });
+  parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName) });
   await parentDelivery.prepare(parent);
   return parentDelivery.request(parent);
+}
+
+function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
+  if (eventCursor === null) return { wait_process: null, wait_command: null };
+  if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
+  return { wait_process: core.agentWaitProcess(session, eventCursor), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` };
 }
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -48,6 +61,7 @@ type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean
 const NON_BLOCKING_RULE =
   "dispatch した子は投げっぱなしでよい＝親はここで待たない。" +
   "Codex親とClaude Code親にはAitermが回答本文を自動配送する。parent_deliveryがある場合はwait起動も通常の回答回収も不要。親は作業を続けるかターンを終える。" +
+  "Cursor親にはparent_deliveryとwait_processが付く。作業を続ければ次のツール返りに回答が差し込まれ、ターンを終える前にwait_processを背景で起動するとidle中の完了でも起きられる。ポーリングとpty_read(agent_transcript:true)は不要。" +
   "その他の親では、完了通知をreceiptの `wait_process.executable` と `wait_process.args` をそのまま親のターンを塞がない別プロセスAPIへ渡して受け、" +
   "PowerShell 7のStart-Processだけは `windows_start_process_argument_list` を単一文字列として渡す。" +
   `exit を完了通知として扱う（${core.AITERM_WAIT_OUTCOME_NOTE}。ポーリング不要）。` +
@@ -219,7 +233,7 @@ server.registerTool(
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
         delivery = await deliveryForRequest(extra);
         const receipt = await core.dispatchAgentTurn(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send });
-        const waitProcess = delivery ? null : core.agentWaitProcess(receipt.session_id, receipt.event_cursor);
+        const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor);
         return {
           content: [
             {
@@ -235,7 +249,7 @@ server.registerTool(
             mode: "agent_dispatch" as const,
             session_id: receipt.session_id,
             event_cursor: receipt.event_cursor,
-            wait_process: waitProcess,
+            wait_process: waited.wait_process,
             ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
             launch_id: receipt.launch_id,
             vendor: receipt.vendor,
@@ -764,8 +778,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       session_id: sid,
       managed_completion: true,
       event_cursor: eventCursor,
-      wait_process: eventCursor === null || delivery ? null : core.agentWaitProcess(sid, eventCursor),
-      wait_command: eventCursor === null || delivery ? null : `aiterm-wait --session ${sid} --cursor ${eventCursor}`,
+      ...completionWait(delivery, sid, eventCursor),
       ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
       submit_residue: submitResidue,
       initial_prompt: initialDelivery,
@@ -793,8 +806,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
         structuredContent: {
           schema: "aiterm.agent-launch-result.v1", provider: kind, harness: core.agentHarness(kind),
           session_id: e.session_id, managed_completion: true, event_cursor: e.event_cursor,
-          wait_process: e.event_cursor === null || delivery ? null : core.agentWaitProcess(e.session_id, e.event_cursor),
-          wait_command: e.event_cursor === null || delivery ? null : `aiterm-wait --session ${e.session_id} --cursor ${e.event_cursor}`,
+          ...completionWait(delivery, e.session_id, e.event_cursor),
           ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
           submit_residue: null, initial_prompt: e.initial_prompt, startup: e.startup,
         },
@@ -974,7 +986,9 @@ async function main(): Promise<void> {
   server.server.oninitialized = () => {
     const name = server.server.getClientVersion()?.name;
     core.setParentClient(name ?? null);
-    if (name === "codex-mcp-client" || name === "claude-code") parentDelivery ??= new ParentDeliveryManager({ parent_kind: name === "claude-code" ? "claude" : undefined });
+    if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
+      parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name) });
+    }
   };
   server.server.onclose = () => {
     void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));

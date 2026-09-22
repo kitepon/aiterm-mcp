@@ -151,6 +151,25 @@ Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`で�
 Claudeの起動metadataには指定cwdの実体パスを保存する。Claude Codeが実体パスから作るproject slugと
 APIエラー監視の参照先を一致させ、監視中のリンク変更で保存場所を取り違えない。
 
+### Cursor親への自動配送
+
+`aiterm-setup`は`~/.cursor/hooks.json`へAiterm専用の`afterMCPExecution`と`postToolUse`を追加する。
+他製品のhookと順序は保持し、`command`に`cursor-parent-hook.js`を含むentryだけを更新する。
+親の識別はMCP `initialize`の`clientInfo.name`が`cursor-vscode`（またはその後ろに空白を挟む派生名）であることだけで、
+会話IDはMCPの`_meta`に来ない。hook未登録は子への送信前に`CURSOR_PARENT_HOOK_UNAVAILABLE`で止め、waiterへ切り替えない。
+
+`afterMCPExecution`またはdispatch toolの`postToolUse`が、tool返りの`parent_delivery.delivery_id`とhook入力の
+`conversation_id`を結ぶ。`delivery_id`は`structuredContent`か、`content`のtextをJSONとして読んだ中から取る。
+完了観測と本文保存は`parent-delivery.ts`が所有し、記録は`cursor-parent-deliveries`へ分ける。子の予約`claims`は共有する。
+
+親が次のツールを呼ぶと`postToolUse`が未受領の本文を`additional_context`で会話へ差し込む。
+親がターンを終えている場合は、receiptの`wait_process`で起動した`cursor-parent-receive`が本文をstdoutへ出して終了する。
+`wait_command`はnull。受け取りは`claim.json`の排他作成で一つに決め、hookと受け口の両方へ本文を出さない。
+`submitted`はどちらかがclaimした状態であり、modelの読了ではない。24時間以内にclaimが無ければ`failed`とし、
+本文は残して自動再送しない。Cursor Cloud Agent／Background Agentはこの受信契約に含めない。
+
+hookを外す時は`aiterm-setup --remove-cursor-parent-hooks`で専用entryだけを解除する。
+
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
 promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は
 従来どおり`startup.not_checked`で返す。初手receiptは未要求・未送信・送信済み未確認・開始確認を分ける。

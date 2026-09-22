@@ -550,11 +550,11 @@ SSH先がPowerShellの場合、`mark:true`は現在の標準`PS ...>`プロン�
 
 `pty_read({ wait: true })`は通常PTYを、process終了／`mark:true` sentinel／`until`一致／shell復帰を伴う出力静止／timeoutの5層で判定する。agent sessionは第6の正確な層を使い、Codexは通常rollout、Grokは通常session event、Claudeはlaunch相関Stop event、Cursorは通常agent transcriptの`turn_ended`を`aiterm-wait --cursor`が観測する。親はブロックもポーリングもしない。
 
-### Codex／Claude Code親への回答自動配送
+### Codex／Claude Code／Cursor親への回答自動配送
 
 Codex／Claude Codeから子を起動・通常dispatchした後は、別作業へ進むか親のturnを終了するだけでよい。Aitermが完了を観測し、加工前の回答を保存して親へ届ける。waiter、`pty_read`による回答回収、子への送信指示は不要。子は全対応harnessから選べる。
 
-自動配送時はreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexの公式受信口での受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
+Codex／Claude Codeの自動配送ではreceiptに`parent_delivery`が付き、`wait_process`／`wait_command`はnullになる。`pty_observe`の`parent_deliveries`で`waiting`、`ready`、`sending`、`submitted`、`failed`、`unknown`を確認できる。`submitted`はCodexの公式受信口での受付またはClaudeのhookへの本文出力を示し、modelの読了ではない。MCP再接続後は未送信の記録を再開し、送信中に接続が切れて結果が分からない場合は本文を保持して`unknown`とする。自動再送はしない。
 
 単品導入のCodexにはMCPの`_meta.threadId`と公式`thread/queue` APIが必要で、Codex CLI 0.154.0で確認している。`aiterm-setup`はインストールされた公式queue入口を確認し、各dispatchでは実際の親threadの受入可否を確認する。Codexのnative sub-agentは外部からのqueue入力を拒否するため、自動配送の親としては未対応。
 
@@ -563,6 +563,8 @@ Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が�
 `/clear`などで会話を終了すると未送信の旧回答の配送を止め、本文は保存する。受信hookの上限は24時間で、終了や出力失敗を成功扱いしない。hookが無効な場合は送信前に明示errorにし、waiterへ黙って切り替えない。Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`起動とnative subagent）はこの受信契約に含めない。
 
 hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
+
+Cursor親（`clientInfo.name`が`cursor-vscode`）も同じ完了観測と本文保存を使う。`aiterm-setup`が`~/.cursor/hooks.json`へ`afterMCPExecution`と`postToolUse`を追加し、他製品のhookと順序は保持する。hookが無い場合は子への送信前に`CURSOR_PARENT_HOOK_UNAVAILABLE`で止める。作業を続けていれば次のツール返りへ`additional_context`で本文が差し込まれ、ターンを終える前にreceiptの`wait_process`を背景で起動しておけばidle中の完了でも起きられる。`wait_command`はnull。`submitted`はhookまたは受け口が本文を受け取った状態であり、modelの読了ではない。24時間以内に受け取りが無ければ`failed`とし、本文は残して自動再送しない。解除は`aiterm-setup --remove-cursor-parent-hooks`。Cursor Cloud Agent／Background Agentはこの受信契約に含めない。
 
 Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
 

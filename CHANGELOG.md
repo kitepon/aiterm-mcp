@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-09-22
+
 ### 追加
 
 - Cursor親（`cursor-vscode`）へ子の回答を自動配送する。`aiterm-setup`が`~/.cursor/hooks.json`へ`afterMCPExecution`と`postToolUse`を追加し、作業中は次のツール返りへ`additional_context`で本文を差し込む。ターンを終える前にreceiptの`wait_process`を背景で起動すると、idle中の完了でも受け口が本文を出して起きる。hook未登録は送信前に`CURSOR_PARENT_HOOK_UNAVAILABLE`で止める。解除は`aiterm-setup --remove-cursor-parent-hooks`。Codex／Claude Codeの配送契約は変えない。
@@ -1736,7 +1738,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...v0.38.0
 [0.37.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...v0.37.10
 [0.37.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.8...v0.37.9
 [0.37.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.7...v0.37.8

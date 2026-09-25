@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-09-25
+
 ### 修正
 
 - Claude Code初回起動時のテーマ選択を、画面で選択済みの項目を確定して通過する。続くログイン方式の選択は入力欄と誤認せず、公式CLIでの初回設定が必要と明示する。
@@ -1749,7 +1751,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.2...HEAD
+[0.38.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...v0.38.0
 [0.37.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.9...v0.37.10

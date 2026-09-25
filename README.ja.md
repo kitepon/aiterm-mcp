@@ -486,6 +486,7 @@ aiterm は同じ核心の洞察——端末を出会いの場にする——を�
 
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
+Claude Code初回起動の文字表示テーマ選択では、画面で選択済みの項目を確定して起動を続ける。
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
 初手の`initial_prompt.status`は`not_requested`／`not_sent`／`submitted_unconfirmed`／`started`を区別する。
 未送信・未確認の失敗もsession付きstructuredContentを保持する。未確認のpromptを再送せず、返ったcursorで観測する。

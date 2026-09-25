@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Code初回起動時のテーマ選択を、画面で選択済みの項目を確定して通過する。メニューを入力欄と誤認せず、後続の起動確認まで進める。
+
 ## [0.38.1] - 2026-09-22
 
 ### 修正

@@ -262,6 +262,11 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
 }
 
 export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
+  const tail = screen.split("\n").slice(-32).join("\n");
+  const lastMarker = tail.split(/\r?\n/u).filter(line => /^\s*❯/u.test(line)).at(-1)?.trim();
+  if (tail.includes("Choose the text style that looks best with your terminal")
+    && /^❯\s*[1-7]\.\s*(?:Auto \(match terminal\)|Dark mode|Light mode)/u.test(lastMarker ?? ""))
+    return { kind: "initial_theme_selected", keys: ["Enter"] };
   // 既存launcherで扱っていた2確認は従来の起動契約を維持する。
   if (screen.includes("Is this a project you created or one you trust")
     && screen.includes("No, exit") && screen.includes("Yes, I trust this folder"))

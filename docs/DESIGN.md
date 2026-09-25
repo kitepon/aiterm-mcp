@@ -171,6 +171,7 @@ APIエラー監視の参照先を一致させ、監視中のリンク変更で�
 hookを外す時は`aiterm-setup --remove-cursor-parent-hooks`で専用entryだけを解除する。
 
 `trust_project:true`は対象projectの既知のworkspace、hooks、MCP初期同意を起動準備として進める意図である。
+Claude Codeの初回テーマ選択は選択済みの項目を確定し、後続の起動準備へ進める。
 promptなしでも入力受付とharness生存を確認して`startup.ready`を返す。指定なしのpromptなし起動は
 従来どおり`startup.not_checked`で返す。初手receiptは未要求・未送信・送信済み未確認・開始確認を分ける。
 開始の証拠は送信後の実行表示、実行中の既知承認、または同じcursor以降の完了だけとし、残存なしでは代用しない。

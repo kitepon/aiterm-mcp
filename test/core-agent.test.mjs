@@ -466,6 +466,9 @@ function makeFakeClaudeTrustTuiBin() {
       "  printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'",
       "  exit 0",
       "fi",
+      "printf '%s\\n' 'Welcome to Claude Code v2.1.261' 'Choose the text style that looks best with your terminal' '  1. Auto (match terminal)' '❯ 2. Dark mode ✔' '  3. Light mode'",
+      "IFS= read -r theme_response",
+      "printf 'THEME_ACCEPTED:%s\\n' \"$theme_response\"",
       "printf '%s\\n' 'WARNING: Claude Code running in Bypass Permissions mode' '❯ No, exit' '  Yes, I accept' 'Enter to confirm · Esc to cancel'",
       "IFS= read -r bypass_response",
       "printf 'BYPASS_ACCEPTED:%s\\n' \"$bypass_response\"",
@@ -2683,6 +2686,7 @@ test("openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trust�
     assert.equal(fs.statSync(meta.event_file).size, 0, "completion eventを偽造しない");
     assert.equal(fs.statSync(meta.result_file).size, 0, "Claude resultを偽造しない");
     const screen = await core.readOutput(sid, { screen: true, raw: true });
+    assert.match(screen, /THEME_ACCEPTED:/);
     assert.match(screen, /BYPASS_ACCEPTED:/);
     assert.match(screen, /TRUST_ACCEPTED:/);
     assert.match(screen, new RegExp(marker));

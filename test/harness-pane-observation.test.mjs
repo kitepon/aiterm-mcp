@@ -13,7 +13,7 @@ test("CodexのWindows hook確認は画面上部の見出しとgo back footerか�
   assert.equal(codexStartupAction(screen, false), null);
   assert.deepEqual(codexStartupAction(screen, true), { kind: 'project_hooks_trusted', keys: ['Down', 'Enter'] });
 });
-import { claudeStartupAction, claudePaneObservation } from "../dist/harnesses/claude.js";
+import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
 
 test("Grokの通信失敗は応答待ち表示より優先する", () => {
@@ -57,6 +57,21 @@ test("起動時同意はproject信頼の意図に限定する", () => {
   assert.equal(claudeStartupAction(mcp, false), null);
   assert.deepEqual(claudeStartupAction(mcp, true).keys, ["Down", "Down", "Enter"]);
   assert.equal(codexStartupAction("Hooks need review\n› 1. Unknown option", true), null);
+});
+
+test("Claude Codeの初回テーマ選択は既定の選択を確定して起動を続ける", () => {
+  const screen = [
+    "Welcome to Claude Code v2.1.261",
+    "Choose the text style that looks best with your terminal",
+    "To change this later, run /theme",
+    "  1. Auto (match terminal)",
+    "❯ 2. Dark mode ✔",
+    "  3. Light mode",
+    "Syntax theme: Monokai Extended (ctrl+t to disable)",
+  ].join("\n");
+  assert.equal(claudeTuiReady(screen), false);
+  assert.deepEqual(claudePaneObservation(screen), { state: "blocked", reason: "startup_dialog" });
+  assert.deepEqual(claudeStartupAction(screen, true), { kind: "initial_theme_selected", keys: ["Enter"] });
 });
 
 test("Codexの古い承認を現在の入力欄へ持ち越さない", () => {

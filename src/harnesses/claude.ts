@@ -242,6 +242,7 @@ export function claudeLaunchNote(
 
 export function claudeTuiReady(screen: string): boolean {
   if (!screen.includes("Claude Code")) return false;
+  if (claudeLoginMethodMenu(screen)) return false;
   const lastMarker = screen.split(/\r?\n/u).filter((line) => /^\s*❯/u.test(line)).at(-1)?.trim();
   if (!lastMarker) return false;
   // Claude Code 2.1.251 のworkspace trust UIも選択カーソルに❯を使う。
@@ -252,6 +253,7 @@ export function claudeTuiReady(screen: string): boolean {
 
 export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
+  if (claudeLoginMethodMenu(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
     return { state: "blocked", reason: "tool_approval" };
   if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
@@ -259,6 +261,13 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
   if (/new MCP servers? found in this project/i.test(tail)) return { state: "blocked", reason: "project_mcp_consent" };
   if (claudeStartupAction(screen, false)) return { state: "blocked", reason: "startup_dialog" };
   return { state: "unknown", reason: "unrecognized_screen" };
+}
+
+function claudeLoginMethodMenu(screen: string): boolean {
+  const tail = screen.split("\n").slice(-32).join("\n");
+  const lastMarker = tail.split(/\r?\n/u).filter(line => /^\s*❯/u.test(line)).at(-1)?.trim();
+  return tail.includes("Select login method:")
+    && /^❯\s*(?:Claude account with subscription|Anthropic Console account|3rd-party platform)/u.test(lastMarker ?? "");
 }
 
 export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {

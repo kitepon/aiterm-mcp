@@ -135,5 +135,9 @@ test("受け口は本文、hook先行、timeout、引数不正を分ける", asy
   const processInfo = cursorReceiveProcess(id, "/usr/local/bin/node");
   assert.equal(processInfo.executable, "/usr/local/bin/node");
   assert.deepEqual(processInfo.args.slice(1), ["--delivery", id]);
-  assert.equal(processInfo.windows_start_process_argument_list, null);
+  if (process.platform === "win32") {
+    assert.match(processInfo.windows_start_process_argument_list, new RegExp(`--delivery ${id}$`));
+  } else {
+    assert.equal(processInfo.windows_start_process_argument_list, null);
+  }
 });

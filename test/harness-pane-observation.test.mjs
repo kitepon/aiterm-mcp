@@ -74,6 +74,19 @@ test("Claude Codeの初回テーマ選択は既定の選択を確定して起動
   assert.deepEqual(claudeStartupAction(screen, true), { kind: "initial_theme_selected", keys: ["Enter"] });
 });
 
+test("Claude Codeのログイン方式選択は入力欄と誤認せず公式CLIでの初回設定を要求する", () => {
+  const screen = [
+    "Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.",
+    "Select login method:",
+    "❯ Claude account with subscription · Pro, Max, Team, or Enterprise",
+    "  Anthropic Console account · API usage billing",
+    "  3rd-party platform · Amazon Bedrock, Microsoft Foundry, or Vertex AI",
+  ].join("\n");
+  assert.equal(claudeTuiReady(screen), false);
+  assert.deepEqual(claudePaneObservation(screen), { state: "blocked", reason: "vendor_onboarding_required" });
+  assert.equal(claudeStartupAction(screen, true), null);
+});
+
 test("Codexの古い承認を現在の入力欄へ持ち越さない", () => {
   const old = "Would you like to run the following command?\n2. Yes, and don't ask again for commands that start with rg";
   const composer = "› Ask Codex to do anything\ngpt-5.6-terra high · ~/work";

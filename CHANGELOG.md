@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修正
 
-- Claude Code初回起動時のテーマ選択を、画面で選択済みの項目を確定して通過する。メニューを入力欄と誤認せず、後続の起動確認まで進める。
+- Claude Code初回起動時のテーマ選択を、画面で選択済みの項目を確定して通過する。続くログイン方式の選択は入力欄と誤認せず、公式CLIでの初回設定が必要と明示する。
+- WindowsのCursor親受け口試験で、Windows専用の起動引数を誤って`null`と期待していた判定を修正する。
 
 ## [0.38.1] - 2026-09-22
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-09-26
+
 ### 追加
 
 - `agent_launch`と既存のPTY／agent操作toolに`remote`を追加する。SSHで入った別端末のAitermへ同じtoolを中継し、端末へ入る操作と現地のagent起動を1回で行う。接続先・鍵・パスフレーズは呼び出しごとに受け取り、保存・管理しない。Codex／Claude Code／Cursor親への回答自動配送は別端末の子にも働き、記録は旧版が読まない`remote-`付きの保存場所へ分ける。
@@ -1769,7 +1771,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.39.0...HEAD
+[0.39.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.2...v0.39.0
 [0.38.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.37.10...v0.38.0

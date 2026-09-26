@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent_launch`と既存のPTY／agent操作toolに`remote`を追加する。SSHで入った別端末のAitermへ同じtoolを中継し、端末へ入る操作と現地のagent起動を1回で行う。接続先・鍵・パスフレーズは呼び出しごとに受け取り、保存・管理しない。Codex／Claude Code／Cursor親への回答自動配送は別端末の子にも働き、記録は旧版が読まない`remote-`付きの保存場所へ分ける。
 - `pty_read(agent_transcript:true)`が`raw:true`を受け付け、削減前の回答本文を返す。
 
+### 修正
+
+- Claude Code 2.1.282の番号付きログイン方式選択を、初回案内の未完了として見分ける。ログイン済みでも初回案内が済んでいないと起動のたびにこの画面で止まるため、ready timeoutを待たずに`vendor_onboarding_required`と直し方を返す。初回テーマ選択もtimeoutを待たずに確定する。
+
 ## [0.38.2] - 2026-09-25
 
 ### 修正

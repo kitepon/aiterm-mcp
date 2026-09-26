@@ -263,11 +263,12 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
   return { state: "unknown", reason: "unrecognized_screen" };
 }
 
-function claudeLoginMethodMenu(screen: string): boolean {
+// Claude Code 2.1.282 は選択肢へ「1.」などの番号を付ける。番号の有無のどちらも受ける。
+export function claudeLoginMethodMenu(screen: string): boolean {
   const tail = screen.split("\n").slice(-32).join("\n");
   const lastMarker = tail.split(/\r?\n/u).filter(line => /^\s*❯/u.test(line)).at(-1)?.trim();
   return tail.includes("Select login method:")
-    && /^❯\s*(?:Claude account with subscription|Anthropic Console account|3rd-party platform)/u.test(lastMarker ?? "");
+    && /^❯\s*(?:\d+\.\s*)?(?:Claude account with subscription|Anthropic Console account|3rd-party platform)/u.test(lastMarker ?? "");
 }
 
 export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {

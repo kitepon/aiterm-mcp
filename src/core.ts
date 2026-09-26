@@ -147,6 +147,7 @@ import {
   claudeTuiReady,
   claudePaneObservation,
   claudeStartupAction,
+  claudeLoginMethodMenu,
   CLAUDE_COMPOSER_MARKER_RE,
   createClaudeAgentMetadata,
   claudeSessionTranscriptPath,
@@ -3218,6 +3219,8 @@ function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
   }
   if (kind === "claude") {
     return /new MCP servers? found in this project/iu.test(screen)
+      || claudeLoginMethodMenu(screen)
+      || claudeStartupAction(screen, false)?.kind === "initial_theme_selected"
       || screen.includes("Is this a project you created or one you trust")
       || screen.includes("trust this folder")
       || (screen.includes("Claude Code running in Bypass Permissions mode") && screen.includes("Yes, I accept"));
@@ -3662,6 +3665,15 @@ export interface InitialAgentPromptResult {
   initial_prompt: InitialPromptDelivery;
 }
 
+// 利用者が端末で済ませるしかない起動前の状態。reasonだけでは直し方が分からないので案内を添える。
+function startupBlockedHint(reason: string): string {
+  if (reason === "vendor_onboarding_required") {
+    return "\nClaude Codeの初回案内（テーマ・ログイン方法の選択）が済んでいません。`claude auth status` がログイン済みでも、" +
+      "初回案内が未完了なら起動のたびにこの画面で止まります。対象端末で一度 `claude` を起動し、案内を最後まで進めてください。";
+  }
+  return "";
+}
+
 function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, cursor: number | null): void {
   meta.initial_prompt_delivery = value;
   meta.initial_prompt_cursor = cursor;
@@ -3719,7 +3731,8 @@ export async function sendInitialAgentPrompt(
     setInitialDelivery(meta, { status: "not_sent", reason: startup.reason, turn_started: false }, null);
     throw new AitermError(
       `initial_prompt=not_sent vendor=${meta.kind} ready=false harness=${agentHarness(meta.kind)}\n` +
-        `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}`,
+        `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}` +
+        startupBlockedHint(startup.reason),
       2,
     );
   }
@@ -4802,7 +4815,8 @@ export async function openAgentWithInitialPrompt(
         );
       }
       if (startup.status !== "ready") throw new AgentLaunchPromptError(
-        `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}`, 2, sid, delivery, null, startup,
+        `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}${startupBlockedHint(startup.reason)}`,
+        2, sid, delivery, null, startup,
       );
     }
     return [sid, hint, null, null, delivery, startup];

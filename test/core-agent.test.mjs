@@ -2698,6 +2698,56 @@ test("openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trust�
   }
 });
 
+function makeFakeClaudeOnboardingTuiBin() {
+  const bin = path.join(process.env.TMPDIR, `fake-claude-onboarding-${Date.now().toString(36)}.sh`);
+  fs.writeFileSync(
+    bin,
+    [
+      "#!/bin/sh",
+      "if [ \"$1\" = auth ] && [ \"$2\" = status ] && [ \"$3\" = --json ]; then",
+      "  printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'",
+      "  exit 0",
+      "fi",
+      "printf '%s\\n' 'Welcome to Claude Code v2.1.282' 'Choose the text style that looks best with your terminal' '  1. Auto (match terminal)' '❯ 2. Dark mode ✔' '  3. Light mode'",
+      "IFS= read -r theme_response",
+      "printf '%s\\n' 'Select login method:' ' ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise' '   2. Anthropic Console account · API usage billing' '   3. 3rd-party platform · Amazon Bedrock, Microsoft Foundry, or Vertex AI'",
+      "while IFS= read -r line; do printf 'PROMPT:%s\\n' \"$line\"; done",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  return bin;
+}
+
+// 実被弾 2026-09-26 rabbit（Claude Code 2.1.282）: ログイン済みでも初回案内が未完了だと
+// ログイン方法の選択で止まる。ready timeoutを待たずに理由と直し方を返す。
+test("openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeoutを待たず理由と直し方を返す", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CLAUDE_BIN;
+  const fakeBin = makeFakeClaudeOnboardingTuiBin();
+  const sid = `claude_onboarding_${Date.now().toString(36)}`;
+  const marker = "SHOULD_NOT_BE_SENT_TO_LOGIN_MENU";
+  process.env.CLAUDE_BIN = fakeBin;
+  const started = performance.now();
+  try {
+    await assert.rejects(
+      core.openAgentWithInitialPrompt("claude", { session_name: sid, prompt: marker, ready_timeout: 20_000 }),
+      (error) => {
+        assert.equal(error.initial_prompt.reason, "vendor_onboarding_required");
+        assert.match(error.message, /初回案内/);
+        return true;
+      },
+    );
+    assert.ok(performance.now() - started < 15_000, "ready timeoutまで待たない");
+    const screen = await core.readOutput(sid, { screen: true, raw: true });
+    assert.doesNotMatch(screen, new RegExp(marker), "ログイン方法の選択へpromptを送らない");
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
+    else process.env.CLAUDE_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
+  }
+});
+
 // 実被弾 2026-08-25 の実機capture逐語（Codex v0.149.0）。ダイアログ表示中はheader/footerが
 // 描かれないため、codexTuiReady では拾えず codexLaunchBlockingDialog が種別を特定する。
 test("codexLaunchBlockingDialog: 起動前modalの実機画面を種別付きで検知する", () => {

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
-import { observeAgentDone, readAgentTranscriptResult } from "./core.js";
+import type { readAgentTranscriptResult } from "./core.js";
 import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitObservation } from "./agent-shared.js";
 import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
@@ -12,6 +12,7 @@ import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitC
 import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
+import { answerAnywhere, observeAnywhere, remoteKey, remoteTargetSchema, type RemoteTarget } from "./remote.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -25,6 +26,8 @@ const recordSchema = z.object({
     vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]),
     harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
     event_cursor: z.number().int().nonnegative(), operation_id: z.string().nullable(),
+    // 別端末の子。remote用の保存場所にだけ書き、旧版のreaderへ渡さない。
+    remote: remoteTargetSchema.optional(),
   }).strict(),
   state: z.enum(["waiting", "ready", "sending", "submitted", "failed", "unknown"]),
   text: z.string().nullable(),
@@ -35,6 +38,13 @@ const recordSchema = z.object({
 }).strict();
 
 type DeliveryRecord = z.infer<typeof recordSchema>;
+export type DeliveryBoundary = AgentTurnBoundary & { remote?: RemoteTarget };
+
+/** 子の予約と連続依頼の単位。別端末の子は接続先ごとに分け、この端末の同名sessionと衝突させない。 */
+export function deliveryKey(sessionId: string, remote?: RemoteTarget): string {
+  return remote ? `remote-${remoteKey(remote)}-${sessionId}` : sessionId;
+}
+const boundaryKey = (boundary: DeliveryRecord["boundary"]) => deliveryKey(boundary.session_id, boundary.remote);
 export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
 type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void> };
 type Owner = { pid: number; started_identity: string; closed: boolean };
@@ -56,8 +66,8 @@ async function submitParentAnswer(parent: Parent, deliveryId: string, text: stri
 }
 
 export interface ParentDeliveryDependencies {
-  observe: typeof observeAgentDone;
-  answer: typeof readAgentTranscriptResult;
+  observe: typeof observeAnywhere;
+  answer: (session: string, options: Parameters<typeof readAgentTranscriptResult>[1] & { remote?: RemoteTarget }) => Promise<{ text: string }>;
   submit: typeof submitParentAnswer;
   verify: typeof verifyParent;
   processes: () => RuntimeProcess[];
@@ -108,22 +118,24 @@ export class ParentDeliveryManager {
   private serviceError: Error | null = null;
   private closing = false;
 
-  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
-    this.deps = { observe: observeAgentDone, answer: readAgentTranscriptResult, submit: submitParentAnswer,
+  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
+    this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
       verify: verifyParent, processes: readRuntimeProcesses, ...options.dependencies };
     const stateRoot = ensureStateRoot();
+    // 別端末の子の記録はremote-で始まる保存場所へ分け、boundary.remoteを知らない旧版のreaderへ渡さない。
+    const prefix = options.remote ? "remote-" : "";
     const directory = options.parent_kind === "claude" ? "claude-parent-deliveries"
       : options.parent_kind === "cursor" ? "cursor-parent-deliveries" : "parent-deliveries";
-    this.root = options.root ?? path.join(stateRoot, directory);
+    this.root = options.root ?? path.join(stateRoot, prefix + directory);
     // 旧版のCodex／Claude readerへ未知のparentを渡さない。公開照会と子の予約だけは保存場所を横断する。
     this.recordRoots = options.root ? [options.root] : [
-      path.join(stateRoot, "parent-deliveries"),
-      path.join(stateRoot, "claude-parent-deliveries"),
-      path.join(stateRoot, "cursor-parent-deliveries"),
+      path.join(stateRoot, prefix + "parent-deliveries"),
+      path.join(stateRoot, prefix + "claude-parent-deliveries"),
+      path.join(stateRoot, prefix + "cursor-parent-deliveries"),
     ];
     this.active = path.join(this.root, "active");
     this.results = path.join(this.root, "results");
-    this.claims = path.join(options.root ?? path.join(stateRoot, "parent-deliveries"), "claims");
+    this.claims = path.join(options.root ?? path.join(stateRoot, prefix + "parent-deliveries"), "claims");
     const ownProcess = this.deps.processes().find((entry) => entry.pid === process.pid);
     if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
     this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false };
@@ -152,7 +164,7 @@ export class ParentDeliveryManager {
   }
 
   request(parent: Parent): {
-    before_send: (boundary: AgentTurnBoundary) => Promise<void>;
+    before_send: (boundary: DeliveryBoundary) => Promise<void>;
     result: () => ParentDeliveryReceipt | null;
     failed: (error: unknown) => void;
     wait_process: () => ReturnType<typeof cursorReceiveProcess> | null;
@@ -160,9 +172,10 @@ export class ParentDeliveryManager {
     let job: OwnedRecord | null = null;
     return {
       before_send: async (boundary) => {
-        const previous = this.registering.get(boundary.session_id) ?? Promise.resolve();
+        const key = deliveryKey(boundary.session_id, boundary.remote);
+        const previous = this.registering.get(key) ?? Promise.resolve();
         const registration = previous.then(async () => {
-          await this.beforeChange(boundary.session_id, true);
+          await this.beforeChange(key, true);
           const now = new Date().toISOString();
           const record: DeliveryRecord = { schema: "aiterm.parent-delivery.v1", delivery_id: randomUUID(),
             created_at: now, updated_at: now, parent, boundary, state: "waiting", text: null,
@@ -171,7 +184,7 @@ export class ParentDeliveryManager {
           this.save(job);
           // 記録を調べてから作るだけでは、別processが同時に同じ子を予約できる。
           // 同一filesystemのhard link作成で、回答をまだ保存していない依頼を一つに決める。
-          try { fs.linkSync(job.file, path.join(this.claims, `${boundary.session_id}.json`)); }
+          try { fs.linkSync(job.file, path.join(this.claims, `${key}.json`)); }
           catch (error) {
             fs.unlinkSync(job.file);
             job = null;
@@ -193,9 +206,9 @@ export class ParentDeliveryManager {
           this.jobs.set(record.delivery_id, job);
           this.watch(job);
         });
-        this.registering.set(boundary.session_id, registration);
+        this.registering.set(key, registration);
         try { await registration; }
-        finally { if (this.registering.get(boundary.session_id) === registration) this.registering.delete(boundary.session_id); }
+        finally { if (this.registering.get(key) === registration) this.registering.delete(key); }
       },
       result: () => job ? receipt(job.record) : null,
       wait_process: () => job && isCursor(parent) ? cursorReceiveProcess(job.record.delivery_id) : null,
@@ -223,7 +236,7 @@ export class ParentDeliveryManager {
   }
 
   private releaseClaim(job: OwnedRecord): void {
-    const file = path.join(this.claims, `${job.record.boundary.session_id}.json`);
+    const file = path.join(this.claims, `${boundaryKey(job.record.boundary)}.json`);
     try {
       const claim = JSON.parse(fs.readFileSync(file, "utf8"));
       // 回収済みrecordを復旧している間に始まった、次の依頼の予約は触らない。
@@ -237,7 +250,7 @@ export class ParentDeliveryManager {
       try {
         const completion = await this.deps.observe(boundary.session_id, {
           cursor: boundary.event_cursor, operation_id: boundary.operation_id,
-          timeout: Infinity, signal: job.controller.signal,
+          timeout: Infinity, signal: job.controller.signal, ...(boundary.remote ? { remote: boundary.remote } : {}),
         });
         await this.capture(job, completion);
       } catch (error) {
@@ -257,7 +270,8 @@ export class ParentDeliveryManager {
       record.child_outcome = completion.outcome;
       record.child_turn_id = completion.turn_id;
       if (completion.outcome === "done") {
-        const answer = await this.deps.answer(record.boundary.session_id, { completion, operation_id: completion.operation_id, raw: true });
+        const answer = await this.deps.answer(record.boundary.session_id, { completion, operation_id: completion.operation_id, raw: true,
+          ...(record.boundary.remote ? { remote: record.boundary.remote } : {}) });
         if (record.state !== "waiting") return;
         record.text = answer.text;
       } else {
@@ -297,12 +311,13 @@ export class ParentDeliveryManager {
     this.finish(job);
   }
 
-  /** 次の入力・closeより先に、既に完了した前の本文を確保する。 */
-  async beforeChange(sessionId: string, requireCaptured = false): Promise<void> {
+  /** 次の入力・closeより先に、既に完了した前の本文を確保する。keyは`deliveryKey`（この端末の子はsession名）。 */
+  async beforeChange(key: string, requireCaptured = false): Promise<void> {
     for (const job of this.jobs.values()) {
-      if (job.record.boundary.session_id !== sessionId || job.record.state !== "waiting") continue;
+      if (boundaryKey(job.record.boundary) !== key || job.record.state !== "waiting") continue;
       const boundary = job.record.boundary;
-      const completion = await this.deps.observe(sessionId, { cursor: boundary.event_cursor, operation_id: boundary.operation_id, timeout: 0 });
+      const completion = await this.deps.observe(boundary.session_id, { cursor: boundary.event_cursor, operation_id: boundary.operation_id, timeout: 0,
+        ...(boundary.remote ? { remote: boundary.remote } : {}) });
       if (completion.outcome !== "running" && completion.outcome !== "timeout") {
         await this.capture(job, completion);
       }
@@ -311,7 +326,7 @@ export class ParentDeliveryManager {
       }
     }
     // 別のMCP processが同じ子の回答を保存中なら、入力で記録を上書きしない。
-    if (requireCaptured && this.records().some((record) => record.boundary.session_id === sessionId && record.state === "waiting")) {
+    if (requireCaptured && this.records().some((record) => boundaryKey(record.boundary) === key && record.state === "waiting")) {
       throw new AitermError("PARENT_RESULT_PENDING: 別の依頼の回答保存が済んでいません", 2);
     }
   }
@@ -341,9 +356,9 @@ export class ParentDeliveryManager {
     return records;
   }
 
-  status(sessionId: string): ParentDeliveryReceipt[] {
+  status(key: string): ParentDeliveryReceipt[] {
     if (this.serviceError) throw this.serviceError;
-    return this.records().filter((record) => record.boundary.session_id === sessionId)
+    return this.records().filter((record) => boundaryKey(record.boundary) === key)
       .sort((a, b) => a.created_at.localeCompare(b.created_at)).map(receipt);
   }
 

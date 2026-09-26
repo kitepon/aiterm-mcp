@@ -181,6 +181,24 @@ Codexの設定エラー等でCLIが終了した場合は、残った画面へ送
 `agent_approval`はCodexの現在のcommand／MCP承認を検査し、launch IDを含むdigestと単発の選択へ束縛する。
 応答はsend lock内で再観測し、変更・未知・取得失敗では入力しない。Claudeの既存`claude_approval`は維持する。
 
+### 別端末の子（`remote`）
+
+`src/remote.ts`が所有する。`remote`付きの呼び出しは、`ssh <host>`で現地のログインshellから`aiterm-mcp`を起動し、
+同じtoolをMCPのままSSHのstdioへ中継する。起動、hook、transcript、multiplexerは現地のAitermが所有し、
+呼び出し側は結果を返すだけにする。現地にポートは開けない。
+
+接続先はtool引数で毎回受け取り、Aitermは一覧も既定値も持たない（オーナー裁定 2026-09-26。管理まで持つと重くなるため）。
+配送記録には、パスフレーズ本文を除いた接続情報だけを残す。平文のパスフレーズはMCP processのメモリにだけ置き、
+`SSH_ASKPASS`でsshへ渡す。受け取っていない時は`BatchMode`で止め、端末での対話入力はしない。
+同じ接続先への呼び出しはControlMasterで1本のSSHに相乗りする。
+
+自動配送は`ParentDeliveryManager`を別インスタンスで使い、記録を`remote-`付きの保存場所へ分ける。
+旧版のreaderは`boundary.remote`を知らないため、同じ保存場所に置くと旧processの照会が壊れる。
+子の予約と照会の単位は`deliveryKey`で、接続先のhashを前置きして、この端末の同名sessionと衝突させない。
+完了は現地の`aiterm-wait`で観測し、ssh自身の失敗（exit 255）では同じcursorで観測し直す。
+現地の`aiterm-wait`が失敗を返した場合はつなぎ直さずに失敗とする。回答は現地の`pty_read(agent_transcript:true, raw:true)`から取り、
+完了と別のturnの本文は配送しない。起動と送信は現地で済んだ後に配送を登録するため、送信前に前回の本文を確保する。
+
 ## Layer ownership
 
 ```text

@@ -616,6 +616,21 @@ Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対
 
 `aiterm-wait` takes no locks, never writes session state, and never dispatches — any number can run beside the MCP server and each other, and `pty_close`/concurrent sends are unaffected.
 
+### Launch an agent on another machine in one call (`remote`)
+
+Add `remote` to `agent_launch` and the same launch runs in the Aiterm of another machine reached over SSH. Entering the machine and starting its agent become one call, and completion reaches the parent exactly as it does for a local child. The intended use is sending the same task to Linux, macOS, and Windows machines in parallel.
+
+```jsonc
+agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/home/kite/project", "prompt": "..." })
+```
+
+- `remote` takes `host`, `user`, `port`, `identity_file`, `passphrase` or `passphrase_env`, and `ssh_options` (`Key=Value`). A bare `host` is used as an `~/.ssh/config` alias. Aiterm does not store or manage destinations; the caller owns where to connect and with which key.
+- A plain `passphrase` stays in the calling AI's conversation log. Prefer ssh-agent or `passphrase_env` (an environment variable name). A received passphrase lives only in the MCP process memory and reaches ssh through `SSH_ASKPASS`; it is never written to state files or logs.
+- The remote machine needs `aiterm-mcp`, tmux (psmux on Windows), and the harness CLI. Aiterm starts `aiterm-mcp` through the remote login shell, so PATH entries such as `~/.local/bin` apply.
+- Pass the same `remote` to later `pty_send`, `pty_read`, `pty_close`, `pty_observe`, `agent_steer`, and so on. Session names belong to the remote machine and never collide with local sessions of the same name.
+- Codex, Claude Code, and Cursor parents receive the answer automatically, as with a local child. Completion is observed with `ssh <host> aiterm-wait`, reconnecting at the same cursor if SSH drops. Other parents get an ssh-based `wait_process`.
+- Calls to the same destination share one SSH connection through ControlMaster. `image` attachments and `claude_turn issue` are not yet supported with `remote`.
+
 ### Token reduction
 
 - `pty_read` by default strips control characters, collapses repeated lines, and folds long output into head+tail (with a restore hint and a meta line).

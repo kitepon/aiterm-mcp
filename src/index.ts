@@ -15,7 +15,8 @@ import { z } from "zod";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { createRequire } from "node:module";
-import { ParentDeliveryManager } from "./parent-delivery.js";
+import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
+import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
@@ -28,6 +29,8 @@ const pkg = createRequire(import.meta.url)("../package.json") as { version: stri
 
 const server = new McpServer({ name: "aiterm", version: pkg.version });
 let parentDelivery: ParentDeliveryManager | null = null;
+// 別端末の子の配送。記録の保存場所を分けるため、この端末の子とは別のmanagerにする。
+let remoteParentDelivery: ParentDeliveryManager | null = null;
 type DeliveryRequest = ReturnType<ParentDeliveryManager["request"]>;
 
 function deliveryParentKind(clientName: string | undefined): "claude" | "cursor" | undefined {
@@ -36,13 +39,15 @@ function deliveryParentKind(clientName: string | undefined): "claude" | "cursor"
   return undefined;
 }
 
-async function deliveryForRequest(extra: { _meta?: unknown }): Promise<DeliveryRequest | null> {
+async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): Promise<DeliveryRequest | null> {
   const clientName = server.server.getClientVersion()?.name;
   const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
   if (!parent) return null;
-  parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName) });
-  await parentDelivery.prepare(parent);
-  return parentDelivery.request(parent);
+  const manager = remote
+    ? (remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName), remote: true }))
+    : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName) }));
+  await manager.prepare(parent);
+  return manager.request(parent);
 }
 
 function deliveryIdLine(delivery: DeliveryRequest | null): string {
@@ -138,6 +143,96 @@ async function factoryDiagnostics(): Promise<string> {
   });
 }
 
+/**
+ * 別端末への中継。remoteを受けたtoolは、同じtoolを現地のAitermへSSH越しにそのまま呼ぶ。
+ * 接続情報は呼び出しごとに受け取り、Aitermは保存・管理しない。
+ */
+const remoteInputField = remoteInputSchema.optional().describe(remoteInputDescription);
+
+function remoteNote(target: RemoteTarget, result: RemoteCallResult): { type: "text"; text: string } {
+  return { type: "text", text: `remote=${remoteLabel(target)} remote_aiterm=${result.remote_version ?? "unknown"}` };
+}
+
+async function forwardRemote(target: RemoteTarget, name: string, args: Record<string, unknown>): Promise<any> {
+  const result = await callRemoteTool(target, name, args);
+  return {
+    content: [...result.content, remoteNote(target, result)],
+    ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
+    ...(result.isError ? { isError: true } : {}),
+  };
+}
+
+type RemoteToolHandler = (target: RemoteTarget, args: any, extra: any) => Promise<any>;
+
+function registerRemoteAwareTool(name: string, config: any, handler: (args: any, extra: any) => Promise<any>,
+  remoteHandler: RemoteToolHandler = remoteToolHandler(name)): void {
+  (server.registerTool as any)(name, { ...config, inputSchema: { ...config.inputSchema, remote: remoteInputField } },
+    async ({ remote, ...args }: any, extra: any) => {
+      if (!remote) return handler(args, extra);
+      try { return await remoteHandler(acceptRemote(remote), args, extra); }
+      catch (e) { return fail(e); }
+    });
+}
+
+/** 配送の登録や事前確保が要るtoolだけ専用の中継にし、他は同じtoolをそのまま現地へ呼ぶ。 */
+function remoteToolHandler(name: string): RemoteToolHandler {
+  switch (name) {
+    case "pty_send": return sendRemote;
+    case "pty_close": return async (target, args) => {
+      await remoteParentDelivery?.beforeChange(deliveryKey(args.session_id, target));
+      return forwardRemote(target, name, args);
+    };
+    case "pty_observe": return async (target, args) => {
+      const result = await forwardRemote(target, name, args);
+      if (!remoteParentDelivery || !result.structuredContent) return result;
+      return { ...result, structuredContent: { ...result.structuredContent, parent_deliveries: remoteParentDelivery.status(deliveryKey(args.session_id, target)) } };
+    };
+    case "claude_turn": return async (target, args) => {
+      if (args.action === "issue") throw new core.AitermError("REMOTE_UNSUPPORTED: 別端末のclaude_turn issueには未対応です。pty_sendを使ってください", 2);
+      return forwardRemote(target, name, args);
+    };
+    default: return (target, args) => forwardRemote(target, name, args);
+  }
+}
+
+async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<any> {
+  if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  const key = deliveryKey(args.session_id, target);
+  const delivery = args.force ? null : await deliveryForRequest(extra, true);
+  // 前の依頼の回答を確保してから次を送る。送った後では取り消せない。
+  if (delivery) await remoteParentDelivery!.beforeChange(key, true);
+  const result = await callRemoteTool(target, "pty_send", args);
+  const structured = result.structuredContent as any;
+  if (result.isError || !structured || structured.mode !== "agent_dispatch") {
+    return { content: [...result.content, remoteNote(target, result)], ...(structured ? { structuredContent: structured } : {}), ...(result.isError ? { isError: true } : {}) };
+  }
+  try {
+    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor);
+  } catch (e) {
+    delivery?.failed(e);
+    return fail(new Error(`別端末へのdispatchは済みましたが、回答配送を登録できませんでした: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  const waited = remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  return {
+    content: [...result.content, remoteNote(target, result), { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }],
+    structuredContent: { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) },
+  };
+}
+
+/** 別端末の子の依頼を、この端末の親への配送に登録する。launch_idは現地の完了観測から取る。 */
+async function registerRemoteDelivery(delivery: DeliveryRequest, target: RemoteTarget, sessionId: string, eventCursor: number, operationId: string | null = null): Promise<void> {
+  const probe = await observeRemoteAgentDone(target, sessionId, { cursor: eventCursor, operation_id: operationId, timeout: 0 });
+  await delivery.before_send({ session_id: sessionId, launch_id: probe.launch_id, vendor: probe.vendor, harness: probe.harness,
+    event_cursor: eventCursor, operation_id: operationId, remote: target });
+}
+
+function remoteCompletionWait(delivery: DeliveryRequest | null, target: RemoteTarget, sessionId: string, eventCursor: number | null) {
+  if (eventCursor === null) return { wait_process: null, wait_command: null };
+  if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
+  const waitProcess = remoteWaitProcess(target, sessionId, eventCursor);
+  return { wait_process: waitProcess, wait_command: `ssh ${remoteLabel(target)} aiterm-wait --session ${sessionId} --cursor ${eventCursor}` };
+}
+
 server.registerTool(
   "diagnostics",
   {
@@ -150,7 +245,7 @@ server.registerTool(
 
 const DEFAULT_PTY_SHELL = process.platform === "win32" ? "pwsh" : "bash";
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_open",
   {
     description:
@@ -173,7 +268,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_send",
   {
     description:
@@ -290,7 +385,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "agent_steer",
   {
     description:
@@ -323,7 +418,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_read",
   {
     description:
@@ -379,9 +474,11 @@ server.registerTool(
         if (screen || full || rtk || wait || line_range != null) {
           throw new Error("agent_transcript:true は screen / full / rtk / line_range / wait と併用できません。lines のみ指定できます。");
         }
+        // raw:trueは本文を削減せずに返す。別端末の回答配送が全文を受け取るために使う。
         const result = await core.readAgentTranscriptResult(session_id, {
           lines: lines ?? null,
           operation_id: operation_id ?? null,
+          raw,
         });
         return {
           content: [{ type: "text" as const, text: result.display }],
@@ -444,7 +541,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_key",
   {
     description: "制御キーを送る（C-c, C-d, Enter, Tab, Up, Down... の別名に対応）。aiterm相関付きClaude sessionではturn相関を守るためC-cだけを許可し、承認UIはclaude_approvalで操作する。",
@@ -462,7 +559,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_close",
   {
     description:
@@ -489,7 +586,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_list",
   {
     description: "握っているセッション一覧（名前 / 現在の前面コマンド / attach 状態 / サイズ / agent 情報）。",
@@ -522,7 +619,7 @@ const nativeProcessIdentitySchema = z.object({
   started_identity: z.string(), argv_digest: z.string(),
 });
 
-server.registerTool(
+registerRemoteAwareTool(
   "pty_observe",
   {
     description: "指定sessionの存在、paneとharnessの生存、状態と理由、native process identity、画面変化とCPU活動を構造化して観測する。画面本文と生argvは返さない。",
@@ -553,7 +650,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "agent_approval",
   {
     description: "Codexの現在の承認をinspectし、digestへ束縛した単発許可または拒否をrespondする。恒久許可は選ばない。Claudeは既存claude_approvalを使う。未知dialogはblockedのtyped errorで返す。",
@@ -578,7 +675,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "claude_turn",
   {
     description:
@@ -626,7 +723,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "claude_approval",
   {
     description:
@@ -682,7 +779,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerRemoteAwareTool(
   "agent_configure",
   {
     description:
@@ -752,6 +849,28 @@ const initialPromptDeliverySchema = z.object({
   reason: z.string(), turn_started: z.boolean().nullable(),
 });
 const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "blocked"]), reason: z.string() });
+
+async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }): Promise<any> {
+  if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
+  const result = await callRemoteTool(target, "agent_launch", { harness, ...args });
+  const structured = result.structuredContent as any;
+  if (!structured) return { content: [...result.content, remoteNote(target, result)], isError: true };
+  try {
+    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor);
+  } catch (e) {
+    delivery?.failed(e);
+    return fail(new Error(`別端末でagentは起動しましたが、回答配送を登録できませんでした（session_id=${structured.session_id}）: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  const waited = remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  return {
+    content: [...result.content, remoteNote(target, result),
+      { type: "text" as const, text: `以後このsessionを操作する時は、同じremoteを付けて呼ぶ。${deliveryIdLine(delivery)}` }],
+    structuredContent: { ...structured, ...waited, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
+      remote_host: remoteLabel(target), remote_version: result.remote_version },
+    ...(result.isError ? { isError: true } : {}),
+  };
+}
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
@@ -905,6 +1024,7 @@ server.registerTool(
       "エージェントを単一の標準入口から永続sessionへ起動する。harnessはagent loop・認証・hook・transcriptを所有する実行基盤、" +
       "modelはそのharnessが選ぶ推論モデルであり別軸。Cursor harnessからGPT／Claude／Grok等を選んでも完了相関はCursor方式のまま。" +
       "Grok Composerは別harnessではなく harness=grok-cli と model=grok-composer-2.5-fast で指定する。" +
+      "remoteを付けると、SSHで入った別端末のAitermで同じ起動を行い、完了は同じ形で親へ届く。" +
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
@@ -920,11 +1040,14 @@ server.registerTool(
       session_name: z.string().nullish().describe("Aiterm session名（省略で自動採番）"),
       write_scope: z.string().min(1).optional().describe("能力宣言。read-onlyは対応harnessの標準read-only面で実効禁止する"),
       launch_operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe("Claude Codeのpromptなしexact replay相関だけで使用"),
+      remote: remoteInputField,
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-launch-result.v1"),
       initial_prompt: initialPromptDeliverySchema,
       startup: agentStartupSchema,
+      remote_host: z.string().optional().describe("別端末で起動した時の接続先"),
+      remote_version: z.string().nullable().optional().describe("別端末のAiterm版"),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       provider: z.enum(["claude", "codex", "grok", "composer", "cursor"]).describe("旧互換field。新規連携はharnessを使う"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
@@ -938,7 +1061,11 @@ server.registerTool(
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
     },
   },
-  async ({ harness, ...args }: any, extra) => launchAgent(kindForHarness(harness), args, extra),
+  async ({ harness, remote, ...args }: any, extra) => {
+    if (!remote) return launchAgent(kindForHarness(harness), args, extra);
+    try { return await launchRemoteAgent(acceptRemote(remote), harness, args, extra); }
+    catch (e) { return fail(e); }
+  },
 );
 
 registerAgentTool(
@@ -994,10 +1121,12 @@ async function main(): Promise<void> {
     core.setParentClient(name ?? null);
     if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
       parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name) });
+      remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
     }
   };
   server.server.onclose = () => {
     void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
+    void remoteParentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
   };
   const transport = new StdioServerTransport();
   await server.connect(transport);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { acceptRemote, remoteInputSchema, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
 
 const parent = { thread_id: "11111111-2222-4333-8444-555555555551", codex_home: path.join(os.tmpdir(), "親のCodex") };
@@ -24,7 +24,8 @@ test("パスフレーズが無ければBatchModeで止め、接続名の前で�
   assert.equal(env.AITERM_SSH_PASSPHRASE, undefined);
 });
 
-test("平文のパスフレーズは記録用の接続情報から外し、askpass経由でsshにだけ渡す", { skip: process.platform === "win32" }, () => {
+test("平文のパスフレーズは記録用の接続情報から外し、askpass経由でsshにだけ渡す", { skip: process.platform === "win32" }, async (t) => {
+  fakeSsh(t, "echo aiterm-probe %OS%");
   const target = acceptRemote({ host: "askpass-host", passphrase: "秘密の合言葉" });
   assert.deepEqual(target, { host: "askpass-host" });
   const { args, env } = sshInvocation(target, "true");
@@ -33,15 +34,34 @@ test("平文のパスフレーズは記録用の接続情報から外し、askpa
   assert.equal(env.SSH_ASKPASS_REQUIRE, "force");
   assert.equal(fs.readFileSync(env.SSH_ASKPASS, "utf8").includes("秘密の合言葉"), false);
   // 親が別processで起動する完了待ちにはパスフレーズを載せない。
-  assert.ok(remoteWaitProcess(target, "t1", 0).args.includes("BatchMode=yes"));
+  assert.ok((await remoteWaitProcess(target, "t1", 0)).args.includes("BatchMode=yes"));
+});
+
+test("接続先のshellを、cmd・PowerShell・POSIX系の展開の違いで見分ける", () => {
+  assert.equal(classifyRemoteShell("aiterm-probe Windows_NT $PSHOME\r\n"), "cmd");
+  assert.equal(classifyRemoteShell("aiterm-probe\r\n%OS%\r\nC:\\Program Files\\PowerShell\\7\r\n"), "powershell");
+  assert.equal(classifyRemoteShell("aiterm-probe %OS%\n"), "posix");
+  // cshは未定義変数で何も出さずに終わる。Windowsの印が無ければPOSIX系として扱う。
+  assert.equal(classifyRemoteShell(""), "posix");
+});
+
+test("POSIX系ではログインshellからPATHだけを受け取り、処理は/bin/shで行う", () => {
+  const command = remoteServerCommand("posix");
+  assert.match(command, /^\/bin\/sh -c '/);
+  assert.match(command, /-lc env/);
+  assert.match(command, /exec aiterm-mcp'$/);
+  assert.equal(command.slice("/bin/sh -c '".length, -1).includes("'"), false, "単引用符の中に単引用符を入れない");
+  assert.equal(remoteServerCommand("powershell"), "aiterm-mcp");
+  assert.equal(remoteServerCommand("cmd"), "aiterm-mcp");
 });
 
 test("完了待ちはPATHに無いaiterm-waitも同じpackageから探し、不正なsession名を埋め込まない", () => {
-  const command = remoteWaitCommand("t1", 3, null, 600);
+  const command = remoteWaitCommand("posix", "t1", 3, null, 600);
   assert.match(command, /command -v aiterm-wait/);
   assert.match(command, /aiterm-wait-cli\.js/);
   assert.match(command, /--session t1 --timeout 600 --cursor 3/);
-  assert.throws(() => remoteWaitCommand("t1;rm", 0, null, 1), /REMOTE_SESSION_INVALID/);
+  assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600), "aiterm-wait --session t1 --timeout 600 --cursor 3");
+  assert.throws(() => remoteWaitCommand("posix", "t1;rm", 0, null, 1), /REMOTE_SESSION_INVALID/);
 });
 
 function fakeSsh(t, script) {

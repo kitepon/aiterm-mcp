@@ -581,7 +581,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 - `remote`は`host`、`user`、`port`、`identity_file`、`passphrase`または`passphrase_env`、`ssh_options`（`Key=Value`）を受け取る。`host`だけなら`~/.ssh/config`の接続名として使う。Aitermは接続先を保存・管理しない。どこへどの鍵で入るかは呼び出し側が持つ。
 - 平文の`passphrase`は呼び出したAIの会話記録に残る。ssh-agentか`passphrase_env`（環境変数名）を推奨する。受け取ったパスフレーズはMCP processのメモリにだけ置き、`SSH_ASKPASS`でsshへ渡す。状態ファイルやログには書かない。
-- 現地には`aiterm-mcp`、tmux（Windowsはpsmux）、使うharnessのCLIが要る。Aitermは現地のログインshellから`aiterm-mcp`を起動するので、`~/.local/bin`などのPATHもそのまま使える。
+- 現地には`aiterm-mcp`、tmux（Windowsはpsmux）、使うharnessのCLIが要る。接続先のshell（POSIX系、PowerShell、cmd）は最初の接続で見分ける。POSIX系ではログインshellからPATHだけを受け取るので、`~/.local/bin`、Homebrew、nvmなどに置いたCLIも使える。WindowsはユーザーのPATHのまま`aiterm-mcp`を起動する。
 - 以後の`pty_send`、`pty_read`、`pty_close`、`pty_observe`、`agent_steer`などにも同じ`remote`を付ける。session名は現地のもので、この端末の同名sessionとは別に扱う。
 - Codex／Claude Code／Cursor親には、この端末の子と同じく回答本文が自動で届く。完了は`ssh <host> aiterm-wait`で観測し、SSHが切れても同じcursorでつなぎ直す。それ以外の親には、sshを使う`wait_process`を返す。
 - 同じ接続先への呼び出しはControlMasterで1本のSSHに相乗りする。`remote`付きの`image`添付と`claude_turn issue`は未対応。

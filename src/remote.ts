@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { AitermError, observeAgentDone, readAgentTranscriptResult, type AgentWaitObservation } from "./core.js";
+import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartProcessArgumentList, type AgentWaitObservation } from "./core.js";
 import { ensureStateRoot } from "./agent-shared.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -111,10 +111,51 @@ export function sshInvocation(target: RemoteTarget, remoteCommand: string, optio
   return { args, env };
 }
 
-// 非ログインのSSH実行では ~/.local/bin やnvmのPATHが入らない端末があるため、現地のログインshellから起動する。
-// 引数は呼び出し側で検証済みの値だけを埋め込む。
-function loginShellCommand(command: string): string {
-  return `exec "\${SHELL:-/bin/sh}" -lc '${command}'`;
+/** 接続先でsshdが起動するshellの系統。コマンドの書式だけがここで分かれる。 */
+export type RemoteShell = "posix" | "powershell" | "cmd";
+
+// どのshellでも実行できる1行で系統を見分ける。cmdは%OS%を、PowerShellは$PSHOMEを展開し、POSIX系はどちらも展開しない。
+export const REMOTE_SHELL_PROBE = "echo aiterm-probe %OS% $PSHOME";
+
+export function classifyRemoteShell(output: string): RemoteShell {
+  const tokens = output.split(/\s+/).filter(Boolean);
+  if (tokens.includes("Windows_NT")) return "cmd";
+  const marker = tokens.indexOf("aiterm-probe");
+  if (marker >= 0 && tokens.length > marker + 2 && tokens[marker + 1] === "%OS%") return "powershell";
+  return "posix";
+}
+
+// 判定結果はこのMCP processの間だけ覚える。接続先の一覧としては保存しない。
+const shells = new Map<string, Promise<RemoteShell>>();
+
+export function remoteShell(target: RemoteTarget): Promise<RemoteShell> {
+  const key = remoteKey(target);
+  let shell = shells.get(key);
+  if (!shell) {
+    shell = runSsh(target, REMOTE_SHELL_PROBE).then(({ code, stdout, stderr }) => {
+      if (code === 255) {
+        const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
+        throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
+      }
+      return classifyRemoteShell(stdout);
+    });
+    shell.catch(() => shells.delete(key));
+    shells.set(key, shell);
+  }
+  return shell;
+}
+
+// POSIX系の非ログイン実行では、~/.local/bin、Homebrew、nvmなどのPATHが入らない端末がある。
+// 利用者のログインshellからPATHだけを受け取り、処理は/bin/shで行う。profileの出力やfish等の文法差を
+// MCPのstdoutと処理へ持ち込まない。scriptは呼び出し側で検証済みの値だけで組み、単引用符を含めない。
+function posixCommand(script: string): string {
+  const importPath = 'p=$("${SHELL:-/bin/sh}" -lc env </dev/null 2>/dev/null | sed -n "s/^PATH=//p" | tail -n 1); [ -n "$p" ] && PATH=$p; export PATH';
+  return `/bin/sh -c '${importPath}; ${script}'`;
+}
+
+/** 現地のaiterm-mcpを起動するコマンド。Windowsはユーザー環境からPATHが入るので、そのまま呼ぶ。 */
+export function remoteServerCommand(shell: RemoteShell): string {
+  return shell === "posix" ? posixCommand("exec aiterm-mcp") : "aiterm-mcp";
 }
 
 export interface RemoteCallResult {
@@ -126,7 +167,7 @@ export interface RemoteCallResult {
 
 /** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。 */
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000): Promise<RemoteCallResult> {
-  const { args: sshArgs, env } = sshInvocation(target, loginShellCommand("exec aiterm-mcp"));
+  const { args: sshArgs, env } = sshInvocation(target, remoteServerCommand(await remoteShell(target)));
   const transport = new StdioClientTransport({ command: "ssh", args: sshArgs, env, stderr: "pipe" });
   let stderr = "";
   transport.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-2000); });
@@ -152,27 +193,28 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 
-export function remoteWaitCommand(session: string, cursor: number | null, operationId: string | null, timeout: number): string {
+export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number): string {
   if (!SESSION_RE.test(session)) throw new AitermError("REMOTE_SESSION_INVALID: session名が不正です", 2);
   if (operationId !== null && !OPERATION_RE.test(operationId)) throw new AitermError("REMOTE_OPERATION_INVALID: operation_idが不正です", 2);
   const parts = ["--session", session, "--timeout", String(timeout)];
   if (cursor !== null) parts.push("--cursor", String(cursor));
   if (operationId !== null) parts.push("--operation", operationId);
+  if (shell !== "posix") return `aiterm-wait ${parts.join(" ")}`;
   // npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある。見つからなければ同じpackageのCLIを使う。
   const resolve = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
-  return loginShellCommand(`${resolve}; exec "$w" ${parts.join(" ")}`);
+  return posixCommand(`${resolve}; exec "$w" ${parts.join(" ")}`);
 }
 
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */
-export function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number): { executable: string; args: string[]; windows_start_process_argument_list: string | null } {
+export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
   // 別processには鍵のパスフレーズを渡せない。ssh-agentか、張ってあるControlMasterの接続に相乗りする。
-  const { args } = sshInvocation(target, remoteWaitCommand(session, cursor, null, 600), { passphrase: false });
-  return { executable: "ssh", args, windows_start_process_argument_list: null };
+  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600), { passphrase: false });
+  return { executable: "ssh", args, windows_start_process_argument_list: process.platform === "win32" ? windowsStartProcessArgumentList(args) : null };
 }
 
 type ObserveOptions = Parameters<typeof observeAgentDone>[1] & { remote?: RemoteTarget };
 
-function runRemoteWait(target: RemoteTarget, command: string, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function runSsh(target: RemoteTarget, command: string, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const { args, env } = sshInvocation(target, command);
   return new Promise((resolve, reject) => {
     const child = spawn("ssh", args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -196,8 +238,8 @@ export async function observeRemoteAgentDone(target: RemoteTarget, session: stri
   for (;;) {
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const remaining = infinite ? 86_400 : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    const command = remoteWaitCommand(session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400));
-    const { code, stdout, stderr } = await runRemoteWait(target, command, options.signal);
+    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400));
+    const { code, stdout, stderr } = await runSsh(target, command, options.signal);
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const line = stdout.trim().split("\n").pop() ?? "";
     let parsed: any = null;

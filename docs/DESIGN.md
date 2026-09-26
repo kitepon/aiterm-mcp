@@ -183,8 +183,12 @@ Codexの設定エラー等でCLIが終了した場合は、残った画面へ送
 
 ### 別端末の子（`remote`）
 
-`src/remote.ts`が所有する。`remote`付きの呼び出しは、`ssh <host>`で現地のログインshellから`aiterm-mcp`を起動し、
-同じtoolをMCPのままSSHのstdioへ中継する。起動、hook、transcript、multiplexerは現地のAitermが所有し、
+`src/remote.ts`が所有する。`remote`付きの呼び出しは、`ssh <host>`で現地の`aiterm-mcp`を起動し、
+同じtoolをMCPのままSSHのstdioへ中継する。sshdが起動するshellの系統は、どのshellでも実行できる
+`echo aiterm-probe %OS% $PSHOME`の展開結果で最初に見分け、MCP processの間だけ覚える。cmdは`%OS%`を、
+PowerShellは`$PSHOME`を展開し、POSIX系はどちらも展開しない。POSIX系では利用者のログインshellから
+`env`のPATHだけを受け取り、処理は`/bin/sh`で行う。profileの出力やfish等の文法差をMCPのstdoutへ持ち込まない。
+WindowsはユーザーのPATHで`aiterm-mcp`と`aiterm-wait`をそのまま呼ぶ。起動、hook、transcript、multiplexerは現地のAitermが所有し、
 呼び出し側は結果を返すだけにする。現地にポートは開けない。
 
 接続先はtool引数で毎回受け取り、Aitermは一覧も既定値も持たない（オーナー裁定 2026-09-26。管理まで持つと重くなるため）。

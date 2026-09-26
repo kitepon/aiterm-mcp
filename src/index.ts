@@ -212,7 +212,7 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
     delivery?.failed(e);
     return fail(new Error(`別端末へのdispatchは済みましたが、回答配送を登録できませんでした: ${e instanceof Error ? e.message : String(e)}`));
   }
-  const waited = remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
   return {
     content: [...result.content, remoteNote(target, result), { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }],
     structuredContent: { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) },
@@ -226,10 +226,10 @@ async function registerRemoteDelivery(delivery: DeliveryRequest, target: RemoteT
     event_cursor: eventCursor, operation_id: operationId, remote: target });
 }
 
-function remoteCompletionWait(delivery: DeliveryRequest | null, target: RemoteTarget, sessionId: string, eventCursor: number | null) {
+async function remoteCompletionWait(delivery: DeliveryRequest | null, target: RemoteTarget, sessionId: string, eventCursor: number | null) {
   if (eventCursor === null) return { wait_process: null, wait_command: null };
   if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
-  const waitProcess = remoteWaitProcess(target, sessionId, eventCursor);
+  const waitProcess = await remoteWaitProcess(target, sessionId, eventCursor);
   return { wait_process: waitProcess, wait_command: `ssh ${remoteLabel(target)} aiterm-wait --session ${sessionId} --cursor ${eventCursor}` };
 }
 
@@ -862,7 +862,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
     delivery?.failed(e);
     return fail(new Error(`別端末でagentは起動しましたが、回答配送を登録できませんでした（session_id=${structured.session_id}）: ${e instanceof Error ? e.message : String(e)}`));
   }
-  const waited = remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
   return {
     content: [...result.content, remoteNote(target, result),
       { type: "text" as const, text: `以後このsessionを操作する時は、同じremoteを付けて呼ぶ。${deliveryIdLine(delivery)}` }],

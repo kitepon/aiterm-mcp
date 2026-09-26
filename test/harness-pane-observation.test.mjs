@@ -13,6 +13,27 @@ test("CodexのWindows hook確認は画面上部の見出しとgo back footerか�
   assert.equal(codexStartupAction(screen, false), null);
   assert.deepEqual(codexStartupAction(screen, true), { kind: 'project_hooks_trusted', keys: ['Down', 'Enter'] });
 });
+
+// Codex 0.157.0 の実機capture（fox、psmux、2026-09-26）。modalが上部にあり、下に空行が続く。
+test("Codexのmodalは画面下の空行に押し出されても検知する", () => {
+  const screen = ['  Folder access', '  C:\\Users\\example', '',
+    '  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings.', '',
+    '› 1. Trust and continue', '  2. Quit', '', '  enter continue · esc quit', ...Array(30).fill('')].join('\n');
+  assert.deepEqual(codexPaneObservation(screen), { state: 'blocked', reason: 'startup_dialog' });
+  assert.deepEqual(codexStartupAction(screen, true), { kind: 'workspace_trusted', keys: ['Enter'] });
+});
+
+// Codex 0.157.0 の実機capture逐語（rabbit、2026-09-26）。旧「Do you trust the contents」に代わる画面。
+test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", () => {
+  const screen = ['╭──────────────────────────────╮', '│ >_ OpenAI Codex (v0.157.0)   │', '╰──────────────────────────────╯',
+    '› Ask Codex to do anything', '', '  Folder access', '  /tmp/tmp.MBLUoIhtoz', '',
+    '  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings can run code automatically, even without a',
+    '  model request. Continue only if you trust these files. Your trust decision will be saved.', '',
+    '› 1. Trust and continue', '  2. Quit', '  enter continue · esc quit'].join('\n');
+  assert.deepEqual(codexPaneObservation(screen), { state: 'blocked', reason: 'startup_dialog' });
+  assert.equal(codexStartupAction(screen, false), null);
+  assert.deepEqual(codexStartupAction(screen, true), { kind: 'workspace_trusted', keys: ['Enter'] });
+});
 import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
 

@@ -6,7 +6,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { AitermError } from "./errors.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
-import { isWin } from "./tmux-runtime.js";
+import { isWin, spawnInMacGuiWhenOutsideAqua } from "./tmux-runtime.js";
 import type { AgentKind } from "./core.js";
 
 export function isUsableExecutableFile(candidate: string): boolean {
@@ -89,7 +89,7 @@ export function spawnAgentControlCommand(
     // これを直接 spawn すると常に失敗し、「受入が通した bin で起動が必ず失敗する」矛盾になる。
     return spawnSync(resolveWinPaneShell("bash"), [bin, ...args], options);
   }
-  return spawnSync(bin, args, options);
+  return spawnInMacGuiWhenOutsideAqua(bin, args, options) ?? spawnSync(bin, args, options);
 }
 
 export function resolveWinPaneShell(shell: string): string {

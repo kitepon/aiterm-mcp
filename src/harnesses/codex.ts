@@ -424,17 +424,18 @@ function currentCodexDialog(screen: string): string {
   // 過去の完了footerより前の質問・選択番号を、現在のdialogへ持ち込まない。
   const previousFooter = footers.at(-2);
   const current = previousFooter ? screen.slice(previousFooter.index! + previousFooter[0].length) : screen;
-  const heading = [...current.matchAll(/Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!|Approaching rate limits/g)].at(-1);
+  const heading = [...current.matchAll(/Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/g)].at(-1);
   return heading ? current.slice(heading.index) : current;
 }
 
 export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const failure = codexStartupFailure(screen);
   if (failure) return { state: "blocked", reason: failure };
-  const tail = screen.split("\n").slice(-24).join("\n");
+  // psmuxはmodalを画面上部へ描き、下の空行もcaptureへ含める。空行を落としてから末尾を取る。
+  const tail = screen.replace(/\s+$/, "").split("\n").slice(-24).join("\n");
   // 現在のmodal footerがある時だけ、折返しで上へ出た質問を画面全体から探す。
   const lastComposer = [...tail.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
-  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Update available!|Approaching rate limits/gi)].at(-1)?.index ?? -1;
+  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/gi)].at(-1)?.index ?? -1;
   const modal = lastDialog > lastComposer;
   if (!modal) {
     if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
@@ -525,6 +526,9 @@ export function codexStartupAction(screen: string, trustProject: boolean): impor
     kind = "update_deferred"; wanted = /^Not now\b/i;
   } else if (trustProject && screen.includes("Do you trust the contents of this directory")) {
     kind = "workspace_trusted"; wanted = /^Yes, continue\b/i;
+  } else if (trustProject && screen.includes("Trust this folder?")) {
+    // Codex 0.157 から、信頼の確認は「Folder access」画面になった。
+    kind = "workspace_trusted"; wanted = /^Trust and continue\b/i;
   } else if (trustProject && screen.includes("Hooks need review")) {
     kind = "project_hooks_trusted"; wanted = /^Trust all\b/i;
   } else return null;
@@ -549,6 +553,7 @@ export function codexLaunchBlockingDialog(screen: string): string | null {
     && (/(^|\n)\s*›?\s*1\.\s+Update now\b/m.test(screen) || screen.includes("Press enter to continue")))
     return "update確認ダイアログ";
   if (screen.includes("Do you trust the contents of this directory")) return "directory trust確認ダイアログ";
+  if (screen.includes("Trust this folder?")) return "folder trust確認ダイアログ";
   if (screen.includes("Press enter to continue")) return "起動時ダイアログ（種別未特定）";
   return null;
 }

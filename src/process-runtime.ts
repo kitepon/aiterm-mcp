@@ -85,12 +85,23 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
   });
 }
 
+// Windowsの親PIDは親の終了後も残り、別processへ再利用される。子より後に始まったprocessは
+// 本当の親ではないので、親子関係として辿らない（辿ると循環や無関係なprocessの混入が起きる）。
+export function parentProcess(row: RuntimeProcess, byPid: Map<number, RuntimeProcess>): RuntimeProcess | undefined {
+  const parent = byPid.get(row.parent_pid);
+  if (!parent || parent.pid === row.pid) return undefined;
+  const parentStart = Date.parse(parent.started_identity);
+  const childStart = Date.parse(row.started_identity);
+  return Number.isFinite(parentStart) && Number.isFinite(childStart) && parentStart > childStart ? undefined : parent;
+}
+
 export function processSubtree(rows: RuntimeProcess[], rootPid: number): RuntimeProcess[] {
+  const byPid = new Map(rows.map(row => [row.pid, row]));
   const selected = new Set([rootPid]);
   for (let changed = true; changed;) {
     changed = false;
     for (const row of rows) {
-      if (!selected.has(row.pid) && selected.has(row.parent_pid)) {
+      if (!selected.has(row.pid) && selected.has(row.parent_pid) && parentProcess(row, byPid)) {
         selected.add(row.pid);
         changed = true;
       }

@@ -1,7 +1,7 @@
 // 端末多重化 runtime の所有者。tmux（POSIX）/ psmux（Windows native）をどう見つけ、
 // どの socket / namespace で、どの locale で叩くかはこのモジュールだけが知る。
 // OS 分岐（isWin）と観測・起動規約の正本。
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -136,7 +136,9 @@ export function tmuxCommandWithInput(
     r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts);
   } else {
     // resolveTmux() は tmux を解決できなければ明確な AitermError を投げる（POSIX 版の事前確認）。
-    r = spawnSync(resolveTmux(observe), ["-S", SOCK, ...args], spawnOpts);
+    const bin = resolveTmux(observe);
+    r = (args[0] === "new-session" && macGuiServerWanted(bin) && startTmuxInMacGui(bin, args, spawnOpts.env ?? process.env))
+      || spawnSync(bin, ["-S", SOCK, ...args], spawnOpts);
   }
   // ENOBUFS（出力が 64MiB 超）を「code=1 の失敗」へ握り潰すと部分/空 stdout を正常扱いしてしまう。区別して投げる。
   // EXPECTED-FAILURE: 外部システム境界（tmux 出力過大）
@@ -150,6 +152,100 @@ export function tmuxCommandWithInput(
     ptyDependencyError(tmuxMissingMessage(), observe);
   }
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+// macOS の login keychain は GUI（Aqua）の security session からしか読めない。SSH 等から立てた
+// tmux server の pane では Claude Code・Cursor CLI がログイン済みでも未ログイン扱いになる。
+// server が無く、自分が Aqua の外にいて、同じ利用者が画面にログインしている時だけ、最初の
+// new-session を gui/<uid> の launchd domain で実行し、server ごと Aqua 側へ立てる。以後の
+// session は既存 server から fork されるので同じ security session を継ぐ。AITERM_MACOS_GUI_SERVER=0 で無効。
+let outsideAqua: boolean | undefined;
+function macOutsideAqua(): boolean {
+  if (process.platform !== "darwin" || process.env.AITERM_MACOS_GUI_SERVER === "0") return false;
+  if (outsideAqua === undefined) {
+    const manager = spawnSync("launchctl", ["managername"], { encoding: "utf8", timeout: 5000 });
+    outsideAqua = !manager.error && manager.status === 0 && manager.stdout.trim() !== "Aqua";
+  }
+  return outsideAqua;
+}
+
+function macGuiServerWanted(bin: string): boolean {
+  if (!macOutsideAqua()) return false;
+  const running = spawnSync(bin, ["-S", SOCK, "list-sessions", "-F", "#{session_name}"], { encoding: "utf8", timeout: 5000 });
+  return running.status !== 0;
+}
+
+function xmlText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// launchd の一回限りの job。tmux client の終了コードと出力を dir へ残す。tmux server は
+// daemon 化して job の process group を離れるが、念のため AbandonProcessGroup で job 終了時の kill を止める。
+export function macGuiTmuxPlist(label: string, dir: string, argv: string[], env: NodeJS.ProcessEnv, cwd: string): string {
+  const script = 'd=$1; shift; "$@" >"$d/out" 2>"$d/err"; echo $? >"$d/status.tmp" && mv "$d/status.tmp" "$d/status"';
+  const program = ["/bin/sh", "-c", script, "aiterm-gui-tmux", dir, ...argv];
+  const envEntries = Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>',
+    `<key>Label</key><string>${xmlText(label)}</string>`,
+    `<key>ProgramArguments</key><array>${program.map(v => `<string>${xmlText(v)}</string>`).join("")}</array>`,
+    `<key>EnvironmentVariables</key><dict>${envEntries.map(([k, v]) => `<key>${xmlText(k)}</key><string>${xmlText(v)}</string>`).join("")}</dict>`,
+    // 直接起動と同じく、呼んだ側の作業フォルダを最初の pane の開始位置にする。
+    `<key>WorkingDirectory</key><string>${xmlText(cwd)}</string>`,
+    "<key>RunAtLoad</key><true/>",
+    "<key>AbandonProcessGroup</key><true/>",
+    "</dict></plist>",
+    "",
+  ].join("\n");
+}
+
+function startTmuxInMacGui(bin: string, args: string[], env: NodeJS.ProcessEnv): SpawnSyncReturns<string> | null {
+  return runInMacGui([bin, "-S", SOCK, ...args], env, process.cwd(), 30_000, "launchd経由のtmux起動が30秒以内に終わりませんでした");
+}
+
+// 起動前の認証確認（`claude auth status`・`agent status` 等）も keychain を読むので、tmux server と同じく
+// Aqua の外では gui domain で実行する。gui domain が無ければ null を返し、呼び出し側が直接実行する。
+export function spawnInMacGuiWhenOutsideAqua(bin: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string | URL; timeout?: number }): SpawnSyncReturns<string> | null {
+  if (!macOutsideAqua()) return null;
+  const timeout = options.timeout ?? 30_000;
+  return runInMacGui([bin, ...args], options.env ?? process.env, String(options.cwd ?? process.cwd()), timeout, `launchd経由の ${path.basename(bin)} ${args.join(" ")} が${timeout}ms以内に終わりませんでした`);
+}
+
+function runInMacGui(argv: string[], env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, timeoutMessage: string): SpawnSyncReturns<string> | null {
+  const uid = process.getuid?.();
+  if (uid === undefined) return null;
+  let dir: string;
+  try {
+    fs.mkdirSync(SOCKDIR, { recursive: true, mode: 0o700 });
+    dir = fs.mkdtempSync(path.join(SOCKDIR, "gui-"));
+  } catch {
+    return null;
+  }
+  const label = `dev.aiterm.gui-job.${process.pid}.${path.basename(dir)}`;
+  const plist = path.join(dir, "job.plist");
+  try {
+    fs.writeFileSync(plist, macGuiTmuxPlist(label, dir, argv, env, cwd));
+    const boot = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plist], { encoding: "utf8", timeout: 10000 });
+    // 画面にログインしていない等で gui domain が無ければ、今までどおり直接実行する。
+    if (boot.status !== 0) return null;
+    const statusFile = path.join(dir, "status");
+    const deadline = Date.now() + timeoutMs;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    while (!fs.existsSync(statusFile) && Date.now() < deadline) Atomics.wait(pause, 0, 0, 50);
+    spawnSync("launchctl", ["bootout", `gui/${uid}/${label}`], { encoding: "utf8", timeout: 10000 });
+    if (!fs.existsSync(statusFile)) {
+      const error = Object.assign(new Error(timeoutMessage), { code: "ETIMEDOUT" });
+      return { pid: 0, output: [], stdout: "", stderr: timeoutMessage, status: null, signal: null, error };
+    }
+    const read = (name: string): string => { try { return fs.readFileSync(path.join(dir, name), "utf8"); } catch { return ""; } };
+    const stdout = read("out");
+    const stderr = read("err");
+    return { pid: 0, output: [null, stdout, stderr], stdout, stderr, status: Number(read("status").trim()), signal: null };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 export function tmuxCommand(observe: boolean, ...args: string[]): { code: number; stdout: string; stderr: string } {

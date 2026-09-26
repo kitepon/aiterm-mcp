@@ -15,7 +15,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
-import { readRuntimeProcesses, processSubtree, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -1293,8 +1293,12 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
       .replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
     const command = row.command.replace(/\\/g, "/").replace(/\.exe(?=["\s]|$)/gi, "").replace(/"/g, "");
     const tokens = row.command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-    const argument = tokens[1]?.replace(/^["']|["']$/g, "").replace(/\\/g, "/");
-    const launchedScript = meta.agent_executable !== undefined && argument === meta.agent_executable.replace(/\\/g, "/");
+    // `sh <script>` だけでなく、Windowsの `cmd.exe /c <launcher>.cmd` のように起動した実行ファイルが
+    // 2番目以降に来る形もある（Cursor公式installerは .cmd → .ps1 → node と中継する）。
+    const launched = meta.agent_executable?.replace(/\\/g, "/");
+    const sameFile = (value: string): boolean => /^[A-Za-z]:\//.test(launched!) ? value.toLowerCase() === launched!.toLowerCase() : value === launched;
+    const launchedScript = launched !== undefined
+      && tokens.slice(1).some(token => sameFile(token.replace(/^["']|["']$/g, "").replace(/\\/g, "/")));
     return launchedScript || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
   };
   // WindowsのMSYS execでnative親子関係が切れる場合も、launch固有引数で相関する。
@@ -1305,11 +1309,11 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
   // npm shimとnative本体の間にNodeなどの非候補processがいても、同じ起動の祖先を辿る。
   const roots = candidates.filter(row => {
     const seen = new Set<number>();
-    let parent = byPid.get(row.parent_pid);
+    let parent = parentProcess(row, byPid);
     while (parent && !seen.has(parent.pid)) {
       if (candidatePids.has(parent.pid)) return false;
       seen.add(parent.pid);
-      parent = byPid.get(parent.parent_pid);
+      parent = parentProcess(parent, byPid);
     }
     return true;
   });

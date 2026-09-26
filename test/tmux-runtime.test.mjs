@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 
-import { appendMarkSentinel, atomicShellMultiline, isWin, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
+import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
 
 test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {
   const source = "文字列'\\\n2行目\r\n";
@@ -59,4 +59,29 @@ test("旧tmuxにもsession識別を注入しnew-session -eを要求しない", {
   assert.equal(result.stdout, "legacy'quoted");
   assert.deepEqual(sessionEnvironmentLaunch("bash", ["AITERM_SESSION_ID=modern"], "tmux 3.6a").args,
     ["-e", "AITERM_SESSION_ID=modern"]);
+});
+
+test("macOSのGUI側tmux起動jobは引数と環境を逐語でlaunchdへ渡し、終了コードを残す", { skip: isWin }, async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm gui-"));
+  try {
+    const plist = macGuiTmuxPlist("dev.aiterm.test", dir, ["/bin/sh", "-c", "printf '%s|%s' \"$1\" \"$AITERM_T\"; exit 3", "x", "a<b&c 'q'"],
+      { AITERM_T: "値<&>", SKIP: undefined }, "/work dir");
+    assert.match(plist, /<string>a&lt;b&amp;c 'q'<\/string>/);
+    assert.match(plist, /<key>AITERM_T<\/key><string>値&lt;&amp;&gt;<\/string>/);
+    assert.doesNotMatch(plist, /SKIP/);
+    assert.match(plist, /<key>WorkingDirectory<\/key><string>\/work dir<\/string>/);
+    assert.match(plist, /<key>AbandonProcessGroup<\/key><true\/>/);
+    // ProgramArguments の script 部分を取り出し、launchd と同じ argv で実行する。
+    const args = [...plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/)[1].matchAll(/<string>(.*?)<\/string>/g)]
+      .map(match => match[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"));
+    const result = spawnSync(args[0], args.slice(1), { env: { PATH: process.env.PATH, AITERM_T: "値<&>" } });
+    assert.equal(result.status, 0);
+    assert.equal(fs.readFileSync(path.join(dir, "out"), "utf8"), "a<b&c 'q'|値<&>");
+    assert.equal(fs.readFileSync(path.join(dir, "status"), "utf8").trim(), "3");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

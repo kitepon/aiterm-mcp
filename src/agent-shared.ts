@@ -261,7 +261,7 @@ export interface AgentWaitObservation {
   harness: AgentHarness;
   // running は timeout=0（待たずに一度だけ観測する照会）専用の「まだ終わっていない」。
   // timeout は「指定秒だけ待って終わらなかった」で、両者を1語に潰さない（ADR 0018）。
-  // rate_limitedはharnessの利用上限を観測した状態。Grok/Composerは現在の画面、他はpane logを使う。
+  // rate_limitedはharnessの利用上限を観測した状態。Grok/Composer/Cursorは現在の画面、他はpane logを使う。
   // 完了でも沈黙でもない typed な回答として親へ返す（実被弾 2026-08-22: Grok weekly limit で
   // 完了 event が永遠に出ず、waiter は timeout の沈黙か auth 誤診しか返せなかった）。
   // error は harness 自身の記録で「turn がエラーで打ち切られた」と分かった typed な終了。

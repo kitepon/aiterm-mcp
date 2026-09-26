@@ -466,8 +466,29 @@ export function cursorTuiReady(screen: string): boolean {
     (CURSOR_COMPOSER_MARKER_RE.test(screen) || CURSOR_START_PROMPT_MARKER_RE.test(screen));
 }
 
+// 利用上限に達したCursorは、transcriptへturn_endedを書かず、入力欄も戻さずに説明を出して止まる（2026.09.26-dd393fe、macOSで実測）。
+//   Error: You've hit your usage limit
+//   You've saved $766 ... Switch to a different model or set a Spend Limit to continue with Sonnet. ...
+//   fallbackModel: / spendLimitHit: true / chatMessage: ...
+// 説明は空行か「key: value」行の手前まで。後ろに入力欄や実行中表示があれば別モデルで続けた後の履歴なので上限にしない。
+export function cursorUsageLimit(screen: string): { message: string } | null {
+  const clean = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const heading = [...clean.matchAll(/^[ \t]*Error:[ \t]*(You'?ve hit your usage limit)[ \t]*$/gim)].at(-1);
+  if (!heading) return null;
+  const after = clean.slice(heading.index! + heading[0].length);
+  if (/ctrl\+c to stop/i.test(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after) || CURSOR_START_PROMPT_MARKER_RE.test(after)
+    || after.split("\n").some(line => CURSOR_COMPOSER_CONTENT_MARKER_RE.test(line))) return null;
+  const detail: string[] = [];
+  for (const line of after.split("\n").slice(1)) {
+    if (!line.trim() || /^\s*[A-Za-z]+:(?:\s|$)/.test(line)) break;
+    detail.push(line.trim());
+  }
+  return { message: [`${heading[1]}.`, ...detail].join(" ") };
+}
+
 export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
+  if (cursorUsageLimit(tail)) return { state: "blocked", reason: "rate_limited" };
   if (/ctrl\+c to stop/i.test(tail)) return { state: "busy", reason: "turn_running" };
   if (cursorTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "unrecognized_screen" };

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修正
 
 - Claude Code 2.1.282の番号付きログイン方式選択を、初回案内の未完了として見分ける。ログイン済みでも初回案内が済んでいないと起動のたびにこの画面で止まるため、ready timeoutを待たずに`vendor_onboarding_required`と直し方を返す。初回テーマ選択もtimeoutを待たずに確定する。
+- Cursor Agentが利用上限に達した画面を見分ける。Cursorは上限時にtranscriptへ完了を書かず入力欄も戻さないため、Aitermは完了を待ち続けていた。現在の画面に上限の説明が出ていれば`rate_limited`（aiterm-waitはexit 6）として上限の説明を返し、`pty_observe`は`blocked`／`rate_limited`を返す。後ろに入力欄や実行中表示がある古い上限表示は数えない。
 
 ## [0.38.2] - 2026-09-25
 

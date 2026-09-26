@@ -36,6 +36,7 @@ test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", (
 });
 import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
+import { cursorPaneObservation, cursorUsageLimit } from "../dist/harnesses/cursor.js";
 
 test("Grokの通信失敗は応答待ち表示より優先する", () => {
   for (const padding of [[], Array(20).fill("wrapped line")]) {
@@ -171,4 +172,41 @@ test("Codexの上限接近model switchは現在の完全な3択だけを専用mo
   assert.deepEqual(codexPaneObservation(`${old}\n${composer}`), { state: "idle", reason: "composer_ready" });
   assert.equal(codexRateLimitModelSwitchDialog(`${old}\n${composer}`), null);
   assert.equal(codexRateLimitModelSwitchDialog(modal(1).replace("3. Keep current model (never show again)", "3. Keep current model")), null);
+});
+
+// Cursor Agent 2026.09.26-dd393fe の実機capture逐語（macbook、tmux、2026-09-26）。入力欄は戻らない。
+const CURSOR_USAGE_LIMIT_SCREEN = [
+  "    Run the shell command `hostname` and reply with only its output.           ",
+  "                                                                               ",
+  "", "  Claude Sonnet 5 300K High No Thinking                         Run Everything", "  ~", "",
+  "  Error: You've hit your usage limit",
+  "  You've saved $766 on API model usage this month with Ultra. Switch to a ",
+  "  different model or set a Spend Limit to continue with Sonnet. Your usage ",
+  "  limits will reset when your monthly cycle ends on 10/17/2026.",
+  "  fallbackModel: ", "  spendLimitHit: true",
+  "  chatMessage: *You've saved $766 on API model usage this month with Ultra. ",
+  "  Switch to a different model or set a [Spend ",
+  "  Limit](https://www.cursor.com/dashboard?tab=settings) to continue with ",
+  "  Sonnet. Your usage limits will reset when your monthly cycle ends on ",
+  "  10/17/2026.*", "  spendLimits: [20,30,40]", ""].join("\n");
+
+test("Cursorの利用上限は説明文ごと返し、画面をblockedにする", () => {
+  assert.deepEqual(cursorUsageLimit(CURSOR_USAGE_LIMIT_SCREEN), {
+    message: "You've hit your usage limit. You've saved $766 on API model usage this month with Ultra. Switch to a "
+      + "different model or set a Spend Limit to continue with Sonnet. Your usage limits will reset when your monthly cycle ends on 10/17/2026.",
+  });
+  assert.deepEqual(cursorPaneObservation(CURSOR_USAGE_LIMIT_SCREEN), { state: "blocked", reason: "rate_limited" });
+});
+
+test("Cursorの利用上限の後に入力欄や実行中表示があれば、過去の履歴として扱う", () => {
+  for (const later of [
+    ["  → Add a follow-up", "", "  Auto · 13.4%                                                  Run Everything"],
+    [" ⠘⠆ Working  72 tokens", "  → Add a follow-up                                             ctrl+c to stop"],
+    [" \x1b[48;2;21;21;21m → 続けて\x1b[49m"],
+  ]) {
+    const screen = [CURSOR_USAGE_LIMIT_SCREEN, ...later].join("\n");
+    assert.equal(cursorUsageLimit(screen), null);
+    assert.notEqual(cursorPaneObservation(screen).reason, "rate_limited");
+  }
+  assert.equal(cursorUsageLimit("  You've hit your usage limit と書いた依頼文"), null);
 });

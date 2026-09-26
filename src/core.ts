@@ -169,6 +169,7 @@ import {
   cursorEffortNavigation,
   cursorTuiReady,
   cursorPaneObservation,
+  cursorUsageLimit,
   CURSOR_SUBMIT_SEQUENCE,
   CURSOR_COMPOSER_CONTENT_MARKER_RE,
   validateCursorModelEffort,
@@ -3040,7 +3041,7 @@ export function agentWaitGuide(session?: string): string {
 
 export type { AgentWaitObservation } from "./agent-shared.js";
 
-// harness別の利用上限観測。Grok/Composerは現在の質問カード、他harnessは既存logを使う。
+// harness別の利用上限観測。Grok/Composerは現在の質問カード、Cursorは現在の画面、他harnessは既存logを使う。
 // 出典（2026-08-22）: grok は live 実バナーで検証、codex/claude はインストール済み実バイナリの
 // 埋込文字列から抽出（codex: "You've hit your usage limit for" / claude: "Usage limit reached ·
 // continuing automatically when it resets"。Claude Code はリセット時に自動継続する設計なので、
@@ -3055,6 +3056,7 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
   if (kind === "grok" || kind === "composer") {
     return grokRateLimitDialog(captureScreen(aitermSession, 0))?.message ?? null;
   }
+  if (kind === "cursor") return cursorUsageLimit(captureScreen(aitermSession, 0))?.message ?? null;
   const patterns = AGENT_RATE_LIMIT_PATTERNS[kind];
   if (!patterns) return null;
   const file = logpath(aitermSession);

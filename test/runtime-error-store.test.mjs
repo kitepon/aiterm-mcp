@@ -507,11 +507,13 @@ test("canonical config が実FIFOでも telemetry child 隔離により main pro
   try {
     process.env.XDG_CONFIG_HOME = configHome;
     const started = Date.now();
+    // 子の持ち時間はNodeの起動を含む。負荷の高いmacOS runnerでは起動だけで約190msかかり、200msでは
+    // FIFOで固まっていなくても時間切れになった。FIFOを開いて固まれば、広げた持ち時間でも時間切れで報告される。
     recordRuntimeError("AITERM.PTY_DEPENDENCY_UNAVAILABLE", {
-      timeoutMs: 200, stderr: (line) => stderr.push(line),
+      timeoutMs: 2000, stderr: (line) => stderr.push(line),
     });
     assert.ok(Date.now() - started < 200);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
     assert.deepEqual(stderr, [], "FIFOはcanonical configでないためfail-closedし、store failureとは扱わない");
   } finally {
     if (saved === undefined) delete process.env.XDG_CONFIG_HOME;

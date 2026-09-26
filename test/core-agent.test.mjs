@@ -461,9 +461,11 @@ function makeFakeClaudeTuiBin({ authJson = '{"loggedIn":true,"authMethod":"claud
 // 既定が「No, exit」の確認画面を矢印キーで動かす偽Claude。dropFirstDownは起動直後のキー取り落としを再現する。
 function makeFakeClaudeTrustTuiBin({ dropFirstDown = false } = {}) {
   // Windowsはnodeのscriptを実行fileとして直接起動できないため、他の偽harnessと同じく.shから起動する。
+  // 実体の名前はclaudeにする（Aitermはpane内のprocess名でharnessの生存を見る）。
   const stem = `fake-claude-trust-${Date.now().toString(36)}`;
   const bin = path.join(process.env.TMPDIR, `${stem}.sh`);
-  const driver = path.join(process.env.TMPDIR, `${stem}.cjs`);
+  fs.mkdirSync(path.join(process.env.TMPDIR, stem), { mode: 0o700 });
+  const driver = path.join(process.env.TMPDIR, stem, "claude");
   fs.writeFileSync(bin, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(driver)} "$@"\n`, { mode: 0o700 });
   fs.writeFileSync(
     driver,

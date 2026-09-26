@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pty_read(agent_transcript:true)`が`raw:true`を受け付け、削減前の回答本文を返す。
 - `agent_steer`がClaude CodeとCursorの実行中turnにも差し込めるようにする。これまではCodex／Grok専用で、BellTeamのように処理中のBotへ待ち行列のメッセージを差し込む呼び出し側では、Claude Code／CursorのBot宛てがエラーになっていた。
 - `aiterm-update`を追加する。この端末と`--host`で指定したSSH接続先のAitermを同じ版へ入れ替え、各端末で新しい版の`aiterm-setup --json`を実行し直す。版の解決は呼んだ端末で1回だけ行い、`aiterm-update`を持たない旧版の端末にはnpmで入れてから渡す。更新前から動いている`aiterm-mcp`の数を`running_servers`で返す。
+
 ### 修正
 
 - Claude Code 2.1.282の番号付きログイン方式選択を、初回案内の未完了として見分ける。ログイン済みでも初回案内が済んでいないと起動のたびにこの画面で止まるため、ready timeoutを待たずに`vendor_onboarding_required`と直し方を返す。初回テーマ選択もtimeoutを待たずに確定する。

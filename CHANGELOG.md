@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Codeの起動時の確認画面（フォルダの信頼、Bypass Permissionsの確認）で、選択が「Yes」の行へ移ったのを画面で確かめてからEnterを送る。どちらも既定の選択が「No, exit」なので、起動直後のCLIが「↓」を取り落とすとEnterでCLIが終了していた（2.1.283で再現）。選択が動かなければ「↓」を一度だけ送り直し、それでも動かなければEnterを送らず`startup_dialog`で止める。
 - `agent_steer`でGrokへ差し込んだ文が現在のturnに入らず、turnの完了後に別turnとして動いていた。Aitermは最初のturnの終わりを完了として届けるため、差し込んだ指示への回答は行き場を失っていた。Grokが待ち行列へ入れたのを確かめてから標準の「send now」で現在turnへ移し、この時に書かれる`turn_ended`（`cancelled`、`trigger=send_now`）は完了と数えない。Cursorも同じく「follow-ups」枠へ入った文を「enter steer」で現在turnへ移す。
 - `agent_steer`の結果の型がCodex／Grokのvendorとharnessだけを許していたため、Claude Code／Cursorへの差し込みは本文が届いても呼び出し側にはエラーとして返っていた。
+- WindowsのCursor Agentを、Git BashではなくPowerShell 7のpaneから起動する。Git Bash配下で起動したCursorはhookへ渡すJSONの先頭にUTF-8 BOMを付け、BOMを読めない利用者のhook（Throughline、caveat等）が送信を止めていた。この時Cursorは`prompt_history.json`だけを残して会話を作らず、画面にも理由を出さないため、Aitermは完了を待ち続けていた。
 
 ## [0.38.2] - 2026-09-25
 

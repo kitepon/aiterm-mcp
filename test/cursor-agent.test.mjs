@@ -8,6 +8,8 @@ import { resolveAgentBin } from "../dist/agent-resolver.js";
 import {
   bindCursorTranscriptSession,
   buildCursorAgentCmd,
+  cursorAgentArgv,
+  cursorPwshLaunchLine,
   cursorPromptWithLineage,
   createCursorAgentMetadata,
   cursorTranscriptRoot,
@@ -86,6 +88,20 @@ test("Cursor adapter: model/effort・無人承認・read-onlyを公式CLI引数�
   const normal = buildCursorAgentCmd("cursor-agent", null, null, null, { ...meta, write_scope: undefined });
   assert.match(normal, /--force --approve-mcps --trust/);
   assert.doesNotMatch(normal, /--mode ask/);
+});
+
+test("Cursor adapter: WindowsのPowerShell pane用の起動行は値をPowerShellの単引用で渡す", () => {
+  const meta = {
+    kind: "cursor", launch_id: "0123456789abcdef0123456789abcdef", write_scope: undefined, agent_role: "subagent",
+    parent_session_id: "host-root", delegation_depth: 1, lineage: "host-root>cursor:t1", delegation_allowed: true,
+  };
+  const argv = cursorAgentArgv("C:\\Users\\kite_\\AppData\\Local\\cursor-agent\\cursor-agent.cmd", "gpt-5.6-sol", null, "it's 初手", meta);
+  const line = cursorPwshLaunchLine("C:\\work dir\\o'neil", [["AITERM_AGENT_KIND", "cursor"], ["AITERM_SESSION_ID", "t1"]], argv);
+  assert.equal(line.split("; & ")[0],
+    "Set-Location -LiteralPath 'C:\\work dir\\o''neil'; $env:AITERM_AGENT_KIND='cursor'; $env:AITERM_SESSION_ID='t1'");
+  assert.match(line, /; & 'C:\\Users\\kite_\\AppData\\Local\\cursor-agent\\cursor-agent\.cmd' '--model' 'gpt-5\.6-sol' '--force' '--approve-mcps' '--trust' '/);
+  assert.match(line, /it''s 初手'$/);
+  assert.throws(() => cursorPwshLaunchLine(null, [["BAD NAME", "x"]], argv), /環境変数名が不正/);
 });
 
 test("Cursor adapter: model parameter画面で標準effortの移動量を決める", () => {

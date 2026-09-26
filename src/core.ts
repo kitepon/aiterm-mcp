@@ -163,6 +163,8 @@ import {
   assertCursorAuthenticationReady,
   assertCursorModelAvailable,
   buildCursorAgentCmd,
+  cursorAgentArgv,
+  cursorPwshLaunchLine,
   cursorPromptWithLineage,
   createCursorAgentMetadata,
   cursorLaunchNote,
@@ -4534,6 +4536,26 @@ function buildAgentCmd(
   return buildGrokAgentCmd(kind, bin, model, effort, prompt, meta);
 }
 
+/** Cursor用のagent環境変数（名前と値）。Windowsでは引用規則の違うPowerShell paneへ渡す。 */
+function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string[] = []): [string, string][] {
+  const inherited = envVars.flatMap((name): [string, string][] => {
+    const value = process.env[name];
+    return value === undefined ? [] : [[name, value]];
+  });
+  return [
+    ...inherited,
+    ["AITERM_AGENT_KIND", meta.kind],
+    ["AITERM_SESSION_ID", sid],
+    ["AITERM_AGENT_SESSION_ID", sid],
+    ["AITERM_AGENT_LAUNCH_ID", meta.launch_id],
+    ["AITERM_AGENT_ROLE", meta.agent_role ?? "subagent"],
+    ["AITERM_AGENT_PARENT_SESSION_ID", meta.parent_session_id ?? "host-root"],
+    ["AITERM_AGENT_DEPTH", String(meta.delegation_depth ?? 1)],
+    ["AITERM_AGENT_LINEAGE", meta.lineage ?? `host-root>${meta.kind}:${sid}`],
+    ["AITERM_AGENT_DELEGATION_ALLOWED", meta.delegation_allowed === true ? "true" : "false"],
+  ];
+}
+
 function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string[] = []): string {
   const inherited = envVars.flatMap((name) => {
     const value = process.env[name];
@@ -4763,8 +4785,10 @@ export function openAgent(
 
   let sid: string;
   let hint: string;
+  // WindowsのCursorだけはPowerShell 7 paneから起動する（理由はcursorPwshLaunchLine）。
+  const paneShell = isWin && kind === "cursor" && agentDone ? "pwsh" : "bash";
   try {
-    [sid, hint] = openSession(opts.session_name ?? null, "bash", envVars);
+    [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
   } catch (error) {
     if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
       requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
@@ -4799,9 +4823,15 @@ export function openAgent(
       agentMetadataNegativeCache.delete(sid);
     }
     launchNote = buildAgentLaunchNote(kind, model, effort, meta);
-    const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta);
-    const envPrefix = agentEnvPrefix(meta, sid, envVars);
-    const full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+    let full: string;
+    if (paneShell === "pwsh" && meta) {
+      full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
+        cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta));
+    } else {
+      const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta);
+      const envPrefix = agentEnvPrefix(meta, sid, envVars);
+      full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+    }
     // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて素送信する。
     send(sid, full, {
       enter: true,

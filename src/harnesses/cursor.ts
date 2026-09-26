@@ -421,6 +421,26 @@ export function assertCursorAuthenticationReady(bin: string): void {
   );
 }
 
+/** 起動argv（先頭が実行ファイル）。paneのshellに合わせた引用は呼び出し側が行う。 */
+export function cursorAgentArgv(
+  bin: string,
+  model: string | null,
+  effort: string | null,
+  prompt: string | null,
+  meta: AgentMetadata | null,
+): string[] {
+  validateCursorModelEffort(model, effort);
+  const parts = [bin];
+  const modelArg = cursorModelArgument(model, effort);
+  if (modelArg) parts.push("--model", modelArg);
+  // managed agentは人の対話承認を待てない。Cursor公式の無人運転フラグで
+  // workspace・MCP server・各tool callの確認をadapter内に閉じ込める。
+  parts.push("--force", "--approve-mcps", "--trust");
+  if (meta?.kind === "cursor" && meta.write_scope === "read-only") parts.push("--mode", "ask");
+  if (prompt) parts.push(meta ? cursorPromptWithLineage(meta, prompt) : prompt);
+  return parts;
+}
+
 export function buildCursorAgentCmd(
   bin: string,
   model: string | null,
@@ -428,19 +448,28 @@ export function buildCursorAgentCmd(
   prompt: string | null,
   meta: AgentMetadata | null,
 ): string {
-  validateCursorModelEffort(model, effort);
-  const parts = [shq(bin)];
-  const modelArg = cursorModelArgument(model, effort);
-  if (modelArg) parts.push("--model", shq(modelArg));
-  // managed agentは人の対話承認を待てない。Cursor公式の無人運転フラグで
-  // workspace・MCP server・各tool callの確認をadapter内に閉じ込める。
-  parts.push("--force", "--approve-mcps", "--trust");
-  if (meta?.kind === "cursor" && meta.write_scope === "read-only") parts.push("--mode", "ask");
-  if (prompt) {
-    const value = meta ? cursorPromptWithLineage(meta, prompt) : prompt;
-    parts.push(shq(value));
+  // 固定の語彙（--force、--mode ask等）は引用しない。実行ファイル、model、promptだけを引用する。
+  const argv = cursorAgentArgv(bin, model, effort, prompt, meta);
+  return argv.map((part, index) =>
+    index === 0 || argv[index - 1] === "--model" || (prompt !== null && index === argv.length - 1) ? shq(part) : part,
+  ).join(" ");
+}
+
+/**
+ * Windows native paneのPowerShell 7で走らせる起動行。WindowsのCursor Agentは、Git Bash配下で起動すると
+ * hookへ渡すJSONの先頭にUTF-8 BOMを付け、BOMを読めない利用者hookが送信を止める（fox実測 2026-09-26:
+ * Git Bash配下は全てprompt_historyだけ残りstore.dbが作られず、PowerShell 7 paneからは同じhookで通る）。
+ */
+export function cursorPwshLaunchLine(cwd: string | null, env: [string, string][], argv: string[]): string {
+  const psq = (value: string) => `'${value.replace(/'/g, "''")}'`;
+  const parts: string[] = [];
+  if (cwd) parts.push(`Set-Location -LiteralPath ${psq(cwd)}`);
+  for (const [name, value] of env) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new AitermError("環境変数名が不正です", 2);
+    parts.push(`$env:${name}=${psq(value)}`);
   }
-  return parts.join(" ");
+  parts.push(`& ${argv.map(psq).join(" ")}`);
+  return parts.join("; ");
 }
 
 export function cursorPromptWithLineage(meta: AgentMetadata, prompt: string): string {

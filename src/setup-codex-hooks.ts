@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
+import { currentCodexDesktopBinary } from "./codex-desktop-binary.js";
 import { withCodexReceiver } from "./codex-parent-receiver.js";
 import { realCodexHome } from "./harnesses/codex.js";
 import { SetupError } from "./setup-platform.js";
@@ -91,7 +92,7 @@ export async function verifyCodexHookRegistration(config: CodexHookConfig, appro
       if (edits.length) await request("config/batchWrite", { edits, filePath: path.join(config.codex_home, "config.toml") });
     }
     assertCodexHooksReady(await list(), config.command, file);
-  }, { executable: config.binary });
+  }, { executable: await currentCodexDesktopBinary(config, { directory: codexHookDirectory() }) });
 }
 
 export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<Runtime> = {}): Promise<CodexSteerResult> {

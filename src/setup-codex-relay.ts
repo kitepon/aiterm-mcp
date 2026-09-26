@@ -32,16 +32,29 @@ function getGui(key: string): string | null {
   return result.stdout.trim() || null;
 }
 
+/**
+ * Desktopが同梱するCodex CLI。2026-09のChatGPT.appは`Contents/Resources/codex`から
+ * `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`へ移した（macbook実測）。
+ */
+export function desktopBundledCodex(app: string): string | null {
+  const layouts = [
+    path.join(app, "Contents", "Resources", "codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"),
+    path.join(app, "Contents", "Resources", "codex"),
+  ];
+  return layouts.find(file => fs.existsSync(file)) ?? null;
+}
+
 export function findDesktopBinary(): string {
   const search = spawnSync("/usr/bin/mdfind", ["kMDItemCFBundleIdentifier == 'com.openai.codex'"], { encoding: "utf8", timeout: 10_000 });
   const candidates = [...new Set(["/Applications/Codex.app", "/Applications/ChatGPT.app", ...(search.status === 0 ? search.stdout.trim().split("\n") : [])])];
-  const found = candidates.filter(app => {
-    if (!app || !fs.existsSync(path.join(app, "Contents", "Resources", "codex"))) return false;
+  const found = candidates.flatMap(app => {
+    const binary = app ? desktopBundledCodex(app) : null;
+    if (!binary) return [];
     const result = spawnSync("/usr/libexec/PlistBuddy", ["-c", "Print:CFBundleIdentifier", path.join(app, "Contents", "Info.plist")], { encoding: "utf8", timeout: 5_000 });
-    return result.status === 0 && result.stdout.trim() === "com.openai.codex";
+    return result.status === 0 && result.stdout.trim() === "com.openai.codex" ? [binary] : [];
   });
   if (found.length !== 1) throw new SetupError("codex_desktop_not_identified", "Codex Desktopのインストール先を一つに特定できません");
-  const binary = path.join(found[0], "Contents", "Resources", "codex");
+  const binary = found[0];
   command("/usr/bin/codesign", ["--verify", "--strict", binary]);
   const version = command(binary, ["--version"]);
   const match = /codex-cli (\d+)\.(\d+)\.(\d+)/.exec(version);

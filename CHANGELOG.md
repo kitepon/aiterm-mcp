@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent_steer`でGrokへ差し込んだ文が現在のturnに入らず、turnの完了後に別turnとして動いていた。Aitermは最初のturnの終わりを完了として届けるため、差し込んだ指示への回答は行き場を失っていた。Grokが待ち行列へ入れたのを確かめてから標準の「send now」で現在turnへ移し、この時に書かれる`turn_ended`（`cancelled`、`trigger=send_now`）は完了と数えない。Cursorも同じく「follow-ups」枠へ入った文を「enter steer」で現在turnへ移す。
 - `agent_steer`の結果の型がCodex／Grokのvendorとharnessだけを許していたため、Claude Code／Cursorへの差し込みは本文が届いても呼び出し側にはエラーとして返っていた。
 - WindowsのCursor Agentを、Git BashではなくPowerShell 7のpaneから起動する。Git Bash配下で起動したCursorはhookへ渡すJSONの先頭にUTF-8 BOMを付け、BOMを読めない利用者のhook（Throughline、caveat等）が送信を止めていた。この時Cursorは`prompt_history.json`だけを残して会話を作らず、画面にも理由を出さないため、Aitermは完了を待ち続けていた。
+- Codex DesktopのSteerが、Desktopの更新後に動かなくなっていた。setup時に保存した同梱Codex CLIの場所（Windowsは版ごとのcache directory、macOSはbundle内）がDesktopの更新で無くなり、回答の配送も親hookも`CODEX_RECEIVER_TRANSPORT_FAILED`（ENOENT）で失敗していた。保存した場所が無ければ使う時点で公式Desktopから探し直して設定を更新し、探せなければ`CODEX_DESKTOP_BINARY_MOVED`と直し方を返す。macOSでは`ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`の新しい同梱場所も見つける。
 
 ## [0.38.2] - 2026-09-25
 

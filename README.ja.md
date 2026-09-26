@@ -74,7 +74,7 @@ hookはAiterm自身の配送記録と本文が一致する回答だけを取り�
 
 解除・hook未対応の旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
 macOS・Windowsの公式Codex Desktopと、公式キュー・hookに対応する同梱CLIを対象にします。
-WindowsのDesktop更新後はsetupを再実行してください。LinuxのSteer付き導入は理由付き`unsupported`を返します。
+Desktopの更新で同梱Codex CLIの場所が変わった時は、Aitermが使う時点で探し直して設定を更新します。探せない時は`CODEX_DESKTOP_BINARY_MOVED`を返すので、Desktopを起動してからsetupを再実行してください。LinuxのSteer付き導入は理由付き`unsupported`を返します。
 Aiterm単品の公式キュー配送は従来どおり利用できます。
 
 cloneもビルドも不要。どのクライアントでも公開パッケージを次のコマンドで起動する:

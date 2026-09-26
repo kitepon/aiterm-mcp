@@ -6,6 +6,7 @@ import { realCodexHome } from "./harnesses/codex.js";
 import { withCodexReceiver, type CodexReceiverRuntime } from "./codex-parent-receiver.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { readRuntimeProcesses } from "./process-runtime.js";
+import { currentCodexDesktopBinary } from "./codex-desktop-binary.js";
 import { answerDigest, codexHookDirectory, codexInputDirectory, hookInputSchema, readCodexHookConfig, writeHookJson } from "./codex-hook-state.js";
 
 export async function runCodexResultHook(input: unknown, emit: (value: object) => Promise<void>, options: {
@@ -75,7 +76,7 @@ export async function runCodexResultHook(input: unknown, emit: (value: object) =
           taken.pop();
         }
       }
-    }, options.runtime ?? { executable: config.binary, timeout_ms: 5_000 });
+    }, options.runtime ?? { executable: await currentCodexDesktopBinary(config), timeout_ms: 5_000 });
     const text = taken.map(item => item.text).join("\n\n");
     await emit(!taken.length ? {} : event.hook_event_name === "Stop"
       ? { decision: "block", reason: text }

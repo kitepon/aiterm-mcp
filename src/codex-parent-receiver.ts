@@ -7,6 +7,7 @@ import { realCodexHome } from "./harnesses/codex.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { readRelayConfig, parentRelaySocket } from "./codex-relay-config.js";
 import { withCodexRelay, verifyLoadedParent } from "./codex-relay-client.js";
+import { currentCodexDesktopBinary } from "./codex-desktop-binary.js";
 import { finishCodexHookSubmission, assertCodexHookParentCurrent, assertCodexHooksReady, codexHookDirectory, readCodexHookConfig, registerCodexHookInput } from "./codex-hook-state.js";
 export { CodexDeliveryError } from "./codex-delivery-error.js";
 
@@ -54,7 +55,7 @@ export async function withCodexReceiver<T>(
   runtime: CodexReceiverRuntime = {},
 ): Promise<T> {
   const config = runtime.executable ? null : readCodexHookConfig();
-  const executable = runtime.executable ?? (config?.enabled ? config.binary : null) ?? resolveAgentBin("codex");
+  const executable = runtime.executable ?? (config?.enabled ? await currentCodexDesktopBinary(config) : null) ?? resolveAgentBin("codex");
   if (!executable) throw new CodexDeliveryError("CODEX_RECEIVER_UNAVAILABLE", "Codexの実行ファイルを確認できません");
   const child = spawn(executable, runtime.args ?? ["app-server", "--listen", "stdio://"], {
     stdio: ["pipe", "pipe", "ignore"],

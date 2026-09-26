@@ -394,7 +394,9 @@ test("cli: 待機中のsession closeはreceiptを出しつつexit 4", async () =
     });
     let stdout = "";
     child.stdout.on("data", (d) => (stdout += d));
-    await sleep(500);
+    // CLIが待機へ入った後に閉じる。負荷の高いmacOS runnerでは起動に0.5秒以上かかり、先に消えたmetadataを
+    // 未管理sessionとして扱っていた（2026-09-26、負荷平均38で再現）。待機開始を外から観測できないため余裕を取る。
+    await sleep(2000);
     fs.rmSync(metaPath, { force: true });
     const status = await new Promise((res) => child.on("close", res));
     assert.equal(status, 4);
@@ -409,7 +411,8 @@ test("cli: 待機中にeventが届くとexitして完了通知になる", async 
   const { base, agents } = makeStateRoot();
   try {
     const { eventPath } = writeMeta(agents, "c3", "claude");
-    const child = spawn(process.execPath, [CLI, "--session", "c3", "--timeout", "30"], {
+    // 境界を空のevent fileの先頭に固定する。負荷の高い端末でCLIの起動がeventの追記より遅れても取りこぼさない。
+    const child = spawn(process.execPath, [CLI, "--session", "c3", "--timeout", "30", "--cursor", "0"], {
       env: { PATH: process.env.PATH, XDG_RUNTIME_DIR: base, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR },
     });
     let stdout = "";

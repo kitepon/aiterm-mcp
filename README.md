@@ -221,7 +221,20 @@ Release re-registers the Official MCP Registry entry.
 ### Update and rollback
 
 The npm package is the standalone distribution; dotagents is not involved. For a global install,
-update with `npm install -g aiterm-mcp@latest` and `aiterm-setup --json`. To roll back, install a known-good immutable version,
+update with `aiterm-update`. It reinstalls the requested version into the same npm prefix, then reruns the new version's
+`aiterm-setup --json` to re-register and re-verify.
+
+```bash
+aiterm-update                                   # this machine to latest
+aiterm-update --host rabbit --host win-test     # this machine and SSH hosts to the same version
+aiterm-update --version 0.39.0 --check          # report current and target versions without changing anything
+```
+
+`--host` takes an `~/.ssh/config` alias or host name; hosts are not stored. The version is resolved once on the calling
+machine so every host lands on the same version. Hosts older than `aiterm-update` get it through npm first. When the
+npm prefix is not writable, the result is `permission_required` with the command to run as an administrator. `aiterm-mcp`
+servers that were already running keep the old code until their MCP client restarts (`running_servers`); tmux/psmux
+sessions survive. Versions without `aiterm-update` use `npm install -g aiterm-mcp@latest` and `aiterm-setup --json`. To roll back, install a known-good immutable version,
 for example `npm install -g "aiterm-mcp@<known-good-version>"`, then restart the MCP client. setupを持つ版では再起動前に`aiterm-setup --json`を再実行する。For an `npx` configuration,
 use `aiterm-mcp@latest` to update or replace it with `aiterm-mcp@<version>` to pin or roll back.
 Check the [CHANGELOG](CHANGELOG.md) for state/schema compatibility before downgrading. Maintainer

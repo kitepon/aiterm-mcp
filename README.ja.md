@@ -206,8 +206,20 @@ Publishing）で公開し、GitHub Release が Official MCP Registry を再登�
 
 ### 更新と巻き戻し
 
-npm packageが単独配布の正本であり、dotagentsは介在しません。global installは
-`npm install -g aiterm-mcp@latest`で更新し、`aiterm-setup --json`を再実行します。巻き戻す時は
+npm packageが単独配布の正本であり、dotagentsは介在しません。global installは`aiterm-update`で更新します。
+npmで同じ導入先を指定の版へ入れ替え、新しい版の`aiterm-setup --json`で登録と実動作を確かめ直します。
+
+```bash
+aiterm-update                                   # この端末をlatestへ
+aiterm-update --host rabbit --host win-test     # この端末とSSH接続先を同じ版へ
+aiterm-update --version 0.39.0 --check          # 入れ替えずに現在の版と更新先を確かめる
+```
+
+`--host`は`~/.ssh/config`の接続名かホスト名で、接続先は保存しません。版の解決は呼んだ端末で1回だけ行い、
+全端末を同じ版へ揃えます。更新機能より古い版の端末では、npmで入れてから新しい`aiterm-update`へ渡します。
+導入先へ書けない時は`permission_required`と管理者権限での手順を返します。更新前から動いている`aiterm-mcp`は
+MCP clientが起動し直すまで旧版のcodeで動き（`running_servers`）、tmux／psmuxのsessionは残ります。
+`aiterm-update`を持たない版では`npm install -g aiterm-mcp@latest`の後に`aiterm-setup --json`を再実行します。巻き戻す時は
 `npm install -g "aiterm-mcp@<known-good-version>"`のように既知の正常versionを明示します。setupを持つ版では同じ入口を再実行し、MCP clientを再起動します。
 `npx`設定では`aiterm-mcp@latest`へ変えると更新でき、`aiterm-mcp@<version>`へ変えると固定・巻き戻し
 できます。downgrade前に[変更履歴](CHANGELOG.md)でstate／schema互換を確認してください。maintainer向けの

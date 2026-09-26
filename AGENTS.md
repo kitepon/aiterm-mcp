@@ -20,8 +20,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - Node.js 18以上。POSIXはtmux、Windows nativeはpsmux 3.3.8以上＋Git for Windowsを使う。
   Windowsの対話shellはPowerShell 7だけとし、Windows PowerShell 5.1、PowerShell 6、`cmd.exe`、
   WSL bridgeへfallbackしない。
-- 公開面は18 tools。PTY 7、標準`agent_launch` 1、deprecated互換launcher 4、
-  `agent_configure`、`agent_steer`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`である。
+- 公開面は17 tools。PTY 7、標準`agent_launch` 1、deprecated互換launcher 4、
+  `agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`である。
 - `pty_list`は明示した非秘密envキーだけを照会し、`pty_observe`はpaneとharnessの生存・native PID・
   状態・活動を区別する。取得不能はnull／unknownで返し、生argvと画面本文を観測receiptへ出さない。
 - `trust_project:true`のlaunchはpromptなしでも既知の起動準備とharness生存を確認する。

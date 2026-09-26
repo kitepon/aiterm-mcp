@@ -199,14 +199,16 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
   const key = deliveryKey(args.session_id, target);
   const delivery = args.force ? null : await deliveryForRequest(extra, true);
-  // 前の依頼の回答を確保してから次を送る。送った後では取り消せない。
-  if (delivery) await remoteParentDelivery!.beforeChange(key, true);
+  // 終わった依頼の回答は送る前に保存する。実行中の依頼は残る。現地が差し込みを選べばその依頼が回答を受け取る。
+  if (delivery) await remoteParentDelivery!.beforeChange(key);
   const result = await callRemoteTool(target, "pty_send", args);
   const structured = result.structuredContent as any;
   if (result.isError || !structured || structured.mode !== "agent_dispatch") {
     return { content: [...result.content, remoteNote(target, result)], ...(structured ? { structuredContent: structured } : {}), ...(result.isError ? { isError: true } : {}) };
   }
   try {
+    // 現地がdispatchを選んだのは子がidleだった時なので、前の依頼はもう保存できる。残っていれば登録しない。
+    if (delivery) await remoteParentDelivery!.beforeChange(key, true);
     if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor);
   } catch (e) {
     delivery?.failed(e);
@@ -273,7 +275,10 @@ registerRemoteAwareTool(
   {
     description:
       "セッションへテキストを送る。通常PTYへは送信のみ（出力は pty_read で取得）。" +
-      "agent session（launcher起動）への send は自動で dispatch になる: TUI の ready gate と submit 分離を通して即返り、" +
+      "agent session（launcher起動）への送信はこのtoolだけで行い、子の状態はAitermが送る時点で見て振り分ける。" +
+      "子のturnが実行中なら各harness標準の操作で現在のturnへ差し込み（mode=agent_steer）、完了は差し込み後の作業の終わりに" +
+      "元の依頼への1回だけ届く。新しいevent_cursorと配送は作らない。" +
+      "それ以外は新しいturnとしてdispatchし（mode=agent_dispatch）、TUI の ready gate と submit 分離を通して即返り、" +
       "receipt の event_cursor を返す。" +
       NON_BLOCKING_RULE +
       "自動配送以外の結果回収は pty_read(agent_transcript:true)、Claude の durable turn は claude_turn を使う。" +
@@ -309,7 +314,7 @@ registerRemoteAwareTool(
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-send-result.v1"),
-      mode: z.enum(["sent", "agent_dispatch"]),
+      mode: z.enum(["sent", "agent_dispatch", "agent_steer"]),
       session_id: z.string(),
       event_cursor: z.number().int().nullable(),
       wait_process: waitProcessOutputSchema,
@@ -332,7 +337,31 @@ registerRemoteAwareTool(
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
         delivery = await deliveryForRequest(extra);
-        const receipt = await core.dispatchAgentTurn(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send });
+        const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send });
+        if (receipt.schema === "aiterm.agent-steer.v1") {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  `実行中のturnへ差し込んだ（harness=${receipt.harness}, vendor=${receipt.vendor}）。` +
+                  "完了は差し込み後の作業の終わりに、元の依頼への通知として1回だけ届く。",
+              },
+            ],
+            structuredContent: {
+              schema: "aiterm.pty-send-result.v1" as const,
+              mode: "agent_steer" as const,
+              session_id: receipt.session_id,
+              event_cursor: null,
+              wait_process: null,
+              launch_id: receipt.launch_id,
+              vendor: receipt.vendor,
+              harness: receipt.harness,
+              submit_residue: null,
+              pane_input_recovery: receipt.pane_input_recovery,
+            },
+          };
+        }
         const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor);
         return {
           content: [
@@ -380,40 +409,6 @@ registerRemoteAwareTool(
       };
     } catch (e) {
       delivery?.failed(e);
-      return fail(e);
-    }
-  },
-);
-
-registerRemoteAwareTool(
-  "agent_steer",
-  {
-    description:
-      "実行中のClaude／Codex／Grok／Cursor agentへ追加メッセージを差し込み、現在のターンを誘導する。" +
-      "完了は差し込み後の作業の終わりに1回だけ届く。独立した次ターンを始める用途ではなく、idle時は文字を送らずdelivery=idleを返す。" +
-      "Grokが待ち行列へ入れない時とCursorの入力欄に残った時は、steeredを返さずエラーにする。",
-    inputSchema: {
-      session_id: z.string(),
-      text: z.string().describe("現在のターンへ追加する文字列。UTF-8で最大64KiB"),
-      image: z.array(z.string()).optional().describe("添付する画像ファイルの絶対パス（png/jpg/jpeg/gif/webp）"),
-    },
-    outputSchema: {
-      schema: z.literal("aiterm.agent-steer.v1"),
-      session_id: z.string(),
-      launch_id: z.string(),
-      vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
-      delivery: z.enum(["steered", "idle"]),
-    },
-  },
-  async ({ session_id, text, image }) => {
-    try {
-      const receipt = await core.steerAgentTurn(session_id, core.attachImages(text, image));
-      return {
-        content: [{ type: "text" as const, text: `${receipt.delivery} ${receipt.session_id}` }],
-        structuredContent: receipt,
-      };
-    } catch (e) {
       return fail(e);
     }
   },

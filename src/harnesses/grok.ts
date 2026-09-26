@@ -107,7 +107,7 @@ export function grokCompletionEvent(meta: AgentMetadata, record: any): AgentDone
     record?.type !== "turn_ended" ||
     (record?.outcome !== "completed" && record?.outcome !== "cancelled" && record?.outcome !== "error")
   ) return null;
-  // agent_steerの「send now」は旧turnを閉じて同じ作業を新turnで続ける継ぎ目であり、完了ではない
+  // 実行中turnへの差し込み（pty_send）の「send now」は旧turnを閉じて同じ作業を新turnで続ける継ぎ目であり、完了ではない
   // （実測 grok 1.0.41: outcome=cancelled, cancellation_context.trigger=send_now の直後にturn_started）。
   if (record.outcome === "cancelled" && record.cancellation_context?.trigger === "send_now") return null;
   const turnId = typeof record?.ts === "string" || typeof record?.ts === "number" ? String(record.ts) : null;

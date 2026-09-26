@@ -143,7 +143,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-18ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、実行中のClaude／Codex／Grok／Cursorを誘導する`agent_steer`、移行用の旧4alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+17ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧4alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。Composerは別harnessではなく、`harness:"grok-cli", model:"grok-composer-2.5-fast"`で表す。旧4起動ツールは同じ実装へ流れる互換alias。
 
@@ -248,9 +248,9 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 同じprimitiveが別エージェントのTUIを宿す。`agent_launch`の`harness`はagent loop・認証・hook・session・transcriptを所有する実行基盤、`model`は独立した選択。起動processは直接CLIと同じproject/user環境を使い、通常config、MCP、plugin、skill、permission、trust、memory、historyをcopy・filter・置換しない。
 
-`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。`pty_send`は非ブロックdispatchで、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたは受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
+`aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。agent sessionへの送信は`pty_send`だけで行い、子の状態はAitermが送る時点の画面で見て振り分ける。子のturnが実行中なら各harness標準の操作で現在のturnへ差し込み（`mode=agent_steer`）、完了は差し込み後の作業の終わりに元の依頼へ1回だけ届く。新しい`event_cursor`と配送は作らない。それ以外は非ブロックdispatch（`mode=agent_dispatch`）で、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたは受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
 
-`agent_launch`・`pty_send`（agent dispatch）・`agent_steer`は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
+`agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
 `agent_launch`は任意の`write_scope`も受ける。Codex／Grokのread-onlyは`--sandbox read-only`、Cursorは公式`--mode ask`で実効化する。path説明は同等CLI引数がないためdeclaration-only。
 
@@ -403,7 +403,7 @@ MCP クライアントが aiterm を stdio 越しにプログラムから駆動�
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_steer · agent_configure · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_configure · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 17 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>再起動を跨ぐ"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -512,7 +512,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | ツール | 役割 | 主な引数 |
 | --- | --- | --- |
 | `pty_open` | 端末を1個開き`session_id`を返す | `name?`, `shell?`, `env_vars?` |
-| `pty_send` | テキストを送る。agent sessionでは非ブロックdispatchとして`event_cursor`を返す | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
+| `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
@@ -520,7 +520,6 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
-| `agent_steer` | 実行中のClaude／Codex／Grok／Cursor turnへ、各harness標準の操作でtextを差し込む。差し込み後の作業の完了は1回だけ届く。idleなら送信せず`idle`を返す。Grokが待ち行列へ入れない時とCursorの入力欄に残った時は`steered`を返さず失敗する | `session_id`, `text` |
 | `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | deprecated互換alias | 旧launcher引数 |
 | `agent_configure` | 起動中のClaude／Codex／Grok／Composer／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |
 | `claude_turn` | 相関済みClaude operationをdispatch（issue）または回収（recover） | `action`, `session_id`, `operation_id`, `text?` |
@@ -594,7 +593,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 - `remote`は`host`、`user`、`port`、`identity_file`、`passphrase`または`passphrase_env`、`ssh_options`（`Key=Value`）を受け取る。`host`だけなら`~/.ssh/config`の接続名として使う。Aitermは接続先を保存・管理しない。どこへどの鍵で入るかは呼び出し側が持つ。
 - 平文の`passphrase`は呼び出したAIの会話記録に残る。ssh-agentか`passphrase_env`（環境変数名）を推奨する。受け取ったパスフレーズはMCP processのメモリにだけ置き、`SSH_ASKPASS`でsshへ渡す。状態ファイルやログには書かない。
 - 現地には`aiterm-mcp`、tmux（Windowsはpsmux）、使うharnessのCLIが要る。接続先のshell（POSIX系、PowerShell、cmd）は最初の接続で見分ける。POSIX系ではログインshellからPATHだけを受け取るので、`~/.local/bin`、Homebrew、nvmなどに置いたCLIも使える。WindowsはユーザーのPATHのまま`aiterm-mcp`を起動する。
-- 以後の`pty_send`、`pty_read`、`pty_close`、`pty_observe`、`agent_steer`などにも同じ`remote`を付ける。session名は現地のもので、この端末の同名sessionとは別に扱う。
+- 以後の`pty_send`、`pty_read`、`pty_close`、`pty_observe`などにも同じ`remote`を付ける。session名は現地のもので、この端末の同名sessionとは別に扱う。
 - Codex／Claude Code／Cursor親には、この端末の子と同じく回答本文が自動で届く。完了は`ssh <host> aiterm-wait`で観測し、SSHが切れても同じcursorでつなぎ直す。それ以外の親には、sshを使う`wait_process`を返す。
 - 同じ接続先への呼び出しはControlMasterで1本のSSHに相乗りする。`remote`付きの`image`添付と`claude_turn issue`は未対応。
 

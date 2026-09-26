@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更（互換性なし）
+
+- `agent_steer`を廃止し、agent sessionへの送信を`pty_send`に一本化する。子のturnが実行中かどうかは呼び出し側に選ばせず、Aitermが送る時点の画面で見て、実行中なら現在のturnへ差し込み（`mode=agent_steer`）、それ以外は新しいturnとしてdispatchする（`mode=agent_dispatch`）。これまでは状態を知らない呼び出し側が入口を選ぶ必要があり、idleの子への`agent_steer`は何も送らず`idle`を返し、実行中の子への`pty_send`はCodex／Grok／Cursorで入力受付を30秒待って失敗、Claude Codeでは来ない完了を待つ新しいturnとして記録していた。差し込みでは新しい`event_cursor`と回答配送を作らず、完了は元の依頼へ1回だけ届く。公開toolは17になる。
+- Claude Codeは、Aitermが送ったturnの印（Stop hookで消える）が残っている時だけ実行中と数える。Stop hookの実行中は画面が実行中の表示のままなので、回答直後に送った文を差し込みと取り違え、誰も完了を待たない新しいturnにしていた。
+
 ## [0.39.1] - 2026-09-26
 
 ### 修正

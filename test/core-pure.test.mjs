@@ -848,7 +848,7 @@ test("grokCompletionEvent: turn_ended outcome=error は turn_error の終了境�
   assert.equal(grokHarness.grokCompletionEvent(meta, { ts: "t", type: "turn_ended", outcome: "timeout" }), null);
 });
 
-test("grokCompletionEvent: agent_steerのsend nowで閉じたturnは完了と数えない", () => {
+test("grokCompletionEvent: 差し込みのsend nowで閉じたturnは完了と数えない", () => {
   const meta = { kind: "grok", aiterm_session: "s", launch_id: "l", vendor_session_id: "v" };
   // grok 1.0.41の実機events.jsonl逐語。直後に同じ作業を継ぐturn_startedが続く。
   const seam = { ts: "2026-09-26T11:31:04.944Z", type: "turn_ended", outcome: "cancelled", cancellation_category: "mid_turn_abort", cancellation_context: { trigger: "send_now" } };
@@ -858,7 +858,7 @@ test("grokCompletionEvent: agent_steerのsend nowで閉じたturnは完了と数
   assert.equal(cancelled.done_status, "turn_done");
 });
 
-test("agent_steer: GrokとCursorの待ち行列表示を画面末尾だけで見分ける", () => {
+test("差し込み: GrokとCursorの待ち行列表示を画面末尾だけで見分ける", () => {
   // grok 1.0.41の実機画面（BellTeamコンテナ、tmux 80x24、2026-09-26）。
   const grokQueued = [
     "     ◆ Run sleep 5 (3 of 12)",

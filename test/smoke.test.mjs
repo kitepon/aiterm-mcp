@@ -93,7 +93,6 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
     "agent_approval",
     "agent_configure",
     "agent_launch",
-    "agent_steer",
     "claude_agent",
     "claude_approval",
     "claude_turn",
@@ -120,16 +119,12 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.equal(ptySend.inputSchema.properties.screen, undefined);
   assert.equal(ptySend.inputSchema.properties.lines, undefined);
   assert.equal(ptySend.outputSchema.properties.schema.const, "aiterm.pty-send-result.v1", "pty_send result schema");
-  assert.deepEqual(ptySend.outputSchema.properties.mode.enum, ["sent", "agent_dispatch"], "pty_send mode schema");
+  assert.deepEqual(ptySend.outputSchema.properties.mode.enum, ["sent", "agent_dispatch", "agent_steer"], "pty_send mode schema");
   assert.deepEqual(ptySend.outputSchema.properties.harness.anyOf[0].enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"], "pty_send harness schema");
   assert.ok(
     ptySend.outputSchema.properties.event_cursor.anyOf?.some((v) => v.type === "integer"),
     "pty_send event_cursor schema",
   );
-  const agentSteer = toolsResp.result.tools.find((t) => t.name === "agent_steer");
-  assert.equal(agentSteer.outputSchema.properties.schema.const, "aiterm.agent-steer.v1");
-  assert.deepEqual(agentSteer.outputSchema.properties.delivery.enum, ["steered", "idle"]);
-  assert.deepEqual(agentSteer.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"]);
   // 非ブロック規範: dispatch 系の説明は「待たない」を明示し、foreground 実行へ誘導する
   // 抽象文（旧「ホストのバックグラウンドタスクとして実行」）へ戻らない。
   const dispatchDescs = [ptySend, ...["agent_launch", "claude_agent", "codex_agent", "grok_agent", "composer_agent"].map((n) => toolsResp.result.tools.find((t) => t.name === n))];

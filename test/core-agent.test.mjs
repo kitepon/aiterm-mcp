@@ -3399,7 +3399,7 @@ test("dispatchAgentTurn: 起動直後のClaudeはcomposer描画前に送信せ�
   }
 });
 
-test("steerAgentTurn: 実行中のCodexへ現在ターンの追加メッセージを送る", { skip: skipAgentDone }, async () => {
+test("sendAgentMessage: 実行中のCodexへは現在ターンへ差し込む", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
@@ -3409,11 +3409,10 @@ test("steerAgentTurn: 実行中のCodexへ現在ターンの追加メッセー�
         preserveAgentOperation: true,
       });
       await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
-      const receipt = await core.steerAgentTurn(sid, "echo STEER_BODY");
+      const receipt = await core.sendAgentMessage(sid, "echo STEER_BODY");
       assert.equal(receipt.schema, "aiterm.agent-steer.v1");
       assert.equal(receipt.vendor, "codex");
       assert.equal(receipt.harness, "codex-cli");
-      assert.equal(receipt.delivery, "steered");
       const out = await core.readOutput(sid, { wait: true, until: "STEER_BODY", timeout: 5, raw: true });
       assert.match(out, /STEER_BODY/);
     } finally {
@@ -3422,7 +3421,7 @@ test("steerAgentTurn: 実行中のCodexへ現在ターンの追加メッセー�
   });
 });
 
-test("steerAgentTurn: 実行中のClaudeへもturn相関を変えずに差し込む", { skip: skipAgentDone }, async () => {
+test("sendAgentMessage: 実行中のClaudeへはturn相関を変えずに差し込む", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     core.send(sid, "printf 'Claude Code\\n* Herding… (3s · esc to interrupt)\\n'", {
@@ -3431,14 +3430,39 @@ test("steerAgentTurn: 実行中のClaudeへもturn相関を変えずに差し込
       preserveAgentOperation: true,
     });
     await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
-    const stateDir = path.dirname(readAgentMeta(sid).event_file);
+    const meta = readAgentMeta(sid);
+    const stateDir = path.dirname(meta.event_file);
+    // Aitermが送ったturnの印。Stop hookが消すまでturnは実行中。
+    fs.writeFileSync(path.join(stateDir, `${sid}.${meta.launch_id}.claude-operation.json`),
+      JSON.stringify({ schema: "aiterm.claude-operation-marker.v1", operation_id: null }), { mode: 0o600 });
     const before = fs.readdirSync(stateDir).sort();
-    const receipt = await core.steerAgentTurn(sid, "echo CLAUDE_STEER_BODY");
-    assert.equal(receipt.delivery, "steered");
+    const receipt = await core.sendAgentMessage(sid, "echo CLAUDE_STEER_BODY");
+    assert.equal(receipt.schema, "aiterm.agent-steer.v1");
     assert.equal(receipt.harness, "claude-code");
     assert.deepEqual(fs.readdirSync(stateDir).sort(), before, "差し込みで新しいoperationやreceiptを作らない");
     const out = await core.readOutput(sid, { wait: true, until: "CLAUDE_STEER_BODY", timeout: 5, raw: true });
     assert.match(out, /CLAUDE_STEER_BODY/);
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
+test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無ければ新しいturnとして送る", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    // Stop hookの実行中はturnの印が消えた後も実行中の表示が残る。
+    core.send(sid, "printf 'Claude Code\\n* Running stop hooks… (esc to interrupt)\\n'", {
+      force: true,
+      raw: true,
+      preserveAgentOperation: true,
+    });
+    await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
+    fs.appendFileSync(readAgentMeta(sid).event_file, JSON.stringify({ type: "agent_done", vendor: "claude", done_status: "turn_done" }) + "\n");
+    const receipt = await core.sendAgentMessage(sid, "echo CLAUDE_NEXT_TURN_BODY");
+    assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
+    const meta = readAgentMeta(sid);
+    const marker = path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`);
+    assert.ok(fs.existsSync(marker), "新しいturnの印を付け、Stopで完了を追える");
   } finally {
     core.closeSession(sid);
   }
@@ -3471,7 +3495,7 @@ process.stdin.on("data", (chunk) => {
   return { bin, log };
 }
 
-test("steerAgentTurn: Grokは待ち行列へ入れた後にsend nowで現在turnへ送る", { skip: skipGrokFakeBin }, async () => {
+test("sendAgentMessage: 実行中のGrokへは待ち行列へ入れた後にsend nowで現在turnへ送る", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;
   const fake = makeFakeGrokSteerTuiBin();
   process.env.GROK_BIN = fake.bin;
@@ -3480,8 +3504,8 @@ test("steerAgentTurn: Grokは待ち行列へ入れた後にsend nowで現在turn
       const [sid] = core.openAgent("grok", { agent_done: true });
       try {
         await core.readOutput(sid, { wait: true, until: "[stop]", timeout: 5, raw: true });
-        const receipt = await core.steerAgentTurn(sid, "GROK_STEER_BODY");
-        assert.equal(receipt.delivery, "steered");
+        const receipt = await core.sendAgentMessage(sid, "GROK_STEER_BODY");
+        assert.equal(receipt.schema, "aiterm.agent-steer.v1");
         assert.deepEqual(fs.readFileSync(fake.log, "utf8").trim().split("\n"), ["queued:GROK_STEER_BODY", "send_now:GROK_STEER_BODY"]);
       } finally {
         core.closeSession(sid);
@@ -3495,15 +3519,16 @@ test("steerAgentTurn: Grokは待ち行列へ入れた後にsend nowで現在turn
   }
 });
 
-test("steerAgentTurn: idle中は次ターンとして送信しない", { skip: skipAgentDone }, async () => {
+test("sendAgentMessage: idle中は新しいターンとしてdispatchする", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
       await markFakeAgentReady(sid, "codex");
-      const receipt = await core.steerAgentTurn(sid, "echo MUST_NOT_STEER");
-      assert.equal(receipt.delivery, "idle");
-      const out = await core.readOutput(sid, { screen: true, raw: true });
-      assert.doesNotMatch(out, /MUST_NOT_STEER/);
+      const receipt = await core.sendAgentMessage(sid, "echo IDLE_DISPATCH_BODY");
+      assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
+      assert.equal(typeof receipt.event_cursor, "number");
+      const out = await core.readOutput(sid, { wait: true, until: "IDLE_DISPATCH_BODY", timeout: 5, raw: true });
+      assert.match(out, /IDLE_DISPATCH_BODY/);
     } finally {
       core.closeSession(sid);
     }

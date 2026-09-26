@@ -145,7 +145,7 @@ Aiterm and is not a runtime dependency.
 
 **Measured, not claimed:** in the recorded 203-test benchmark, a `pty_read` puts **~7.1× fewer tokens** in your context than the raw log — and the pass/fail verdict survives the fold. → [When to reach for it vs. the built-in shell](#when-to-reach-for-it-vs-the-built-in-shell)
 
-Eighteen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; `agent_steer` for an active Claude, Codex, Grok, or Cursor turn; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
+Seventeen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
 **v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Grok Composer is a Grok CLI model preset, not another harness: use `harness: "grok-cli", model: "grok-composer-2.5-fast"`. The old four launcher tools are thin compatibility aliases over the same implementation.
 
@@ -269,9 +269,9 @@ pty_read(id, { wait: true })       → read the token-reduced output, completion
 
 The same primitive hosts another agent's TUI. `agent_launch` starts a selected execution harness inside a fresh persistent terminal and returns a `session_id`. `harness` names the component that owns the agent loop, authentication, hooks, session, and transcript; `model` remains an independent choice. The launched process sees the same project and user environment as a direct CLI invocation: normal configuration, MCPs, plugins, skills, permissions, trust decisions, memory, and history are not copied, filtered, or replaced. Aiterm adds only completion correlation and a non-user sub-agent context containing `role=subagent`, the parent session, delegation depth, lineage, and `delegation_allowed=true`.
 
-起動結果には正規`harness`を含む`aiterm.agent-launch-result.v1`が付き、旧`provider`は互換fieldとして残る。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`にも載る。Codexは通常rollout、Grokは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcriptの`turn_ended`を完了正本に使う。agentへの送信は非ブロックdispatchで、harnessごとの完了境界を表す整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたはqueue、Claude Code親は公式非同期hookで本文を自動受信する。他の親は[`aiterm-wait`](#completion-push-for-parent-agents-aiterm-wait)を使う。CursorのsubmitはadapterがCLIのextended keyboard protocolへ変換し、送信本文がcomposerへ残る場合は明示errorにする。
+起動結果には正規`harness`を含む`aiterm.agent-launch-result.v1`が付き、旧`provider`は互換fieldとして残る。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`にも載る。Codexは通常rollout、Grokは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcriptの`turn_ended`を完了正本に使う。agentへの送信は`pty_send`だけで行い、Aitermが送る時点で子の状態を見て振り分ける。実行中のturnへは差し込み（`mode=agent_steer`、新しい`event_cursor`と配送は作らない）、それ以外は非ブロックdispatch（`mode=agent_dispatch`）で、harnessごとの完了境界を表す整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたはqueue、Claude Code親は公式非同期hookで本文を自動受信する。他の親は[`aiterm-wait`](#completion-push-for-parent-agents-aiterm-wait)を使う。CursorのsubmitはadapterがCLIのextended keyboard protocolへ変換し、送信本文がcomposerへ残る場合は明示errorにする。
 
-`agent_launch`, `pty_send` (agent dispatch), and `agent_steer` accept an optional `image`: an array of absolute paths to image files (png/jpg/jpeg/gif/webp). Aiterm appends an attachment block to the prompt, and every harness opens the path with its own file-reading tool and sees the image; the caller never learns harness-specific attachment tricks. Invalid paths are rejected before anything is sent.
+`agent_launch` and `pty_send` (to an agent session) accept an optional `image`: an array of absolute paths to image files (png/jpg/jpeg/gif/webp). Aiterm appends an attachment block to the prompt, and every harness opens the path with its own file-reading tool and sees the image; the caller never learns harness-specific attachment tricks. Invalid paths are rejected before anything is sent.
 
 `agent_launch` accepts an optional `write_scope`: either `"read-only"` or a human-readable description of writable paths. Codex/Grok use `--sandbox read-only`; Cursor uses its official read-only `--mode ask`. A path description remains declaration-only because these CLI launch surfaces provide no equivalent path allowlist flag.
 
@@ -391,7 +391,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm should show as connected, exposing 18 tools
+/mcp        # aiterm should show as connected, exposing 17 tools
 ```
 
 Your first session — four calls, one persistent terminal:
@@ -432,7 +432,7 @@ The terminal is real and shared, so a human *can* jump in ([A human can watch](#
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_steer · agent_configure · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_configure · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 17 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>survive restarts"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -545,7 +545,7 @@ continue to use `claude_approval`.
 | Tool | Role | Key args |
 | --- | --- | --- |
 | `pty_open` | Open one terminal and return a `session_id` | `name?`, `shell?`, `env_vars?` |
-| `pty_send` | Send text; on an agent session this is a non-blocking **dispatch** returning an `event_cursor` | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
+| `pty_send` | Send text. On an agent session Aiterm picks the route when it sends: if the child's turn is running, it steers the text into that turn (`agent_steer`); otherwise it is a non-blocking **dispatch** returning an `event_cursor` (`agent_dispatch`). Steering fails when Grok does not queue the text or Cursor leaves it in the composer | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
@@ -553,7 +553,6 @@ continue to use `claude_approval`.
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
-| `agent_steer` | Inject text into the active Claude, Codex, Grok, or Cursor turn with each harness's own steering control, so the steered work still ends in one completion; return `idle` without sending when no turn is active, and fail instead of returning `steered` when Grok does not queue the text or Cursor leaves it in the composer | `session_id`, `text` |
 | `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | Deprecated compatibility aliases | legacy launcher arguments |
 | `agent_configure` | Change model/effort in a running Claude, Codex, Grok, Composer, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |
 | `claude_turn` | Issue (dispatch-only) or recover one correlated Claude operation | `action`, `session_id`, `operation_id`, `text?` |
@@ -620,7 +619,7 @@ Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対
 
 **For other parent hosts**, dispatch and start the receipt's waiter in a separate process:
 
-1. Launch the child with `agent_launch({ harness: ... })`; every launch shares the normal project/user environment and adds only completion correlation plus lineage. Send a turn with plain `pty_send` (or `claude_turn issue` for durable Claude operations). The call returns immediately with an `event_cursor` in its structured receipt.
+1. Launch the child with `agent_launch({ harness: ... })`; every launch shares the normal project/user environment and adds only completion correlation plus lineage. Send a turn with plain `pty_send` (or `claude_turn issue` for durable Claude operations). The call returns immediately with an `event_cursor` in its structured receipt. If the child is still working when you send, Aiterm steers the text into the running turn instead (`mode: "agent_steer"`); the original request's completion then covers it, so no new cursor or delivery is created.
 2. Pass the receipt's `wait_process.executable` and `wait_process.args` unchanged to a true argv process API. PowerShell 7's `Start-Process` is the exception because it joins `-ArgumentList` arrays; pass `windows_start_process_argument_list` as its one ready-made argument string instead. This invokes the bundled waiter through the exact Node runtime that is already running aiterm, including on native Windows where npm's human-facing bin is a PowerShell script shim and install paths may contain spaces. `wait_command` remains a compatibility display string for humans. The waiter observes the harness-owned completion source, plus Claude's additive launch hook, as a **pure reader** and exits with a one-line `aiterm.agent-wait-result.v1` receipt. **Exit ≠ done**: the receipt's `outcome` is authoritative (`0` = `done`, `3` = `timeout`, `4` = `closed`, `1` = error).
 3. **親自身のforegroundでwaiterを実行しない。** receiptのprocess起動情報を、そのhostが持つバックグラウンドprocess APIへ渡す。親は別作業へ進むかturnを終え、process終了の通知で続行する。
 4. Collect the result exactly as before: `pty_read(agent_transcript: true)`, or `claude_turn recover` for durable Claude operations. The waiter carries the signal, never the payload.
@@ -640,7 +639,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 - `remote` takes `host`, `user`, `port`, `identity_file`, `passphrase` or `passphrase_env`, and `ssh_options` (`Key=Value`). A bare `host` is used as an `~/.ssh/config` alias. Aiterm does not store or manage destinations; the caller owns where to connect and with which key.
 - A plain `passphrase` stays in the calling AI's conversation log. Prefer ssh-agent or `passphrase_env` (an environment variable name). A received passphrase lives only in the MCP process memory and reaches ssh through `SSH_ASKPASS`; it is never written to state files or logs.
 - The remote machine needs `aiterm-mcp`, tmux (psmux on Windows), and the harness CLI. The remote shell family (POSIX, PowerShell, or cmd) is detected on first contact. On POSIX machines Aiterm takes only PATH from the login shell, so CLIs under `~/.local/bin`, Homebrew, or nvm are found; on Windows it starts `aiterm-mcp` with the user's PATH as is.
-- Pass the same `remote` to later `pty_send`, `pty_read`, `pty_close`, `pty_observe`, `agent_steer`, and so on. Session names belong to the remote machine and never collide with local sessions of the same name.
+- Pass the same `remote` to later `pty_send`, `pty_read`, `pty_close`, `pty_observe`, and so on. Session names belong to the remote machine and never collide with local sessions of the same name.
 - Codex, Claude Code, and Cursor parents receive the answer automatically, as with a local child. Completion is observed with `ssh <host> aiterm-wait`, reconnecting at the same cursor if SSH drops. Other parents get an ssh-based `wait_process`.
 - Calls to the same destination share one SSH connection through ControlMaster. `image` attachments and `claude_turn issue` are not yet supported with `remote`.
 

@@ -35,7 +35,7 @@
     },
     {
       "name": "pty_send",
-      "description": "Send text to a persistent terminal or dispatch a turn to a managed agent."
+      "description": "Send text to a persistent terminal, or to a managed agent: steer its running turn or dispatch a new one."
     },
     {
       "name": "pty_read",
@@ -80,10 +80,6 @@
     {
       "name": "agent_configure",
       "description": "Change the model or reasoning effort of a running Claude, Codex, Grok, Composer, or Cursor session."
-    },
-    {
-      "name": "agent_steer",
-      "description": "Steer an active Codex or Grok turn without starting a new turn."
     },
     {
       "name": "agent_approval",

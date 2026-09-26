@@ -4150,7 +4150,12 @@ export function attachImages(text: string, images: readonly string[] | undefined
 export async function dispatchAgentTurn(
   name: string,
   text: string,
-  o: { operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend } = {},
+  o: {
+    operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean;
+    before_send?: import("./agent-shared.js").BeforeAgentSend;
+    // sendAgentMessageが振り分け前に済ませた入力回復。二重に回復しない。
+    pane_input_recovery?: string[];
+  } = {},
 ): Promise<AgentDispatchReceipt> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
@@ -4169,7 +4174,7 @@ export async function dispatchAgentTurn(
   const claudeColdStart = meta.kind === "claude"
     && agentCompletionCursor(meta) === 0
     && readClaudeOperationMarker(meta) === null;
-  const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
+  const paneInputRecovery = o.pane_input_recovery ?? await ensureAgentOwnsPaneInput(name, meta.kind);
   let codexRateLimitModelSwitch = false;
   const limitDialog = meta.kind === "grok" || meta.kind === "composer"
     ? grokRateLimitDialog(captureScreen(name, 0)) : null;
@@ -4271,16 +4276,17 @@ export async function dispatchAgentTurn(
   };
 }
 
-export interface AgentSteerReceipt extends Record<string, unknown> {
+export interface AgentSteerReceipt {
   schema: "aiterm.agent-steer.v1";
   session_id: string;
   launch_id: string;
   vendor: AgentKind;
   harness: AgentHarness;
-  delivery: "steered" | "idle";
   // 打鍵前に行った pane 入力の回復（"fg" / "fg_stopped" / "stty_raw"）。何もしなければ空配列。
   pane_input_recovery: string[];
 }
+
+export type AgentSendReceipt = AgentDispatchReceipt | AgentSteerReceipt;
 
 // Grok CLIは実行中の送信を次turn用の待ち行列へ入れ、「Enter to send now」で現在turnへ差し込む。
 const GROK_QUEUED_SEND_NOW_RE = /Queued · Enter to send now|Enter:send now/;
@@ -4307,6 +4313,30 @@ export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
 }
 
 /**
+ * agent sessionへの唯一の送信口。呼び出し側は子の状態を知らないまま呼び、Aitermがこの時点の画面で振り分ける。
+ * 実行中なら現在のturnへ差し込み（steer）、そうでなければ新しいturnとしてdispatchする。
+ * 振り分けを呼び出し側へ任せると、状態を見てから呼ぶまでの間に子のturnが変わり、選んだ入口が外れる。
+ */
+export async function sendAgentMessage(
+  name: string,
+  text: string,
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend } = {},
+): Promise<AgentSendReceipt> {
+  assertSessionName(name);
+  const meta = loadAgentMetadata(name);
+  // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
+  const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
+  let running = isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
+  // Claude CodeはStop hookの実行中も実行中の表示を続ける。Aitermのturnの印はStopで消えるので、
+  // 印が無ければturnは終わっている。ここで差し込むと新しいturnとして始まり、誰もその完了を待たない。
+  if (meta.kind === "claude" && readClaudeOperationMarker(meta) === null) running = false;
+  if (running) {
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
+  }
+  return dispatchAgentTurn(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery });
+}
+
+/**
  * 実行中turnへ追加の指示を渡す。各harnessの標準操作だけを使い、完了境界は1つに保つ。
  * - Codex: 次のtool呼出し後に同じturnへ入る（rolloutのturn_idが同じ）。
  * - Claude Code: 次のtool境界で同じturnへ入り、Stopは1回。
@@ -4314,28 +4344,27 @@ export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
  * - Grok: 待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（trigger=send_now）で閉じ、
  *   新turnが作業を継ぐ。完了判定はこの継ぎ目を完了と数えない（grokCompletionEvent）。
  */
-export async function steerAgentTurn(name: string, text: string): Promise<AgentSteerReceipt> {
-  assertSessionName(name);
-  const meta = loadAgentMetadata(name);
+async function steerRunningTurn(
+  name: string,
+  meta: AgentMetadata,
+  text: string,
+  o: { raw?: boolean; pane_input_recovery: string[] },
+): Promise<AgentSteerReceipt> {
   const receipt = {
     schema: "aiterm.agent-steer.v1" as const,
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
     harness: agentHarness(meta.kind),
+    pane_input_recovery: o.pane_input_recovery,
   };
-  // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
-  const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
-  if (!isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))) {
-    return { ...receipt, delivery: "idle", pane_input_recovery: paneInputRecovery };
-  }
-  prepareSendText(text, { raw: false });
+  prepareSendText(text, { raw: o.raw });
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   const preserveAgentOperation = meta.kind === "claude";
   send(name, text, {
     enter: false,
     force: true,
-    raw: false,
+    raw: o.raw,
     mark: false,
     rtk: false,
     preserveAgentOperation,
@@ -4361,7 +4390,8 @@ export async function steerAgentTurn(name: string, text: string): Promise<AgentS
     if (!await waitSteerScreen(name, queued)) {
       throw new AitermError(
         `STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n` +
-          `差し込む文が${label}の待ち行列へ入ったことを確認できません。pty_read(screen:true)で入力欄を確かめてください。`, 2,
+          `差し込む文が${label}の待ち行列へ入ったことを確認できません。子のturnが送る直前に終わっていた時は、` +
+          `文は新しいturnとして始まっており、その完了は通知されません。再送する前にpty_read(screen:true)で確かめてください。`, 2,
       );
     }
     sendKey(name, "Enter");
@@ -4384,7 +4414,7 @@ export async function steerAgentTurn(name: string, text: string): Promise<AgentS
       );
     }
   }
-  return { ...receipt, delivery: "steered", pane_input_recovery: paneInputRecovery };
+  return receipt;
 }
 
 export async function runClaudeOperation({

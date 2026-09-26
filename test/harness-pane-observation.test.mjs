@@ -174,6 +174,33 @@ test("Codexの上限接近model switchは現在の完全な3択だけを専用mo
   assert.equal(codexRateLimitModelSwitchDialog(modal(1).replace("3. Keep current model (never show again)", "3. Keep current model")), null);
 });
 
+// Codex CLI 0.157.0 の実機capture逐語（BellTeamコンテナ、tmux 80x24、2026-09-26）。切替先modelとfooterが0.155.1から変わった。
+const CODEX_0157_RATE_LIMIT_SCREEN = [
+  "  Worked for 29m 46s · 11:03 AM",
+  "", "", "  Approaching rate limits",
+  "  Switch to gpt-6-luna for lower credit usage?", "", "",
+  "› 1. Switch to gpt-6-luna                   Fast and affordable model for easier",
+  "                                            tasks.",
+  "  2. Keep current model",
+  "  3. Keep current model (never show again)  Hide future rate limit reminders",
+  "                                            about switching models", "",
+  "  enter select · esc back",
+].join("\n");
+
+test("Codex 0.157の上限接近modalも、新しい切替先modelとkey hint footerで見分ける", () => {
+  assert.deepEqual(codexPaneObservation(CODEX_0157_RATE_LIMIT_SCREEN), { state: "blocked", reason: "rate_limit_model_switch" });
+  assert.deepEqual(codexRateLimitModelSwitchDialog(CODEX_0157_RATE_LIMIT_SCREEN), { keepCurrentIndex: 2, selectedIndex: 1 });
+  assert.equal(codexApprovalDialog(CODEX_0157_RATE_LIMIT_SCREEN), null);
+  // 「2」で閉じた後の実機画面。scrollbackのmodalを現在のmodalとして扱わない。
+  const closed = `${CODEX_0157_RATE_LIMIT_SCREEN}\n\n› Ask Codex to do anything\n\n  GPT-6-Sol high · /srv/bellteam/bots/bot-3545e21f\n  ? for shortcuts`;
+  assert.equal(codexRateLimitModelSwitchDialog(closed), null);
+  assert.deepEqual(codexPaneObservation(closed), { state: "idle", reason: "composer_ready" });
+  // 質問と選択肢1の切替先が食い違う画面は、Aitermが選ばない。
+  assert.equal(codexRateLimitModelSwitchDialog(CODEX_0157_RATE_LIMIT_SCREEN.replace("1. Switch to gpt-6-luna", "1. Switch to gpt-6-terra")), null);
+  // footerが無い画面はmodalの描画途中として扱わない。
+  assert.equal(codexRateLimitModelSwitchDialog(CODEX_0157_RATE_LIMIT_SCREEN.replace("  enter select · esc back", "")), null);
+});
+
 // Cursor Agent 2026.09.26-dd393fe の実機capture逐語（macbook、tmux、2026-09-26）。入力欄は戻らない。
 const CURSOR_USAGE_LIMIT_SCREEN = [
   "    Run the shell command `hostname` and reply with only its output.           ",

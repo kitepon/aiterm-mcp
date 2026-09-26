@@ -419,12 +419,17 @@ export function codexTuiReady(screen: string): boolean {
   return codexFrontend && /(^|\n)[ \t]*[›>](?![ \t]*\d+\.)/.test(screen);
 }
 
+// 0.155までは文章のfooter、0.157からは「enter select · esc back」のようなkey hint行になった。
+const CODEX_MODAL_FOOTER = /Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|(?<=^|\n)[ \t]*(?:[^\n]*· )?enter [a-z]+ · (?:[^\n]* · )?esc [a-z]+[ \t]*(?=\n|$)/gi;
+const CODEX_DIALOG_HEADING = /Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/g;
+const CODEX_MODAL_MARKER = new RegExp(`${CODEX_MODAL_FOOTER.source}|${CODEX_DIALOG_HEADING.source}`, "gi");
+
 function currentCodexDialog(screen: string): string {
-  const footers = [...screen.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel/gi)];
+  const footers = [...screen.matchAll(CODEX_MODAL_FOOTER)];
   // 過去の完了footerより前の質問・選択番号を、現在のdialogへ持ち込まない。
   const previousFooter = footers.at(-2);
   const current = previousFooter ? screen.slice(previousFooter.index! + previousFooter[0].length) : screen;
-  const heading = [...current.matchAll(/Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/g)].at(-1);
+  const heading = [...current.matchAll(CODEX_DIALOG_HEADING)].at(-1);
   return heading ? current.slice(heading.index) : current;
 }
 
@@ -435,7 +440,7 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const tail = screen.replace(/\s+$/, "").split("\n").slice(-24).join("\n");
   // 現在のmodal footerがある時だけ、折返しで上へ出た質問を画面全体から探す。
   const lastComposer = [...tail.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
-  const lastDialog = [...tail.matchAll(/Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/gi)].at(-1)?.index ?? -1;
+  const lastDialog = [...tail.matchAll(CODEX_MODAL_MARKER)].at(-1)?.index ?? -1;
   const modal = lastDialog > lastComposer;
   if (!modal) {
     if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
@@ -454,22 +459,25 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
 }
 
 /**
- * Codex 0.155.1 の利用上限接近modal。agent_approvalの対象ではないため、選択肢は公開しない。
+ * Codexの利用上限接近modal（0.155.1で確認、0.157で切替先modelとfooterが変わった）。
+ * agent_approvalの対象ではないため、選択肢は公開しない。
  * 1はmodel切替、3は今後の表示抑止なので、Aitermが選んでよいのは一時keepの2だけである。
  */
 export function codexRateLimitModelSwitchDialog(screen: string): { keepCurrentIndex: 2; selectedIndex: 1 | 2 | 3 | null } | null {
   const current = currentCodexDialog(screen);
-  const footer = current.lastIndexOf("Press enter to confirm or esc to go back");
+  const footer = [...current.matchAll(CODEX_MODAL_FOOTER)].at(-1)?.index ?? -1;
   const composer = [...current.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
-  // 現在のcomposerがmodal footerより後なら、scrollbackの古いmodalである。
-  if (composer > footer) return null;
+  // footerが無いか、現在のcomposerがmodal footerより後なら、scrollbackの古いmodalである。
+  if (footer < 0 || composer > footer) return null;
+  // 切替先modelは版とアカウントで変わる（gpt-5.6-luna、gpt-6-luna）。質問と選択肢1が同じmodelを指すことだけ確かめる。
+  const target = current.match(/(?:^|\n)\s*Switch to (\S+) for lower credit usage\?\s*(?:\n|$)/)?.[1];
+  if (!target) return null;
+  const switchLabel = `Switch to ${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`;
   if (!/(?:^|\n)\s*Approaching rate limits\s*(?:\n|$)/.test(current)
-    || !/(?:^|\n)\s*Switch to gpt-5\.6-luna for lower credit usage\?\s*(?:\n|$)/.test(current)
-    || !/(?:^|\n)[ \t]*(?:›[ \t]*)?1\. Switch to gpt-5\.6-luna(?:[ \t]{2,}[^\n]*)?[ \t]*(?:\n|$)/.test(current)
+    || !new RegExp(`(?:^|\\n)[ \\t]*(?:›[ \\t]*)?1\\. ${switchLabel}(?:[ \\t]{2,}[^\\n]*)?[ \\t]*(?:\\n|$)`).test(current)
     || !/(?:^|\n)[ \t]*(?:›[ \t]*)?2\. Keep current model[ \t]*(?:\n|$)/.test(current)
-    || !/(?:^|\n)[ \t]*(?:›[ \t]*)?3\. Keep current model \(never show again\)(?:[ \t]{2,}[^\n]*)?[ \t]*(?:\n|$)/.test(current)
-    || !/Press enter to confirm or esc to go back/i.test(current)) return null;
-  const selected = current.match(/(?:^|\n)[ \t]*›[ \t]*([123])\. (?:Switch to gpt-5\.6-luna|Keep current model(?: \(never show again\))?)(?:[ \t]{2,}[^\n]*)?[ \t]*(?:\n|$)/)?.[1];
+    || !/(?:^|\n)[ \t]*(?:›[ \t]*)?3\. Keep current model \(never show again\)(?:[ \t]{2,}[^\n]*)?[ \t]*(?:\n|$)/.test(current)) return null;
+  const selected = current.match(new RegExp(`(?:^|\\n)[ \\t]*›[ \\t]*([123])\\. (?:${switchLabel}|Keep current model(?: \\(never show again\\))?)(?:[ \\t]{2,}[^\\n]*)?[ \\t]*(?:\\n|$)`))?.[1];
   return { keepCurrentIndex: 2, selectedIndex: selected ? Number(selected) as 1 | 2 | 3 : null };
 }
 

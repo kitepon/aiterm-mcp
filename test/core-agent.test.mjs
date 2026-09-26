@@ -279,7 +279,7 @@ function makeFakeCodexTuiBin(busy = false, exitAfterReady = false) {
   return bin;
 }
 
-function makeFakeCodexRateLimitTuiBin(cursor, mode) {
+function makeFakeCodexRateLimitTuiBin(cursor, mode, version = "0.155.1") {
   const stem = `fake-codex-rate-limit-${Date.now().toString(36)}`;
   const bin = path.join(process.env.TMPDIR, `${stem}.sh`);
   const driverDir = path.join(process.env.TMPDIR, stem);
@@ -292,7 +292,9 @@ const fs = require("node:fs");
 const input = ${JSON.stringify(input)};
 const cursor = ${JSON.stringify(cursor)};
 const mode = ${JSON.stringify(mode)};
-const modal = () => process.stdout.write(["Approaching rate limits", "Switch to gpt-5.6-luna for lower credit usage?", ...[1, 2, 3].map(i => (i === cursor ? "› " : "  ") + i + ". " + (i === 1 ? "Switch to gpt-5.6-luna                 Fast and affordable agentic coding\\n                                            model." : i === 2 ? "Keep current model" : "Keep current model (never show again)  Hide future rate limit reminders\\n                                            about switching models.")), "Press enter to confirm or esc to go back"].join("\\n") + "\\n");
+const luna = ${JSON.stringify(version === "0.157.0" ? "gpt-6-luna" : "gpt-5.6-luna")};
+const footer = ${JSON.stringify(version === "0.157.0" ? "  enter select · esc back" : "Press enter to confirm or esc to go back")};
+const modal = () => process.stdout.write(["Approaching rate limits", "Switch to " + luna + " for lower credit usage?", ...[1, 2, 3].map(i => (i === cursor ? "› " : "  ") + i + ". " + (i === 1 ? "Switch to " + luna + "                 Fast and affordable agentic coding\\n                                            model." : i === 2 ? "Keep current model" : "Keep current model (never show again)  Hide future rate limit reminders\\n                                            about switching models.")), footer].join("\\n") + "\\n");
 const ready = () => process.stdout.write("OpenAI Codex\\n› Ask Codex to do anything\\ngpt-5.6-terra high · ~/work\\n");
 const model = () => process.stdout.write("Select Model and Effort\\n› 1. gpt-5.6-sol\\n  2. gpt-5.6-terra\\n");
 const effort = () => process.stdout.write("Select Reasoning Level\\n› 1. Low  Fast responses\\n  2. High  Greater reasoning depth\\n");
@@ -773,11 +775,11 @@ function readFakeTuiInput(input) {
   return content ? content.split("\n").map((line) => JSON.parse(line)) : [];
 }
 
-test("Codex上限接近modal: cursor位置を問わず一時keepだけで同じsessionへ本文を一度送る", { skip: skipAgentDone }, async () => {
+test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで同じsessionへ本文を一度送る", { skip: skipAgentDone }, async () => {
   const savedBin = process.env.CODEX_BIN;
   try {
-    for (const cursor of [1, 2, 3]) {
-      const fake = makeFakeCodexRateLimitTuiBin(cursor, "recover");
+    for (const [version, cursor] of [["0.155.1", 1], ["0.155.1", 2], ["0.155.1", 3], ["0.157.0", 1]]) {
+      const fake = makeFakeCodexRateLimitTuiBin(cursor, "recover", version);
       const sid = `codex_rate_limit_${cursor}_${Date.now().toString(36)}`;
       process.env.CODEX_BIN = fake.bin;
       try {

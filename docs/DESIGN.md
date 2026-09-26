@@ -64,7 +64,10 @@ waiterは純readerで、親のforeground turnを塞がない。
 Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
 配送用のGrok回答は`turn_ended.ts`から同じturnの`turn_started.turn_number`を取得し、
 `chat_history.jsonl`の`user.prompt_index`と相関する。次turnが既に始まっていても対象回答だけを回収する。
-`agent_steer`は実行中のCodex／Grok turnへ追加textを差し込み、idleなら送信せず状態を返す。
+`agent_steer`は実行中のturnへ追加textを差し込み、idleなら送信せず状態を返す。完了境界は差し込み後も1つに保つ。
+CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
+Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
+新turnが作業を継ぐので、完了判定はこの継ぎ目を完了と数えない。Grokが待ち行列へ入れない時とCursorの入力欄に本文が残る時は`steered`を返さない。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
 

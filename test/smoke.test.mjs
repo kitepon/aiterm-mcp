@@ -129,6 +129,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   const agentSteer = toolsResp.result.tools.find((t) => t.name === "agent_steer");
   assert.equal(agentSteer.outputSchema.properties.schema.const, "aiterm.agent-steer.v1");
   assert.deepEqual(agentSteer.outputSchema.properties.delivery.enum, ["steered", "idle"]);
+  assert.deepEqual(agentSteer.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"]);
   // 非ブロック規範: dispatch 系の説明は「待たない」を明示し、foreground 実行へ誘導する
   // 抽象文（旧「ホストのバックグラウンドタスクとして実行」）へ戻らない。
   const dispatchDescs = [ptySend, ...["agent_launch", "claude_agent", "codex_agent", "grok_agent", "composer_agent"].map((n) => toolsResp.result.tools.find((t) => t.name === n))];

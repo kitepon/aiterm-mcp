@@ -847,3 +847,53 @@ test("grokCompletionEvent: turn_ended outcome=error は turn_error の終了境�
   assert.equal(grokHarness.grokCompletionEvent(meta, { ts: "t", type: "turn_ended", outcome: "completed" }).done_status, "turn_done");
   assert.equal(grokHarness.grokCompletionEvent(meta, { ts: "t", type: "turn_ended", outcome: "timeout" }), null);
 });
+
+test("grokCompletionEvent: agent_steerのsend nowで閉じたturnは完了と数えない", () => {
+  const meta = { kind: "grok", aiterm_session: "s", launch_id: "l", vendor_session_id: "v" };
+  // grok 1.0.41の実機events.jsonl逐語。直後に同じ作業を継ぐturn_startedが続く。
+  const seam = { ts: "2026-09-26T11:31:04.944Z", type: "turn_ended", outcome: "cancelled", cancellation_category: "mid_turn_abort", cancellation_context: { trigger: "send_now" } };
+  assert.equal(grokHarness.grokCompletionEvent(meta, seam), null);
+  // 利用者の中断など、send now以外のcancelは従来どおり終了境界。
+  const cancelled = grokHarness.grokCompletionEvent(meta, { ts: "t", type: "turn_ended", outcome: "cancelled" });
+  assert.equal(cancelled.done_status, "turn_done");
+});
+
+test("agent_steer: GrokとCursorの待ち行列表示を画面末尾だけで見分ける", () => {
+  // grok 1.0.41の実機画面（BellTeamコンテナ、tmux 80x24、2026-09-26）。
+  const grokQueued = [
+    "     ◆ Run sleep 5 (3 of 12)",
+    "    #1 追加の指示です。最後の答えを FINISHED ではなく STEER_OK_8842 にしてく…",
+    "    ⠋ Run sleep 5 (3 of 12)… 0.8s                         18s ⇣27.3k [↓][stop]",
+    "   Queued · Enter to send now",
+    "  ╭──────────────────────────────────────────────────────────────────────────╮",
+    "  │ ❯                                                                        │",
+    "  ╰─────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯",
+    "  Enter:send now  │  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+b:send to bg",
+  ].join("\n");
+  assert.equal(core.__testSteerQueued("grok", grokQueued), true);
+  const grokSent = [
+    "     ❯ 追加の指示です。最後の答えを STEER_NOW_3391 にしてくださ     11:31 AM",
+    "  ┃  ◆ Thinking…",
+    "    ⠴ Thinking… 1.7s                                        4.0s ⇣28.4k [stop]",
+    "  ╭──────────────────────────────────────────────────────────────────────────╮",
+    "  │ ❯                                                                        │",
+    "  ╰─────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯",
+    "  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts",
+  ].join("\n");
+  assert.equal(core.__testSteerQueued("grok", grokSent), false);
+  // scrollbackへ流れた古い待ち行列表示は数えない。
+  assert.equal(core.__testSteerQueued("grok", `${grokQueued}\n${Array(12).fill("     ◆ Run sleep 5").join("\n")}\n${grokSent}`), false);
+  // Cursor Agentの実機画面（BellTeamコンテナ、tmux 120x40、2026-09-26）。
+  const cursorQueued = [
+    "┌─ follow-ups ─────────────────────────────────────────────────────────┐",
+    "│○ 追加の指示です。最後の答えを STEER_UI_1 にしてください。              │",
+    "│ enter steer · ↑ select/edit · esc cancel                              │",
+    "└───────────────────────────────────────────────────────────────────────┘",
+    " ⠠⠜ Running  63 tokens",
+    "  → Add a follow-up",
+    "  ctrl+c to stop",
+    "  Auto",
+  ].join("\n");
+  assert.equal(core.__testSteerQueued("cursor", cursorQueued), true);
+  assert.equal(core.__testSteerQueued("cursor", " ⠘⠣ Working\n  → Add a follow-up\n  ctrl+c to stop\n  Auto · 5.8%"), false);
+});

@@ -3416,6 +3416,79 @@ test("steerAgentTurn: 実行中のCodexへ現在ターンの追加メッセー�
   });
 });
 
+test("steerAgentTurn: 実行中のClaudeへもturn相関を変えずに差し込む", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    core.send(sid, "printf 'Claude Code\\n* Herding… (3s · esc to interrupt)\\n'", {
+      force: true,
+      raw: true,
+      preserveAgentOperation: true,
+    });
+    await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
+    const stateDir = path.dirname(readAgentMeta(sid).event_file);
+    const before = fs.readdirSync(stateDir).sort();
+    const receipt = await core.steerAgentTurn(sid, "echo CLAUDE_STEER_BODY");
+    assert.equal(receipt.delivery, "steered");
+    assert.equal(receipt.harness, "claude-code");
+    assert.deepEqual(fs.readdirSync(stateDir).sort(), before, "差し込みで新しいoperationやreceiptを作らない");
+    const out = await core.readOutput(sid, { wait: true, until: "CLAUDE_STEER_BODY", timeout: 5, raw: true });
+    assert.match(out, /CLAUDE_STEER_BODY/);
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
+// 実行中の送信を待ち行列へ入れ、2回目のEnterで現在turnへ送る偽Grok。
+function makeFakeGrokSteerTuiBin() {
+  const stem = `fake-grok-steer-${Date.now().toString(36)}`;
+  const bin = path.join(process.env.TMPDIR, `${stem}.cjs`);
+  const log = path.join(process.env.TMPDIR, `${stem}.log`);
+  fs.writeFileSync(
+    bin,
+    `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv[2] === "models") { console.log("Available models:\\n  * grok-4.5 (default)"); process.exit(0); }
+const out = (s) => process.stdout.write(s + "\\n");
+let line = ""; let queued = null;
+process.stdin.setRawMode(true); process.stdin.resume();
+out("Grok Build"); out("    ◆ Run sleep 5 (1 of 9)"); out("    ⠋ Run sleep 5… 0.8s  18s ⇣27.3k [stop]");
+process.stdin.on("data", (chunk) => {
+  for (const ch of chunk.toString("utf8").replace(/\\x1b\\[20[01]~/g, "")) {
+    if (ch !== "\\r") { if (ch >= " ") line += ch; continue; }
+    if (line) { queued = line; line = ""; fs.appendFileSync(${JSON.stringify(log)}, "queued:" + queued + "\\n"); out("    #1 " + queued); out("   Queued · Enter to send now"); continue; }
+    if (queued) { fs.appendFileSync(${JSON.stringify(log)}, "send_now:" + queued + "\\n"); out("     ❯ " + queued); for (let i = 0; i < 12; i++) out("    ◆ Run sleep 5 (" + (i + 2) + " of 9)"); out("    ⠋ Thinking… 1.7s  4.0s ⇣28.4k [stop]"); queued = null; }
+  }
+});
+`,
+    { mode: 0o700 },
+  );
+  return { bin, log };
+}
+
+test("steerAgentTurn: Grokは待ち行列へ入れた後にsend nowで現在turnへ送る", { skip: skipGrokFakeBin }, async () => {
+  const savedBin = process.env.GROK_BIN;
+  const fake = makeFakeGrokSteerTuiBin();
+  process.env.GROK_BIN = fake.bin;
+  try {
+    await withFakeGrokHome(async () => {
+      const [sid] = core.openAgent("grok", { agent_done: true });
+      try {
+        await core.readOutput(sid, { wait: true, until: "[stop]", timeout: 5, raw: true });
+        const receipt = await core.steerAgentTurn(sid, "GROK_STEER_BODY");
+        assert.equal(receipt.delivery, "steered");
+        assert.deepEqual(fs.readFileSync(fake.log, "utf8").trim().split("\n"), ["queued:GROK_STEER_BODY", "send_now:GROK_STEER_BODY"]);
+      } finally {
+        core.closeSession(sid);
+      }
+    });
+  } finally {
+    if (savedBin === undefined) delete process.env.GROK_BIN;
+    else process.env.GROK_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true });
+    fs.rmSync(fake.log, { force: true });
+  }
+});
+
 test("steerAgentTurn: idle中は次ターンとして送信しない", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });

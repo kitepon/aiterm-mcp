@@ -4280,12 +4280,41 @@ export interface AgentSteerReceipt extends Record<string, unknown> {
   pane_input_recovery: string[];
 }
 
+// Grok CLIは実行中の送信を次turn用の待ち行列へ入れ、「Enter to send now」で現在turnへ差し込む。
+const GROK_QUEUED_SEND_NOW_RE = /Queued · Enter to send now|Enter:send now/;
+// 待ち行列の表示は入力欄の直上と操作案内に出る。scrollbackへ流れた古い表示を数えないよう、画面末尾だけを見る。
+const grokSteerQueued = (screen: string): boolean =>
+  GROK_QUEUED_SEND_NOW_RE.test(screen.split("\n").filter(line => line.trim()).slice(-10).join("\n"));
+// Cursor Agentは実行中の送信を「follow-ups」枠へ入れ、「enter steer」で現在turnへ差し込む。
+const CURSOR_FOLLOW_UP_STEER_RE = /enter steer · /;
+const cursorSteerQueued = (screen: string): boolean =>
+  CURSOR_FOLLOW_UP_STEER_RE.test(screen.split("\n").filter(line => line.trim()).slice(-30).join("\n"));
+const STEER_SCREEN_POLL_MS = 100;
+const STEER_SCREEN_MAX_SAMPLES = 50;
+
+async function waitSteerScreen(name: string, predicate: (screen: string) => boolean): Promise<boolean> {
+  for (let i = 0; i < STEER_SCREEN_MAX_SAMPLES; i++) {
+    if (predicate(captureScreen(name, AGENT_TUI_READY_LINES))) return true;
+    await sleep(STEER_SCREEN_POLL_MS);
+  }
+  return false;
+}
+
+export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
+  return kind === "cursor" ? cursorSteerQueued(screen) : grokSteerQueued(screen);
+}
+
+/**
+ * 実行中turnへ追加の指示を渡す。各harnessの標準操作だけを使い、完了境界は1つに保つ。
+ * - Codex: 次のtool呼出し後に同じturnへ入る（rolloutのturn_idが同じ）。
+ * - Claude Code: 次のtool境界で同じturnへ入り、Stopは1回。
+ * - Cursor: 「follow-ups」枠へ入れた後に「enter steer」で現在turnへ移す。turn_endedは最後に1回。
+ * - Grok: 待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（trigger=send_now）で閉じ、
+ *   新turnが作業を継ぐ。完了判定はこの継ぎ目を完了と数えない（grokCompletionEvent）。
+ */
 export async function steerAgentTurn(name: string, text: string): Promise<AgentSteerReceipt> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
-  if (!["codex", "grok", "composer"].includes(meta.kind)) {
-    throw new AitermError("agent_steer はCodex/Grok agent sessionだけで使用できます", 2);
-  }
   const receipt = {
     schema: "aiterm.agent-steer.v1" as const,
     session_id: meta.aiterm_session,
@@ -4298,16 +4327,61 @@ export async function steerAgentTurn(name: string, text: string): Promise<AgentS
   if (!isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))) {
     return { ...receipt, delivery: "idle", pane_input_recovery: paneInputRecovery };
   }
+  prepareSendText(text, { raw: false });
+  // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
+  const preserveAgentOperation = meta.kind === "claude";
   send(name, text, {
     enter: false,
     force: true,
     raw: false,
     mark: false,
     rtk: false,
+    preserveAgentOperation,
     bracketedPaste: true,
   });
-  await sleep(AGENT_SUBMIT_DELAY_MS);
-  sendKey(name, "Enter");
+  if (meta.kind === "cursor") {
+    const visible = await waitCursorPromptVisible(name, text);
+    if (!visible.visible) {
+      throw new AitermError(
+        `vendor=cursor session=${name}\n差し込む文がCursorの入力欄へ反映されたことを確認できないため、Enterは送信していません。`, 2,
+      );
+    }
+  } else {
+    await sleep(AGENT_SUBMIT_DELAY_MS);
+  }
+  sendKey(name, "Enter", { preserveAgentOperation });
+  // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
+  // 完了通知が差し込み前の回答で届いてしまう。待ち行列へ入ったことを確かめ、標準の「今すぐ送る」で現在turnへ移す。
+  const queued = meta.kind === "grok" || meta.kind === "composer" ? grokSteerQueued
+    : meta.kind === "cursor" ? cursorSteerQueued : null;
+  if (queued) {
+    const label = meta.kind === "cursor" ? "Cursor" : "Grok";
+    if (!await waitSteerScreen(name, queued)) {
+      throw new AitermError(
+        `STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n` +
+          `差し込む文が${label}の待ち行列へ入ったことを確認できません。pty_read(screen:true)で入力欄を確かめてください。`, 2,
+      );
+    }
+    sendKey(name, "Enter");
+    if (!await waitSteerScreen(name, screen => !queued(screen))) {
+      throw new AitermError(
+        `STEER_STILL_QUEUED vendor=${meta.kind} session=${name}\n` +
+          `差し込む文が${label}の待ち行列に残っています。現在のturnが終わると別turnとして実行されます。`, 2,
+      );
+    }
+  }
+  // Cursorだけは実行中でも入力欄の残留を確実に見分けられる（dispatchと同じ扱い）。Codex／Claudeは
+  // 待ち行列に入った文が入力欄の近くへ表示されるため、残留判定で失敗にしない。
+  if (meta.kind === "cursor") {
+    let residue = await detectAgentSubmitResidue(name, meta.kind, text);
+    residue = await retryCursorSubmitIfResidue(name, meta.kind, text, residue);
+    if (residue.residue === true) {
+      throw new AitermError(
+        `submit_residue=true vendor=${meta.kind} session=${name}\n` +
+          "差し込む文がCursorの入力欄に残っており、実行中のturnへ渡せませんでした。", 2,
+      );
+    }
+  }
   return { ...receipt, delivery: "steered", pane_input_recovery: paneInputRecovery };
 }
 

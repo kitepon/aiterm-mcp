@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `agent_launch`と既存のPTY／agent操作toolに`remote`を追加する。SSHで入った別端末のAitermへ同じtoolを中継し、端末へ入る操作と現地のagent起動を1回で行う。接続先・鍵・パスフレーズは呼び出しごとに受け取り、保存・管理しない。Codex／Claude Code／Cursor親への回答自動配送は別端末の子にも働き、記録は旧版が読まない`remote-`付きの保存場所へ分ける。
 - `pty_read(agent_transcript:true)`が`raw:true`を受け付け、削減前の回答本文を返す。
+- `agent_steer`がClaude CodeとCursorの実行中turnにも差し込めるようにする。これまではCodex／Grok専用で、BellTeamのように処理中のBotへ待ち行列のメッセージを差し込む呼び出し側では、Claude Code／CursorのBot宛てがエラーになっていた。
 
 ### 修正
 
@@ -18,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cursor Agentが利用上限に達した画面を見分ける。Cursorは上限時にtranscriptへ完了を書かず入力欄も戻さないため、Aitermは完了を待ち続けていた。現在の画面に上限の説明が出ていれば`rate_limited`（aiterm-waitはexit 6）として上限の説明を返し、`pty_observe`は`blocked`／`rate_limited`を返す。後ろに入力欄や実行中表示がある古い上限表示は数えない。
 - Codex CLI 0.157の利用上限接近の画面（「Approaching rate limits」）を見分ける。0.157では切替先modelが`gpt-6-luna`になり、画面下の案内も`enter select · esc back`へ変わったため、Aitermはこの画面を見分けられず、次の送信が入力待ちにならないまま止まっていた。切替先modelを固定せず、新しい案内行もmodalのfooterとして扱い、従来どおり現在のmodelのまま続ける「2」だけを選ぶ。
 - Claude Codeの起動時の確認画面（フォルダの信頼、Bypass Permissionsの確認）で、選択が「Yes」の行へ移ったのを画面で確かめてからEnterを送る。どちらも既定の選択が「No, exit」なので、起動直後のCLIが「↓」を取り落とすとEnterでCLIが終了していた（2.1.283で再現）。選択が動かなければ「↓」を一度だけ送り直し、それでも動かなければEnterを送らず`startup_dialog`で止める。
+- `agent_steer`でGrokへ差し込んだ文が現在のturnに入らず、turnの完了後に別turnとして動いていた。Aitermは最初のturnの終わりを完了として届けるため、差し込んだ指示への回答は行き場を失っていた。Grokが待ち行列へ入れたのを確かめてから標準の「send now」で現在turnへ移し、この時に書かれる`turn_ended`（`cancelled`、`trigger=send_now`）は完了と数えない。Cursorも同じく「follow-ups」枠へ入った文を「enter steer」で現在turnへ移す。
+- `agent_steer`の結果の型がCodex／Grokのvendorとharnessだけを許していたため、Claude Code／Cursorへの差し込みは本文が届いても呼び出し側にはエラーとして返っていた。
 
 ## [0.38.2] - 2026-09-25
 

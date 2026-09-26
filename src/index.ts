@@ -389,8 +389,9 @@ registerRemoteAwareTool(
   "agent_steer",
   {
     description:
-      "実行中のCodex/Grok agentへ追加メッセージを差し込み、現在のターンを誘導する。" +
-      "独立した次ターンを始める用途ではなく、idle時は文字を送らずdelivery=idleを返す。",
+      "実行中のClaude／Codex／Grok／Cursor agentへ追加メッセージを差し込み、現在のターンを誘導する。" +
+      "完了は差し込み後の作業の終わりに1回だけ届く。独立した次ターンを始める用途ではなく、idle時は文字を送らずdelivery=idleを返す。" +
+      "Grokが待ち行列へ入れない時とCursorの入力欄に残った時は、steeredを返さずエラーにする。",
     inputSchema: {
       session_id: z.string(),
       text: z.string().describe("現在のターンへ追加する文字列。UTF-8で最大64KiB"),
@@ -400,8 +401,8 @@ registerRemoteAwareTool(
       schema: z.literal("aiterm.agent-steer.v1"),
       session_id: z.string(),
       launch_id: z.string(),
-      vendor: z.enum(["codex", "grok", "composer"]),
-      harness: z.enum(["codex-cli", "grok-cli"]),
+      vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       delivery: z.enum(["steered", "idle"]),
     },
   },

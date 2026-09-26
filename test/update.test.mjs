@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { globalPrefixOf, remoteUpdateCommand, updateLocal, resolveTargetVersion } from "../dist/update.js";
+import { globalPrefixOf, remoteUpdateCommand, remoteUpdateResult, updateLocal, resolveTargetVersion } from "../dist/update.js";
 
 // npm install -gと同じ形の導入先を作る。POSIXは<prefix>/lib/node_modules、Windowsは<prefix>/node_modules。
 function fakeGlobalInstall(platform, version = "0.38.2") {
@@ -104,7 +104,8 @@ test("remoteUpdateCommand: 現地にaiterm-updateが無い旧版でもnpmで入�
   assert.match(posix, /^\/bin\/sh -c '/);
   assert.match(posix, /command -v aiterm-update/);
   assert.match(posix, /npm install -g aiterm-mcp@0\.39\.0/);
-  assert.match(posix, /exec aiterm-update --json --version 0\.39\.0'$/);
+  assert.match(posix, /exec "\$u" --json --version 0\.39\.0;;/);
+  assert.match(posix, /exec node "\$u" --json --version 0\.39\.0;;/, "PATHに無ければaiterm-mcpと同じpackageのupdate-cli.jsを使う");
   assert.equal(posix.slice("/bin/sh -c '".length, -1).includes("'"), false, "内側に単引用符を含めない");
   const ps = remoteUpdateCommand("powershell", "0.39.0", false);
   assert.match(ps, /Get-Command aiterm-update/);
@@ -112,4 +113,13 @@ test("remoteUpdateCommand: 現地にaiterm-updateが無い旧版でもnpmで入�
   const check = remoteUpdateCommand("powershell", "0.39.0", true);
   assert.doesNotMatch(check, /npm install/, "--checkは現地を変えない");
   assert.throws(() => remoteUpdateCommand("posix", "latest", false), /版の指定が不正/);
+});
+
+test("remoteUpdateResult: 現地の全体結果から現地自身の1件を取り出す", () => {
+  // macbook実測（0.39.0）: npmの経過はstderr、stdoutの最後に全体結果が出る。
+  const run = '{"schema":"aiterm.update-run.v1","version":"0.39.0","results":[{"schema":"aiterm.update-result.v1","target":"local","status":"already_current","from_version":"0.39.0","to_version":"0.39.0","setup_status":"ready","running_servers":11}]}';
+  assert.equal(remoteUpdateResult(`noise\n${run}\n`).setup_status, "ready");
+  const missing = '{"schema":"aiterm.update-result.v1","status":"checked","reason_code":"update_command_missing"}';
+  assert.equal(remoteUpdateResult(missing).reason_code, "update_command_missing");
+  assert.equal(remoteUpdateResult("changed 96 packages in 2s"), null);
 });

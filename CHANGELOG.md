@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `aiterm-update --host`が別端末の結果を読めず、更新に成功しても`remote_update_failed`を返していた。現地の`aiterm-update`が返す全体の結果から、現地自身の1件を取り出す。
+- npmのbinをPATHへ通さず`aiterm-mcp`だけをリンクしている端末では、別端末の更新で導入した`aiterm-update`を呼べなかった。PATHに無ければ`aiterm-mcp`の実体と同じpackageの`update-cli.js`を使う。
+
 ## [0.39.0] - 2026-09-26
 
 ### 追加

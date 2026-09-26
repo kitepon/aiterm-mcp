@@ -189,7 +189,23 @@ export function remoteUpdateCommand(shell: RemoteShell, version: string, check: 
   const missing = check
     ? 'echo "{\\"schema\\":\\"aiterm.update-result.v1\\",\\"status\\":\\"checked\\",\\"reason_code\\":\\"update_command_missing\\"}"; exit 0'
     : `${install} 1>&2 || exit $?`;
-  return `/bin/sh -c '${importPath}; command -v aiterm-update >/dev/null 2>&1 || { ${missing}; }; exec aiterm-update ${args}'`;
+  // npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある（rabbit実測）。PATHに無ければ、
+  // aiterm-mcpの実体と同じpackageのupdate-cli.jsをnodeで起動する。
+  const resolve = 'u=$(command -v aiterm-update) || { m=$(command -v aiterm-mcp) && u="$(dirname "$(readlink -f "$m")")/update-cli.js"; }';
+  const has = `{ command -v aiterm-update >/dev/null 2>&1 || { m=$(command -v aiterm-mcp) && [ -f "$(dirname "$(readlink -f "$m")")/update-cli.js" ]; }; }`;
+  return `/bin/sh -c '${importPath}; ${has} || { ${missing}; }; ${resolve}; case "$u" in *.js) exec node "$u" ${args};; *) exec "$u" ${args};; esac'`;
+}
+
+/**
+ * 現地の出力から現地自身の結果を取り出す。現地のaiterm-updateは全体の結果（aiterm.update-run.v1）を、
+ * 更新機能の無い版向けの--checkは1件の結果（aiterm.update-result.v1）を最後のJSON行に出す。
+ */
+export function remoteUpdateResult(stdout: string): Record<string, unknown> | null {
+  const last = parseLastJson(stdout);
+  const result = last?.schema === "aiterm.update-run.v1" && Array.isArray(last.results)
+    ? last.results.find((item: any) => item?.target === "local") as Record<string, unknown> | undefined
+    : last;
+  return result?.schema === "aiterm.update-result.v1" ? result : null;
 }
 
 /** 別端末のAitermを同じ版へ更新する。現地の結果JSONへ接続先の表示名を付けて返す。 */
@@ -212,8 +228,8 @@ export async function updateRemote(target: RemoteTarget, version: string, check:
     child.on("error", (error) => resolve({ status: null, stdout, stderr, error: error.message }));
     child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
-  const result = parseLastJson(outcome.stdout);
-  if (!result || result.schema !== "aiterm.update-result.v1") {
+  const result = remoteUpdateResult(outcome.stdout);
+  if (!result) {
     return failed("remote_update_failed", `現地の更新が結果を返しません: ${tail(outcome.stderr) || outcome.error || `exit ${outcome.status}`}`);
   }
   return {

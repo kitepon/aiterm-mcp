@@ -45,7 +45,8 @@ try {
     for (const r of results) {
       const versions = r.from_version && r.to_version && r.from_version !== r.to_version ? `${r.from_version} → ${r.to_version}` : (r.to_version ?? r.from_version ?? "?");
       const setup = r.setup_status ? ` setup=${r.setup_status}${r.setup_reason_code ? `(${r.setup_reason_code})` : ""}` : "";
-      const servers = r.running_servers ? ` 旧版で動いているaiterm-mcp=${r.running_servers}` : "";
+      // 入れ替えた時だけ、動いているaiterm-mcpは旧版のcodeで動いている。
+      const servers = r.running_servers ? ` ${r.status === "updated" ? "旧版で" : ""}動いているaiterm-mcp=${r.running_servers}` : "";
       const reason = r.reason_code ? ` reason=${r.reason_code}` : "";
       process.stdout.write(`${r.target}: ${r.status} ${versions}${setup}${servers}${reason}${r.message ? `\n  ${r.message}` : ""}\n`);
     }

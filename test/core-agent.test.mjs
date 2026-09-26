@@ -458,29 +458,56 @@ function makeFakeClaudeTuiBin({ authJson = '{"loggedIn":true,"authMethod":"claud
   return bin;
 }
 
-function makeFakeClaudeTrustTuiBin() {
-  const bin = path.join(process.env.TMPDIR, `fake-claude-trust-${Date.now().toString(36)}.sh`);
+// 既定が「No, exit」の確認画面を矢印キーで動かす偽Claude。dropFirstDownは起動直後のキー取り落としを再現する。
+function makeFakeClaudeTrustTuiBin({ dropFirstDown = false } = {}) {
+  const bin = path.join(process.env.TMPDIR, `fake-claude-trust-${Date.now().toString(36)}.mjs`);
   fs.writeFileSync(
     bin,
-    [
-      "#!/bin/sh",
-      "if [ \"$1\" = auth ] && [ \"$2\" = status ] && [ \"$3\" = --json ]; then",
-      "  printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'",
-      "  exit 0",
-      "fi",
-      "printf '%s\\n' 'Welcome to Claude Code v2.1.261' 'Choose the text style that looks best with your terminal' '  1. Auto (match terminal)' '❯ 2. Dark mode ✔' '  3. Light mode'",
-      "IFS= read -r theme_response",
-      "printf 'THEME_ACCEPTED:%s\\n' \"$theme_response\"",
-      "printf '%s\\n' 'WARNING: Claude Code running in Bypass Permissions mode' '❯ No, exit' '  Yes, I accept' 'Enter to confirm · Esc to cancel'",
-      "IFS= read -r bypass_response",
-      "printf 'BYPASS_ACCEPTED:%s\\n' \"$bypass_response\"",
-      "printf '%s\\n' 'Claude Code v2.1.251' 'Accessing workspace:' 'Is this a project you created or one you trust?' \"Claude Code'll be able to read, edit, and execute files here.\" '❯ No, exit' '  Yes, I trust this folder' 'Enter to confirm · Esc to cancel'",
-      "IFS= read -r trust_response",
-      "printf 'TRUST_ACCEPTED:%s\\n' \"$trust_response\"",
-      "printf 'Claude Code\\n❯ ready\\n'",
-      "while IFS= read -r line; do printf 'PROMPT:%s\\n' \"$line\"; done",
-      "",
-    ].join("\n"),
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === "auth" && args[1] === "status" && args[2] === "--json") {
+  console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }));
+  process.exit(0);
+}
+const out = (lines) => process.stdout.write(lines.join("\\n") + "\\n");
+const dialogs = [
+  { head: ["Welcome to Claude Code v2.1.261", "Choose the text style that looks best with your terminal"],
+    options: ["1. Auto (match terminal)", "2. Dark mode ✔", "3. Light mode"], selected: 1, accept: 1, done: "THEME_ACCEPTED" },
+  { head: ["WARNING: Claude Code running in Bypass Permissions mode"],
+    options: ["No, exit", "Yes, I accept"], selected: 0, accept: 1, done: "BYPASS_ACCEPTED", foot: "Enter to confirm · Esc to cancel" },
+  { head: ["Claude Code v2.1.283", "Accessing workspace:", "Quick safety check: Is this a project you created or one you trust?", "Claude Code'll be able to read, edit, and execute files here."],
+    options: ["No, exit", "Yes, I trust this folder"], selected: 0, accept: 1, done: "TRUST_ACCEPTED", foot: "Enter to confirm · Esc to cancel" },
+];
+let dropDown = ${JSON.stringify(dropFirstDown)};
+let index = 0;
+const draw = () => {
+  const d = dialogs[index];
+  out([...d.head, ...d.options.map((o, i) => (i === d.selected ? "❯ " : "  ") + o), ...(d.foot ? [d.foot] : [])]);
+};
+let line = "";
+process.stdin.setRawMode(true); process.stdin.resume(); draw();
+process.stdin.on("data", (chunk) => {
+  const key = chunk.toString("utf8");
+  if (index >= dialogs.length) {
+    for (const ch of key) {
+      if (ch === "\\r" || ch === "\\n") { out(["PROMPT:" + line]); line = ""; }
+      else if (ch >= " ") line += ch;
+    }
+    return;
+  }
+  const d = dialogs[index];
+  if (key.includes("\\x1b[B")) {
+    if (dropDown) { dropDown = false; return; }
+    d.selected = Math.min(d.selected + 1, d.options.length - 1); draw(); return;
+  }
+  if (key.includes("\\r")) {
+    if (d.selected !== d.accept) { out(["EXITED_BY:" + d.options[d.selected]]); process.exit(1); }
+    out([d.done + ":" + d.options[d.selected]]);
+    index += 1;
+    if (index < dialogs.length) draw(); else out(["Claude Code", "❯ ready"]);
+  }
+});
+`,
     { mode: 0o700 },
   );
   return bin;
@@ -2670,9 +2697,9 @@ test("openAgentWithInitialPrompt: TUI ready 失敗は明示エラーにし promp
   });
 });
 
-test("openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trustを順に承認して初回promptを送る", { skip: skipAgentDone }, async () => {
+for (const dropFirstDown of [false, true]) test(`openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trustを、選択の移動を確かめてから承認する（最初のDown取り落とし=${dropFirstDown}）`, { skip: skipAgentDone }, async () => {
   const savedBin = process.env.CLAUDE_BIN;
-  const fakeBin = makeFakeClaudeTrustTuiBin();
+  const fakeBin = makeFakeClaudeTrustTuiBin({ dropFirstDown });
   const sid = `claude_trust_${Date.now().toString(36)}`;
   const marker = "SHOULD_NOT_BE_SENT_TO_TRUST_MENU";
   process.env.CLAUDE_BIN = fakeBin;
@@ -2687,10 +2714,12 @@ test("openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trust�
     assert.equal(meta.initial_prompt, "pending");
     assert.equal(fs.statSync(meta.event_file).size, 0, "completion eventを偽造しない");
     assert.equal(fs.statSync(meta.result_file).size, 0, "Claude resultを偽造しない");
-    const screen = await core.readOutput(sid, { screen: true, raw: true });
+    // 偽Claudeは確認画面を描き直すので、画面ではなく全出力で確かめる。
+    const screen = await core.readOutput(sid, { full: true, raw: true });
     assert.match(screen, /THEME_ACCEPTED:/);
     assert.match(screen, /BYPASS_ACCEPTED:/);
-    assert.match(screen, /TRUST_ACCEPTED:/);
+    assert.match(screen, /TRUST_ACCEPTED:Yes, I trust this folder/);
+    assert.doesNotMatch(screen, /EXITED_BY:/);
     assert.match(screen, new RegExp(marker));
   } finally {
     try { core.closeSession(sid); } catch {}

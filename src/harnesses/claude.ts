@@ -280,10 +280,10 @@ export function claudeStartupAction(screen: string, trustProject: boolean): impo
   // 既存launcherで扱っていた2確認は従来の起動契約を維持する。
   if (screen.includes("Is this a project you created or one you trust")
     && screen.includes("No, exit") && screen.includes("Yes, I trust this folder"))
-    return { kind: "workspace_trusted", keys: ["Down", "Enter"] };
+    return { kind: "workspace_trusted", keys: ["Down", "Enter"], selected: /^❯\s*(?:\d+\.\s*)?Yes, I trust this folder\b/u };
   if (screen.includes("Claude Code running in Bypass Permissions mode")
     && screen.includes("No, exit") && screen.includes("Yes, I accept"))
-    return { kind: "configured_permission_mode_confirmed", keys: ["Down", "Enter"] };
+    return { kind: "configured_permission_mode_confirmed", keys: ["Down", "Enter"], selected: /^❯\s*(?:\d+\.\s*)?Yes, I accept\b/u };
   if (!trustProject) return null;
   if (/New MCP server found in this project:/.test(screen))
     return { kind: "project_mcp_enabled", keys: ["Down", "Enter"] };

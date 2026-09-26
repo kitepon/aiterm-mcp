@@ -25,6 +25,9 @@ export interface InitialPromptDelivery {
 export interface StartupAction {
   kind: string;
   keys: string[];
+  // 最後のEnterの前に、選択中の行がこれに合うことを画面で確かめる。合わなければEnterを送らない。
+  // Claude Codeの確認画面は既定が「No, exit」なので、Downを取り落としたままEnterを押すとCLIが終了する。
+  selected?: RegExp;
 }
 
 export interface AgentStartupResult {

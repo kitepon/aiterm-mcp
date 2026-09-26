@@ -3682,6 +3682,20 @@ function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, c
   writeAgentMetadata(meta);
 }
 
+const STARTUP_SELECTION_POLL_MS = 100;
+const STARTUP_SELECTION_MAX_SAMPLES = 30;
+
+/** 起動時の確認画面で、選択中（❯）の行が目的の選択肢へ移ったことを確かめる。 */
+async function waitStartupSelection(name: string, selected: RegExp): Promise<boolean> {
+  for (let i = 0; i < STARTUP_SELECTION_MAX_SAMPLES; i++) {
+    const marker = captureScreen(name, AGENT_TUI_READY_LINES).split("\n").slice(-32)
+      .filter(line => /^\s*❯/u.test(line)).at(-1)?.trim() ?? "";
+    if (selected.test(marker)) return true;
+    await sleep(STARTUP_SELECTION_POLL_MS);
+  }
+  return false;
+}
+
 async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts): Promise<AgentStartupResult> {
   await ensureAgentOwnsPaneInput(name, meta.kind);
   let ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
@@ -3692,8 +3706,23 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
       : meta.kind === "grok" || meta.kind === "composer" ? grokStartupAction(ready.lastScreen, options.trust_project === true) : null;
     if (!action || handled.has(action.kind)) break;
     handled.add(action.kind);
-    for (const key of action.keys) {
+    const keys = action.selected ? action.keys.slice(0, -1) : action.keys;
+    for (const key of keys) {
       sendKey(name, key, { preserveAgentOperation: true });
+      await sleep(AGENT_SUBMIT_DELAY_MS);
+    }
+    if (action.selected) {
+      // 起動直後のTUIは最初のキーを取り落とすことがある。選択が動いていなければ移動キーを一度だけ送り直す。
+      let moved = await waitStartupSelection(name, action.selected);
+      if (!moved && keys.length > 0) {
+        for (const key of keys) {
+          sendKey(name, key, { preserveAgentOperation: true });
+          await sleep(AGENT_SUBMIT_DELAY_MS);
+        }
+        moved = await waitStartupSelection(name, action.selected);
+      }
+      if (!moved) break;
+      sendKey(name, action.keys.at(-1)!, { preserveAgentOperation: true });
       await sleep(AGENT_SUBMIT_DELAY_MS);
     }
     ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);

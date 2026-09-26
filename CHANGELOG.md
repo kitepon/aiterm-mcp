@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-09-26
+
 ### 修正
 
 - `aiterm-update --host`が別端末の結果を読めず、更新に成功しても`remote_update_failed`を返していた。現地の`aiterm-update`が返す全体の結果から、現地自身の1件を取り出す。
@@ -1776,7 +1778,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.39.1...HEAD
+[0.39.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.2...v0.39.0
 [0.38.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.38.0...v0.38.1

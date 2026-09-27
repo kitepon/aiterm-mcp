@@ -3095,7 +3095,7 @@ export async function observeAgentDone(
     return observeCodexDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
   }
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
-    return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
+    return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, (session) => captureScreen(session, 0), o.signal);
   }
   if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
     return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
@@ -3821,6 +3821,11 @@ export async function sendInitialAgentPrompt(
     if (state.state === "blocked" && ["command_approval", "mcp_approval", "tool_approval"].includes(state.reason)) {
       delivery = { status: "started", reason: "approval_required", turn_started: true }; break;
     }
+    if (state.state === "blocked" && state.reason === "user_hook_blocked") {
+      setInitialDelivery(meta, { status: "submitted_unconfirmed", reason: "user_hook_blocked", turn_started: false }, startOffset);
+      setInitialPromptState(meta, "failed");
+      throw new AitermError(userHookBlockedMessage(`initial_prompt=failed vendor=${meta.kind} harness=${agentHarness(meta.kind)}`, "起動時prompt", state.detail), 2);
+    }
     const completed = await observeAgentDone(name, { cursor: startOffset, timeout: 0 });
     if (completed.outcome === "done") {
       delivery = { status: "started", reason: "turn_completed", turn_started: true }; break;
@@ -4147,6 +4152,28 @@ export function attachImages(text: string, images: readonly string[] | undefined
   return `${body}\n\n${lines.join("\n")}\n添付画像は上のファイルを読んで確認する。`;
 }
 
+function userHookBlockedMessage(head: string, what: string, detail: string | undefined): string {
+  return `${head}\nUSER_HOOK_BLOCKED: 利用者のhookが${what}を拒否したため、turnは始まっていません。完了通知も来ません。` +
+    `hookを直すか外してから送り直してください。hookの出力: ${detail ?? "(不明)"}`;
+}
+
+const CURSOR_START_CONFIRM_MS = 3000;
+
+// Cursorは送信前hookの実行中も「Working」だけを出し、拒否されると入力欄を空に戻す。入力欄の残留検査では
+// 拒否を見分けられず、成功receiptを返すと親は来ない完了を待ち続ける。turnの開始か拒否の表示を短く確かめる。
+// hookが遅く確認時間を過ぎた拒否は、完了待ち（observeCursorDone）がoutcome=errorで返す。
+async function assertCursorPromptNotHookBlocked(name: string): Promise<void> {
+  const deadline = performance.now() + CURSOR_START_CONFIRM_MS;
+  do {
+    const state = cursorPaneObservation(captureScreen(name, AGENT_TUI_READY_LINES));
+    if (state.state === "busy") return;
+    if (state.state === "blocked" && state.reason === "user_hook_blocked") {
+      throw new AitermError(userHookBlockedMessage(`vendor=cursor session=${name}`, "送信した文", state.detail), 2);
+    }
+    await sleep(100);
+  } while (performance.now() < deadline);
+}
+
 export async function dispatchAgentTurn(
   name: string,
   text: string,
@@ -4263,6 +4290,7 @@ export async function dispatchAgentTurn(
   // 陽性観測した場合だけ同じEnterを一度再送し、再検査後も残る時は失敗として返す。
   residue = await retryCursorSubmitIfResidue(name, meta.kind, dispatchText, residue);
   assertAgentSubmitDelivered(name, meta.kind, residue);
+  if (meta.kind === "cursor") await assertCursorPromptNotHookBlocked(name);
   return {
     schema: "aiterm.agent-dispatch.v1",
     session_id: meta.aiterm_session,

@@ -218,6 +218,7 @@ export async function observeCursorDone(
   timeout: number,
   requestedCursor: number | null | undefined,
   detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
+  readScreen: (aitermSession: string) => string,
   signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
@@ -229,6 +230,7 @@ export async function observeCursorDone(
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
     rateLimit: string | null = null,
+    error: string | null = null,
   ): AgentWaitObservation => ({
     schema: "aiterm.agent-wait-result.v1",
     session_id: meta.aiterm_session,
@@ -242,7 +244,7 @@ export async function observeCursorDone(
     malformed_events: malformedEvents,
     at: ev?.at ?? null,
     rate_limit: rateLimit,
-    error: null,
+    error,
   });
 
   for (;;) {
@@ -260,6 +262,9 @@ export async function observeCursorDone(
     }
     const limited = detectRateLimit(meta.kind, meta.aiterm_session);
     if (limited) return observation("rate_limited", null, limited);
+    // 拒否されたpromptのturnは始まらず、完了も来ない。拒否の表示は数秒で消えるので、見えている間に終わらせる。
+    const hookBlocked = cursorHookBlocked(readScreen(meta.aiterm_session));
+    if (hookBlocked) return observation("error", null, null, `USER_HOOK_BLOCKED: ${hookBlocked.message}`);
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);
   }
@@ -515,9 +520,34 @@ export function cursorUsageLimit(screen: string): { message: string } | null {
   return { message: [`${heading[1]}.`, ...detail].join(" ") };
 }
 
+// Cursor Agentはpromptを送る前のhook（beforeSubmitPromptと、互換読込したClaude CodeのUserPromptSubmit）が
+// 拒否すると、promptを捨てて入力欄を空に戻し、その下に「Hook blocked with message:」を数秒だけ出す。turnは始まらず、
+// transcriptにもuser turnは残らない（v2026.09.26、Windows実機採取 2026-09-27）。
+const CURSOR_HOOK_BLOCKED_RE = /^[ \t]*Hook blocked with message:[ \t]*(.*)$/gim;
+const CURSOR_HOOK_BLOCKED_MESSAGE_LIMIT = 600;
+
+export function cursorHookBlocked(screen: string): { message: string } | null {
+  const clean = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const hit = [...clean.matchAll(CURSOR_HOOK_BLOCKED_RE)].at(-1);
+  if (!hit) return null;
+  const after = clean.slice(hit.index! + hit[0].length);
+  // 拒否の後に新しいturnが動いている画面は、古い表示の名残として数えない。
+  if (/ctrl\+c to stop/i.test(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after)) return null;
+  const lines = [hit[1].trim()];
+  for (const line of after.split("\n").slice(1)) {
+    if (!line.trim()) break;
+    lines.push(line.trim());
+  }
+  // hookを動かしたNode自身の警告は拒否の理由ではない。
+  const message = lines.filter(line => line && !/ExperimentalWarning|--trace-warnings|^any time$/.test(line)).join(" ");
+  return { message: (message || "(hookは理由を出していません)").slice(0, CURSOR_HOOK_BLOCKED_MESSAGE_LIMIT) };
+}
+
 export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
   if (cursorUsageLimit(tail)) return { state: "blocked", reason: "rate_limited" };
+  const hookBlocked = cursorHookBlocked(tail);
+  if (hookBlocked) return { state: "blocked", reason: "user_hook_blocked", detail: hookBlocked.message };
   if (/ctrl\+c to stop/i.test(tail)) return { state: "busy", reason: "turn_running" };
   if (cursorTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "unrecognized_screen" };

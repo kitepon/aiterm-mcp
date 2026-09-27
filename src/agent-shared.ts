@@ -14,6 +14,8 @@ export type InitialPromptState = "none" | "not_sent" | "sent" | "pending" | "don
 export interface HarnessPaneObservation {
   state: "busy" | "idle" | "blocked" | "unknown";
   reason: string;
+  // blockedの原因が画面に書かれている時だけ、その本文（例: 利用者のhookが返した拒否の文言）。
+  detail?: string;
 }
 
 export interface InitialPromptDelivery {

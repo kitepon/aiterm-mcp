@@ -36,7 +36,7 @@ test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", (
 });
 import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
-import { cursorPaneObservation, cursorUsageLimit } from "../dist/harnesses/cursor.js";
+import { cursorHookBlocked, cursorPaneObservation, cursorUsageLimit } from "../dist/harnesses/cursor.js";
 
 test("Grokの通信失敗は応答待ち表示より優先する", () => {
   for (const padding of [[], Array(20).fill("wrapped line")]) {
@@ -236,4 +236,50 @@ test("Cursorの利用上限の後に入力欄や実行中表示があれば、�
     assert.notEqual(cursorPaneObservation(screen).reason, "rate_limited");
   }
   assert.equal(cursorUsageLimit("  You've hit your usage limit と書いた依頼文"), null);
+});
+
+// Cursor Agent v2026.09.26-dd393fe、fox（Windows、psmux）の実機画面 2026-09-27。
+// spotter 1.7.3のUserPromptSubmit hookがBOM付きJSONを読めず、promptが捨てられた直後。
+const CURSOR_HOOK_BLOCKED_SCREEN = [
+  "  Cursor Agent",
+  "  v2026.09.26-dd393fe",
+  "  Tip: Use /mcp to connect Cursor to your tools and data sources.",
+  "", "", "", "",
+  "  → Plan, search, build anything",
+  "", "",
+  "  Auto                                                                                                  Run Everything",
+  "  ~\\.cache\\aiterm-branch-test\\steer-test",
+  "",
+  "  Hook blocked with message: (node:26552) ExperimentalWarning: SQLite is an experimental feature and might change at",
+  "  any time",
+  "  (Use `node --trace-warnings ...` to show where the warning was created)",
+  "  spotter: Error: hook stdin is not valid JSON: Unexpected token '\uFEFF', \"\uFEFF{\"convers\"... is not valid JSON",
+  "      at readStdinJson",
+  "  (file:///C:/Users/kite_/AppData/Roaming/npm/node_modules/claude-spotter/src/hooks/lib.mjs:109:17)",
+  "", "", "",
+].join("\n");
+
+test("Cursorで送信前hookがpromptを拒否した画面を、hookの出力ごとblockedにする", () => {
+  const blocked = cursorHookBlocked(CURSOR_HOOK_BLOCKED_SCREEN);
+  assert.match(blocked.message, /^spotter: Error: hook stdin is not valid JSON/);
+  assert.doesNotMatch(blocked.message, /ExperimentalWarning|trace-warnings/, "hookを動かしたNodeの警告は理由に含めない");
+  const observed = cursorPaneObservation(CURSOR_HOOK_BLOCKED_SCREEN);
+  assert.equal(observed.state, "blocked");
+  assert.equal(observed.reason, "user_hook_blocked");
+  assert.equal(observed.detail, blocked.message);
+});
+
+test("Cursorのhook拒否の後に実行中表示やfollow-up欄があれば、古い表示として扱う", () => {
+  for (const later of [
+    [" ⠘⠆ Working  72 tokens", "  → Add a follow-up                                             ctrl+c to stop"],
+    ["  → Add a follow-up", "", "  Auto · 13.4%                                                  Run Everything"],
+  ]) {
+    const screen = [CURSOR_HOOK_BLOCKED_SCREEN, ...later].join("\n");
+    assert.equal(cursorHookBlocked(screen), null);
+    assert.notEqual(cursorPaneObservation(screen).reason, "user_hook_blocked");
+  }
+  // 拒否の表示が消えた後は、空の入力欄に戻っただけの画面。
+  const cleared = CURSOR_HOOK_BLOCKED_SCREEN.split("\n").slice(0, 12).join("\n");
+  assert.equal(cursorHookBlocked(cleared), null);
+  assert.equal(cursorPaneObservation(cleared).state, "idle");
 });

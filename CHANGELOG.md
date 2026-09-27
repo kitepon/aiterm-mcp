@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Cursorの送信前hookがpromptを拒否した時に、`pty_send`が成功receiptを返していた。Cursorはpromptを捨てて入力欄を空に戻すため、入力欄の残留検査では見分けられず、親は来ない完了を待ち続けた。起動時promptは理由の無い`submitted_unconfirmed`になっていた。拒否の表示（`Hook blocked with message:`）を見分け、起動時promptは`initial_prompt=failed`、`pty_send`はエラーとし、どちらも`USER_HOOK_BLOCKED`とhookの出力を返す。確認時間より後の拒否は、完了待ちが`outcome=error`で返す。`pty_observe`は`blocked`／`user_hook_blocked`を返す。
+
 ## [0.40.0] - 2026-09-27
 
 ### 変更（互換性なし）

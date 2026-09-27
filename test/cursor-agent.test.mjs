@@ -158,7 +158,7 @@ test("Cursor adapter: launch markerで通常Cursor transcriptをbindしturn境�
       "",
     ].join("\n"));
 
-    const initial = await observeCursorDone(meta, 0, 0, () => null);
+    const initial = await observeCursorDone(meta, 0, 0, () => null, () => "");
     assert.equal(initial.outcome, "done");
     assert.equal(initial.vendor_session_id, conversation);
     assert.equal(initial.turn_id, "cursor:1");
@@ -184,8 +184,13 @@ test("Cursor adapter: launch markerで通常Cursor transcriptをbindしturn境�
       JSON.stringify({ type: "turn_ended", status: "success" }),
       "",
     ].join("\n"));
-    const followup = await observeCursorDone(meta, 0, boundary, () => null);
+    const followup = await observeCursorDone(meta, 0, boundary, () => null, () => "");
     assert.equal(followup.outcome, "done");
+    // 次の送信を送信前hookが拒否するとuser turnは増えず、完了も来ない。拒否の表示をerrorとして返す。
+    const blocked = await observeCursorDone(meta, 0, boundary + 1, () => null,
+      () => "  → Plan, search, build anything\n\n  Hook blocked with message: spotter: Error: hook stdin is not valid JSON\n");
+    assert.equal(blocked.outcome, "error");
+    assert.equal(blocked.error, "USER_HOOK_BLOCKED: spotter: Error: hook stdin is not valid JSON");
     assert.equal(followup.turn_id, "cursor:2");
     assert.equal(
       cursorTranscriptText(meta, (file) => fs.readFileSync(file, "utf8").split("\n"), () => { throw new Error("unavailable"); }),

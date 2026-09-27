@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-09-27
+
 ### 修正
 
 - CodexとCursorの回答回収（`pty_read(agent_transcript:true)`と親への自動配送）が、作業途中の報告を回答の前につないで返していた。Codexはturnのassistant本文を`phase`を見ずに全部つなぎ、Cursorは道具呼び出しの前に書いた文も含めていた。Codexは`phase=final_answer`の本文だけを、Cursorは最後の道具呼び出しより後の本文だけを返す。`phase`の無い旧形式のCodex記録と、道具呼び出し後に本文の無いCursorのturnは従来どおり扱う。Claude CodeとGrokは元から最後の回答だけを返している。
@@ -1814,7 +1816,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.1...HEAD
+[0.41.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...v0.41.1
 [0.41.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.3...v0.41.0
 [0.40.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.2...v0.40.3
 [0.40.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.1...v0.40.2

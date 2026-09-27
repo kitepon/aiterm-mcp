@@ -1019,7 +1019,7 @@ server.registerTool(
     description:
       "エージェントを単一の標準入口から永続sessionへ起動する。harnessはagent loop・認証・hook・transcriptを所有する実行基盤、" +
       "modelはそのharnessが選ぶ推論モデルであり別軸。Cursor harnessからGPT／Claude／Grok等を選んでも完了相関はCursor方式のまま。" +
-      "Grok Composerは別harnessではなく harness=grok-cli と model=grok-composer-2.5-fast で指定する。" +
+      "Composerは別harnessではなくmodelである。現行のGrok CLI catalog（grok 1.0.41）には無く、Cursor catalogにあるので harness=cursor-cli と model=composer-2.5-fast（またはcomposer-2.5）で指定する。" +
       "remoteを付けると、SSHで入った別端末のAitermで同じ起動を行い、完了は同じ形で親へ届く。" +
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
@@ -1100,7 +1100,7 @@ registerAgentTool(
 registerAgentTool(
   "composer_agent",
   "composer",
-  "【旧互換alias。新規連携は agent_launch(harness=grok-cli, model=grok-composer-2.5-fast)】Grok BuildのComposerモデルを永続端末に起動する。" +
+  "【旧互換alias。Composerは現行Grok CLI catalogに無いため、新規連携は agent_launch(harness=cursor-cli, model=composer-2.5-fast)】Grok BuildのComposerモデルを永続端末に起動する。" +
     agentEnvironmentDesc +
     "turn は pty_send で送る（自動で非ブロック dispatch になる）。" +
     agentCompletionDesc +

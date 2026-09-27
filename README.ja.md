@@ -145,7 +145,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 17ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧4alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
-**v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。Composerは別harnessではなく、`harness:"grok-cli", model:"grok-composer-2.5-fast"`で表す。旧4起動ツールは同じ実装へ流れる互換alias。
+**v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。Composerは別harnessではなくmodelである。現行のGrok CLI catalog（grok 1.0.41）には無く、Cursor catalogにあるので`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧4起動ツールは同じ実装へ流れる互換alias。
 
 **v0.25.2ではGrok 4.6を含む同一sessionの連続設定変更を安定化。** Grok Build 1.0.3で
 `/model`の成功通知が再描画により消えても、変更前には無かった要求model／effortが常駐footerへ現れた
@@ -285,7 +285,7 @@ $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeo
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model／effort |
 | `codex-cli` | Codex CLI | OpenAI model／effort |
-| `grok-cli` | Grok Build CLI | Grok／Composer model、live catalog照合 |
+| `grok-cli` | Grok Build CLI | Grok model、live catalog照合（Composerは現行catalogに無い。`cursor-cli`を使う） |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog上のGPT／Claude／Grok等 |
 
 Cursorの`model`は`gpt-5.6-luna`のようなbase model、`reasoning_effort`は`high`のように別指定する。adapterは現行`model-effort` IDを`cursor-agent models`へ照合し、起動中変更はCursor標準model pickerのparameter editorを使う。不在時は別modelへfallbackしない。
@@ -395,7 +395,7 @@ claude mcp add --scope user --transport stdio aiterm -- aiterm-mcp
 
 MCP クライアントが aiterm を stdio 越しにプログラムから駆動するので、上のすべては **端末に誰も座らないまま**動く。任意のMCP対応統括役が、自分と同じharnessを含む`agent_launch`を呼び、`pty_read`で結果を読んで次へ進める——無人で。これは、人が操作する端末が向かない場所にこそ aiterm が合うということ:
 
-- **複数エージェントのオーケストレーション** — 統括役がサブタスクを Claude Code / Codex / Grok / Cursor harnessへ渡し、各々を専用の永続セッションに置き、全部を読み戻す。ComposerはGrok CLIのmodel presetとして扱う。
+- **複数エージェントのオーケストレーション** — 統括役がサブタスクを Claude Code / Codex / Grok / Cursor harnessへ渡し、各々を専用の永続セッションに置き、全部を読み戻す。ComposerはCursor catalogのmodel（`composer-2.5-fast`）として起動する。
 - **CI** — ジョブのステップがエージェントを起こし、操作し、片付けられる。
 - **cron** — スケジュール実行がエージェントを起動して出力を回収できる。
 
@@ -546,7 +546,7 @@ consumer は `aiterm-runtime-errors snapshot` を読み、durable ingestion 後�
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model／effort |
 | `codex-cli` | Codex CLI | OpenAI model／effort |
-| `grok-cli` | Grok Build CLI | Grok／Composer model、live catalog照合 |
+| `grok-cli` | Grok Build CLI | Grok model、live catalog照合（Composerは現行catalogに無い。`cursor-cli`を使う） |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog上のGPT／Claude／Grok等 |
 
 対応するCLI（`claude`／`codex`／`grok`／`cursor-agent`）の公式導入・認証が必要。前提違反はsession作成前に明示失敗する。全harnessが通常project/user環境と同じ非ブロックdispatch契約を使う。

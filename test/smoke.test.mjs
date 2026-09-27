@@ -209,7 +209,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.deepEqual(agentLaunch.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"]);
   assert.match(agentLaunch.description, /harnessはagent loop・認証・hook・transcriptを所有/);
   assert.match(agentLaunch.description, /Cursor harnessからGPT／Claude／Grok等を選んでも/);
-  assert.match(agentLaunch.description, /Grok Composerは別harnessではなく/);
+  assert.match(agentLaunch.description, /Composerは別harnessではなくmodelである。.*harness=cursor-cli と model=composer-2.5-fast/);
   assert.match(agentLaunch.description, /wait_process/);
   assert.ok(agentLaunch.outputSchema.properties.wait_process, "agent_launchはplatform-native waiter process境界を公開する");
   assert.equal(agentLaunch.inputSchema.properties.throughline_supplement_file.type, "string", "agent_launchはThroughline補足pathを公開する");

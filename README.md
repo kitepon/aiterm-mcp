@@ -147,7 +147,7 @@ Aiterm and is not a runtime dependency.
 
 Seventeen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
-**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Grok Composer is a Grok CLI model preset, not another harness: use `harness: "grok-cli", model: "grok-composer-2.5-fast"`. The old four launcher tools are thin compatibility aliases over the same implementation.
+**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is a model, not another harness. The current Grok CLI catalog (grok 1.0.41) no longer lists it; Cursor Agent CLI does, so use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old four launcher tools are thin compatibility aliases over the same implementation.
 
 **v0.25.2 stabilizes repeated in-place configuration changes, including Grok 4.6.** If Grok Build
 1.0.3 redraws before its `/model` success notice can be observed, aiterm confirms the requested model/effort
@@ -309,7 +309,7 @@ The canonical harness choices are:
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model and effort controls; correlated Stop hook |
 | `codex-cli` | Codex CLI | OpenAI model and effort controls; durable rollout completion |
-| `grok-cli` | Grok Build CLI | Grok or Composer model selected with `model`; live catalog check |
+| `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check (Composer is not in the current catalog; use `cursor-cli`) |
 | `cursor-cli` | Cursor Agent CLI | GPT, Claude, Grok, or another Cursor catalog model; normal transcript completion |
 
 `env_vars` is an allowlist of environment-variable **names**, not a name/value map. At launch,
@@ -424,7 +424,7 @@ This registers it in `~/.claude.json`; you'll get an approval prompt the first t
 
 Because an MCP client drives aiterm programmatically over stdio, everything above can run with **nobody sitting at the terminal**. Any MCP-capable orchestrator can call `agent_launch` — including a harness matching itself — then `pty_read` the result and act on it unattended. That makes aiterm a fit for exactly the places a human-driven terminal isn't:
 
-- **Multi-agent orchestration** — an orchestrator hands sub-tasks to Claude Code / Codex / Grok / Cursor harnesses, each in its own persistent session, and reads them all back. Composer remains a Grok CLI model preset.
+- **Multi-agent orchestration** — an orchestrator hands sub-tasks to Claude Code / Codex / Grok / Cursor harnesses, each in its own persistent session, and reads them all back. Composer runs as a Cursor catalog model (`composer-2.5-fast`).
 - **CI** — a job step can spin up an agent, drive it, and tear it down.
 - **cron** — a scheduled run can launch an agent and collect its output.
 
@@ -581,7 +581,7 @@ Consumer flow is `aiterm-runtime-errors snapshot`, then `aiterm-runtime-errors a
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude catalog model; native effort controls |
 | `codex-cli` | Codex CLI | OpenAI catalog model; native effort controls |
-| `grok-cli` | Grok Build CLI | Grok/Composer catalog model; Composer is `model: "grok-composer-2.5-fast"` |
+| `grok-cli` | Grok Build CLI | Grok catalog model; Composer is not in the current catalog |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog model, including GPT/Claude/Grok; effort uses model parameter override |
 
 The selected harness CLI must be installed and authenticated. Use each product owner's official installer and updater; Aiterm does not distribute alternate CLI tarballs. For Cursor Agent CLI, use `curl https://cursor.com/install -fsS | bash` on macOS/Linux/WSL or `irm 'https://cursor.com/install?win32=true' | iex` on native Windows, authenticate once with `agent login`, and update with `agent update`; Aiterm invokes the unambiguous `cursor-agent` binary. Missing binaries, invalid model/effort values, unavailable Grok catalog models, and nonexistent `cwd` fail before a session exists.

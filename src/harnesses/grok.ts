@@ -83,7 +83,8 @@ export function assertGrokModelAvailable(bin: string, cwd: string, model: string
   if (!models.includes(model)) {
     throw new AitermError(
       `Grok model catalog に ${JSON.stringify(model)} がありません。利用可能: ${models.join(", ")}。` +
-        "別modelへfallbackせず起動を中止しました",
+        "別modelへfallbackせず起動を中止しました" +
+        (/composer/i.test(model) ? "。ComposerはCursor catalogにあります: harness=cursor-cli, model=composer-2.5-fast" : ""),
       2,
     );
   }

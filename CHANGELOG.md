@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Composerの指定の案内が古かった。`agent_launch`の説明とREADMEは`harness=grok-cli, model=grok-composer-2.5-fast`を案内していたが、現行のGrok CLI（grok 1.0.41）のcatalogにComposerは無く、CLI自体も`unknown model id`で拒否する。その案内どおりに起動すると、catalog照合で必ず止まっていた。Composerは今Cursor Agent CLIのcatalogにあるので、`harness=cursor-cli, model=composer-2.5-fast`（または`composer-2.5`）を案内する。Grok catalogにComposer modelが無いというエラーにも、同じ指定を添える。別modelへのfallbackはしない。
+
 ## [0.40.1] - 2026-09-27
 
 ### 修正

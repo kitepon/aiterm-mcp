@@ -724,7 +724,7 @@ test("target contract: catalogにないGrok/Composer modelはsession作成前に
     const sessionName = `missing_${kind}_model`;
     assert.throws(
       () => core.openAgent(kind, { session_name: sessionName, model: "not-in-live-catalog" }),
-      (error) => error.code === 2 && /model catalog/.test(error.message) && /not-in-live-catalog/.test(error.message),
+      (error) => error.code === 2 && /model catalog/.test(error.message) && /not-in-live-catalog/.test(error.message) && !/cursor-cli/.test(error.message),
     );
     assert.doesNotMatch(core.listSessions(), new RegExp(`(^|\\n)${sessionName}\\t`));
   }
@@ -741,7 +741,7 @@ test(
       const sessionName = "missing_composer_default";
       assert.throws(
         () => core.openAgent("composer", { session_name: sessionName }),
-        (error) => error.code === 2 && /grok-composer-2\.5-fast/.test(error.message) && /model catalog/.test(error.message),
+        (error) => error.code === 2 && /grok-composer-2\.5-fast/.test(error.message) && /model catalog/.test(error.message) && /harness=cursor-cli, model=composer-2\.5-fast/.test(error.message),
       );
       assert.doesNotMatch(core.listSessions(), new RegExp(`(^|\\n)${sessionName}\\t`));
     } finally {

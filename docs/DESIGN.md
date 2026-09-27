@@ -61,7 +61,7 @@ Claude Code親は公式の非同期hookで本文を受け取り、待機中も�
 それ以外の親には`wait_process`がplatform nativeな別process起動情報を返す。
 waiterは純readerで、親のforeground turnを塞がない。
 回答はharness所有transcriptから同じturnへ相関して回収し、欠落・曖昧・timeout時にpromptを再送しない。
-Grok／Composerの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
+Grokの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し、完了通知と回答で同じ関数を使う。
 配送用のGrok回答は`turn_ended.ts`から同じturnの`turn_started.turn_number`を取得し、
 `chat_history.jsonl`の`user.prompt_index`と相関する。次turnが既に始まっていても対象回答だけを回収する。
 agent sessionへの送信口は`pty_send`だけとする。子の状態は呼び出し側に選ばせず、Aitermが送る時点の画面で振り分ける。
@@ -235,9 +235,9 @@ shell、接続先、各harnessの公式CLIが所有する。
 stale send lockは並行processとのABAを避けるため自動削除せず、公開APIでは対象sessionを`pty_close`して
 同じIDで再作成する。全session一括停止は公開しない。
 
-Grok／Composerのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
+Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は
-Grok／Composerの場合だけこの判定を呼び、`GROK_SANDBOX_STARTUP_FAILED`で原因と未送信を返す。
+Grokの場合だけこの判定を呼び、`GROK_SANDBOX_STARTUP_FAILED`で原因と未送信を返す。
 初回prompt付き起動と通常dispatchに適用され、他harnessの入力受付判定には適用しない。
 `trust_project`指定なしのpromptなし起動応答はPTYへの起動要求を示し、入力受付の確認は後続の送信時に行う。
 
@@ -245,12 +245,12 @@ hookパスのシンボリックリンク等を拒否する判断はGrok CLIが�
 hookのコピー、設定の置換、sandboxの解除は行わない。原因を設定の管理元で修正した後、対象sessionを
 閉じて起動し直す。検出の回帰試験は`test/grok-startup.test.mjs`に置く。
 
-Grok／Composerのmanaged起動は公式`--trust`を渡し、指定cwdの信頼状態はGrok CLIが管理する。
+Grokのmanaged起動は公式`--trust`を渡し、指定cwdの信頼状態はGrok CLIが管理する。
 `grokLaunchBlockingDialog`は信頼確認を入力受付から除外し、scrollbackのshell promptを取り違えない。
 `grokTuiBusy`は応答中の表示だけを実行中の根拠にし、完了後も残る`[hooks: 成功/失敗]`を含めない。
 これらのCLI固有判定は`src/harnesses/grok.ts`が所有し、共通処理は判定を呼び出す。
 
-Grok／Composerの終了済みerrorターンにweekly-limit質問カードが残る場合、通常dispatchだけが
+Grokの終了済みerrorターンにweekly-limit質問カードが残る場合、通常dispatchだけが
 現在のviewportを読み、harness生存と最新turnのエラー完了を確かめて`X`を一回送る。
 既存の入力受付待機を通した後に完了cursorを取得し、今回の本文だけを送る。
 実施した解除は既存receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`として載る。

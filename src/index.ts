@@ -779,7 +779,7 @@ registerRemoteAwareTool(
   "agent_configure",
   {
     description:
-      "起動済みのClaude／Codex／Grok／Composer／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effortを変更する。" +
+      "起動済みのClaude／Codex／Grok／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effortを変更する。" +
       "各harnessのCLI標準model操作を使う。Cursorのreasoning_effort変更はmodelと同時指定する。",
     inputSchema: {
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
@@ -1019,7 +1019,7 @@ server.registerTool(
     description:
       "エージェントを単一の標準入口から永続sessionへ起動する。harnessはagent loop・認証・hook・transcriptを所有する実行基盤、" +
       "modelはそのharnessが選ぶ推論モデルであり別軸。Cursor harnessからGPT／Claude／Grok等を選んでも完了相関はCursor方式のまま。" +
-      "Composerは別harnessではなくmodelである。現行のGrok CLI catalog（grok 1.0.41）には無く、Cursor catalogにあるので harness=cursor-cli と model=composer-2.5-fast（またはcomposer-2.5）で指定する。" +
+      "ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。harness=cursor-cli と model=composer-2.5-fast（またはcomposer-2.5）で指定する。" +
       "remoteを付けると、SSHで入った別端末のAitermで同じ起動を行い、完了は同じ形で親へ届く。" +
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
@@ -1100,7 +1100,7 @@ registerAgentTool(
 registerAgentTool(
   "composer_agent",
   "composer",
-  "【旧互換alias。Composerは現行Grok CLI catalogに無いため、新規連携は agent_launch(harness=cursor-cli, model=composer-2.5-fast)】Grok BuildのComposerモデルを永続端末に起動する。" +
+  "【旧互換alias・起動不能。ComposerはCursorのmodelの一つなので agent_launch(harness=cursor-cli, model=composer-2.5-fast) を使う】旧Grok CLIのComposer presetを起動しようとする。現行Grok CLIにComposerは無く、常にcatalogエラーになる。" +
     agentEnvironmentDesc +
     "turn は pty_send で送る（自動で非ブロック dispatch になる）。" +
     agentCompletionDesc +

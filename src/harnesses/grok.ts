@@ -1,5 +1,6 @@
-// Grok / Composer 固有の制御。Composer は grok CLI の別モデル起動プリセットであり、
-// モデル既定値と表示名以外は Grok と完全共通（実測 2026-08-23 棚卸し・docs/32）。
+// Grok 固有の制御。kind "composer" は旧互換alias composer_agent 用の旧Grok CLI presetで、
+// モデル既定値と表示名以外は Grok と完全共通。Composer は現在 Cursor の model の一つであり、
+// 現行Grok CLIには無い（2026-09-27 grok 1.0.41 実測）。
 // core 所有のサービス（transcript 行読取・rate limit 検知）は引数で注入し、
 // 依存方向を core → harnesses → agent-shared の一方向に保つ。
 import * as fs from "node:fs";
@@ -84,7 +85,7 @@ export function assertGrokModelAvailable(bin: string, cwd: string, model: string
     throw new AitermError(
       `Grok model catalog に ${JSON.stringify(model)} がありません。利用可能: ${models.join(", ")}。` +
         "別modelへfallbackせず起動を中止しました" +
-        (/composer/i.test(model) ? "。ComposerはCursor catalogにあります: harness=cursor-cli, model=composer-2.5-fast" : ""),
+        (/composer/i.test(model) ? "。ComposerはCursorのmodelです: harness=cursor-cli, model=composer-2.5-fast" : ""),
       2,
     );
   }

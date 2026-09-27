@@ -27,7 +27,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `trust_project:true`のlaunchはpromptなしでも既知の起動準備とharness生存を確認する。
   初手の未送信・送信済み未確認・開始確認を区別し、終了したharnessの残画面へ送信しない。
 - `agent_launch`はharnessとmodelを別軸にする。harnessはagent loop、認証、hook、session、
-  transcriptを所有し、modelはそのharness上で選ぶ。Composerはmodelであり、現行はGrok CLI catalogに無くCursor catalogにある（`cursor-cli` + `composer-2.5-fast`）。
+  transcriptを所有し、modelはそのharness上で選ぶ。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない（`cursor-cli` + `composer-2.5-fast`）。
 - launcherは直接CLIと同じ通常`HOME`、project／user設定、MCP、plugin、skill、permission、trust、
   memory、historyを使う。Aitermはlaunch相関、完了event、bounded result、cleanup metadataだけを所有し、
   credential／設定をcopy、snapshot、filterしない。

@@ -147,7 +147,7 @@ Aiterm and is not a runtime dependency.
 
 Seventeen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
-**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is a model, not another harness. The current Grok CLI catalog (grok 1.0.41) no longer lists it; Cursor Agent CLI does, so use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old four launcher tools are thin compatibility aliases over the same implementation.
+**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is one of Cursor's models, not a harness and not a Grok model: use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old four launcher tools are thin compatibility aliases over the same implementation.
 
 **v0.25.2 stabilizes repeated in-place configuration changes, including Grok 4.6.** If Grok Build
 1.0.3 redraws before its `/model` success notice can be observed, aiterm confirms the requested model/effort
@@ -159,6 +159,7 @@ round a failure into success; explicit `grok-4.6` launch and configuration still
 in-place model/effort changes through `agent_configure`. Before creating a PTY, aiterm checks an
 explicit Grok/Composer model—and Composer's default model—against the live `grok models` catalog.
 An unavailable model fails visibly instead of letting the harness CLI fall back to another model.
+Composer has since left the Grok CLI and is now one of Cursor's models.
 
 **v0.24.3 forwards explicitly selected launcher environment variables from the current MCP process.**
 Pass variable names in `env_vars`; aiterm reads their current values at launch and injects only the
@@ -275,15 +276,15 @@ The same primitive hosts another agent's TUI. `agent_launch` starts a selected e
 
 `agent_launch` accepts an optional `write_scope`: either `"read-only"` or a human-readable description of writable paths. Codex/Grok use `--sandbox read-only`; Cursor uses its official read-only `--mode ask`. A path description remains declaration-only because these CLI launch surfaces provide no equivalent path allowlist flag.
 
-Grok／Composerの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
+Grokの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
 
-Grok／Composerで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
+Grokで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
 
 When a Cursor pre-submit hook (`beforeSubmitPrompt`, or a Claude Code `UserPromptSubmit` hook that Cursor loads for compatibility) rejects the prompt, Cursor drops it and no turn or completion follows. Aiterm recognizes the rejection: an initial prompt returns `initial_prompt=failed`, and `pty_send` returns an error instead of a success receipt, both with `USER_HOOK_BLOCKED` and the hook's output. A rejection that comes after the 3-second start check is reported by the completion wait as `outcome=error` (`aiterm-wait` exit 7).
 
-Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。hookパスのシンボリックリンクなど、CLIが示した原因を設定の管理元で修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
+Grokがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。hookパスのシンボリックリンクなど、CLIが示した原因を設定の管理元で修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
-この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
+この判定はGrok専用アダプターが所有する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
 
 Codex 0.155.1の「Approaching rate limits」model切替dialogは、通常の`pty_send`と`agent_configure`で同じsessionのまま一時的な**2. Keep current model**だけを選ぶ。入力受付を再確認してから本文または設定変更を進め、dispatch receiptの`pane_input_recovery`には`codex_rate_limit_model_switch_kept_current`を記録する。model切替と今後の表示抑止は選ばない。入力受付へ戻らなければ`CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED`となり、本文・設定変更は未送信。このdialogは`agent_approval`の対象ではなく、inspectは`reason="rate_limit_model_switch"`だけを返し、prompt digestとchoicesを出さない。
 
@@ -309,7 +310,7 @@ The canonical harness choices are:
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model and effort controls; correlated Stop hook |
 | `codex-cli` | Codex CLI | OpenAI model and effort controls; durable rollout completion |
-| `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check (Composer is not in the current catalog; use `cursor-cli`) |
+| `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check |
 | `cursor-cli` | Cursor Agent CLI | GPT, Claude, Grok, or another Cursor catalog model; normal transcript completion |
 
 `env_vars` is an allowlist of environment-variable **names**, not a name/value map. At launch,
@@ -424,7 +425,7 @@ This registers it in `~/.claude.json`; you'll get an approval prompt the first t
 
 Because an MCP client drives aiterm programmatically over stdio, everything above can run with **nobody sitting at the terminal**. Any MCP-capable orchestrator can call `agent_launch` — including a harness matching itself — then `pty_read` the result and act on it unattended. That makes aiterm a fit for exactly the places a human-driven terminal isn't:
 
-- **Multi-agent orchestration** — an orchestrator hands sub-tasks to Claude Code / Codex / Grok / Cursor harnesses, each in its own persistent session, and reads them all back. Composer runs as a Cursor catalog model (`composer-2.5-fast`).
+- **Multi-agent orchestration** — an orchestrator hands sub-tasks to Claude Code / Codex / Grok / Cursor harnesses, each in its own persistent session, and reads them all back. Composer is one of the models Cursor selects (`composer-2.5-fast`).
 - **CI** — a job step can spin up an agent, drive it, and tear it down.
 - **cron** — a scheduled run can launch an agent and collect its output.
 
@@ -555,8 +556,8 @@ continue to use `claude_approval`.
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
-| `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | Deprecated compatibility aliases | legacy launcher arguments |
-| `agent_configure` | Change model/effort in a running Claude, Codex, Grok, Composer, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |
+| `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | Deprecated compatibility aliases (`composer_agent` is the old Grok CLI preset and cannot start now; run Composer with `agent_launch` on `cursor-cli`) | legacy launcher arguments |
+| `agent_configure` | Change model/effort in a running Claude, Codex, Grok, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |
 | `claude_turn` | Issue (dispatch-only) or recover one correlated Claude operation | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | Inspect or answer the current correlated Claude approval prompt | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |
 | `diagnostics` | Read-only factory readiness as machine-readable JSON | (none) |
@@ -575,13 +576,13 @@ Consumer flow is `aiterm-runtime-errors snapshot`, then `aiterm-runtime-errors a
 
 `agent_launch` starts a selected harness's interactive coding-agent TUI inside a fresh persistent PTY and returns its `session_id`. The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is independent. The TUI is a full-screen app, so read it with `pty_read({ screen: true })` for the rendered view.
 
-`agent_configure({ session_id, model?, reasoning_effort? })` changes a running Claude, Codex, Grok, Composer, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
+`agent_configure({ session_id, model?, reasoning_effort? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
 
 | `harness` | Launches | Model behavior |
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude catalog model; native effort controls |
 | `codex-cli` | Codex CLI | OpenAI catalog model; native effort controls |
-| `grok-cli` | Grok Build CLI | Grok catalog model; Composer is not in the current catalog |
+| `grok-cli` | Grok Build CLI | Grok catalog model |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog model, including GPT/Claude/Grok; effort uses model parameter override |
 
 The selected harness CLI must be installed and authenticated. Use each product owner's official installer and updater; Aiterm does not distribute alternate CLI tarballs. For Cursor Agent CLI, use `curl https://cursor.com/install -fsS | bash` on macOS/Linux/WSL or `irm 'https://cursor.com/install?win32=true' | iex` on native Windows, authenticate once with `agent login`, and update with `agent update`; Aiterm invokes the unambiguous `cursor-agent` binary. Missing binaries, invalid model/effort values, unavailable Grok catalog models, and nonexistent `cwd` fail before a session exists.
@@ -593,13 +594,13 @@ unchanged. Optional `throughline_supplement_file` is passed unchanged to Through
 `throughline_source_session` and Throughline 0.10.8 or later; Aiterm does not read or classify the supplement. Throughline is resolved through `THROUGHLINE_BIN` and then `PATH`; a missing or invalid
 export fails before the PTY exists instead of silently launching clean.
 
-When an agent's answer is longer than the on-screen tail (pane height ≈ 24 lines), callers recover it in full with `pty_read({ agent_transcript: true })`. It returns the most recently completed turn's final assistant message in plain text with no re-prompting. The existing human-readable content keeps its diagnostic suffix; machine callers read the answer alone from `structuredContent.text` in `aiterm.pty-read-result.v1`. Claude reads the bounded owner-only result captured by the launch-correlated Stop hook and verifies its digest/byte count; it never reads Claude's private transcript. Durable machine callers should use `claude_turn`: `issue` sends once, `recover` never sends, `pending` is distinct from unsafe or malformed state, and only `completed` carries the exact verified `raw_output`. Codex uses the normal rollout transcript's `task_complete.turn_id`; Grok/Composer return the last non-empty assistant message after the last real user row, excluding tool-use preambles; Cursor uses the normal agent transcript bound to the launch ID and current turn. Missing or ambiguous attribution remains an explicit error.
+When an agent's answer is longer than the on-screen tail (pane height ≈ 24 lines), callers recover it in full with `pty_read({ agent_transcript: true })`. It returns the most recently completed turn's final assistant message in plain text with no re-prompting. The existing human-readable content keeps its diagnostic suffix; machine callers read the answer alone from `structuredContent.text` in `aiterm.pty-read-result.v1`. Claude reads the bounded owner-only result captured by the launch-correlated Stop hook and verifies its digest/byte count; it never reads Claude's private transcript. Durable machine callers should use `claude_turn`: `issue` sends once, `recover` never sends, `pending` is distinct from unsafe or malformed state, and only `completed` carries the exact verified `raw_output`. Codex uses the normal rollout transcript's `task_complete.turn_id`; Grok returns the last non-empty assistant message after the last real user row, excluding tool-use preambles; Cursor uses the normal agent transcript bound to the launch ID and current turn. Missing or ambiguous attribution remains an explicit error.
 
 ### Completion detection (5 layers)
 
 For PowerShell over SSH, `mark:true` recognizes the current standard `PS ...>` prompt and emits PowerShell syntax even when Aiterm runs on macOS or Linux. A prompt left in earlier output is not used to select the syntax.
 
-`pty_read({ wait: true })` decides "is the command done?" via five layers: process exit / a `mark:true` sentinel / an `until` match / output quiescence with shell return / timeout. `mark` emits the shell's exit status on POSIX shells and `0` (success) or `1` (failure) on PowerShell; fish/csh/tcsh are rejected before send because they do not share either status syntax. When `mark` or `until` is active, that requested evidence takes precedence and a momentarily quiet shell cannot complete the read as quiescent. Agent sessions add a sixth exact layer: Codex observes normal rollout `task_complete`; Grok/Composer observe normal session `turn_ended`; Claude observes its additive launch-correlated Stop event; Cursor observes `turn_ended(status:"success")` in the launch-bound normal agent transcript. `aiterm-wait --cursor` performs that harness-specific observation without the parent blocking or polling. Pre-send readiness failures are MCP errors, and late completion remains recoverable without resending.
+`pty_read({ wait: true })` decides "is the command done?" via five layers: process exit / a `mark:true` sentinel / an `until` match / output quiescence with shell return / timeout. `mark` emits the shell's exit status on POSIX shells and `0` (success) or `1` (failure) on PowerShell; fish/csh/tcsh are rejected before send because they do not share either status syntax. When `mark` or `until` is active, that requested evidence takes precedence and a momentarily quiet shell cannot complete the read as quiescent. Agent sessions add a sixth exact layer: Codex observes normal rollout `task_complete`; Grok observes normal session `turn_ended`; Claude observes its additive launch-correlated Stop event; Cursor observes `turn_ended(status:"success")` in the launch-bound normal agent transcript. `aiterm-wait --cursor` performs that harness-specific observation without the parent blocking or polling. Pre-send readiness failures are MCP errors, and late completion remains recoverable without resending.
 
 ### Completion push for parent agents (`aiterm-wait`)
 

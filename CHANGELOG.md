@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 文書
+
+- Composerの位置づけを改めた。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。README・AGENTS.md・CONTRIBUTING.md・DESIGN・ツール説明から「Grok／Composer」の併記とGrok CLI presetという説明を外し、`agent_launch(harness=cursor-cli, model=composer-2.5-fast)`を案内する。旧互換alias `composer_agent`は旧Grok CLI presetのままで、現行Grok CLIでは起動できないことを説明に明記した。
+
 ## [0.40.2] - 2026-09-27
 
 ### 修正

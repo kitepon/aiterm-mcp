@@ -145,7 +145,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 17ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧4alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
-**v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。Composerは別harnessではなくmodelである。現行のGrok CLI catalog（grok 1.0.41）には無く、Cursor catalogにあるので`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧4起動ツールは同じ実装へ流れる互換alias。
+**v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧4起動ツールは同じ実装へ流れる互換alias。
 
 **v0.25.2ではGrok 4.6を含む同一sessionの連続設定変更を安定化。** Grok Build 1.0.3で
 `/model`の成功通知が再描画により消えても、変更前には無かった要求model／effortが常駐footerへ現れた
@@ -156,6 +156,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 `write_scope:"read-only"`の`--sandbox read-only`強制、`agent_configure`による同一session内の
 model／effort変更に対応した。明示したGrok／Composer modelとComposer既定modelはPTY作成前に
 現在の`grok models` catalogへ照合し、不在時は別modelへ黙ってfallbackせず明示失敗する。
+その後ComposerはGrok CLIから外れ、現在はCursorのmodelの一つである。
 
 **v0.24.3ではlauncherへ渡す環境変数を現在のMCP processから明示選択できる。** `env_vars`へ
 変数名だけを指定すると、aitermは起動時の現在値を読み、存在する値だけをそのagentへ渡す。永続multiplexer
@@ -254,15 +255,15 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 `agent_launch`は任意の`write_scope`も受ける。Codex／Grokのread-onlyは`--sandbox read-only`、Cursorは公式`--mode ask`で実効化する。path説明は同等CLI引数がないためdeclaration-only。
 
-Grok／Composerの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
+Grokの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
 
-Grok／Composerで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
+Grokで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
 
 Cursorの送信前hook（`beforeSubmitPrompt`と、互換読込するClaude Codeの`UserPromptSubmit`）がpromptを拒否すると、Cursorはpromptを捨て、turnも完了も起きない。Aitermはこの拒否の表示を見分け、起動時promptは`initial_prompt=failed`、`pty_send`は成功receiptを返さず、どちらも`USER_HOOK_BLOCKED`とhookの出力を返す。確認時間（3秒）より後の拒否は、完了待ちが`outcome=error`（`aiterm-wait`はexit 7）で返す。
 
-Grok／Composerがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。例えばhookのパスにシンボリックリンクがあるとGrok CLIは起動を拒否する。設定の管理元で原因を修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
+Grokがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。例えばhookのパスにシンボリックリンクがあるとGrok CLIは起動を拒否する。設定の管理元で原因を修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
-この判定はGrok専用アダプターが所有し、同じCLIを使うComposerにも適用する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
+この判定はGrok専用アダプターが所有する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
 
 Codex 0.155.1の「Approaching rate limits」model切替dialogは、通常の`pty_send`と`agent_configure`で同じsessionのまま一時的な**2. Keep current model**だけを選ぶ。入力受付を再確認してから本文または設定変更を進め、dispatch receiptの`pane_input_recovery`には`codex_rate_limit_model_switch_kept_current`を記録する。model切替と今後の表示抑止は選ばない。入力受付へ戻らなければ`CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED`となり、本文・設定変更は未送信。このdialogは`agent_approval`の対象ではなく、inspectは`reason="rate_limit_model_switch"`だけを返し、prompt digestとchoicesを出さない。
 
@@ -285,7 +286,7 @@ $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeo
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model／effort |
 | `codex-cli` | Codex CLI | OpenAI model／effort |
-| `grok-cli` | Grok Build CLI | Grok model、live catalog照合（Composerは現行catalogに無い。`cursor-cli`を使う） |
+| `grok-cli` | Grok Build CLI | Grok model、live catalog照合 |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog上のGPT／Claude／Grok等 |
 
 Cursorの`model`は`gpt-5.6-luna`のようなbase model、`reasoning_effort`は`high`のように別指定する。adapterは現行`model-effort` IDを`cursor-agent models`へ照合し、起動中変更はCursor標準model pickerのparameter editorを使う。不在時は別modelへfallbackしない。
@@ -395,7 +396,7 @@ claude mcp add --scope user --transport stdio aiterm -- aiterm-mcp
 
 MCP クライアントが aiterm を stdio 越しにプログラムから駆動するので、上のすべては **端末に誰も座らないまま**動く。任意のMCP対応統括役が、自分と同じharnessを含む`agent_launch`を呼び、`pty_read`で結果を読んで次へ進める——無人で。これは、人が操作する端末が向かない場所にこそ aiterm が合うということ:
 
-- **複数エージェントのオーケストレーション** — 統括役がサブタスクを Claude Code / Codex / Grok / Cursor harnessへ渡し、各々を専用の永続セッションに置き、全部を読み戻す。ComposerはCursor catalogのmodel（`composer-2.5-fast`）として起動する。
+- **複数エージェントのオーケストレーション** — 統括役がサブタスクを Claude Code / Codex / Grok / Cursor harnessへ渡し、各々を専用の永続セッションに置き、全部を読み戻す。ComposerはCursorが選ぶmodelの一つ（`composer-2.5-fast`）。
 - **CI** — ジョブのステップがエージェントを起こし、操作し、片付けられる。
 - **cron** — スケジュール実行がエージェントを起動して出力を回収できる。
 
@@ -522,8 +523,8 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
-| `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | deprecated互換alias | 旧launcher引数 |
-| `agent_configure` | 起動中のClaude／Codex／Grok／Composer／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |
+| `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | deprecated互換alias（`composer_agent`は旧Grok CLI presetで今は起動できない。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
+| `agent_configure` | 起動中のClaude／Codex／Grok／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |
 | `claude_turn` | 相関済みClaude operationをdispatch（issue）または回収（recover） | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | 現在表示中の相関済みClaude承認UIを検査または応答 | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |
 | `diagnostics` | 機械可読 JSON による read-only factory readiness | （なし） |
@@ -540,13 +541,13 @@ consumer は `aiterm-runtime-errors snapshot` を読み、durable ingestion 後�
 
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。
 
-`agent_configure({ session_id, model?, reasoning_effort? })`はharness標準操作で起動中のClaude／Codex／Grok／Composer／Cursorを変更し、PTYと会話contextを維持する。
+`agent_configure({ session_id, model?, reasoning_effort? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
 
 | `harness` | 起動するもの | modelの扱い |
 | --- | --- | --- |
 | `claude-code` | Claude Code CLI | Claude model／effort |
 | `codex-cli` | Codex CLI | OpenAI model／effort |
-| `grok-cli` | Grok Build CLI | Grok model、live catalog照合（Composerは現行catalogに無い。`cursor-cli`を使う） |
+| `grok-cli` | Grok Build CLI | Grok model、live catalog照合 |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog上のGPT／Claude／Grok等 |
 
 対応するCLI（`claude`／`codex`／`grok`／`cursor-agent`）の公式導入・認証が必要。前提違反はsession作成前に明示失敗する。全harnessが通常project/user環境と同じ非ブロックdispatch契約を使う。

@@ -614,26 +614,22 @@ export function codexTranscriptText(
   const lines = readTranscriptLines(transcript);
   if (exactCompletion) {
     // 同じturnの本文だけを使う。完了event内の本文と、turn ID付きoutput_textの両形式を扱う。
-    const matching: string[] = [];
+    const matching = codexTurnAnswer();
     for (const line of lines) {
       let record: any;
       try { record = JSON.parse(line); } catch { continue; }
       const payload = record?.payload;
-      if (record?.type === "response_item" && payload?.type === "message" && payload?.role === "assistant"
-        && payload?.internal_chat_message_metadata_passthrough?.turn_id === turnId && Array.isArray(payload?.content)) {
-        for (const item of payload.content) {
-          if (item?.type === "output_text" && typeof item.text === "string") matching.push(item.text);
-        }
-      }
+      matching.add(record, turnId);
       if (record?.type === "event_msg" && payload?.type === "task_complete" && payload.turn_id === turnId) {
         if (typeof payload.last_agent_message === "string") return payload.last_agent_message;
-        if (matching.length > 0) return matching.join("\n");
+        const text = matching.text();
+        if (text) return text;
         transcriptUnavailable();
       }
     }
     transcriptUnavailable();
   }
-  const matching: string[] = [];
+  const matching = codexTurnAnswer();
   let finalAnswer = "";
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -644,17 +640,7 @@ export function codexTranscriptText(
       continue;
     }
     const payload = record?.payload;
-    if (
-      record?.type === "response_item" &&
-      payload?.type === "message" &&
-      payload?.role === "assistant" &&
-      payload?.internal_chat_message_metadata_passthrough?.turn_id === turnId &&
-      Array.isArray(payload?.content)
-    ) {
-      for (const item of payload.content) {
-        if (item?.type === "output_text" && typeof item.text === "string") matching.push(item.text);
-      }
-    }
+    matching.add(record, turnId);
     if (
       record?.type === "event_msg" &&
       payload?.type === "agent_message" &&
@@ -664,7 +650,29 @@ export function codexTranscriptText(
       finalAnswer = payload.message;
     }
   }
-  return matching.join("\n") || finalAnswer;
+  return matching.text() || finalAnswer;
+}
+
+// turnのassistant本文を集める。Codexは作業途中の報告をphase=commentary、回答をphase=final_answerで残すので、
+// final_answerがあるturnは途中の報告を回答に含めない。phaseの無い旧形式はturnの本文を全部つなぐ。
+function codexTurnAnswer() {
+  const all: string[] = [];
+  const finals: string[] = [];
+  return {
+    add(record: any, turnId: string | null): void {
+      const payload = record?.payload;
+      if (record?.type !== "response_item" || payload?.type !== "message" || payload?.role !== "assistant"
+        || payload?.internal_chat_message_metadata_passthrough?.turn_id !== turnId || !Array.isArray(payload?.content)) return;
+      for (const item of payload.content) {
+        if (item?.type !== "output_text" || typeof item.text !== "string") continue;
+        all.push(item.text);
+        if (payload.phase === "final_answer") finals.push(item.text);
+      }
+    },
+    text(): string {
+      return (finals.length > 0 ? finals : all).join("\n");
+    },
+  };
 }
 
 export function createCodexAgentMetadata(

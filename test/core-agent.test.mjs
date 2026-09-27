@@ -4064,6 +4064,40 @@ test("readAgentTranscript: Codex の複数 assistant block を join し lines �
   });
 });
 
+test("readAgentTranscript: Codex は作業途中の報告(commentary)を除き final_answer だけを回収する", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const vendorSessionId = "transcript-codex-phase";
+      const turnId = "transcript-turn-phase";
+      const meta = bindTranscriptTurn(sid, vendorSessionId, turnId);
+      const message = (phase, text) => ({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase,
+          content: [{ type: "output_text", text }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnId },
+        },
+      });
+      writeCodexTranscript(meta, vendorSessionId, [
+        { type: "session_meta", payload: { id: vendorSessionId } },
+        message("commentary", "調べるね"),
+        message("commentary", "差分を確認したよ"),
+        message("final_answer", "結論だよ"),
+        { type: "event_msg", payload: { type: "task_complete", turn_id: turnId } },
+      ]);
+      const out = await core.readAgentTranscript(sid);
+      assert.doesNotMatch(out, /調べるね|差分を確認したよ/);
+      assert.match(out, /^結論だよ\n/);
+      assert.match(out, /raw_chars=4/);
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
 test("readAgentTranscript: Grok は最後の実 user 入力以降の確定assistantだけを回収する", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;
   process.env.GROK_BIN = "/bin/echo";

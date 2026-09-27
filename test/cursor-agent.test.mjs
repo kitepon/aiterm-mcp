@@ -196,6 +196,24 @@ test("Cursor adapter: launch markerで通常Cursor transcriptをbindしturn境�
       cursorTranscriptText(meta, (file) => fs.readFileSync(file, "utf8").split("\n"), () => { throw new Error("unavailable"); }),
       second,
     );
+
+    // 道具を呼ぶ前の文は作業途中の報告。回答は最後の道具呼び出しより後の文だけにする。
+    const third = fs.readFileSync(transcript, "utf8").trimEnd().split("\n");
+    third.pop();
+    fs.writeFileSync(transcript, [...third,
+      JSON.stringify({ role: "user", message: { content: [{ type: "text", text: "調べて" }] } }),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "調べるね" }, { type: "tool_use", name: "Shell" }] } }),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "tool_use", name: "Shell" }] } }),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "途中経過" }, { type: "tool_use", name: "Read" }] } }),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "結論" }] } }),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "補足" }] } }),
+      JSON.stringify({ type: "turn_ended", status: "success" }),
+      "",
+    ].join("\n"));
+    assert.equal(
+      cursorTranscriptText(meta, (file) => fs.readFileSync(file, "utf8").split("\n"), () => { throw new Error("unavailable"); }),
+      "結論\n補足",
+    );
     assert.equal(fs.existsSync(path.join(runtime, `aiterm-mcp-${typeof process.getuid === "function" ? process.getuid() : 0}`, "agents", `${session}.${meta.launch_id}.cursor-plugin`)), false);
   } finally {
     for (const [name, value] of Object.entries(previous)) {

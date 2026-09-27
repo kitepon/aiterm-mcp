@@ -277,22 +277,24 @@ export function cursorTranscriptText(
 ): string {
   const transcript = cursorTranscript(meta);
   if (!transcript) transcriptUnavailable();
-  let current: string[] = [];
-  let completed: string[] | null = null;
+  // tool_useで区切った本文の塊を持つ。道具を呼ぶ前の文は作業途中の報告なので、回答は最後の塊だけにする。
+  let current: string[][] = [[]];
+  let completed: string[][] | null = null;
   for (const line of readTranscriptLines(transcript)) {
     if (!line.trim()) continue;
     let record: any;
     try { record = JSON.parse(line); } catch { continue; }
-    if (record?.role === "user") current = [];
+    if (record?.role === "user") current = [[]];
     if (record?.role === "assistant" && Array.isArray(record?.message?.content)) {
       for (const part of record.message.content) {
-        if (part?.type === "text" && typeof part?.text === "string") current.push(part.text);
+        if (part?.type === "text" && typeof part?.text === "string") current.at(-1)!.push(part.text);
+        else if (part?.type === "tool_use" && current.at(-1)!.length > 0) current.push([]);
       }
     }
-    if (record?.type === "turn_ended") completed = [...current];
+    if (record?.type === "turn_ended") completed = current.map((chunk) => [...chunk]);
   }
   if (completed === null) transcriptUnavailable();
-  return completed.join("\n");
+  return (completed.filter((chunk) => chunk.length > 0).at(-1) ?? []).join("\n");
 }
 
 export function createCursorAgentMetadata(

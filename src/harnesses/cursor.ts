@@ -543,6 +543,15 @@ export function cursorHookBlocked(screen: string): { message: string } | null {
   return { message: (message || "(hookは理由を出していません)").slice(0, CURSOR_HOOK_BLOCKED_MESSAGE_LIMIT) };
 }
 
+// 送信前hookの実行中、Cursorは入力欄の上に「Working」の回転表示だけを出し、入力欄はまだ「Plan, search, build anything」の
+// ままで「ctrl+c to stop」も無い（v2026.09.26、Windows実機採取 2026-09-27）。turnはまだ始まっておらず、hookが拒否すればここで終わる。
+const CURSOR_SPINNER_WORKING_RE = /^[ \t]*[⠀-⣿]+[ \t]+Working\b/m;
+
+export function cursorPromptHooksRunning(screen: string): boolean {
+  const tail = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split("\n").slice(-32).join("\n");
+  return CURSOR_SPINNER_WORKING_RE.test(tail) && CURSOR_START_PROMPT_MARKER_RE.test(tail) && !/ctrl\+c to stop/i.test(tail);
+}
+
 export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
   if (cursorUsageLimit(tail)) return { state: "blocked", reason: "rate_limited" };

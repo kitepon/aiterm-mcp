@@ -171,6 +171,7 @@ import {
   cursorEffortNavigation,
   cursorTuiReady,
   cursorPaneObservation,
+  cursorPromptHooksRunning,
   cursorUsageLimit,
   CURSOR_SUBMIT_SEQUENCE,
   CURSOR_COMPOSER_CONTENT_MARKER_RE,
@@ -3810,8 +3811,10 @@ export async function sendInitialAgentPrompt(
   }
   let delivery: InitialPromptDelivery = { status: "submitted_unconfirmed", reason: "start_unconfirmed", turn_started: null };
   const deadline = performance.now() + 3000;
+  const hookDeadline = performance.now() + CURSOR_PROMPT_HOOK_WAIT_MS;
+  let screen = "";
   do {
-    const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    screen = captureScreen(name, AGENT_TUI_READY_LINES);
     const state = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(screen)
       : meta.kind === "codex" ? codexPaneObservation(screen)
       : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
@@ -3834,7 +3837,7 @@ export async function sendInitialAgentPrompt(
       delivery.reason = state.state === "blocked" ? state.reason : completed.outcome; break;
     }
     await sleep(100);
-  } while (performance.now() < deadline);
+  } while (performance.now() < deadline || (meta.kind === "cursor" && performance.now() < hookDeadline && cursorPromptHooksRunning(screen)));
   setInitialDelivery(meta, delivery, startOffset);
   return {
     text:
@@ -4158,20 +4161,26 @@ function userHookBlockedMessage(head: string, what: string, detail: string | und
 }
 
 const CURSOR_START_CONFIRM_MS = 3000;
+// 送信前hookが動いている間は、確認時間を過ぎても結果を待つ。Windowsではhookごとの起動が遅く、数本続くと3秒を超える
+// （fox実測 2026-09-27）。上限は利用者のhookに付く最長のtimeout（60秒）に合わせる。
+const CURSOR_PROMPT_HOOK_WAIT_MS = 60_000;
 
 // Cursorは送信前hookの実行中も「Working」だけを出し、拒否されると入力欄を空に戻す。入力欄の残留検査では
-// 拒否を見分けられず、成功receiptを返すと親は来ない完了を待ち続ける。turnの開始か拒否の表示を短く確かめる。
-// hookが遅く確認時間を過ぎた拒否は、完了待ち（observeCursorDone）がoutcome=errorで返す。
+// 拒否を見分けられず、成功receiptを返すと親は来ない完了を待ち続ける。turnの開始か拒否の表示を確かめる。
+// hookが上限を過ぎてから拒否した時は、完了待ち（observeCursorDone）がoutcome=errorで返す。
 async function assertCursorPromptNotHookBlocked(name: string): Promise<void> {
   const deadline = performance.now() + CURSOR_START_CONFIRM_MS;
+  const hookDeadline = performance.now() + CURSOR_PROMPT_HOOK_WAIT_MS;
+  let screen = "";
   do {
-    const state = cursorPaneObservation(captureScreen(name, AGENT_TUI_READY_LINES));
+    screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    const state = cursorPaneObservation(screen);
     if (state.state === "busy") return;
     if (state.state === "blocked" && state.reason === "user_hook_blocked") {
       throw new AitermError(userHookBlockedMessage(`vendor=cursor session=${name}`, "送信した文", state.detail), 2);
     }
     await sleep(100);
-  } while (performance.now() < deadline);
+  } while (performance.now() < deadline || (performance.now() < hookDeadline && cursorPromptHooksRunning(screen)));
 }
 
 export async function dispatchAgentTurn(

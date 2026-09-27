@@ -36,7 +36,7 @@ test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", (
 });
 import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
-import { cursorHookBlocked, cursorPaneObservation, cursorUsageLimit } from "../dist/harnesses/cursor.js";
+import { cursorHookBlocked, cursorPaneObservation, cursorPromptHooksRunning, cursorUsageLimit } from "../dist/harnesses/cursor.js";
 
 test("Grokの通信失敗は応答待ち表示より優先する", () => {
   for (const padding of [[], Array(20).fill("wrapped line")]) {
@@ -282,4 +282,25 @@ test("Cursorのhook拒否の後に実行中表示やfollow-up欄があれば、�
   const cleared = CURSOR_HOOK_BLOCKED_SCREEN.split("\n").slice(0, 12).join("\n");
   assert.equal(cursorHookBlocked(cleared), null);
   assert.equal(cursorPaneObservation(cleared).state, "idle");
+});
+
+test("Cursorの送信前hookが動いている画面だけを、hookの実行中として見分ける", () => {
+  // fox実機 2026-09-27: 送信直後、hookの結果が出るまでの画面。入力欄はまだ空の起動時表示のまま。
+  const hooksRunning = [
+    "  Cursor Agent",
+    "  v2026.09.26-dd393fe",
+    "  Reply with exactly SEND_OK.",
+    "",
+    " ⠰⠰ Working",
+    "",
+    "  → Plan, search, build anything",
+    "",
+    "  Auto                                                                                                  Run Everything",
+    "  ~\\.cache\\aiterm-branch-test\\steer-test",
+  ].join("\n");
+  assert.equal(cursorPromptHooksRunning(hooksRunning), true);
+  // turnが始まった後は「Add a follow-up」と「ctrl+c to stop」が出る。
+  assert.equal(cursorPromptHooksRunning(" ⠘⠆ Working  72 tokens\n  → Add a follow-up                                             ctrl+c to stop"), false);
+  assert.equal(cursorPromptHooksRunning(CURSOR_HOOK_BLOCKED_SCREEN), false);
+  assert.equal(cursorPromptHooksRunning(CURSOR_HOOK_BLOCKED_SCREEN.split("\n").slice(0, 12).join("\n")), false);
 });

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修正
 
 - Cursorの送信前hookがpromptを拒否した時に、`pty_send`が成功receiptを返していた。Cursorはpromptを捨てて入力欄を空に戻すため、入力欄の残留検査では見分けられず、親は来ない完了を待ち続けた。起動時promptは理由の無い`submitted_unconfirmed`になっていた。拒否の表示（`Hook blocked with message:`）を見分け、起動時promptは`initial_prompt=failed`、`pty_send`はエラーとし、どちらも`USER_HOOK_BLOCKED`とhookの出力を返す。確認時間より後の拒否は、完了待ちが`outcome=error`で返す。`pty_observe`は`blocked`／`user_hook_blocked`を返す。
+- Cursorの送信前hookが3秒の確認時間より長く動くと、拒否されても起動時promptは理由の無い`submitted_unconfirmed`で返っていた。Windowsではhookごとの起動が遅く、数本続くと3秒を超える。hookの実行中の画面（「Working」だけで`ctrl+c to stop`が無い）が続く間は、最長60秒まで結果を待つ。
 
 ## [0.40.0] - 2026-09-27
 

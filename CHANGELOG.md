@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-09-27
+
 ### 削除
 
 - 旧互換alias `composer_agent` と、agent種別の`composer`を削除した。ComposerはCursorのmodelの一つで、現行のGrok CLIにはComposerが無いため、このaliasは常にcatalogエラーで起動できなかった。Composerは`agent_launch(harness=cursor-cli, model=composer-2.5-fast)`で起動する。`provider`／`vendor`の列挙から`composer`を外し、Claudeの親hookのmatcherからも`composer_agent`を外した。
@@ -1808,7 +1810,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...HEAD
+[0.41.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.3...v0.41.0
 [0.40.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.2...v0.40.3
 [0.40.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.1...v0.40.2
 [0.40.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.0...v0.40.1

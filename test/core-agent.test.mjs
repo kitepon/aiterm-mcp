@@ -3411,6 +3411,26 @@ test("sendAgentMessage: 実行中のClaudeへはturn相関を変えずに差し�
   }
 });
 
+test("sendAgentMessage: Claudeのtool処理中に画面のbusy表示が消えても同じturnへ差し込む", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    core.send(sid, "printf 'Claude Code\\n❯\\n'", {
+      force: true,
+      raw: true,
+      preserveAgentOperation: true,
+    });
+    await core.readOutput(sid, { wait: true, until: "Claude Code", timeout: 5, raw: true });
+    const meta = readAgentMeta(sid);
+    const marker = path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`);
+    fs.writeFileSync(marker, JSON.stringify({ schema: "aiterm.claude-operation-marker.v1", operation_id: null }), { mode: 0o600 });
+    const receipt = await core.sendAgentMessage(sid, "echo CLAUDE_TOOL_STEER_BODY");
+    assert.equal(receipt.schema, "aiterm.agent-steer.v1");
+    assert.equal(fs.existsSync(marker), true, "差し込みは実行中turnの印を保持する");
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
 test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無ければ新しいturnとして送る", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {

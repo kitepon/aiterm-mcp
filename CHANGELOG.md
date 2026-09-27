@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Codeのtool処理中に画面の実行中表示が消えると、`pty_send`が新規turnと誤判定し、未解決turnエラーで送信を拒否していた。Stopまで保持されるturnの印で実行中を判定し、同じturnへ差し込む。
+
 ## [0.41.1] - 2026-09-27
 
 ### 修正

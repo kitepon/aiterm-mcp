@@ -4363,9 +4363,9 @@ export async function sendAgentMessage(
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
   let running = isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
-  // Claude CodeはStop hookの実行中も実行中の表示を続ける。Aitermのturnの印はStopで消えるので、
-  // 印が無ければturnは終わっている。ここで差し込むと新しいturnとして始まり、誰もその完了を待たない。
-  if (meta.kind === "claude" && readClaudeOperationMarker(meta) === null) running = false;
+  // Claudeのtool処理中は画面のbusy表示が消えることがある。Stopまで保持するturnの印を正とし、
+  // 印がある間は差し込み、Stop後は画面にbusy表示が残っても新しいturnとして送る。
+  if (meta.kind === "claude") running = readClaudeOperationMarker(meta) !== null;
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
   }

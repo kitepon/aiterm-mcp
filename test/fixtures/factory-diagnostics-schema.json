@@ -27,6 +27,6 @@
     "claude": ["claude_agent"],
     "codex": ["codex_agent"],
     "cursor": ["agent_launch"],
-    "grok": ["grok_agent", "composer_agent"]
+    "grok": ["grok_agent"]
   }
 }

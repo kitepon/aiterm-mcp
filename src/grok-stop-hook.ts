@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   const kind = process.env.AITERM_AGENT_KIND;
   const session = process.env.AITERM_SESSION_ID || process.env.AITERM_AGENT_SESSION_ID || "";
   const launchId = process.env.AITERM_AGENT_LAUNCH_ID || "";
-  if (kind !== "grok" && kind !== "composer") fail(`AITERM_AGENT_KIND が grok/composer ではありません: ${kind ?? ""}`);
+  if (kind !== "grok") fail(`AITERM_AGENT_KIND が grok ではありません: ${kind ?? ""}`);
   if (!SESSION_RE.test(session)) fail(`session id が不正です: ${session}`);
   if (!LAUNCH_ID_RE.test(launchId)) fail(`launch id が不正です: ${launchId}`);
 

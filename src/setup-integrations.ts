@@ -47,7 +47,7 @@ export function mergeJsonMcp(file: string, registration: Registration): "configu
 
 export function claudeParentHookEntries(registration: Registration): Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]> {
   const command = { type: "command", command: registration.command, args: [join(dirname(registration.args[0]), "claude-parent-hook.js")] };
-  const matcher = "^mcp__aiterm__(agent_launch|claude_agent|codex_agent|grok_agent|composer_agent|pty_send|claude_turn)$";
+  const matcher = "^mcp__aiterm__(agent_launch|claude_agent|codex_agent|grok_agent|pty_send|claude_turn)$";
   return {
     PreToolUse: [{ matcher, hooks: [{ ...command, timeout: 15 }] }],
     PostToolUse: [{ matcher, hooks: [{ ...command, asyncRewake: true, timeout: 86400 }] }],

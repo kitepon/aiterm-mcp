@@ -145,9 +145,9 @@ Aiterm and is not a runtime dependency.
 
 **Measured, not claimed:** in the recorded 203-test benchmark, a `pty_read` puts **~7.1× fewer tokens** in your context than the raw log — and the pass/fail verdict survives the fold. → [When to reach for it vs. the built-in shell](#when-to-reach-for-it-vs-the-built-in-shell)
 
-Seventeen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; four deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
+Sixteen tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; three deprecated launcher aliases kept for migration; `agent_configure`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
-**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is one of Cursor's models, not a harness and not a Grok model: use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old four launcher tools are thin compatibility aliases over the same implementation.
+**v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is one of Cursor's models, not a harness and not a Grok model: use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old launcher tools are thin compatibility aliases over the same implementation.
 
 **v0.25.2 stabilizes repeated in-place configuration changes, including Grok 4.6.** If Grok Build
 1.0.3 redraws before its `/model` success notice can be observed, aiterm confirms the requested model/effort
@@ -394,7 +394,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm should show as connected, exposing 17 tools
+/mcp        # aiterm should show as connected, exposing 16 tools
 ```
 
 Your first session — four calls, one persistent terminal:
@@ -435,7 +435,7 @@ The terminal is real and shared, so a human *can* jump in ([A human can watch](#
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_configure · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 17 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_configure · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 16 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>survive restarts"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -556,7 +556,7 @@ continue to use `claude_approval`.
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
-| `claude_agent` / `codex_agent` / `grok_agent` / `composer_agent` | Deprecated compatibility aliases (`composer_agent` is the old Grok CLI preset and cannot start now; run Composer with `agent_launch` on `cursor-cli`) | legacy launcher arguments |
+| `claude_agent` / `codex_agent` / `grok_agent` | Deprecated compatibility aliases (`composer_agent` was removed in 0.41.0; run Composer with `agent_launch` on `cursor-cli`) | legacy launcher arguments |
 | `agent_configure` | Change model/effort in a running Claude, Codex, Grok, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |
 | `claude_turn` | Issue (dispatch-only) or recover one correlated Claude operation | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | Inspect or answer the current correlated Claude approval prompt | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |

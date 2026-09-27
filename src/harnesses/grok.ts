@@ -1,6 +1,5 @@
-// Grok 固有の制御。kind "composer" は旧互換alias composer_agent 用の旧Grok CLI presetで、
-// モデル既定値と表示名以外は Grok と完全共通。Composer は現在 Cursor の model の一つであり、
-// 現行Grok CLIには無い（2026-09-27 grok 1.0.41 実測）。
+// Grok 固有の制御。Composer は Cursor の model の一つであり、Grok CLI では扱わない
+// （2026-09-27 grok 1.0.41 実測でcatalogに無い）。
 // core 所有のサービス（transcript 行読取・rate limit 検知）は引数で注入し、
 // 依存方向を core → harnesses → agent-shared の一方向に保つ。
 import * as fs from "node:fs";
@@ -34,9 +33,8 @@ const GROK_MODELS_TIMEOUT_MS = 15_000;
 // grok CLI はモデル未指定だと端末側 default に従うため、ツール契約として既定 slug を固定する。
 // codex は既定 slug を持たず端末 config／CLI 既定に委ねる（起動応答で実効値を報告する）。
 // 製品既定は検証済みGrok catalog世代へ固定する。callerの明示modelはlive catalogで別途照合する。
-export const GROK_MODEL_DEFAULTS: Record<"grok" | "composer", string> = {
+export const GROK_MODEL_DEFAULTS: Record<"grok", string> = {
   grok: "grok-4.6",
-  composer: "grok-composer-2.5-fast",
 };
 
 export function realGrokHome(): string {
@@ -92,7 +90,7 @@ export function assertGrokModelAvailable(bin: string, cwd: string, model: string
 }
 
 export function grokSessionDirectory(meta: AgentMetadata): string | null {
-  if ((meta.kind !== "grok" && meta.kind !== "composer") || !meta.grok_home || !meta.vendor_session_id) return null;
+  if (meta.kind !== "grok" || !meta.grok_home || !meta.vendor_session_id) return null;
   // Grok CLIは起動cwdをOSの絶対パスへ正規化して保存する。
   const cwd = path.resolve(meta.cwd ?? process.cwd());
   return path.join(meta.grok_home, "sessions", encodeURIComponent(cwd), meta.vendor_session_id);
@@ -105,7 +103,7 @@ export function grokEventsTranscript(meta: AgentMetadata): string | null {
 
 export function grokCompletionEvent(meta: AgentMetadata, record: any): AgentDoneEvent | null {
   if (
-    (meta.kind !== "grok" && meta.kind !== "composer") ||
+    meta.kind !== "grok" ||
     record?.type !== "turn_ended" ||
     (record?.outcome !== "completed" && record?.outcome !== "cancelled" && record?.outcome !== "error")
   ) return null;
@@ -264,7 +262,7 @@ export async function observeGrokDone(
 }
 
 export function buildGrokAgentCmd(
-  kind: "grok" | "composer",
+  kind: "grok",
   bin: string,
   model: string | null,
   effort: string | null,
@@ -272,28 +270,27 @@ export function buildGrokAgentCmd(
   meta: AgentMetadata | null,
 ): string {
   const parts: string[] = [shq(bin)];
-  // grok / composer は同じ grok CLI をモデル違いで起動する。
   parts.push("--no-auto-update");
   // 無人起動の対象cwdはCLIの公式folder trust指定で登録し、確認画面にpromptを消費させない。
-  if (meta?.kind === "grok" || meta?.kind === "composer") parts.push("--no-alt-screen", "--trust");
+  if (meta?.kind === "grok") parts.push("--no-alt-screen", "--trust");
   parts.push("--model", shq(model ?? GROK_MODEL_DEFAULTS[kind]));
   if (effort) parts.push("--reasoning-effort", shq(effort));
-  if ((meta?.kind === "grok" || meta?.kind === "composer") && meta.write_scope === "read-only") {
+  if (meta?.kind === "grok" && meta.write_scope === "read-only") {
     // read-only は sandbox が実効書込み禁止を作るため、MCP ツール許可ダイアログの自動承認を
     // 付けても能力は増えない。無人 subagent が初回 MCP 使用の許可待ちで停止する実障害への対処。
     // read-only 以外の launch には付けない＝権限拡大しない。
     parts.push("--sandbox", "read-only", "--always-approve");
   }
-  if ((meta?.kind === "grok" || meta?.kind === "composer") && meta.hook_route === "shared_grok_home") {
+  if (meta?.kind === "grok" && meta.hook_route === "shared_grok_home") {
     parts.push("--session-id", shq(meta.vendor_session_id ?? ""), "--rules", shq(subagentInstruction(meta)));
   }
-  if ((meta?.kind === "grok" || meta?.kind === "composer") && prompt) parts.push("--verbatim");
+  if (meta?.kind === "grok" && prompt) parts.push("--verbatim");
   if (prompt) parts.push(shq(prompt)); // 初手プロンプト（任意）
   return parts.join(" ");
 }
 
 export function grokLaunchNote(
-  kind: "grok" | "composer",
+  kind: "grok",
   model: string | null,
   effort: string | null,
   meta: AgentMetadata | null,
@@ -305,7 +302,7 @@ export function grokLaunchNote(
   );
 }
 
-// grok/composer: 検証済み auth 正本をそのままの path 形で渡す。Windows では native 強制により
+// grok: 検証済み auth 正本をそのままの path 形で渡す。Windows では native 強制により
 // harness は Windows process なので、Windows ドライブパスが正しい形（WSL 形への変換はしない）。
 export function grokEnvTokens(meta: AgentMetadata): string[] {
   return [
@@ -342,9 +339,8 @@ export function grokLaunchBlockingDialog(screen: string): string | null {
 export function grokTuiReady(screen: string): boolean {
   if (grokLaunchBlockingDialog(screen)) return false;
   // Grok Build 0.2.117 は起動完了後に製品名を消し、model footerだけを残す。
-  // Composerも同じfrontendでmodel名だけが異なるため、両方をharness UIの根拠にする。
   // Windows native grok.exe（1.0.4 実測）は入力欄markerを `❯` でなく `>` で描画するため両方を受ける。
-  const grokFrontend = screen.includes("Grok Build") || /\b(?:Grok|Composer)\s+[\w.()-]+/.test(screen);
+  const grokFrontend = screen.includes("Grok Build") || /\bGrok\s+[\w.()-]+/.test(screen);
   return grokFrontend && /(^|\n|\s)[❯>]/.test(screen);
 }
 
@@ -372,7 +368,7 @@ export function grokRateLimitDialog(screen: string): { message: string; dismissK
 }
 
 function grokFramedComposer(screen: string): boolean {
-  return /^[ \t]*│[ \t]*[❯>][^\n]*\n(?:[ \t]*│[^\n]*\n)*[ \t]*╰[^\n]*\b(?:Grok|Composer)\s+[\w.()-]+[^\n]*╯[ \t]*(?:\n|$)/mu.test(screen);
+  return /^[ \t]*│[ \t]*[❯>][^\n]*\n(?:[ \t]*│[^\n]*\n)*[ \t]*╰[^\n]*\bGrok\s+[\w.()-]+[^\n]*╯[ \t]*(?:\n|$)/mu.test(screen);
 }
 
 export function grokPaneObservation(screen: string): HarnessPaneObservation {
@@ -461,7 +457,7 @@ export function grokTranscriptText(
 }
 
 export function createGrokAgentMetadata(
-  kind: "grok" | "composer",
+  kind: "grok",
   name: string,
   cwd: string | null,
   initialPrompt: InitialPromptState,

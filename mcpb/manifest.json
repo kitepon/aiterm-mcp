@@ -74,12 +74,8 @@
       "description": "Deprecated alias for agent_launch with the Grok CLI harness."
     },
     {
-      "name": "composer_agent",
-      "description": "Deprecated Grok CLI model-preset alias."
-    },
-    {
       "name": "agent_configure",
-      "description": "Change the model or reasoning effort of a running Claude, Codex, Grok, Composer, or Cursor session."
+      "description": "Change the model or reasoning effort of a running Claude, Codex, Grok, or Cursor session."
     },
     {
       "name": "agent_approval",

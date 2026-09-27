@@ -306,7 +306,6 @@ const AGENT_COMMAND_PATTERNS: Record<AgentKind, RegExp> = {
   codex: /(^|[\s/])codex([\s]|$)/,
   claude: /(^|[\s/])claude([\s]|$)/,
   grok: /(^|[\s/])grok(-[^\s/]+)?([\s]|$)/,
-  composer: /(^|[\s/])(composer|grok(-[^\s/]+)?)([\s]|$)/,
   cursor: /(^|[\s/])(cursor-agent|agent)([\s]|$)/,
 };
 
@@ -1378,7 +1377,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   const screen = captured.stdout;
   result.token_hint = meta ? paneTokenHint(screen) : null;
   if (meta && agent) {
-    const observation = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(screen)
+    const observation = meta.kind === "grok" ? grokPaneObservation(screen)
       : meta.kind === "codex" ? codexPaneObservation(screen)
       : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
     result.state = observation.state; result.reason = observation.reason;
@@ -2305,7 +2304,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
   }
   const m = raw as Partial<AgentMetadata>;
   if (
-    (m.kind !== "claude" && m.kind !== "codex" && m.kind !== "grok" && m.kind !== "composer" && m.kind !== "cursor") ||
+    (m.kind !== "claude" && m.kind !== "codex" && m.kind !== "grok" && m.kind !== "cursor") ||
     m.aiterm_session !== name ||
     typeof m.launch_id !== "string" ||
     !LAUNCH_ID_RE.test(m.launch_id)
@@ -2585,7 +2584,7 @@ function bindCompletedInitialPrompt(meta: AgentMetadata): void {
     setInitialPromptState(meta, "done");
     return;
   }
-  if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
+  if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     if (!latestGrokCompletion(meta, readTranscriptLines)) {
       throw new AitermError(
         `agent session '${meta.aiterm_session}' は起動時 prompt の完了待ちです。${agentWaitGuide(meta.aiterm_session)}`,
@@ -2634,7 +2633,7 @@ function latestAgentDoneEvent(meta: AgentMetadata, expectedOperationId: string |
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
     return latestCursorCompletion(meta, readTranscriptLines);
   }
-  if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
+  if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     return latestGrokCompletion(meta, readTranscriptLines);
   }
   const size = safeStatSize(meta.event_file);
@@ -2718,7 +2717,7 @@ function recoverAgentHarnessSession(meta: AgentMetadata): void {
 }
 
 function agentCompletionCursor(meta: AgentMetadata): number {
-  if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
+  if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     const transcript = grokEventsTranscript(meta);
     return transcript ? safeStatSize(transcript) : 0;
   }
@@ -2829,7 +2828,7 @@ export async function readAgentTranscriptResult(
   }
 
   const done = latestAgentDoneEvent(meta, operationId);
-  if (o.completion && meta.kind !== "codex" && meta.kind !== "grok" && meta.kind !== "composer"
+  if (o.completion && meta.kind !== "codex" && meta.kind !== "grok"
     && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
     throw new AitermError("回収対象の完了情報が置換されました。別の回答は配送しません", 2);
   }
@@ -3044,7 +3043,7 @@ export function agentWaitGuide(session?: string): string {
 
 export type { AgentWaitObservation } from "./agent-shared.js";
 
-// harness別の利用上限観測。Grok/Composerは現在の質問カード、Cursorは現在の画面、他harnessは既存logを使う。
+// harness別の利用上限観測。Grokは現在の質問カード、Cursorは現在の画面、他harnessは既存logを使う。
 // 出典（2026-08-22）: grok は live 実バナーで検証、codex/claude はインストール済み実バイナリの
 // 埋込文字列から抽出（codex: "You've hit your usage limit for" / claude: "Usage limit reached ·
 // continuing automatically when it resets"。Claude Code はリセット時に自動継続する設計なので、
@@ -3056,7 +3055,7 @@ const AGENT_RATE_LIMIT_PATTERNS: Partial<Record<AgentKind, RegExp[]>> = {
 const AGENT_RATE_LIMIT_SCAN_BYTES = 16 * 1024;
 // pane log の末尾から上限バナーを探す。読めない・無い・対象 harness でないは全て null（誤検知より取りこぼし側へ倒す）。
 export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): string | null {
-  if (kind === "grok" || kind === "composer") {
+  if (kind === "grok") {
     return grokRateLimitDialog(captureScreen(aitermSession, 0))?.message ?? null;
   }
   if (kind === "cursor") return cursorUsageLimit(captureScreen(aitermSession, 0))?.message ?? null;
@@ -3098,7 +3097,7 @@ export async function observeAgentDone(
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
     return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, (session) => captureScreen(session, 0), o.signal);
   }
-  if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
+  if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
   }
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
@@ -3196,11 +3195,11 @@ function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
 // Codex/Claude は実行中に「(esc to interrupt)」、Cursor は「Working」＋
 // 「ctrl+c to stop」を表示する（いずれも実機採取）。startup 側の処理（MCP initialize 等）が
 // 走ったまま古い composer がscrollbackに残る画面は入力受付とみなさない。
-// Grok/Composer は実機で `Waiting for response` / `Responding…` / `[stop]` を表示する。
+// Grok は実機で `Waiting for response` / `Responding…` / `[stop]` を表示する。
 function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
   if (kind === "cursor") return /ctrl\+c to stop/i.test(screen);
   if (kind === "codex" || kind === "claude") return /esc to interrupt/i.test(screen);
-  if (kind === "grok" || kind === "composer") {
+  if (kind === "grok") {
     return grokTuiBusy(screen);
   }
   return false;
@@ -3209,7 +3208,7 @@ function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
 // ready gate 用: 入力欄マーカーがあっても busy 表示中は ready と数えない。
 // frontend 推定（inferAgentFrontend）は「agent TUI が前面か」を見るだけなので isAgentTuiReady のまま。
 function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
-  const observation = kind === "grok" || kind === "composer" ? grokPaneObservation(screen)
+  const observation = kind === "grok" ? grokPaneObservation(screen)
     : kind === "codex" ? codexPaneObservation(screen)
     : kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
   return observation.state === "idle";
@@ -3218,7 +3217,7 @@ function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
 // 起動側が明示応答すべき既知UI。ここで自動承認せず、ready timeoutを待たずに
 // `initial_prompt=not_sent`を返してsessionを生かしたままcallerへ制御を戻す。
 function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
-  if (kind === "grok" || kind === "composer") return grokLaunchBlockingDialog(screen) !== null;
+  if (kind === "grok") return grokLaunchBlockingDialog(screen) !== null;
   if (kind === "codex") {
     return codexPaneObservation(screen).state === "blocked";
   }
@@ -3269,7 +3268,7 @@ async function waitAgentTuiReadyImpl(
   for (;;) {
     lastScreen = sample();
     samples++;
-    if (kind === "grok" || kind === "composer") assertGrokSandboxNotRejected(lastScreen);
+    if (kind === "grok") assertGrokSandboxNotRejected(lastScreen);
     if (isAgentTuiIdleReady(kind, lastScreen)) {
       readyStreak++;
       if (readyStreak >= stableSamples) return { ready: true, samples, lastScreen };
@@ -3341,7 +3340,7 @@ function agentSubmitResidueOnScreen(kind: AgentKind, screen: string, tail: strin
   const lines = screen.split("\n");
   // 入力欄マーカーは ready 判定と同じ記号を行頭基準で探す。submit 済みの transcript echo は
   // マーカー行より上に出るため、最後のマーカー行以降だけを composer 領域として見る。
-  // grok/composer は Windows native 描画（`>`・実測 1.0.4）も ready 判定と同様に受ける。
+  // grok は Windows native 描画（`>`・実測 1.0.4）も ready 判定と同様に受ける。
   const markerRe = kind === "codex"
     ? CODEX_COMPOSER_MARKER_RE
     : kind === "claude"
@@ -3706,7 +3705,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   while (!ready.ready) {
     const action = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
-      : meta.kind === "grok" || meta.kind === "composer" ? grokStartupAction(ready.lastScreen, options.trust_project === true) : null;
+      : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true) : null;
     if (!action || handled.has(action.kind)) break;
     handled.add(action.kind);
     const keys = action.selected ? action.keys.slice(0, -1) : action.keys;
@@ -3731,7 +3730,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
   }
   if (!ready.ready) {
-    const state = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(ready.lastScreen)
+    const state = meta.kind === "grok" ? grokPaneObservation(ready.lastScreen)
       : meta.kind === "codex" ? codexPaneObservation(ready.lastScreen)
       : meta.kind === "claude" ? claudePaneObservation(ready.lastScreen) : cursorPaneObservation(ready.lastScreen);
     return { status: "blocked", reason: state.reason };
@@ -3815,7 +3814,7 @@ export async function sendInitialAgentPrompt(
   let screen = "";
   do {
     screen = captureScreen(name, AGENT_TUI_READY_LINES);
-    const state = meta.kind === "grok" || meta.kind === "composer" ? grokPaneObservation(screen)
+    const state = meta.kind === "grok" ? grokPaneObservation(screen)
       : meta.kind === "codex" ? codexPaneObservation(screen)
       : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
     if (state.state === "busy") {
@@ -4051,7 +4050,7 @@ export async function configureAgent(
     };
   }
 
-  if (meta.kind === "grok" || meta.kind === "composer") {
+  if (meta.kind === "grok") {
     if (model) {
       const bin = resolveAgentBin(meta.kind);
       if (!bin) throw new AitermError(`${agentLabel(meta.kind)} の CLI が見つかりません`, 2);
@@ -4200,8 +4199,8 @@ export async function dispatchAgentTurn(
     throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
   }
   bindCompletedInitialPrompt(meta);
-  // Codex/Grok/Composerはbind済みのfollow-upでも毎回idleを確認してからtranscript境界を切る。
-  // Grok/Composerはsession IDが起動前から既知でも、共有MCPの初期化完了前には送信しない。
+  // Codex/Grokはbind済みのfollow-upでも毎回idleを確認してからtranscript境界を切る。
+  // Grokはsession IDが起動前から既知でも、共有MCPの初期化完了前には送信しない。
   // 同じcursorへ複数turnを帰属させる余地や、初期化中TUIへの早送信を作らない。
   // Claudeはsession IDを起動時に採番するため「bind済み」では初回を区別できず、起動直後の
   // dispatchがready gateを素通りしていた。composer描画前に貼付とEnterが届くと起動時の一塊の
@@ -4212,7 +4211,7 @@ export async function dispatchAgentTurn(
     && readClaudeOperationMarker(meta) === null;
   const paneInputRecovery = o.pane_input_recovery ?? await ensureAgentOwnsPaneInput(name, meta.kind);
   let codexRateLimitModelSwitch = false;
-  const limitDialog = meta.kind === "grok" || meta.kind === "composer"
+  const limitDialog = meta.kind === "grok"
     ? grokRateLimitDialog(captureScreen(name, 0)) : null;
   if (limitDialog) {
     const live = observeSession(name);
@@ -4420,7 +4419,7 @@ async function steerRunningTurn(
   sendKey(name, "Enter", { preserveAgentOperation });
   // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
   // 完了通知が差し込み前の回答で届いてしまう。待ち行列へ入ったことを確かめ、標準の「今すぐ送る」で現在turnへ移す。
-  const queued = meta.kind === "grok" || meta.kind === "composer" ? grokSteerQueued
+  const queued = meta.kind === "grok" ? grokSteerQueued
     : meta.kind === "cursor" ? cursorSteerQueued : null;
   if (queued) {
     const label = meta.kind === "cursor" ? "Cursor" : "Grok";
@@ -4530,7 +4529,7 @@ function inspectClaudeOperation(
   return { ...base, status: "completed", raw_output: rawOutput, reason: null };
 }
 
-// ── 対話型エージェント起動（Claude / Codex / Grok Build(Grok) / Grok Build(Composer)）──────
+// ── 対話型エージェント起動（Claude / Codex / Grok Build / Cursor）──────
 // aiterm の永続端末に、指定モデルの対話エージェント TUI を起動する。以後は pty_read で画面を
 // 読み、pty_send で操作する＝aiterm の対話パラダイムそのもの。モデルはツールごとに固定し、
 // reasoning effort は引数で渡す。CLI 未導入環境は明示エラー（動くフリをしない）。
@@ -4824,11 +4823,11 @@ export function openAgent(
   // 未検証リスク: npm グローバル導入の codex.cmd/.bat シムの対話 TUI 描画は実 Windows でしか確認
   // できない（CI 非対象。docs/03_audit-sweep-2026-07.md 参照）。native .exe の TUI 描画は
   // grok.exe で実測済み（2026-08-15）。
-  // Windows の grok/composer は Windows native の grok.exe だけを起動する（オーナー裁定 2026-08-15:
+  // Windows の grok は Windows native の grok.exe だけを起動する（オーナー裁定 2026-08-15:
   // WindowsネイティブはWindowsネイティブで完結させ、WSL2へ持ち込まない）。WSL 側 grok を起動すると
   // harness 実体が WSL process になり、auth・session 記録（events/chat_history）が WSL home 側へ分裂して
   // transcript／completion を回収できない（実被弾: 2026-08-15 olc-plan-review-grok2）。
-  if (isWin && (kind === "grok" || kind === "composer") && !isWindowsNativeExecutable(bin)) {
+  if (isWin && kind === "grok" && !isWindowsNativeExecutable(bin)) {
     ownTelemetryFailure(
       "AITERM.VENDOR_LAUNCHER_FAILED",
       new AitermError(
@@ -4841,10 +4840,9 @@ export function openAgent(
   }
   const binForCmd = agentBinForPaneShell(bin);
   const cwdForCmd = cwd ? paneCwdArgument(cwd) : cwd;
-  const grokAuthPath = agentDone && (kind === "grok" || kind === "composer") ? resolveAndValidateGrokAuth(realGrokHome()) : null;
-  if (kind === "grok" || kind === "composer") {
-    const requestedModel = model ?? (kind === "composer" ? GROK_MODEL_DEFAULTS.composer : null);
-    if (requestedModel) assertGrokModelAvailable(bin, cwd ?? process.cwd(), requestedModel);
+  const grokAuthPath = agentDone && kind === "grok" ? resolveAndValidateGrokAuth(realGrokHome()) : null;
+  if (kind === "grok") {
+    if (model) assertGrokModelAvailable(bin, cwd ?? process.cwd(), model);
   }
   if (kind === "cursor" && model) {
     assertCursorModelAvailable(bin, cwd ?? process.cwd(), model, effort);

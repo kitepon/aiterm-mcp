@@ -23,7 +23,7 @@ const recordSchema = z.object({
   boundary: z.object({
     session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     launch_id: z.string().regex(/^[0-9a-f]{32}$/),
-    vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]),
+    vendor: z.enum(["claude", "codex", "grok", "cursor"]),
     harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
     event_cursor: z.number().int().nonnegative(), operation_id: z.string().nullable(),
     // 別端末の子。remote用の保存場所にだけ書き、旧版のreaderへ渡さない。

@@ -14,7 +14,7 @@ export type CursorParent = z.infer<typeof cursorParentSchema>;
 
 const deliveryIdSchema = z.string().uuid();
 const dispatchTools = new Set([
-  "agent_launch", "claude_agent", "codex_agent", "grok_agent", "composer_agent", "pty_send", "claude_turn",
+  "agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_send", "claude_turn",
 ]);
 
 export class CursorDeliveryError extends AitermError {

@@ -97,7 +97,6 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
     "claude_approval",
     "claude_turn",
     "codex_agent",
-    "composer_agent",
     "diagnostics",
     "grok_agent",
     "pty_close",
@@ -127,7 +126,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   );
   // 非ブロック規範: dispatch 系の説明は「待たない」を明示し、foreground 実行へ誘導する
   // 抽象文（旧「ホストのバックグラウンドタスクとして実行」）へ戻らない。
-  const dispatchDescs = [ptySend, ...["agent_launch", "claude_agent", "codex_agent", "grok_agent", "composer_agent"].map((n) => toolsResp.result.tools.find((t) => t.name === n))];
+  const dispatchDescs = [ptySend, ...["agent_launch", "claude_agent", "codex_agent", "grok_agent"].map((n) => toolsResp.result.tools.find((t) => t.name === n))];
   for (const tool of dispatchDescs) {
     assert.match(tool.description, /投げっぱなしでよい/, `${tool.name}: 投げっぱなし許諾を明示する`);
     assert.match(tool.description, /親はここで待たない/, `${tool.name}: 親が待たないことを明示する`);
@@ -155,7 +154,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   const claudeAgent = toolsResp.result.tools.find((t) => t.name === "claude_agent");
   assert.equal(claudeAgent.inputSchema.properties.write_scope, undefined, "claude_agent はwrite_scope対象外");
   assert.equal(claudeAgent.outputSchema.properties.write_scope, undefined, "claude_agent receiptは不変");
-  for (const name of ["codex_agent", "grok_agent", "composer_agent"]) {
+  for (const name of ["codex_agent", "grok_agent"]) {
     const tool = toolsResp.result.tools.find((t) => t.name === name);
     assert.equal(tool.inputSchema.properties.write_scope.type, "string", `${name} write_scope schema`);
     assert.equal(tool.inputSchema.properties.write_scope.minLength, 1, `${name} write_scope must be non-empty`);
@@ -202,7 +201,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.ok(agentConfigure.inputSchema.properties.model.anyOf.some((entry) => entry.type === "string"));
   assert.ok(agentConfigure.inputSchema.properties.reasoning_effort.anyOf.some((entry) => entry.type === "string"));
   assert.equal(agentConfigure.outputSchema.properties.schema.const, "aiterm.agent-configure-result.v1");
-  assert.deepEqual(agentConfigure.outputSchema.properties.provider.enum, ["claude", "codex", "grok", "composer", "cursor"]);
+  assert.deepEqual(agentConfigure.outputSchema.properties.provider.enum, ["claude", "codex", "grok", "cursor"]);
   assert.deepEqual(agentConfigure.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"]);
   const agentLaunch = toolsResp.result.tools.find((t) => t.name === "agent_launch");
   assert.deepEqual(agentLaunch.inputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"]);
@@ -225,7 +224,6 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
     ["claude_agent", "claude"],
     ["codex_agent", "codex"],
     ["grok_agent", "grok"],
-    ["composer_agent", "composer"],
   ]) {
     const tool = toolsResp.result.tools.find((entry) => entry.name === name);
     assert.equal(tool.inputSchema.properties.throughline_source_session.type, "string", `${name} portable fork source schema`);
@@ -241,7 +239,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
     assert.equal(tool.outputSchema.properties.session_id.pattern, "^[A-Za-z0-9_-]{1,64}$", `${name} session ID schema`);
     assert.equal(tool.outputSchema.properties.managed_completion.type, "boolean", `${name} managed completion schema`);
   }
-  for (const name of ["grok_agent", "composer_agent"]) {
+  for (const name of ["grok_agent"]) {
     const tool = toolsResp.result.tools.find((t) => t.name === name);
     assert.ok(
       tool.inputSchema.properties.model.anyOf?.some((v) => v.type === "string"),

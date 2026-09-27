@@ -163,19 +163,16 @@ test("agent_done screen settle: 上限まで一致しなければ unstable", asy
 });
 
 // ---------------------------------------------------------------- agent_done TUI ready gate
-test("agent_done ready gate: Claude/Codex/Grok/Composer の入力欄を判定する", () => {
+test("agent_done ready gate: Claude/Codex/Grok の入力欄を判定する", () => {
   assert.equal(core.__testIsAgentTuiReady("claude", "Claude Code v2.1.211\n❯ "), true);
   assert.equal(core.__testIsAgentTuiReady("codex", "╭─╮\n│ >_ OpenAI Codex │\n› "), true);
   assert.equal(core.__testIsAgentTuiReady("grok", "Grok Build  0.2.87 Beta\n  │ ❯"), true);
-  assert.equal(core.__testIsAgentTuiReady("composer", "Grok Build  0.2.87 Beta\n  │ ❯"), true);
   assert.equal(core.__testIsAgentTuiReady("grok", "2.7K / 500K\n│ ❯ │\nGrok 4.5 (high) · always-approve"), true);
-  assert.equal(core.__testIsAgentTuiReady("composer", "2.7K / 500K\n│ ❯ │\nComposer 2.5 Fast · always-approve"), true);
   assert.equal(core.__testIsAgentTuiReady("codex", "OpenAI Codex\n◦ Starting MCP servers"), false);
   assert.equal(core.__testIsAgentTuiReady("grok", "Grok Build\nChangelog"), false);
   assert.equal(core.__testIsAgentTuiReady("claude", "Claude Code\nConnecting…"), false);
   // Windows native grok.exe 1.0.4（実測）は入力欄 marker を `>` で描画し、footer に model を出す。
   assert.equal(core.__testIsAgentTuiReady("grok", "│ >                │\n╰─── Grok 4.6 (high) ─╯\nGrok Build  1.0.4 [stable]"), true);
-  assert.equal(core.__testIsAgentTuiReady("composer", "│ >                │\n╰─── Composer 2.5 Fast ─╯\nGrok Build  1.0.4 [stable]"), true);
 });
 
 test("agent_done ready gate: ready が連続安定するまで polling し、timeout なら false", async () => {
@@ -306,7 +303,7 @@ test("agent_done ready gate: busy 表示（esc to interrupt）中の Codex/Claud
   // idle 画面はこれまでどおり ready
   assert.equal(core.__testIsAgentTuiIdleReady("codex", "OpenAI Codex\n› "), true);
   assert.equal(core.__testIsAgentTuiIdleReady("claude", "Claude Code\n❯ "), true);
-  // Grok/Composer は busy 文字列の実機根拠が未採取のため除外対象外（従来判定を維持）
+  // Grok は busy 文字列の実機根拠が未採取のため除外対象外（従来判定を維持）
   assert.equal(core.__testIsAgentTuiIdleReady("grok", "Grok Build\n❯ esc to interrupt"), true);
 
   // gate 全体: busy が続く間は streak が積み上がらない

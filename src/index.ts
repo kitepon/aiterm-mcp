@@ -132,7 +132,7 @@ async function factoryDiagnostics(): Promise<string> {
       grok: {
         status: grok,
         optional: true,
-        required_for: ["grok_agent", "composer_agent"],
+        required_for: ["grok_agent"],
       },
       cursor: {
         status: cursor,
@@ -320,7 +320,7 @@ registerRemoteAwareTool(
       wait_process: waitProcessOutputSchema,
       parent_delivery: parentDeliveryOutputSchema.optional(),
       launch_id: z.string().nullable(),
-      vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]).nullable(),
+      vendor: z.enum(["claude", "codex", "grok", "cursor"]).nullable(),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
       // dispatch後のsubmit座礁観測（additive）。true=composerに送信textの残存を確認（submit未成立の疑い）/
       // false=残存を観測せず（成立の保証ではない）/ null=通常送信・判定不能。
@@ -458,7 +458,7 @@ registerRemoteAwareTool(
       mode: z.enum(["terminal", "agent_transcript"]),
       session_id: z.string(),
       text: z.string(),
-      vendor: z.enum(["claude", "codex", "grok", "composer", "cursor"]).nullable(),
+      vendor: z.enum(["claude", "codex", "grok", "cursor"]).nullable(),
       turn_id: z.string().nullable(),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
       raw_chars: z.number().int().nonnegative().nullable(),
@@ -789,7 +789,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-configure-result.v1"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-      provider: z.enum(["claude", "codex", "grok", "composer", "cursor"]),
+      provider: z.enum(["claude", "codex", "grok", "cursor"]),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       model: z.string().nullable(),
       reasoning_effort: z.string().nullable(),
@@ -819,10 +819,7 @@ const agentModelDesc = (kind: core.AgentKind) =>
       "（端末側のピンがそのまま効く。実効値は起動応答に明示される）"
     : kind === "cursor"
       ? "Cursor Agent CLIで選ぶbase model（例: gpt-5.6-luna）。GPT／Claude／Grok等を選べ、effortは別指定。省略時はCursor既定"
-    : `起動モデル。省略時は ${kind === "grok" ? "grok-4.6" : "grok-composer-2.5-fast"}。` +
-      (kind === "composer"
-        ? "既定／explicit modelを起動前にlive catalogへ照合し、不在ならfallbackせずエラー"
-        : "explicit modelを起動前にlive catalogへ照合し、不在ならfallbackせずエラー");
+    : "起動モデル。省略時は grok-4.6。explicit modelを起動前にlive catalogへ照合し、不在ならfallbackせずエラー";
 const agentEffortDesc = (kind: core.AgentKind) =>
   kind === "claude"
     ? "Claude Code reasoning effort。low/medium/high/xhigh/max。省略時はCLI既定"
@@ -1045,7 +1042,7 @@ server.registerTool(
       remote_host: z.string().optional().describe("別端末で起動した時の接続先"),
       remote_version: z.string().nullable().optional().describe("別端末のAiterm版"),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
-      provider: z.enum(["claude", "codex", "grok", "composer", "cursor"]).describe("旧互換field。新規連携はharnessを使う"),
+      provider: z.enum(["claude", "codex", "grok", "cursor"]).describe("旧互換field。新規連携はharnessを使う"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       managed_completion: z.boolean(),
       event_cursor: z.number().int().nullable(),
@@ -1096,16 +1093,6 @@ registerAgentTool(
     "turn は pty_send で送る（自動で非ブロック dispatch になる）。" +
     agentCompletionDesc +
     "model／reasoning_effortを引数で指定可。read-only sandboxとagent_configureに対応。",
-);
-registerAgentTool(
-  "composer_agent",
-  "composer",
-  "【旧互換alias・起動不能。ComposerはCursorのmodelの一つなので agent_launch(harness=cursor-cli, model=composer-2.5-fast) を使う】旧Grok CLIのComposer presetを起動しようとする。現行Grok CLIにComposerは無く、常にcatalogエラーになる。" +
-    agentEnvironmentDesc +
-    "turn は pty_send で送る（自動で非ブロック dispatch になる）。" +
-    agentCompletionDesc +
-    "model／reasoning_effortを引数で指定可。live catalogにComposer modelがなければGrokへfallbackせず明示エラー。" +
-    "read-only sandboxとagent_configureに対応。",
 );
 
 async function main(): Promise<void> {

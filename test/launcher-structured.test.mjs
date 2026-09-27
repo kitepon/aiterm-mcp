@@ -233,7 +233,7 @@ test("agent launch receipt: write_scope指定時だけ能力宣言を返し、�
   fs.writeFileSync(fakeGrok, [
     "#!/bin/sh",
     "if [ \"$1\" = models ]; then",
-    "  printf '%s\\n' 'Default model: grok-4.5' '' 'Available models:' '  * grok-4.5 (default)' '  - grok-composer-2.5-fast'",
+    "  printf '%s\\n' 'Default model: grok-4.5' '' 'Available models:' '  * grok-4.5 (default)'",
     "  exit 0",
     "fi",
     "for arg do printf '<arg>%s</arg>\\n' \"$arg\"; done",
@@ -282,7 +282,6 @@ test("agent launch receipt: write_scope指定時だけ能力宣言を返し、�
     for (const [tool, scope, enforcement] of [
       ["codex_agent", "read-only", "enforced_read_only"],
       ["grok_agent", "/repo/docs のみ書込み可", "declaration_only_unsupported"],
-      ["composer_agent", "/repo/test のみ書込み可", "declaration_only_unsupported"],
     ]) {
       const specifiedSession = `scope_${tool}_${Date.now().toString(36)}`;
       const specified = await call(tool, { session_name: specifiedSession, write_scope: scope });

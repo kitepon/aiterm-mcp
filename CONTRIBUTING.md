@@ -36,7 +36,7 @@ claude mcp add --scope user --transport stdio aiterm -- aiterm-mcp
 | `src/setup.ts` / `src/setup-cli.ts` | 一括導入の順序、公開JSON、終了コード。 |
 | `src/setup-platform.ts` / `src/setup-integrations.ts` | OS別の公式依存導入とAI別のMCP登録・確認。 |
 | `src/core.ts` | Harness-neutral orchestration: PTY operations, output reduction, completion dispatch, the destructive-command tripwire, correlation and approval relay, selected `env_vars`, optional Throughline context acquisition, and session-name validation. |
-| `src/harnesses/{claude,codex,grok,cursor}.ts` | Harness-owned launch arguments, readiness, completion/transcript attribution, model configuration, and auth/catalog preflight. Composer is one of Cursor's models (`cursor-cli`), not a harness or a Grok model; the `composer` kind survives only for the deprecated `composer_agent` alias. |
+| `src/harnesses/{claude,codex,grok,cursor}.ts` | Harness-owned launch arguments, readiness, completion/transcript attribution, model configuration, and auth/catalog preflight. Composer is one of Cursor's models (`cursor-cli`), not a harness or a Grok model. |
 | `src/tmux-runtime.ts` / `src/agent-resolver.ts` | All tmux/psmux and OS-specific executable-resolution behavior. Harness adapters must not grow their own platform branches. |
 | `src/agent-shared.ts` | Harness-neutral state, metadata, completion-event, and lineage types/primitives. |
 | `src/runtime-error-store.ts` | Product-owned offline aggregate store and its bounded bakery queue. Queue deadlines measure one head owner's lack of progress; do not reintroduce total-wait timeouts or per-poll external process-identity commands. |

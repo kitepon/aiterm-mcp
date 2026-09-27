@@ -10,7 +10,7 @@ test("Grokの完了記録と回答はCLIが正規化した作業パスから読�
   const variants = process.platform === "win32"
     ? [directory, directory.replaceAll("\\", "/")]
     : [directory, `${directory}/../grok-session-fixture`];
-  for (const kind of ["grok", "composer"]) {
+  for (const kind of ["grok"]) {
     for (const cwd of variants) {
       const meta = { kind, cwd, grok_home: path.resolve("grok-home"), vendor_session_id: "session-id" };
       const expected = path.join(meta.grok_home, "sessions", encodeURIComponent(directory), meta.vendor_session_id);

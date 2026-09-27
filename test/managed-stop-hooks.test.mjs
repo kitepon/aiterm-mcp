@@ -71,7 +71,7 @@ test("grok-stop-hook: Stop payload を agent_done event に正規化する", { s
     reason: "end_turn",
   };
   const r = spawnGrokHook(tmp, {
-    AITERM_AGENT_KIND: "composer",
+    AITERM_AGENT_KIND: "grok",
     AITERM_SESSION_ID: session,
     AITERM_AGENT_LAUNCH_ID: launchId,
   }, payload);
@@ -84,7 +84,7 @@ test("grok-stop-hook: Stop payload を agent_done event に正規化する", { s
     assert.equal(lines.length, 1);
     const event = JSON.parse(lines[0]);
     assert.equal(event.type, "agent_done");
-    assert.equal(event.vendor, "composer");
+    assert.equal(event.vendor, "grok");
     assert.equal(event.aiterm_session, session);
     assert.equal(event.launch_id, launchId);
     assert.equal(event.vendor_session_id, "019f399a-a6bb-76e3-84f9-0512fdab810a");

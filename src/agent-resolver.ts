@@ -31,7 +31,7 @@ export function isWindowsNativeExecutable(candidate: string): boolean {
 // Windows の bin 受入: native 実行ファイル（.exe/.cmd/.bat）に加え、pane shell
 // （Git Bash）が shebang で実行できる script も実在すれば受け入れる。旧 WSL 側
 // バイナリ検査への黙ったフォールバックは廃止（別 HOME・別 auth の subagent を
-// 作るため）。native 実行ファイルの強制が要る harness（grok/composer の実効
+// 作るため）。native 実行ファイルの強制が要る harness（grok の実効
 // sandbox 等）は openAgent 側の専用ゲートが明示エラーで担う。
 export function isUsableAgentExecutableFile(candidate: string): boolean {
   if (!isWin) return isUsableExecutableFile(candidate);

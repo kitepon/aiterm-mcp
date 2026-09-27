@@ -509,7 +509,6 @@ test("detectAgentRateLimit: Grokの過去logだけでは現在の上限にしな
   );
   try {
     assert.equal(core.detectAgentRateLimit("grok", name), null);
-    assert.equal(core.detectAgentRateLimit("composer", name), null);
     assert.equal(core.detectAgentRateLimit("codex", name), null);
   } finally {
     fs.rmSync(log, { force: true });

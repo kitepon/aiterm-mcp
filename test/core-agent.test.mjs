@@ -52,7 +52,7 @@ fs.writeFileSync(
     [
       "#!/bin/sh",
       "if [ \"$1\" = models ]; then",
-      "  printf '%s\\n' 'You are logged in with grok.com.' '' 'Default model: grok-4.5' '' 'Available models:' '  - grok-4.6' '  * grok-4.5 (default)' '  - grok-composer-2.5-fast'",
+      "  printf '%s\\n' 'You are logged in with grok.com.' '' 'Default model: grok-4.5' '' 'Available models:' '  - grok-4.6' '  * grok-4.5 (default)'",
       "  exit 0",
       "fi",
       "for arg do printf '<arg>%s</arg>\\n' \"$arg\"; done",
@@ -376,7 +376,7 @@ function makeFakeGrokTuiBin() {
     [
       "#!/bin/sh",
       "if [ \"$1\" = models ]; then",
-      "  printf '%s\\n' 'You are logged in with grok.com.' '' 'Default model: grok-4.5' '' 'Available models:' '  - grok-4.6' '  * grok-4.5 (default)' '  - grok-composer-2.5-fast'",
+      "  printf '%s\\n' 'You are logged in with grok.com.' '' 'Default model: grok-4.5' '' 'Available models:' '  - grok-4.6' '  * grok-4.5 (default)'",
       "  exit 0",
       "fi",
       "printf 'Grok Build\\n❯ ready\\n'",
@@ -552,7 +552,7 @@ function agentDoneLine(meta, overrides = {}) {
 }
 
 function appendAgentDone(meta, overrides = {}) {
-  if ((meta.kind === "grok" || meta.kind === "composer") && meta.completion_route === "grok_transcript") {
+  if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     const dir = path.join(meta.grok_home, "sessions", encodeURIComponent(meta.cwd ?? process.cwd()), meta.vendor_session_id);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(path.join(dir, "events.jsonl"), JSON.stringify({
@@ -639,7 +639,7 @@ function appendClaudeDoneWhenLogContains(sid, needle, text, overrides = {}) {
 }
 
 async function markFakeAgentReady(sid, kind = "codex") {
-  if (kind === "grok" || kind === "composer") {
+  if (kind === "grok") {
     const meta = readAgentMeta(sid);
     const dir = path.join(meta.grok_home, "sessions", encodeURIComponent(meta.cwd ?? process.cwd()), meta.vendor_session_id);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -701,8 +701,8 @@ test("Grokの応答中表示はcomposerが残っていてもidle readyにしな�
   assert.equal(core.__testIsAgentTuiIdleReady("grok", screen), false);
 });
 
-test("target contract: Grok/Composerは対話TUIへreasoning_effortを渡す", { skip: skipGrokFakeBin }, async () => {
-  for (const kind of ["grok", "composer"]) {
+test("target contract: Grokは対話TUIへreasoning_effortを渡す", { skip: skipGrokFakeBin }, async () => {
+  for (const kind of ["grok"]) {
     const [sid] = core.openAgent(kind, { reasoning_effort: "high" });
     try {
       const out = await core.readOutput(sid, {
@@ -719,8 +719,8 @@ test("target contract: Grok/Composerは対話TUIへreasoning_effortを渡す", {
   }
 });
 
-test("target contract: catalogにないGrok/Composer modelはsession作成前に拒否する", { skip: skipGrokFakeBin }, () => {
-  for (const kind of ["grok", "composer"]) {
+test("target contract: catalogにないGrok modelはsession作成前に拒否する", { skip: skipGrokFakeBin }, () => {
+  for (const kind of ["grok"]) {
     const sessionName = `missing_${kind}_model`;
     assert.throws(
       () => core.openAgent(kind, { session_name: sessionName, model: "not-in-live-catalog" }),
@@ -731,16 +731,16 @@ test("target contract: catalogにないGrok/Composer modelはsession作成前に
 });
 
 test(
-  "target contract: Composer既定modelがcatalogにない場合もsession作成前に拒否する",
+  "target contract: Grok catalogにComposer modelを指定するとCursorを案内してsession作成前に拒否する",
   { skip: process.platform === "win32" ? "POSIX shell fixture" : undefined },
   () => {
     const savedBin = process.env.GROK_BIN;
     const catalogBin = makeGrokCatalogBin(["grok-4.6", "grok-4.5"]);
     process.env.GROK_BIN = catalogBin;
     try {
-      const sessionName = "missing_composer_default";
+      const sessionName = "missing_composer_model";
       assert.throws(
-        () => core.openAgent("composer", { session_name: sessionName }),
+        () => core.openAgent("grok", { session_name: sessionName, model: "grok-composer-2.5-fast" }),
         (error) => error.code === 2 && /grok-composer-2\.5-fast/.test(error.message) && /model catalog/.test(error.message) && /harness=cursor-cli, model=composer-2\.5-fast/.test(error.message),
       );
       assert.doesNotMatch(core.listSessions(), new RegExp(`(^|\\n)${sessionName}\\t`));
@@ -964,17 +964,17 @@ test("agent_configure: Claudeへ/modelと/effortを同じsessionのまま送る"
   }
 });
 
-test("target contract: Grok/Composerへ/modelと/effortを同じsessionのまま送る", { skip: skipGrokFakeBin }, async () => {
+test("target contract: Grokへ/modelと/effortを同じsessionのまま送る", { skip: skipGrokFakeBin }, async () => {
   await withFakeGrokHome(async () => {
     const savedBin = process.env.GROK_BIN;
     const fakeBin = makeFakeGrokTuiBin();
     process.env.GROK_BIN = fakeBin;
     try {
-      for (const kind of ["grok", "composer"]) {
+      for (const kind of ["grok"]) {
         const [sid] = core.openAgent(kind, { agent_done: true });
         try {
           await markFakeAgentReady(sid, kind);
-          const model = kind === "grok" ? "grok-4.6" : "grok-composer-2.5-fast";
+          const model = "grok-4.6";
           const result = await core.configureAgent(sid, { model, reasoning_effort: "high" });
           assert.deepEqual(result, {
             schema: "aiterm.agent-configure-result.v1",
@@ -1134,9 +1134,9 @@ test("openAgent: Codexのパス説明write_scopeはunsupportedを明示してsan
   });
 });
 
-test("target contract: Grok/Composer read-onlyはsandboxで実効化し、パス説明は宣言に保つ", { skip: skipGrokFakeBin }, async () => {
+test("target contract: Grok read-onlyはsandboxで実効化し、パス説明は宣言に保つ", { skip: skipGrokFakeBin }, async () => {
   await withFakeGrokHome(async () => {
-    for (const kind of ["grok", "composer"]) {
+    for (const kind of ["grok"]) {
       const [sid, hint] = core.openAgent(kind, { agent_done: true, write_scope: "read-only" });
       try {
         assert.equal(readAgentMeta(sid).write_scope, "read-only");
@@ -1318,11 +1318,11 @@ test("target contract: Claudeは通常3 scopeを共有してlaunch固有hookとl
   }
 });
 
-test("target contract: Grok/Composerは通常HOMEとGROK_HOMEを共有し既知session transcriptへ束縛する", { skip: skipGrokFakeBin }, async () => {
+test("target contract: Grokは通常HOMEとGROK_HOMEを共有し既知session transcriptへ束縛する", { skip: skipGrokFakeBin }, async () => {
   await withFakeGrokHome(async (normalHome) => {
     const configPath = path.join(normalHome, "config.toml");
     const configBefore = fs.readFileSync(configPath, "utf8");
-    for (const kind of ["grok", "composer"]) {
+    for (const kind of ["grok"]) {
       const [sid] = core.openAgent(kind, { agent_done: true });
       try {
         const meta = readAgentMeta(sid);
@@ -1855,7 +1855,7 @@ test("openAgent grok/composer agent_done: auth のリンクと権限はGrokへ�
     fs.writeFileSync(path.join(writableParent, "auth.json"), "{}\n", { mode: 0o600 });
     const openForBoth = (authPath) => {
       process.env.GROK_AUTH_PATH = authPath;
-      for (const kind of ["grok", "composer"]) {
+      for (const kind of ["grok"]) {
         const [sid] = core.openAgent(kind, { agent_done: true });
         try {
           assert.equal(readAgentMeta(sid).grok_auth_path, authPath);
@@ -1934,42 +1934,6 @@ test("openAgent grok agent_done: auth hard link はGrokへ渡す", { skip: skipG
       const [sid] = core.openAgent("grok", { agent_done: true });
       try {
         assert.equal(readAgentMeta(sid).grok_auth_path, auth);
-      } finally {
-        core.closeSession(sid);
-      }
-    });
-  } finally {
-    if (savedBin === undefined) delete process.env.GROK_BIN;
-    else process.env.GROK_BIN = savedBin;
-  }
-});
-
-test("openAgent composer agent_done: vendor=composer の metadata を作る", { skip: skipGrokFakeBin }, async () => {
-  const savedBin = process.env.GROK_BIN;
-  process.env.GROK_BIN = fakeGrokBin;
-  try {
-    await withFakeGrokHome(async () => {
-      const [sid] = core.openAgent("composer", {
-        agent_done: true,
-        prompt: "Reply READY.",
-      });
-      try {
-        const metaFile = fs.readdirSync(agentStateDir()).find((f) => f.startsWith(`${sid}.`) && f.endsWith(".agent.json"));
-        assert.ok(metaFile);
-        const meta = JSON.parse(fs.readFileSync(path.join(agentStateDir(), metaFile), "utf8"));
-        assert.equal(meta.kind, "composer");
-        const out = await core.readOutput(sid, {
-          wait: true,
-          until: "<arg>grok-composer-2.5-fast</arg>",
-          timeout: 5,
-          raw: true,
-        });
-        assert.match(out, /--no-auto-update/, `composer managed command: ${out}`);
-        assert.match(out, /--no-alt-screen/, `composer managed no-alt-screen: ${out}`);
-        assert.match(out, /--verbatim/, `composer managed verbatim: ${out}`);
-        assert.match(out, /<arg>--model<\/arg>/, `composer model flag argv: ${out}`);
-        assert.match(out, /<arg>grok-composer-2\.5-fast<\/arg>/, `composer model value argv: ${out}`);
-        assert.doesNotMatch(out, /--effort/, `composer managed effort: ${out}`);
       } finally {
         core.closeSession(sid);
       }
@@ -3801,29 +3765,12 @@ test("openAgent grok: --model grok-4.6 を組み立て、--effort は渡さな�
     else process.env.GROK_BIN = saved;
   }
 });
-test("openAgent composer: --model grok-composer-2.5-fast を組み立て、--effort は渡さない（コピペ swap 検出）", { skip: skipGrokFakeBin }, async () => {
+test("openAgent grok: model 引数で既定モデルを上書きする", { skip: skipGrokFakeBin }, async () => {
   const saved = process.env.GROK_BIN;
-  process.env.GROK_BIN = fakeGrokBin;
-  try {
-    const [sid] = core.openAgent("composer", {});
-    const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
-    assert.match(out, /--no-auto-update/, `composer no-auto-update: ${out}`);
-    assert.match(out, /<arg>--model<\/arg>/, `composer model flag: ${out}`);
-    assert.match(out, /<arg>grok-composer-2\.5-fast<\/arg>/, `composer model: ${out}`);
-    assert.doesNotMatch(out, /--effort/, `composer effort: ${out}`);
-    core.closeSession(sid);
-  } finally {
-    if (saved === undefined) delete process.env.GROK_BIN;
-    else process.env.GROK_BIN = saved;
-  }
-});
-
-test("openAgent grok/composer: model 引数で既定モデルを上書きする", { skip: skipGrokFakeBin }, async () => {
-  const saved = process.env.GROK_BIN;
-  const catalogBin = makeGrokCatalogBin(["grok-next", "composer-next"]);
+  const catalogBin = makeGrokCatalogBin(["grok-next"]);
   process.env.GROK_BIN = catalogBin;
   try {
-    for (const [kind, model] of [["grok", "grok-next"], ["composer", "composer-next"]]) {
+    for (const [kind, model] of [["grok", "grok-next"]]) {
       const [sid] = core.openAgent(kind, { model });
       try {
         const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });

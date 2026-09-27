@@ -42,7 +42,7 @@ test("Grok上限: 引用、古いカード、新しい入力欄と処理中を�
 });
 
 test("Grok privacy: 案内と現在の枠付き入力欄が共存してもidleになる", () => {
-  for (const screen of [composer, composer.replace("❯", ">"), composer.replace("Grok 4.6", "Composer 2.5")]) {
+  for (const screen of [composer, composer.replace("❯", ">")]) {
     assert.deepEqual(grok.grokPaneObservation("Help improve Grok\n[Opt out] [Opt in]\n" + screen),
       { state: "idle", reason: "composer_ready" });
   }
@@ -95,7 +95,7 @@ async function withLimitPty(mode, kind, run) {
 import fs from 'node:fs';
 import path from 'node:path';
 if (process.argv[2] === 'models') {
-  console.log('Available models:\\n  - grok-4.6\\n  - grok-composer-2.5-fast');
+  console.log('Available models:\\n  - grok-4.6');
   process.exit(0);
 }
 const mode = ${JSON.stringify(mode)};
@@ -154,7 +154,7 @@ process.stdin.on('data', data => {
   }
 }
 
-for (const kind of ["grok", "composer"]) {
+for (const kind of ["grok"]) {
   test(`Grok上限PTY: ${kind}の同一sessionでX一回、今回の本文一回、解除後のcursor`, { skip: ptySkip }, async () => {
     await withLimitPty("recover", kind, async ({ sid, meta, metadata, inputs }) => {
       const original = fs.readFileSync(metadata, "utf8");

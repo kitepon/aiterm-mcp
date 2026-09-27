@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 削除
+
+- 旧互換alias `composer_agent` と、agent種別の`composer`を削除した。ComposerはCursorのmodelの一つで、現行のGrok CLIにはComposerが無いため、このaliasは常にcatalogエラーで起動できなかった。Composerは`agent_launch(harness=cursor-cli, model=composer-2.5-fast)`で起動する。`provider`／`vendor`の列挙から`composer`を外し、Claudeの親hookのmatcherからも`composer_agent`を外した。
+
 ## [0.40.3] - 2026-09-27
 
 ### 文書

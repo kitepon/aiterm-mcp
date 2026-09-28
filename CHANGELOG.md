@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- BellTeamとの連携用に、`pty_observe`がBellTeamからの要求にだけ、実行中のturnで書かれた作業の合間の言葉を返せるようにした。ほかの呼び手に対するツールの説明、引数、結果は変わらない。判断はrepositoryの`docs/adr/0071-bellteam-interim-words.md`。
+
+### 修正
+
+- Cursorは記録にturnの終了を書いたあとも、しばらく画面に実行中の表示を残す。完了通知の直後に`pty_send`すると差し込みと判定し、`STEER_NOT_QUEUED`で失敗していた（手元で3回中2回）。記録の末尾がturnの終了なら新しいturnとして送る。
+
 ## [0.41.3] - 2026-09-28
 
 ### 修正

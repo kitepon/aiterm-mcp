@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **136** 件 / 更新: 2026-09-21
+- 総数: **138** 件 / 更新: 2026-09-28
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 37件
+## 完了境界の検出 (completion-detection) — 39件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -121,6 +121,12 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Claude Code hooks: asyncRewakeと非ブロック受信](sources/completion-detection/claude-hooks-2026-09-10.md) — command hookのexec形式、PreToolUse/PostToolUse/SessionEndとasyncRewakeの公式契約。asyncRewakeはバックグラウンドで動き、exit 2でidle中の親も再開する。
   - 出典: <https://code.claude.com/docs/en/hooks.md> (official_docs, 319948 chars)
   - 効きどころ: 起動flagを増やさずClaude親へ結果を届け、MCP requestのtoolUseIdとhookのtool_use_idで宛先を相関する。
+- [Claudeの思考ブロック保持とCLIの責務](sources/completion-detection/claude-preserved-thinking-20260928.md) — 思考ブロックを保持する仕様と、Claude Codeがその処理を担当することの公式説明。
+  - 出典: <https://support.claude.com/en/articles/16761192> (official_docs, 83477 chars)
+  - 効きどころ: AitermはClaudeのAPI要求や思考ブロックを書き換えず、終了記録から送信状態だけを修理する。
+- [Claudeの安全判定と誤検知](sources/completion-detection/claude-safeguards-false-positives-20260928.md) — Anthropicが安全判定の誤検知が起こり得ると説明している公式資料。
+  - 出典: <https://support.claude.com/en/articles/8106465> (official_docs, 78525 chars)
+  - 効きどころ: 上流の拒否と、Aitermが所有するターン終了判定の不具合を分けるための根拠。
 - [Codex 0.154.0: MCP要求へのthreadId付与](sources/completion-detection/codex-0154-mcp-call-metadata.md) — モデルからのMCP呼出しに正規threadIdを_metaとして加える。ソース確認済み。
   - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.154.0/codex-rs/core/src/mcp_tool_call.rs> (source_code, 84041 chars)
   - 効きどころ: 親モデルに宛先IDを入力させず、依頼単位で配送先を固定する。

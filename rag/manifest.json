@@ -1107,6 +1107,40 @@
       "fetched": "2026-09-10"
     },
     {
+      "slug": "claude-preserved-thinking-20260928",
+      "topic": "completion-detection",
+      "title": "Claudeの思考ブロック保持とCLIの責務",
+      "source_url": "https://support.claude.com/en/articles/16761192",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/claude-preserved-thinking-20260928.md",
+      "tags": [
+        "claude",
+        "thinking",
+        "responsibility"
+      ],
+      "summary": "思考ブロックを保持する仕様と、Claude Codeがその処理を担当することの公式説明。",
+      "relevance": "AitermはClaudeのAPI要求や思考ブロックを書き換えず、終了記録から送信状態だけを修理する。",
+      "chars": 83477,
+      "fetched": "2026-09-28"
+    },
+    {
+      "slug": "claude-safeguards-false-positives-20260928",
+      "topic": "completion-detection",
+      "title": "Claudeの安全判定と誤検知",
+      "source_url": "https://support.claude.com/en/articles/8106465",
+      "source_type": "official_docs",
+      "path": "sources/completion-detection/claude-safeguards-false-positives-20260928.md",
+      "tags": [
+        "claude",
+        "refusal",
+        "api-error"
+      ],
+      "summary": "Anthropicが安全判定の誤検知が起こり得ると説明している公式資料。",
+      "relevance": "上流の拒否と、Aitermが所有するターン終了判定の不具合を分けるための根拠。",
+      "chars": 78525,
+      "fetched": "2026-09-28"
+    },
+    {
       "slug": "codex-0154-mcp-call-metadata",
       "topic": "completion-detection",
       "title": "Codex 0.154.0: MCP要求へのthreadId付与",
@@ -2655,5 +2689,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-09-21"
+  "updated": "2026-09-28"
 }

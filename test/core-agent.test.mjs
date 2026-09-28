@@ -3594,6 +3594,55 @@ test("observeAgentDone: 送信前の古い task_complete を follow-up done と�
   });
 });
 
+test("observeAgentDone: Codexの利用上限はtask_completeの記録で見分け、画面の文字では判定しない", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const meta = readAgentMeta(sid);
+      await markFakeAgentReady(sid, "codex");
+      // 依頼文や道具の出力に上限の文字が出ても、turnが動いている間は上限にしない。
+      const receipt = await core.dispatchAgentTurn(sid, "echo \"You've hit your usage limit\"");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.match(fs.readFileSync(sessionLogPath(sid), "utf8"), /You've hit your usage limit/);
+      const running = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 0 });
+      assert.equal(running.outcome, "running", JSON.stringify(running));
+      // macbookの実記録（2026-08-07）と同じ形。
+      const message = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 8th, 2026 12:35 PM.";
+      appendCodexTranscript(meta, "codex-session-limit", [
+        { type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 100, resets_at: 4102444800 } } } },
+        { type: "event_msg", timestamp: "2026-08-07T06:23:58.978Z", payload: { type: "task_complete", turn_id: "limit-turn",
+          last_agent_message: null, error: { message, codex_error_info: "usage_limit_exceeded" } } },
+      ]);
+      const limited = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 3 });
+      assert.equal(limited.outcome, "rate_limited", JSON.stringify(limited));
+      assert.equal(limited.rate_limit, message);
+      assert.equal(limited.turn_id, "limit-turn");
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
+test("observeAgentDone: Codexのused_percentが100%でも、上限の知らせが無いturnは完了にする", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const meta = readAgentMeta(sid);
+      await markFakeAgentReady(sid, "codex");
+      const receipt = await core.dispatchAgentTurn(sid, "echo FULL_BUT_WORKING");
+      appendCodexTranscript(meta, "codex-session-full", [
+        { type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 100, resets_at: 4102444800 } } } },
+        { type: "event_msg", payload: { type: "task_complete", turn_id: "full-turn", last_agent_message: "答え" } },
+      ]);
+      const observation = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 3 });
+      assert.equal(observation.outcome, "done", JSON.stringify(observation));
+      assert.equal(observation.rate_limit, null);
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
 test("observeAgentDone: 送信直後の task_complete を transcript cursor から回収する", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });

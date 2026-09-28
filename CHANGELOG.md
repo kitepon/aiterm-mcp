@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-09-28
+
+### 修正
+
+- Codexの利用上限を、pane logの末尾16KBに「You've hit your usage limit」があるかで判定していた。上限が明けた後の古い知らせだけでなく、道具の出力や依頼文にこの文字が入っただけでも`rate_limited`と誤判定していた（BellTeamの記録で4件）。Codexはturnが上限で終わると`task_complete`の`error`へ本文と`codex_error_info: "usage_limit_exceeded"`を書くので、完了待ちの中でこれを見て`rate_limited`を返す。`token_count`の`used_percent`は100%のまま返事が続くことがあるので使わない。判断はrepositoryの`docs/adr/0072-claude-codex-usage-limit.md`。
+
+### 変更
+
+- BellTeam向けの合間の言葉に、Codexがturnをエラーで終えた時の本文を`kind: "error"`で含める。
+
+## [0.42.1] - 2026-09-28
+
+### 修正
+
+- Claude Codeの利用上限の知らせを、pane logの末尾16KBから探していた。上限が明けても古い知らせがlogに残るため、次のturnの最初の見回りで`wait_process`が`rate_limited`を返し、実際には動いているturnやAPIエラーで終わったturnを取り落としていた。入力欄の下に出る知らせを今の画面から探す。この知らせは次のturnが始まると消える。会話欄や依頼文に残る上限の文は数えない。
+
+## [0.42.0] - 2026-09-28
+
+### 追加
+
+- BellTeamとの連携用に、`pty_observe`がBellTeamからの要求にだけ、実行中のturnで書かれた作業の合間の言葉を返せるようにした。ほかの呼び手に対するツールの説明、引数、結果は変わらない。判断はrepositoryの`docs/adr/0071-bellteam-interim-words.md`。
+
+### 修正
+
+- Cursorは記録にturnの終了を書いたあとも、しばらく画面に実行中の表示を残す。完了通知の直後に`pty_send`すると差し込みと判定し、`STEER_NOT_QUEUED`で失敗していた（手元で3回中2回）。記録の末尾がturnの終了なら新しいturnとして送る。
+
 ## [0.41.3] - 2026-09-28
 
 ### 修正
@@ -1828,7 +1854,10 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...HEAD
+[0.42.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...v0.42.2
+[0.42.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...v0.42.1
+[0.42.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...v0.42.0
 [0.41.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...v0.41.3
 [0.41.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.1...v0.41.2
 [0.41.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...v0.41.1

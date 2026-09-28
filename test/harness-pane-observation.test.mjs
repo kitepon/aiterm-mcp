@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction } from "../dist/harnesses/codex.js";
+import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -34,7 +34,7 @@ test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", (
   assert.equal(codexStartupAction(screen, false), null);
   assert.deepEqual(codexStartupAction(screen, true), { kind: 'workspace_trusted', keys: ['Enter'] });
 });
-import { claudeStartupAction, claudePaneObservation, claudeTuiReady } from "../dist/harnesses/claude.js";
+import { claudeStartupAction, claudePaneObservation, claudeTuiReady, claudeUsageLimit } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
 import { cursorHookBlocked, cursorPaneObservation, cursorPromptHooksRunning, cursorUsageLimit } from "../dist/harnesses/cursor.js";
 
@@ -303,4 +303,71 @@ test("Cursorの送信前hookが動いている画面だけを、hookの実行中
   assert.equal(cursorPromptHooksRunning(" ⠘⠆ Working  72 tokens\n  → Add a follow-up                                             ctrl+c to stop"), false);
   assert.equal(cursorPromptHooksRunning(CURSOR_HOOK_BLOCKED_SCREEN), false);
   assert.equal(cursorPromptHooksRunning(CURSOR_HOOK_BLOCKED_SCREEN.split("\n").slice(0, 12).join("\n")), false);
+});
+
+// Claude Code のBellTeamコンテナ実画面（2026-09-28、tmux）。上限の知らせは入力欄の下の足元に出る。
+const CLAUDE_RULE = "─".repeat(80);
+const CLAUDE_USAGE_LIMIT_TRANSCRIPT = [
+  "  ⎿  You've hit your session limit · resets 4:10pm (UTC)",
+  "     Continuing automatically at 4:10pm · esc to cancel",
+  "",
+  "● Usage limit reached · continuing automatically at 4:10pm · esc or type",
+  "  to cancel",
+  "",
+  "✻ Brewed for 46s · done 2:01 PM",
+  "",
+];
+const CLAUDE_USAGE_LIMIT_SCREEN = [
+  ...CLAUDE_USAGE_LIMIT_TRANSCRIPT,
+  CLAUDE_RULE,
+  "❯ ",
+  CLAUDE_RULE,
+  "  ⚠ Usage limit reached · continuing automatically at 4:10pm · esc to cancel",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+].join("\n");
+
+test("Claudeの利用上限は入力欄の下の知らせから返す", () => {
+  assert.deepEqual(claudeUsageLimit(CLAUDE_USAGE_LIMIT_SCREEN), {
+    message: "Usage limit reached · continuing automatically at 4:10pm",
+  });
+  // 色付きの描画でも同じ。
+  assert.deepEqual(claudeUsageLimit(CLAUDE_USAGE_LIMIT_SCREEN.replace("  ⚠ Usage", "  \x1b[38;5;231m⚠ Usage")), {
+    message: "Usage limit reached · continuing automatically at 4:10pm",
+  });
+});
+
+test("Claudeの足元が描き直された後は、会話欄や依頼文に残る上限の文を数えない", () => {
+  // 上限が明けて次のturnが走っている画面。会話欄の「● Usage limit reached」は残っている。
+  const running = [
+    ...CLAUDE_USAGE_LIMIT_TRANSCRIPT,
+    "❯ 「トロニー」からあなたへ: wait_processが rate_limited（\"Usage limit reached · continuing",
+    "  automatically at 4:10pm\"）を返してた",
+    "",
+    "✶ Wrangling… (5s · ↓ 402 tokens)",
+    "",
+    CLAUDE_RULE,
+    "❯ ",
+    CLAUDE_RULE,
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for ag…",
+  ].join("\n");
+  assert.equal(claudeUsageLimit(running), null);
+  // 入力欄へ打ちかけの依頼文に上限の文があっても、枠線の内側なので数えない。
+  const typing = [CLAUDE_RULE, "❯ Usage limit reached と出たら教えて", CLAUDE_RULE,
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"].join("\n");
+  assert.equal(claudeUsageLimit(typing), null);
+  assert.equal(claudeUsageLimit("● Usage limit reached · continuing automatically at 4:10pm"), null);
+});
+
+test("Codexのturnエラーはtask_completeのerrorから読み、利用上限はcodex_error_infoで見分ける", () => {
+  const done = (error) => ({ type: "event_msg", payload: { type: "task_complete", turn_id: "t", last_agent_message: null, error } });
+  const message = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 8th, 2026 12:35 PM.";
+  assert.equal(codexUsageLimit(done({ message, codex_error_info: "usage_limit_exceeded" })), message);
+  assert.deepEqual(codexTurnError(done({ message, codex_error_info: "usage_limit_exceeded" })), { message, info: "usage_limit_exceeded" });
+  // 値を持つ種類は{"種類":{…}}で書かれる。
+  assert.deepEqual(codexTurnError(done({ message: "boom", codex_error_info: { http_connection_failed: { http_status_code: 502 } } })),
+    { message: "boom", info: "http_connection_failed" });
+  assert.equal(codexUsageLimit(done({ message: "slow down", codex_error_info: "rate_limit_exceeded" })), null);
+  assert.equal(codexTurnError(done(null)), null);
+  assert.equal(codexUsageLimit({ type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 100 } } } }), null);
+  assert.equal(codexUsageLimit({ type: "response_item", payload: { type: "function_call_output", output: message } }), null);
 });

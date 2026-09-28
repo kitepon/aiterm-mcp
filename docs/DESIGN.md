@@ -81,7 +81,7 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 親の識別、配送、hook、配送固有state、導入・診断を独立packageへ抽出し、各製品が通常の依存として使う。
 各製品の完了観測・本文作成・job台帳は各製品に残し、hook登録と保存場所も製品ごとに維持する。
 実装・移行は未実施であり、以下に記す現行契約はそのまま有効である。
-公開API、抽出元、移行と受入条件は[ADR 0071](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0071-parent-delivery-module.md)に定める。
+公開API、抽出元、移行と受入条件は[ADR 0073](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0073-parent-delivery-module.md)に定める。
 
 ### Codex親への自動配送
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.3] - 2026-09-28
+
 ### 修正
 
 - Claude CodeがAPIエラーや安全判定の拒否でターンを終了し、Stop hookが発火しなかった場合、実行中の印が残り、次の`pty_send`を差し込みと誤判定していた。送信時に現在の印の作成後に記録された`isApiErrorMessage`を確認し、終了したターンの印だけを解除して新しいターンを開始する。過去のエラーで次のターンの印を解除せず、waiterは引き続き読取専用とする。上流APIの拒否はそのままエラーとして返す。
@@ -1826,7 +1828,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...HEAD
+[0.41.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...v0.41.3
 [0.41.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.1...v0.41.2
 [0.41.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...v0.41.1
 [0.41.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.40.3...v0.41.0

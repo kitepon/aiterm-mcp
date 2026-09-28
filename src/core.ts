@@ -4403,6 +4403,10 @@ export async function sendAgentMessage(
     clearClaudeApiErrorOperation(meta);
     running = readClaudeOperationMarker(meta) !== null;
   }
+  // Cursorはturn_endedを記録へ書いたあとも、しばらく画面にbusy表示を残す。その間に差し込むと待ち行列へ入らず
+  // STEER_NOT_QUEUEDで失敗していた（実測 2026-09-28、完了通知の直後の送信で3回中2回）。記録の末尾がturn_endedなら
+  // turnは終わっているので新しいturnとして送る。dispatchは入力を受け付けるまで待ってから送る。
+  if (running && meta.kind === "cursor" && latestCursorCompletion(meta, readTranscriptLines) !== null) running = false;
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
   }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-09-28
+
 ### 修正
 
 - Codexの利用上限を、pane logの末尾16KBに「You've hit your usage limit」があるかで判定していた。上限が明けた後の古い知らせだけでなく、道具の出力や依頼文にこの文字が入っただけでも`rate_limited`と誤判定していた（BellTeamの記録で4件）。Codexはturnが上限で終わると`task_complete`の`error`へ本文と`codex_error_info: "usage_limit_exceeded"`を書くので、完了待ちの中でこれを見て`rate_limited`を返す。`token_count`の`used_percent`は100%のまま返事が続くことがあるので使わない。判断はrepositoryの`docs/adr/0072-claude-codex-usage-limit.md`。
@@ -1852,7 +1854,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...HEAD
+[0.42.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...v0.42.2
 [0.42.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...v0.42.0
 [0.41.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...v0.41.3

@@ -3076,16 +3076,10 @@ export function agentWaitGuide(session?: string): string {
 
 export type { AgentWaitObservation } from "./agent-shared.js";
 
-// harness別の利用上限観測。Grokは現在の質問カード、CursorとClaudeは現在の画面、Codexは既存logを使う。
-// 出典（2026-08-22）: grok は live 実バナーで検証、codex/claude はインストール済み実バイナリの
-// 埋込文字列から抽出（codex: "You've hit your usage limit for" / claude: "Usage limit reached ·
-// continuing automatically when it resets"。Claude Code はリセット時に自動継続する設計なので、
-// この報告は「今は上限で止まっている」の観測であり恒久停止を意味しない）。
-const AGENT_RATE_LIMIT_PATTERNS: Partial<Record<AgentKind, RegExp[]>> = {
-  codex: [/You'?ve hit your usage limit/i],
-};
-const AGENT_RATE_LIMIT_SCAN_BYTES = 16 * 1024;
-// pane log の末尾から上限バナーを探す。読めない・無い・対象 harness でないは全て null（誤検知より取りこぼし側へ倒す）。
+// harness別の利用上限観測。Grokは現在の質問カード、CursorとClaudeは現在の画面を見る。
+// Codexはturnの記録（task_completeのcodex_error_info）で完了待ちの中で見分けるので、ここでは見ない。
+// Claude Code はリセット時に自動継続する設計なので、この報告は「今は上限で止まっている」の観測であり
+// 恒久停止を意味しない。
 export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): string | null {
   if (kind === "grok") {
     return grokRateLimitDialog(captureScreen(aitermSession, 0))?.message ?? null;
@@ -3094,19 +3088,6 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
   // Claudeの知らせはpane logに上限が明けた後も残り、次のturnの最初の見回りで誤って拾っていた（2026-09-28）。
   // 足元の知らせは次のturnで消えるので、今の画面だけを見る。
   if (kind === "claude") return claudeUsageLimit(captureScreen(aitermSession, 0))?.message ?? null;
-  const patterns = AGENT_RATE_LIMIT_PATTERNS[kind];
-  if (!patterns) return null;
-  const file = logpath(aitermSession);
-  let size: number;
-  try { size = fs.statSync(file).size; } catch { return null; }
-  if (size === 0) return null;
-  let text: string;
-  try { text = readFileRange(file, Math.max(0, size - AGENT_RATE_LIMIT_SCAN_BYTES), size).toString("utf8"); } catch { return null; }
-  const clean = text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  for (const re of patterns) {
-    const match = clean.match(re);
-    if (match) return match[0];
-  }
   return null;
 }
 
@@ -3127,7 +3108,7 @@ export async function observeAgentDone(
   }
   const timeout = o.timeout ?? DEFAULT_AGENT_DONE_TIMEOUT;
   if (meta.kind === "codex" && meta.completion_route === "codex_transcript") {
-    return observeCodexDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
+    return observeCodexDone(meta, timeout, o.cursor, o.signal);
   }
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
     return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, (session) => captureScreen(session, 0), o.signal);

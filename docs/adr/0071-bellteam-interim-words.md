@@ -15,7 +15,8 @@ Aitermは、`pty_observe`の要求の`params._meta`に`"aiterm/caller": "BellTea
   `event_cursor`はそのturnを始めたdispatch receiptの`event_cursor`で、呼び手はこれで自分の依頼のturnか確かめる。
   起動時promptのturnとまだ送っていないsessionでは`null`。
 - 最後の回答と思考は含めない。Claude CodeのAPIエラーとsession limitの知らせ（`isApiErrorMessage`）は`kind: "error"`で含める。
-  Codex・Grok・Cursorは、2026-09-28時点でエラーの本文を記録へ書かないので出せない。
+  Codexはturnをエラーで終えると`task_complete`の`error.message`へ本文を書くので、同じく`kind: "error"`で含める（0.42.2から）。
+  Grok・Cursorは、2026-09-28時点でエラーの本文を記録へ書かないので出せない。
 - dispatchの送信直前に、そのturnの言葉が記録のどこから始まるかを`<session>.<launch>.interim.json`へ残す。
   Claude Code・Codexは記録のbyte位置、Grok・Cursorは記録中のuser発話の数を使う。差し込み（steer）は境界を動かさず、
   同じturnの言葉として続く。境界の記録に失敗しても送信は止めない。

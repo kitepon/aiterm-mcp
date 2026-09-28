@@ -6,7 +6,7 @@
 // 最後の回答と思考は含めない。APIエラーやsession limitの知らせは、記録に書かれていれば含める。
 // ハーネスごとの見分け方（2026-09-28 記録で確認）:
 //   Claude Code: text block で message.stop_reason="tool_use"。isApiErrorMessage の行は知らせ。
-//   Codex:       assistant message の phase="commentary"。
+//   Codex:       assistant message の phase="commentary"。task_complete の error はturnを終えた知らせ。
 //   Grok:        content が空でなく tool_calls を持つ assistant。
 //   Cursor:      assistant の text のあとに tool_use が続くもの（Cursorは道具が終わってから行を書くので遅れて届く）。
 import * as fs from "node:fs";
@@ -23,7 +23,7 @@ import {
 } from "./agent-shared.js";
 import type { AgentHarness, AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
-import { codexRootTranscript } from "./harnesses/codex.js";
+import { codexRootTranscript, codexTurnError } from "./harnesses/codex.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { cursorTranscript } from "./harnesses/cursor.js";
 
@@ -130,6 +130,17 @@ export function codexInterimWords(lines: readonly string[]): Found[] {
   for (const line of lines) {
     const record = parse(line);
     const payload = record?.payload;
+    // エラーで終わったturnは、task_completeへ本文を書く（利用上限もここ）。
+    const error = codexTurnError(record);
+    if (error) {
+      words.push({
+        text: error.message,
+        kind: "error",
+        at: typeof record.timestamp === "string" ? record.timestamp : null,
+        turn_id: typeof payload.turn_id === "string" && payload.turn_id ? payload.turn_id : null,
+      });
+      continue;
+    }
     if (record?.type !== "response_item" || payload?.type !== "message" || payload?.role !== "assistant"
       || payload?.phase !== "commentary" || !Array.isArray(payload?.content)) continue;
     const text = payload.content

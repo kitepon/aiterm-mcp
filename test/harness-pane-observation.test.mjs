@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction } from "../dist/harnesses/codex.js";
+import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -356,4 +356,18 @@ test("Claudeの足元が描き直された後は、会話欄や依頼文に残�
     "  ⏵⏵ bypass permissions on (shift+tab to cycle)"].join("\n");
   assert.equal(claudeUsageLimit(typing), null);
   assert.equal(claudeUsageLimit("● Usage limit reached · continuing automatically at 4:10pm"), null);
+});
+
+test("Codexのturnエラーはtask_completeのerrorから読み、利用上限はcodex_error_infoで見分ける", () => {
+  const done = (error) => ({ type: "event_msg", payload: { type: "task_complete", turn_id: "t", last_agent_message: null, error } });
+  const message = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 8th, 2026 12:35 PM.";
+  assert.equal(codexUsageLimit(done({ message, codex_error_info: "usage_limit_exceeded" })), message);
+  assert.deepEqual(codexTurnError(done({ message, codex_error_info: "usage_limit_exceeded" })), { message, info: "usage_limit_exceeded" });
+  // 値を持つ種類は{"種類":{…}}で書かれる。
+  assert.deepEqual(codexTurnError(done({ message: "boom", codex_error_info: { http_connection_failed: { http_status_code: 502 } } })),
+    { message: "boom", info: "http_connection_failed" });
+  assert.equal(codexUsageLimit(done({ message: "slow down", codex_error_info: "rate_limit_exceeded" })), null);
+  assert.equal(codexTurnError(done(null)), null);
+  assert.equal(codexUsageLimit({ type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 100 } } } }), null);
+  assert.equal(codexUsageLimit({ type: "response_item", payload: { type: "function_call_output", output: message } }), null);
 });

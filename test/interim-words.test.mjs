@@ -44,7 +44,7 @@ test("合間の言葉: Claudeは道具の前の言葉とAPIエラーの知らせ
   ]);
 });
 
-test("合間の言葉: Codexはphase=commentaryだけを拾う", () => {
+test("合間の言葉: Codexはphase=commentaryとturnを終えたエラーを拾う", () => {
   const message = (phase, text) => ({
     timestamp: "2026-09-28T02:00:00.000Z",
     type: "response_item",
@@ -55,9 +55,13 @@ test("合間の言葉: Codexはphase=commentaryだけを拾う", () => {
     { type: "response_item", payload: { type: "reasoning", summary: [] } },
     message("commentary", "見てくる"),
     message("final_answer", "結論"),
+    { type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1", last_agent_message: "結論" } },
+    { timestamp: "2026-09-28T02:00:05.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "turn-2",
+      last_agent_message: null, error: { message: "You've hit your usage limit.", codex_error_info: "usage_limit_exceeded" } } },
   );
   assert.deepEqual(codexInterimWords(lines), [
     { text: "見てくる", kind: "interim", at: "2026-09-28T02:00:00.000Z", turn_id: "turn-1" },
+    { text: "You've hit your usage limit.", kind: "error", at: "2026-09-28T02:00:05.000Z", turn_id: "turn-2" },
   ]);
 });
 

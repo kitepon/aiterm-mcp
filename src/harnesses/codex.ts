@@ -248,6 +248,30 @@ export function codexCompletionEvent(
   };
 }
 
+// Codexはturnがエラーで終わると、task_completeへ本文と種類を書く（macbookの実記録 2026-08-07、codex 0.158にも同じ欄）。
+//   {"type":"task_complete","last_agent_message":null,
+//    "error":{"message":"You've hit your usage limit. Visit … or try again at Aug 8th, 2026 12:35 PM.","codex_error_info":"usage_limit_exceeded"}}
+// 種類は値の無いものが文字列、値を持つものが{"種類":{…}}になる。
+export function codexTurnError(record: any): { message: string; info: string | null } | null {
+  if (record?.type !== "event_msg" || record?.payload?.type !== "task_complete") return null;
+  const error = record.payload.error;
+  if (error === null || typeof error !== "object") return null;
+  const raw = error.codex_error_info;
+  const info = typeof raw === "string" ? raw
+    : raw !== null && typeof raw === "object" && !Array.isArray(raw) ? Object.keys(raw)[0] ?? null : null;
+  const message = typeof error.message === "string" ? error.message.trim() : "";
+  if (!message && !info) return null;
+  return { message: message || info!, info };
+}
+
+// 利用上限はtask_completeのcodex_error_infoで見分ける。token_countのused_percentは100%のまま
+// 返事が続くことがある（macbookの実記録で7千件以上）ので上限の印にしない。
+// rate_limit_exceededは短い間の混雑で、Codexが自分で再試行するので上限に数えない。
+export function codexUsageLimit(record: any): string | null {
+  const error = codexTurnError(record);
+  return error?.info === "usage_limit_exceeded" ? error.message : null;
+}
+
 export function latestCodexCompletion(
   meta: AgentMetadata,
   readTranscriptLines: (file: string) => string[],
@@ -271,7 +295,6 @@ export async function observeCodexDone(
   meta: AgentMetadata,
   timeout: number,
   requestedCursor: number | null | undefined,
-  detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
   signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
@@ -339,17 +362,19 @@ export async function observeCodexDone(
             continue;
           }
           try {
-            const done = codexCompletionEvent(meta, harnessSessionId, JSON.parse(line));
-            if (done) return observation("done", done);
+            const record = JSON.parse(line);
+            const done = codexCompletionEvent(meta, harnessSessionId, record);
+            if (done) {
+              // 上限の知らせはこのturnの終わりにだけ書かれる。画面やpane logの文字は、上限が明けた後も
+              // 残り、道具の出力や依頼文にも現れるので見ない（2026-09-28）。
+              const limited = codexUsageLimit(record);
+              return limited ? observation("rate_limited", done, limited) : observation("done", done);
+            }
           } catch {
             malformedEvents++;
           }
         }
       }
-    }
-    {
-      const limited = detectRateLimit(meta.kind, meta.aiterm_session);
-      if (limited) return observation("rate_limited", null, limited);
     }
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);

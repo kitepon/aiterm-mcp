@@ -259,7 +259,7 @@ ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hook�
 
 Grokの無人起動は公式`--trust`で指定された作業フォルダを信頼登録し、確認画面を完了してから初回promptを送る。この登録はGrok CLIの信頼ストアへ保存され、フォルダ内のhook・MCP・LSPにも適用される。read-only sandboxの制限は維持する。画面に残る完了済みhookの結果は実行中と判定しない。
 
-Grokで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。
+Grokで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。Claude Codeの上限は現在の画面の入力欄の下に出る知らせで、Codexの上限はturnを終えた記録（`task_complete`の`codex_error_info: "usage_limit_exceeded"`）で見分ける。pane logや道具の出力に残る上限の文字では判定しない。
 
 Cursorの送信前hook（`beforeSubmitPrompt`と、互換読込するClaude Codeの`UserPromptSubmit`）がpromptを拒否すると、Cursorはpromptを捨て、turnも完了も起きない。Aitermはこの拒否の表示を見分け、起動時promptは`initial_prompt=failed`、`pty_send`は成功receiptを返さず、どちらも`USER_HOOK_BLOCKED`とhookの出力を返す。確認時間（3秒）より後の拒否は、完了待ちが`outcome=error`（`aiterm-wait`はexit 7）で返す。
 

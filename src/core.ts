@@ -178,6 +178,8 @@ import {
   CURSOR_COMPOSER_CONTENT_MARKER_RE,
   validateCursorModelEffort,
 } from "./harnesses/cursor.js";
+import { readInterimWords, recordInterimBoundary } from "./interim-words.js";
+import type { InterimWordsResult } from "./interim-words.js";
 import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
 export { tmuxSpawnEnv } from "./tmux-runtime.js";
@@ -499,7 +501,8 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".cursor-result.json") ||
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-approval.json") ||
-          f.endsWith(".claude-dispatch")
+          f.endsWith(".claude-dispatch") ||
+          f.endsWith(".interim.json")
         ) fs.unlinkSync(p);
         else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home")) {
           fs.rmSync(p, { recursive: true, force: true });
@@ -1595,6 +1598,7 @@ export function killAll(): string {
           f.endsWith(".claude-result.json") ||
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-dispatch") ||
+          f.endsWith(".interim.json") ||
           f.endsWith(".codex-home") ||
           f.endsWith(".grok-home") ||
           f.endsWith(".home")
@@ -2814,6 +2818,14 @@ export interface AgentTranscriptResult {
   turn_id: string | null;
   harness: string;
   raw_chars: number;
+}
+
+/** BellTeamのため: agent sessionの現在（または直前）のturnの合間の言葉。agent sessionでなければnull。 */
+export function readSessionInterimWords(name: string, after: number): InterimWordsResult | null {
+  assertSessionName(name);
+  const dir = existingAgentsDir();
+  if (!dir || !fs.readdirSync(dir).some((f) => f.startsWith(`${name}.`) && f.endsWith(".agent.json"))) return null;
+  return readInterimWords(loadAgentMetadata(name), after);
 }
 
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */
@@ -4280,6 +4292,7 @@ export async function dispatchAgentTurn(
   prepareSendText(dispatchText, { raw: o.raw });
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
+  recordInterimBoundary(meta, startOffset, operationId);
   if (meta.kind === "claude") {
     // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
     // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。

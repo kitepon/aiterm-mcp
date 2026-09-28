@@ -20,6 +20,7 @@ import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescri
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
+import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -637,14 +638,27 @@ registerRemoteAwareTool(
         background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable() }),
     },
   },
-  async ({ session_id, cursor }) => {
+  async ({ session_id, cursor }, extra) => {
     try {
       const observation = core.observeSession(session_id, cursor);
       const result = { ...observation, ...(parentDelivery ? { parent_deliveries: parentDelivery.status(session_id) } : {}) };
-      return { ...ok(JSON.stringify(result)), structuredContent: { ...result } };
+      return { ...ok(JSON.stringify(result)), structuredContent: { ...result }, ...interimWordsMeta(session_id, extra._meta) };
     } catch (e) { return fail(e); }
   },
 );
+
+// BellTeamのため: 要求の_metaに aiterm/caller="BellTeam" がある時だけ、結果の_metaへ合間の言葉を載せる。
+// 説明と引数には出さない（interim-words.ts の冒頭）。それ以外の呼び手には何も足さない。
+function interimWordsMeta(sessionId: string, requestMeta: unknown): { _meta?: Record<string, unknown> } {
+  const request = interimRequestFromMeta(requestMeta);
+  if (!request) return {};
+  try {
+    const words = core.readSessionInterimWords(sessionId, request.after);
+    return words ? { _meta: { [INTERIM_RESULT_META_KEY]: words } } : {};
+  } catch (e) {
+    return { _meta: { [INTERIM_RESULT_META_KEY]: { schema: "aiterm.interim-words.v1", error: e instanceof Error ? e.message : String(e) } } };
+  }
+}
 
 registerRemoteAwareTool(
   "agent_approval",

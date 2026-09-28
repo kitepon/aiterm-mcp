@@ -146,6 +146,7 @@ import {
   claudeLaunchNote,
   claudeTuiReady,
   claudePaneObservation,
+  claudeUsageLimit,
   claudeStartupAction,
   claudeLoginMethodMenu,
   CLAUDE_COMPOSER_MARKER_RE,
@@ -3075,14 +3076,13 @@ export function agentWaitGuide(session?: string): string {
 
 export type { AgentWaitObservation } from "./agent-shared.js";
 
-// harness別の利用上限観測。Grokは現在の質問カード、Cursorは現在の画面、他harnessは既存logを使う。
+// harness別の利用上限観測。Grokは現在の質問カード、CursorとClaudeは現在の画面、Codexは既存logを使う。
 // 出典（2026-08-22）: grok は live 実バナーで検証、codex/claude はインストール済み実バイナリの
 // 埋込文字列から抽出（codex: "You've hit your usage limit for" / claude: "Usage limit reached ·
 // continuing automatically when it resets"。Claude Code はリセット時に自動継続する設計なので、
 // この報告は「今は上限で止まっている」の観測であり恒久停止を意味しない）。
 const AGENT_RATE_LIMIT_PATTERNS: Partial<Record<AgentKind, RegExp[]>> = {
   codex: [/You'?ve hit your usage limit/i],
-  claude: [/Usage limit reached/i],
 };
 const AGENT_RATE_LIMIT_SCAN_BYTES = 16 * 1024;
 // pane log の末尾から上限バナーを探す。読めない・無い・対象 harness でないは全て null（誤検知より取りこぼし側へ倒す）。
@@ -3091,6 +3091,9 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
     return grokRateLimitDialog(captureScreen(aitermSession, 0))?.message ?? null;
   }
   if (kind === "cursor") return cursorUsageLimit(captureScreen(aitermSession, 0))?.message ?? null;
+  // Claudeの知らせはpane logに上限が明けた後も残り、次のturnの最初の見回りで誤って拾っていた（2026-09-28）。
+  // 足元の知らせは次のturnで消えるので、今の画面だけを見る。
+  if (kind === "claude") return claudeUsageLimit(captureScreen(aitermSession, 0))?.message ?? null;
   const patterns = AGENT_RATE_LIMIT_PATTERNS[kind];
   if (!patterns) return null;
   const file = logpath(aitermSession);

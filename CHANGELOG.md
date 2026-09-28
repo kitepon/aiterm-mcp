@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Codeの利用上限の知らせを、pane logの末尾16KBから探していた。上限が明けても古い知らせがlogに残るため、次のturnの最初の見回りで`wait_process`が`rate_limited`を返し、実際には動いているturnやAPIエラーで終わったturnを取り落としていた。入力欄の下に出る知らせを今の画面から探す。この知らせは次のturnが始まると消える。会話欄や依頼文に残る上限の文は数えない。
+
 ## [0.42.0] - 2026-09-28
 
 ### 追加

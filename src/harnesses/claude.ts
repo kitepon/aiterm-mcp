@@ -265,6 +265,27 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
   return { state: "unknown", reason: "unrecognized_screen" };
 }
 
+// 利用上限で止まっているClaude Codeは、入力欄の下の枠線と権限表示の間へ知らせを出す（BellTeamコンテナの実画面 2026-09-28）。
+//   ❯
+//   ────────
+//   ⚠ Usage limit reached · continuing automatically at 4:10pm · esc to cancel
+//   ⏵⏵ bypass permissions on (shift+tab to cycle)
+// 次のturnが始まると足元は描き直されて知らせは消える。会話欄の「● Usage limit reached」や依頼文の引用は
+// 上限が明けても画面やpane logに残るので、今の状態として数えない。
+export function claudeUsageLimit(screen: string): { message: string } | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split("\n");
+  let composer = lines.length - 1;
+  while (composer >= 0 && !CLAUDE_COMPOSER_MARKER_RE.test(lines[composer])) composer--;
+  if (composer < 0) return null;
+  const rule = lines.findIndex((line, i) => i > composer && /^\s*─{8,}\s*$/u.test(line));
+  if (rule < 0) return null;
+  for (const line of lines.slice(rule + 1)) {
+    const hit = /^\s*(?:⚠\s*)?(Usage limit reached\b.*?)\s*(?:·\s*esc to cancel\s*)?$/iu.exec(line);
+    if (hit) return { message: hit[1] };
+  }
+  return null;
+}
+
 // Claude Code 2.1.282 は選択肢へ「1.」などの番号を付ける。番号の有無のどちらも受ける。
 export function claudeLoginMethodMenu(screen: string): boolean {
   const tail = screen.split("\n").slice(-32).join("\n");

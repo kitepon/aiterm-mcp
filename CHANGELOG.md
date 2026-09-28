@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-09-28
+
 ### 修正
 
 - Claude Codeの利用上限の知らせを、pane logの末尾16KBから探していた。上限が明けても古い知らせがlogに残るため、次のturnの最初の見回りで`wait_process`が`rate_limited`を返し、実際には動いているturnやAPIエラーで終わったturnを取り落としていた。入力欄の下に出る知らせを今の画面から探す。この知らせは次のturnが始まると消える。会話欄や依頼文に残る上限の文は数えない。
@@ -1842,7 +1844,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...HEAD
+[0.42.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...v0.42.0
 [0.41.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...v0.41.3
 [0.41.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.1...v0.41.2

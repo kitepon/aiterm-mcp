@@ -19,6 +19,8 @@ Grok／Composerのsandbox起動拒否については、[DESIGNの失敗と復旧
 
 Codex親への回答の自動配送は[DESIGN](DESIGN.md#codex親への自動配送)に、対応範囲と失敗時の状態を置く。
 Claude Code親の非同期hookによる受信は[DESIGN](DESIGN.md#claude-code親への自動配送)を参照する。
+親配送の共通モジュール化は[DESIGNの共通化設計](DESIGN.md#親配送の共通モジュール化設計)を参照する。
+共通化は設計段階であり、稼働済みAitermを正本とする。
 
 ## 履歴と証拠
 

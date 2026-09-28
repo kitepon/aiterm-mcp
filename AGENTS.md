@@ -75,6 +75,8 @@ OS差をharnessへ戻さない。stdioはJSON-RPC通信路なのでproductionコ
 
 ## 作業規律
 
+- 親配送の共通化は、稼働済みAitermの実装と挙動を正本として切り出す。他製品との差分はAitermへ揃え、
+  Aitermの配送契約は維持する。抽出範囲と互換条件は[DESIGN](docs/DESIGN.md)の共通化設計を参照する。
 - 原因を最小再現してから修理し、別経路へのfallback、retry、成功丸めで症状を隠さない。
 - 変更に直結するfocused testを先に実行し、関連gate完了後に`npm test`を一度だけ行う。
 - agentの認証・model catalog・設定・updateは各harness所有者の公式CLIへ委ねる。Aiterm独自の代替配布や

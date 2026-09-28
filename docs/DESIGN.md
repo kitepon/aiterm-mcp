@@ -75,6 +75,14 @@ Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancel
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
 
+### 親配送の共通モジュール化（設計）
+
+共通化の正本は、正常稼働しているAitermの親配送実装と挙動である。他製品との差分はAitermへ揃える。
+親の識別、配送、hook、配送固有state、導入・診断を独立packageへ抽出し、各製品が通常の依存として使う。
+各製品の完了観測・本文作成・job台帳は各製品に残し、hook登録と保存場所も製品ごとに維持する。
+実装・移行は未実施であり、以下に記す現行契約はそのまま有効である。
+公開API、抽出元、移行と受入条件は[ADR 0071](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0071-parent-delivery-module.md)に定める。
+
 ### Codex親への自動配送
 
 `src/parent-delivery.ts`が依頼の送信前に宛先と完了境界を保存し、完了観測、加工前の回答保存、配送を所有する。

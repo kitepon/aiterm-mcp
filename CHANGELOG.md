@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-09-28
+
 ### 追加
 
 - BellTeamとの連携用に、`pty_observe`がBellTeamからの要求にだけ、実行中のturnで書かれた作業の合間の言葉を返せるようにした。ほかの呼び手に対するツールの説明、引数、結果は変わらない。判断はrepositoryの`docs/adr/0071-bellteam-interim-words.md`。
@@ -1836,7 +1838,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...HEAD
+[0.42.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...v0.42.0
 [0.41.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.2...v0.41.3
 [0.41.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.1...v0.41.2
 [0.41.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.0...v0.41.1

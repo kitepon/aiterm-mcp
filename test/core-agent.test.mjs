@@ -3431,6 +3431,32 @@ test("sendAgentMessage: Claudeのtool処理中に画面のbusy表示が消えて
   }
 });
 
+test("sendAgentMessage: ClaudeのAPIエラー終了後は古いturnの印を消して次のturnを送る", { skip: skipAgentDone }, async () => {
+  const claudeHarness = await import("../dist/harnesses/claude.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const meta = readAgentMeta(sid);
+    const marker = path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`);
+    fs.writeFileSync(marker, JSON.stringify({ schema: "aiterm.claude-operation-marker.v1", operation_id: null }), { mode: 0o600 });
+    const earlier = new Date(Date.now() - 1000);
+    fs.utimesSync(marker, earlier, earlier);
+    const transcript = claudeHarness.claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(transcript, JSON.stringify({
+      type: "assistant", isApiErrorMessage: true, timestamp: new Date().toISOString(),
+      message: { content: [{ type: "text", text: "API Error: reasoning_extraction" }] },
+    }) + "\n");
+    const receipt = await core.sendAgentMessage(sid, "echo CLAUDE_AFTER_ERROR");
+    assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
+    assert.ok(fs.statSync(marker).mtimeMs > earlier.getTime(), "次のturnの印で完了を追跡する");
+    const next = await core.sendAgentMessage(sid, "echo CLAUDE_AFTER_ERROR_STEER");
+    assert.equal(next.schema, "aiterm.agent-steer.v1", "前のAPIエラーで新しいturnの印を消さない");
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
 test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無ければ新しいturnとして送る", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {

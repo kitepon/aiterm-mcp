@@ -251,6 +251,8 @@ aiterm predates Build Week, so the event work is kept visible in dated commits. 
 
 I used **Codex with GPT-5.6** as an engineering collaborator: it inspected the implementation, challenged the API and recovery contracts, generated focused regression cases, and helped verify race, security, timeout, and malformed-event paths. I reviewed the diffs and test evidence and retained the final product and architecture decisions. At that Build Week checkpoint, the regression suite contained 262 tests covering normal operation as well as failure and recovery behavior; current release receipts live in the [CHANGELOG](CHANGELOG.md) and release ADRs.
 
+ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
+
 ## Two ways to use it
 
 ### 1. Drive SSH, containers, and REPLs in one persistent terminal — the primitive

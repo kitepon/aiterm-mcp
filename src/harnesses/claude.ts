@@ -22,6 +22,8 @@ import {
   assertSessionName,
   agentsDir,
   LAUNCH_ID_RE,
+  AGENT_EVENT_TAIL_BYTES,
+  readFileRange,
 } from "../agent-shared.js";
 import type { AgentMetadata, AgentDoneEvent, InitialPromptState, AgentLineageContext } from "../agent-shared.js";
 
@@ -388,4 +390,24 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
     text: text.trim() || (status != null ? `API Error: ${String(status)}` : "API Error"),
     at: typeof record?.timestamp === "string" ? record.timestamp : null,
   };
+}
+
+// Stopが発火しないエラー終了を、現在のturn開始後の会話記録だけから判定する。
+export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): ClaudeApiError | null {
+  const file = claudeSessionTranscriptPath(meta);
+  if (!file) return null;
+  let size: number;
+  try {
+    size = fs.statSync(file).size;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const lines = readFileRange(file, Math.max(0, size - AGENT_EVENT_TAIL_BYTES), size).toString("utf8").split("\n");
+  lines.pop(); // 改行まで書かれた記録だけを扱う。
+  for (const line of lines.reverse()) {
+    const error = claudeApiErrorFromLine(line);
+    if (error?.at && Date.parse(error.at) >= startedAtMs) return error;
+  }
+  return null;
 }

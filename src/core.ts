@@ -152,6 +152,7 @@ import {
   createClaudeAgentMetadata,
   claudeSessionTranscriptPath,
   claudeApiErrorFromLine,
+  claudeApiErrorAfter,
   type ClaudeApiError,
 } from "./harnesses/claude.js";
 import {
@@ -1913,6 +1914,25 @@ function managedClaudeOperation(name: string): ClaudeOperationMarker | null | un
   }
   if (meta.kind !== "claude") return undefined;
   return readClaudeOperationMarker(meta);
+}
+
+function clearClaudeApiErrorOperation(meta: AgentMetadata): void {
+  const file = agentClaudeOperationPath(meta.aiterm_session, meta.launch_id);
+  let marker: fs.Stats;
+  try {
+    marker = fs.statSync(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  if (!claudeApiErrorAfter(meta, marker.mtimeMs)) return;
+  // 読取中にStopや次のturnが印を置換した場合は、その新しい印を消さない。
+  try {
+    const current = fs.statSync(file);
+    if (current.dev === marker.dev && current.ino === marker.ino) fs.unlinkSync(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 function canonicalClaudeApprovalScreen(screen: string): string {
@@ -4364,8 +4384,12 @@ export async function sendAgentMessage(
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
   let running = isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
   // Claudeのtool処理中は画面のbusy表示が消えることがある。Stopまで保持するturnの印を正とし、
-  // 印がある間は差し込み、Stop後は画面にbusy表示が残っても新しいturnとして送る。
-  if (meta.kind === "claude") running = readClaudeOperationMarker(meta) !== null;
+  // APIエラーでStopが来なかった印は、会話記録の終了時刻を確認して消す。
+  // 有効な印がある間は差し込み、終了後は画面にbusy表示が残っても新しいturnとして送る。
+  if (meta.kind === "claude") {
+    clearClaudeApiErrorOperation(meta);
+    running = readClaudeOperationMarker(meta) !== null;
+  }
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
   }

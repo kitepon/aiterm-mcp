@@ -67,7 +67,7 @@ Grokの記録先はCLIと同じOS絶対パスへcwdを正規化して導出し�
 agent sessionへの送信口は`pty_send`だけとする。子の状態は呼び出し側に選ばせず、Aitermが送る時点の画面で振り分ける。
 状態を見てから呼ぶまでの間に子のturnが変わるため、呼び出し側が入口を選ぶ形では外れる。
 実行中なら現在のturnへ追加textを差し込み、新しい完了境界と配送は作らない。完了境界は差し込み後も1つに保つ。
-Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの実行中には表示が残る。Stopで消えるturnの印だけを実行中判定の正本とする。
+Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの実行中には表示が残る。turnの印を実行中判定の正本とする。Stopが発火しないAPIエラー終了では、次の送信時に印の作成後の会話記録にある`isApiErrorMessage`を確認し、終了したturnの印だけを解除する。過去のエラーで新しい印を解除しない。waiterは印を変更せず、読取専用のままエラーを返す。
 それ以外は新しいturnとしてdispatchする。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
 Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、

@@ -251,6 +251,8 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 `aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。agent sessionへの送信は`pty_send`だけで行い、子の状態はAitermが送る時点の画面で見て振り分ける。Claudeは画面の実行中表示ではなくStopまで残るturnの印で判定する。子のturnが実行中なら各harness標準の操作で現在のturnへ差し込み（`mode=agent_steer`）、完了は差し込み後の作業の終わりに元の依頼へ1回だけ届く。新しい`event_cursor`と配送は作らない。それ以外は非ブロックdispatch（`mode=agent_dispatch`）で、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたは受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
 
+ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
+
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
 `agent_launch`は任意の`write_scope`も受ける。Codex／Grokのread-onlyは`--sandbox read-only`、Cursorは公式`--mode ask`で実効化する。path説明は同等CLI引数がないためdeclaration-only。

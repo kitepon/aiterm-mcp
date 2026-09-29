@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.5] - 2026-09-29
+
 ### 修正
 
 - `aiterm-setup --codex-steer disable`の後、Aitermのhookが居た位置の承認記録が`config.toml`に残っていた。空いた位置の記録を消す（aiterm-steer-delivery 0.1.4）。
@@ -1891,7 +1893,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...HEAD
+[0.43.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.4...v0.43.5
 [0.43.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.3...v0.43.4
 [0.43.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.2...v0.43.3
 [0.43.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.1...v0.43.2

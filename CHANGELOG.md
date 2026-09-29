@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-09-29
+
 ### 変更
 
 - 親への配送（Codexの公式キュー＋同期hook、Claude CodeのasyncRewake hook、Cursorのhook＋背景受信）の本体を、共通パッケージ[aiterm-steer-delivery](https://github.com/kitepon/aiterm-steer-delivery)へ移した。保存場所、hook command、entrypointのファイル名、案内文、配送の挙動は変わらない。旧中継（relay）はAitermに残す。他の製品（Peertable、gpt-connector）も同じパッケージで配送する。判断はrepositoryの`docs/adr/0073-parent-delivery-module.md`。
@@ -1859,7 +1861,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...v0.43.0
 [0.42.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...v0.42.2
 [0.42.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.41.3...v0.42.0

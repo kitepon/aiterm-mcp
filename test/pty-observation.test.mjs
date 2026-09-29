@@ -89,3 +89,19 @@ test('WindowsのpsmuxはPATHが固定されていても、利用者用とPC全�
   assert.equal(psmuxBin(env, () => false), 'psmux');
   assert.equal(psmuxBin({ ...env, AITERM_PSMUX: 'D:\\psmux.exe' }, () => true), 'D:\\psmux.exe');
 });
+
+test('子へ渡されたAITERM_STATE_BASEがあれば、XDG_RUNTIME_DIRより優先して同じ置き場を使う', async (t) => {
+  const { runtimeStateBase } = await import('../dist/state-root.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aiterm-state-base-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const saved = { base: process.env.AITERM_STATE_BASE, xdg: process.env.XDG_RUNTIME_DIR };
+  t.after(() => { for (const [k, v] of [['AITERM_STATE_BASE', saved.base], ['XDG_RUNTIME_DIR', saved.xdg]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  process.env.XDG_RUNTIME_DIR = os.tmpdir();
+  process.env.AITERM_STATE_BASE = base;
+  assert.equal(runtimeStateBase(), base);
+  process.env.AITERM_STATE_BASE = path.join(base, 'missing');
+  assert.notEqual(runtimeStateBase(), path.join(base, 'missing'));
+});

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 起動元のAitermと子のagentとで状態の置き場が割れ、子の完了が親へ届かないことがあった（rabbitでCodex・Cursor・Grokを親にした時に再現）。Aitermは置き場を`XDG_RUNTIME_DIR`から決めるが、Codex等が起動したMCPの環境にはこの変数が無く、子のpaneの環境にはあるため、子のStop hookが別の場所へ完了を書いていた。子の起動時に自分の置き場を`AITERM_STATE_BASE`で渡し、子とhookはそれを最優先で使う。
+
 ## [0.43.1] - 2026-09-29
 
 ### 修正

@@ -4644,6 +4644,7 @@ function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string
     ["AITERM_AGENT_DEPTH", String(meta.delegation_depth ?? 1)],
     ["AITERM_AGENT_LINEAGE", meta.lineage ?? `host-root>${meta.kind}:${sid}`],
     ["AITERM_AGENT_DELEGATION_ALLOWED", meta.delegation_allowed === true ? "true" : "false"],
+    ["AITERM_STATE_BASE", runtimeStateBase()],
   ];
 }
 
@@ -4665,6 +4666,7 @@ function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string
       `AITERM_AGENT_DEPTH=${shq(String(meta.delegation_depth ?? 1))}`,
       `AITERM_AGENT_LINEAGE=${shq(meta.lineage ?? `host-root>${meta.kind}:${sid}`)}`,
       `AITERM_AGENT_DELEGATION_ALLOWED=${shq(meta.delegation_allowed === true ? "true" : "false")}`,
+      `AITERM_STATE_BASE=${shq(runtimeStateBase())}`,
     ];
     if (meta.kind === "claude" || meta.kind === "codex" || meta.kind === "cursor") return common;
     return [...grokEnvTokens(meta), ...common];

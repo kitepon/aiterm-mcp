@@ -17,6 +17,17 @@ export function currentUid(): number {
 }
 
 export function runtimeStateBase(): string {
+  // 子のagentとそのhookは、起動したAitermと同じ置き場を使う。起動元（例: Codexが起動したMCP）と子のpaneとで
+  // XDG_RUNTIME_DIR の有無が違うと置き場が割れ、子の完了記録が親に見えなくなる（rabbitで再現）。
+  // 起動時に AITERM_STATE_BASE を子の環境へ渡し、それがあれば最優先で使う。
+  const inherited = process.env.AITERM_STATE_BASE;
+  if (inherited) {
+    try {
+      if (fs.statSync(inherited).isDirectory()) return inherited;
+    } catch {
+      /* 渡された置き場が無ければ通常の決め方へ戻す */
+    }
+  }
   // Windows Node の os.tmpdir() は TMPDIR を参照せず TEMP を返す。一方、psmux namespace は
   // tmux-runtime.ts で TMPDIR を最優先する。test／隔離processがTMPDIRだけを変えた時に
   // PTYは隔離されてもmanaged metadataが本番TEMPへ残ると、隔離側killAllが本番相関だけを

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `aiterm-setup --codex-steer disable`で、Aitermのhookを外すと後ろにある他製品・利用者のCodex hookの位置がずれ、Codexの承認と合わなくなって止まっていた（aiterm-steer-delivery 0.1.1で修正、gpt-connectorの担当が見つけた）。位置が動くhookの承認を新しい位置へ写してから書き換える。
+
 ## [0.43.2] - 2026-09-29
 
 ### 修正

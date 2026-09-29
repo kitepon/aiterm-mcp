@@ -3051,7 +3051,7 @@ export function agentDispatchGuide(session: string, cursor: number): string {
   const parent = autoDeliveryParent();
   if (parent === "Cursor") {
     return "回答はこの会話へ自動で届く。作業を続ければ次のツール返りに差し込まれる。" +
-      "ターンを終える前にreceiptのwait_processを背景（block_until_ms: 0）で起動しておけば、idle中に完了しても起きられる。" +
+      "ターンを終える前に、この結果のwait_processのコマンドを背景（block_until_ms: 0）で起動しておけば、idle中に完了しても起きられる。" +
       "ポーリング・pty_read(agent_transcript:true)は不要。";
   }
   if (parent) {

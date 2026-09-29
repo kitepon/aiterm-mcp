@@ -8,7 +8,8 @@ import { z } from "zod";
 import {
   cursorParentFromRequest, handleCursorHook, isCursorMcpClient, prepareCursorDelivery, receiveCursorAnswer,
 } from "../dist/cursor-parent-receiver.js";
-import { cursorReceiveProcess, main as receiveMain } from "../dist/cursor-parent-receive.js";
+import { cursorReceiveProcess, main as receiveMain, waitProcessCommandLine } from "../dist/cursor-parent-receive.js";
+import { stateRootCandidates } from "../dist/agent-shared.js";
 
 const hooks = (dir) => {
   const file = path.join(dir, "hooks.json");
@@ -141,4 +142,26 @@ test("受け口は本文、hook先行、timeout、引数不正を分ける", asy
   } else {
     assert.equal(processInfo.windows_start_process_argument_list, null);
   }
+});
+
+test("Cursor CLIはstructuredContentを見ないので、背景の受け取りコマンドを親のshellへ書ける1行にする", () => {
+  const wait = { executable: "/opt/node/bin/node", args: ["/a b/cursor-parent-receive.js", "--delivery", "x'y"] };
+  assert.equal(waitProcessCommandLine(wait, "linux"), `'/opt/node/bin/node' '/a b/cursor-parent-receive.js' '--delivery' 'x'\\''y'`);
+  assert.equal(waitProcessCommandLine({ executable: "C:\\Program Files\\nodejs\\node.exe", args: ["C:\\a\\r.js", "--delivery", "x'y"] }, "win32"),
+    `& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\a\\r.js' '--delivery' 'x''y'`);
+});
+
+test("Cursor CLIのMCPとhookで環境が違っても、hookは両方のstate rootを候補に持つ", (t) => {
+  const saved = { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, AITERM_STATE_BASE: process.env.AITERM_STATE_BASE };
+  t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const xdg = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-xdg-"));
+  t.after(() => fs.rmSync(xdg, { recursive: true, force: true }));
+  process.env.XDG_RUNTIME_DIR = xdg;
+  process.env.AITERM_STATE_BASE = xdg;
+  const candidates = stateRootCandidates();
+  const name = path.basename(candidates[0]);
+  assert.equal(candidates[0], path.join(xdg, name), "先頭はこのprocessの置き場");
+  assert.ok(candidates.includes(path.join(os.tmpdir(), name)), "環境を削られたMCPの置き場（os.tmpdir()）も見る");
+  if (process.platform !== "win32") assert.ok(candidates.includes(path.join("/tmp", name)));
+  assert.equal(new Set(candidates).size, candidates.length);
 });

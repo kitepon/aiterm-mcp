@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Cursor CLIの親で、子の回答が作業中にもidle中にも届かなかった（Linux・macOS）。Cursor CLIはMCPを削った環境で起動し、hookと背景の受信processは画面側の環境で起動する。state rootの置き場（XDG_RUNTIME_DIR・TMPDIR・AITERM_STATE_BASE）が割れ、hookが配送記録を見つけられずに何もしていなかった。hookと受信processは、同じ利用者の置き場の候補のうち配送記録のある方を使う（aiterm-steer-delivery 0.1.8）。
+- Cursor CLIのmodelはtool結果のstructuredContentを見ないため、idle中に受け取る背景コマンド（wait_process）を知らずにターンを終えていた。Cursor親への結果の本文にもそのコマンド行を書く。
+
 ## [0.43.6] - 2026-09-29
 
 ### 修正

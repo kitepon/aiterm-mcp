@@ -20,6 +20,7 @@ import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescri
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
+import { waitProcessCommandLine } from "./cursor-parent-receive.js";
 import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
@@ -53,7 +54,10 @@ async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): P
 
 function deliveryIdLine(delivery: DeliveryRequest | null): string {
   const id = delivery?.result()?.delivery_id;
-  return id ? `\ndelivery_id=${id}` : "";
+  if (!id) return "";
+  // Cursor CLIのmodelはtool結果のstructuredContentを見ないので、idle中に受け取る背景コマンドも本文に書く。
+  const wait = delivery?.wait_process();
+  return `\ndelivery_id=${id}` + (wait ? `\nwait_process（ターンを終える前に背景で起動）: ${waitProcessCommandLine(wait)}` : "");
 }
 
 function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {

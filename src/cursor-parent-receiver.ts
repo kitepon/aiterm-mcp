@@ -3,7 +3,7 @@
 import * as path from "node:path";
 import { z } from "zod";
 import * as steer from "aiterm-steer-delivery";
-import { ensureStateRoot } from "./agent-shared.js";
+import { ensureStateRoot, stateRootCandidates } from "./agent-shared.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
 
 // 配送記録の検証はAitermのzodで行う（パッケージのschemaと同じ形）。
@@ -16,6 +16,10 @@ export const { isCursorMcpClient, cursorHooksFile, prepareCursorDelivery, submit
 
 export function cursorHookRoot(state = ensureStateRoot()): string {
   return path.join(state, "cursor-parent-hooks");
+}
+/** hookと受信processが配送記録を探す置き場（先頭はこのprocessのもの）。理由は stateRootCandidates。 */
+export function cursorHookRoots(): string[] {
+  return stateRootCandidates().map(state => cursorHookRoot(state));
 }
 export function cursorParentHooksRegistered(document: unknown): boolean { return steer.cursorParentHooksRegistered(AITERM_PROFILE, document); }
 export function verifyCursorParent(parent: CursorParent, hooksFile = cursorHooksFile()): void { steer.verifyCursorParent(AITERM_PROFILE, parent, hooksFile); }

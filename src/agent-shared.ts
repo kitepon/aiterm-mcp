@@ -178,6 +178,17 @@ export function stateRoot(): string {
   return path.join(base, `aiterm-mcp-${uid}`);
 }
 
+/**
+ * 同じ利用者のAitermが使いうるstate rootの候補（先頭はこのprocessのもの）。
+ * Cursor CLIはMCPを削った環境（XDG_RUNTIME_DIR・TMPDIR・AITERM_STATE_BASE無し）で起動し、hookと背景processは画面側の環境で起動する。
+ * 置き場は環境で決まるので両者で割れる。hook側はこの候補のうち配送記録のある置き場を使う。
+ */
+export function stateRootCandidates(): string[] {
+  const name = `aiterm-mcp-${currentUid()}`;
+  const bases = [runtimeStateBase(), process.env.AITERM_STATE_BASE, process.env.XDG_RUNTIME_DIR, os.tmpdir(), process.platform === "win32" ? undefined : "/tmp"];
+  return [...new Set(bases.filter((base): base is string => typeof base === "string" && base !== "").map(base => path.join(base, name)))];
+}
+
 export function ensureStateRoot(): string {
   // state root は OS が与えるper-user runtime dir（Windows隔離時TMPDIR／XDG_RUNTIME_DIR／os.tmpdir()）の下に作る。
   // 以前はここで symlink・owner・mode を検査していたが、共有 /tmp に敵対的な同居主体がいる

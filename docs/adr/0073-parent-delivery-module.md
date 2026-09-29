@@ -1,6 +1,6 @@
 # ADR 0073: 稼働済みAitermから親配送の共通モジュールを抽出する
 
-状態: 設計。製品実装・依存追加・設定変更・移行・releaseは未実施。
+状態: 実装（2026-09-29）。パッケージは`aiterm-steer-delivery`（kitepon/aiterm-steer-delivery）。Aiterm・Peertable・gpt-connectorのCodexが利用する。gpt-connectorのCursor配送とcall-bridgeは未移行。実装の結果は末尾の「実装の記録」に置く。
 
 ## 1. 基準と目的
 
@@ -278,3 +278,14 @@ state逆変換を要しない。gpt-connectorは新Cursor受付の完了まで�
 - [gpt-connectorの配送設計](https://github.com/kitepon/gpt-connector/blob/c7485b47f7551650104786fcb74ad5e0d8b5b15d/docs/codex-steer.md)
 
 外部仕様の追加推測は使わず、上記commitの実装・既存文書・fixtureを設計の根拠とした。
+
+## 実装の記録（2026-09-29）
+
+オーナー指示: 名前はAiterm由来のsteer配送と分かるもの（→`aiterm-steer-delivery`）、Node以外の製品はCLIで使う、Peertableの親配送に適用する（「Peertableの親へのメッセージをAitermと同じ方式にしたいだけ」）。
+
+- Aiterm: 配送の各moduleは同じ関数名・引数のままパッケージを呼ぶ。手元615件、公式Codexのqueue＋hook試験7件、macbook・foxで配送関連71件（公式Desktop同梱Codexを含む）が通過。
+- 製品ごとの違いは`ProductProfile`（名前、MCP名とdispatch tool、保存場所、hook入口のファイル名、Codex client名とhook schema、案内文）。
+- Peertable: 本文が何通も届くので、パッケージにchannel（同じ会話へ何通も送る受け口）を加えた。受け口の仕組みは単発配送と同じで、Claude CodeだけStop hookで待機を張り直す。Grok等は背景の受信processで受け取る。Peertable独自のhook_context_id相関、probe、slot、lease、ページ分割の読み出し、旧受入manifestの公開gateはやめた。
+- gpt-connector: Codexの配送をパッケージへ移した。Aitermを正本として、Steer（hook）が無効でも公式キューで届け、旧中継が残る間のstatusは`restart_required`、Codex環境が無い時のhook状態はAitermと同じく「追加の状態なし」とした。Windowsのhook commandはPowerShell 7の絶対pathで起動する。gpt-connectorから取り込んだのは、再起動待ちの照合（引用符付き・旧方式の実行ファイル）と、保存前にhook directoryを整える口の2点。
+- Node以外の製品向けにCLI（`aiterm-steer-delivery --profile <json> codex ...`）を用意した。call-bridgeへの組込みは担当と調整する。
+- 未移行: gpt-connectorのCursor配送（ChatGPT相談を実機で通す環境で行う）、call-bridge。

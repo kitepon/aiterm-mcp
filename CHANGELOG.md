@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- 親への配送（Codexの公式キュー＋同期hook、Claude CodeのasyncRewake hook、Cursorのhook＋背景受信）の本体を、共通パッケージ[aiterm-steer-delivery](https://github.com/kitepon/aiterm-steer-delivery)へ移した。保存場所、hook command、entrypointのファイル名、案内文、配送の挙動は変わらない。旧中継（relay）はAitermに残す。他の製品（Peertable、gpt-connector）も同じパッケージで配送する。判断はrepositoryの`docs/adr/0073-parent-delivery-module.md`。
+- Codex Steerの導入で、導入前から動いているCodexを再起動待ちとして見分ける時、引用符付きのコマンド行も照合する（Windowsで見落としていた）。
+
 ## [0.42.2] - 2026-09-28
 
 ### 修正

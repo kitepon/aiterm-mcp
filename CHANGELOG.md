@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.7] - 2026-09-29
+
 ### 修正
 
 - Cursor CLIの親で、子の回答が作業中にもidle中にも届かなかった（Linux・macOS）。Cursor CLIはMCPを削った環境で起動し、hookと背景の受信processは画面側の環境で起動する。state rootの置き場（XDG_RUNTIME_DIR・TMPDIR・AITERM_STATE_BASE）が割れ、hookが配送記録を見つけられずに何もしていなかった。hookと受信processは、同じ利用者の置き場の候補のうち配送記録のある方を使う（aiterm-steer-delivery 0.1.8）。
@@ -1905,7 +1907,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...HEAD
+[0.43.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...v0.43.7
 [0.43.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...v0.43.6
 [0.43.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.4...v0.43.5
 [0.43.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.3...v0.43.4

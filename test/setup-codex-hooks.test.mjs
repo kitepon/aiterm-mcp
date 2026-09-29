@@ -87,11 +87,11 @@ test('不正な既存hook設定は書き換えない',t=>{
   }
 });
 
-test('Nodeが欠けてもdisableは実行でき、未対応OSのenableは設定しない',async t=>{
+test('LinuxでもSteerを有効にでき、Nodeが欠けてもdisableは実行できる',async t=>{
   const f=fixture(t);
-  assert.equal((await configureCodexSteer('enable',{...f.runtime,platform:'linux'})).status,'unsupported');
-  assert.equal(fs.existsSync(join(f.home,'hooks.json')),false);
-  await configureCodexSteer('enable',f.runtime);
+  // 2026-09-29のオーナー判断で、LinuxとDesktopの無い端末にも広げた（ADR 0073末尾）。
+  assert.equal((await configureCodexSteer('enable',{...f.runtime,platform:'linux'})).status,'ready');
+  assert.equal(fs.existsSync(join(f.home,'hooks.json')),true);
   await configureCodexSteer('disable',{...f.runtime,node:'/missing/node',hook:'/missing/hook'});
   assert.equal((await configureCodexSteer('status',f.runtime)).status,'disabled');
 });

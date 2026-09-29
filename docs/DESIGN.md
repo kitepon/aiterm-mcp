@@ -89,7 +89,7 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 宛先はCodexのMCP handshakeと各要求の`_meta.threadId`から取得する。modelが指定したIDや環境変数で代用しない。
 単品導入の`src/codex-parent-receiver.ts`は同じ`CODEX_HOME`の公式app-serverへstdioで接続し、
 `thread/read`と`thread/queue/list`で宛先を確認してから`thread/queue/add`へ本文をJSONで渡す。
-Steerを選択したmacOS・Windowsでも配送の入口は公式キューとする。
+Steerを選択した端末（macOS・Windows・Linux。Desktop同梱のCLI、無ければ通常のCodex CLI）でも配送の入口は公式キューとする。
 `src/codex-parent-hooks.ts`の同期`PostToolUse`がAitermの回答を同じターンの文脈へ渡し、
 `Stop`が最終応答の生成中に届いた回答で同じターンを継続する。
 取り込まれていない回答は公式キューに残り、親がidleになった時に通常配送される。終了後の再開には約10秒かかる場合がある。

@@ -48,7 +48,7 @@ HomebrewのNodeは更新後も有効な`opt`のパスをMCP登録とCodexのhook
 AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、再起動待ちは3、それ以外は2となる。
 
 
-### Codex DesktopへSteerを有効にする（macOS・Windows）
+### CodexへSteerを有効にする（macOS・Windows・Linux）
 
 対話実行の`aiterm-setup`で「Aiterm単品」と「Steer付き」を選べます。無人導入では明示します。
 
@@ -73,8 +73,8 @@ hookはAiterm自身の配送記録と本文が一致する回答だけを取り�
 自動再送はしません。長い回答はCodexの公式hook処理で抜粋と全文ファイルへの参照になる場合があります。
 
 解除・hook未対応の旧版への巻き戻し前は`aiterm-setup --codex-steer disable`を実行してCodexを再起動してください。
-macOS・Windowsの公式Codex Desktopと、公式キュー・hookに対応する同梱CLIを対象にします。
-When a Desktop update moves the bundled Codex CLI, Aiterm finds it again at use time and updates its configuration. If it cannot, it returns `CODEX_DESKTOP_BINARY_MOVED`; start Desktop and rerun setup.LinuxのSteer付き導入は理由付き`unsupported`を返します。
+公式Codex Desktop（macOS・Windows・Linux）の同梱CLIを先に使い、Desktopが無い端末では通常のCodex CLI（公式キュー・hookに対応する0.154以上）を使います。
+When a Desktop update moves the bundled Codex CLI, Aiterm finds it again at use time and updates its configuration. If it cannot, it returns `CODEX_DESKTOP_BINARY_MOVED`; start Desktop and rerun setup.
 Aiterm単品の公式キュー配送は従来どおり利用できます。
 
 No clone or build is required. Each client launches the published package with:

@@ -79,7 +79,7 @@ Cursorのhookと背景受信は現在の`claim.json`を共有し、本文を二�
 
 既存の制限も抽出対象の契約に含める。
 
-- CodexのSteer選択はmacOS／Windows。Linuxは現行のキュー配送を維持し、Steer選択には既存の`unsupported`を返す。
+- CodexのSteer選択はmacOS／Windows。Linuxは現行のキュー配送を維持し、Steer選択には既存の`unsupported`を返す。（2026-09-29にオーナー判断で変更。末尾の「Steerの対象を広げる」を参照）
 - Codex native subagent、Claudeの`agent_id`付き会話など、Aitermが拒否する親は同じ理由で拒否する。
 - Cursorの識別対象はAitermが認識するclient。Cloud等や未検証のclient名を推測で追加しない。
 - Grok等の親が使うAitermの一般`wait_process`と公開readerは従来どおり製品が提供する。Grok専用のnative親receiverを新設した扱いにしない。
@@ -289,3 +289,10 @@ state逆変換を要しない。gpt-connectorは新Cursor受付の完了まで�
 - gpt-connector: Codexの配送をパッケージへ移した。Aitermを正本として、Steer（hook）が無効でも公式キューで届け、旧中継が残る間のstatusは`restart_required`、Codex環境が無い時のhook状態はAitermと同じく「追加の状態なし」とした。Windowsのhook commandはPowerShell 7の絶対pathで起動する。gpt-connectorから取り込んだのは、再起動待ちの照合（引用符付き・旧方式の実行ファイル）と、保存前にhook directoryを整える口の2点。
 - Node以外の製品向けにCLI（`aiterm-steer-delivery --profile <json> codex ...`）を用意した。call-bridgeへの組込みは担当と調整する。
 - 未移行: gpt-connectorのCursor配送（ChatGPT相談を実機で通す環境で行う）、call-bridge。
+
+## Steerの対象を広げる（2026-09-29、オーナー判断）
+
+前のcall-bridgeがCLIだけのCodexでも差し込めていたことを受け、オーナーの判断でSteerの対象を広げた（aiterm-steer-delivery 0.1.2〜0.1.3）。
+公式Desktopの同梱CLI（macOS・Windows・Linux。Linuxは `/usr/lib/chatgpt/resources/codex`）を先に探し、Desktopが無ければ通常のCodex CLI（0.154以上）を使う。
+公式キューとhookの仕組みはDesktopでもCLIでも同じで、LinuxのCLIで公式Codexのqueue＋hook試験が通っていた。
+使っていたCodexが更新で消えた時は同じ順で探し直す。npm版のCodex CLI（`node …/codex.js`とnative本体）も、導入前から動いている再起動待ちのCodexとして照合する。

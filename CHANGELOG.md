@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- CodexのSteer（`aiterm-setup --codex-steer enable`）を、Codex Desktopの無い端末とLinuxにも広げた。公式Desktop（macOS・Windows・Linux）の同梱CLIを先に使い、無ければ通常のCodex CLI（0.154以上）を使う。以前はmacOS・WindowsのDesktopだけで、Linuxは`unsupported`だった（aiterm-steer-delivery 0.1.3）。
+
 ## [0.43.3] - 2026-09-29
 
 ### 修正

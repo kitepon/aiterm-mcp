@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.6] - 2026-09-29
+
 ### 修正
 
 - Cursor CLI（cursor-agent）の親を、Cursor親として見分けていなかった。CLIはMCPのinitializeで`"Cursor"`と名乗り、`"cursor-vscode"`（Desktop）しか見ていなかったため、子の回答は汎用の`wait_process`でしか受け取れなかった。今はDesktopと同じく、作業中は次のtool返りへ差し込み、idle中は背景受信で届く（aiterm-steer-delivery 0.1.6、紅蓮氏の報告）。
@@ -1898,7 +1900,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...HEAD
+[0.43.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...v0.43.6
 [0.43.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.4...v0.43.5
 [0.43.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.3...v0.43.4
 [0.43.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.2...v0.43.3

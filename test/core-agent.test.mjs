@@ -1589,8 +1589,8 @@ test("openAgent claude agent_done: 通常settingsへStop hookとlineageを追加
     assert.equal(settings.model, "claude-sonnet-4-6");
     assert.equal(settings.effortLevel, "high");
     assert.match(settings.hooks.Stop[0].hooks[0].command, /claude-stop-hook\.js/);
-    assert.ok(settings.hooks.Stop[0].hooks[0].command.startsWith("'node' "), "hook実行時にPATHからnodeを解決する");
-    assert.equal(settings.hooks.Stop[0].hooks[0].command.includes(process.execPath), false, "版付きnode実体を焼き付けない");
+    assert.ok(settings.hooks.Stop[0].hooks[0].command.startsWith(`'${process.execPath}' `), "PATHにnodeが無い環境でも動くよう、nodeを絶対pathで呼ぶ");
+    assert.doesNotMatch(settings.hooks.Stop[0].hooks[0].command, /\/Cellar\//u, "Homebrewの版付きnode実体を焼き付けない");
     const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
     assert.match(out, /--setting-sources\s+user,project,local\s+--settings/);
     assert.match(out, /--dangerously-skip-permissions/);
@@ -4333,4 +4333,12 @@ test("openAgent grok: Windows は非native GROK_BIN を session 作成前に拒�
     else process.env.GROK_BIN = saved;
     fs.rmSync(bin, { force: true });
   }
+});
+
+test("Claude hookのnodeは絶対pathで、HomebrewのCellarの実体は更新でも残るoptへ置き換える", async () => {
+  const { hookNodeExecutable } = await import("../dist/harnesses/claude.js");
+  assert.equal(hookNodeExecutable("/home/u/.local/lib/node-v24/bin/node", () => false), "/home/u/.local/lib/node-v24/bin/node");
+  assert.equal(hookNodeExecutable("/opt/homebrew/Cellar/node/26.10.0_1/bin/node", file => file === "/opt/homebrew/opt/node/bin/node"), "/opt/homebrew/opt/node/bin/node");
+  assert.equal(hookNodeExecutable("/opt/homebrew/Cellar/node@24/24.2.0/bin/node", file => file === "/opt/homebrew/opt/node@24/bin/node"), "/opt/homebrew/opt/node@24/bin/node");
+  assert.equal(hookNodeExecutable("/opt/homebrew/Cellar/node/26.10.0_1/bin/node", () => false), "node");
 });

@@ -78,3 +78,14 @@ test("通常PTYの自己識別と明示キーだけの環境照会", async () =>
   assert.equal(core.observeSession(name).state, "missing");
   assert.deepEqual(core.listSessionsResult().sessions, []);
 });
+
+test('WindowsのpsmuxはPATHが固定されていても、利用者用とPC全体用のWinGet Linksから見つける', async () => {
+  const { psmuxBin } = await import('../dist/tmux-runtime.js');
+  const user = 'C:\\Users\\u\\AppData\\Local\\Microsoft\\WinGet\\Links\\psmux.exe';
+  const machine = 'C:\\Program Files\\WinGet\\Links\\psmux.exe';
+  const env = { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local', ProgramFiles: 'C:\\Program Files' };
+  assert.equal(psmuxBin(env, file => file === user || file === machine), user);
+  assert.equal(psmuxBin(env, file => file === machine), machine);
+  assert.equal(psmuxBin(env, () => false), 'psmux');
+  assert.equal(psmuxBin({ ...env, AITERM_PSMUX: 'D:\\psmux.exe' }, () => true), 'D:\\psmux.exe');
+});

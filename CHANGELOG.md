@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codexを親にすると、子のClaude Codeの完了が親へ届かないことがあった（rabbitで再現）。子へ渡すStop hookが`node`をPATHから探す形で、Codexが起動したAitermのPATHにnodeの場所が入っていない端末では、hookが動かず完了の記録が書かれていなかった。hookのnodeは絶対pathで呼び、Homebrewの版付きの実体は更新でも残るopt側へ置き換える。
+- Windowsで、PATHを固定したMCP登録（Cursor等）から起動されたAitermがpsmuxを見つけられなかった（foxで再現）。利用者用に加えて、PC全体用のWinGet Links（`C:\Program Files\WinGet\Links`）も探す。
+
 ## [0.43.0] - 2026-09-29
 
 ### 変更

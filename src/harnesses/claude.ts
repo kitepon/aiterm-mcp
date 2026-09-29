@@ -67,11 +67,18 @@ function claudeHookScriptPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-hook.js");
 }
 
-// process.execPath は Homebrew 等では Cellar の版付き実体を指す。長寿命 MCP server の起動後に
-// runtime が更新されるとその実体だけが消え、既に生成済みの hook が exit 127 になる。
-// hook は server と同じ継承 PATH から node を毎回解決し、安定した package script を実行する。
+// hook は子の pane の環境で動くので、PATH に node が無い親（Codexが起動したMCP等）でも動くよう絶対pathで呼ぶ。
+// process.execPath は Homebrew では Cellar の版付き実体を指し、runtime の更新でその実体だけが消えて
+// 生成済みの hook が exit 127 になる。Cellar の実体は同じ formula の opt（更新でも残る）へ置き換える。
+export function hookNodeExecutable(execPath = process.execPath, exists: (file: string) => boolean = fs.existsSync): string {
+  const brew = /^(.*)\/Cellar\/(node(?:@\d+)?)\/[^/]+\/bin\/node$/.exec(execPath);
+  if (!brew) return execPath;
+  const opt = `${brew[1]}/opt/${brew[2]}/bin/node`;
+  return exists(opt) ? opt : "node";
+}
+
 function nodeHookCommand(hookScript: string): string {
-  return `${shq("node")} ${shq(hookScript)}`;
+  return `${shq(hookNodeExecutable())} ${shq(hookScript)}`;
 }
 
 export function createClaudeCorrelationSettings(

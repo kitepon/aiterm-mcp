@@ -29,10 +29,15 @@ export const WIN_NS = `aiterm-${createHash("sha1").update(SOCKDIR).digest("hex")
 // Windows で最初の呼び出し前に一度だけ native psmux の可用性を確かめ、失敗は原因別に投げる。
 // psmux は tmux CLI 互換の Windows ネイティブ実装（ConPTY・WSL 不要）。AITERM_PSMUX で
 // バイナリを明示上書きできる（POSIX の AITERM_TMUX に対応）。
-function psmuxBin(): string {
-  if (process.env.AITERM_PSMUX) return process.env.AITERM_PSMUX;
-  const wingetLink = process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", "psmux.exe");
-  return wingetLink && fs.existsSync(wingetLink) ? wingetLink : "psmux";
+// PATHを固定したMCP登録（Cursor等）から起動されてもWinGetの導入先を見つけられるよう、利用者用と
+// PC全体用（winget --scope machine）のLinksを先に見る。どちらも無ければPATHの psmux。
+export function psmuxBin(env: NodeJS.ProcessEnv = process.env, exists: (file: string) => boolean = fs.existsSync): string {
+  if (env.AITERM_PSMUX) return env.AITERM_PSMUX;
+  const links = [
+    env.LOCALAPPDATA && path.win32.join(env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", "psmux.exe"),
+    path.win32.join(env.ProgramFiles ?? "C:\\Program Files", "WinGet", "Links", "psmux.exe"),
+  ].filter((file): file is string => !!file);
+  return links.find(file => exists(file)) ?? "psmux";
 }
 export function psmuxVersionSupported(output: string): boolean {
   const match = /^psmux (\d+)\.(\d+)\.(\d+)(?:\s|$)/mu.exec(output);

@@ -707,6 +707,8 @@ test("Cursor親へのdispatchは回答の差し込みと背景のwait_processを
     assert.match(core.agentWaitGuide("child"), /wait_process/);
     core.setParentClient("cursor-vscode (via mcp-remote 0.1.29)");
     assert.match(core.agentDispatchGuide("child", 100), /この会話へ自動で届く/);
+    core.setParentClient("Cursor");
+    assert.match(core.agentDispatchGuide("child", 100), /この会話へ自動で届く/, "Cursor CLIも同じ案内");
   } finally { core.setParentClient(null); }
 });
 

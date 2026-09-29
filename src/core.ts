@@ -14,6 +14,7 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
@@ -3027,7 +3028,7 @@ let parentClientName: string | null = null;
 function autoDeliveryParent(): string | null {
   if (parentClientName === "codex-mcp-client") return "Codex";
   if (parentClientName === "claude-code") return "Claude Code";
-  if (parentClientName === "cursor-vscode" || parentClientName?.startsWith("cursor-vscode ")) return "Cursor";
+  if (isCursorMcpClient(parentClientName ?? undefined)) return "Cursor";
   return null;
 }
 

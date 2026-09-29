@@ -24,6 +24,7 @@ test("Cursor clientだけを親にし、hookが無ければ送信前に止める
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   assert.equal(isCursorMcpClient("cursor-vscode"), true);
   assert.equal(isCursorMcpClient("cursor-vscode (via mcp-remote 0.1.29)"), true);
+  assert.equal(isCursorMcpClient("Cursor"), true);
   assert.equal(isCursorMcpClient("codex-mcp-client"), false);
   assert.equal(isCursorMcpClient("claude-code"), false);
   assert.equal(isCursorMcpClient(undefined), false);

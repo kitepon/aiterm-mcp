@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Cursor CLI（cursor-agent）の親を、Cursor親として見分けていなかった。CLIはMCPのinitializeで`"Cursor"`と名乗り、`"cursor-vscode"`（Desktop）しか見ていなかったため、子の回答は汎用の`wait_process`でしか受け取れなかった。今はDesktopと同じく、作業中は次のtool返りへ差し込み、idle中は背景受信で届く（aiterm-steer-delivery 0.1.6、紅蓮氏の報告）。
+- WindowsのCursorは、hookのstdinのJSONの先頭にBOMを付ける。そのまま読んで失敗していたため、作業中の差し込みが起きず、配送が`sending`のまま止まっていた。先頭のBOMを落とす（aiterm-steer-delivery 0.1.7、紅蓮氏の報告）。
+
 ## [0.43.5] - 2026-09-29
 
 ### 修正

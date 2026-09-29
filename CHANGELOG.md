@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-09-29
+
 ### 修正
 
 - Codexを親にすると、子のClaude Codeの完了が親へ届かないことがあった（rabbitで再現）。子へ渡すStop hookが`node`をPATHから探す形で、Codexが起動したAitermのPATHにnodeの場所が入っていない端末では、hookが動かず完了の記録が書かれていなかった。hookのnodeは絶対pathで呼び、Homebrewの版付きの実体は更新でも残るopt側へ置き換える。
@@ -1866,7 +1868,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.1...HEAD
+[0.43.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...v0.43.0
 [0.42.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.1...v0.42.2
 [0.42.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.0...v0.42.1

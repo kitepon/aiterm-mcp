@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.3] - 2026-09-29
+
 ### 修正
 
 - `aiterm-setup --codex-steer disable`で、Aitermのhookを外すと後ろにある他製品・利用者のCodex hookの位置がずれ、Codexの承認と合わなくなって止まっていた（aiterm-steer-delivery 0.1.1で修正、gpt-connectorの担当が見つけた）。位置が動くhookの承認を新しい位置へ写してから書き換える。
@@ -1878,7 +1880,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.3...HEAD
+[0.43.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.2...v0.43.3
 [0.43.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.1...v0.43.2
 [0.43.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.42.2...v0.43.0

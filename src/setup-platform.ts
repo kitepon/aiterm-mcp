@@ -5,9 +5,9 @@ import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
 import { resolveWinPaneShell } from "./agent-resolver.js";
 import { ensureWinPsmux, resolveTmux } from "./tmux-runtime.js";
 
-export class SetupError extends Error {
-  constructor(public readonly code: string, message: string) { super(message); }
-}
+// setupの失敗は配送パッケージと同じclassにする。パッケージのsetupが投げたものも同じreason_codeで返す。
+import { SetupError } from "aiterm-steer-delivery";
+export { SetupError };
 
 export function powershellInvocation(command: string, args: string[]): string[] {
   const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;

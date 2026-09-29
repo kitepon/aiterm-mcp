@@ -3,8 +3,10 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathS
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import * as steer from "aiterm-steer-delivery";
 import { resolveAgentBin } from "./agent-resolver.js";
 import { SetupError, runSetupCommand, type SetupRun } from "./setup-platform.js";
+import { AITERM_PROFILE } from "./steer-profile.js";
 export { powershellInvocation } from "./setup-platform.js";
 
 export type Registration = { command: string; args: string[]; type?: "stdio" };
@@ -45,171 +47,34 @@ export function mergeJsonMcp(file: string, registration: Registration): "configu
   return "configured";
 }
 
+// 配送hookの登録・解除はaiterm-steer-delivery。hook入口はMCP登録と同じdist directoryに置く。
+function hookRuntime(registration: Registration, file: string): steer.HookRuntime {
+  return { command: registration.command, script: join(dirname(registration.args[0]), file) };
+}
+
 export function claudeParentHookEntries(registration: Registration): Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]> {
-  const command = { type: "command", command: registration.command, args: [join(dirname(registration.args[0]), "claude-parent-hook.js")] };
-  const matcher = "^mcp__aiterm__(agent_launch|claude_agent|codex_agent|grok_agent|pty_send|claude_turn)$";
-  return {
-    PreToolUse: [{ matcher, hooks: [{ ...command, timeout: 15 }] }],
-    PostToolUse: [{ matcher, hooks: [{ ...command, asyncRewake: true, timeout: 86400 }] }],
-    SessionEnd: [{ hooks: [{ ...command, timeout: 15 }] }],
-  };
+  return steer.claudeParentHookEntries(AITERM_PROFILE, hookRuntime(registration, AITERM_PROFILE.hooks.claude));
 }
 
 export function mergeClaudeParentHooks(file: string, registration: Registration): "configured" | "unchanged" {
-  const target = existsSync(file) ? realpathSync(file) : file;
-  let current: Record<string, unknown> = {};
-  if (existsSync(target)) {
-    try { current = JSON.parse(readFileSync(target, "utf8")); }
-    catch { throw new SetupError("config_invalid", "Claudeのhook設定JSONを読めません"); }
-  }
-  if (!record(current) || (current.hooks !== undefined && !record(current.hooks))) {
-    throw new SetupError("config_invalid", "Claudeのhooks設定はobjectである必要があります");
-  }
-  if (current.disableAllHooks === true) throw new SetupError("claude_parent_hooks_disabled", "Claudeのhookが無効です。disableAllHooksをfalseに変更してからsetupしてください");
-  const hooks = { ...current.hooks as Record<string, unknown> | undefined };
-  for (const [event, additions] of Object.entries(claudeParentHookEntries(registration))) {
-    const previous = hooks[event] ?? [];
-    if (!Array.isArray(previous) || previous.some(group => !record(group) || !Array.isArray(group.hooks))) {
-      throw new SetupError("config_invalid", `Claudeの${event} hook形式を読めません`);
-    }
-    // 他製品のhookとmatcherはそのまま保ち、当製品の専用entryだけを更新する。
-    const retained = previous.map(group => ({ ...group, hooks: (group.hooks as unknown[]).filter(hook => !isClaudeParentHook(hook))
-    })).filter(group => group.hooks.length > 0);
-    hooks[event] = [...retained, ...additions];
-  }
-  const next = { ...current, hooks };
-  if (isDeepStrictEqual(current, next)) return "unchanged";
-  mkdirSync(dirname(target), { recursive: true });
-  const temporary = `${target}.aiterm-${randomUUID()}`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    if (existsSync(target)) copyFileSync(target, `${target}.aiterm-backup`);
-    renameSync(temporary, target);
-  } finally { if (existsSync(temporary)) unlinkSync(temporary); }
-  if (!isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), next)) {
-    throw new SetupError("config_readback_failed", "Claudeのhook登録の読戻しが一致しません");
-  }
-  return "configured";
-}
-
-function isClaudeParentHook(hook: unknown): boolean {
-  return record(hook) && hook.type === "command" && Array.isArray(hook.args)
-    && typeof hook.args[0] === "string" && /[/\\]claude-parent-hook\.js$/.test(hook.args[0]);
+  return steer.mergeClaudeParentHooks(AITERM_PROFILE, file, hookRuntime(registration, AITERM_PROFILE.hooks.claude));
 }
 
 /** hookを持たない旧版へ戻す前に、当製品の登録だけを除く。 */
 export function removeClaudeParentHooks(file: string): "removed" | "unchanged" {
-  if (!existsSync(file)) return "unchanged";
-  const target = realpathSync(file);
-  const current = JSON.parse(readFileSync(target, "utf8"));
-  if (!record(current) || (current.hooks !== undefined && !record(current.hooks))) {
-    throw new SetupError("config_invalid", "Claudeのhook設定を読めません");
-  }
-  if (current.hooks === undefined) return "unchanged";
-  const hooks = { ...current.hooks as Record<string, unknown> | undefined };
-  for (const event of ["PreToolUse", "PostToolUse", "SessionEnd"]) {
-    if (hooks[event] === undefined) continue;
-    if (!Array.isArray(hooks[event])) throw new SetupError("config_invalid", "Claudeのhook設定を読めません");
-    hooks[event] = (hooks[event] as unknown[]).map(group => {
-      if (!record(group) || !Array.isArray(group.hooks)) throw new SetupError("config_invalid", "Claudeのhook設定を読めません");
-      return { ...group, hooks: group.hooks.filter(hook => !isClaudeParentHook(hook)) };
-    }).filter(group => group.hooks.length > 0);
-  }
-  const next = { ...current, hooks };
-  if (isDeepStrictEqual(current, next)) return "unchanged";
-  const temporary = `${target}.aiterm-${randomUUID()}`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    copyFileSync(target, `${target}.aiterm-backup`);
-    renameSync(temporary, target);
-  } finally { if (existsSync(temporary)) unlinkSync(temporary); }
-  if (!isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), next)) throw new SetupError("config_readback_failed", "Claude hook解除の読戻しが一致しません");
-  return "removed";
-}
-
-function shellQuote(value: string): string {
-  if (process.platform === "win32") return `'${value.replace(/'/g, "''")}'`;
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
+  return steer.removeClaudeParentHooks(AITERM_PROFILE, file);
 }
 
 export function cursorParentHookCommand(registration: Registration): string {
-  const script = join(dirname(registration.args[0]), "cursor-parent-hook.js");
-  const command = `${shellQuote(registration.command)} ${shellQuote(script)}`;
-  return process.platform === "win32" ? `& ${command}` : command;
-}
-
-function ownsCursorParentHook(hook: unknown): boolean {
-  return record(hook) && typeof hook.command === "string" && hook.command.includes("cursor-parent-hook.js");
+  return steer.cursorParentHookCommand(hookRuntime(registration, AITERM_PROFILE.hooks.cursor));
 }
 
 export function mergeCursorParentHooks(file: string, registration: Registration): "configured" | "unchanged" {
-  const target = existsSync(file) ? realpathSync(file) : file;
-  let current: Record<string, unknown> = { version: 1, hooks: {} };
-  if (existsSync(target)) {
-    try { current = JSON.parse(readFileSync(target, "utf8")); }
-    catch { throw new SetupError("config_invalid", "Cursorのhook設定JSONを読めません"); }
-  } else {
-    try {
-      if (lstatSync(file).isSymbolicLink()) throw new SetupError("config_invalid", "Cursorのhooks設定symlinkの参照先がありません");
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
-  if (!record(current) || (current.hooks !== undefined && !record(current.hooks))) {
-    throw new SetupError("config_invalid", "Cursorのhooks設定はobjectである必要があります");
-  }
-  const hooks = { ...(current.hooks as Record<string, unknown> | undefined) };
-  const entry = { command: cursorParentHookCommand(registration), timeout: 15 };
-  for (const event of ["afterMCPExecution", "postToolUse"]) {
-    const previous = hooks[event] ?? [];
-    if (!Array.isArray(previous)) throw new SetupError("config_invalid", `Cursorの${event} hook形式を読めません`);
-    const retained = previous.filter(hook => !ownsCursorParentHook(hook));
-    const owned = previous.filter(hook => ownsCursorParentHook(hook));
-    if (owned.length === 1 && isDeepStrictEqual(owned[0], entry) && retained.length + 1 === previous.length) continue;
-    const index = previous.findIndex(hook => ownsCursorParentHook(hook));
-    hooks[event] = index < 0 ? [...retained, entry] : previous.map((hook, i) => i === index ? entry : hook).filter((hook, i) => i === index || !ownsCursorParentHook(hook));
-  }
-  const next = { ...current, version: current.version ?? 1, hooks };
-  if (isDeepStrictEqual(current, next)) return "unchanged";
-  mkdirSync(dirname(target), { recursive: true });
-  const temporary = `${target}.aiterm-${randomUUID()}`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    if (existsSync(target)) copyFileSync(target, `${target}.aiterm-backup`);
-    renameSync(temporary, target);
-  } finally { if (existsSync(temporary)) unlinkSync(temporary); }
-  if (!isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), next)) {
-    throw new SetupError("config_readback_failed", "Cursorのhook登録の読戻しが一致しません");
-  }
-  return "configured";
+  return steer.mergeCursorParentHooks(AITERM_PROFILE, file, hookRuntime(registration, AITERM_PROFILE.hooks.cursor));
 }
 
 export function removeCursorParentHooks(file: string): "removed" | "unchanged" {
-  if (!existsSync(file)) return "unchanged";
-  const target = realpathSync(file);
-  const current = JSON.parse(readFileSync(target, "utf8"));
-  if (!record(current) || (current.hooks !== undefined && !record(current.hooks))) {
-    throw new SetupError("config_invalid", "Cursorのhook設定を読めません");
-  }
-  if (current.hooks === undefined) return "unchanged";
-  const hooks = { ...(current.hooks as Record<string, unknown>) };
-  for (const event of ["afterMCPExecution", "postToolUse"]) {
-    if (hooks[event] === undefined) continue;
-    if (!Array.isArray(hooks[event])) throw new SetupError("config_invalid", "Cursorのhook設定を読めません");
-    const retained = (hooks[event] as unknown[]).filter(hook => !ownsCursorParentHook(hook));
-    if (retained.length) hooks[event] = retained;
-    else delete hooks[event];
-  }
-  const next = { ...current, hooks };
-  if (isDeepStrictEqual(current, next)) return "unchanged";
-  const temporary = `${target}.aiterm-${randomUUID()}`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    copyFileSync(target, `${target}.aiterm-backup`);
-    renameSync(temporary, target);
-  } finally { if (existsSync(temporary)) unlinkSync(temporary); }
-  if (!isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), next)) {
-    throw new SetupError("config_readback_failed", "Cursor hook解除の読戻しが一致しません");
-  }
-  return "removed";
+  return steer.removeCursorParentHooks(AITERM_PROFILE, file);
 }
 
 export function configureIntegrations(home: string, registration: Registration, run: SetupRun = runSetupCommand, resolveClient = resolveAgentBin): Record<string, IntegrationResult> {

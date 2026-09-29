@@ -1,38 +1,19 @@
 // Codex親の配送は公式queueを使う。旧中継の選択はsetupで移行するまで維持する。
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import * as path from "node:path";
-import { resolveAgentBin } from "./agent-resolver.js";
-import { realCodexHome } from "./harnesses/codex.js";
+// 公式queueの配送はaiterm-steer-deliveryが持ち、旧中継（relay）だけをAitermに残す。
+import * as steer from "aiterm-steer-delivery";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { readRelayConfig, parentRelaySocket } from "./codex-relay-config.js";
 import { withCodexRelay, verifyLoadedParent } from "./codex-relay-client.js";
-import { currentCodexDesktopBinary } from "./codex-desktop-binary.js";
-import { finishCodexHookSubmission, assertCodexHookParentCurrent, assertCodexHooksReady, codexHookDirectory, readCodexHookConfig, registerCodexHookInput } from "./codex-hook-state.js";
-export { CodexDeliveryError } from "./codex-delivery-error.js";
+import { readCodexHookConfig } from "./codex-hook-state.js";
+import { AITERM_PROFILE } from "./steer-profile.js";
+export { CodexDeliveryError };
 
-export interface CodexParent {
-  thread_id: string;
-  codex_home: string;
-}
-
-/** modelの引数ではなく、CodexがMCP要求へ付けるmetadataだけを宛先にする。 */
-export function codexParentFromRequest(clientName: string | undefined, metadata: unknown): CodexParent | null {
-  if (clientName !== "codex-mcp-client") return null;
-  const threadId = (metadata as { threadId?: unknown } | undefined)?.threadId;
-  if (typeof threadId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(threadId)) {
-    throw new CodexDeliveryError("CODEX_PARENT_ID_UNAVAILABLE", "MCP要求に親のthreadIdがありません。対応するCodexへ更新してください");
-  }
-  return { thread_id: threadId, codex_home: path.resolve(realCodexHome()) };
-}
+export type CodexParent = steer.CodexParent;
+export const codexParentFromRequest = steer.codexParentFromRequest;
 
 // testは実process境界をfixtureへ差し替える。MCPの公開パラメータには出さない。
-export interface CodexReceiverRuntime {
-  executable?: string;
-  args?: string[];
-  timeout_ms?: number;
+export interface CodexReceiverRuntime extends steer.CodexReceiverRuntime {
   socket_path?: string;
-  hook_directory?: string;
 }
 
 function relaySocket(runtime?: CodexReceiverRuntime): string | null {
@@ -42,88 +23,12 @@ function relaySocket(runtime?: CodexReceiverRuntime): string | null {
   return config?.enabled ? parentRelaySocket(config) : null;
 }
 
-type Pending = {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
-  method: string;
-};
-
 export async function withCodexReceiver<T>(
   parent: CodexParent,
   action: (request: (method: string, params: unknown) => Promise<any>) => Promise<T>,
   runtime: CodexReceiverRuntime = {},
 ): Promise<T> {
-  const config = runtime.executable ? null : readCodexHookConfig();
-  const executable = runtime.executable ?? (config?.enabled ? await currentCodexDesktopBinary(config) : null) ?? resolveAgentBin("codex");
-  if (!executable) throw new CodexDeliveryError("CODEX_RECEIVER_UNAVAILABLE", "Codexの実行ファイルを確認できません");
-  const child = spawn(executable, runtime.args ?? ["app-server", "--listen", "stdio://"], {
-    stdio: ["pipe", "pipe", "ignore"],
-    env: { ...process.env, CODEX_HOME: parent.codex_home },
-    windowsHide: true,
-  });
-  const pending = new Map<number, Pending>();
-  let sequence = 0;
-  let stopped = false;
-  let transportError: string | null = null;
-  const failTransport = (message: string) => {
-    transportError = message;
-    for (const item of pending.values()) {
-      clearTimeout(item.timer);
-      item.reject(new CodexDeliveryError("CODEX_RECEIVER_TRANSPORT_FAILED", message, item.method === "thread/queue/add"));
-    }
-    pending.clear();
-  };
-  child.on("error", (error: NodeJS.ErrnoException) => failTransport(`Codexを起動できません（${error.code ?? "unknown"}）`));
-  child.stdin.on("error", (error: NodeJS.ErrnoException) => failTransport(`Codexへの書込みに失敗しました（${error.code ?? "unknown"}）`));
-  const exited = new Promise<void>((resolve) => child.once("close", (code, signal) => {
-    if (!stopped) failTransport(`Codexの接続が終了しました（exit=${code}, signal=${signal}）`);
-    resolve();
-  }));
-  const reader = createInterface({ input: child.stdout });
-  reader.on("line", (line) => {
-    let value: any;
-    try { value = JSON.parse(line); } catch {
-      failTransport("Codexが不正なJSON応答を返しました");
-      return;
-    }
-    const item = pending.get(value?.id);
-    if (!item) return;
-    clearTimeout(item.timer);
-    pending.delete(value.id);
-    if (value.error) {
-      item.reject(new CodexDeliveryError("CODEX_RECEIVER_REJECTED", typeof value.error.message === "string" ? value.error.message : "公式受信口が要求を拒否しました"));
-    } else if ("result" in value) item.resolve(value.result);
-    else item.reject(new CodexDeliveryError("CODEX_RECEIVER_INVALID_RESPONSE", "公式受信口の応答にresultがありません", item.method === "thread/queue/add"));
-  });
-  const request = (method: string, params: unknown): Promise<any> => new Promise((resolve, reject) => {
-    if (transportError) {
-      reject(new CodexDeliveryError("CODEX_RECEIVER_TRANSPORT_FAILED", transportError));
-      return;
-    }
-    const id = ++sequence;
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new CodexDeliveryError("CODEX_RECEIVER_TIMEOUT", `${method}の応答を確認できません`, method === "thread/queue/add"));
-    }, runtime.timeout_ms ?? 15_000);
-    pending.set(id, { resolve, reject, timer, method });
-    child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-  try {
-    await request("initialize", { clientInfo: { name: "aiterm_parent_delivery", version: "1" }, capabilities: { experimentalApi: true } });
-    child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
-    return await action(request);
-  } finally {
-    stopped = true;
-    for (const item of pending.values()) clearTimeout(item.timer);
-    pending.clear();
-    child.stdin.end();
-    // stdio終了を公式processへ伝える。終了しない外部processだけを明示的に停止する。
-    const terminate = setTimeout(() => child.kill("SIGKILL"), 2_000);
-    await exited;
-    clearTimeout(terminate);
-    reader.close();
-  }
+  return steer.withCodexReceiver(AITERM_PROFILE, parent, action, runtime);
 }
 
 /** 子へ送る前に、同じstoreの宛先と公式キューの対応を確認する。本文は保存・表示しない。 */
@@ -133,22 +38,7 @@ export async function verifyCodexParent(parent: CodexParent, runtime?: CodexRece
     await withCodexRelay(socket, request => verifyLoadedParent(request, parent.thread_id), runtime?.timeout_ms);
     return;
   }
-  await withCodexReceiver(parent, async (request) => {
-    const response = await request("thread/read", { threadId: parent.thread_id, includeTurns: false });
-    if (response?.thread?.id !== parent.thread_id) {
-      throw new CodexDeliveryError("CODEX_PARENT_UNAVAILABLE", "同じCodex環境で親threadを確認できません");
-    }
-    const subagent = response.thread.source?.subAgent;
-    if (subagent && typeof subagent === "object" && "thread_spawn" in subagent) {
-      throw new CodexDeliveryError("CODEX_PARENT_UNSUPPORTED", "Codexのnative sub-agentは外部processからのキュー入力を受け付けません");
-    }
-    await request("thread/queue/list", { threadId: parent.thread_id, limit: 1 });
-    const config = runtime ? (runtime.hook_directory ? readCodexHookConfig(runtime.hook_directory) : null) : readCodexHookConfig();
-    if (config?.enabled) {
-      assertCodexHookParentCurrent(config);
-      assertCodexHooksReady(await request("hooks/list", { cwds: [response.thread.cwd] }), config.command, path.join(parent.codex_home, "hooks.json"));
-    }
-  }, runtime);
+  await steer.verifyCodexParent(AITERM_PROFILE, parent, runtime);
 }
 
 export async function submitCodexParentAnswer(
@@ -170,19 +60,5 @@ export async function submitCodexParentAnswer(
       return { queued_submission_id: null };
     }, runtime?.timeout_ms);
   }
-  const root = runtime ? runtime.hook_directory : codexHookDirectory();
-  const hook = root && readCodexHookConfig(root)?.enabled;
-  if (hook) registerCodexHookInput(parent.codex_home, parent.thread_id, deliveryId, text, root);
-  try { return await withCodexReceiver(parent, async (request) => {
-    const result = await request("thread/queue/add", {
-      threadId: parent.thread_id,
-      input: [{ type: "text", text, text_elements: [] }],
-      clientUserMessageId: deliveryId,
-    });
-    if (typeof result?.queuedSubmission?.id !== "string") {
-      throw new CodexDeliveryError("CODEX_RECEIVER_INVALID_RESPONSE", "キューの受付IDを確認できません", true);
-    }
-    return { queued_submission_id: result.queuedSubmission.id };
-  }, runtime); }
-  finally { if (hook) finishCodexHookSubmission(parent.codex_home, parent.thread_id, deliveryId, root); }
+  return steer.submitCodexParentAnswer(AITERM_PROFILE, parent, deliveryId, text, runtime);
 }

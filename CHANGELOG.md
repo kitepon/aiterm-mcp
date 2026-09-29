@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `aiterm-setup --codex-steer disable`の後、Aitermのhookが居た位置の承認記録が`config.toml`に残っていた。空いた位置の記録を消す（aiterm-steer-delivery 0.1.4）。
+- Steerの導入で、別のCODEX_HOMEで動くCodex（同じ端末の他の利用者やBot）まで再起動待ちに数えていた。Linuxではhookを入れたCODEX_HOMEのものだけを数える（aiterm-steer-delivery 0.1.5）。
+
 ## [0.43.4] - 2026-09-29
 
 ### 変更

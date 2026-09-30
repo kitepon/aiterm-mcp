@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-09-30
+
 ### 追加
 
 - 公開tool `agent_models`。harnessを指定すると、そのharnessが今選べるmodel IDとreasoning effortを返す（`aiterm.agent-models.v1`）。promptもturnも送らない。取得不能は`MODEL_CATALOG_UNAVAILABLE`、形式異常は`MODEL_CATALOG_INVALID`で、別の一覧へfallbackしない（ADR 0074）。
@@ -1916,7 +1918,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...v0.44.0
 [0.43.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...v0.43.7
 [0.43.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...v0.43.6
 [0.43.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.4...v0.43.5

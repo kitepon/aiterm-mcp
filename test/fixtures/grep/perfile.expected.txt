@@ -1,0 +1,30 @@
+32 matches in 2 files:
+
+perfile/big.ts:1:...ere(0, anotherArgument, yetAnotherOne) + needle0 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:2:...ere(1, anotherArgument, yetAnotherOne) + needle1 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:3:...ere(2, anotherArgument, yetAnotherOne) + needle2 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:4:...ere(3, anotherArgument, yetAnotherOne) + needle3 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:5:...ere(4, anotherArgument, yetAnotherOne) + needle4 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:6:...ere(5, anotherArgument, yetAnotherOne) + needle5 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:7:...ere(6, anotherArgument, yetAnotherOne) + needle6 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:8:...ere(7, anotherArgument, yetAnotherOne) + needle7 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:9:...ere(8, anotherArgument, yetAnotherOne) + needle8 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:10:...ere(9, anotherArgument, yetAnotherOne) + needle9 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:11:...e(10, anotherArgument, yetAnotherOne) + needle10 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:12:...e(11, anotherArgument, yetAnotherOne) + needle11 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:13:...e(12, anotherArgument, yetAnotherOne) + needle12 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:14:...e(13, anotherArgument, yetAnotherOne) + needle13 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:15:...e(14, anotherArgument, yetAnotherOne) + needle14 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:16:...e(15, anotherArgument, yetAnotherOne) + needle15 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:17:...e(16, anotherArgument, yetAnotherOne) + needle16 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:18:...e(17, anotherArgument, yetAnotherOne) + needle17 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:19:...e(18, anotherArgument, yetAnotherOne) + needle18 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:20:...e(19, anotherArgument, yetAnotherOne) + needle19 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:21:...e(20, anotherArgument, yetAnotherOne) + needle20 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:22:...e(21, anotherArgument, yetAnotherOne) + needle21 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:23:...e(22, anotherArgument, yetAnotherOne) + needle22 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:24:...e(23, anotherArgument, yetAnotherOne) + needle23 + trailingStuffThatGoesOnAndOn;
+perfile/big.ts:25:...e(24, anotherArgument, yetAnotherOne) + needle24 + trailingStuffThatGoesOnAndOn;
+  +5 more in perfile/big.ts
+perfile/small.ts:1:let needle = 1;
+perfile/small.ts:3:needle++;

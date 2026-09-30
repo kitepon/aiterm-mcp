@@ -1,0 +1,31 @@
+31 matches in 2 files:
+
+context/c.txt:1:MARK row 0
+context/c.txt-2-plain row 1
+context/c.txt-3-plain row 2
+context/c.txt:4:MARK row 3
+context/c.txt-5-plain row 4
+context/c.txt-6-plain row 5
+context/c.txt:7:MARK row 6
+context/c.txt-8-plain row 7
+context/c.txt-9-plain row 8
+context/c.txt:10:MARK row 9
+context/c.txt-11-plain row 10
+context/c.txt-12-plain row 11
+context/c.txt:13:MARK row 12
+context/c.txt-14-plain row 13
+context/c.txt-15-plain row 14
+context/c.txt:16:MARK row 15
+context/c.txt-17-plain row 16
+context/c.txt-18-plain row 17
+context/c.txt:19:MARK row 18
+context/c.txt-20-plain row 19
+context/c.txt-21-plain row 20
+context/c.txt:22:MARK row 21
+context/c.txt-23-plain row 22
+context/c.txt-24-plain row 23
+context/c.txt:25:MARK row 24
+  +64 more in context/c.txt
+context/d.txt-1-plain
+context/d.txt:2:MARK one
+context/d.txt-3-plain

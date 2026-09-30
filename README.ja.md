@@ -338,16 +338,19 @@ Throughline自体が不要である。
   [aiterm demo: 51 行 / ~56 tok (raw 152 行 / ~166 tok); 102 行 hidden] [is_complete=True via quiescent]
 ```
 
-`grep` を、コマンド別 reducer で「件数ヘッダ＋ヒット行だけ」に畳む:
+`grep` は、rtk の上限（全体 200 行・1 ファイル 25 行）に収まる間は grep の出力をそのまま返す。上限を超えた時だけ、コマンド別 reducer がファイルごとにまとめ、省いた分を書き添える:
 
 ```text
-→ pty_send("demo", "grep -rn capture-pane src/ test/")
+→ pty_send("demo", "grep -rn session src/")
 → pty_read("demo", { wait: true, rtk: true })
-← 2 matches in 1 files:
+← 550 matches in 23 files:
 
-  src/core.ts:159:// maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）… （行はここで truncate）
-  src/core.ts:335:const args = ["capture-pane", "-p", "-J", "-t", name];
-  [aiterm demo: rtk:grep 適用 / ~46 tok (raw ~53 tok)] [is_complete=True via quiescent]
+  src/agent-resolver.ts:211:// …（長い行は検索語の周りを ~80 字だけ残す）
+  …
+  src/remote.ts:268:session_id: session, agent_transcript: true, raw: true,
+    +4 more in src/remote.ts
+  +7 more files
+  [aiterm demo: rtk:grep 適用 / ~4286 tok (raw ~12546 tok)] [is_complete=True via quiescent]
 ```
 
 ネストは「中へ送るただのテキスト」——同じ PTY の*中で* Python REPL に入る（`ssh host`・`docker exec -it … bash`・起動したコーディングエージェントの TUI も、まったく同じ要領でネストする）:
@@ -449,7 +452,7 @@ aiterm          →  cwd=/tmp var=hello123  # 1 本の永続PTYが両方を保�
 
 cd でディレクトリを移り、環境変数を立て、ビルドを走らせる。ssh で一度ログインして、その接続のまま 10 個コマンドを打つ。REPL や起動したエージェントの TUI を 1 ターンずつ操作する。こういう流れは、1 本の永続PTYが状態を握っていて初めて成り立つ。端末に何かを覚えておいてほしいときは、aiterm を使う。
 
-<sub>¹ いまのハーネスは ~192 KB の出力をいったんファイルに逃がして、先頭 ~2 KB だけを見せる。そのためトークン数はほぼ並ぶ。aiterm は行数を正確に返すうえ、あとから `line_range="A:B"` で好きな範囲（先頭でも末尾でも）を取り出せる。² `rtk` の grep 縮約は長い行（~80 字）を切り詰めて、あふれを `[+N more]` にまとめる。ざっと眺めるには向くが、全行をそのまま読みたいときは組み込みツールを使う。</sub>
+<sub>¹ いまのハーネスは ~192 KB の出力をいったんファイルに逃がして、先頭 ~2 KB だけを見せる。そのためトークン数はほぼ並ぶ。aiterm は行数を正確に返すうえ、あとから `line_range="A:B"` で好きな範囲（先頭でも末尾でも）を取り出せる。² `rtk` の grep 縮約は、rtk の上限（全体 200 行・1 ファイル 25 行）に収まる間は grep の出力をそのまま返す。上限を超えるとファイルごとにまとめ、長い行は検索語の周りを ~80 字だけ残し、あふれを `+N more in <file>`／`+N more files` にまとめる。大きな検索の全行をそのまま読みたいときは組み込みツールを使う。</sub>
 
 ## 既存手段との比較
 
@@ -649,7 +652,8 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 - **`is_complete=False` は失敗ではない。** 「timeout 内に完了を観測できなかった」という意味。長時間コマンドでは `timeout` を伸ばすか `until`/`mark` を使う。
 - **agent harnessは実物TUIを起動し、model APIを代理しない。** model・認証・挙動は選んだharnessのもの。隠れたagent間protocolはなく、MCPクライアントがClaude／Codex／Grok／Cursor TUIへ入力を送り出力を読む。
 - **`pty_send({ rtk: true })` は単行コマンドのみ＋外部 `rtk` バイナリが必要**（無ければ素通し）。一方 `pty_read({ rtk: true })` の reducer は自前実装で rtk 非依存。
-- **`pytest` reducer は件数・罫線・`FAILURES` ブロック整形が rtk 0.42.0 と byte 一致**（回帰テストで固定）。ただし `-ra`/`-rf` 時の `FAILED` 要約行の理由は**全文を保持する**（rtk 0.42.0 は最初の `" - "` 区切りで切るが、本実装は可読性優先で情報を残すため、この行は意図的に rtk と完全一致させない）。rtk が大出力時に付ける `[full output: …]`（tee ポインタ）行は read 側では再現しない。
+- **`pytest` reducer は件数・`FAILURES` ブロック整形が rtk 0.50.0 と byte 一致**（回帰テストで固定）。ただし `-ra`/`-rf` 時の `FAILED` 要約行の理由は**全文を保持する**（rtk 0.50.0 は最初の `" - "` 区切りで切るが、本実装は可読性優先で情報を残すため、この行は意図的に rtk と完全一致させない）。rtk が大出力時に付ける `[full output: …]`（recall ポインタ）行は read 側では再現しない。
+- **`grep` reducer は rtk 0.50.0 と一致**する。上限に収まる間は出力をそのまま返し、上限を超えた時のまとめ方は recall の案内を除いて `rtk grep` と byte 一致する。`git log` は件数（`-n`）か範囲（`A..B`）を指定すると全コミットを残し、指定が無ければ 10 件にして `[+N more commits]` で終える。rtk の `never_worse` と同じく、縮めた結果が元より多くのトークンを使う reducer は適用しない。
 - **tmux は `-f /dev/null` 起動**なので `~/.tmux.conf` を読まない（環境差を排除するため）。
 - **全セッションが単一multiplexer endpoint（POSIXは`claude.sock`、Windows nativeは1つのpsmux namespace）を共有する。** platformの`kill-server` commandは全セッションを消す。
 
@@ -668,7 +672,7 @@ Windows固有だけの変更はLinuxとWindowsを選ぶ。版番号だけの変�
 `npm run release -- <version>`がversion同期・commit・tag・GitHub Releaseを一回で行い、tag起点のnpm公開は
 tagged commitが`origin/main`の祖先であることだけを確認して、他のCI結果を待ちません。
 
-共通進行は`src/core.ts`、harness固有は`src/harnesses/`、OS差は`src/tmux-runtime.ts`／`src/agent-resolver.ts`、reducerは`src/rtk.ts`、公開面は`src/index.ts`が所有する。現行設計は[`docs/DESIGN.md`](docs/DESIGN.md)、release手順は[`docs/RELEASE.md`](docs/RELEASE.md)を正とする。`prototype/python/`はreducerの歴史的移植元であり、pytest reducerは本家rtk 0.42.0と一致する（上記の`FAILED`行の差異だけは意図的・回帰テストで固定）。
+共通進行は`src/core.ts`、harness固有は`src/harnesses/`、OS差は`src/tmux-runtime.ts`／`src/agent-resolver.ts`、reducerは`src/rtk.ts`、公開面は`src/index.ts`が所有する。現行設計は[`docs/DESIGN.md`](docs/DESIGN.md)、release手順は[`docs/RELEASE.md`](docs/RELEASE.md)を正とする。`prototype/python/`はreducerの歴史的移植元であり、pytestとgrepのreducerは本家rtk 0.50.0と一致する（上記の`FAILED`行の差異だけは意図的・回帰テストで固定）。
 
 ## 試す
 

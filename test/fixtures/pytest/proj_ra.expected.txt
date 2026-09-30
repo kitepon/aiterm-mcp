@@ -1,5 +1,4 @@
 Pytest: 2 passed, 3 failed, 1 skipped, 1 xfailed, 1 xpassed
-═══════════════════════════════════════
 
 Expected-failure outcomes:
   XFAIL proj/test_mix.py::test_xfail_known - known bug - tracked

@@ -3,7 +3,7 @@
     "name": "grep_multi",
     "cmd": "grep -rn foo src/",
     "input": "src/b.py:5:foo = 1\nsrc/a.py:10:def foo():\nsrc/a.py:20:    return foo   \nsrc/a.py:30:foo()",
-    "expected": "4 matches in 2 files:\n\nsrc/a.py:10:def foo():\nsrc/a.py:20:return foo\nsrc/a.py:30:foo()\nsrc/b.py:5:foo = 1",
+    "expected": "src/b.py:5:foo = 1\nsrc/a.py:10:def foo():\nsrc/a.py:20:    return foo   \nsrc/a.py:30:foo()",
     "reducer": "grep"
   },
   {
@@ -17,14 +17,14 @@
     "name": "grep_longpath",
     "cmd": "grep -rn x .",
     "input": "a/very/deep/nested/directory/structure/that/exceeds/fifty/chars/file.py:1:match here",
-    "expected": "1 matches in 1 files:\n\na/.../chars/file.py:1:match here",
+    "expected": "a/very/deep/nested/directory/structure/that/exceeds/fifty/chars/file.py:1:match here",
     "reducer": "grep"
   },
   {
     "name": "grep_truncline",
     "cmd": "grep -n y f",
     "input": "f:1:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
-    "expected": "1 matches in 1 files:\n\nf:1:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...",
+    "expected": "f:1:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
     "reducer": "grep"
   },
   {

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- `pty_read({ rtk: true })`のreducerの手本をrtk 0.42.0から0.50.0へ上げた。
+  - grep：rtkの上限（全体200行・1ファイル25行）に収まる間は、grepの出力をそのまま返す。これまでは件数の見出しを付け、長い行を80字で切っていた。上限を超えた時だけファイルごとにまとめ、長い行は検索語の周りを残して切り、省いた分を`+N more in <file>`／`+N more files`で書く。まとめた形が元より長ければ元を返す。
+  - pytest：件数の見出しの下の罫線をやめた。pytestが報告の前に落ちた時（`INTERNALERROR>`、`ERROR: `）は、`Pytest: No tests collected`にせず汎用削減へ戻す。
+  - 縮めた結果が元より多くのトークンを使う時は、reducerを適用しない（rtkの`never_worse`）。
+  - pytestとgrepの回帰見本は、公開版rtk 0.50.0の実行結果から取り直した（recallの案内行は除く）。`FAILED`要約行の理由を全文残す違いは従来どおり。
+
+### 修正
+
+- `git log`のreducerが、何も書かずに10件で打ち切っていた。件数（`-n N`／`-N`／`--max-count`）か範囲（`A..B`）を指定したlogは打ち切らない。件数を指定した時は、rtkと同じく1行の幅を120字にする。指定が無い時は10件にして、`[+N more commits]`で終える。
+
 ## [0.44.1] - 2026-09-30
 
 ### 修正

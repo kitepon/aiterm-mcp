@@ -1,0 +1,4 @@
+small/src/b.py:1:foo = 1
+small/src/a.py:1:def foo():
+small/src/a.py:3:    return foo   
+small/src/a.py:5:foo()

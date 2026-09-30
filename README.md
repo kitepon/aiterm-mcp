@@ -367,16 +367,19 @@ A long output folded head+tail — the middle is elided by the reducer, not by m
   [aiterm demo: 51 lines / ~56 tok (raw 152 lines / ~166 tok); 102 lines hidden] [is_complete=True via quiescent]
 ```
 
-A `grep`, folded by the per-command reducer to a count header plus just the hits:
+A `grep` comes back exactly as grep printed it while it stays within rtk's caps (200 lines in all, 25 per file). Past a cap, the per-command reducer groups the hits by file and says what it left out:
 
 ```text
-→ pty_send("demo", "grep -rn capture-pane src/ test/")
+→ pty_send("demo", "grep -rn session src/")
 → pty_read("demo", { wait: true, rtk: true })
-← 2 matches in 1 files:
+← 550 matches in 23 files:
 
-  src/core.ts:159:// maxBuffer defaults to 1 MiB; capture-pane (large scrollback) … (line truncated here)
-  src/core.ts:335:const args = ["capture-pane", "-p", "-J", "-t", name];
-  [aiterm demo: rtk:grep applied / ~46 tok (raw ~53 tok)] [is_complete=True via quiescent]
+  src/agent-resolver.ts:211:// …(long lines keep ~80 chars around the pattern)
+  …
+  src/remote.ts:268:session_id: session, agent_transcript: true, raw: true,
+    +4 more in src/remote.ts
+  +7 more files
+  [aiterm demo: rtk:grep applied / ~4286 tok (raw ~12546 tok)] [is_complete=True via quiescent]
 ```
 
 Nesting is just text you send in — here a Python REPL *inside* the same PTY (an `ssh host`, a `docker exec -it … bash`, or a launched coding-agent TUI nests exactly the same way):
@@ -480,7 +483,7 @@ aiterm          →  cwd=/tmp var=hello123  # one persistent PTY holds both
 
 `cd` then set env then build, `ssh` once then run ten commands on the authenticated session, drive a live REPL or a launched agent's TUI turn by turn — one persistent PTY holds all of it. Reach for aiterm when the terminal has to remember something.
 
-<sub>¹ Today's harness auto-offloads the ~192 KB dump to a file and previews only a ~2 KB head, so the token counts nearly tie; aiterm reports the accurate line count and lets `line_range="A:B"` pull any slice later, head or tail. ² The `rtk` grep reducer truncates long lines (~80 chars) and folds the overflow into `[+N more]`, which suits scanning; use the built-in tool when you need every full line.</sub>
+<sub>¹ Today's harness auto-offloads the ~192 KB dump to a file and previews only a ~2 KB head, so the token counts nearly tie; aiterm reports the accurate line count and lets `line_range="A:B"` pull any slice later, head or tail. ² The `rtk` grep reducer returns grep's output unchanged while it fits rtk's caps (200 lines, 25 per file). Past a cap it groups by file, keeps ~80 chars of each long line around the pattern, and folds the rest into `+N more in <file>` / `+N more files`; use the built-in tool when you need every full line of a large search.</sub>
 
 ## vs. the alternatives
 
@@ -695,7 +698,8 @@ Sessions live on a shared tmux socket on POSIX or a shared psmux namespace on na
 - **`is_complete=False` is not a failure.** It means "completion was not observed within `timeout`." For long commands, raise `timeout` or use `until`/`mark`.
 - **Agent harnesses run their real TUI; aiterm doesn't proxy the model API.** The selected harness owns model choice, authentication, and behavior. There is no hidden inter-agent protocol; the MCP client drives the Claude/Codex/Grok/Cursor TUI with ordinary send/read operations.
 - **`pty_send({ rtk: true })` is single-line only and needs the external `rtk` binary** (passthrough without it). The `pty_read({ rtk: true })` reducer, by contrast, is self-contained and rtk-independent.
-- **The `pytest` reducer matches rtk 0.42.0** on test counts, the rule line, and `FAILURES`-block formatting (locked by regression tests). It **deliberately preserves the full failure reason** on the `FAILED` summary lines (emitted under `-ra`/`-rf`), whereas rtk 0.42.0 truncates the reason at the first `" - "` — a readability choice, so those lines are intentionally not byte-identical to rtk. The `[full output: …]` tee-pointer line rtk appends on large output is not reproduced on the read side.
+- **The `pytest` reducer matches rtk 0.50.0** on test counts and `FAILURES`-block formatting (locked by regression tests). It **deliberately preserves the full failure reason** on the `FAILED` summary lines (emitted under `-ra`/`-rf`), whereas rtk 0.50.0 truncates the reason at the first `" - "` — a readability choice, so those lines are intentionally not byte-identical to rtk. The `[full output: …]` recall-pointer line rtk appends on large output is not reproduced on the read side.
+- **The `grep` reducer matches rtk 0.50.0**: within the caps it returns the output unchanged, and past a cap its grouped form is byte-identical to `rtk grep` without the recall hints. `git log` keeps every commit when you set a count (`-n`) or a range (`A..B`); otherwise it shows 10 and ends with `[+N more commits]`. Like rtk's `never_worse`, a reducer whose result would cost more tokens than the output is skipped.
 - **tmux is started with `-f /dev/null`**, so it does not read `~/.tmux.conf` (to keep behavior reproducible across machines).
 - **All sessions share one multiplexer endpoint** (`claude.sock` on POSIX, one psmux namespace on native Windows). The platform's `kill-server` command removes them all.
 
@@ -718,7 +722,7 @@ Windows runner needs psmux ≥ 3.3.8 and Git for Windows on its PATH, and must r
 interactive Windows user; `NETWORK SERVICE` lacks the per-user environment the pane shell and
 harness CLIs rely on and is not a valid runner identity.
 
-Logic lives in `src/core.ts` (tmux control, reduction, completion detection, safety, agent launch) and `src/rtk.ts` (per-command reducers); `src/index.ts` is the MCP surface. The current architecture is in [`docs/DESIGN.md`](docs/DESIGN.md), the release procedure is in [`docs/RELEASE.md`](docs/RELEASE.md), and `prototype/python/` remains the reducer's historical porting source (the pytest reducer is ported to match upstream rtk 0.42.0, except the deliberate `FAILED`-line difference noted above, and is locked by regression tests).
+Logic lives in `src/core.ts` (tmux control, reduction, completion detection, safety, agent launch) and `src/rtk.ts` (per-command reducers); `src/index.ts` is the MCP surface. The current architecture is in [`docs/DESIGN.md`](docs/DESIGN.md), the release procedure is in [`docs/RELEASE.md`](docs/RELEASE.md), and `prototype/python/` remains the reducer's historical porting source (the pytest and grep reducers are ported to match upstream rtk 0.50.0, except the deliberate `FAILED`-line difference noted above, and is locked by regression tests).
 
 ## Try it
 

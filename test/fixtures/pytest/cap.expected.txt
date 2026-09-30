@@ -1,5 +1,4 @@
 Pytest: 0 passed, 13 failed
-═══════════════════════════════════════
 
 Failures:
 1. [FAIL] test_fail_00

@@ -68,7 +68,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
 - `src/runtime-error-*.ts`: 製品所有のoffline error aggregate。
-- `src/rtk.ts`: 自前reducer。pytestはrtk 0.42.0と一致し、`FAILED`理由全文保持だけ意図的に異なる。
+- `src/rtk.ts`: 自前reducer。pytestとgrepはrtk 0.50.0と一致し、`FAILED`理由全文保持だけ意図的に異なる。
 - `prototype/python/`: 旧MVPとreducer移植元。参照専用。
 
 依存方向はcore → harnesses → agent-shared → runtime／errorsの一方向を保つ。harness差をcoreへ、

@@ -1,7 +1,9 @@
 // rtk reducer の回帰テスト（モデル非依存の核）。
-// - pytest: 実機 rtk 0.42.0 から採取した golden(tee 行除去) と一致を固定。
+// - pytest: 実機 rtk 0.50.0 から採取した golden(recall 行除去) と一致を固定。
 //   例外: proj_ra(FAILED 要約行) は理由を全文保持する自前挙動を期待値にしている(可読性優先・rtk とは意図的に相違)。
-// - grep/git/filters: Python プロトタイプ(=同一アルゴリズム)で生成した期待値を固定。
+// - grep: 実機 rtk 0.50.0 の `rtk grep` と一致を固定（fixtures/grep）。上限に届かない small は、
+//   rtk が内部で足す -I で grep 自身の並びが変わるため、利用者が打った grep の出力そのものを期待値にする。
+// - git/filters: Python プロトタイプ(=同一アルゴリズム)で生成した期待値を固定。
 // - classify ルーティング / truncate コードポイント境界 / reduce フォールバックを検証。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,16 +16,36 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(HERE, "fixtures");
 const rstrip = (s) => s.replace(/\s+$/, "");
 
-// ---------------------------------------------------------------- pytest（rtk 0.42.0 と byte 一致）
+// ---------------------------------------------------------------- pytest（rtk 0.50.0 と byte 一致）
+// rtk は縮めた方が長ければ元の出力を返す（never_worse）。reduce が null の時は呼び手が元の出力を見せる。
+const trim = (s) => s.replace(/^\s+|\s+$/g, "");
 const PYTEST_CASES = ["proj", "proj_ra", "allpass", "notests", "onlyskip", "cap"];
 for (const c of PYTEST_CASES) {
-  test(`reducePytest byte-exact vs rtk 0.42.0: ${c}`, () => {
+  test(`reduce pytest byte-exact vs rtk 0.50.0: ${c}`, () => {
     const input = fs.readFileSync(path.join(FIX, "pytest", `${c}.input.txt`), "utf8");
     const expected = fs.readFileSync(path.join(FIX, "pytest", `${c}.expected.txt`), "utf8");
-    const got = rtk.reducePytest(input);
-    assert.equal(rstrip(got), rstrip(expected));
+    const [got] = rtk.reduce("pytest", input);
+    assert.equal(trim(got ?? input), trim(expected));
   });
 }
+
+test("reducePytest: 見出しの下に罫線を置かない（rtk 0.50.0）", () => {
+  const input = fs.readFileSync(path.join(FIX, "pytest", "proj.input.txt"), "utf8");
+  assert.doesNotMatch(rtk.reducePytest(input), /═/);
+});
+
+test("reducePytest: 報告前に落ちた実行を 'No tests collected' にしない", () => {
+  const internal = [
+    "INTERNALERROR> Traceback (most recent call last):",
+    'INTERNALERROR>   File "/usr/lib/python3/dist-packages/_pytest/main.py", line 270, in wrap_session',
+    "INTERNALERROR> RuntimeError: boom",
+    "",
+    "no tests ran in 0.05s",
+  ].join("\n");
+  assert.equal(rtk.reducePytest(internal), null);
+  const usage = "ERROR: usage: pytest [options] [file_or_dir] [file_or_dir] [...]\nno tests ran in 0.01s";
+  assert.equal(rtk.reducePytest(usage), null);
+});
 
 test("reducePytest: pytest 証拠ゼロは null（虚偽の 'No tests collected' を作らない）", () => {
   assert.equal(rtk.reducePytest("1 file skipped\n"), null);
@@ -46,7 +68,7 @@ test("reduce: quiet pytest 出力は引き続き pytest reducer を適用する"
   assert.equal(rstrip(got), rstrip(expected));
 });
 
-// 収集エラー（import 失敗等）を無害/緑に偽装しないこと（rtk 0.42.0 とは意図的に相違＝失敗マスキング禁止）。
+// 収集エラー（import 失敗等）を無害/緑に偽装しないこと（rtk 0.50.0 とは意図的に相違＝失敗マスキング禁止）。
 // C1 修正前は "No tests collected" / "Pytest: 1 passed" に潰れ、AI が赤を無害/緑と誤読していた。
 const COLLECT_ERROR_ONLY = [
   "============================= test session starts ==============================",
@@ -92,7 +114,81 @@ test("reducePytest: passed と error 併存で緑偽装しない（'1 passed' �
   assert.match(got, /ERROR test_broken\.py/, "error モジュールが表示されない");
 });
 
-// ---------------------------------------------------------------- grep/git/filters（期待値を凍結）
+// ---------------------------------------------------------------- grep（rtk 0.50.0 と byte 一致）
+const GREP_CASES = {
+  small: "grep -rn foo small",
+  perfile: "grep -rn needle perfile",
+  total: "grep -rn hit total",
+  context: "grep -rn -C1 MARK context",
+  ja: "grep -rn 目印 ja",
+};
+for (const [c, cmd] of Object.entries(GREP_CASES)) {
+  test(`reduce grep byte-exact vs rtk 0.50.0: ${c}`, () => {
+    const input = fs.readFileSync(path.join(FIX, "grep", `${c}.input.txt`), "utf8");
+    const expected = fs.readFileSync(path.join(FIX, "grep", `${c}.expected.txt`), "utf8");
+    const [got, name] = rtk.reduce(cmd, input);
+    assert.equal(name, "grep");
+    assert.equal(rstrip(got), rstrip(expected));
+  });
+}
+
+test("reduceGrep: 上限に届かなければ出力をそのまま返す（行を切らず見出しも付けない）", () => {
+  const long = "x".repeat(300);
+  const input = `b.py:5:foo = 1\na.py:1:${long}\n`;
+  assert.equal(rtk.reduceGrep(input, "foo"), input.trimEnd());
+});
+
+test("reduceGrep: まとめた形が元より長ければ元の出力を返す", () => {
+  // 26 行の短い一致。1 ファイル 25 行を超えるが、見出しと "+1 more" を足すと元より長くなる。
+  const input = Array.from({ length: 26 }, (_, i) => `f:${i + 1}:a`).join("\n");
+  assert.equal(rtk.reduceGrep(input, "a"), input);
+});
+
+test("grepPattern: フラグの値を検索語と取り違えない", () => {
+  assert.equal(rtk.grepPattern("grep -rn foo src/"), "foo");
+  assert.equal(rtk.grepPattern('grep -rn "foo bar" .'), "foo bar");
+  assert.equal(rtk.grepPattern("grep -A 3 -rn x ."), "x");
+  assert.equal(rtk.grepPattern("grep -rnA3 pat ."), "pat");
+  assert.equal(rtk.grepPattern('grep --include "*.ts" -rn TODO .'), "TODO");
+  assert.equal(rtk.grepPattern("grep -T -rn tab ."), "tab"); // grep の -T は値を取らない
+  assert.equal(rtk.grepPattern("rg -t ts useState src"), "useState"); // rg の -t は値を取る
+  assert.equal(rtk.grepPattern("rg -e a -e b"), "a|b");
+  assert.equal(rtk.grepPattern("sudo grep -rn -- -x ."), "-x");
+});
+
+// ---------------------------------------------------------------- git log（件数と範囲）
+const gitLog = (n) =>
+  Array.from({ length: n }, (_, i) => {
+    const sha = String(i).padStart(2, "0").repeat(20);
+    return `commit ${sha}\nAuthor: A <a@example.com>\nDate:   Mon Jun 1 10:00:00 2026 +0900\n\n    subject ${i}\n`;
+  }).join("\n");
+
+test("reduceGitLog: 件数も範囲も無ければ 10 件に絞り、絞ったことを書く", () => {
+  const [got] = rtk.reduce("git log", gitLog(12));
+  assert.equal(got.split("\n").filter((l) => /subject/.test(l)).length, 10);
+  assert.match(got, /\[\+2 more commits\]$/);
+});
+
+test("reduceGitLog: 利用者が件数や範囲を決めたら打ち切らない", () => {
+  for (const cmd of ["git log -n 12", "git log -12", "git log --max-count=12", "git log HEAD~12..HEAD"]) {
+    const [got] = rtk.reduce(cmd, gitLog(12));
+    assert.equal(got.split("\n").filter((l) => /subject/.test(l)).length, 12, cmd);
+    assert.doesNotMatch(got, /more commits/, cmd);
+  }
+});
+
+test("reduceGitLog: 件数を決めた時は幅を 120 にする（rtk と同じ）", () => {
+  const subject = "s".repeat(110);
+  const input = `commit ${"a".repeat(40)}\nAuthor: A <a@example.com>\n\n    ${subject}\n`;
+  assert.match(rtk.reduce("git log", input)[0], /\.\.\./);
+  assert.doesNotMatch(rtk.reduce("git log -n 1", input)[0], /\.\.\./);
+});
+
+test("reduce: 縮めた結果が元より長ければ適用しない（never_worse）", () => {
+  assert.deepEqual(rtk.reduce("pytest", "\nno tests ran in 0.00s\n"), [null, null]);
+});
+
+// ---------------------------------------------------------------- git/filters（期待値を凍結）
 const reducers = JSON.parse(fs.readFileSync(path.join(FIX, "reducers.json"), "utf8"));
 for (const e of reducers) {
   test(`reduce[${e.reducer ?? "fallback"}]: ${e.name}`, () => {
@@ -159,9 +255,10 @@ test("reduce: 非該当コマンドは [null,null]（generic フォールバッ�
 
 // ---------------------------------------------------------------- truncate コードポイント境界（reduceGrep 経由）
 test("truncate: astral 文字をサロゲート境界で割らない", () => {
-  // 85 コードポイントの絵文字。GREP_MAX_LEN=80 → 77 個 + '...'（UTF-16 単位ではなくコードポイントで切る）
+  // 85 コードポイントの絵文字。上限を超えてまとめる時、GREP_MAX_LEN=80 → 77 個 + '...'
+  // （UTF-16 単位ではなくコードポイントで切る）。30 行にして 1 ファイル 25 行の上限を超えさせる。
   const emoji = "🎉".repeat(85);
-  const out = rtk.reduceGrep(`f:1:${emoji}`);
+  const out = rtk.reduceGrep(Array.from({ length: 30 }, (_, i) => `f:${i + 1}:${emoji}`).join("\n"));
   const lines = out.split("\n");
   const matchLine = lines.find((l) => l.startsWith("f:1:"));
   assert.ok(matchLine, "grep 行がある");

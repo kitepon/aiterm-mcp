@@ -151,37 +151,58 @@ test("Codexはmodel/listの全ページからmodelごとのeffortと既定値を
   assert.throws(() => codexCatalogFromPages([{ data: [{ id: "x" }], nextCursor: null }]), /supportedReasoningEfforts/);
 });
 
-test("Grokはagent stdioへinitializeだけを送り、sessionを作らない", posixOnly, (t) => {
+test("Grokはagent stdioへinitializeだけを送り、sessionを作らない", posixOnly, async (t) => {
   const dir = tempDir(t);
   const log = path.join(dir, "log.json");
   const bin = fakeCli(dir, "grok", `
 const fs = require("node:fs");
-const input = fs.readFileSync(0, "utf8").trim().split("\\n").map((line) => JSON.parse(line));
-fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), methods: input.map((item) => item.method) }));
-process.stdout.write(${JSON.stringify(grokInitialize([grokModel("grok-4.7", ["low", "high"])]))} + "\\n");`);
-  const catalog = grokModelChoices(bin, dir);
+const methods = [];
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  methods.push(JSON.parse(line).method);
+  fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), methods }));
+  process.stdout.write(${JSON.stringify(grokInitialize([grokModel("grok-4.7", ["low", "high"])]))} + "\\n");
+});`);
+  const catalog = await grokModelChoices(bin, dir);
   assert.deepEqual(catalog.models.map((model) => model.id), ["grok-4.7"]);
   assert.deepEqual(JSON.parse(fs.readFileSync(log, "utf8")), { argv: ["agent", "--no-leader", "stdio"], methods: ["initialize"] });
 });
 
-test("Grokが失敗して終わった時はMODEL_CATALOG_UNAVAILABLEにする", posixOnly, (t) => {
+test("Grokが失敗して終わった時はMODEL_CATALOG_UNAVAILABLEにする", posixOnly, async (t) => {
   const dir = tempDir(t);
   const bin = fakeCli(dir, "grok", `process.stderr.write("not logged in"); process.exit(3);`);
-  assert.throws(() => grokModelChoices(bin, dir), /MODEL_CATALOG_UNAVAILABLE: .*not logged in/);
+  await assert.rejects(grokModelChoices(bin, dir), /MODEL_CATALOG_UNAVAILABLE: .*not logged in/);
 });
 
-test("Claudeはpromptを送らず、hookとMCP serverを止め、sessionを保存しない", posixOnly, (t) => {
+test("応答前に標準入力を閉じると黙って終わるGrokでも、応答を読むまで入力を開けておく", posixOnly, async (t) => {
+  // grok 1.0.41は、initializeの処理中に標準入力が閉じると応答せずにexit 0で終わることがある（2026-09-30実測）。
+  const dir = tempDir(t);
+  const bin = fakeCli(dir, "grok", `
+let ended = false;
+process.stdin.on("end", () => { ended = true; });
+process.stdin.once("data", () => setTimeout(() => {
+  if (ended) process.exit(0);
+  process.stdout.write(${JSON.stringify(grokInitialize([grokModel("grok-4.7", ["low", "high"])]))} + "\\n");
+}, 200));
+process.stdin.resume();`);
+  const catalog = await grokModelChoices(bin, dir);
+  assert.deepEqual(catalog.models.map((model) => model.id), ["grok-4.7"]);
+});
+
+test("Claudeはpromptを送らず、hookとMCP serverを止め、sessionを保存しない", posixOnly, async (t) => {
   const dir = tempDir(t);
   const log = path.join(dir, "log.json");
   const bin = fakeCli(dir, "claude", `
 const fs = require("node:fs");
 const argv = process.argv.slice(2);
 const settingsFile = argv[argv.indexOf("--settings") + 1];
-const input = fs.readFileSync(0, "utf8").trim().split("\\n").map((line) => JSON.parse(line));
-fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, settingsFile, settings: JSON.parse(fs.readFileSync(settingsFile, "utf8")), input }));
-const id = input[0].request_id;
-process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: id, response: { models: ${JSON.stringify(claudeModels)} } } }) + "\\n");`);
-  const catalog = claudeModelChoices(bin, dir);
+const input = [];
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  input.push(JSON.parse(line));
+  fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, settingsFile, settings: JSON.parse(fs.readFileSync(settingsFile, "utf8")), input }));
+  const id = input[0].request_id;
+  process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: id, response: { models: ${JSON.stringify(claudeModels)} } } }) + "\\n");
+});`);
+  const catalog = await claudeModelChoices(bin, dir);
   assert.equal(catalog.models.length, 3);
   const seen = JSON.parse(fs.readFileSync(log, "utf8"));
   for (const flag of ["-p", "--no-session-persistence", "--strict-mcp-config", "--input-format", "--output-format"]) assert.ok(seen.argv.includes(flag), flag);
@@ -222,8 +243,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 test("公開MCPのagent_modelsでharnessを指定して候補を取得できる", posixOnly, async (t) => {
   const dir = tempDir(t);
   const bin = fakeCli(dir, "grok", `
-require("node:fs").readFileSync(0);
-process.stdout.write(${JSON.stringify(grokInitialize([grokModel("grok-4.7", ["low", "high"]), grokModel("grok-4.6", ["low"], "low")]))} + "\\n");`);
+require("node:readline").createInterface({ input: process.stdin }).once("line", () => {
+  process.stdout.write(${JSON.stringify(grokInitialize([grokModel("grok-4.7", ["low", "high"]), grokModel("grok-4.6", ["low"], "low")]))} + "\\n");
+});`);
   const server = spawn(process.execPath, [path.join(ROOT, "dist", "index.js")], {
     env: { ...process.env, GROK_BIN: bin, AITERM_STATE_ROOT: path.join(dir, "state") },
     stdio: ["pipe", "pipe", "ignore"],

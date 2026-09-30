@@ -1,6 +1,6 @@
 // エージェント CLI（claude / codex / grok / cursor-agent）・Throughline・pane shell（Windows は Git Bash）の
 // 実行ファイルをどう見つけ、どう起動するかの所有者（OS 分岐の所有者。tmux とは独立）。
-import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
+import { spawn, spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -82,11 +82,7 @@ export function spawnAgentControlCommand(
     if (/\.(?:cmd|bat)$/i.test(bin)) {
       // Node は CVE-2024-27980 対処以降、.cmd/.bat の直接 spawn を EINVAL で拒否する。
       // 受入が .cmd/.bat を許す以上、control 経路は shell 経由で実行する（args は固定語彙とAiterm所有の一時path）。
-      // shell経由ではNodeが引数を引用しないので、空白を含むpathだけ二重引用符でくくる。引用符とshell記号は受け付けない。
-      if (args.some(arg => /["%^&|<>!]/.test(arg))) {
-        throw new AitermError(`${path.basename(bin)} のcontrol commandへ渡せない文字を含む引数があります`, 2);
-      }
-      return spawnSync(bin, args.map(arg => /\s/.test(arg) ? `"${arg}"` : arg), { ...options, shell: true });
+      return spawnSync(bin, windowsControlArgs(bin, args), { ...options, shell: true });
     }
     // 受入は pane shell（Git Bash）が shebang で実行できる script も許す。Windows の
     // CreateProcess は shebang を解さないため、control command も同じ Git Bash で実行する。
@@ -94,6 +90,80 @@ export function spawnAgentControlCommand(
     return spawnSync(resolveWinPaneShell("bash"), [bin, ...args], options);
   }
   return spawnInMacGuiWhenOutsideAqua(bin, args, options) ?? spawnSync(bin, args, options);
+}
+
+function windowsControlArgs(bin: string, args: string[]): string[] {
+  // shell経由ではNodeが引数を引用しないので、空白を含むpathだけ二重引用符でくくる。引用符とshell記号は受け付けない。
+  if (args.some(arg => /["%^&|<>!]/.test(arg))) {
+    throw new AitermError(`${path.basename(bin)} のcontrol commandへ渡せない文字を含む引数があります`, 2);
+  }
+  return args.map(arg => /\s/.test(arg) ? `"${arg}"` : arg);
+}
+
+export interface AgentProtocolResult {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+}
+
+/**
+ * 標準入出力で要求と応答をやりとりするcontrol command（`claude -p --input-format stream-json`、`grok agent stdio`）。
+ * inputを書いた後、untilの文字列がstdoutに現れるまで標準入力を開けておき、現れたら閉じて終了を待つ。
+ * 応答前に標準入力を閉じると、応答せずに正常終了するCLIがある（grok 1.0.41で実測）。
+ * 起動方法のOS差はspawnAgentControlCommandと同じ。macOSのAqua外はlaunchdの仕事の中で同じ待ち方をする。
+ */
+export async function runAgentProtocolCommand(
+  bin: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; input: string; until: string; timeout: number; maxBuffer: number },
+): Promise<AgentProtocolResult> {
+  const gui = spawnInMacGuiWhenOutsideAqua(bin, args, options);
+  if (gui) return { status: gui.status, signal: gui.signal, stdout: gui.stdout, stderr: gui.stderr, ...(gui.error ? { error: gui.error } : {}) };
+  let command = bin;
+  let argv = args;
+  let shell = false;
+  if (isWin && !/\.(?:exe|com)$/i.test(bin)) {
+    if (/\.(?:cmd|bat)$/i.test(bin)) {
+      argv = windowsControlArgs(bin, args);
+      shell = true;
+    } else {
+      command = resolveWinPaneShell("bash");
+      argv = [bin, ...args];
+    }
+  }
+  return new Promise((resolve) => {
+    const child = spawn(command, argv, { cwd: options.cwd, env: options.env, shell, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let error: Error | undefined;
+    let settled = false;
+    const finish = (status: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status, signal, stdout, stderr, ...(error ? { error } : {}) });
+    };
+    const stop = (reason: Error) => {
+      error ??= reason;
+      child.stdin.destroy();
+      child.kill();
+    };
+    const timer = setTimeout(() => stop(Object.assign(new Error(`${path.basename(bin)} ${args.join(" ")} が${options.timeout}ms以内に応答しませんでした`), { code: "ETIMEDOUT" })), options.timeout);
+    child.on("error", (reason) => { error ??= reason; finish(null, null); });
+    child.on("close", (status, signal) => finish(status, signal));
+    child.stdin.on("error", () => { /* 終了済みprocessへの書込みはcloseの結果で扱う */ });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { if (stderr.length < options.maxBuffer) stderr += chunk; });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > options.maxBuffer) return stop(new Error(`${path.basename(bin)} の出力が${options.maxBuffer}bytesを超えました`));
+      if (child.stdin.writable && stdout.includes(options.until)) child.stdin.end();
+    });
+    child.stdin.write(options.input);
+  });
 }
 
 export function resolveWinPaneShell(shell: string): string {

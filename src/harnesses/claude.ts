@@ -8,7 +8,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
-import { spawnAgentControlCommand } from "../agent-resolver.js";
+import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import {
   currentUid,
@@ -184,24 +184,23 @@ const CLAUDE_ULTRACODE_NOTE =
  * （SDKの公開型 SDKControlRequest／SDKControlInitializeResponse）の応答にある models を読む。
  * promptは送らず、sessionを保存せず、利用者のhookとMCP serverを起動しない。
  */
-export function claudeModelChoices(bin: string, cwd: string): AgentModelCatalog {
+export async function claudeModelChoices(bin: string, cwd: string): Promise<AgentModelCatalog> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-claude-models-"));
   try {
     const settings = path.join(dir, "settings.json");
     fs.writeFileSync(settings, JSON.stringify({ disableAllHooks: true }), { mode: 0o600 });
     const requestId = `aiterm-models-${randomUUID()}`;
     const request = { type: "control_request", request_id: requestId, request: { subtype: "initialize" } };
-    const result = spawnAgentControlCommand(bin, [
+    const result = await runAgentProtocolCommand(bin, [
       "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
       "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
-    ], cwd, {
+    ], {
       cwd,
-      encoding: "utf8",
       env: process.env,
       input: JSON.stringify(request) + "\n",
+      until: requestId,
       timeout: CLAUDE_MODELS_TIMEOUT_MS,
       maxBuffer: CLAUDE_MODELS_MAX_BYTES,
-      windowsHide: true,
     });
     if (result.error || result.status !== 0) {
       throw catalogUnavailable("Claude Code", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);

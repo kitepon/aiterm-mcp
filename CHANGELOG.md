@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `agent_models`のGrokが、ときどき`MODEL_CATALOG_INVALID: initializeの応答がありません（exit=0 … stdout=0bytes）`で失敗していた。要求を書いてすぐ標準入力を閉じていたため、grok 1.0.41がinitializeの処理中に入力の終わりを受けて、応答せずに終わっていた。ClaudeとGrokは、応答が出力に現れるまで標準入力を開けておき、現れてから閉じる。macOSのAqua外（launchd経由）でも同じ待ち方をする。
+
 ## [0.44.0] - 2026-09-30
 
 ### 追加

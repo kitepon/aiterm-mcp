@@ -31,8 +31,10 @@ BellTeamの既存形式（`{ efforts, models: [{ id, efforts }] }`）はこの�
 
 Claude Codeは、利用者の`SessionStart` hookを動かさないよう`--settings`で`disableAllHooks`を渡し、
 `--strict-mcp-config`でMCP serverを起動せず、`--no-session-persistence`でsessionを保存しない。
-ClaudeとGrokは要求を書いてからstdinを閉じ、応答を読む。Codexのapp-serverはstdinを閉じると
-応答せずに終わるので、既存の非同期接続を使う。
+ClaudeとGrokは要求を書き、応答がstdoutに現れるまでstdinを開けておき、現れてから閉じる。
+0.44.0は要求を書いてすぐstdinを閉じていたが、grok 1.0.41はinitializeの処理中にstdinが閉じると
+応答せずにexit 0で終わることがあり、本番の公開smokeで`MODEL_CATALOG_INVALID`になった（0.44.1で修正）。
+Codexのapp-serverはstdinを閉じると応答せずに終わるので、既存の非同期接続を使う。
 
 ### Claudeのultracode
 
@@ -57,8 +59,9 @@ Cursorの一覧は「素のmodel ID + effort（+ `-fast`）」の完成形で並
 
 ### OSへの適合
 
-stdinを渡す起動は`spawnAgentControlCommand`が持つ。macOSのAqua外（launchd経由）はlaunchdの仕事に
-stdinが無いので、入力をファイルに書いて同じ仕事の中でつなぐ。Windowsの`.cmd`はshell経由で起動するため、
+要求と応答をやりとりする起動は`runAgentProtocolCommand`が持つ。macOSのAqua外（launchd経由）は
+launchdの仕事にstdinが無いので、入力をファイルに書いて同じ仕事の中でつなぎ、出力ファイルに応答が
+現れるまで入力を開けておく。Windowsの`.cmd`はshell経由で起動するため、
 空白を含むpathを引用し、引用符やshell記号を含む引数は拒否する。Claudeの設定はJSONを引数に書かず、
 一時ファイルで渡す。
 

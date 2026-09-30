@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { AitermError } from "../errors.js";
-import { spawnAgentControlCommand } from "../agent-resolver.js";
+import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import {
   shq,
@@ -85,16 +85,16 @@ const GROK_AGENT_CATALOG_TIMEOUT_MS = 30_000;
  * `initialize` 応答にある `_meta.modelState` を読む。`session/new` は同じ候補を返すがsessionを保存するので使わない。
  * promptもsessionも作らず、推論は起きない。
  */
-export function grokModelChoices(bin: string, cwd: string): AgentModelCatalog {
+export async function grokModelChoices(bin: string, cwd: string): Promise<AgentModelCatalog> {
   const request = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } };
-  const result = spawnAgentControlCommand(bin, ["agent", "--no-leader", "stdio"], cwd, {
+  // 応答前に標準入力を閉じると、grok 1.0.41は応答せずに正常終了することがある。応答を読むまで開けておく。
+  const result = await runAgentProtocolCommand(bin, ["agent", "--no-leader", "stdio"], {
     cwd,
-    encoding: "utf8",
     env: process.env,
     input: JSON.stringify(request) + "\n",
+    until: '"id":1',
     timeout: GROK_AGENT_CATALOG_TIMEOUT_MS,
     maxBuffer: GROK_MODELS_MAX_BYTES,
-    windowsHide: true,
   });
   if (result.error || result.status !== 0) {
     throw catalogUnavailable("Grok", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);

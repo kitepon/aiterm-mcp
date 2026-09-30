@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-09-30
+
 ### 修正
 
 - `agent_models`のGrokが、ときどき`MODEL_CATALOG_INVALID: initializeの応答がありません（exit=0 … stdout=0bytes）`で失敗していた。要求を書いてすぐ標準入力を閉じていたため、grok 1.0.41がinitializeの処理中に入力の終わりを受けて、応答せずに終わっていた。ClaudeとGrokは、応答が出力に現れるまで標準入力を開けておき、現れてから閉じる。macOSのAqua外（launchd経由）でも同じ待ち方をする。
@@ -1922,7 +1924,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...HEAD
+[0.44.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...v0.44.1
 [0.44.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...v0.44.0
 [0.43.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...v0.43.7
 [0.43.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.5...v0.43.6

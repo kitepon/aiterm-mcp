@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-09-30
+
 ### 変更
 
 - `pty_read({ rtk: true })`のreducerの手本をrtk 0.42.0から0.50.0へ上げた。
@@ -1936,7 +1938,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...v0.45.0
 [0.44.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...v0.44.1
 [0.44.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...v0.44.0
 [0.43.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.6...v0.43.7

@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { AitermError } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
+import { checkedCatalog, type AgentModelCatalog } from "../model-catalog.js";
 import {
   AGENT_DONE_POLL_MS,
   AGENT_EVENT_MAX_BYTES,
@@ -345,6 +346,10 @@ const CURSOR_MODELS_TIMEOUT_MS = 5_000;
 const CURSOR_MODELS_MAX_BYTES = 256 * 1024;
 
 export function cursorModelCatalog(bin: string, cwd: string): string[] {
+  return cursorModelLines(bin, cwd).map((line) => line.id);
+}
+
+export function cursorModelLines(bin: string, cwd: string): { id: string; label: string }[] {
   const result = spawnAgentControlCommand(bin, ["models"], cwd, {
     cwd,
     encoding: "utf8",
@@ -361,11 +366,83 @@ export function cursorModelCatalog(bin: string, cwd: string): string[] {
   if (!/^Available models\s*$/m.test(text)) {
     throw new AitermError("Cursor model catalog の出力形式が不正です（Available models がありません）", 2);
   }
-  const models = text.split(/\r?\n/)
-    .map((line) => line.match(/^([^\s]+)\s+-\s+.+$/)?.[1] ?? null)
-    .filter((value): value is string => value !== null);
+  const models = text.split(/\r?\n/).flatMap((line) => {
+    const match = line.match(/^([^\s]+)\s+-\s+(.+)$/);
+    return match ? [{ id: match[1], label: match[2].replace(/[\u200b\s]+$/u, "") }] : [];
+  });
   if (models.length === 0) throw new AitermError("Cursor model catalog に利用可能なmodelがありません", 2);
   return models;
+}
+
+const CURSOR_EFFORT_LABELS: Readonly<Record<string, string>> = {
+  none: "None",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  "extra-high": "Extra High",
+  max: "Max",
+};
+
+// Cursorのcatalogは「素のmodel ID + effort（+ -fast）」を連結した完成形で並ぶ。Aitermは起動時にmodelとeffortを
+// `${model}-${effort}` へ連結し、稼働中はparameter画面でeffortを選び直す。候補は素のIDとそのIDで作れるeffortにする。
+// -fast版やeffortが途中に入るID（claude-4.6-sonnet-medium-thinking等）は連結で作れないので候補にしない
+// （BellTeamの裁定 2026-09-03。使う時はeffortなしで完成形をmodelに指定する）。
+const CURSOR_EFFORT_TOKENS = ["none", "minimal", "low", "medium", "high", "xhigh", "extra-high", "max"];
+const CURSOR_EFFORT_SUFFIXES = [...CURSOR_EFFORT_TOKENS].sort((a, b) => b.length - a.length);
+// parameter画面にラベルの無いminimalは稼働中に選び直せないので出さない（cursorEffortNavigation）。
+const CURSOR_SELECTABLE_EFFORTS = CURSOR_EFFORT_TOKENS.filter((effort) => effort in CURSOR_EFFORT_LABELS);
+
+function cursorBaseModel(id: string): { base: string; effort: string | null; fast: boolean } | null {
+  const fast = id.endsWith("-fast");
+  let rest = fast ? id.slice(0, -"-fast".length) : id;
+  let effort: string | null = null;
+  for (const token of CURSOR_EFFORT_SUFFIXES) {
+    if (rest.endsWith(`-${token}`)) {
+      rest = rest.slice(0, -(token.length + 1));
+      effort = token;
+      break;
+    }
+  }
+  const parts = rest.split("-");
+  const embedded = parts.some((part) => CURSOR_EFFORT_TOKENS.includes(part) || part === "fast") ||
+    CURSOR_EFFORT_TOKENS.some((token) => token.includes("-") && rest.includes(`-${token}`));
+  return embedded ? null : { base: rest, effort, fast };
+}
+
+export function cursorModelChoices(bin: string, cwd: string): AgentModelCatalog {
+  return cursorCatalogFromLines(cursorModelLines(bin, cwd));
+}
+
+/** `cursor-agent models` の各行（IDと表示名）から、素のmodel IDとeffortの候補を作る。 */
+export function cursorCatalogFromLines(lines: { id: string; label: string }[]): AgentModelCatalog {
+  const choices = new Map<string, { efforts: Set<string>; label: string | null }>();
+  let defaultModel: string | null = null;
+  for (const line of lines) {
+    const parsed = cursorBaseModel(line.id);
+    if (!parsed) continue;
+    const choice = choices.get(parsed.base) ?? { efforts: new Set<string>(), label: null };
+    // -fast版だけにあるeffortは `${model}-${effort}` の連結で作れないので数えない。
+    if (parsed.effort && !parsed.fast) choice.efforts.add(parsed.effort);
+    if (line.id === parsed.base) {
+      choice.label = line.label.replace(/\s*\([^)]*\)\s*$/, "");
+      if (/\((?:[^)]*,\s*)?default\)\s*$/.test(line.label)) defaultModel = parsed.base;
+    }
+    choices.set(parsed.base, choice);
+  }
+  return checkedCatalog("Cursor", {
+    source: "cursor-agent models",
+    harness_version: null,
+    default_model: defaultModel,
+    adapter_efforts: {},
+    models: [...choices].map(([id, choice]) => ({
+      id,
+      display_name: choice.label,
+      efforts: CURSOR_SELECTABLE_EFFORTS.filter((effort) => choice.efforts.has(effort)),
+      default_effort: null,
+      hidden: false,
+    })),
+  });
 }
 
 export function assertCursorModelAvailable(bin: string, cwd: string, model: string, effort: string | null): void {
@@ -380,16 +457,6 @@ export function assertCursorModelAvailable(bin: string, cwd: string, model: stri
     );
   }
 }
-
-const CURSOR_EFFORT_LABELS: Readonly<Record<string, string>> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra High",
-  "extra-high": "Extra High",
-  max: "Max",
-};
 
 export function cursorEffortNavigation(screen: string, effort: string): { down: number; label: string } {
   const label = CURSOR_EFFORT_LABELS[effort.toLowerCase()];

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
+import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import {
   currentUid,
   writeJson0600,
@@ -169,6 +170,79 @@ export function readClaudeResultText(
 }
 
 const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 5_000;
+const CLAUDE_MODELS_TIMEOUT_MS = 30_000;
+const CLAUDE_MODELS_MAX_BYTES = 4 * 1024 * 1024;
+
+// ultracodeはClaude Codeのsession設定で、`--effort ultracode` で有効になる（2.1.285実測：警告なしで受け付け、
+// 未知の値は「Unknown --effort value」と警告して無視）。initializeのModelInfoは対応modelを返さないため、
+// effortに対応したmodelへadapterが足し、その事実をadapter_effortsで示す。
+const CLAUDE_ULTRACODE_NOTE =
+  "Claude Codeの--effortが受け付けるsession設定（dynamic workflow）。initializeのModelInfoは対応modelを返さないため、Aitermがeffort対応modelへ足している";
+
+/**
+ * Claude Codeのmodel候補。公式Agent SDKのsupportedModels()と同じく、stream-jsonの制御要求 `initialize`
+ * （SDKの公開型 SDKControlRequest／SDKControlInitializeResponse）の応答にある models を読む。
+ * promptは送らず、sessionを保存せず、利用者のhookとMCP serverを起動しない。
+ */
+export function claudeModelChoices(bin: string, cwd: string): AgentModelCatalog {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-claude-models-"));
+  try {
+    const settings = path.join(dir, "settings.json");
+    fs.writeFileSync(settings, JSON.stringify({ disableAllHooks: true }), { mode: 0o600 });
+    const requestId = `aiterm-models-${randomUUID()}`;
+    const request = { type: "control_request", request_id: requestId, request: { subtype: "initialize" } };
+    const result = spawnAgentControlCommand(bin, [
+      "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
+      "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
+    ], cwd, {
+      cwd,
+      encoding: "utf8",
+      env: process.env,
+      input: JSON.stringify(request) + "\n",
+      timeout: CLAUDE_MODELS_TIMEOUT_MS,
+      maxBuffer: CLAUDE_MODELS_MAX_BYTES,
+      windowsHide: true,
+    });
+    if (result.error || result.status !== 0) {
+      throw catalogUnavailable("Claude Code", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);
+    }
+    return claudeCatalogFromInitialize(result.stdout, requestId, processSummary(result));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** stream-jsonのcontrol_response（initialize）からmodel候補を作る。 */
+export function claudeCatalogFromInitialize(stdout: string, requestId: string, summary = ""): AgentModelCatalog {
+  const response = findJsonLine(stdout, (value) => value?.type === "control_response" && value.response?.request_id === requestId);
+  if (!response) throw catalogInvalid("Claude Code", `initializeの応答がありません${summary ? `（${summary}）` : ""}`);
+  if (response.response.subtype !== "success") {
+    throw catalogUnavailable("Claude Code", `initializeが拒否されました: ${String(response.response.error ?? response.response.subtype)}`);
+  }
+  const models = response.response.response?.models;
+  if (!Array.isArray(models)) throw catalogInvalid("Claude Code", "initializeの応答に models がありません");
+  const choices = models.map((model: any) => {
+    if (typeof model?.value !== "string") throw catalogInvalid("Claude Code", "valueの無いmodelがあります");
+    const levels = model.supportsEffort === true ? model.supportedEffortLevels : [];
+    if (!Array.isArray(levels) || levels.some((level: unknown) => typeof level !== "string")) {
+      throw catalogInvalid("Claude Code", `${model.value} の supportedEffortLevels を読めません`);
+    }
+    return {
+      id: model.value,
+      display_name: typeof model.displayName === "string" ? model.displayName : null,
+      efforts: levels.length > 0 ? [...levels, "ultracode"] : [],
+      default_effort: null,
+      hidden: false,
+    };
+  });
+  return checkedCatalog("Claude Code", {
+    source: "claude stream-json control_request initialize (models)",
+    harness_version: null,
+    default_model: choices.some((choice: { id: string }) => choice.id === "default") ? "default" : null,
+    adapter_efforts: choices.some((choice: { efforts: string[] }) => choice.efforts.includes("ultracode")) ? { ultracode: CLAUDE_ULTRACODE_NOTE } : {},
+    models: choices,
+  });
+}
 
 export function assertClaudeAuthenticationReady(bin: string): void {
   const result = spawnAgentControlCommand(bin, ["auth", "status", "--json"], process.cwd(), {

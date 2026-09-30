@@ -143,7 +143,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-16ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+17ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧起動ツールは同じ実装へ流れる互換alias。
 
@@ -408,7 +408,7 @@ MCP クライアントが aiterm を stdio 越しにプログラムから駆動�
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_configure · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 16 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 17 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>再起動を跨ぐ"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -524,6 +524,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `agent_models` | harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧からpromptを送らずに取得 | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | deprecated互換alias（`composer_agent`は0.41.0で削除。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
 | `agent_configure` | 起動中のClaude／Codex／Grok／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |
@@ -544,6 +545,21 @@ consumer は `aiterm-runtime-errors snapshot` を読み、durable ingestion 後�
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。
 
 `agent_configure({ session_id, model?, reasoning_effort? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
+
+`agent_models({ harness, cwd?, include_hidden? })`は、導入済みのharnessが今選べるmodel IDとreasoning effortを返す。画面の候補を、実際にagentを動かす端末の一覧から作れる。各harness自身の一覧を読むだけで、promptもturnも送らない。
+
+| `harness` | 取得元 | 補足 |
+| --- | --- | --- |
+| `codex-cli` | App Serverの`model/list` | modelごとのeffortと既定effort。`include_hidden: true`でCodexが隠すmodelも返す |
+| `claude-code` | stream-jsonの制御要求`initialize`（Agent SDKの`supportedModels()`と同じ`models`） | hookとMCP serverを止め、sessionを保存しない。Claude Codeは`--effort ultracode`を受け付けるが一覧は返さないため、effort対応modelへ`ultracode`を足し、`adapter_efforts`で示す |
+| `grok-cli` | `grok agent stdio`の`initialize`（`_meta.modelState`） | modelごとのeffort。sessionは作らない |
+| `cursor-cli` | `cursor-agent models` | 素のmodel IDと、Aitermが`<model>-<effort>`へ連結できるeffortへ分ける。`-fast`版とeffortが途中に入るIDは候補にしない。使う時は完成形をeffortなしで`model`に渡す |
+
+結果（`aiterm.agent-models.v1`）は`{ harness, source, harness_version, default_model, efforts, adapter_efforts, models: [{ id, display_name, efforts, default_effort, hidden }] }`。`id`とeffortはそのまま`agent_launch`／`agent_configure`へ渡せる。上位の`efforts`は全modelの和。取得不能は`MODEL_CATALOG_UNAVAILABLE`、形式異常は`MODEL_CATALOG_INVALID`で、別の一覧へfallbackしない。`remote`を付けると、その端末のharnessの一覧を返す。
+
+```json
+{ "name": "agent_models", "arguments": { "harness": "grok-cli" } }
+```
 
 | `harness` | 起動するもの | modelの扱い |
 | --- | --- | --- |

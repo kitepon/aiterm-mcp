@@ -79,11 +79,13 @@ import type {
   InitialPromptDelivery,
   AgentStartupResult,
 } from "./agent-shared.js";
+import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
 import {
   GROK_MODEL_DEFAULTS,
   realGrokHome,
   resolveAndValidateGrokAuth,
   assertGrokModelAvailable,
+  grokModelChoices,
   grokEventsTranscript,
   grokCompletionEvent,
   latestGrokCompletion,
@@ -128,6 +130,7 @@ import {
   codexMoreReasoningChoice,
   codexTranscriptText,
   createCodexAgentMetadata,
+  codexModelChoices,
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
 import {
@@ -143,6 +146,7 @@ import {
   validateOperationId,
   readClaudeResultText,
   assertClaudeAuthenticationReady,
+  claudeModelChoices,
   buildClaudeAgentCmd,
   claudeLaunchNote,
   claudeTuiReady,
@@ -165,6 +169,7 @@ import {
   cursorTranscriptText,
   assertCursorAuthenticationReady,
   assertCursorModelAvailable,
+  cursorModelChoices,
   buildCursorAgentCmd,
   cursorAgentArgv,
   cursorPwshLaunchLine,
@@ -3984,6 +3989,27 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
 }
 
 /** 同じ対話sessionを保ったまま、harness標準の操作でmodel／effortを変更する。 */
+/**
+ * harnessが今返すmodelとreasoning effortの候補（agent_models）。各harnessの公式の一覧を読むだけで、
+ * promptもturnも送らない。取得不能・形式異常はfallbackせずエラーにする。
+ */
+export async function listAgentModels(
+  kind: AgentKind,
+  options: { cwd?: string | null; include_hidden?: boolean } = {},
+): Promise<AgentModelCatalog> {
+  const cwd = options.cwd ?? process.cwd();
+  if (!path.isAbsolute(cwd)) throw new AitermError("cwd は絶対パスで指定してください", 2);
+  if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError(`cwd が見つかりません: ${cwd}`, 2);
+  const bin = resolveAgentBin(kind);
+  if (!bin) throw catalogUnavailable(agentLabel(kind), `${agentLabel(kind)} の CLI が見つかりません`);
+  switch (kind) {
+    case "claude": return claudeModelChoices(bin, cwd);
+    case "codex": return codexModelChoices(bin, options.include_hidden === true);
+    case "grok": return grokModelChoices(bin, cwd);
+    case "cursor": return cursorModelChoices(bin, cwd);
+  }
+}
+
 export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null },

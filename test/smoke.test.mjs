@@ -38,7 +38,7 @@ test("smoke: Windows backend公開面はpsmux 3.3.8以上で一致する", () =>
   assert.doesNotMatch(readmeJa, /同じ tmux ソケット/);
 });
 
-test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公開", async () => {
+test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 17 ツール公開", async () => {
   const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-diagnostics-"));
   const child = spawn(process.execPath, [ENTRY], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -93,6 +93,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
     "agent_approval",
     "agent_configure",
     "agent_launch",
+    "agent_models",
     "claude_agent",
     "claude_approval",
     "claude_turn",

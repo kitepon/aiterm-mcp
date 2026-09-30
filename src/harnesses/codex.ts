@@ -6,6 +6,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { AitermError } from "../errors.js";
+import * as steer from "aiterm-steer-delivery";
+import { AITERM_PROFILE } from "../steer-profile.js";
+import { catalogInvalid, catalogUnavailable, checkedCatalog, type AgentModelCatalog, type AgentModelChoice } from "../model-catalog.js";
 import {
   shq,
   subagentInstruction,
@@ -730,4 +733,68 @@ export function createCodexAgentMetadata(
   };
   writeAgentMetadata(meta);
   return meta;
+}
+
+const CODEX_MODELS_TIMEOUT_MS = 30_000;
+const CODEX_MODELS_PAGE_LIMIT = 100;
+// model/listを無限に辿らない上限。1ページ100件で十分に余る。
+const CODEX_MODELS_MAX_PAGES = 20;
+
+/**
+ * Codexのmodel候補。公式App Serverの `model/list` を読む（https://learn.chatgpt.com/docs/app-server#list-models-modellist）。
+ * 親配送と同じ接続（aiterm-steer-deliveryのwithCodexReceiver）で、threadもturnも作らない。
+ * `codex debug models` も同じ内容を返すが、debug用の命令なので使わない。
+ */
+export async function codexModelChoices(bin: string, includeHidden: boolean): Promise<AgentModelCatalog> {
+  const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(steer.realCodexHome()) };
+  let pages: any[];
+  try {
+    pages = await steer.withCodexReceiver(AITERM_PROFILE, parent, async (request) => {
+      const collected: any[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < CODEX_MODELS_MAX_PAGES; page++) {
+        const result = await request("model/list", { cursor, limit: CODEX_MODELS_PAGE_LIMIT, includeHidden });
+        collected.push(result);
+        if (result?.nextCursor === null || result?.nextCursor === undefined) return collected;
+        if (typeof result.nextCursor !== "string" || result.nextCursor === cursor) throw catalogInvalid("Codex", "model/listの次ページが不正です");
+        cursor = result.nextCursor;
+      }
+      throw catalogInvalid("Codex", `model/listが${CODEX_MODELS_MAX_PAGES}ページを超えました`);
+    }, { executable: bin, timeout_ms: CODEX_MODELS_TIMEOUT_MS });
+  } catch (error) {
+    if (error instanceof AitermError) throw error;
+    throw catalogUnavailable("Codex", error instanceof Error ? error.message : String(error));
+  }
+  return codexCatalogFromPages(pages);
+}
+
+/** `model/list` の応答（全ページ）からmodel候補を作る。 */
+export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
+  let defaultModel: string | null = null;
+  const models: AgentModelChoice[] = pages.flatMap((page) => {
+    if (!Array.isArray(page?.data)) throw catalogInvalid("Codex", "model/listの応答に data がありません");
+    return page.data.map((model: any) => {
+      if (typeof model?.id !== "string") throw catalogInvalid("Codex", "idの無いmodelがあります");
+      if (!Array.isArray(model.supportedReasoningEfforts)) throw catalogInvalid("Codex", `${model.id} に supportedReasoningEfforts がありません`);
+      const efforts = model.supportedReasoningEfforts.map((level: any) => {
+        if (typeof level?.reasoningEffort !== "string") throw catalogInvalid("Codex", `${model.id} のreasoning effortを読めません`);
+        return level.reasoningEffort;
+      });
+      if (model.isDefault === true) defaultModel = model.id;
+      return {
+        id: model.id,
+        display_name: typeof model.displayName === "string" ? model.displayName : null,
+        efforts,
+        default_effort: typeof model.defaultReasoningEffort === "string" ? model.defaultReasoningEffort : null,
+        hidden: model.hidden === true,
+      };
+    });
+  });
+  return checkedCatalog("Codex", {
+    source: "codex app-server model/list",
+    harness_version: null,
+    default_model: defaultModel,
+    adapter_efforts: {},
+    models,
+  });
 }

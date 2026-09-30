@@ -12,6 +12,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { agentModelsResult } from "./model-catalog.js";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { createRequire } from "node:module";
@@ -816,6 +817,53 @@ registerRemoteAwareTool(
   async ({ session_id, model, reasoning_effort }) => {
     try {
       const result = await core.configureAgent(session_id, { model, reasoning_effort });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+        structuredContent: { ...result },
+      };
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+const agentModelChoiceSchema = z.object({
+  id: z.string().describe("agent_launch／agent_configureのmodelへ渡すID"),
+  display_name: z.string().nullable(),
+  efforts: z.array(z.string()).describe("このmodelで選べるreasoning_effort。空ならeffort非対応"),
+  default_effort: z.string().nullable(),
+  hidden: z.boolean().describe("harnessが一覧で隠すmodel（Codexのinclude_hidden時だけtrueがある）"),
+});
+
+registerRemoteAwareTool(
+  "agent_models",
+  {
+    description:
+      "harnessが今返すmodelとreasoning effortの候補を、そのharnessの公式の一覧から取得する。promptもturnも送らず推論を消費しない。" +
+      "Codexはapp-server model/list、Claude Codeはstream-json initializeのmodels、Grokはagent stdio initializeのmodelState、" +
+      "Cursorはcursor-agent modelsを素のmodel IDとeffortへ分けたもの。返るidとeffortsはagent_launch／agent_configureへそのまま渡せる。" +
+      "取得不能はMODEL_CATALOG_UNAVAILABLE、形式異常はMODEL_CATALOG_INVALIDのエラーで返し、別の一覧へfallbackしない。" +
+      "remoteを付けると別端末のharnessの候補を返す。",
+    inputSchema: {
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).describe("候補を取得するharness"),
+      cwd: z.string().nullish().describe("CLIを実行する作業ディレクトリ（絶対パス・任意）。project設定で候補が変わるharness向け"),
+      include_hidden: z.boolean().optional().describe("Codexが一覧で隠すmodelも返す（既定false）。他のharnessには隠すmodelが無い"),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.agent-models.v1"),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      source: z.string().describe("取得に使ったharnessの公式の入口"),
+      harness_version: z.string().nullable(),
+      default_model: z.string().nullable().describe("model省略時にharnessが使うmodel。一覧のIDで表せなければnull"),
+      efforts: z.array(z.string()).describe("全modelのeffortの和"),
+      adapter_efforts: z.record(z.string(), z.string()).describe("harnessの一覧には無く、Aitermのadapterが足したeffortと理由"),
+      models: z.array(agentModelChoiceSchema),
+    },
+  },
+  async ({ harness, cwd, include_hidden }: any) => {
+    try {
+      const catalog = await core.listAgentModels(kindForHarness(harness), { cwd, include_hidden });
+      const result = agentModelsResult(harness, catalog);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         structuredContent: { ...result },

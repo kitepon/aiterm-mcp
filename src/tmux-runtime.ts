@@ -212,13 +212,14 @@ function startTmuxInMacGui(bin: string, args: string[], env: NodeJS.ProcessEnv):
 
 // 起動前の認証確認（`claude auth status`・`agent status` 等）も keychain を読むので、tmux server と同じく
 // Aqua の外では gui domain で実行する。gui domain が無ければ null を返し、呼び出し側が直接実行する。
-export function spawnInMacGuiWhenOutsideAqua(bin: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string | URL; timeout?: number }): SpawnSyncReturns<string> | null {
+export function spawnInMacGuiWhenOutsideAqua(bin: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string | URL; timeout?: number; input?: string | NodeJS.ArrayBufferView }): SpawnSyncReturns<string> | null {
   if (!macOutsideAqua()) return null;
   const timeout = options.timeout ?? 30_000;
-  return runInMacGui([bin, ...args], options.env ?? process.env, String(options.cwd ?? process.cwd()), timeout, `launchd経由の ${path.basename(bin)} ${args.join(" ")} が${timeout}ms以内に終わりませんでした`);
+  const input = options.input === undefined ? undefined : typeof options.input === "string" ? options.input : Buffer.from(options.input.buffer, options.input.byteOffset, options.input.byteLength);
+  return runInMacGui([bin, ...args], options.env ?? process.env, String(options.cwd ?? process.cwd()), timeout, `launchd経由の ${path.basename(bin)} ${args.join(" ")} が${timeout}ms以内に終わりませんでした`, input);
 }
 
-function runInMacGui(argv: string[], env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, timeoutMessage: string): SpawnSyncReturns<string> | null {
+function runInMacGui(argv: string[], env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number, timeoutMessage: string, input?: string | Buffer): SpawnSyncReturns<string> | null {
   const uid = process.getuid?.();
   if (uid === undefined) return null;
   let dir: string;
@@ -231,6 +232,12 @@ function runInMacGui(argv: string[], env: NodeJS.ProcessEnv, cwd: string, timeou
   const label = `dev.aiterm.gui-job.${process.pid}.${path.basename(dir)}`;
   const plist = path.join(dir, "job.plist");
   try {
+    // launchdの仕事は標準入力を持たない。入力を渡す時はファイルに書き、同じ仕事の中でつなぐ。
+    if (input !== undefined) {
+      const inputFile = path.join(dir, "in");
+      fs.writeFileSync(inputFile, input, { mode: 0o600 });
+      argv = ["/bin/sh", "-c", 'f=$1; shift; exec "$@" <"$f"', "aiterm-gui-input", inputFile, ...argv];
+    }
     fs.writeFileSync(plist, macGuiTmuxPlist(label, dir, argv, env, cwd));
     const boot = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plist], { encoding: "utf8", timeout: 10000 });
     // 画面にログインしていない等で gui domain が無ければ、今までどおり直接実行する。

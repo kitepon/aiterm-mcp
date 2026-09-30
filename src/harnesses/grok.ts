@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { AitermError } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
+import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import {
   shq,
   subagentInstruction,
@@ -75,6 +76,68 @@ export function grokModelCatalog(bin: string, cwd: string): string[] {
   }
   if (models.length === 0) throw new AitermError("Grok model catalog に利用可能なmodelがありません", 2);
   return models;
+}
+
+const GROK_AGENT_CATALOG_TIMEOUT_MS = 30_000;
+
+/**
+ * GrokのmodelとReasoning effortの候補。`grok models` はeffortを出さないため、公式のagent protocol（ACP）の
+ * `initialize` 応答にある `_meta.modelState` を読む。`session/new` は同じ候補を返すがsessionを保存するので使わない。
+ * promptもsessionも作らず、推論は起きない。
+ */
+export function grokModelChoices(bin: string, cwd: string): AgentModelCatalog {
+  const request = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } };
+  const result = spawnAgentControlCommand(bin, ["agent", "--no-leader", "stdio"], cwd, {
+    cwd,
+    encoding: "utf8",
+    env: process.env,
+    input: JSON.stringify(request) + "\n",
+    timeout: GROK_AGENT_CATALOG_TIMEOUT_MS,
+    maxBuffer: GROK_MODELS_MAX_BYTES,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) {
+    throw catalogUnavailable("Grok", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);
+  }
+  return grokCatalogFromInitialize(result.stdout, processSummary(result));
+}
+
+/** `grok agent stdio` のinitialize応答（JSON Lines）からmodel候補を作る。 */
+export function grokCatalogFromInitialize(stdout: string, summary = ""): AgentModelCatalog {
+  const response = findJsonLine(stdout, (value) => value?.id === 1 && ("result" in value || "error" in value));
+  if (!response) throw catalogInvalid("Grok", `initializeの応答がありません${summary ? `（${summary}）` : ""}`);
+  if (response.error) throw catalogUnavailable("Grok", `initializeが拒否されました: ${JSON.stringify(response.error)}`);
+  const meta = response.result?._meta;
+  const state = meta?.modelState;
+  if (!state || !Array.isArray(state.availableModels)) throw catalogInvalid("Grok", "initializeの応答に _meta.modelState.availableModels がありません");
+  const models = state.availableModels.map((model: any) => {
+    if (typeof model?.modelId !== "string") throw catalogInvalid("Grok", "modelIdの無いmodelがあります");
+    const info = model._meta ?? {};
+    const levels = info.supportsReasoningEffort === false ? [] : info.reasoningEfforts;
+    if (!Array.isArray(levels)) throw catalogInvalid("Grok", `${model.modelId} に reasoningEfforts がありません`);
+    const efforts = levels.map((level: any) => {
+      const value = level?.value ?? level?.id;
+      if (typeof value !== "string") throw catalogInvalid("Grok", `${model.modelId} のreasoning effortを読めません`);
+      return value;
+    });
+    const marked = levels.find((level: any) => level?.default === true);
+    const defaultEffort = (marked?.value ?? marked?.id ?? info.reasoningEffort ?? null) as string | null;
+    return {
+      id: model.modelId,
+      display_name: typeof model.name === "string" ? model.name : null,
+      efforts,
+      // 候補に無い既定値は黙って捨てず、checkedCatalogで形式異常にする。
+      default_effort: efforts.length > 0 ? defaultEffort : null,
+      hidden: false,
+    };
+  });
+  return checkedCatalog("Grok", {
+    source: "grok agent stdio initialize (_meta.modelState)",
+    harness_version: typeof meta.agentVersion === "string" ? meta.agentVersion : null,
+    default_model: typeof state.currentModelId === "string" ? state.currentModelId : null,
+    adapter_efforts: {},
+    models,
+  });
 }
 
 export function assertGrokModelAvailable(bin: string, cwd: string, model: string): void {

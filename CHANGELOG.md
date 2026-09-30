@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- 公開tool `agent_models`。harnessを指定すると、そのharnessが今選べるmodel IDとreasoning effortを返す（`aiterm.agent-models.v1`）。promptもturnも送らない。取得不能は`MODEL_CATALOG_UNAVAILABLE`、形式異常は`MODEL_CATALOG_INVALID`で、別の一覧へfallbackしない（ADR 0074）。
+  - Codex：公式App Serverの`model/list`。modelごとのeffortと既定effortを返す。`include_hidden`で隠しmodelも返す。
+  - Claude Code：stream-jsonの制御要求`initialize`の`models`（Agent SDKの`supportedModels()`と同じ）。hookとMCP serverを止め、sessionを保存しない。`ultracode`はeffort対応modelへadapterが足し、`adapter_efforts`で示す。
+  - Grok：`grok agent stdio`の`initialize`の`_meta.modelState`。modelごとのeffortを返す（`grok models`はeffortを出さない）。
+  - Cursor：`cursor-agent models`を、素のmodel IDと`<model>-<effort>`で作れるeffortへ分ける。
+- `spawnAgentControlCommand`がstdinを渡せるようにした。macOSのAqua外（launchd経由）でも入力をつなぐ。Windowsの`.cmd`は空白を含むpathを引用する。
+
 ## [0.43.7] - 2026-09-29
 
 ### 修正

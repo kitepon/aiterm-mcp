@@ -236,6 +236,22 @@ Aitermはtransport、schema、turn相関だけを検証する。command／prompt
 harness所有credentialの内容・権限・linkも検査しない。command policyとcredential policyは、実行する
 shell、接続先、各harnessの公式CLIが所有する。
 
+## Model catalog
+
+`agent_models`は、harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧から返す。
+BellTeam等の画面は、保存した固定の一覧ではなく、agentを実際に動かす端末のharnessが返す候補を使う。
+取得口、出力形式、model IDとeffortの変換は各harness adapterが持ち、`src/model-catalog.ts`は
+harness中立の形、effortの並び、形式検証だけを持つ。stdinを渡す起動のOS差（macOSのAqua外の
+launchd経由、Windowsの`.cmd`）は`src/agent-resolver.ts`／`src/tmux-runtime.ts`が持つ。
+
+取得はpromptもturnも送らない。Codexは公式App Serverの`model/list`、Claude Codeはstream-jsonの
+制御要求`initialize`（hook・MCP server・session保存を止める）、Grokは`grok agent stdio`の
+`initialize`、Cursorは`cursor-agent models`を使う。返すmodel IDとeffortは`agent_launch`／
+`agent_configure`へそのまま渡せる形にし、Cursorは`<model>-<effort>`の連結で作れる組だけを返す。
+harnessの一覧に無い値をadapterが足す時（Claudeの`ultracode`）は`adapter_efforts`で出所を示す。
+取得不能と形式異常は明示errorにし、固定一覧や別harnessへfallbackしない。判断の記録は
+ADR 0074（repositoryの`docs/adr/0074-agent-model-catalog.md`）。
+
 ## Failure and recovery
 
 入力が64KiBを超える、送信lockが残る、harnessがblocking UIにいる、model catalogが一致しない等の

@@ -81,8 +81,12 @@ export function spawnAgentControlCommand(
   if (isWin && !/\.(?:exe|com)$/i.test(bin)) {
     if (/\.(?:cmd|bat)$/i.test(bin)) {
       // Node は CVE-2024-27980 対処以降、.cmd/.bat の直接 spawn を EINVAL で拒否する。
-      // 受入が .cmd/.bat を許す以上、control 経路は shell 経由で実行する（args は固定語彙）。
-      return spawnSync(bin, args, { ...options, shell: true });
+      // 受入が .cmd/.bat を許す以上、control 経路は shell 経由で実行する（args は固定語彙とAiterm所有の一時path）。
+      // shell経由ではNodeが引数を引用しないので、空白を含むpathだけ二重引用符でくくる。引用符とshell記号は受け付けない。
+      if (args.some(arg => /["%^&|<>!]/.test(arg))) {
+        throw new AitermError(`${path.basename(bin)} のcontrol commandへ渡せない文字を含む引数があります`, 2);
+      }
+      return spawnSync(bin, args.map(arg => /\s/.test(arg) ? `"${arg}"` : arg), { ...options, shell: true });
     }
     // 受入は pane shell（Git Bash）が shebang で実行できる script も許す。Windows の
     // CreateProcess は shebang を解さないため、control command も同じ Git Bash で実行する。

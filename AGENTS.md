@@ -20,7 +20,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - Node.js 18以上。POSIXはtmux、Windows nativeはpsmux 3.3.8以上＋Git for Windowsを使う。
   Windowsの対話shellはPowerShell 7だけとし、Windows PowerShell 5.1、PowerShell 6、`cmd.exe`、
   WSL bridgeへfallbackしない。
-- 公開面は16 tools。PTY 7、標準`agent_launch` 1、deprecated互換launcher 3、
+- 公開面は17 tools。PTY 7、標準`agent_launch` 1、deprecated互換launcher 3、`agent_models`、
   `agent_configure`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`である。
 - `pty_list`は明示した非秘密envキーだけを照会し、`pty_observe`はpaneとharnessの生存・native PID・
   状態・活動を区別する。取得不能はnull／unknownで返し、生argvと画面本文を観測receiptへ出さない。
@@ -51,6 +51,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/index.ts`: MCP toolとschema。
 - `src/core.ts`: PTY、入出力整形、出力削減、完了検出、harness共通進行。
 - `src/harnesses/`: Claude／Codex／Grok／Cursor固有の起動、ready、完了、transcript、catalog。
+  `src/model-catalog.ts`: `agent_models`のharness中立の形、effortの並び、形式検証。取得口と変換はadapterが持つ。
 - `src/harnesses/grok.ts`: Grok／Composerのfolder trust、入力受付、sandbox起動拒否の検出と原因付きエラーも所有する。
   `src/core.ts`は該当harnessで判定を呼び出すだけとし、CLIの拒否文言や設定の修復処理を持たない。
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。

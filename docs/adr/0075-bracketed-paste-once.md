@@ -24,5 +24,5 @@ agent dispatch（`bracketedPaste`）では、POSIXでも本文全体を`ESC[200~
 ## 影響
 
 - agent TUIへの長い本文が、TUIからは1回の貼り付けに見える。画像pathや行がchunkの切れ目で切れない。
-- 貼り付けモードを要求していないpaneへも印が届く。`bracketedPaste`は公開引数ではなく、agent dispatch以外は使わない。
-- 試験の偽TUI（行を読むだけのshell）は、本物と同じく行の前後の印を外す。
+- 貼り付けモードを要求していないpaneへも印が届く。例えばmacOSの`/bin/bash` 3.2は`00~echo …01~`と崩す。`bracketedPaste`は公開引数ではなく、agent dispatch以外は使わない。
+- 試験の偽TUI（行を読むだけのshell）は、本物と同じく行の前後の印を外す。偽Claudeが終わって残ったshellへagent dispatchを流していた承認の試験は、印を外して行を実行する偽TUIで受ける。

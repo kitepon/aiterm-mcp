@@ -445,7 +445,8 @@ function makeFailingGrokCatalogBin() {
   return bin;
 }
 
-function makeFakeClaudeTuiBin({ authJson = '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}', authExit = 0 } = {}) {
+// run:true は受けた行を印を外してから実行する（承認画面などを本物のTUIの中から出すため）。
+function makeFakeClaudeTuiBin({ authJson = '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}', authExit = 0, run = false } = {}) {
   const bin = path.join(process.env.TMPDIR, `fake-claude-tui-${Date.now().toString(36)}.sh`);
   fs.writeFileSync(
     bin,
@@ -457,7 +458,7 @@ function makeFakeClaudeTuiBin({ authJson = '{"loggedIn":true,"authMethod":"claud
       "fi",
       "printf 'Claude Code\\n❯ ready\\n'",
       "while IFS= read -r line; do",
-      "  printf '%s\\n' \"$line\"",
+      ...(run ? [...FAKE_TUI_STRIP_PASTE_MARKERS, "  eval \"$line\""] : ["  printf '%s\\n' \"$line\""]),
       "done",
       "",
     ].join("\n"),
@@ -2424,6 +2425,10 @@ test("Claude operation interrupt: active中の通常入力を拒否しC-c後もS
 });
 
 test("claude_approval: active operationと画面digestを結合して単発承認だけを送る", { skip: skipAgentDone }, async () => {
+  // 貼り付けの印はagent TUIだけが解す。shellに頼らず、偽TUIの中で画面を出す。
+  const savedBin = process.env.CLAUDE_BIN;
+  const fakeBin = makeFakeClaudeTuiBin({ run: true });
+  process.env.CLAUDE_BIN = fakeBin;
   const [sid] = core.openAgent("claude", { agent_done: true });
   const operationId = `sha256:${"7".repeat(64)}`;
   try {
@@ -2479,10 +2484,17 @@ test("claude_approval: active operationと画面digestを結合して単発承�
       "承認入力はactive operation markerを消費しない");
   } finally {
     core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
+    else process.env.CLAUDE_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
   }
 });
 
 test("claude_approval: 恒久許可だけの選択肢を拒否する", { skip: skipAgentDone }, async () => {
+  // 貼り付けの印はagent TUIだけが解す。shellに頼らず、偽TUIの中で画面を出す。
+  const savedBin = process.env.CLAUDE_BIN;
+  const fakeBin = makeFakeClaudeTuiBin({ run: true });
+  process.env.CLAUDE_BIN = fakeBin;
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     await markFakeAgentReady(sid, "claude");
@@ -2494,6 +2506,9 @@ test("claude_approval: 恒久許可だけの選択肢を拒否する", { skip: s
     );
   } finally {
     core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
+    else process.env.CLAUDE_BIN = savedBin;
+    fs.rmSync(fakeBin, { force: true });
   }
 });
 

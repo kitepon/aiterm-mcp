@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-10-01
+
 ### 修正
 
 - POSIXでagent TUIへ256byteを超える本文を送ると、TUIが別々の貼り付けとして受け取っていた。256byteのchunkごとに`paste-buffer -p`で包んでいたためで、Claude Codeでは切れ目にかかった画像pathが画像として読まれず、最後の短い貼り付けが入力欄の先頭へずれた。本文全体を`ESC[200~`／`ESC[201~`で1回だけ包み、中身はchunkのまま流す（Windowsと同じ形）。判断はADR 0075。
@@ -1942,7 +1944,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...v0.45.0
 [0.44.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...v0.44.1
 [0.44.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.43.7...v0.44.0

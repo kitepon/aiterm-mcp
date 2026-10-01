@@ -239,7 +239,8 @@ function runInMacGui(argv: string[], env: NodeJS.ProcessEnv, cwd: string, timeou
       fs.writeFileSync(inputFile, input, { mode: 0o600 });
       argv = until === undefined
         ? ["/bin/sh", "-c", 'f=$1; shift; exec "$@" <"$f"', "aiterm-gui-input", inputFile, ...argv]
-        : ["/bin/sh", "-c", 'f=$1; m=$2; o=$3; shift 3; { cat "$f"; until grep -qF -- "$m" "$o" 2>/dev/null; do sleep 0.05; done; } | "$@"',
+        // CLIが応答前に終了した場合も入力の保持を終え、pipeline全体がCLIの終了コードを返す。
+        : ["/bin/sh", "-c", 'f=$1; m=$2; o=$3; shift 3; { cat "$f"; while [ ! -e "$f.done" ] && ! grep -qF -- "$m" "$o" 2>/dev/null; do sleep 0.05; done; } | { "$@"; r=$?; touch "$f.done"; exit "$r"; }',
           "aiterm-gui-input", inputFile, until, path.join(dir, "out"), ...argv];
     }
     fs.writeFileSync(plist, macGuiTmuxPlist(label, dir, argv, env, cwd));

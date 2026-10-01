@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.2] - 2026-10-01
+
 ### 修正
 
 - WindowsのSteer設定を再実行すると、PowerShellのSet-Aclが監査ACLの権限まで要求し、Network Serviceで失敗していた。所有者とDACLの変更だけを.NETのAPIへ渡し、再実行時も追加権限を要求しない。
@@ -1950,7 +1952,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...HEAD
+[0.45.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...v0.45.2
 [0.45.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...v0.45.0
 [0.44.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.0...v0.44.1

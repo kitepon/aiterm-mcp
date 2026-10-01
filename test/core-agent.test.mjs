@@ -28,7 +28,7 @@ const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");
 fs.writeFileSync(
     argvPrinterBin,
-    "#!/bin/sh\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\n",
+    "#!/bin/sh\nprintf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\n",
     { mode: 0o700 },
   );
 fs.chmodSync(argvPrinterBin, 0o700);
@@ -56,6 +56,7 @@ fs.writeFileSync(
       "  exit 0",
       "fi",
       "for arg do printf '<arg>%s</arg>\\n' \"$arg\"; done",
+      "printf 'agent_role=%s\\nGROK_AUTH_PATH=%s\\n' \"$AITERM_AGENT_ROLE\" \"$GROK_AUTH_PATH\"",
       "",
     ].join("\n"),
     { mode: 0o700 },
@@ -894,6 +895,9 @@ test("Codex上限接近modal: readyへ戻らなければ本文を送らずtyped 
   try {
     await withFakeCodexHome(async () => {
       const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+      // 復帰失敗の150msには偽TUIの起動時間を含めない。modalの表示を先に確かめる。
+      const initial = await core.readOutput(actualSid, { wait: true, until: "Approaching rate limits", timeout: 5, raw: true });
+      assert.match(initial, /Approaching rate limits/);
       await assert.rejects(
         () => core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY_MUST_NOT_SEND", { ready_timeout: 150 }),
         (error) => error.code === 2
@@ -1274,10 +1278,10 @@ test("target contract: Codexは通常CODEX_HOMEを共有しsub-agent lineageだ�
       assert.equal(fs.readFileSync(configPath, "utf8"), configBefore, "通常configを書き換えない");
       const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
       assert.doesNotMatch(out, /CODEX_HOME=/, "通常CODEX_HOMEを置換しない");
-      assert.match(out, /-c\s+check_for_update_on_startup=false/);
+      assert.match(out, /<arg>-c<\/arg>\s+<arg>check_for_update_on_startup=false<\/arg>/);
       assert.match(out, /developer_instructions=/);
-      assert.match(out, /AITERM_AGENT_R\s*OLE='subagent'/);
-      assert.match(out, /AITERM_AGENT_DEPTH='1'/);
+      assert.match(out, /agent_role=subagent\r?\n/);
+      assert.match(out, /agent_depth=1\r?\n/);
       assert.match(out, /delegation_allowed=true/);
     } finally {
       core.closeSession(sid);
@@ -1737,7 +1741,7 @@ test("openAgent claude: launch_operation_idのpromptless managed条件を固定�
 
 test("openAgent grok agent_done: 通常 GROK_HOME を共有し相関・lineage引数だけを加える", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;
-  process.env.GROK_BIN = "/bin/echo";
+  process.env.GROK_BIN = fakeGrokBin;
   try {
     await withFakeGrokHome(async (fakeHome) => {
       const [sid, hint] = core.openAgent("grok", {
@@ -1772,11 +1776,11 @@ test("openAgent grok agent_done: 通常 GROK_HOME を共有し相関・lineage�
         assert.match(out, /--session-id/, `grok correlation id: ${out}`);
         assert.match(out, new RegExp(meta.vendor_session_id), `grok vendor session: ${out}`);
         assert.match(out, /--rules/, `grok subagent instruction: ${out}`);
-        assert.match(out, /AITERM_AGENT_ROLE=/, `grok lineage env: ${out}`);
+        assert.match(out, /^agent_role=subagent\r?$/m, `grok lineage env: ${out}`);
         assert.match(out, /--no-auto-update/, `grok command: ${out}`);
         assert.match(out, /--no-alt-screen/, `grok no-alt-screen: ${out}`);
         assert.match(out, /--verbatim/, `grok verbatim: ${out}`);
-        assert.match(out, /--model grok-4\.6/, `grok model: ${out}`);
+        assert.match(out, /<arg>--model<\/arg>\s+<arg>grok-4\.6<\/arg>/, `grok model: ${out}`);
         assert.doesNotMatch(out, /(^| )HOME=/, `grok HOME must be inherited: ${out}`);
         assert.doesNotMatch(out, /(^| )GROK_HOME=/, `grok GROK_HOME must be inherited: ${out}`);
         assert.doesNotMatch(out, /--effort/, `grok effort: ${out}`);

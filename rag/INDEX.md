@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **138** 件 / 更新: 2026-09-28
+- 総数: **140** 件 / 更新: 2026-10-02
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -445,6 +445,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Node.js process.execPath](sources/installation/node-process-execpath.md) — process.execPathはNode実行ファイルの絶対パスを返し、symlinkを解決する。
   - 出典: <https://nodejs.org/api/process.html> (docs, 179959 chars)
   - 効きどころ: HomebrewのCellar実体を永続する起動設定へ固定してはいけない根拠。
+
+## platform — 2件
+
+- [OpenSSH ControlMaster・ControlPath・ControlPersist 公式仕様](sources/platform/openssh-controlmaster-config.md) — ControlPathは他ユーザーが書けないディレクトリと%C等による接続分離を推奨し、ControlPersistは無通信時の共有master終了を所有する。
+  - 出典: <https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/ssh_config.5> (official_source, 72338 chars)
+  - 効きどころ: Aitermの接続共有・private directory・cleanupを維持する根拠。
+- [OpenSSH 共有ソケットの作成と一時suffix](sources/platform/openssh-mux-control-socket.md) — muxserver_listenはControlPathへドットと16字のsuffixを加えてUnixソケットを作り、正式名へ移す。
+  - 出典: <https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/mux.c> (official_source, 67679 chars)
+  - 効きどころ: 長いTMPDIRに依存しない共有ソケット配置と一時名まで含む長さの受入根拠。
 
 ## terminal-automation — 1件
 

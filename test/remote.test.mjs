@@ -3,6 +3,8 @@ import { test } from "node:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
 
@@ -24,6 +26,65 @@ test("パスフレーズが無ければBatchModeで止め、接続名の前で�
   assert.equal(env.AITERM_SSH_PASSPHRASE, undefined);
 });
 
+for (const long of [false, true]) {
+  test(`${long ? "長い" : "通常の"}TMPDIRでもSSH共有ソケットと作成時の一時名をbindできる`, { skip: process.platform === "win32" }, async (t) => {
+    const root = fs.mkdtempSync("/tmp/aiterm-control-test-");
+    const tmp = long ? path.join(root, ...Array(10).fill("長い一時領域")) : root;
+    fs.mkdirSync(tmp, { recursive: true });
+    const saved = { TMPDIR: process.env.TMPDIR, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, AITERM_STATE_BASE: process.env.AITERM_STATE_BASE };
+    process.env.TMPDIR = tmp;
+    delete process.env.XDG_RUNTIME_DIR;
+    delete process.env.AITERM_STATE_BASE;
+    let dir;
+    t.after(() => {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const target = { host: "127.0.0.1" };
+    const invocation = sshInvocation(target, "true");
+    const control = invocation.args.find((arg) => arg.startsWith("ControlPath=")).slice("ControlPath=".length);
+    dir = path.dirname(control);
+    const temporary = control.replace("%C", "a".repeat(40)) + "." + "b".repeat(16);
+    assert.ok(Buffer.byteLength(temporary) < 104, "OpenSSHの一時suffixを含めてmacOSの制限に収まる");
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+    assert.ok(invocation.args.includes("ControlMaster=auto"));
+    assert.ok(invocation.args.includes("ControlPersist=600"));
+    assert.equal(sshInvocation(target, "another command").args.find((arg) => arg.startsWith("ControlPath=")), `ControlPath=${control}`);
+    const other = spawnSync(process.execPath, ["--input-type=module", "-e",
+      `import {sshInvocation} from ${JSON.stringify(new URL("../dist/remote.js", import.meta.url).href)}; process.stdout.write(sshInvocation({host:'127.0.0.1'},'true').args.find(a=>a.startsWith('ControlPath=')));`],
+      { env: process.env, encoding: "utf8" });
+    assert.equal(other.status, 0, other.stderr);
+    assert.equal(other.stdout, `ControlPath=${control}`, "別processも同じ共有接続を使う");
+    const ssh = spawnSync("ssh", ["-O", "check", ...invocation.args], { env: invocation.env, encoding: "utf8", timeout: 5000 });
+    assert.equal(ssh.error, undefined);
+    assert.match(ssh.stderr, /Control socket connect/);
+    assert.doesNotMatch(ssh.stderr, /too long/);
+    const socket = createServer();
+    await new Promise((resolve, reject) => { socket.once("error", reject); socket.listen(temporary, resolve); });
+    await new Promise((resolve, reject) => socket.close((error) => error ? reject(error) : resolve()));
+    assert.equal(fs.existsSync(temporary), false, "閉じたソケットの残骸を残さない");
+    process.env.XDG_RUNTIME_DIR = root;
+    const alternate = sshInvocation(target, "true").args.find((arg) => arg.startsWith("ControlPath="));
+    if (long) {
+      assert.notEqual(alternate, `ControlPath=${control}`, "異なるstate rootの接続を共有しない");
+      fs.rmSync(path.dirname(alternate.slice("ControlPath=".length)), { recursive: true, force: true });
+    } else {
+      assert.equal(alternate, `ControlPath=${control}`, "同じstate rootなら環境変数の選び方によらず共有する");
+    }
+    fs.chmodSync(dir, 0o777);
+    process.env.XDG_RUNTIME_DIR = tmp;
+    assert.throws(() => sshInvocation(target, "true"), /REMOTE_CONTROL_DIR_INVALID/);
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o777, "既存領域の権限を勝手に修復しない");
+    fs.rmSync(dir, { recursive: true });
+    fs.symlinkSync(root, dir);
+    assert.throws(() => sshInvocation(target, "true"), /REMOTE_CONTROL_DIR_INVALID/);
+    fs.unlinkSync(dir);
+  });
+}
+
 test("平文のパスフレーズは記録用の接続情報から外し、askpass経由でsshにだけ渡す", { skip: process.platform === "win32" }, async (t) => {
   fakeSsh(t, "echo aiterm-probe %OS%");
   const target = acceptRemote({ host: "askpass-host", passphrase: "秘密の合言葉" });
@@ -34,7 +95,9 @@ test("平文のパスフレーズは記録用の接続情報から外し、askpa
   assert.equal(env.SSH_ASKPASS_REQUIRE, "force");
   assert.equal(fs.readFileSync(env.SSH_ASKPASS, "utf8").includes("秘密の合言葉"), false);
   // 親が別processで起動する完了待ちにはパスフレーズを載せない。
-  assert.ok((await remoteWaitProcess(target, "t1", 0)).args.includes("BatchMode=yes"));
+  const waiter = await remoteWaitProcess(target, "t1", 0);
+  assert.ok(waiter.args.includes("BatchMode=yes"));
+  assert.equal(waiter.args.find((arg) => arg.startsWith("ControlPath=")), args.find((arg) => arg.startsWith("ControlPath=")));
 });
 
 test("接続先のshellを、cmd・PowerShell・POSIX系の展開の違いで見分ける", () => {
@@ -127,10 +190,17 @@ test("別端末の子は接続先ごとに予約し、観測と回答回収へ�
 test("別端末の記録は旧版が読む保存場所へ置かない", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-remote-root-"));
   const saved = process.env.XDG_RUNTIME_DIR;
+  const savedBase = process.env.AITERM_STATE_BASE;
+  delete process.env.AITERM_STATE_BASE;
   process.env.XDG_RUNTIME_DIR = dir;
   const manager = new ParentDeliveryManager({ parent_kind: "claude", remote: true,
     dependencies: { processes: () => [{ pid: process.pid, started_identity: "fixture" }] } });
-  t.after(async () => { await manager.close(); process.env.XDG_RUNTIME_DIR = saved; fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(async () => {
+    await manager.close();
+    if (saved === undefined) delete process.env.XDG_RUNTIME_DIR; else process.env.XDG_RUNTIME_DIR = saved;
+    if (savedBase === undefined) delete process.env.AITERM_STATE_BASE; else process.env.AITERM_STATE_BASE = savedBase;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   const stateRoot = fs.readdirSync(dir).map((name) => path.join(dir, name)).find((name) => fs.existsSync(path.join(name, "agents")));
   assert.ok(fs.existsSync(path.join(stateRoot, "remote-claude-parent-deliveries", "active")));
   assert.equal(fs.existsSync(path.join(stateRoot, "claude-parent-deliveries")), false);

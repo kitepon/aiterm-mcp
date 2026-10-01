@@ -34,7 +34,8 @@ $acl.SetOwner($sid)
 $acl.SetAccessRuleProtection($true, $false)
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', '${directory ? "ContainerInherit, ObjectInherit" : "None"}', 'None', 'Allow')
 $acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $target -AclObject $acl
+# Set-Aclは再実行時にSACL更新の権限まで要求する。所有者とDACLの変更だけを.NETへ渡す。
+[System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.${directory ? "DirectoryInfo" : "FileInfo"}]::new($target), $acl)
 $actual = Get-Acl -LiteralPath $target
 if ($actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value -or !$actual.AreAccessRulesProtected) { throw 'ACLの適用を確認できません' }
 `);

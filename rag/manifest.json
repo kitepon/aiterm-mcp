@@ -1909,6 +1909,42 @@
       "fetched": "2026-09-19"
     },
     {
+      "slug": "openssh-controlmaster-config",
+      "topic": "platform",
+      "title": "OpenSSH ControlMaster・ControlPath・ControlPersist 公式仕様",
+      "source_url": "https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/ssh_config.5",
+      "source_type": "official_source",
+      "path": "sources/platform/openssh-controlmaster-config.md",
+      "tags": [
+        "ssh",
+        "ControlPath",
+        "ControlPersist",
+        "tokens"
+      ],
+      "summary": "ControlPathは他ユーザーが書けないディレクトリと%C等による接続分離を推奨し、ControlPersistは無通信時の共有master終了を所有する。",
+      "relevance": "Aitermの接続共有・private directory・cleanupを維持する根拠。",
+      "chars": 72338,
+      "fetched": "2026-10-02"
+    },
+    {
+      "slug": "openssh-mux-control-socket",
+      "topic": "platform",
+      "title": "OpenSSH 共有ソケットの作成と一時suffix",
+      "source_url": "https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/mux.c",
+      "source_type": "official_source",
+      "path": "sources/platform/openssh-mux-control-socket.md",
+      "tags": [
+        "ssh",
+        "ControlPath",
+        "ControlMaster",
+        "unix-socket"
+      ],
+      "summary": "muxserver_listenはControlPathへドットと16字のsuffixを加えてUnixソケットを作り、正式名へ移す。",
+      "relevance": "長いTMPDIRに依存しない共有ソケット配置と一時名まで含む長さの受入根拠。",
+      "chars": 67679,
+      "fetched": "2026-10-02"
+    },
+    {
       "slug": "aider-in-chat-commands",
       "topic": "prior-art",
       "title": "Aider In-chat commands (/run, /test)",
@@ -2689,5 +2725,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-09-28"
+  "updated": "2026-10-02"
 }

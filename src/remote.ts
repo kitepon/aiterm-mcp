@@ -9,7 +9,8 @@ import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartProcessArgumentList, type AgentWaitObservation } from "./core.js";
-import { ensureStateRoot } from "./agent-shared.js";
+import { ensureStateRoot, stateRoot } from "./agent-shared.js";
+import { currentUid } from "./state-root.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -64,6 +65,20 @@ function remoteDir(): string {
   return dir;
 }
 
+function controlPath(): string {
+  // TMPDIRやXDG_RUNTIME_DIRは長くなり得る。%Cの40字とOpenSSHの一時suffix（17字）を含めても
+  // macOSの104 byte制限に収まる短い領域へ、state rootごとに共有ソケットだけを置く。
+  const namespace = createHash("sha256").update(stateRoot()).digest("hex").slice(0, 20);
+  const dir = path.join("/tmp", `aiterm-ssh-${namespace}`);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // 共有/tmpに先に作られた他者の領域やsymlinkを使わず、既存領域の権限も変更しない。
+  const stat = fs.lstatSync(dir);
+  if (!stat.isDirectory() || stat.uid !== currentUid() || (stat.mode & 0o777) !== 0o700) {
+    throw new AitermError("REMOTE_CONTROL_DIR_INVALID: SSH共有ソケットの領域が自分所有の0700ディレクトリではありません", 2);
+  }
+  return path.join(dir, "cm-%C");
+}
+
 function askpassScript(): string {
   const file = path.join(remoteDir(), "askpass.sh");
   const body = "#!/bin/sh\nprintf '%s\\n' \"$AITERM_SSH_PASSPHRASE\"\n";
@@ -90,7 +105,7 @@ export function sshInvocation(target: RemoteTarget, remoteCommand: string, optio
   const args = ["-T", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
   // 同じ接続先への後続呼び出しと完了待ちを一本のSSHに相乗りさせる。Windows版OpenSSHはControlMaster非対応。
   if (process.platform !== "win32") {
-    args.push("-o", "ControlMaster=auto", "-o", `ControlPath=${path.join(remoteDir(), "cm-%C")}`, "-o", "ControlPersist=600");
+    args.push("-o", "ControlMaster=auto", "-o", `ControlPath=${controlPath()}`, "-o", "ControlPersist=600");
   }
   const passphrase = options.passphrase === false ? null : passphraseFor(target);
   if (passphrase) {

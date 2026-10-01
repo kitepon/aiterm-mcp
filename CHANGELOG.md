@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsのSteer設定を再実行すると、PowerShellのSet-Aclが監査ACLの権限まで要求し、Network Serviceで失敗していた。所有者とDACLの変更だけを.NETのAPIへ渡し、再実行時も追加権限を要求しない。
+- macOSのAqua外でmodel照会のCLIが応答前にエラー終了すると、標準入力を保持する処理が終了を認識せずtimeoutしていた。CLIの終了で入力保持も終え、元の終了コードとstderrを返す。
+- macOSの長いTMPDIRで`remote`呼び出しが`REMOTE_CONNECT_FAILED`（`ControlPath too long`）となっていた。POSIXのSSH共有ソケットを短い`/tmp`の専用領域へ置き、OpenSSHの作成時suffixまで含めて98 bytesに収める。state rootごとの分離、process間の接続共有と`ControlPersist=600`によるcleanupを保つ。共有領域の所有者・権限・種類が不正なら`REMOTE_CONTROL_DIR_INVALID`で止め、既存領域を変更しない。公開APIとstate schemaは変わらず、旧版への巻き戻しは通常のnpm installとMCP client再起動で行える。
+
 ## [0.45.1] - 2026-10-01
 
 ### 修正

@@ -666,6 +666,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 - Pass the same `remote` to later `pty_send`, `pty_read`, `pty_close`, `pty_observe`, and so on. Session names belong to the remote machine and never collide with local sessions of the same name.
 - Codex, Claude Code, and Cursor parents receive the answer automatically, as with a local child. Completion is observed with `ssh <host> aiterm-wait`, reconnecting at the same cursor if SSH drops. Other parents get an ssh-based `wait_process`.
 - Calls to the same destination share one SSH connection through ControlMaster. `image` attachments and `claude_turn issue` are not yet supported with `remote`.
+- POSIX SSH control sockets use a short private directory even with a long TMPDIR. Connections stay isolated by state root; OpenSSH closes idle masters and removes their sockets after 600 seconds.
 
 ### Token reduction
 

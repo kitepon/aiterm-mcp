@@ -620,6 +620,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 - 以後の`pty_send`、`pty_read`、`pty_close`、`pty_observe`などにも同じ`remote`を付ける。session名は現地のもので、この端末の同名sessionとは別に扱う。
 - Codex／Claude Code／Cursor親には、この端末の子と同じく回答本文が自動で届く。完了は`ssh <host> aiterm-wait`で観測し、SSHが切れても同じcursorでつなぎ直す。それ以外の親には、sshを使う`wait_process`を返す。
 - 同じ接続先への呼び出しはControlMasterで1本のSSHに相乗りする。`remote`付きの`image`添付と`claude_turn issue`は未対応。
+- POSIXのSSH共有ソケットは長いTMPDIRでも動く短い専用領域に置く。state rootごとに分離し、無通信600秒後の接続終了とソケット削除はOpenSSHが行う。
 
 ### トークン削減
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- macOSの長いTMPDIRで`remote`呼び出しが`REMOTE_CONNECT_FAILED`（`ControlPath too long`）となっていた。POSIXのSSH共有ソケットを短い`/tmp`の専用領域へ置き、OpenSSHの作成時suffixまで含めて98 bytesに収める。state rootごとの分離、process間の接続共有と`ControlPersist=600`によるcleanupを保つ。共有領域の所有者・権限・種類が不正なら`REMOTE_CONTROL_DIR_INVALID`で止め、既存領域を変更しない。公開APIとstate schemaは変わらず、旧版への巻き戻しは通常のnpm installとMCP client再起動で行える。
+
 ## [0.45.1] - 2026-10-01
 
 ### 修正

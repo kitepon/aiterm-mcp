@@ -211,6 +211,12 @@ WindowsはユーザーのPATHで`aiterm-mcp`と`aiterm-wait`をそのまま呼�
 `SSH_ASKPASS`でsshへ渡す。受け取っていない時は`BatchMode`で止め、端末での対話入力はしない。
 同じ接続先への呼び出しはControlMasterで1本のSSHに相乗りする。
 
+POSIXの共有ソケットは`/tmp/aiterm-ssh-<state rootのSHA-256先頭20桁>/cm-%C`に置く。
+TMPDIRやXDG_RUNTIME_DIRが長くても、OpenSSHが作成時に付ける17字のsuffix込みで98 bytesとなり、
+macOSの104 bytes制限に収まる。state rootごとの分離とprocess間の共有を維持し、askpassと配送記録の場所は変えない。
+共有`/tmp`の既存領域は、自分所有の0700ディレクトリだけを使い、それ以外は`REMOTE_CONTROL_DIR_INVALID`で止める。
+ソケットの寿命と削除は従来どおりOpenSSHの`ControlPersist=600`が所有する。判断はADR 0076。
+
 自動配送は`ParentDeliveryManager`を別インスタンスで使い、記録を`remote-`付きの保存場所へ分ける。
 旧版のreaderは`boundary.remote`を知らないため、同じ保存場所に置くと旧processの照会が壊れる。
 子の予約と照会の単位は`deliveryKey`で、接続先のhashを前置きして、この端末の同名sessionと衝突させない。

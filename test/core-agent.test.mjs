@@ -1280,8 +1280,8 @@ test("target contract: Codexは通常CODEX_HOMEを共有しsub-agent lineageだ�
       assert.doesNotMatch(out, /CODEX_HOME=/, "通常CODEX_HOMEを置換しない");
       assert.match(out, /<arg>-c<\/arg>\s+<arg>check_for_update_on_startup=false<\/arg>/);
       assert.match(out, /developer_instructions=/);
-      assert.match(out, /^agent_role=subagent\r?$/m);
-      assert.match(out, /^agent_depth=1\r?$/m);
+      assert.match(out, /agent_role=subagent\r?\n/);
+      assert.match(out, /agent_depth=1\r?\n/);
       assert.match(out, /delegation_allowed=true/);
     } finally {
       core.closeSession(sid);

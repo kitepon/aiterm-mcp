@@ -120,6 +120,8 @@ macOSの専用LaunchAgent、Windowsのユーザー環境変数、所有外の値
 `ready`は公式APIによるhook登録・承認の読戻しと、更新前processの終了を確認した状態である。
 Codexの通常起動はAitermのNode、module、socketに依存しない。
 Windowsでは公式Desktopが展開した実行ファイルを照合して配送用の公式APIへ接続する。Desktop更新後はsetupで再検出する。
+WindowsのSteer領域は所有者とDACLだけを.NETのFileSystemAclExtensionsで更新する。監査ACLは変更せず、
+再実行にSeSecurityPrivilegeを要求しない。所有者の照合と更新後の読戻しは維持する。
 LinuxのSteer選択はunsupportedとし、単品のキュー配送は全対応OSで維持する。
 
 `parent_delivery`は配送IDと状態を返し、自動配送時の`wait_process`／`wait_command`はnullとなる。

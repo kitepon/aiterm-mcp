@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- POSIXでagent TUIへ256byteを超える本文を送ると、TUIが別々の貼り付けとして受け取っていた。256byteのchunkごとに`paste-buffer -p`で包んでいたためで、Claude Codeでは切れ目にかかった画像pathが画像として読まれず、最後の短い貼り付けが入力欄の先頭へずれた。本文全体を`ESC[200~`／`ESC[201~`で1回だけ包み、中身はchunkのまま流す（Windowsと同じ形）。判断はADR 0075。
+
 ## [0.45.0] - 2026-09-30
 
 ### 変更

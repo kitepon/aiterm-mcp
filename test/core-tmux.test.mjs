@@ -266,15 +266,15 @@ test("send raw: 制御文字とtabをtmux側で再変換しない", { skip }, as
   }
 });
 
-// agent dispatch 経路の paste 原子化。POSIX tmux はpane要求時だけ-pで包む。
-// Windows psmuxはbuffer参照が壊れるため、ready gate通過済みagent TUIへ明示wrapperを送る。
-test("send bracketedPaste: platform別のagent TUI原子化契約を守る", { skip }, async () => {
+// agent dispatch 経路の paste 原子化。ready gate通過済みagent TUIへ、本文全体を1回だけ
+// 明示wrapperで包む（POSIX tmux・Windows psmuxとも。chunkごとに包むと別々の貼り付けになる）。
+test("send bracketedPaste: 本文全体を1回だけESC[200~/201~で包む", { skip }, async () => {
   const session = "selftest_brkt";
   core.openSession(session);
   try {
     core.send(
       session,
-      `stty raw -echo; printf '\\033[?2004h'; printf '<<<AITERM_BRKT_%s>>>\\n' READY; dd bs=1 count=18 2>/dev/null | od -An -tx1; stty sane; printf '\\033[?2004l<<<AITERM_BRKT_%s>>>\\n' OFF`,
+      `stty raw -echo; printf '<<<AITERM_BRKT_%s>>>\\n' READY; dd bs=1 count=18 2>/dev/null | od -An -tx1; stty sane; printf '<<<AITERM_BRKT_%s>>>\\n' OFF`,
       { force: true },
     );
     await core.readOutput(session, { wait: true, until: "<<<AITERM_BRKT_READY>>>", timeout: 5, raw: true });
@@ -286,43 +286,42 @@ test("send bracketedPaste: platform別のagent TUI原子化契約を守る", { s
       timeout: 5,
       raw: true,
     });
-    // psmux(Windows) は stty sane 直後の ESC[?2004l エコーが od のhex出力行間へ
-    // 割り込むことがある（内容は完全・表示順だけの差）。CSI シーケンスを剥いでから
-    // hex 列の連続性を照合する。
+    // psmux(Windows) は stty sane 直後のCSIエコーが od のhex出力行間へ割り込むことがある
+    // （内容は完全・表示順だけの差）。CSI シーケンスを剥いでから hex 列の連続性を照合する。
     const bracketedHex = bracketed.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
     assert.match(
       bracketedHex,
       /1b\s+5b\s+32\s+30\s+30\s+7e\s+68\s+65\s+6c\s+6c\s+6f\s+21\s+1b\s+5b\s+32\s+30\s+31\s+7e/,
-      `paste mode 要求済み pane へは bracket 付きで届く: ${JSON.stringify(bracketed)}`,
+      `bracket 付きで届く: ${JSON.stringify(bracketed)}`,
     );
-    // POSIXは2004l後に素通し。Windowsは内部agent dispatch専用契約として明示wrapperを維持する。
-    const plainBytes = process.platform === "win32" ? 18 : 6;
-    core.send(
-      session,
-      `stty raw -echo; printf '<<<AITERM_PLAIN_%s>>>\\n' READY; dd bs=1 count=${plainBytes} 2>/dev/null | od -An -tx1; stty sane`,
-      { force: true },
-    );
-    await core.readOutput(session, { wait: true, until: "<<<AITERM_PLAIN_READY>>>", timeout: 5, raw: true });
-    core.send(session, "plain!", { raw: true, force: true, enter: false, bracketedPaste: true });
-    const plain = await core.readOutput(session, {
-      wait: true,
-      until: process.platform === "win32" ? "31\\s+7e" : "6e\\s+21",
-      untilRegex: true,
-      timeout: 5,
-      raw: true,
-    });
-    if (process.platform === "win32") {
-      assert.match(
-        plain,
-        /1b\s+5b\s+32\s+30\s+30\s+7e\s+70\s+6c\s+61\s+69\s+6e\s+21\s+1b\s+5b\s+32\s+30\s+31\s+7e/,
-        `Windows agent経路は明示wrapperで届く: ${JSON.stringify(plain)}`,
-      );
-    } else {
-      assert.match(plain, /70\s+6c\s+61\s+69\s+6e\s+21/, `未要求 pane へは素のまま届く: ${JSON.stringify(plain)}`);
-      assert.doesNotMatch(plain.split("<<<AITERM_PLAIN_READY>>>").pop() ?? "", /1b\s+5b\s+32\s+30\s+30\s+7e/, "bracket を付けない");
-    }
   } finally {
     core.closeSession(session);
+  }
+});
+
+test("send bracketedPaste: 256byteを超える本文もchunkごとに包まない", { skip: skip ?? (process.platform === "win32" ? "Windows psmuxは全体を1回のSendBytesで送る別経路" : undefined) }, async () => {
+  const session = "selftest_brkt_long";
+  core.openSession(session);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-brkt-"));
+  const out = path.join(dir, "paste.bin");
+  try {
+    // 3byte文字と画像pathを混ぜ、256byteの切れ目がpathの途中に来る長さにする。
+    const body = `${"あ".repeat(80)}\n/tmp/bellteam-image-aa07a3a6-7ac7-4101-9d8b-55ffecfc60e4.jpg\n${"い".repeat(120)}\n確認する。`;
+    const bytes = Buffer.byteLength(body, "utf8") + 12;
+    assert.ok(bytes > 512, `3 chunk以上になる長さ: ${bytes}`);
+    core.send(
+      session,
+      `stty raw -echo; printf '\\033[?2004h<<<AITERM_LONG_%s>>>\\n' READY; dd bs=1 count=${bytes} of='${out}' 2>/dev/null; stty sane; printf '\\033[?2004l<<<AITERM_LONG_%s>>>\\n' DONE`,
+      { force: true },
+    );
+    await core.readOutput(session, { wait: true, until: "<<<AITERM_LONG_READY>>>", timeout: 5, raw: true });
+    core.send(session, body, { raw: true, force: true, enter: false, bracketedPaste: true });
+    await core.readOutput(session, { wait: true, until: "<<<AITERM_LONG_DONE>>>", timeout: 10, raw: true });
+    const got = fs.readFileSync(out, "utf8");
+    assert.equal(got, `\x1b[200~${body}\x1b[201~`, "開始と終了の印が1組だけで、本文は切れずに届く");
+  } finally {
+    core.closeSession(session);
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

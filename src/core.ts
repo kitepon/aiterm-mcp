@@ -940,8 +940,8 @@ export interface SendOpts {
   /** agent operation markerを保つ内部送信境界。MCPの公開引数にはしない。 */
   preserveAgentOperation?: boolean;
   /**
-   * POSIX tmuxはpaste-buffer -pのpane negotiation、Windows psmuxはready gate通過済み
-   * agent TUIへの明示ESC[200~/201~ wrapperで原子化する。
+   * ready gate通過済みagent TUIへ、本文全体を1回だけ明示ESC[200~/201~で包んで原子化する
+   * （POSIX tmux・Windows psmuxとも）。chunkごとに包むとTUIは別々の貼り付けと読む。
    * agent TUI への prompt 投入専用: TUI が paste を原子的に扱い、チャンク境界での
    * キー解釈（文字化け・Enter 取り落とし）を抑える。通常シェル送信の行単位実行の
    * 挙動を変えないため、公開引数にはせず agent dispatch 経路だけが立てる。
@@ -1019,7 +1019,10 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         );
       }
     } else {
-      const chunks = splitPtyText(text);
+      // tmuxの`paste-buffer -p`はchunkごとに包むため使わない。Claude Codeは貼り付け1回ごとに
+      // 画像pathを探すので、chunk境界でpathが切れて画像を落とし、行もずれた（2026-10-01、
+      // 画像4枚付きの約500byte）。全体を1回だけ包み、中身はchunkのまま流す。
+      const chunks = splitPtyText(o.bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text);
       const pasteSupportsNoSanitize = pasteBufferSupportsNoSanitizeFlag();
       const bufferBase = `aiterm-${process.pid}-${randomBytes(8).toString("hex")}`;
       for (let i = 0; i < chunks.length; i += 1) {
@@ -1038,7 +1041,6 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
           );
         }
         const pasteArgs = pasteBufferBaseArgs();
-        if (o.bracketedPaste) pasteArgs.push("-p");
         if (pasteSupportsNoSanitize) pasteArgs.push("-S");
         pasteArgs.push("-b", bufferName, "-t", name);
         const pasted = tmux(...pasteArgs);

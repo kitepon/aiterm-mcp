@@ -369,6 +369,12 @@ function makeBrokenThroughlineBin(stdout, exitCode = 0) {
   return bin;
 }
 
+// agent dispatchは本文全体をESC[200~/201~で包む。本物のTUIと同じく、行の前後の印を外す。
+const FAKE_TUI_STRIP_PASTE_MARKERS = [
+  "  line=${line#?\\[200~}",
+  "  line=${line%?\\[201~}",
+];
+
 function makeFakeGrokTuiBin() {
   const bin = path.join(process.env.TMPDIR, `fake-grok-tui-${Date.now().toString(36)}.sh`);
   fs.writeFileSync(
@@ -381,6 +387,7 @@ function makeFakeGrokTuiBin() {
       "fi",
       "printf 'Grok Build\\n❯ ready\\n'",
       "while IFS= read -r line; do",
+      ...FAKE_TUI_STRIP_PASTE_MARKERS,
       "  printf '%s\\n' \"$line\"",
       "  case \"$line\" in /effort\\ impossible) printf \"unknown effort level 'impossible'; use one of: low, medium, high\\n\" ;; /model*|/effort*) printf 'Switched to fake configuration: %s\\n' \"$line\" ;; esac",
       "done",
@@ -403,6 +410,7 @@ function makeFakeGrokFooterOnlyTuiBin() {
       "fi",
       "printf 'Grok Build\\n❯ ready\\n╰─ Grok 4.5 (high) · always-approve ─╯\\n'",
       "while IFS= read -r line; do",
+      ...FAKE_TUI_STRIP_PASTE_MARKERS,
       "  case \"$line\" in '/model grok-4.6 high') printf '╰─ Grok 4.6 (high) · always-approve ─╯\\n' ;; esac",
       "done",
       "",

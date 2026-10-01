@@ -895,6 +895,9 @@ test("Codex上限接近modal: readyへ戻らなければ本文を送らずtyped 
   try {
     await withFakeCodexHome(async () => {
       const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+      // 復帰失敗の150msには偽TUIの起動時間を含めない。modalの表示を先に確かめる。
+      const initial = await core.readOutput(actualSid, { wait: true, until: "Approaching rate limits", timeout: 5, raw: true });
+      assert.match(initial, /Approaching rate limits/);
       await assert.rejects(
         () => core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY_MUST_NOT_SEND", { ready_timeout: 150 }),
         (error) => error.code === 2

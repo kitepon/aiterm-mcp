@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-02
+
 ### 追加
 
 - 公開tool `agent_auth`。Claude／Codex／Grok／Cursorの公式認証を共通のstart・status・cancelで進め、公式URL・device code・入力待ちを`aiterm.agent-auth-result.v1`へ返す。CLI差はharness adapterへ閉じ、資格情報は公式CLIだけが保存する。Claudeの公式初回案内も同じ認証PTYで進め、Grokは公式loginの終了結果を認証確認の正本にし、device codeを公式URLの`user_code`から抽出する。remoteも標準対応し、公開面は18 toolsとなる。
@@ -1956,7 +1958,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...v0.46.0
 [0.45.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...v0.45.2
 [0.45.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.44.1...v0.45.0

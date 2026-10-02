@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-10-02
+
 ### 修正
 
 - 認証PTYが閉じられた、またはbackend再起動で失われた場合、`agent_auth`の`status`は`failed`、`cancel`は取消済みの`blocked`を返し、`session_id:null`で再開始できる。通常PTY・harness不一致・記録の破損や読取り失敗は引き続きエラーとする。
@@ -1962,7 +1964,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...HEAD
+[0.46.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...v0.46.0
 [0.45.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...v0.45.2
 [0.45.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.0...v0.45.1

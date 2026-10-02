@@ -1,4 +1,4 @@
-import { authUrl, authUserCode, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
+import { authUrl, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Grok 固有の制御。Composer は Cursor の model の一つであり、Grok CLI では扱わない
 // （2026-09-27 grok 1.0.41 実測でcatalogに無い）。
 // core 所有のサービス（transcript 行読取・rate limit 検知）は引数で注入し、
@@ -563,6 +563,12 @@ export function grokAuthStatus(): AgentAuthStatus {
 }
 
 export function grokAuthPane(screen: string): AgentAuthPane {
-  return { url: authUrl(screen, ["auth.x.ai", "accounts.x.ai", "grok.com"]),
-    user_code: authUserCode(screen), input_required: false, message: null };
+  const url = authUrl(screen, ["auth.x.ai", "accounts.x.ai", "grok.com"]);
+  // Grok 1.0.46の公式device画面はverification_uri_completeだけを表示する。
+  // 人へ見せるuser_codeは、その公式URLの同名parameterを読む。
+  const embedded = url ? new URL(url).searchParams.get("user_code") : null;
+  if (embedded !== null && !/^[A-Z0-9-]+$/.test(embedded)) {
+    throw new AitermError("AGENT_AUTH_CHALLENGE_INVALID: Grokの公式URLにあるdevice codeの形式が不正です。", 2);
+  }
+  return { url, user_code: embedded, input_required: false, message: null };
 }

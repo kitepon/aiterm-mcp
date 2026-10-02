@@ -13,7 +13,7 @@ process.env.HOME = root;
 const { authUrl, authUserCode } = await import("../dist/agent-auth.js");
 const { claudeAuthPane } = await import("../dist/harnesses/claude.js");
 const { codexAuthPlan } = await import("../dist/harnesses/codex.js");
-const { grokAuthPlan } = await import("../dist/harnesses/grok.js");
+const { grokAuthPlan, grokAuthPane } = await import("../dist/harnesses/grok.js");
 const { cursorAuthPlan } = await import("../dist/harnesses/cursor.js");
 const core = await import("../dist/core.js");
 const sessions = [];
@@ -24,27 +24,39 @@ function cli(kind, extra = "") {
   const home = fs.mkdtempSync(path.join(root, `${kind}-`));
   const bin = path.join(home, "cli");
   const state = path.join(home, "authenticated");
-  fs.writeFileSync(bin, `#!${process.execPath}
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-const state = ${JSON.stringify(state)};
-const kind = ${JSON.stringify(kind)};
-fs.appendFileSync(${JSON.stringify(path.join(home, "argv"))}, JSON.stringify({ args, no_open: process.env.NO_OPEN_BROWSER ?? null, marker: process.env.AITERM_AUTH_TEST_MARKER ?? null }) + "\\n");
-if ((kind === "claude" && args[0] === "auth" && args[1] === "status") || (kind === "codex" && args[1] === "status") || (kind === "cursor" && args[0] === "status")) {
- const ready = fs.existsSync(state);
- if (kind === "claude") console.log(JSON.stringify({ loggedIn: ready }));
- else console.log(ready ? "Logged in" : "Not logged in");
- process.exit(ready ? 0 : 1);
-}
-${extra}
-if (kind === "claude" && args.length === 0) {
- console.log("Claude Code\\nChoose the text style that looks best with your terminal\\n❯ 1. Dark mode");
- require("node:readline").createInterface({ input: process.stdin }).on("line", () => { console.log("\\x1b[2J\\x1b[HClaude Code\\n❯"); });
-} else {
- const host = kind === "codex" ? "auth.openai.com" : kind === "grok" ? "auth.x.ai" : kind === "cursor" ? "cursor.com" : "claude.ai";
- console.log("Open https://" + host + "/device\\nEnter this code: ABCD-EFGH");
- require("node:readline").createInterface({ input: process.stdin }).on("line", () => { fs.writeFileSync(state, "yes"); process.exit(0); });
-}
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  fs.writeFileSync(bin, `#!/bin/bash
+state=${quote(state)}
+kind=${quote(kind)}
+log=${quote(path.join(home, "argv"))}
+printf '{"args":[' >> "$log"
+separator=''
+for argument in "$@"; do printf '%s"%s"' "$separator" "$argument" >> "$log"; separator=','; done
+printf '],"no_open":"%s","marker":"%s"}\\n' "$NO_OPEN_BROWSER" "$AITERM_AUTH_TEST_MARKER" >> "$log"
+if { [ "$kind" = claude ] && [ "$1" = auth ] && [ "$2" = status ]; } || { [ "$kind" = codex ] && [ "$2" = status ]; } || { [ "$kind" = cursor ] && [ "$1" = status ]; }; then
+ if [ -f "$state" ]; then
+  if [ "$kind" = claude ]; then printf '{"loggedIn":true}\\n'; else printf 'Logged in\\n'; fi
+  exit 0
+ else
+  if [ "$kind" = claude ]; then printf '{"loggedIn":false}\\n'; else printf 'Not logged in\\n'; fi
+  exit 1
+ fi
+fi
+${extra === "login_failed" ? 'touch "$state"; exit 7' : ""}
+if [ "$kind" = claude ] && [ "$#" = 0 ]; then
+ printf 'Claude Code\\nChoose the text style that looks best with your terminal\\n❯ 1. Dark mode\\n'
+ while IFS= read -r reply; do printf '\\033[2J\\033[HClaude Code\\n❯\\n'; done
+else
+ case "$kind" in
+  codex) printf 'Open https://auth.openai.com/device\\nEnter this code: ABCD-EFGH\\n';;
+  grok) printf 'To sign in, open this URL in your browser:\\nhttps://auth.x.ai/device?user_code=ABCD-EFGH\\n';;
+  cursor) printf 'Open https://cursor.com/device\\n';;
+  claude) printf 'Open https://claude.ai/device\\n';;
+ esac
+ IFS= read -r reply
+ touch "$state"
+ exit 0
+fi
 `, { mode: 0o755 });
   process.env[{ claude: "CLAUDE_BIN", codex: "CODEX_BIN", grok: "GROK_BIN", cursor: "CURSOR_AGENT_BIN" }[kind]] = bin;
   return { home, bin, state };
@@ -71,6 +83,13 @@ test("公式認証URLと明示device codeだけを公開する", () => {
   assert.deepEqual(codexAuthPlan().args, ["login", "--device-auth"]);
   assert.deepEqual(grokAuthPlan().args, ["login", "--device-auth"]);
   assert.deepEqual(cursorAuthPlan(), { args: ["login"], env: [["NO_OPEN_BROWSER", "1"]] });
+});
+
+test("Grok実機のverification_uri_completeからuser_codeを読む", () => {
+  const pane = grokAuthPane("To sign in, open this URL in your browser:\nhttps://auth.x.ai/device?user_code=ABCD-EFGH");
+  assert.equal(pane.user_code, "ABCD-EFGH");
+  assert.equal(pane.input_required, false);
+  assert.throws(() => grokAuthPane("https://auth.x.ai/device?user_code=invalid_value"), /AGENT_AUTH_CHALLENGE_INVALID/);
 });
 
 test("Claudeの初回案内と通常composerを区別する", () => {
@@ -126,7 +145,7 @@ test("取消と状態確認は別harness・通常PTYへ触れない", posixPty, 
 });
 
 test("公式ログインが失敗した場合は既存の認証状態へ成功を丸めない", posixPty, async () => {
-  const fixture = cli("codex", 'if (args[1] !== "status") { fs.writeFileSync(state, "yes"); process.exit(7); }');
+  const fixture = cli("codex", "login_failed");
   const start = await core.authenticateAgent("codex", { action: "start", cwd: fixture.home }); sessions.push(start.session_id);
   assert.equal(start.status, "failed");
   assert.match(start.message, /exit=7/);

@@ -591,6 +591,8 @@ Consumer flow is `aiterm-runtime-errors snapshot`, then `aiterm-runtime-errors a
 
 Grokには公式認証status commandが無いため、session付きの確認は公式loginのexit 0を正本にし、session無しの確認は`blocked`を返す。他harnessは公式statusも照合する。Claudeは認証後の公式初回案内を同じsessionで進め、選択待ちは`blocked`／`input_required:true`で返す。`authenticated`は認証結果であり、`agent_launch`の起動準備完了は別途確認する。`cancel`は指定した認証sessionだけを閉じ、資格情報を削除しない。
 
+PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。
+
 `agent_models({ harness, cwd?, include_hidden? })` returns the model IDs and reasoning efforts the installed harness offers right now, so a UI can build its choices from the machine that actually runs the agents. It reads each harness's own catalog and never sends a prompt or starts a turn:
 
 | `harness` | Source | Notes |

@@ -248,6 +248,8 @@ shell、接続先、各harnessの公式CLIが所有する。
 
 `agent_auth`の共通進行はcore、公式command・status・認証画面の解釈は`src/harnesses/`が所有する。CLIの認証processを通常HOMEのPTYへ一度だけ起動し、`remain-on-exit`と`pane_dead_status`で終了を観測する。credentialを読み取る状態管理や独自OAuthは持たず、Aitermが保存するのは認証sessionのharness・実行file・cwd・phase・引き継いだenvの名前だけである。取消と通常のPTY closeでこの相関記録を削除する。
 
+PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。
+
 Claude／Codex／Cursorは公式statusを照合する。Grokは公式status commandが無いため、認証sessionの公式login exit 0を正本にし、session無しの確認を`blocked`とする。Claudeはlogin完了後に同じPTYへ公式の初回TUIを用意し、初回案内の入力待ちを`blocked`／`input_required:true`へ写す。認証とlauncherの起動準備は別の結果であり、`agent_launch`のready gateを省略しない。
 
 公開receiptは`aiterm.agent-auth-result.v1`で、公式HTTPS URLと明示device codeだけを抽出する。生の画面本文・credential・token・OAuth callback codeは含めない。人の入力は既存の`pty_send`／`pty_key`で同じPTYへ送る。`remote`は標準のremote tool中継を使い、callerはCLI commandや環境ごとの入力方言を組み立てない。

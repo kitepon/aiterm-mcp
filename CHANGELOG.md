@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 認証PTYが閉じられた、またはbackend再起動で失われた場合、`agent_auth`の`status`は`failed`、`cancel`は取消済みの`blocked`を返し、`session_id:null`で再開始できる。通常PTY・harness不一致・記録の破損や読取り失敗は引き続きエラーとする。
+
 ## [0.46.0] - 2026-10-02
 
 ### 追加

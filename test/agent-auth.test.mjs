@@ -16,6 +16,8 @@ const { codexAuthPlan } = await import("../dist/harnesses/codex.js");
 const { grokAuthPlan, grokAuthPane } = await import("../dist/harnesses/grok.js");
 const { cursorAuthPlan } = await import("../dist/harnesses/cursor.js");
 const core = await import("../dist/core.js");
+const { agentsDir } = await import("../dist/agent-shared.js");
+const { tmuxCommand } = await import("../dist/tmux-runtime.js");
 const sessions = [];
 after(() => { for (const name of sessions) core.closeSession(name); fs.rmSync(root, { recursive: true, force: true }); });
 const posixPty = { skip: process.platform === "win32" || spawnSync("tmux", ["-V"]).status !== 0 ? "POSIXの偽CLI・tmuxで認証境界を検証する" : false };
@@ -136,12 +138,61 @@ test("認証session無しのGrokはファイル存在を成功扱いしない", 
 
 test("取消と状態確認は別harness・通常PTYへ触れない", posixPty, async () => {
   const [normal] = core.openSession(); sessions.push(normal);
-  await assert.rejects(core.authenticateAgent("codex", { action: "cancel", session_id: normal }), /AGENT_AUTH_SESSION_NOT_FOUND/);
+  for (const action of ["status", "cancel"])
+    await assert.rejects(core.authenticateAgent("codex", { action, session_id: normal }), /AGENT_AUTH_SESSION_NOT_FOUND/);
   assert.ok(core.listSessions().includes(normal));
   const fixture = cli("grok");
   const start = await core.authenticateAgent("grok", { action: "start", cwd: fixture.home }); sessions.push(start.session_id);
-  await assert.rejects(core.authenticateAgent("cursor", { action: "cancel", session_id: start.session_id }), /AGENT_AUTH_HARNESS_MISMATCH/);
+  for (const action of ["status", "cancel"])
+    await assert.rejects(core.authenticateAgent("cursor", { action, session_id: start.session_id }), /AGENT_AUTH_HARNESS_MISMATCH/);
   assert.ok(core.listSessions().includes(start.session_id));
+});
+
+for (const keepMetadata of [false, true]) test(`消失した認証PTYは通常結果を返し、再開始できる（記録${keepMetadata ? "あり" : "なし"}）`, posixPty, async () => {
+  const fixture = cli("grok");
+  const start = await core.authenticateAgent("grok", { action: "start", cwd: fixture.home });
+  sessions.push(start.session_id);
+  const metadata = path.join(agentsDir(), `${start.session_id}.auth.json`);
+  if (keepMetadata) {
+    // コンテナ再起動相当: backendだけが失われ、永続した相関記録は残る。
+    assert.equal(tmuxCommand(false, "kill-session", "-t", start.session_id).code, 0);
+  } else core.closeSession(start.session_id);
+  assert.equal(fs.existsSync(metadata), keepMetadata);
+  const status = await core.authenticateAgent("grok", { action: "status", session_id: start.session_id });
+  assert.equal(status.status, "failed");
+  assert.equal(status.session_id, null);
+  assert.match(status.message, /失われ/);
+  assert.equal(status.url, null);
+  assert.equal(status.user_code, null);
+  assert.equal(status.input_required, false);
+  if (keepMetadata) for (const action of ["status", "cancel"])
+    await assert.rejects(core.authenticateAgent("cursor", { action, session_id: start.session_id }), /AGENT_AUTH_HARNESS_MISMATCH/);
+  const cancel = await core.authenticateAgent("grok", { action: "cancel", session_id: start.session_id });
+  assert.equal(cancel.status, "blocked");
+  assert.equal(cancel.session_id, null);
+  assert.match(cancel.message, /既に.*取消済み/);
+  assert.equal(fs.existsSync(metadata), false);
+  const restarted = await core.authenticateAgent("grok", { action: "start", cwd: fixture.home });
+  sessions.push(restarted.session_id);
+  assert.equal(restarted.status, "waiting");
+  assert.equal((await core.authenticateAgent("grok", { action: "cancel", session_id: restarted.session_id })).session_id, null);
+  assert.equal(fs.existsSync(fixture.state), false, "消失と取消は資格情報を作成しない");
+});
+
+test("壊れた認証記録と読取り失敗は消失扱いしない", posixPty, async () => {
+  const name = "auth-invalid-record";
+  const metadata = path.join(agentsDir(), `${name}.auth.json`);
+  try {
+    for (const value of ["{", "null", "[]"]) {
+      fs.writeFileSync(metadata, value);
+      for (const action of ["status", "cancel"])
+        await assert.rejects(core.authenticateAgent("grok", { action, session_id: name }), /AGENT_AUTH_STATE_INVALID/);
+    }
+    fs.unlinkSync(metadata);
+    fs.mkdirSync(metadata);
+    for (const action of ["status", "cancel"])
+      await assert.rejects(core.authenticateAgent("grok", { action, session_id: name }), { code: "EISDIR" });
+  } finally { fs.rmSync(metadata, { recursive: true, force: true }); }
 });
 
 test("公式ログインが失敗した場合は既存の認証状態へ成功を丸めない", posixPty, async () => {

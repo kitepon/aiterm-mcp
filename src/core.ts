@@ -4031,10 +4031,21 @@ function authPane(meta: AgentAuthMetadata, screen: string): AgentAuthPane {
   }
 }
 
-function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata {
+function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata | null {
+  let source: string;
+  try { source = fs.readFileSync(authMetadataPath(name), "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
   let value: AgentAuthMetadata;
-  try { value = JSON.parse(fs.readFileSync(authMetadataPath(name), "utf8")); }
-  catch { throw new AitermError("AGENT_AUTH_SESSION_NOT_FOUND: 指定sessionはAitermの認証sessionではありません。", 2); }
+  try { value = JSON.parse(source); }
+  catch (error) {
+    if (error instanceof SyntaxError) throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
+    throw error;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
   if (value.kind !== kind) throw new AitermError("AGENT_AUTH_HARNESS_MISMATCH: 認証sessionのharnessが一致しません。", 2);
   if (typeof value.bin !== "string" || typeof value.cwd !== "string" || !path.isAbsolute(value.cwd)
     || !["login", "onboarding"].includes(value.phase) || !Array.isArray(value.env_vars)
@@ -4042,6 +4053,11 @@ function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata {
     throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
   }
   return value;
+}
+
+/** 一覧の取得失敗を端末の消失へ丸めず、正規PTY一覧で存在を確認する。 */
+function authSessionExists(name: string): boolean {
+  return listSessionsResult().sessions.some(session => session.session_id === name);
 }
 
 function authSessionEnvironment(name: string, keys: string[]): NodeJS.ProcessEnv {
@@ -4073,7 +4089,12 @@ export async function authenticateAgent(kind: AgentKind, options: {
       input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null });
   if (options.action === "cancel") {
     if (!options.session_id) throw new AitermError("AGENT_AUTH_SESSION_REQUIRED: cancelにはsession_idが必要です。", 2);
-    loadAuthMetadata(options.session_id, kind);
+    const meta = loadAuthMetadata(options.session_id, kind);
+    if (!authSessionExists(options.session_id)) {
+      if (meta) fs.unlinkSync(authMetadataPath(options.session_id));
+      return result("blocked", null, "認証sessionは既に終了または取消済みです。");
+    }
+    if (!meta) throw new AitermError("AGENT_AUTH_SESSION_NOT_FOUND: 指定sessionはAitermの認証sessionではありません。", 2);
     closeSession(options.session_id);
     return result("blocked", null, "認証sessionを取り消しました。");
   }
@@ -4105,11 +4126,16 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const checked = authStatus(kind, bin, cwd);
     return result(checked.status === "authenticated" ? "authenticated" : checked.status === "failed" ? "failed" : "blocked",
       null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null));
-  } else meta = loadAuthMetadata(name, kind);
+  } else {
+    const loaded = loadAuthMetadata(name, kind);
+    if (!authSessionExists(name)) return result("failed", null, "認証sessionが失われました。agent_authのstartで開始してください。");
+    if (!loaded) throw new AitermError("AGENT_AUTH_SESSION_NOT_FOUND: 指定sessionはAitermの認証sessionではありません。", 2);
+    meta = loaded;
+  }
   const session = name as string;
   const deadline = performance.now() + (options.action === "start" ? 3000 : 0);
   for (;;) {
-    if (!sessionExists(session)) return result("failed", session, "認証sessionが終了観測前に失われました。");
+    if (!authSessionExists(session)) return result("failed", null, "認証sessionが失われました。agent_authのstartで開始してください。");
     const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}");
     if (observed.code !== 0) return result("failed", session, "認証processの終了状態を取得できません。");
     const [dead, exit] = observed.stdout.trim().split("\t");

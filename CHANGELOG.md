@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- 公開tool `agent_auth`。Claude／Codex／Grok／Cursorの公式認証を共通のstart・status・cancelで進め、公式URL・device code・入力待ちを`aiterm.agent-auth-result.v1`へ返す。CLI差はharness adapterへ閉じ、資格情報は公式CLIだけが保存する。Claudeの公式初回案内も同じ認証PTYで進め、Grokは公式loginの終了結果を認証確認の正本にする。remoteも標準対応し、公開面は18 toolsとなる。
+
 ## [0.45.2] - 2026-10-01
 
 ### 修正

@@ -1,6 +1,23 @@
 {
   "docs": [
     {
+      "slug": "codex-device-auth-prompt-20261002",
+      "topic": "agent-launchers",
+      "title": "Codex CLIのdevice認証表示と公式login完了",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/main/codex-rs/login/src/device_code_auth.rs",
+      "source_type": "official_source",
+      "path": "sources/agent-launchers/codex-device-auth-prompt-20261002.md",
+      "tags": [
+        "codex",
+        "authentication",
+        "device-auth"
+      ],
+      "summary": "Codex CLIのdevice loginで公式URLと期限付きone-time codeを表示し、認証後のtoken保存をCLIが所有する一次実装。",
+      "relevance": "agent_authのdevice URL/code抽出ラベルと、Aitermがtokenを操作しない責務境界の根拠。",
+      "chars": 7545,
+      "fetched": "2026-10-02"
+    },
+    {
       "slug": "cursor-agent-cli-installation-2026-08-24",
       "topic": "agent-launchers",
       "title": "Cursor Agent CLI installation",

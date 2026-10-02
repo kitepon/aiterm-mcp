@@ -1,3 +1,4 @@
+import { authUrl, authUserCode, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Grok 固有の制御。Composer は Cursor の model の一つであり、Grok CLI では扱わない
 // （2026-09-27 grok 1.0.41 実測でcatalogに無い）。
 // core 所有のサービス（transcript 行読取・rate limit 検知）は引数で注入し、
@@ -551,4 +552,17 @@ export function createGrokAgentMetadata(
   };
   writeAgentMetadata(meta);
   return meta;
+}
+
+
+export function grokAuthPlan(): AgentAuthPlan { return { args: ["login", "--device-auth"], env: [] }; }
+
+export function grokAuthStatus(): AgentAuthStatus {
+  // 現行Grokには公式status commandが無い。auth fileの存在を成功とみなさない。
+  return { status: "unsupported", message: "Grokの認証状態はagent_authで開始した公式ログインsessionの終了結果で確認します。" };
+}
+
+export function grokAuthPane(screen: string): AgentAuthPane {
+  return { url: authUrl(screen, ["auth.x.ai", "accounts.x.ai", "grok.com"]),
+    user_code: authUserCode(screen), input_required: false, message: null };
 }

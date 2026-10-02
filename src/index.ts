@@ -795,6 +795,38 @@ registerRemoteAwareTool(
 );
 
 registerRemoteAwareTool(
+  "agent_auth",
+  {
+    description: "各harnessの公式CLI認証を開始・確認・取消する。CLIごとのコマンドと認証URL/codeの抽出はAitermが所有し、資格情報は各CLIだけが保存する。" +
+      "waitingのURL/codeを人へ表示し、input_requiredなら同じsessionのpty_send／pty_keyで公式画面へ入力する。" +
+      "authenticatedは認証の結果であり、agent_launchの起動準備完了とは別。remoteは他toolと同じ標準対応。",
+    inputSchema: {
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      action: z.enum(["start", "status", "cancel"]),
+      session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+      cwd: z.string().optional().describe("公式CLIを実行する作業ディレクトリの絶対パス"),
+      env_vars: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional().describe("startで認証PTYへ引き継ぐ環境変数名。値はreceiptへ返さない"),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.agent-auth-result.v1"),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      status: z.enum(["waiting", "authenticated", "blocked", "failed"]),
+      session_id: z.string().nullable(),
+      url: z.string().nullable(),
+      user_code: z.string().nullable(),
+      input_required: z.boolean(),
+      message: z.string().nullable(),
+    },
+  },
+  async ({ harness, ...options }: any) => {
+    try {
+      const result = await core.authenticateAgent(kindForHarness(harness), options);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result } };
+    } catch (error) { return fail(error); }
+  },
+);
+
+registerRemoteAwareTool(
   "agent_configure",
   {
     description:

@@ -38,7 +38,7 @@ test("smoke: Windows backend公開面はpsmux 3.3.8以上で一致する", () =>
   assert.doesNotMatch(readmeJa, /同じ tmux ソケット/);
 });
 
-test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 17 ツール公開", async () => {
+test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公開", async () => {
   const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-diagnostics-"));
   const child = spawn(process.execPath, [ENTRY], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -91,6 +91,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 17 ツール公�
   const names = (toolsResp.result?.tools ?? []).map((t) => t.name).sort();
   assert.deepEqual(names, [
     "agent_approval",
+    "agent_auth",
     "agent_configure",
     "agent_launch",
     "agent_models",
@@ -197,6 +198,12 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 17 ツール公�
   assert.equal(claudeApproval.outputSchema.properties.schema.const, "aiterm.claude-approval-result.v1");
   assert.deepEqual(claudeApproval.outputSchema.properties.status.enum, ["approval_required", "submitted"]);
   assert.deepEqual(claudeApproval.outputSchema.properties.selected_choice.anyOf.flatMap((entry) => entry.enum ?? []), ["approve_once", "deny"]);
+  const agentAuth = toolsResp.result.tools.find((t) => t.name === "agent_auth");
+  assert.deepEqual(agentAuth.inputSchema.properties.action.enum, ["start", "status", "cancel"]);
+  assert.equal(agentAuth.outputSchema.properties.schema.const, "aiterm.agent-auth-result.v1");
+  assert.deepEqual(agentAuth.outputSchema.properties.status.enum, ["waiting", "authenticated", "blocked", "failed"]);
+  assert.ok(agentAuth.inputSchema.properties.remote, "agent_authも標準remote中継を使う");
+  assert.equal(agentAuth.inputSchema.properties.command, undefined, "認証commandはadapterが所有する");
   const agentConfigure = toolsResp.result.tools.find((t) => t.name === "agent_configure");
   assert.equal(agentConfigure.inputSchema.properties.session_id.pattern, "^[A-Za-z0-9_-]{1,64}$");
   assert.ok(agentConfigure.inputSchema.properties.model.anyOf.some((entry) => entry.type === "string"));

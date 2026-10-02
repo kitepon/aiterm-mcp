@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **140** 件 / 更新: 2026-10-02
+- 総数: **141** 件 / 更新: 2026-10-02
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -344,8 +344,11 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://invisible-island.net/xterm/xterm-paste64.html> (spec, 16092 chars)
   - 効きどころ: PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。
 
-## agent-launchers — 12件
+## agent-launchers — 13件
 
+- [Codex CLIのdevice認証表示と公式login完了](sources/agent-launchers/codex-device-auth-prompt-20261002.md) — Codex CLIのdevice loginで公式URLと期限付きone-time codeを表示し、認証後のtoken保存をCLIが所有する一次実装。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/main/codex-rs/login/src/device_code_auth.rs> (official_source, 7545 chars)
+  - 効きどころ: agent_authのdevice URL/code抽出ラベルと、Aitermがtokenを操作しない責務境界の根拠。
 - [Cursor Agent CLI installation](sources/agent-launchers/cursor-agent-cli-installation-2026-08-24.md) — Cursor Agent CLIの公式installer、cursor-agent/agentコマンド、update経路の公式仕様。
   - 出典: <https://cursor.com/docs/cli/installation> (official_docs, 7794 chars)
   - 効きどころ: 工場とAitermが独自tarballでなく標準installer・self-updateを使う根拠。

@@ -1,3 +1,4 @@
+import { authUrl, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Cursor Agent CLI 固有の制御。通常 ~/.cursor を共有し、完了正本は
 // launch markerで一意にbindした agent transcript の turn_ended とする。
 import * as fs from "node:fs";
@@ -629,4 +630,22 @@ export function cursorPaneObservation(screen: string): import("../agent-shared.j
   if (/ctrl\+c to stop/i.test(tail)) return { state: "busy", reason: "turn_running" };
   if (cursorTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "unrecognized_screen" };
+}
+
+
+export function cursorAuthPlan(): AgentAuthPlan { return { args: ["login"], env: [["NO_OPEN_BROWSER", "1"]] }; }
+
+export function cursorAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
+  const result = spawnAgentControlCommand(bin, ["status"], cwd,
+    { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (!result.error && /not logged in|unauthenticated|sign in/i.test(output)) return { status: "unauthenticated", message: null };
+  // launcherと同じ公式status契約。stderrやアカウント情報はreceiptへ載せない。
+  if (!result.error && result.status === 0) return { status: "authenticated", message: null };
+  return { status: "failed", message: "Cursor Agent CLIの公式認証状態を確認できません。" };
+}
+
+export function cursorAuthPane(screen: string): AgentAuthPane {
+  return { url: authUrl(screen, ["cursor.com", "www.cursor.com", "auth.cursor.com"]),
+    user_code: null, input_required: false, message: null };
 }

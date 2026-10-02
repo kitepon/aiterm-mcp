@@ -1,3 +1,4 @@
+import { authUrl, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Claude Code 固有の制御。完了正本は launch 固有 Stop hook が書く event/result（ADR 0025）。
 // core 所有のサービス（transcript 不在エラー）は引数で注入し、
 // 依存方向を core → harnesses → agent-shared の一方向に保つ。
@@ -511,4 +512,26 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
     if (error?.at && Date.parse(error.at) >= startedAtMs) return error;
   }
   return null;
+}
+
+
+export function claudeAuthPlan(onboarding = false): AgentAuthPlan { return { args: onboarding ? [] : ["auth", "login"], env: [] }; }
+
+export function claudeAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
+  const result = spawnAgentControlCommand(bin, ["auth", "status", "--json"], cwd,
+    { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
+  let status: any;
+  try { status = JSON.parse(result.stdout); } catch { return { status: "failed", message: "Claude Codeの公式認証状態を読めません。" }; }
+  if (!result.error && result.status === 0 && status?.loggedIn === true) return { status: "authenticated", verify_onboarding: true, message: null };
+  if (!result.error && status?.loggedIn === false) return { status: "unauthenticated", message: null };
+  return { status: "failed", message: "Claude Codeの公式認証状態の確認に失敗しました。" };
+}
+
+export function claudeAuthPane(screen: string, onboarding = false): AgentAuthPane {
+  const url = authUrl(screen, ["claude.ai", "console.anthropic.com", "platform.claude.com"]);
+  const input = /Paste (?:the )?code|Enter (?:the )?(?:authorization )?code|Choose the text style|Select login method:|Press (?:Enter|Return)|do you trust|trust this folder/i.test(screen);
+  const complete = onboarding && (claudeTuiReady(screen) || /Is this a project you created or one you trust/.test(screen));
+  return { url, user_code: null, input_required: input && !complete,
+    message: complete ? null : input ? "Claude Codeの公式画面で入力または初回案内の選択を完了してください。" : null,
+    onboarding_complete: complete };
 }

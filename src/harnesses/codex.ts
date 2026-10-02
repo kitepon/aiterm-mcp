@@ -1,3 +1,4 @@
+import { authUrl, authUserCode, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Codex 固有の制御。完了正本は root rollout transcript の task_complete（ADR 0022）。
 // core 所有のサービス（transcript 行読取・rate limit 検知）は引数で注入し、
 // 依存方向を core → harnesses → agent-shared の一方向に保つ。
@@ -6,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { AitermError } from "../errors.js";
+import { spawnAgentControlCommand } from "../agent-resolver.js";
 import * as steer from "aiterm-steer-delivery";
 import { AITERM_PROFILE } from "../steer-profile.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, type AgentModelCatalog, type AgentModelChoice } from "../model-catalog.js";
@@ -797,4 +799,21 @@ export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
     adapter_efforts: {},
     models,
   });
+}
+
+
+export function codexAuthPlan(): AgentAuthPlan { return { args: ["login", "--device-auth"], env: [] }; }
+
+export function codexAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
+  const result = spawnAgentControlCommand(bin, ["login", "status"], cwd,
+    { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (!result.error && result.status === 0 && /Logged in/i.test(output)) return { status: "authenticated", message: null };
+  if (!result.error && /Not logged in/i.test(output)) return { status: "unauthenticated", message: null };
+  return { status: "failed", message: "Codex CLIの公式認証状態を確認できません。" };
+}
+
+export function codexAuthPane(screen: string): AgentAuthPane {
+  return { url: authUrl(screen, ["auth.openai.com", "auth0.openai.com", "login.openai.com"]),
+    user_code: authUserCode(screen), input_required: false, message: null };
 }

@@ -79,8 +79,10 @@ import type {
   InitialPromptDelivery,
   AgentStartupResult,
 } from "./agent-shared.js";
+import type { AgentAuthMetadata, AgentAuthResult, AgentAuthPlan, AgentAuthStatus, AgentAuthPane } from "./agent-auth.js";
 import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
 import {
+  grokAuthPlan, grokAuthStatus, grokAuthPane,
   GROK_MODEL_DEFAULTS,
   realGrokHome,
   resolveAndValidateGrokAuth,
@@ -106,6 +108,7 @@ import {
   createGrokAgentMetadata,
 } from "./harnesses/grok.js";
 import {
+  codexAuthPlan, codexAuthStatus, codexAuthPane,
   realCodexHome,
   readCodexConfigPins,
   codexConfigSummary,
@@ -134,6 +137,7 @@ import {
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
 import {
+  claudeAuthPlan, claudeAuthStatus, claudeAuthPane,
   OPERATION_ID_RE,
   CLAUDE_RESULT_MAX_BYTES,
   CLAUDE_EFFORTS,
@@ -162,6 +166,7 @@ import {
   type ClaudeApiError,
 } from "./harnesses/claude.js";
 import {
+  cursorAuthPlan, cursorAuthStatus, cursorAuthPane,
   bindCursorTranscriptSession,
   cursorTurnBoundary,
   latestCursorCompletion,
@@ -509,7 +514,8 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-approval.json") ||
           f.endsWith(".claude-dispatch") ||
-          f.endsWith(".interim.json")
+          f.endsWith(".interim.json") ||
+          f.endsWith(".auth.json")
         ) fs.unlinkSync(p);
         else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home")) {
           fs.rmSync(p, { recursive: true, force: true });
@@ -1608,6 +1614,7 @@ export function killAll(): string {
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-dispatch") ||
           f.endsWith(".interim.json") ||
+          f.endsWith(".auth.json") ||
           f.endsWith(".codex-home") ||
           f.endsWith(".grok-home") ||
           f.endsWith(".home")
@@ -3990,7 +3997,149 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
   return { ready, codexRateLimitModelSwitch };
 }
 
-/** 同じ対話sessionを保ったまま、harness標準の操作でmodel／effortを変更する。 */
+export type { AgentAuthResult } from "./agent-auth.js";
+
+function authMetadataPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.auth.json`);
+}
+
+function authPlan(kind: AgentKind, phase: AgentAuthMetadata["phase"]): AgentAuthPlan {
+  switch (kind) {
+    case "claude": return claudeAuthPlan(phase === "onboarding");
+    case "codex": return codexAuthPlan();
+    case "grok": return grokAuthPlan();
+    case "cursor": return cursorAuthPlan();
+  }
+}
+
+function authStatus(kind: AgentKind, bin: string, cwd: string, env = process.env): AgentAuthStatus {
+  switch (kind) {
+    case "claude": return claudeAuthStatus(bin, cwd, env);
+    case "codex": return codexAuthStatus(bin, cwd, env);
+    case "grok": return grokAuthStatus();
+    case "cursor": return cursorAuthStatus(bin, cwd, env);
+  }
+}
+
+function authPane(meta: AgentAuthMetadata, screen: string): AgentAuthPane {
+  switch (meta.kind) {
+    case "claude": return claudeAuthPane(screen, meta.phase === "onboarding");
+    case "codex": return codexAuthPane(screen);
+    case "grok": return grokAuthPane(screen);
+    case "cursor": return cursorAuthPane(screen);
+  }
+}
+
+function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata {
+  let value: AgentAuthMetadata;
+  try { value = JSON.parse(fs.readFileSync(authMetadataPath(name), "utf8")); }
+  catch { throw new AitermError("AGENT_AUTH_SESSION_NOT_FOUND: 指定sessionはAitermの認証sessionではありません。", 2); }
+  if (value.kind !== kind) throw new AitermError("AGENT_AUTH_HARNESS_MISMATCH: 認証sessionのharnessが一致しません。", 2);
+  if (typeof value.bin !== "string" || typeof value.cwd !== "string" || !path.isAbsolute(value.cwd)
+    || !["login", "onboarding"].includes(value.phase) || !Array.isArray(value.env_vars)
+    || value.env_vars.some(key => typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) {
+    throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
+  }
+  return value;
+}
+
+function authSessionEnvironment(name: string, keys: string[]): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of keys) {
+    const value = tmux("show-environment", "-t", name, key);
+    if (value.code !== 0) throw new AitermError("AGENT_AUTH_ENV_UNAVAILABLE: 認証sessionの環境を読めません。", 2);
+    if (value.stdout.trim() === `-${key}`) delete env[key];
+    else if (value.stdout.startsWith(`${key}=`)) env[key] = value.stdout.slice(key.length + 1).replace(/\r?\n$/, "");
+    else throw new AitermError("AGENT_AUTH_ENV_INVALID: 認証sessionの環境の形式が不正です。", 2);
+  }
+  return env;
+}
+
+function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
+  const plan = authPlan(meta.kind, meta.phase);
+  const env = plan.env.map(([key, value]) => shq(`${key}=${value}`));
+  const cmd = ["exec", "env", ...env, shq(agentBinForPaneShell(meta.bin)), ...plan.args.map(shq)].join(" ");
+  send(name, `cd ${shq(paneCwdArgument(meta.cwd))} && ${cmd}`, { enter: true, force: true, raw: true });
+}
+
+/** 公式CLIの認証processを起動・観測する。資格情報の読取り・copy・独自OAuthは行わない。 */
+export async function authenticateAgent(kind: AgentKind, options: {
+  action: "start" | "status" | "cancel"; session_id?: string; cwd?: string; env_vars?: string[];
+}): Promise<AgentAuthResult> {
+  const result = (status: AgentAuthResult["status"], session: string | null, message: string | null,
+    pane?: AgentAuthPane): AgentAuthResult => ({ schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind),
+      status, session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
+      input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null });
+  if (options.action === "cancel") {
+    if (!options.session_id) throw new AitermError("AGENT_AUTH_SESSION_REQUIRED: cancelにはsession_idが必要です。", 2);
+    loadAuthMetadata(options.session_id, kind);
+    closeSession(options.session_id);
+    return result("blocked", null, "認証sessionを取り消しました。");
+  }
+  let name = options.session_id ?? null;
+  let meta: AgentAuthMetadata;
+  if (options.action === "start") {
+    const cwd = options.cwd ?? process.cwd();
+    if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
+    const bin = resolveAgentBin(kind);
+    if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
+    const before = authStatus(kind, bin, cwd);
+    if (before.status === "failed") return result("failed", null, before.message);
+    if (before.status === "authenticated" && !before.verify_onboarding) return result("authenticated", null, null);
+    const envVars = options.env_vars ?? [];
+    [name] = openSession(name, "bash", envVars);
+    meta = { kind, bin, cwd, phase: before.status === "authenticated" ? "onboarding" : "login",
+      env_vars: envVars.filter(key => process.env[key] !== undefined) };
+    try {
+      const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
+      if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
+      writeJson0600(authMetadataPath(name), meta);
+      launchAuthProcess(name, meta);
+    } catch (error) { closeSession(name); throw error; }
+  } else if (!name) {
+    const cwd = options.cwd ?? process.cwd();
+    if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
+    const bin = resolveAgentBin(kind);
+    if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
+    const checked = authStatus(kind, bin, cwd);
+    return result(checked.status === "authenticated" ? "authenticated" : checked.status === "failed" ? "failed" : "blocked",
+      null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null));
+  } else meta = loadAuthMetadata(name, kind);
+  const session = name as string;
+  const deadline = performance.now() + (options.action === "start" ? 3000 : 0);
+  for (;;) {
+    if (!sessionExists(session)) return result("failed", session, "認証sessionが終了観測前に失われました。");
+    const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}");
+    if (observed.code !== 0) return result("failed", session, "認証processの終了状態を取得できません。");
+    const [dead, exit] = observed.stdout.trim().split("\t");
+    const pane = authPane(meta, stripControl(captureScreen(session, 120)));
+    if (dead === "1") {
+      if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
+      const checked = authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      if (checked.status === "failed") return result("failed", session, checked.message);
+      if (checked.status === "unauthenticated") return result("failed", session, "公式認証processは終了しましたが、公式statusは未認証です。");
+      if (!checked.verify_onboarding) return result("authenticated", session, null);
+      if (meta.phase === "onboarding") return result("blocked", session, "公式CLIの初回案内の完了を確認できません。");
+      meta.phase = "onboarding";
+      writeJson0600(authMetadataPath(session), meta);
+      const restarted = tmux("respawn-pane", "-k", "-t", session, resolveWinPaneShell("bash"));
+      if (restarted.code !== 0) return result("failed", session, "公式CLIの初回案内を起動できません。");
+      launchAuthProcess(session, meta);
+      return result("waiting", session, "公式CLIの初回案内を確認しています。");
+    }
+    if (dead !== "0") return result("failed", session, "認証processの生存状態の形式を認識できません。");
+    if (pane.onboarding_complete) {
+      const checked = authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      if (checked.status === "authenticated") return result("authenticated", session, null);
+      return result("failed", session, checked.message ?? "公式CLIのstatusが未認証です。");
+    }
+    if (pane.input_required) return result("blocked", session, null, pane);
+    if (pane.url || performance.now() >= deadline) return result("waiting", session, null, pane);
+    await sleep(100);
+  }
+}
+
 /**
  * harnessが今返すmodelとreasoning effortの候補（agent_models）。各harnessの公式の一覧を読むだけで、
  * promptもturnも送らない。取得不能・形式異常はfallbackせずエラーにする。

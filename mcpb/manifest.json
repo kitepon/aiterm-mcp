@@ -74,6 +74,10 @@
       "description": "Deprecated alias for agent_launch with the Grok CLI harness."
     },
     {
+      "name": "agent_auth",
+      "description": "公式CLI認証を開始・確認・取消し、公式URL・device codeと人の入力待ちを返す。"
+    },
+    {
       "name": "agent_models",
       "description": "List the models and reasoning efforts a harness offers now, read from its own catalog without sending a prompt."
     },

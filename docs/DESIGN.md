@@ -246,6 +246,12 @@ shell、接続先、各harnessの公式CLIが所有する。
 
 ## Model catalog
 
+`agent_auth`の共通進行はcore、公式command・status・認証画面の解釈は`src/harnesses/`が所有する。CLIの認証processを通常HOMEのPTYへ一度だけ起動し、`remain-on-exit`と`pane_dead_status`で終了を観測する。credentialを読み取る状態管理や独自OAuthは持たず、Aitermが保存するのは認証sessionのharness・実行file・cwd・phase・引き継いだenvの名前だけである。取消と通常のPTY closeでこの相関記録を削除する。
+
+Claude／Codex／Cursorは公式statusを照合する。Grokは公式status commandが無いため、認証sessionの公式login exit 0を正本にし、session無しの確認を`blocked`とする。Claudeはlogin完了後に同じPTYへ公式の初回TUIを用意し、初回案内の入力待ちを`blocked`／`input_required:true`へ写す。認証とlauncherの起動準備は別の結果であり、`agent_launch`のready gateを省略しない。
+
+公開receiptは`aiterm.agent-auth-result.v1`で、公式HTTPS URLと明示device codeだけを抽出する。生の画面本文・credential・token・OAuth callback codeは含めない。人の入力は既存の`pty_send`／`pty_key`で同じPTYへ送る。`remote`は標準のremote tool中継を使い、callerはCLI commandや環境ごとの入力方言を組み立てない。
+
 `agent_models`は、harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧から返す。
 BellTeam等の画面は、保存した固定の一覧ではなく、agentを実際に動かす端末のharnessが返す候補を使う。
 取得口、出力形式、model IDとeffortの変換は各harness adapterが持ち、`src/model-catalog.ts`は

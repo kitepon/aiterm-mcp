@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-03
+
 ### 追加
 
 - `pty_observe`に、agent sessionを閉じると失うものを数える2項目を足した（ADR 0080）。`activity.post_startup_process_count`は、起動準備が完了した時点に居なかったprocessの数（裏で動かしている作業。起動直後の1分に始めたものも数える）。`pending_child_deliveries`は、そのsessionが親として待っている、まだ届け終えていない子の結果の数。数えられない時はnullで、0と区別する。
@@ -2007,7 +2009,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.48.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.49.0...HEAD
+[0.49.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.1...v0.48.0
 [0.47.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...v0.47.0

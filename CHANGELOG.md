@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- `aiterm-setup --hooks-only`。Claude Code・Cursorの親配送hookだけを登録し、依存準備、端末の実動作確認、MCP登録、Codex Steerには触れない。MCP登録を利用者や他の製品が管理する環境向け。結果は`aiterm.parent-hooks-result.v1`で返し、登録済みなら設定を書き換えない。
+- `diagnostics`が2つ目のtextで親配送hookの状態（`aiterm-mcp.parent-delivery-diagnostics.v1`）を返す。Claude Code・Cursorそれぞれの`status`と`reason_code`、呼出元のclientに当たる`caller_status`を持つ。hookが無いと`CLAUDE_PARENT_HOOK_UNAVAILABLE`で送信が拒否されるのに、診断は`ready`だけを返していた。1つ目のfactory向けJSON（`aiterm-mcp.factory-diagnostics.v1`）は項目も`overall`の意味も変えていない。
+
+### 修正
+
+- npmのprefixを利用者ごとの場所へ向けた環境（`npm_config_prefix`など）で、共通の場所へ導入した`aiterm-setup`が`global_package_failed`で失敗していた。npmの現在のglobal rootに加え、実行中のNodeの既定のglobal rootにある当packageも導入先と認める。npm一時cacheとsource checkoutは引き続き登録しない。
+- `aiterm-setup`（`aiterm-update`からの実行を含む）が、CodexとGrokの登録を毎回公式CLIで作り直し、利用者が足した項目（`tool_timeout_sec`など）を落としていた。登録が同じなら書き直さない。
+
 ## [0.46.1] - 2026-10-02
 
 ### 修正

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { configureIntegrations, mergeJsonMcp, mergeClaudeParentHooks, removeClaudeParentHooks, mergeCursorParentHooks, removeCursorParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
+import { configureIntegrations, configureParentHooks, mergeJsonMcp, mergeClaudeParentHooks, removeClaudeParentHooks, mergeCursorParentHooks, removeCursorParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
 
 const registration = { command: '/usr/local/bin/node', args: ['/opt/aiterm/dist/index.js'] };
 test('初回登録と再実行で自エントリ以外を保持する', (t) => {
@@ -172,3 +172,60 @@ test('壊れたCursor hook設定は上書きしない', (t) => {
   assert.equal(mergeCursorParentHooks(link, registration), 'configured');
   assert.match(readFileSync(target, 'utf8'), /cursor-parent-hook\.js/);
 });
+
+test('CodexとGrokは同じ登録なら公式CLIで作り直さない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-same-registration-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const calls = [];
+  // 公式CLIの一覧の形。利用者が足した待ち時間は、追加し直すと失われる。
+  const run = (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'queue') return '--thread <ID> --message <TEXT>';
+    if (command === 'codex') return JSON.stringify([{ name: 'aiterm', transport: { type: 'stdio', ...registration, env: null }, tool_timeout_sec: 120 }]);
+    return JSON.stringify([{ name: 'aiterm', scope: 'user', ...registration, tool_timeout_sec: 120 }]);
+  };
+  const result = configureIntegrations(dir, registration, run, client => ['codex', 'grok'].includes(client) ? client : null);
+  assert.deepEqual([result.codex, result.grok], [{ status: 'ready' }, { status: 'ready' }]);
+  assert.deepEqual(calls, [
+    ['codex', ['queue', '--help']],
+    ['codex', ['mcp', 'list', '--json']],
+    ['grok', ['mcp', 'list', '--json']],
+  ]);
+});
+
+test('hookだけの登録はClaude CodeとCursorのhookを書き、MCP登録を作らない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-hooks-only-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const prior = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(dir, '.claude');
+  t.after(() => { if (prior === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prior; });
+  const calls = [];
+  const run = (command, args) => { calls.push([command, args]); return '2.1.259 (Claude Code)'; };
+  assert.deepEqual(configureParentHooks(dir, registration, run, client => client),
+    { claude: { status: 'configured' }, cursor: { status: 'configured' } });
+  assert.deepEqual(configureParentHooks(dir, registration, run, client => client),
+    { claude: { status: 'unchanged' }, cursor: { status: 'unchanged' } });
+  // 公式CLIへは版の確認だけを行い、CodexとGrokには触れない。
+  assert.deepEqual(calls, [['claude', ['--version']], ['claude', ['--version']]]);
+  const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.json'), 'utf8'));
+  assert.deepEqual(Object.keys(settings.hooks), ['PreToolUse', 'PostToolUse', 'SessionEnd']);
+  assert.match(settings.hooks.PreToolUse[0].hooks[0].args[0], /claude-parent-hook\.js$/);
+  assert.match(JSON.parse(readFileSync(join(dir, '.cursor', 'hooks.json'), 'utf8')).hooks.postToolUse.at(-1).command, /cursor-parent-hook\.js/);
+  for (const file of [join(dir, '.claude', '.claude.json'), join(dir, '.claude.json'), join(dir, '.cursor', 'mcp.json')]) {
+    assert.throws(() => statSync(file), { code: 'ENOENT' });
+  }
+});
+
+test('hookだけの登録は未検出と旧版Claudeを区別し、片方の失敗でもう片方を止めない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-hooks-only-partial-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const prior = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(dir, '.claude');
+  t.after(() => { if (prior === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prior; });
+  assert.deepEqual(configureParentHooks(dir, registration, () => '', () => null),
+    { claude: { status: 'not_detected' }, cursor: { status: 'not_detected' } });
+  assert.deepEqual(configureParentHooks(dir, registration, () => '2.1.100 (Claude Code)', client => client),
+    { claude: { status: 'failed', reason_code: 'claude_parent_delivery_unavailable' }, cursor: { status: 'configured' } });
+  assert.throws(() => statSync(join(dir, '.claude', 'settings.json')), { code: 'ENOENT' });
+});
+

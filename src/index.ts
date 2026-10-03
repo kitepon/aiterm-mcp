@@ -20,6 +20,7 @@ import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
+import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
 import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words.js";
@@ -245,10 +246,15 @@ server.registerTool(
   "diagnostics",
   {
     description:
-      "Factory 向け read-only 診断。安全な状態語彙だけを機械可読 JSON で返す（PTY 内容・認証情報・path・環境値は返さない）。",
+      "Factory 向け read-only 診断。安全な状態語彙だけを機械可読 JSON で返す（PTY 内容・認証情報・path・環境値は返さない）。" +
+      "2つ目のtextは親配送hook（Claude Code・Cursor）の登録状態で、caller_status が setup_required なら呼出元からのagent送信は拒否される。aiterm-setup を実行する。",
     inputSchema: {},
   },
-  async () => ok(await factoryDiagnostics()),
+  // 1つ目は項目を固定したfactory向けの契約。親配送hookの状態は別のtextに分け、既存の読み手の形を変えない。
+  async () => ({ content: [
+    { type: "text" as const, text: await factoryDiagnostics() },
+    { type: "text" as const, text: JSON.stringify(parentDeliveryDiagnostic(deliveryParentKind(server.server.getClientVersion()?.name))) },
+  ] }),
 );
 
 const DEFAULT_PTY_SHELL = process.platform === "win32" ? "pwsh" : "bash";

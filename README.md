@@ -42,10 +42,16 @@ Ubuntu／Debianはsudoとaptでtmuxを準備する。必要な公式package mana
 既存設定の他サーバーを保持し、JSON設定は変更前の`.aiterm-backup`を残す。
 結果の`status`は`ready`／`unsupported`／`failed`／`restart_required`。未検出のAIは`not_detected`とし、全AI未検出は成功にしない。
 登録先はglobal packageのNodeとMCP入口の絶対パスで、npm一時cacheやsource checkoutは登録しない。
+global packageは、npmの現在のglobal rootか、実行中のNodeの既定のglobal rootにあるものを指す。npmのprefixを利用者ごとの場所へ向けた環境でも、共通の場所へ導入したAitermを登録できる。
+CodexとGrokは、登録が同じなら公式CLIで作り直さず、利用者が足した項目（待ち時間など）を保つ。
 HomebrewのNodeは更新後も有効な`opt`のパスをMCP登録とCodexのhookに使う。旧版の登録でNode更新後に起動できなくなった場合も、更新後の`aiterm-setup --json`で修復できる。
 更新後も同じ入口を実行し、MCP clientを再起動する。npm install自体はユーザー設定を変更しない。
 公開JSONは`schema: "aiterm.setup-result.v1"`、全体の`status`、端末の`backend`、
 AI別の`integrations`と選択機能の`codex_steer`を持つ。失敗時は`reason_code`を付け、終了コードはreadyなら0、再起動待ちは3、それ以外は2となる。
+
+MCP登録を利用者や他の製品が管理する環境では、`aiterm-setup --hooks-only`でClaude Code・Cursorの親配送hookだけを登録できる。
+依存準備、端末の実動作確認、MCP登録、Codex Steerには触れない。登録済みなら設定を書き換えない。
+結果は`schema: "aiterm.parent-hooks-result.v1"`、全体の`status`（`ready`／`unsupported`／`failed`）、AI別の`hooks`（`configured`／`unchanged`／`not_detected`／`failed`）を持つ。終了コードはreadyなら0、それ以外は2となる。
 
 
 ### CodexへSteerを有効にする（macOS・Windows・Linux）
@@ -570,6 +576,8 @@ continue to use `claude_approval`.
 | `diagnostics` | Read-only factory readiness as machine-readable JSON | (none) |
 
 `diagnostics` never starts a PTY or agent. It reports package version, MCP call readiness, a read-only PTY-list summary, bounded runtime-error-store status, and optional vendor-launcher availability. It deliberately excludes paths, environment values, credentials, command text, PTY output, and raw logs; normal unset optional dependencies are `not_applicable`, while an indeterminate probe is `unverified`.
+
+The result carries two text items. The first is the factory JSON described above (`aiterm-mcp.factory-diagnostics.v1`), whose fields are fixed. The second reports the parent-delivery hooks (`aiterm-mcp.parent-delivery-diagnostics.v1`): a `status` (`ready` / `setup_required` / `not_applicable` / `unverified`) and `reason_code` for Claude Code and Cursor, plus `caller_status` for the calling client. When `caller_status` is `setup_required`, agent dispatch from that client is rejected; run `aiterm-setup`. Hook status is not folded into `overall` in the first item.
 
 ### Local runtime error snapshot
 

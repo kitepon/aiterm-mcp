@@ -266,6 +266,17 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.equal(responses.get(5)?.result?.isError, true, "逆転 line_range は isError:true");
   assert.match(responses.get(5)?.result?.content?.[0]?.text ?? "", /上端が下端より小さい/);
 
+  // 1つ目のtextは項目を固定したfactory向けの契約。親配送hookの状態は2つ目のtextに分かれる。
+  assert.equal(responses.get(6)?.result?.content?.length, 2, "diagnostics は2つのtextを返す");
+  const parentDelivery = JSON.parse(responses.get(6).result.content[1].text);
+  assert.deepEqual(Object.keys(parentDelivery), ["diagnostic_schema", "caller", "caller_status", "setup_command", "hooks"]);
+  assert.equal(parentDelivery.diagnostic_schema, "aiterm-mcp.parent-delivery-diagnostics.v1");
+  assert.deepEqual([parentDelivery.caller, parentDelivery.caller_status, parentDelivery.setup_command], ["other", "not_applicable", "aiterm-setup"]);
+  assert.deepEqual(Object.keys(parentDelivery.hooks), ["claude", "cursor"]);
+  for (const hook of Object.values(parentDelivery.hooks)) {
+    assert.deepEqual(Object.keys(hook), ["status", "reason_code"]);
+    assert.ok(["ready", "setup_required", "not_applicable", "unverified"].includes(hook.status));
+  }
   const diagnosticText = responses.get(6)?.result?.content?.[0]?.text;
   assert.equal(responses.get(6)?.result?.isError, undefined, "diagnostics は通常未設定を error にしない");
   assert.equal(typeof diagnosticText, "string", "diagnostics は JSON text を返す");

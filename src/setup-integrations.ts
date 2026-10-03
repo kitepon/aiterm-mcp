@@ -77,6 +77,37 @@ export function removeCursorParentHooks(file: string): "removed" | "unchanged" {
   return steer.removeCursorParentHooks(AITERM_PROFILE, file);
 }
 
+function registerClaudeParentHooks(home: string, registration: Registration, run: SetupRun, executable: string): "configured" | "unchanged" {
+  const version = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(run(executable, ["--version"]));
+  if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && (Number(version[2]) < 1 || (Number(version[2]) === 1 && Number(version[3]) < 259)))) {
+    throw new SetupError("claude_parent_delivery_unavailable", "自動配送にはClaude Code 2.1.259以上が必要です。公式CLIを更新してください");
+  }
+  return mergeClaudeParentHooks(join(process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "settings.json"), registration);
+}
+
+export type ParentHookResult = { status: "configured" | "unchanged" | "not_detected" | "failed"; reason_code?: string };
+
+/** 親配送hookだけの登録。clientの検出条件とhookの中身は通常のsetupと同じで、MCP登録は読みも書きもしない。 */
+export function configureParentHooks(home: string, registration: Registration, run: SetupRun = runSetupCommand, resolveClient = resolveAgentBin): Record<string, ParentHookResult> {
+  const results: Record<string, ParentHookResult> = {};
+  for (const client of ["claude", "cursor"] as const) {
+    try {
+      const executable = resolveClient(client);
+      if (!executable && !(client === "cursor" && existsSync(join(home, ".cursor")))) {
+        results[client] = { status: "not_detected" };
+        continue;
+      }
+      results[client] = { status: client === "claude"
+        ? registerClaudeParentHooks(home, registration, run, executable!)
+        : mergeCursorParentHooks(join(home, ".cursor", "hooks.json"), registration) };
+    } catch (error) {
+      process.stderr.write(`aiterm-setup: ${client}: ${error instanceof Error ? error.message : String(error)}\n`);
+      results[client] = { status: "failed", reason_code: error instanceof SetupError ? error.code : "hook_registration_failed" };
+    }
+  }
+  return results;
+}
+
 export function configureIntegrations(home: string, registration: Registration, run: SetupRun = runSetupCommand, resolveClient = resolveAgentBin): Record<string, IntegrationResult> {
   const results: Record<string, IntegrationResult> = {};
   for (const client of ["claude", "codex", "grok", "cursor"] as const) {
@@ -92,11 +123,7 @@ export function configureIntegrations(home: string, registration: Registration, 
         mergeJsonMcp(file, client === "claude" ? { type: "stdio", ...registration } : registration);
         if (client === "cursor") mergeCursorParentHooks(join(home, ".cursor", "hooks.json"), registration);
         if (client === "claude") {
-          const version = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(run(executable!, ["--version"]));
-          if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && (Number(version[2]) < 1 || (Number(version[2]) === 1 && Number(version[3]) < 259)))) {
-            throw new SetupError("claude_parent_delivery_unavailable", "自動配送にはClaude Code 2.1.259以上が必要です。公式CLIを更新してください");
-          }
-          mergeClaudeParentHooks(join(process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "settings.json"), registration);
+          registerClaudeParentHooks(home, registration, run, executable!);
         }
       } else if (client === "codex") {
         // 親threadがないsetupでは公式queue入口まで確認し、宛先は各dispatchで検証する。
@@ -109,23 +136,29 @@ export function configureIntegrations(home: string, registration: Registration, 
         const servers = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
         if (!Array.isArray(servers)) throw new SetupError("config_readback_failed", "CodexのMCP一覧形式を確認できません");
         const existing = servers.find((entry: Record<string, unknown>) => entry.name === "aiterm");
-        const envArgs = Object.entries(existing?.transport?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
-        run(executable!, ["mcp", "add", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
-        const value = JSON.parse(run(executable!, ["mcp", "get", "aiterm", "--json"]));
-        if (value.transport?.command !== registration.command || !isDeepStrictEqual(value.transport?.args, registration.args)) {
-          throw new SetupError("config_readback_failed", "Codexのaiterm登録が一致しません");
+        // 公式CLIの追加は登録を作り直し、利用者が足した項目（待ち時間など）を落とす。同じ登録なら書き直さない。
+        if (existing?.transport?.command !== registration.command || !isDeepStrictEqual(existing?.transport?.args, registration.args)) {
+          const envArgs = Object.entries(existing?.transport?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+          run(executable!, ["mcp", "add", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
+          const value = JSON.parse(run(executable!, ["mcp", "get", "aiterm", "--json"]));
+          if (value.transport?.command !== registration.command || !isDeepStrictEqual(value.transport?.args, registration.args)) {
+            throw new SetupError("config_readback_failed", "Codexのaiterm登録が一致しません");
+          }
         }
       } else {
         const servers = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
         if (!Array.isArray(servers)) throw new SetupError("config_readback_failed", "GrokのMCP一覧形式を確認できません");
         const existing = servers.find((entry: Record<string, unknown>) => entry.name === "aiterm" && entry.scope === "user");
-        const envArgs = Object.entries(existing?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
-        run(executable!, ["mcp", "add", "--scope", "user", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
-        const value = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
-        // 公開CLIのJSON応答を照合する。未知schemaを成功へ丸めない。
-        const item = Array.isArray(value) ? value.find((entry: Record<string, unknown>) => entry.name === "aiterm") : null;
-        if (!item || item.command !== registration.command || !isDeepStrictEqual(item.args, registration.args)) {
-          throw new SetupError("config_readback_failed", "Grokのaiterm登録が一致しません");
+        // Codexと同じく、同じ登録なら書き直さない。
+        if (existing?.command !== registration.command || !isDeepStrictEqual(existing?.args, registration.args)) {
+          const envArgs = Object.entries(existing?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+          run(executable!, ["mcp", "add", "--scope", "user", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
+          const value = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
+          // 公開CLIのJSON応答を照合する。未知schemaを成功へ丸めない。
+          const item = Array.isArray(value) ? value.find((entry: Record<string, unknown>) => entry.name === "aiterm") : null;
+          if (!item || item.command !== registration.command || !isDeepStrictEqual(item.args, registration.args)) {
+            throw new SetupError("config_readback_failed", "Grokのaiterm登録が一致しません");
+          }
         }
       }
       results[client] = { status: "ready" };

@@ -15,6 +15,9 @@ Aitermは、AIがローカルshell、SSH、container、REPL、別agentの対話T
 Claude／CursorのJSONは参照先を原子的に更新して変更前backupを残す。Codex／Grokは公式CLIで登録・確認する。
 各AIの読戻しは登録内容の確認であり、端末の実動作はその前の公開MCP試験で確認する。
 失敗は理由付きJSONと非ゼロ終了で返す。対応外の自動導入と全AI未検出を成功扱いしない。
+global packageは、npmの現在のglobal rootか、実行中のNodeの既定のglobal rootにあるものを指す。
+CodexとGrokは登録が同じなら公式CLIで作り直さない。`aiterm-setup --hooks-only`はClaude Code・Cursorの親配送hookだけを登録し、
+依存準備、端末の実動作確認、MCP登録、Codex Steerに触れない。判断はADR 0077。
 
 ## Terminal model
 
@@ -316,6 +319,8 @@ privacy案内は現在の枠付きcomposerとmodel footerが見える場合だ�
 製品所有のlocal stateに固定codeと集約metadataだけを保存し、network I/Oを持たない。工場reporterとの
 連携は明示opt-inの任意adapterであり、未設定時もAiterm本体は単独動作する。raw error、prompt、出力、
 transcript、path、credentialを保存・公開しない。
+親配送hook（Claude Code・Cursor）の登録状態は`src/parent-hook-diagnostic.ts`が利用者設定の読取りだけで要約し、
+2つ目のtextとして返す。1つ目のfactory向けJSONは項目も`overall`の意味も変えない（ADR 0077）。
 
 ## 変更条件
 

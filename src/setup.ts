@@ -7,16 +7,29 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { prepareBackend, runSetupCommand, SetupError, type SetupRun } from "./setup-platform.js";
-import { configureIntegrations, type Registration, type IntegrationResult } from "./setup-integrations.js";
+import { configureIntegrations, configureParentHooks, type Registration, type IntegrationResult, type ParentHookResult } from "./setup-integrations.js";
 import { configureCodexSteer, codexSteerSelected, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-hooks.js";
 import { setupNodeExecutable } from "./setup-node.js";
 
-export function globalRegistration(run: SetupRun = runSetupCommand): Registration {
+/** 実行中のNodeに付属するnpmの既定のglobal root。npmのprefixを環境変数や設定で別の場所へ向けていても変わらない。 */
+export function nodeDefaultGlobalRoot(execPath = process.execPath, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? join(dirname(execPath), "node_modules") : join(dirname(dirname(execPath)), "lib", "node_modules");
+}
+
+/**
+ * 登録するのはglobal導入した当packageだけ。npmの現在のglobal rootに加え、実行中のNodeの既定のglobal rootも導入先と認める。
+ * npmのprefixを利用者ごとの場所へ向けた環境では、PATH上のaiterm-setupが後者に属する（ADR 0077）。
+ */
+export function globalRegistration(run: SetupRun = runSetupCommand, options: { packageRoot?: string; defaultRoot?: string } = {}): Registration {
   const root = run(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"]).trim();
   if (!isAbsolute(root) || /[\r\n]/u.test(root)) throw new SetupError("global_package_required", "npm global rootを確認できません");
-  const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-  const installedRoot = join(root, "aiterm-mcp");
-  if (realpathSync(installedRoot) !== realpathSync(packageRoot)) {
+  const packageRoot = options.packageRoot ?? dirname(dirname(fileURLToPath(import.meta.url)));
+  const current = join(root, "aiterm-mcp");
+  const same = (candidate: string) => { try { return realpathSync(candidate) === realpathSync(packageRoot); } catch { return false; } };
+  const installedRoot = [current, join(options.defaultRoot ?? nodeDefaultGlobalRoot(), "aiterm-mcp")].find(same);
+  if (!installedRoot) {
+    // どちらにも当packageが無い時の失敗は従来のまま（導入先が無ければここで読めずに落ちる）。
+    realpathSync(current);
     throw new SetupError("global_package_required", "npm install -g aiterm-mcp後にaiterm-setupを実行してください。一時npm cacheやsource checkoutは登録しません");
   }
   return { command: setupNodeExecutable(), args: [join(installedRoot, "dist", "index.js")] };
@@ -101,6 +114,39 @@ export async function runSetup(options: {
     result.status = code === "platform_unsupported" ? "unsupported" : "failed";
     result.reason_code = code;
     if (stage === "backend") result.backend = { ...result.backend, status: result.status, reason_code: code };
+    progress(error instanceof Error ? error.message : String(error));
+  }
+  return result;
+}
+
+export type ParentHooksSetupResult = {
+  schema: "aiterm.parent-hooks-result.v1";
+  status: "ready" | "unsupported" | "failed";
+  hooks: Record<string, ParentHookResult>;
+  reason_code?: string;
+};
+
+/** Claude Code・Cursorの親配送hookだけを登録する。依存準備、端末の実動作確認、MCP登録、Codex Steerには触れない。 */
+export function runParentHooksSetup(options: {
+  registration?: () => Registration;
+  configure?: (home: string, registration: Registration) => Record<string, ParentHookResult>;
+  progress?: (message: string) => void;
+} = {}): ParentHooksSetupResult {
+  const result: ParentHooksSetupResult = { schema: "aiterm.parent-hooks-result.v1", status: "failed", hooks: {} };
+  const progress = options.progress ?? ((message: string) => process.stderr.write(`aiterm-setup: ${message}\n`));
+  let stage = "global_package";
+  try {
+    const registration = (options.registration ?? globalRegistration)();
+    stage = "hooks";
+    progress("検出したAI clientの親配送hookを登録して確認します");
+    result.hooks = (options.configure ?? configureParentHooks)(process.env.HOME ?? homedir(), registration);
+    if (Object.values(result.hooks).some((item) => item.status === "failed")) result.reason_code = "hook_registration_failed";
+    else if (Object.values(result.hooks).every((item) => item.status === "not_detected")) {
+      result.status = "unsupported";
+      result.reason_code = "clients_not_detected";
+    } else result.status = "ready";
+  } catch (error) {
+    result.reason_code = error instanceof SetupError ? error.code : `${stage}_failed`;
     progress(error instanceof Error ? error.message : String(error));
   }
   return result;

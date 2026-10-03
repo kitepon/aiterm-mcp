@@ -125,6 +125,26 @@ test('Codexの受信キューがない場合は登録前に更新が必要と返
   }
 });
 
+// main-server 2026-10-03: Aitermのsetupがgpt-connectorのCursor hookを2か所消した（名前の部分一致）。
+test('gpt-connectorのCursor hook（名前の後ろがAitermと同じ）を、登録でも解除でも消さない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-cursor-hooks-gpt-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'hooks.json');
+  const gpt = { command: "'/n/bin/node' '/n/lib/node_modules/gpt-connector/dist/src/gpt-connector-cursor-parent-hook.js'", timeout: 15 };
+  writeFileSync(file, JSON.stringify({ version: 1, hooks: { afterMCPExecution: [gpt], postToolUse: [gpt] } }));
+  assert.equal(mergeCursorParentHooks(file, registration), 'configured');
+  let value = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(value.hooks.afterMCPExecution[0], gpt);
+  assert.deepEqual(value.hooks.postToolUse[0], gpt);
+  assert.equal(value.hooks.afterMCPExecution.length, 2);
+  assert.equal(value.hooks.postToolUse.length, 2);
+  assert.equal(mergeCursorParentHooks(file, registration), 'unchanged');
+  assert.equal(removeCursorParentHooks(file), 'removed');
+  value = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(value.hooks.afterMCPExecution, [gpt]);
+  assert.deepEqual(value.hooks.postToolUse, [gpt]);
+});
+
 test('Cursorの親配送hookは他のhookと順序を保持し、再実行で増殖しない', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'aiterm-cursor-hooks-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

@@ -644,10 +644,12 @@ registerRemoteAwareTool(
       pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
       process_identity: nativeProcessIdentitySchema.nullable(),
       token_hint: z.number().nullable(),
+      pending_child_deliveries: z.number().nullable().optional(),
       parent_deliveries: z.array(parentDeliveryOutputSchema).optional(),
       activity: z.object({ cursor: z.string().nullable(), output_changed: z.boolean().nullable(),
         cpu_seconds: z.number().nullable(), cpu_delta_seconds: z.number().nullable(), cpu_delta_complete: z.boolean().nullable(),
-        background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable() }),
+        background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable(),
+        post_startup_process_count: z.number().nullable().optional() }),
     },
   },
   async ({ session_id, cursor }, extra) => {

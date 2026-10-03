@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- `pty_observe`に、agent sessionを閉じると失うものを数える2項目を足した（ADR 0080）。`activity.post_startup_process_count`は、起動準備が完了した時点に居なかったprocessの数（裏で動かしている作業。起動直後の1分に始めたものも数える）。`pending_child_deliveries`は、そのsessionが親として待っている、まだ届け終えていない子の結果の数。数えられない時はnullで、0と区別する。
+
+### 修正
+
+- 会話が長いClaude Codeのsessionが、入力待ちでも`pty_observe`で`unknown / unrecognized_screen`と出ていた。起動時の見出し「Claude Code」が画面の取得範囲から流れ出ると読めなかった。見出しが無い時は入力欄の形で読む。
+- `aiterm-setup`（`aiterm-update`の中でも走る）と`--remove-cursor-parent-hooks`が、gpt-connectorのCursor hookを`~/.cursor/hooks.json`から消していた。自分のhookを名前の部分一致で探し、`cursor-parent-hook.js`が`gpt-connector-cursor-parent-hook.js`にも当たっていた。file名の境目まで見る（aiterm-steer-delivery 0.1.10）。
+- `aiterm-setup`が、Claude Codeの`settings.json`を中身が同じでも書き換えることがあった。他の道具が後からhookを足していると、Aitermのentryを末尾へ移していた。同じ中身で登録済みなら並びを保つ（aiterm-steer-delivery 0.1.10）。
+- `pty_send`が「TUI が入力受付状態になりません」で断る時、その時の画面の読み（`state=… reason=…`）を文の末尾へ付ける。承認や確認のmodalの時は待たずに断るが、どの画面だったかが残らなかった。
+- 実行中のCursor・Grokへ文を差し込む時、待ち行列の表示が5秒より遅い端末で`STEER_NOT_QUEUED`になっていた（Windowsの実機で、送ってから表示まで8〜9秒）。文は待ち行列に入っていて、今のturnの後に別のturnとして動いていた。子のturnが続いている間は、表示を30秒まで待つ。
+
 ## [0.48.0] - 2026-10-03
 
 ### 追加

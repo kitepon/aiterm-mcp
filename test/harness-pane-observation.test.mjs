@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
+import { codexHelperProcess, codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -61,6 +61,14 @@ test("Codex承認は単発許可と拒否だけを公開する", () => {
   const command = "Would you like to run the following command?\n$ python3 test.py\n› 1. Yes, proceed (y)\n2. Yes, and don't ask again for commands that start with python3 (p)\n3. No, and tell Codex what to do differently (esc)\nPress enter to confirm or esc to cancel";
   assert.equal(codexApprovalDialog(command).choices.length, 2);
   assert.equal(codexApprovalDialog(`${command}\n› Ask Codex to do anything\ngpt-5.6-terra high · ~/work`), null);
+});
+
+test("Codexの補助process（code-mode-host）だけを、harnessの一部として見分ける", () => {
+  assert.equal(codexHelperProcess("/usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host"), true);
+  assert.equal(codexHelperProcess('"C:\\Users\\k\\codex\\codex-code-mode-host.exe" --stdio'), true);
+  assert.equal(codexHelperProcess("/usr/local/bin/codex -c check_for_update_on_startup=false"), false);
+  assert.equal(codexHelperProcess("/bin/bash -c ./codex-code-mode-host"), false);
+  assert.equal(codexHelperProcess("sleep 240"), false);
 });
 
 test("pane token hintは直近の表示値だけを返す", () => {
@@ -325,6 +333,28 @@ const CLAUDE_USAGE_LIMIT_SCREEN = [
   "  ⚠ Usage limit reached · continuing automatically at 4:10pm · esc to cancel",
   "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
 ].join("\n");
+
+// BellTeamコンテナ 2026-10-03 11:40 UTC: 入力待ちのClaudeの13席のうち8席がunknown/unrecognized_screenだった。
+// 会話が長くなり、起動時の見出し「Claude Code」が取得範囲（直近200行）から流れ出ていた。
+test("会話が長くて見出しが流れ出たClaude Codeも、入力欄の形で入力待ちと読む", () => {
+  const rule = "─".repeat(80);
+  const footer = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents";
+  const idle = ["● 作業は終わりました。", "", "✻ Brewed for 16m 51s · done 10:46 AM", rule, "❯ ", rule, footer].join("\n");
+  assert.equal(claudeTuiReady(idle), true);
+  assert.deepEqual(claudePaneObservation(idle), { state: "idle", reason: "composer_ready" });
+  const shell = ["● 作業は終わりました。", rule, "❯ ", rule, "  ⏵⏵ bypass permissions on · 1 shell · ← for agents · ↓ to manage"].join("\n");
+  assert.deepEqual(claudePaneObservation(shell), { state: "idle", reason: "composer_ready" });
+  // 入力欄に文が入っていて複数行でも、すぐ上と下の罫線で見分ける。
+  const typed = [rule, "❯ 1行目", "  2行目", rule, footer].join("\n");
+  assert.deepEqual(claudePaneObservation(typed), { state: "idle", reason: "composer_ready" });
+  // 実行中は今までどおりbusy。
+  const busy = [rule, "❯ ", rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents"].join("\n");
+  assert.deepEqual(claudePaneObservation(busy), { state: "busy", reason: "turn_running" });
+  // 通常shellの❯と、罫線で挟まれていない❯は、Claude Codeの入力欄と数えない。
+  assert.equal(claudeTuiReady("~/work\n❯ "), false);
+  assert.equal(claudeTuiReady([rule, "何かの出力", "❯ "].join("\n")), false);
+  assert.equal(claudeTuiReady(["出力", "❯ ls", rule].join("\n")), false);
+});
 
 test("Claudeの利用上限は入力欄の下の知らせから返す", () => {
   assert.deepEqual(claudeUsageLimit(CLAUDE_USAGE_LIMIT_SCREEN), {

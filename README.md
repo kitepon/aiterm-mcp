@@ -542,6 +542,13 @@ between observations, the delta covers only observed increments and `cpu_delta_c
 only to descendants created at least 60 seconds after the pane, excluding startup MCP processes. `token_hint` is the latest
 displayed token count or null. Callers do not need raw argv or pane-text parsing.
 
+Two fields tell a caller what closing an agent session would lose. `activity.post_startup_process_count` is the number of
+processes in the session that did not exist when `agent_launch` finished startup (before the first prompt), so background work
+started in the first minute is counted too; Codex's own `codex-code-mode-host` helper is not counted. `pending_child_deliveries`
+is the number of sub-agent results this session is still waiting for as a parent, whoever the caller is. Both are null when
+Aiterm cannot tell (ordinary terminals, agents launched by 0.48.0 or earlier for the process count, or an unresolved harness
+process), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.
+
 `agent_launch({ harness, cwd, trust_project: true })` completes known workspace, project-hook, and project-MCP startup
 consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.
 For Claude Code's first-run text-style menu, it confirms the item already selected on screen before continuing startup.

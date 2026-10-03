@@ -510,6 +510,12 @@ aiterm は同じ核心の洞察——端末を出会いの場にする——を�
 `background_cpu_delta_complete`はpane開始から60秒以降に生成された子孫だけの同じ観測で、起動時MCPを除外する。
 `token_hint`は画面の直近token表示値またはnull。画面本文や生argvを解析する必要はない。
 
+agent sessionを閉じると失うものは、次の2項目で分かる。`activity.post_startup_process_count`は、`agent_launch`の起動準備が
+完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。Codex自身の補助process
+（`codex-code-mode-host`）は数えない。`pending_child_deliveries`は、そのsessionが親として待っていて、まだ届け終えていない
+子の結果の数。呼び出した側が誰でも付く。どちらも、分からない時はnull（通常PTY、harnessのprocessを特定できない時。
+processの数は0.48.0以前が起動したagentも）。別端末が旧版の時は項目ごと無い。nullと項目なしは「分からない」で、0ではない。
+
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
 Claude Code初回起動の文字表示テーマ選択では、画面で選択済みの項目を確定して起動を続ける。

@@ -79,6 +79,8 @@ export interface AgentMetadata {
   grok_home?: string;
   grok_auth_path?: string | null;
   cursor_home?: string;
+  // 起動準備が完了した時点のprocess（pid:開始時刻）。pty_observeはこれ以外を起動後のprocessとして数える。
+  startup_processes?: string[];
 }
 
 export const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));

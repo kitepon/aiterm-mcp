@@ -463,6 +463,13 @@ function currentCodexDialog(screen: string): string {
   return heading ? current.slice(heading.index) : current;
 }
 
+// Codexは道具を初めて使う時に補助process（code-mode-host）を立て、sessionの終わりまで残す。
+// harnessの一部であって利用者の作業ではない。この下で動くprocessは作業として数える。
+export function codexHelperProcess(command: string): boolean {
+  const first = /^(?:"([^"]+)"|(\S+))/.exec(command);
+  return path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/")).replace(/\.exe$/i, "") === "codex-code-mode-host";
+}
+
 export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const failure = codexStartupFailure(screen);
   if (failure) return { state: "blocked", reason: failure };

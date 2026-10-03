@@ -36,6 +36,9 @@ test("公開MCPで通常PTYの一覧・環境・活動・消滅を構造化し�
       const before = (await call("pty_observe", { session_id: sid })).structuredContent;
       assert.equal(before.pane_alive, true);
       assert.ok(before.process_identity.pid > 0);
+      // 通常PTYには起動完了の控えも親配送も無い。数えられない時は0ではなくnull。
+      assert.equal(before.activity.post_startup_process_count, null);
+      assert.equal(before.pending_child_deliveries, null);
       const text = process.platform === "win32" ? "Write-Output '公開PTY試験'" : "printf '公開PTY試験\\n'";
       await call("pty_send", { session_id: sid, text, mark: true });
       await call("pty_read", { session_id: sid, wait: true, timeout: 5 });

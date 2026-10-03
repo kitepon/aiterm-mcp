@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
+import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -123,6 +124,7 @@ import {
   codexLaunchNote,
   codexTuiReady,
   codexPaneObservation,
+  codexHelperProcess,
   codexRateLimitModelSwitchDialog,
   codexApprovalDialog,
   codexStartupAction,
@@ -1289,6 +1291,7 @@ export interface SessionObservation {
   harness_process: NativeProcessIdentity | null;
   process_identity: NativeProcessIdentity | null;
   token_hint: number | null;
+  pending_child_deliveries: number | null;
   activity: {
     cursor: string | null;
     output_changed: boolean | null;
@@ -1298,6 +1301,7 @@ export interface SessionObservation {
     background_cpu_seconds: number | null;
     background_cpu_delta_seconds: number | null;
     background_cpu_delta_complete: boolean | null;
+    post_startup_process_count: number | null;
   };
 }
 
@@ -1356,9 +1360,10 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
     exists: !!listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
     pane_alive: false, harness_alive: null, pane_process: null, harness_process: null, process_identity: null,
-    token_hint: null,
+    token_hint: null, pending_child_deliveries: null,
     activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
-      background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null },
+      background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
+      post_startup_process_count: null },
   };
   if (!listed) return result;
   const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
@@ -1420,6 +1425,10 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     screen_digest: createHash("sha256").update(screen).digest("hex"), processes, background_processes: backgroundCpu,
   };
   const comparable = previous?.pane_identity === sample.pane_identity;
+  // 起動完了の控えが無いsession（通常PTY、控える前の版で起動したagent）とharnessを特定できない時は数えない。
+  const startup = agent && Array.isArray(meta?.startup_processes) ? new Set(meta.startup_processes) : null;
+  // このsessionが親として待っている子の結果。持ち主はharnessの下で動くAitermのMCP process。
+  result.pending_child_deliveries = agent ? unfinishedDeliveriesOwnedBy(activityRows) : null;
   result.activity = {
     cursor: Buffer.from(JSON.stringify(sample)).toString("base64url"),
     output_changed: comparable ? previous.screen_digest !== sample.screen_digest : null,
@@ -1429,6 +1438,9 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     background_cpu_seconds: Object.values(backgroundCpu).reduce((sum, cpu) => sum + cpu, 0),
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
+    post_startup_process_count: startup ? new Set(activityRows
+      .filter(row => !(meta?.kind === "codex" && codexHelperProcess(row.command)))
+      .map(row => `${row.pid}:${row.started_identity}`).filter(identity => !startup.has(identity))).size : null,
   };
   return result;
 }
@@ -2371,6 +2383,8 @@ function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt_delivery: m.initial_prompt_delivery, initial_prompt_cursor: m.initial_prompt_cursor,
   };
   const executableFields = m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable };
+  const startupFields = Array.isArray(m.startup_processes) && m.startup_processes.every((identity: unknown) => typeof identity === "string")
+    ? { startup_processes: m.startup_processes as string[] } : {};
   if (m.kind === "claude") {
     const expectedSettings = agentManagedClaudeSettingsPath(name, m.launch_id);
     const expectedResult = agentClaudeResultPath(name, m.launch_id);
@@ -2400,6 +2414,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...startupFields,
       launch_operation_id: launchOperationId,
       launch_request_digest: launchRequestDigest,
       hook_route: "shared_claude_settings",
@@ -2431,6 +2446,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...startupFields,
       hook_route: "shared_codex_home",
       completion_route: "codex_transcript",
       ...loadAgentLineageFields(m, true),
@@ -2460,6 +2476,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...startupFields,
       hook_route: "shared_cursor_home",
       completion_route: "cursor_transcript",
       ...loadAgentLineageFields(m, true),
@@ -2497,6 +2514,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt: normalizeInitialPromptState(m.initial_prompt),
     ...deliveryFields,
     ...executableFields,
+      ...startupFields,
     hook_route: "shared_grok_home",
     completion_route: "grok_transcript",
     ...loadAgentLineageFields(m, true),
@@ -3811,6 +3829,11 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   const live = observeSession(name);
   if (live.harness_alive !== true || live.harness_process === null || live.state !== "idle")
     return { status: "blocked", reason: live.reason };
+  // ここまでに居るprocessは起動時の足場（harness・MCP・起動時hook）。初手を送る前に控える。
+  if (live.activity.cursor !== null) {
+    meta.startup_processes = Object.keys(decodeActivityCursor(live.activity.cursor, name).processes);
+    writeAgentMetadata(meta);
+  }
   return { status: "ready", reason: "composer_ready" };
 }
 
@@ -4504,9 +4527,14 @@ export async function dispatchAgentTurn(
           `GROK_RATE_LIMIT_RECOVERY_FAILED: ${reason}。上限パネル解除後の入力受付を確認できません。今回の文字列は送信していません。`, 2,
         );
       }
+      // 待たずに断るのは、応答が要る既知の画面（承認・確認のmodal）の時。どの画面で断ったかを残す。
+      const state = meta.kind === "grok" ? grokPaneObservation(ready.lastScreen)
+        : meta.kind === "codex" ? codexPaneObservation(ready.lastScreen)
+        : meta.kind === "claude" ? claudePaneObservation(ready.lastScreen) : cursorPaneObservation(ready.lastScreen);
       throw new AitermError(
         `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。` +
-          "少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。",
+          "少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。" +
+          `\nstate=${state.state} reason=${state.reason}`,
         2,
       );
     }
@@ -4598,10 +4626,16 @@ const cursorSteerQueued = (screen: string): boolean =>
   CURSOR_FOLLOW_UP_STEER_RE.test(screen.split("\n").filter(line => line.trim()).slice(-30).join("\n"));
 const STEER_SCREEN_POLL_MS = 100;
 const STEER_SCREEN_MAX_SAMPLES = 50;
+// 待ち行列の表示が遅い端末がある（fox 2026-10-03: Cursorへ送ってから表示まで8〜9秒。5秒で打ち切って3回とも失敗した）。
+// 子のturnが続いている間は、文は待ち行列へ入るしかないので、ここまで待つ。
+const STEER_SCREEN_RUNNING_MAX_SAMPLES = 300;
+const STEER_RUNNING_CHECK_SAMPLES = 10;
 
-async function waitSteerScreen(name: string, predicate: (screen: string) => boolean): Promise<boolean> {
-  for (let i = 0; i < STEER_SCREEN_MAX_SAMPLES; i++) {
+async function waitSteerScreen(name: string, predicate: (screen: string) => boolean, stillRunning: () => boolean): Promise<boolean> {
+  for (let i = 0; i < STEER_SCREEN_RUNNING_MAX_SAMPLES; i++) {
     if (predicate(captureScreen(name, AGENT_TUI_READY_LINES))) return true;
+    // 短い待ちを過ぎたら、子のturnが続いている間だけ待ちを延ばす。終わっていれば、これ以上待っても表示は変わらない。
+    if (i >= STEER_SCREEN_MAX_SAMPLES && i % STEER_RUNNING_CHECK_SAMPLES === 0 && !stillRunning()) return false;
     await sleep(STEER_SCREEN_POLL_MS);
   }
   return false;
@@ -4694,7 +4728,11 @@ async function steerRunningTurn(
     : meta.kind === "cursor" ? cursorSteerQueued : null;
   if (queued) {
     const label = meta.kind === "cursor" ? "Cursor" : "Grok";
-    if (!await waitSteerScreen(name, queued)) {
+    // Cursorはturn_endedを記録へ書いた後も画面にbusy表示を残すので、記録で見る。Grokは画面で見る。
+    const stillRunning = (): boolean => meta.kind === "cursor"
+      ? latestCursorCompletion(meta, readTranscriptLines) === null
+      : isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
+    if (!await waitSteerScreen(name, queued, stillRunning)) {
       throw new AitermError(
         `STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n` +
           `差し込む文が${label}の待ち行列へ入ったことを確認できません。子のturnが送る直前に終わっていた時は、` +
@@ -4702,7 +4740,7 @@ async function steerRunningTurn(
       );
     }
     sendKey(name, "Enter");
-    if (!await waitSteerScreen(name, screen => !queued(screen))) {
+    if (!await waitSteerScreen(name, screen => !queued(screen), stillRunning)) {
       throw new AitermError(
         `STEER_STILL_QUEUED vendor=${meta.kind} session=${name}\n` +
           `差し込む文が${label}の待ち行列に残っています。現在のturnが終わると別turnとして実行されます。`, 2,

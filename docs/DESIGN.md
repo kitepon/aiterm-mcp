@@ -46,6 +46,9 @@ PIDは開始識別子・argv digestと組にし、paneとharnessを同一視し�
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。
 祖先を共有しない候補は別々に残し、複数候補を一つと推測しない。
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
+sessionを閉じると失うものは数で返す（ADR 0080）。`activity.post_startup_process_count`は起動完了の時点に居なかったprocessの数、
+`pending_child_deliveries`はそのsessionが親として待つ未配送の数。数えられない時はnullで、0と区別する。
+Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ出た後も、入力欄の形（`❯`行の上下の罫線）で読む。
 画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
 初回とpane再作成後の差分はnull。区間中にprocessが消えた時は観測できたCPU増分だけを返し、
 `cpu_delta_complete=false`を付ける。background活動はpane開始から60秒以降に生成された子孫だけを数える。
@@ -73,6 +76,7 @@ agent sessionへの送信口は`pty_send`だけとする。子の状態は呼び
 Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの実行中には表示が残る。turnの印を実行中判定の正本とする。Stopが発火しないAPIエラー終了では、次の送信時に印の作成後の会話記録にある`isApiErrorMessage`を確認し、終了したturnの印だけを解除する。過去のエラーで新しい印を解除しない。waiterは印を変更せず、読取専用のままエラーを返す。
 それ以外は新しいturnとしてdispatchする。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
+待ち行列の表示は5秒待ち、子のturnが続いている間だけ30秒まで延ばす（表示が遅い端末がある。turnが終わっていれば、文は新しいturnとして始まっている）。
 Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
 新turnが作業を継ぐので、完了判定はこの継ぎ目を完了と数えない。Grokが待ち行列へ入れない時とCursorの入力欄に本文が残る時は`steered`を返さない。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { readAgentTranscriptResult } from "./core.js";
 import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitObservation } from "./agent-shared.js";
 import { readProcessIdentities } from "./process-runtime.js";
+import { deliveryOwnerPrefix } from "./parent-delivery-owners.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
 import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitCursorParentAnswer, verifyCursorParent, type CursorParent } from "./cursor-parent-receiver.js";
@@ -158,8 +159,7 @@ export class ParentDeliveryManager {
     const ownProcess = this.deps.processes([process.pid]).find((entry) => entry.pid === process.pid);
     if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
     this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false };
-    const identity = createHash("sha256").update(ownProcess.started_identity).digest("hex").slice(0, 16);
-    this.ownerDir = path.join(this.active, `${process.pid}-${identity}-${randomUUID()}`);
+    this.ownerDir = path.join(this.active, `${deliveryOwnerPrefix(this.owner)}${randomUUID()}`);
     fs.mkdirSync(this.ownerDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this.results, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this.claims, { recursive: true, mode: 0o700 });

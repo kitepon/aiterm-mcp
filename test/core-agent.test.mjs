@@ -3510,7 +3510,7 @@ test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無けれ�
 });
 
 // 実行中の送信を待ち行列へ入れ、2回目のEnterで現在turnへ送る偽Grok。
-function makeFakeGrokSteerTuiBin() {
+function makeFakeGrokSteerTuiBin(queueDelayMs = 0) {
   const stem = `fake-grok-steer-${Date.now().toString(36)}`;
   const bin = path.join(process.env.TMPDIR, `${stem}.cjs`);
   const log = path.join(process.env.TMPDIR, `${stem}.log`);
@@ -3526,7 +3526,7 @@ out("Grok Build"); out("    ◆ Run sleep 5 (1 of 9)"); out("    ⠋ Run sleep 5
 process.stdin.on("data", (chunk) => {
   for (const ch of chunk.toString("utf8").replace(/\\x1b\\[20[01]~/g, "")) {
     if (ch !== "\\r") { if (ch >= " ") line += ch; continue; }
-    if (line) { queued = line; line = ""; fs.appendFileSync(${JSON.stringify(log)}, "queued:" + queued + "\\n"); out("    #1 " + queued); out("   Queued · Enter to send now"); continue; }
+    if (line) { queued = line; line = ""; fs.appendFileSync(${JSON.stringify(log)}, "queued:" + queued + "\\n"); const shown = queued; setTimeout(() => { out("    #1 " + shown); out("   Queued · Enter to send now"); }, ${queueDelayMs}); continue; }
     if (queued) { fs.appendFileSync(${JSON.stringify(log)}, "send_now:" + queued + "\\n"); out("     ❯ " + queued); for (let i = 0; i < 12; i++) out("    ◆ Run sleep 5 (" + (i + 2) + " of 9)"); out("    ⠋ Thinking… 1.7s  4.0s ⇣28.4k [stop]"); queued = null; }
   }
 });
@@ -3548,6 +3548,33 @@ test("sendAgentMessage: 実行中のGrokへは待ち行列へ入れた後にsend
         const receipt = await core.sendAgentMessage(sid, "GROK_STEER_BODY");
         assert.equal(receipt.schema, "aiterm.agent-steer.v1");
         assert.deepEqual(fs.readFileSync(fake.log, "utf8").trim().split("\n"), ["queued:GROK_STEER_BODY", "send_now:GROK_STEER_BODY"]);
+      } finally {
+        core.closeSession(sid);
+      }
+    });
+  } finally {
+    if (savedBin === undefined) delete process.env.GROK_BIN;
+    else process.env.GROK_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true });
+    fs.rmSync(fake.log, { force: true });
+  }
+});
+
+// fox 2026-10-03: Cursorの待ち行列の表示が送ってから8〜9秒後に出て、5秒の待ちで3回とも失敗した。
+test("sendAgentMessage: 待ち行列の表示が5秒より遅くても、子のturnが続いている間は待って現在turnへ送る", { skip: skipGrokFakeBin }, async () => {
+  const savedBin = process.env.GROK_BIN;
+  const fake = makeFakeGrokSteerTuiBin(7000);
+  process.env.GROK_BIN = fake.bin;
+  try {
+    await withFakeGrokHome(async () => {
+      const [sid] = core.openAgent("grok", { agent_done: true });
+      try {
+        await core.readOutput(sid, { wait: true, until: "[stop]", timeout: 5, raw: true });
+        const started = Date.now();
+        const receipt = await core.sendAgentMessage(sid, "GROK_SLOW_QUEUE_BODY");
+        assert.equal(receipt.schema, "aiterm.agent-steer.v1");
+        assert.ok(Date.now() - started >= 6500, "表示が出るまで待っている");
+        assert.deepEqual(fs.readFileSync(fake.log, "utf8").trim().split("\n"), ["queued:GROK_SLOW_QUEUE_BODY", "send_now:GROK_SLOW_QUEUE_BODY"]);
       } finally {
         core.closeSession(sid);
       }

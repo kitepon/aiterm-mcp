@@ -323,8 +323,18 @@ export function claudeLaunchNote(
   return `起動設定: model=${model ?? "CLI既定"} effort=${effort ?? "CLI既定"}。${writeScopeNote}`;
 }
 
+// 会話が長くなると、起動時の見出し「Claude Code」は取得範囲から流れ出る。入力欄は❯行のすぐ上と下を罫線で挟む形で、
+// 起動時の確認画面や通常shellの❯とは見分けられる。見出しが無い時はこの形でClaude CodeのTUIと判断する。
+function claudeComposerBox(screen: string): boolean {
+  const lines = screen.split(/\r?\n/u);
+  const rule = /^\s*─{8,}\s*$/u;
+  let marker = lines.length - 1;
+  while (marker >= 0 && !/^\s*❯/u.test(lines[marker])) marker--;
+  return marker > 0 && rule.test(lines[marker - 1]) && lines.slice(marker + 1).some(line => rule.test(line));
+}
+
 export function claudeTuiReady(screen: string): boolean {
-  if (!screen.includes("Claude Code")) return false;
+  if (!screen.includes("Claude Code") && !claudeComposerBox(screen)) return false;
   if (claudeLoginMethodMenu(screen)) return false;
   const lastMarker = screen.split(/\r?\n/u).filter((line) => /^\s*❯/u.test(line)).at(-1)?.trim();
   if (!lastMarker) return false;

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-03
+
 ### 追加
 
 - `aiterm-setup --hooks-only`。Claude Code・Cursorの親配送hookだけを登録し、依存準備、端末の実動作確認、MCP登録、Codex Steerには触れない。MCP登録を利用者や他の製品が管理する環境向け。結果は`aiterm.parent-hooks-result.v1`で返し、登録済みなら設定を書き換えない。
@@ -1974,7 +1976,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...HEAD
+[0.47.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...v0.46.0
 [0.45.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.1...v0.45.2

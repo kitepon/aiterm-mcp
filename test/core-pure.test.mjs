@@ -338,11 +338,18 @@ test("agent ready gate: TUIが出ないままなら起動から50秒でnot ready
   assert.equal(result.sleeps.reduce((a, b) => a + b, 0), 50_000);
 });
 
-test("agent ready gate: 見分けられない画面が出ている時は今までどおり30秒で返す", async () => {
+test("agent ready gate: 見分けられない画面・短い待ちの指定・起動コマンドを知らない呼び出しは延ばさない", async () => {
   const unknownScreen = `${launchEcho(LAUNCH_LINE)}\nSome new dialog the harness shows\n  1. Continue`;
   const drawn = await core.__testWaitAgentTuiReady("claude", [unknownScreen], { launchLine: LAUNCH_LINE, virtualClock: true });
   assert.equal(drawn.ready, false);
   assert.equal(drawn.samples, 61);
+  // 呼ぶ側が既定より短い待ちを指定した時は、表示のままでも延ばさない（実被弾: ready_timeout:0の呼び出しがWindowsで50秒待った）
+  const shortEcho = `${launchEcho(LAUNCH_LINE)}\n`;
+  const immediate = await core.__testWaitAgentTuiReady("claude", [shortEcho], { launchLine: LAUNCH_LINE, virtualClock: true, timeoutMs: 0 });
+  assert.equal(immediate.ready, false);
+  assert.equal(immediate.samples, 1);
+  const short = await core.__testWaitAgentTuiReady("claude", [shortEcho], { launchLine: LAUNCH_LINE, virtualClock: true, timeoutMs: 3_000 });
+  assert.equal(short.samples, 7);
   // 起動コマンドを知らない呼び出し（起動後の送信など）も30秒のまま
   const echo = `${launchEcho(LAUNCH_LINE)}\n`;
   const noLine = await core.__testWaitAgentTuiReady("claude", [echo], { virtualClock: true });

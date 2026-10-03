@@ -3322,7 +3322,8 @@ async function waitAgentTuiReadyImpl(
   const now = opts.now ?? (() => performance.now());
   const start = now();
   let deadline = start + timeoutMs;
-  const firstDrawDeadline = start + AGENT_TUI_FIRST_DRAW_TIMEOUT_MS;
+  // 呼ぶ側が既定より短い待ちを指定した時は、その待ちを守る（延ばさない）。
+  const firstDrawDeadline = timeoutMs >= AGENT_TUI_READY_TIMEOUT_MS ? start + AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : deadline;
   let samples = 0;
   let readyStreak = 0;
   let lastScreen = "";

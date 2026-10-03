@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-03
+
 ### 追加
 
 - 実行時エラーをBugHubへ報告する仕組み。既定では無効で、何も送らない。`aiterm-runtime-errors reporting enable`で明示して有効にし、かつBugHubの持ち主が置いた合鍵のファイルがある端末だけが送る。宛先は合鍵のファイルから読む。送るのは別processで、きっかけはエラーの記録・解決や開き直し・MCPの起動（未報告がある時だけ、多くても1時間に1回）と`aiterm-runtime-errors report`。応答の署名まで確かめた時だけ受け取り済みにする。`aiterm-runtime-errors reporting status`で状態を見られる。
@@ -1992,7 +1994,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.48.0...HEAD
+[0.48.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.1...v0.48.0
 [0.47.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...v0.46.1

@@ -589,6 +589,18 @@ snapshotの`product_version`は各recordの最終実発生時の版を表す。s
 
 Consumer flow is `aiterm-runtime-errors snapshot`, then `aiterm-runtime-errors ack --cursor N` after durable ingestion. Operators can use `resolve|reopen --fingerprint SHA256`. MCP collection and diagnostic reads run in timeout-bounded child processes, so a FIFO or stalled filesystem cannot block terminal work; child failure emits only the fixed store diagnostic. Store mutation uses a bounded bakery ticket queue: every waiter owns a never-reused ticket containing PID, process-start identity, and an owner token, so dead owners are removed by unique filename without fixed-path reclaim ABA. The queue deadline measures lack of progress by the same head owner, not total wait behind healthy predecessors; normal polling uses the native process-liveness check and validates process-start identity only when a blocker stalls. Worker deadlines use forced termination so a SIGTERM-ignoring child cannot mutate state after timeout. POSIX state is atomically replaced under `$XDG_STATE_HOME/aiterm-mcp/` (default `~/.local/state/aiterm-mcp/`) with owner/mode rechecked on every read. Windows native uses `%LOCALAPPDATA%\aiterm-mcp\`; each DACL is rebuilt and read back as one non-inherited FullControl ACE for the current SID. Windows path/DACL/timeout behavior is covered by pure tests in this change; no new Windows integration success is claimed.
 
+**Reporting to BugHub is off by default.** Aiterm sends runtime errors nowhere unless both hold: the user ran
+`aiterm-runtime-errors reporting enable`, and a credential file placed by the BugHub owner exists
+(`~/.config/bughub/product-credentials/aiterm-mcp.json`, or `%LOCALAPPDATA%\bughub\product-credentials\aiterm-mcp.json` on Windows;
+it is read only when it is a regular file readable by its owner alone). The destination comes from that file. The payload is the
+cumulative error codes, counts, first/last timestamps, versions, severity, and resolution marks; prompts, paths, and stacks are neither
+stored nor sent. A separate process does the sending, never the MCP process, and there is no polling: a report is attempted when an error
+is recorded, when a record is resolved or reopened, and when the MCP server starts (only while something is unreported, at most once per
+hour), or on `aiterm-runtime-errors report` (once, at most once per minute). A record becomes acknowledged only after the response
+signature is verified; otherwise the next attempt resends the then-current totals. `aiterm-runtime-errors reporting status` shows the
+switch, the credential state, the unreported count, and the last attempt; `reporting disable` turns it off. Enabling reporting also
+enables collection on that host.
+
 ### Interactive agent harnesses
 
 `agent_launch` starts a selected harness's interactive coding-agent TUI inside a fresh persistent PTY and returns its `session_id`. The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is independent. The TUI is a full-screen app, so read it with `pty_read({ screen: true })` for the rendered view.

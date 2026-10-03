@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- 実行時エラーをBugHubへ報告する仕組み。既定では無効で、何も送らない。`aiterm-runtime-errors reporting enable`で明示して有効にし、かつBugHubの持ち主が置いた合鍵のファイルがある端末だけが送る。宛先は合鍵のファイルから読む。送るのは別processで、きっかけはエラーの記録・解決や開き直し・MCPの起動（未報告がある時だけ、多くても1時間に1回）と`aiterm-runtime-errors report`。応答の署名まで確かめた時だけ受け取り済みにする。`aiterm-runtime-errors reporting status`で状態を見られる。
+- 報告を有効にした端末は、工場の収集設定が無くても実行時エラーの記録が有効になる。
+
+### 修正
+
+- 試験が、わざと起こした失敗を利用者の実行時エラーの記録へ書いていた（CIを走らせる端末で、試験のたびに1件増えていた）。試験の記録先を一時フォルダへ向けた。製品の動きは変わらない。
+
 ## [0.47.1] - 2026-10-03
 
 ### 修正

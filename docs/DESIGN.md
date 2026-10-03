@@ -320,7 +320,9 @@ privacy案内は現在の枠付きcomposerとmodel footerが見える場合だ�
 ## Diagnostics and local error state
 
 `diagnostics`はread-onlyで、PTY backendとagent dependencyを検査する。runtime error aggregateは
-製品所有のlocal stateに固定codeと集約metadataだけを保存し、network I/Oを持たない。工場reporterとの
+製品所有のlocal stateに固定codeと集約metadataだけを保存し、既定ではnetwork I/Oを持たない。
+BugHubへの報告は、利用者が明示して有効にし、合鍵のファイルがある端末だけが、別processで行う。
+きっかけは記録・解決・起動・手動の4つで、定期的な見張りは置かない。受け取り済みにするのは応答の署名まで確かめた時だけ（ADR 0079）。工場reporterとの
 連携は明示opt-inの任意adapterであり、未設定時もAiterm本体は単独動作する。raw error、prompt、出力、
 transcript、path、credentialを保存・公開しない。
 親配送hook（Claude Code・Cursor）の登録状態は`src/parent-hook-diagnostic.ts`が利用者設定の読取りだけで要約し、

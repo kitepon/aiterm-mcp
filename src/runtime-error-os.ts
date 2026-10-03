@@ -27,6 +27,46 @@ export function defaultRuntimeErrorPaths(options: {
   };
 }
 
+// BugHubへの報告で使う場所。有効スイッチはAiterm自身の設定、合鍵はBugHubの持ち主が端末へ置くファイル。
+export function defaultRuntimeErrorReportPaths(options: {
+  platform?: NodeJS.Platform; home?: string; localAppData?: string; xdgConfigHome?: string; xdgStateHome?: string;
+} = {}): { reportingConfigPath: string; credentialPath: string; reportStatePath: string } {
+  const platform = options.platform ?? process.platform;
+  const home = options.home ?? os.homedir();
+  if (platform === "win32") {
+    const base = options.localAppData ?? process.env.LOCALAPPDATA ?? path.win32.join(home, "AppData", "Local");
+    return {
+      reportingConfigPath: path.win32.join(base, "aiterm-mcp", "runtime-error-reporting.json"),
+      credentialPath: path.win32.join(base, "bughub", "product-credentials", "aiterm-mcp.json"),
+      reportStatePath: path.win32.join(base, "aiterm-mcp", "runtime-errors-report.json"),
+    };
+  }
+  const configHome = options.xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
+  const stateHome = options.xdgStateHome ?? process.env.XDG_STATE_HOME ?? path.join(home, ".local", "state");
+  return {
+    reportingConfigPath: path.join(configHome, "aiterm-mcp", "runtime-error-reporting.json"),
+    credentialPath: path.join(configHome, "bughub", "product-credentials", "aiterm-mcp.json"),
+    reportStatePath: path.join(stateHome, "aiterm-mcp", "runtime-errors-report.json"),
+  };
+}
+
+const MAX_REPORTING_CONFIG_BYTES = 4 * 1024;
+
+/** 報告の有効スイッチの状態。ファイルが無ければ無効（既定）。形が違うファイルは有効とみなさない。 */
+export function runtimeErrorReportingStatus(file: string, platform: NodeJS.Platform = process.platform): "enabled" | "disabled" | "malformed" {
+  let text: string;
+  try { text = readBoundedFile(file, MAX_REPORTING_CONFIG_BYTES, platform, false); }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "disabled" : "malformed"; }
+  try {
+    const config: unknown = JSON.parse(text);
+    if (typeof config !== "object" || config === null || Array.isArray(config)) return "malformed";
+    const keys = Object.keys(config);
+    const value = config as { schema_version?: unknown; enabled?: unknown };
+    if (keys.length !== 2 || value.schema_version !== "1.0" || typeof value.enabled !== "boolean") return "malformed";
+    return value.enabled ? "enabled" : "disabled";
+  } catch { return "malformed"; }
+}
+
 const WINDOWS_DACL_VERIFY_SCRIPT = String.raw`
 $ErrorActionPreference='Stop'
 $target=$env:AITERMMCP_ACL_PATH; $kind=$env:AITERMMCP_ACL_KIND

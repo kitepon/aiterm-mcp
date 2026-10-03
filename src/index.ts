@@ -15,6 +15,7 @@ import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
+import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
 import { createRequire } from "node:module";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
@@ -1217,6 +1218,8 @@ async function main(): Promise<void> {
   };
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // 受け口がまだ受け取っていない実行時エラーがあれば、別processで送る（明示して有効にした端末だけ。既定では何も起動しない）。
+  triggerRuntimeErrorReport();
 }
 
 main().catch((e) => {

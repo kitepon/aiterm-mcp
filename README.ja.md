@@ -554,6 +554,17 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 
 consumer は `aiterm-runtime-errors snapshot` を読み、durable ingestion 後に `aiterm-runtime-errors ack --cursor N` を呼ぶ。運用上の明示操作は `resolve|reopen --fingerprint SHA256`。MCP からの収集・diagnostic read は timeout 付き child process に隔離し、FIFOや停止 filesystem が端末本体を止めない。store mutation は期限付き bakery ticket queue で直列化する。各waiterは PID＋process start identity＋owner token を持つ再利用されない固有ticketを所有するため、死んだownerだけを固有名で除去でき、固定path回収のABAを作らない。queueの期限は正常な前任者を含む総待ち時間ではなく、同じ先頭ownerが進まない時間を測る。通常pollはprocessの生存確認だけを行い、process start identityはblockerがstallした時に照合する。POSIX state は `$XDG_STATE_HOME/aiterm-mcp/`（既定 `~/.local/state/aiterm-mcp/`）へ atomic replacement で置き、every read で owner/mode を再検証する。Windows native は `%LOCALAPPDATA%\aiterm-mcp\` で current SID の非継承 FullControl ACE 1件だけへ DACL を再構築し readback する。今回 Windows は path/DACL/timeout の純粋テストだけであり、新しい実機統合成功は主張しない。
 
+### BugHubへの報告（既定では無効）
+
+Aitermは、既定では実行時エラーをどこへも送らない。送るのは、次の2つがそろった端末だけ。
+
+1. `aiterm-runtime-errors reporting enable` で明示して有効にした。
+2. BugHubの持ち主が置いた合鍵のファイルがある（POSIXは `~/.config/bughub/product-credentials/aiterm-mcp.json`、Windowsは `%LOCALAPPDATA%\bughub\product-credentials\aiterm-mcp.json`）。本人だけが読める通常のファイルでなければ読まない。
+
+宛先は合鍵のファイルから読む。送る中身は、エラーのコード・回数・最初と最後の時刻・版・重さ・解決の印だけで、prompt・path・stackは保存も送信もしない。送るのは別processで、MCP processは通信しない。きっかけは、エラーを記録した時・解決や開き直しをした時・MCPの起動時（未報告がある時だけ、多くても1時間に1回）と、`aiterm-runtime-errors report`（その場で1回、1分に1回まで）。応答の署名まで確かめた時だけ受け取り済みにし、確かめられない時は次の機会に送り直す。
+
+`aiterm-runtime-errors reporting status` は、有効・無効、合鍵の状態（`ready`／`missing`／`rejected`）、未報告の件数、最後の送信の結果を返す。止める時は `aiterm-runtime-errors reporting disable`。報告を有効にした端末は、工場の収集設定が無くても記録が有効になる。
+
 ### 対話エージェントharness
 
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。

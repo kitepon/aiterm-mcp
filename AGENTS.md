@@ -40,9 +40,12 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   親自身のturnをforeground waiterで止めず、timeout後にpromptを再送しない。
 - 公開復旧は`pty_list`で対象を確認し、該当sessionを`pty_close`して同じIDで作り直す。
   公開toolに全session一括停止はない。`core.killAll()`は内部test cleanupであり、利用者へ案内しない。
-- runtime error storeは製品所有のlocal stateで、network I/Oを持たない。工場reporter configによる収集は
+- runtime error storeは製品所有のlocal stateで、既定ではnetwork I/Oを持たない。工場reporter configによる収集は
   明示opt-inの任意adapterであり、未設定でもPTY／agent／diagnosticsは単独で動く。prompt、transcript、
   path、credential、生stack／stderrを保存・公開しない。
+- BugHubへの報告は、利用者が`aiterm-runtime-errors reporting enable`で明示して有効にし、かつ合鍵のファイルがある端末だけが行う。
+  宛先は合鍵のファイルから読み、Aitermの中に書かない。送るのは別processで、MCP processは通信しない。定期的な見張りは置かず、
+  試験（`node:test`の子）からは送らない。受け取り済みにするのは、応答の署名まで確かめた時だけ（ADR 0079）。
 
 ## コード所有
 
@@ -67,7 +70,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/cursor-parent-receiver.ts`／`src/cursor-parent-hook.ts`／`src/cursor-parent-receive.ts`: Cursor親の会話束縛、公式hookへの差し込み、idle時の受け口。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
-- `src/runtime-error-*.ts`: 製品所有のoffline error aggregate。
+- `src/runtime-error-*.ts`: 製品所有のerror aggregate。`src/runtime-error-report.ts`: BugHubへの報告（本文・署名・受領の確認・送信の頻度）。
 - `src/rtk.ts`: 自前reducer。pytestとgrepはrtk 0.50.0と一致し、`FAILED`理由全文保持だけ意図的に異なる。
 - `prototype/python/`: 旧MVPとreducer移植元。参照専用。
 

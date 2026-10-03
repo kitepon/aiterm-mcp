@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
+import { defaultRuntimeErrorReportPaths, runtimeErrorReportingStatus } from "./runtime-error-os.js";
 import { defaultRuntimeErrorPaths, windowsPrivateDaclCommand, windowsPrivateDaclVerifyCommand, expectedHostProfiles, readBoundedFile, processStartIdentity, forceKill } from "./runtime-error-os.js";
 export { defaultRuntimeErrorPaths, windowsPrivateDaclCommand, windowsPrivateDaclVerifyCommand } from "./runtime-error-os.js";
 import { fileURLToPath } from "node:url";
@@ -76,6 +77,8 @@ export interface RuntimeErrorDiagnostic {
 export interface RuntimeErrorStoreOptions {
   configPath?: string;
   storePath?: string;
+  // 報告の有効スイッチの場所。nullは「見ない」。configPath・storePathを明示した時の既定はnull（利用者の本物の設定を読まない）。
+  reportingConfigPath?: string | null;
   platform?: NodeJS.Platform;
   arch?: string;
   productVersion?: string;
@@ -215,6 +218,7 @@ function validateState(value: unknown, maxRecords = 256): StoreState | null {
 export class RuntimeErrorStore {
   readonly configPath: string;
   readonly storePath: string;
+  readonly reportingConfigPath: string | null;
   private readonly platform: NodeJS.Platform;
   private readonly arch: RuntimeErrorRecord["arch"];
   private readonly productVersion: string;
@@ -227,6 +231,9 @@ export class RuntimeErrorStore {
     const defaults = defaultRuntimeErrorPaths(options);
     this.configPath = options.configPath ?? defaults.configPath;
     this.storePath = options.storePath ?? defaults.storePath;
+    this.reportingConfigPath = options.reportingConfigPath !== undefined ? options.reportingConfigPath
+      : options.configPath !== undefined || options.storePath !== undefined ? null
+      : defaultRuntimeErrorReportPaths(options).reportingConfigPath;
     this.platform = options.platform ?? process.platform;
     if (!ARCHES.has(options.arch ?? process.arch)) throw new Error("arch が不正です");
     this.arch = (options.arch ?? process.arch) as RuntimeErrorRecord["arch"];
@@ -238,7 +245,11 @@ export class RuntimeErrorStore {
     if (!Number.isInteger(this.maxRecords) || this.maxRecords < 1 || this.maxRecords > 256) throw new Error("maxRecords は 1..256 必須です");
   }
 
-  collectionStatus(): CollectionStatus { return collectionStatus(this.configPath, this.platform); }
+  // 報告を有効にした端末は、記録も有効。工場の収集設定が無くても、製品が自分の記録を持てる。
+  collectionStatus(): CollectionStatus {
+    if (this.reportingConfigPath !== null && runtimeErrorReportingStatus(this.reportingConfigPath, this.platform) === "enabled") return "enabled";
+    return collectionStatus(this.configPath, this.platform);
+  }
 
   private assertPrivateDirectory(dir: string): void {
     const info = fs.lstatSync(dir);

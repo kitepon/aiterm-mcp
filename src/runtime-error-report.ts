@@ -207,11 +207,15 @@ export async function reportRuntimeErrors(options: ReportOptions): Promise<Repor
     }
 
     // tsとobserved_atは同じ時刻から作る（受け口は両者が10分より離れたreportを断る）。
+    // observed_atは秒へ切り捨てず、載せる記録のどの時刻よりも前にしない。受け口は、記録や解決が観測より後のreportを
+    // 422で断る。記録の時刻はミリ秒まで持つので、切り捨てると、記録の直後（同じ秒の中）の自動送信が断られていた。
     const ts = String(Math.floor(started.getTime() / 1000));
+    const observed = Math.max(started.getTime(), ...snapshot.records.flatMap((record) =>
+      [Date.parse(record.last_seen), record.resolved_at === null ? 0 : Date.parse(record.resolved_at)]));
     const reportId = randomUUID();
     const report = buildRuntimeErrorReport(snapshot.records, {
       installedVersion: options.installedVersion ?? pkg.version, reportId,
-      observedAt: new Date(Number(ts) * 1000).toISOString(),
+      observedAt: new Date(observed).toISOString(),
     });
     const body = Buffer.from(JSON.stringify(report), "utf8");
     if (body.byteLength > MAX_REPORT_BYTES) throw new Error("reportが大きすぎます");

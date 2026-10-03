@@ -167,6 +167,28 @@ function reportFixture(t, url) {
   return { root, paths, clock, store, placeCredential, report, env: { XDG_CONFIG_HOME: xdgConfigHome, XDG_STATE_HOME: xdgStateHome, HOME: root } };
 }
 
+// BugHub 2026-10-03: Latticeのreportが、故障の直後（同じ秒の中）に送ると422で断られた。observed_atを秒へ切り捨てていて、
+// 記録の時刻（ミリ秒まで持つ）より前になっていた。Aitermの0.48.0も同じ作りだった。
+test("報告: 記録の直後の同じ秒に送っても、observed_atを記録の時刻より前にしない", { skip: posixOnly }, async (t) => {
+  const bughub = await intake(t);
+  const f = reportFixture(t, bughub.url);
+  setRuntimeErrorReporting(f.paths.reportingConfigPath, true);
+  f.placeCredential();
+  f.clock.value = Date.parse("2026-10-03T08:00:00.921Z");
+  assert.equal(f.store.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" }), true);
+  f.clock.value = Date.parse("2026-10-03T08:00:00.950Z");
+  assert.equal((await f.report()).status, "accepted");
+  assert.equal(bughub.received[0].report.runtime_errors[0].last_seen, "2026-10-03T08:00:00.921Z");
+  assert.equal(bughub.received[0].report.observed_at, "2026-10-03T08:00:00.950Z");
+  assert.equal(bughub.received[0].ts, "1791014400");
+  // 端末の時計が戻った時も、記録より前にしない。
+  f.clock.value = Date.parse("2026-10-03T08:02:00.700Z");
+  assert.equal(f.store.record({ code: "AITERM.VENDOR_LAUNCHER_FAILED" }), true);
+  f.clock.value = Date.parse("2026-10-03T08:01:30.100Z");
+  assert.equal((await f.report()).status, "accepted");
+  assert.equal(bughub.received[1].report.observed_at, "2026-10-03T08:02:00.700Z");
+});
+
 test("報告: 既定では送らず、有効にしても合鍵の無い端末・読めない合鍵では送らない", { skip: posixOnly }, async (t) => {
   const bughub = await intake(t);
   const f = reportFixture(t, bughub.url);
@@ -204,9 +226,12 @@ test("報告: 有効にした端末は記録も有効になり、受領を確か
   assert.equal(got.contentType, "application/json");
   assert.equal(got.keyId, "key-1");
   assert.equal(got.signed, true, "本文の署名が合う");
-  // tsとobserved_atは同じ時刻から作る。
+  // tsとobserved_atは同じ時刻から作る。observed_atは秒へ切り捨てない（記録の時刻はミリ秒まで持つ）。
   assert.equal(got.ts, "1791014400");
-  assert.equal(got.report.observed_at, "2026-10-03T08:00:00.000Z");
+  assert.equal(got.report.observed_at, "2026-10-03T08:00:00.500Z");
+  // 受け口は、記録や解決が観測より後のreportを422で断る（time.observation_order・time.resolution_after_observation）。
+  for (const record of got.report.runtime_errors) assert.ok(Date.parse(record.last_seen) <= Date.parse(got.report.observed_at));
+  for (const item of got.report.resolutions) assert.ok(Date.parse(item.resolved_at) <= Date.parse(got.report.observed_at));
   assert.equal(got.report.product_id, "aiterm-mcp");
   assert.equal(got.report.installed_version, "0.48.0");
   assert.match(got.report.report_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

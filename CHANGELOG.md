@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aiterm-setup`（`aiterm-update`の中でも走る）と`--remove-cursor-parent-hooks`が、gpt-connectorのCursor hookを`~/.cursor/hooks.json`から消していた。自分のhookを名前の部分一致で探し、`cursor-parent-hook.js`が`gpt-connector-cursor-parent-hook.js`にも当たっていた。file名の境目まで見る（aiterm-steer-delivery 0.1.10）。
 - `aiterm-setup`が、Claude Codeの`settings.json`を中身が同じでも書き換えることがあった。他の道具が後からhookを足していると、Aitermのentryを末尾へ移していた。同じ中身で登録済みなら並びを保つ（aiterm-steer-delivery 0.1.10）。
 - `pty_send`が「TUI が入力受付状態になりません」で断る時、その時の画面の読み（`state=… reason=…`）を文の末尾へ付ける。承認や確認のmodalの時は待たずに断るが、どの画面だったかが残らなかった。
+- BugHubへの報告で、`observed_at`を秒へ切り捨てていた。記録の時刻はミリ秒まで持つので、エラーを記録した直後（同じ秒の中）の自動送信は、受け口に「記録が観測より後」として断られる作りだった（記録は失われず、次の送信の機会まで届くのが遅れる）。切り捨てず、載せる記録のどの時刻よりも前にしない。
 - 実行中のCursor・Grokへ文を差し込む時、待ち行列の表示が5秒より遅い端末で`STEER_NOT_QUEUED`になっていた（Windowsの実機で、送ってから表示まで8〜9秒）。文は待ち行列に入っていて、今のturnの後に別のturnとして動いていた。子のturnが続いている間は、表示を30秒まで待つ。
 
 ## [0.48.0] - 2026-10-03

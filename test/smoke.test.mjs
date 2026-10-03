@@ -326,8 +326,11 @@ test("smoke: tmux を解決できない端末を diagnostics が ready にしな
       HOME: tmpdir,
       TMPDIR: tmpdir,
       XDG_RUNTIME_DIR: tmpdir,
+      // わざと起こす失敗を、利用者の実行時エラー記録へ書かない。XDGやLOCALAPPDATAが設定された環境でも収集設定の無い場所を指す。
+      XDG_CONFIG_HOME: path.join(tmpdir, ".config"),
+      XDG_STATE_HOME: path.join(tmpdir, ".local", "state"),
       ...(process.platform === "win32"
-        ? { AITERM_PSMUX: "C:\\definitely-missing\\psmux.exe" }
+        ? { AITERM_PSMUX: "C:\\definitely-missing\\psmux.exe", LOCALAPPDATA: tmpdir }
         : { AITERM_TMUX: "/definitely-missing/tmux" }),
     },
   });

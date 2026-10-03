@@ -23,6 +23,9 @@ const savedHome = process.env.HOME;
 const fakeHome = path.join(process.env.TMPDIR, "fake-home");
 fs.mkdirSync(fakeHome, { mode: 0o700 });
 process.env.HOME = fakeHome;
+// わざと起こす起動失敗を、利用者の実行時エラー記録へ書かない。XDGが設定された環境でも収集設定の無い場所を指す。
+process.env.XDG_CONFIG_HOME = path.join(fakeHome, ".config");
+process.env.XDG_STATE_HOME = path.join(fakeHome, ".local", "state");
 const argvPrinterBin = path.join(process.env.TMPDIR, "print-argv.sh");
 const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");

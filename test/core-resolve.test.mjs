@@ -24,7 +24,12 @@ function openInChild(env) {
     `}).catch((e) => console.log(JSON.stringify({ importErr: String(e) })));\n`;
   const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     encoding: "utf8",
-    env: { ...process.env, TMPDIR: tmp, ...env },
+    // わざと起こす失敗を、利用者の実行時エラー記録（工場が集める対象）へ書かない。
+    // 記録先はHOMEとXDGから決まるので、収集設定の無い場所を指す（実被弾: CIを走らせる端末の記録が試験のたびに1件増えていた）。
+    env: {
+      ...process.env, TMPDIR: tmp, HOME: tmp,
+      XDG_CONFIG_HOME: path.join(tmp, ".config"), XDG_STATE_HOME: path.join(tmp, ".local", "state"), ...env,
+    },
   });
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
   const line = (r.stdout ?? "").trim().split("\n").filter(Boolean).pop() ?? "";

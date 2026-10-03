@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 混んだ端末で、agentの画面が描かれる前に入力受付の待ち（30秒）が切れ、`agent_launch`が`reason=unrecognized_screen`で初手を送らなかった。画面が起動コマンドの表示のままの時だけ、起動から50秒まで待つ。描かれた後の画面の扱いと、50秒でも描かれない時の未送信の返し方は変わらない。
+- Codex・Claude Code・Cursorを親にしたMCP processが、5秒おきに全processの一覧を2回ずつ取っていた（POSIXは`ps -axww`、WindowsはPowerShell）。processの多い端末でCPUを使い続け、その間MCPの応答も止まっていた。5秒おきの確認は他の持ち主のpidの存在だけを見て、開始時刻の照合は初めて見た持ち主と60秒に1回だけ、対象のpidに絞って行う。配送記録を引き継ぐ条件は変わらない。終了直後に同じpidが再利用された時だけ、引き継ぎが最長60秒遅れる。
+
 ## [0.47.0] - 2026-10-03
 
 ### 追加

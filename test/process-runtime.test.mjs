@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, backgroundProcesses } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses } from "../dist/process-runtime.js";
 
 test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");
@@ -27,4 +28,14 @@ test("実process表から自身のnative PIDを観測できる", () => {
   assert.ok(own);
   assert.ok(own.cpu_seconds >= 0);
   assert.match(own.argv_digest, /^[a-f0-9]{64}$/);
+});
+
+test("pidを指定した開始時刻の照会は、全process一覧と同じ開始時刻を返す", () => {
+  const own = readRuntimeProcesses().find(row => row.pid === process.pid);
+  assert.deepEqual(readProcessIdentities([process.pid]), [{ pid: process.pid, started_identity: own.started_identity }]);
+  assert.deepEqual(readProcessIdentities([]), []);
+  // 終了したprocessのpidは結果に含めない（失敗にしない）
+  const gone = spawnSync(process.execPath, ["-e", ""]).pid;
+  assert.deepEqual(readProcessIdentities([gone]), []);
+  assert.deepEqual(readProcessIdentities([gone, process.pid]).map(row => row.pid), [process.pid]);
 });

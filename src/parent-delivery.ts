@@ -5,7 +5,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import type { readAgentTranscriptResult } from "./core.js";
 import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitObservation } from "./agent-shared.js";
-import { readRuntimeProcesses, type RuntimeProcess } from "./process-runtime.js";
+import { readProcessIdentities } from "./process-runtime.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
 import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitCursorParentAnswer, verifyCursorParent, type CursorParent } from "./cursor-parent-receiver.js";
@@ -70,7 +70,23 @@ export interface ParentDeliveryDependencies {
   answer: (session: string, options: Parameters<typeof readAgentTranscriptResult>[1] & { remote?: RemoteTarget }) => Promise<{ text: string }>;
   submit: typeof submitParentAnswer;
   verify: typeof verifyParent;
-  processes: () => RuntimeProcess[];
+  // 指定したpidのうち、今あるprocessの開始時刻を返す。全processの一覧は取らない。
+  processes: (pids: number[]) => { pid: number; started_identity: string }[];
+  // そのpidのprocessが今あるか。OSへ直接聞き、processを起動しない。
+  exists: (pid: number) => boolean;
+  now: () => number;
+}
+
+// 開始時刻の照会はprocessの起動を伴い、processの多い端末では1回が重い（macOSのpsは-pでも全processを歩く）。
+// 5秒おきの確認はpidの存在だけを見て、開始時刻は初めて見た持ち主とこの間隔でだけ照合する。
+// 持ち主が終了した直後に同じpidが再利用された時だけ、回収が最長でこの間隔だけ遅れる。生きている持ち主の記録は引き取らない。
+const OWNER_IDENTITY_RECHECK_MS = 60_000;
+
+function processExists(pid: number): boolean {
+  // 0以下はprocess groupを指す。持ち主のpidにはならない。
+  if (pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
 function readRecord(file: string): DeliveryRecord {
@@ -115,12 +131,15 @@ export class ParentDeliveryManager {
   private readonly registering = new Map<string, Promise<void>>();
   private readonly timer: NodeJS.Timeout;
   private recovering: Promise<void> | null = null;
+  // 他の持ち主の開始時刻を最後に照合した時刻（持ち主の保存場所ごと）。
+  private readonly verifiedOwners = new Map<string, { pid: number; started_identity: string; at: number }>();
   private serviceError: Error | null = null;
   private closing = false;
 
   constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
     this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
-      verify: verifyParent, processes: readRuntimeProcesses, ...options.dependencies };
+      verify: verifyParent, processes: readProcessIdentities, exists: processExists,
+      now: () => performance.now(), ...options.dependencies };
     const stateRoot = ensureStateRoot();
     // 別端末の子の記録はremote-で始まる保存場所へ分け、boundary.remoteを知らない旧版のreaderへ渡さない。
     const prefix = options.remote ? "remote-" : "";
@@ -136,7 +155,7 @@ export class ParentDeliveryManager {
     this.active = path.join(this.root, "active");
     this.results = path.join(this.root, "results");
     this.claims = path.join(options.root ?? path.join(stateRoot, prefix + "parent-deliveries"), "claims");
-    const ownProcess = this.deps.processes().find((entry) => entry.pid === process.pid);
+    const ownProcess = this.deps.processes([process.pid]).find((entry) => entry.pid === process.pid);
     if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
     this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false };
     const identity = createHash("sha256").update(ownProcess.started_identity).digest("hex").slice(0, 16);
@@ -370,18 +389,44 @@ export class ParentDeliveryManager {
   }
 
   private async recoverOrphans(): Promise<void> {
-    const processes = this.deps.processes();
-    for (const directory of fs.readdirSync(this.active, { withFileTypes: true })) {
-      if (!directory.isDirectory()) continue;
+    // 生存を確かめる相手は、closeしていない他の持ち主だけ。居なければOSへ問い合わせない。
+    // この処理は5秒おきに全MCP processで回る。全processの一覧を取ると、processの多い端末で負荷になる。
+    const directories = fs.readdirSync(this.active, { withFileTypes: true })
+      .filter((directory) => directory.isDirectory() && path.join(this.active, directory.name) !== this.ownerDir);
+    const now = this.deps.now();
+    const alive = new Map<string, boolean>();
+    const unverified: { name: string; pid: number; started_identity: string }[] = [];
+    for (const directory of directories) {
+      let owner: Partial<Owner>;
+      try { owner = JSON.parse(fs.readFileSync(path.join(this.active, directory.name, "owner.json"), "utf8")); }
+      catch { continue; /* 形式の検査と失敗の扱いは下の回収で行う */ }
+      if (owner?.closed !== false || !Number.isSafeInteger(owner.pid) || typeof owner.started_identity !== "string") continue;
+      const pid = owner.pid as number;
+      if (!this.deps.exists(pid)) { alive.set(directory.name, false); continue; }
+      const verified = this.verifiedOwners.get(directory.name);
+      if (verified && verified.pid === pid && verified.started_identity === owner.started_identity
+        && now - verified.at < OWNER_IDENTITY_RECHECK_MS) alive.set(directory.name, true);
+      else unverified.push({ name: directory.name, pid, started_identity: owner.started_identity });
+    }
+    if (unverified.length > 0) {
+      const processes = this.deps.processes([...new Set(unverified.map((entry) => entry.pid))]);
+      for (const entry of unverified) {
+        const same = processes.some((row) => row.pid === entry.pid && row.started_identity === entry.started_identity);
+        alive.set(entry.name, same);
+        if (same) this.verifiedOwners.set(entry.name, { pid: entry.pid, started_identity: entry.started_identity, at: now });
+      }
+    }
+    for (const name of this.verifiedOwners.keys()) if (alive.get(name) !== true) this.verifiedOwners.delete(name);
+    for (const directory of directories) {
       const oldDir = path.join(this.active, directory.name);
-      if (oldDir === this.ownerDir) continue;
       let owner: Owner;
       try { owner = JSON.parse(fs.readFileSync(path.join(oldDir, "owner.json"), "utf8")); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw new AitermError("PARENT_DELIVERY_OWNER_INVALID: 配送所有者の記録を読めません", 2); }
       if (!Number.isSafeInteger(owner.pid) || typeof owner.started_identity !== "string" || typeof owner.closed !== "boolean") {
         throw new AitermError("PARENT_DELIVERY_OWNER_INVALID: 配送所有者の形式が不正です", 2);
       }
-      if (!owner.closed && processes.some((entry) => entry.pid === owner.pid && entry.started_identity === owner.started_identity)) continue;
+      // 生死を確かめた後に現れた持ち主は、次の回で扱う。生きている持ち主の記録は引き取らない。
+      if (!owner.closed && alive.get(directory.name) !== false) continue;
       for (const name of fs.readdirSync(oldDir).filter((name) => name !== "owner.json" && name.endsWith(".json"))) {
         const oldFile = path.join(oldDir, name);
         const file = path.join(this.ownerDir, name);

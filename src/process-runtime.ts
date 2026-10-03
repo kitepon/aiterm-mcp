@@ -85,6 +85,50 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
   });
 }
 
+/**
+ * 指定したpidの開始時刻だけを引く。readRuntimeProcessesと同じ開始時刻を返し、存在しないpidは結果に含めない。
+ * 全processのargvを読む一覧取得は、processの多い端末で重い（定期実行から呼ばない）。
+ */
+export function readProcessIdentities(pids: number[]): { pid: number; started_identity: string }[] {
+  const wanted = [...new Set(pids)];
+  if (wanted.length === 0) return [];
+  if (wanted.some(pid => !Number.isSafeInteger(pid) || pid < 0)) throw new AitermError("process照会のpidが不正です", 2);
+  if (!isWin) {
+    const result = spawnSync("/bin/ps", ["-o", "pid=,lstart=", "-p", wanted.join(",")], {
+      encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000,
+    });
+    // 該当するprocessが一つも無い時、psは何も出さずstatus 1で終わる。
+    if (result.error || (result.status !== 0 && !(result.status === 1 && !result.stdout.trim()))) {
+      throw new AitermError("OSのprocess一覧を取得できません", 2);
+    }
+    return result.stdout.split("\n").filter(line => line.trim()).map(line => {
+      const match = /^\s*(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s*$/.exec(line);
+      if (!match) throw new AitermError("process一覧の形式を認識できません", 2);
+      return { pid: Number(match[1]), started_identity: match[2].trim() };
+    });
+  }
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
+    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | Where-Object { $null -ne $_.CreationDate -and $null -ne $_.CommandLine } | ForEach-Object {`,
+    "[ordered]@{ pid=[int]$_.ProcessId; started_identity=$_.CreationDate.ToUniversalTime().ToString('o') }",
+    "})",
+    "ConvertTo-Json -Compress -InputObject $rows",
+  ].join("\n");
+  const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+    encoding: "utf8", timeout: 15000, windowsHide: true,
+  });
+  if (result.error || result.status !== 0) throw new AitermError("Windowsのnative process一覧を取得できません", 2);
+  let rows: unknown;
+  try { rows = JSON.parse(result.stdout); } catch { throw new AitermError("Windows process一覧のJSONを読めません", 2); }
+  if (!Array.isArray(rows)) throw new AitermError("Windows process一覧が配列ではありません", 2);
+  return rows.map(row => {
+    if (!row || !Number.isSafeInteger(row.pid) || typeof row.started_identity !== "string"
+      || !Number.isFinite(Date.parse(row.started_identity))) throw new AitermError("Windows process一覧のfieldが不正です", 2);
+    return { pid: row.pid, started_identity: new Date(row.started_identity).toISOString() };
+  });
+}
+
 // Windowsの親PIDは親の終了後も残り、別processへ再利用される。子より後に始まったprocessは
 // 本当の親ではないので、親子関係として辿らない（辿ると循環や無関係なprocessの混入が起きる）。
 export function parentProcess(row: RuntimeProcess, byPid: Map<number, RuntimeProcess>): RuntimeProcess | undefined {

@@ -224,6 +224,11 @@ const AGENT_DONE_SCREEN_SETTLE_MIN_SAMPLES = 3;
 const AGENT_SUBMIT_DELAY_MS = 250;
 const AGENT_METADATA_NEGATIVE_CACHE_TTL_MS = 2_000;
 const AGENT_TUI_READY_TIMEOUT_MS = 30_000;
+// 画面が起動コマンドの表示のまま（agentがまだ何も描いていない）で上の待ちが切れた時に、起動から待つ上限。
+// Codex親の既定のtool timeout（60秒）の内側に収める。越えると親には時間切れに見えたまま子へ初手が送られる。
+const AGENT_TUI_FIRST_DRAW_TIMEOUT_MS = 50_000;
+const LAUNCH_ECHO_TAIL_CHARS = 24;
+const LAUNCH_ECHO_MIN_CHARS = 8;
 const AGENT_TUI_READY_POLL_MS = 500;
 const AGENT_TUI_READY_STABLE_SAMPLES = 11;
 const AGENT_TUI_READY_LINES = 45;
@@ -1538,6 +1543,7 @@ function closeSessionInternal(name: string, observeDependency = true): string {
     }
   }
   cleanupAgentState(name);
+  agentLaunchLines.delete(name);
   return `closed ${name}`;
 }
 
@@ -3279,6 +3285,25 @@ function isClaudeManagedLaunchConfirmation(screen: string): boolean {
   return isClaudeWorkspaceTrustScreen(screen) || isClaudeBypassPermissionsScreen(screen);
 }
 
+/**
+ * 画面の末尾が、Aitermが打った起動コマンドの表示のままかを見る（純粋関数）。
+ * 混んだ端末ではagentのTUIが描かれる前にready待ちが切れる。画面の最後の文字列が起動コマンドの一部なら、
+ * agentはまだ何も描いていない。空白と行頭の継続prompt（`> `／`>> `）は端末の折返しとshellの表示なので比べない。
+ */
+export function launchEchoIsLastOnScreen(screen: string, launchLine: string): boolean {
+  const command = launchLine.replace(/\s+/g, "");
+  const lines = screen.split("\n");
+  let tail = "";
+  for (let i = lines.length - 1; i >= 0 && tail.length < LAUNCH_ECHO_TAIL_CHARS; i--) {
+    tail = lines[i].replace(/^\s*>{1,2}(?:\s|$)/, "").replace(/\s+/g, "") + tail;
+  }
+  tail = tail.slice(-LAUNCH_ECHO_TAIL_CHARS);
+  return tail.length >= LAUNCH_ECHO_MIN_CHARS && command.includes(tail);
+}
+
+// 起動コマンドはopenAgentだけが知っている。同じprocess内のready待ちが、TUI未描画の判定に使う。
+const agentLaunchLines = new Map<string, string>();
+
 async function waitAgentTuiReadyImpl(
   kind: AgentKind,
   sample: () => string,
@@ -3287,12 +3312,17 @@ async function waitAgentTuiReadyImpl(
     timeoutMs?: number;
     pollMs?: number;
     stableSamples?: number;
+    launchLine?: string;
+    now?: () => number;
   } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const timeoutMs = opts.timeoutMs ?? AGENT_TUI_READY_TIMEOUT_MS;
   const pollMs = opts.pollMs ?? AGENT_TUI_READY_POLL_MS;
   const stableSamples = opts.stableSamples ?? agentTuiReadyStableSamplesTestOverride ?? AGENT_TUI_READY_STABLE_SAMPLES;
-  const deadline = performance.now() + timeoutMs;
+  const now = opts.now ?? (() => performance.now());
+  const start = now();
+  let deadline = start + timeoutMs;
+  const firstDrawDeadline = start + AGENT_TUI_FIRST_DRAW_TIMEOUT_MS;
   let samples = 0;
   let readyStreak = 0;
   let lastScreen = "";
@@ -3307,7 +3337,12 @@ async function waitAgentTuiReadyImpl(
       readyStreak = 0;
       if (isAgentTuiActionRequired(kind, lastScreen)) return { ready: false, samples, lastScreen };
     }
-    if (performance.now() >= deadline) return { ready: false, samples, lastScreen };
+    if (now() >= deadline) {
+      // TUIが一度も描かれていない間に切れた時だけ、決めた上限まで待ちを延ばす。描かれた後の画面は今までどおり扱う。
+      if (deadline >= firstDrawDeadline || opts.launchLine === undefined
+        || !launchEchoIsLastOnScreen(lastScreen, opts.launchLine)) return { ready: false, samples, lastScreen };
+      deadline = firstDrawDeadline;
+    }
     await sleepFn(pollMs);
   }
 }
@@ -3317,12 +3352,14 @@ async function waitAgentTuiReady(
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
 ): Promise<AgentTuiReadyWaitResult> {
-  return waitAgentTuiReadyImpl(
+  const result = await waitAgentTuiReadyImpl(
     meta.kind,
     () => captureScreen(name, AGENT_TUI_READY_LINES),
     sleep,
-    { timeoutMs },
+    { timeoutMs, launchLine: agentLaunchLines.get(name) },
   );
+  if (result.ready) agentLaunchLines.delete(name);
+  return result;
 }
 
 async function waitAgentTuiReadyByKind(
@@ -3578,18 +3615,22 @@ export function __testIsAgentTuiReady(kind: AgentKind, screen: string): boolean 
 export async function __testWaitAgentTuiReady(
   kind: AgentKind,
   samples: string[],
-  opts: { timeoutMs?: number; pollMs?: number; stableSamples?: number } = {},
+  opts: { timeoutMs?: number; pollMs?: number; stableSamples?: number; launchLine?: string; virtualClock?: boolean } = {},
 ): Promise<AgentTuiReadyWaitResult & { sleeps: number[] }> {
   if (samples.length === 0) throw new AitermError("agent ready test samples が空です", 2);
   let i = 0;
   const sleeps: number[] = [];
+  // virtualClockは待った分だけ進む時計。実時間を使わずに締切の扱いを確かめる。
+  let clock = 0;
+  const { virtualClock, ...waitOpts } = opts;
   const result = await waitAgentTuiReadyImpl(
     kind,
     () => samples[Math.min(i++, samples.length - 1)],
     async (ms) => {
       sleeps.push(ms);
+      clock += ms;
     },
-    opts,
+    virtualClock ? { ...waitOpts, now: () => clock } : waitOpts,
   );
   return { ...result, sleeps };
 }
@@ -5128,6 +5169,7 @@ export function openAgent(
       const envPrefix = agentEnvPrefix(meta, sid, envVars);
       full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
     }
+    if (meta) agentLaunchLines.set(sid, full);
     // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて素送信する。
     send(sid, full, {
       enter: true,

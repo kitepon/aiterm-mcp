@@ -332,3 +332,71 @@ test("子のエラー・利用上限・closeは成功回答にせず終了状態
   await until(() => h.submitted.length === 3);
   for (const outcome of ["error", "rate_limited", "closed"]) assert.ok(h.submitted.some(v => v.text.includes(`outcome=${outcome}`)));
 });
+
+// 実被弾: 総process約1900のmacOSで、aiterm-mcp 18個が5秒おきに`ps -axww`を2回ずつ呼び、約1.4コア分を使い続けた。
+test("回収処理は、生存を確かめる相手が居ない時はOSへprocessを問い合わせない", async (t) => {
+  const calls = [];
+  const h = setup(t, { processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }]; } });
+  const manager = h.create();
+  await manager.recover(); await manager.recover();
+  // 自分の開始時刻を引く1回だけ。相手の居ない回収では呼ばない。
+  assert.deepEqual(calls, [[process.pid]]);
+  // closeした持ち主の記録を引き取る時も、生存確認は要らない。
+  await manager.request(parent()).before_send(boundary());
+  await manager.close();
+  const next = h.create(); await next.recover();
+  assert.equal(next.status("child").length, 1);
+  assert.deepEqual(calls, [[process.pid], [process.pid]]);
+});
+
+test("回収処理は、closeしていない他の持ち主のpidだけを問い合わせ、生きていれば記録を引き取らない", async (t) => {
+  const calls = [];
+  const alive = [{ pid: process.pid, started_identity: "fixture-parent" }, { pid: 424242, started_identity: "other-start" }];
+  let clock = 0;
+  const h = setup(t, { exists: () => true, now: () => clock,
+    processes: (pids) => { calls.push(pids); return alive.filter(row => pids.includes(row.pid)); } });
+  const otherDir = path.join(h.root, "active", "424242-other");
+  fs.mkdirSync(otherDir, { recursive: true });
+  fs.writeFileSync(path.join(otherDir, "owner.json"), JSON.stringify({ pid: 424242, started_identity: "other-start", closed: false }));
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  const moved = path.join(otherDir, path.basename(stored.file));
+  await manager.close();
+  // 他の持ち主の記録として置き直す
+  fs.renameSync(stored.file, moved);
+  const next = h.create();
+  await next.recover();
+  // 問い合わせるのは自分（起動時の1回）か、closeしていない他の持ち主だけ。closeした前の持ち主は問い合わせない。
+  assert.ok(calls.every(pids => pids.length === 1 && (pids[0] === process.pid || pids[0] === 424242)), JSON.stringify(calls));
+  assert.ok(calls.some(pids => pids[0] === 424242));
+  assert.equal(fs.existsSync(moved), true);
+  // 照合した後の確認はpidの存在だけを見る。開始時刻の照合（processの起動を伴う）は60秒に1回。
+  const queried = calls.length;
+  clock += 5_000; await next.recover(); clock += 5_000; await next.recover();
+  assert.equal(calls.length, queried);
+  // 同じpidでも開始時刻が違えば別process。次の照合で記録を引き取る。
+  alive[1].started_identity = "reused-pid";
+  clock += 50_000; await next.recover();
+  assert.equal(calls.length, queried + 1);
+  assert.equal(fs.existsSync(moved), false);
+  assert.equal(next.status("child").length, 1);
+});
+
+test("回収処理は、pidが無くなった持ち主の記録を、processを問い合わせずに引き取る", async (t) => {
+  const calls = [];
+  const h = setup(t, { exists: (pid) => pid === process.pid,
+    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }]; } });
+  const otherDir = path.join(h.root, "active", "424242-gone");
+  fs.mkdirSync(otherDir, { recursive: true });
+  fs.writeFileSync(path.join(otherDir, "owner.json"), JSON.stringify({ pid: 424242, started_identity: "gone-start", closed: false }));
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  await manager.close();
+  fs.renameSync(stored.file, path.join(otherDir, path.basename(stored.file)));
+  const next = h.create(); await next.recover();
+  assert.equal(next.status("child").length, 1);
+  assert.equal(fs.readdirSync(otherDir).filter(name => name !== "owner.json").length, 0);
+  assert.ok(calls.every(pids => pids.length === 1 && pids[0] === process.pid), JSON.stringify(calls));
+});

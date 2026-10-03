@@ -546,6 +546,8 @@ displayed token count or null. Callers do not need raw argv or pane-text parsing
 consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.
 For Claude Code's first-run text-style menu, it confirms the item already selected on screen before continuing startup.
 If the CLI then requests an account login method, the launch reports `vendor_onboarding_required`; complete that choice in the official interactive Claude Code CLI.
+The input-readiness wait is 30 seconds. Only when it expires while the agent has not drawn anything yet (a busy host), the launch
+waits up to 50 seconds from startup. If nothing is drawn by then, it still returns `initial_prompt=not_sent` and keeps the session.
 A prompt-free launch without this option retains `startup.status="not_checked"`. `initial_prompt.status` distinguishes
 `not_requested`, `not_sent`, `submitted_unconfirmed`, and `started`. Failure responses retain structured session information.
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。

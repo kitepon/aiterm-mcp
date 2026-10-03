@@ -290,6 +290,66 @@ test("agent_done ready gate: production既定は11回連続readyを要求する"
   assert.equal(result.sleeps.length, 10);
 });
 
+// ---------------------------------------------------------------- 起動コマンドの表示のまま＝TUI未描画（実被弾: 負荷平均300超のmacOSで30秒以内にTUIが出ず unrecognized_screen）
+const LAUNCH_LINE = "cd '/Users/kite/work' && AITERM_AGENT_KIND='claude' AITERM_SESSION_ID='t4' "
+  + "AITERM_AGENT_LAUNCH_ID='c3c39e11cd081dea4c4cf08120b0d70f' claude --dangerously-skip-permissions "
+  + "--append-system-prompt '<aiterm_subagent_context>\nあなたはaitermから起動されたsub-agentであり、root agentではありません。\n"
+  + "role=subagent\nlineage=host-root>claude:t4\n任務の所有権を保ち、結果を親へ返してください。\n</aiterm_subagent_context>'";
+// bashは複数行の引用を継続prompt「> 」付きで表示し、長い行は端末幅で折り返す（実機採取の形）。
+const launchEcho = (line) => {
+  const [first, ...rest] = line.split("\n");
+  return [`bash-3.2$ ${first}`, ...rest.map((l) => `> ${l}`)].join("\n");
+};
+const CLAUDE_READY = " ▐▛███▛█   Claude Code v2.1.288\n▝▜██████▀  Sonnet 5.5 · Claude Pro\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on";
+
+test("launch echo: 起動コマンドの表示で終わる画面はTUI未描画と判定する", () => {
+  assert.equal(core.launchEchoIsLastOnScreen(`${launchEcho(LAUNCH_LINE)}\n\n\n`, LAUNCH_LINE), true);
+  // 端末幅の折返しで語の途中に空白や改行が入っても同じ
+  const wrapped = launchEcho(LAUNCH_LINE).replace("自己複製", "自己\n複製").replace("結果を親へ", "結果を 親へ");
+  assert.equal(core.launchEchoIsLastOnScreen(wrapped, LAUNCH_LINE), true);
+  // 混んだ端末ではshellの表示自体が途中まで（継続行の途中で止まっている）
+  const partial = launchEcho(LAUNCH_LINE).split("\n").slice(0, 3).join("\n");
+  assert.equal(core.launchEchoIsLastOnScreen(partial, LAUNCH_LINE), true);
+});
+
+test("launch echo: 表示のあとに何か描かれた画面はTUI未描画と判定しない", () => {
+  assert.equal(core.launchEchoIsLastOnScreen(`${launchEcho(LAUNCH_LINE)}\n${CLAUDE_READY}`, LAUNCH_LINE), false);
+  assert.equal(core.launchEchoIsLastOnScreen(CLAUDE_READY, LAUNCH_LINE), false);
+  assert.equal(core.launchEchoIsLastOnScreen(`${launchEcho(LAUNCH_LINE)}\nbash: claude: command not found\nbash-3.2$ `, LAUNCH_LINE), false);
+  assert.equal(core.launchEchoIsLastOnScreen("", LAUNCH_LINE), false);
+  assert.equal(core.launchEchoIsLastOnScreen("bash-3.2$ ", LAUNCH_LINE), false);
+});
+
+test("agent ready gate: 起動コマンドの表示のまま30秒を越えても、TUIが出れば50秒までreadyを待つ", async () => {
+  const echo = `${launchEcho(LAUNCH_LINE)}\n`;
+  // 35秒後にTUIが出る（500ms間隔で70回は表示のまま）
+  const result = await core.__testWaitAgentTuiReady("claude", [...Array(70).fill(echo), CLAUDE_READY], {
+    launchLine: LAUNCH_LINE, virtualClock: true,
+  });
+  assert.equal(result.ready, true);
+  assert.equal(result.samples, 81);
+});
+
+test("agent ready gate: TUIが出ないままなら起動から50秒でnot readyを返す", async () => {
+  const echo = `${launchEcho(LAUNCH_LINE)}\n`;
+  const result = await core.__testWaitAgentTuiReady("claude", [echo], { launchLine: LAUNCH_LINE, virtualClock: true });
+  assert.equal(result.ready, false);
+  assert.equal(result.samples, 101);
+  assert.equal(result.sleeps.reduce((a, b) => a + b, 0), 50_000);
+});
+
+test("agent ready gate: 見分けられない画面が出ている時は今までどおり30秒で返す", async () => {
+  const unknownScreen = `${launchEcho(LAUNCH_LINE)}\nSome new dialog the harness shows\n  1. Continue`;
+  const drawn = await core.__testWaitAgentTuiReady("claude", [unknownScreen], { launchLine: LAUNCH_LINE, virtualClock: true });
+  assert.equal(drawn.ready, false);
+  assert.equal(drawn.samples, 61);
+  // 起動コマンドを知らない呼び出し（起動後の送信など）も30秒のまま
+  const echo = `${launchEcho(LAUNCH_LINE)}\n`;
+  const noLine = await core.__testWaitAgentTuiReady("claude", [echo], { virtualClock: true });
+  assert.equal(noLine.ready, false);
+  assert.equal(noLine.samples, 61);
+});
+
 // ---------------------------------------------------------------- busy 除外 ready gate（実被弾: Codex MCP init ハング中の誤送信）
 test("agent_done ready gate: busy 表示（esc to interrupt）中の Codex/Claude は ready と数えない", async () => {
   // 実機採取: Codex 実行中は「Working (2m 18s • esc to interrupt)」を表示しつつ composer も描画する

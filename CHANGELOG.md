@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-10-03
+
 ### 修正
 
 - 混んだ端末で、agentの画面が描かれる前に入力受付の待ち（30秒）が切れ、`agent_launch`が`reason=unrecognized_screen`で初手を送らなかった。画面が起動コマンドの表示のままの時だけ、起動から50秒まで待つ。描かれた後の画面の扱いと、50秒でも描かれない時の未送信の返し方は変わらない。
@@ -1981,7 +1983,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.1...HEAD
+[0.47.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.45.2...v0.46.0

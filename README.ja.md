@@ -261,6 +261,8 @@ ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hook�
 
 agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
 
+同じagent sessionへの`pty_send`が重なった時は、1本ずつ通す。後の1通は、前の1通を送り終えてから振り分け直すので、順に送った時と同じ結果になる（起動直後のClaude Codeへ重なった後の1通は`mode=agent_steer`で返る）。前の1通が起動直後の入力受付待ちなら、その分だけ返りが遅れる。待つ上限（POSIX 60秒、Windows 180秒）を越えた時は、打鍵前に`AGENT_SEND_BUSY`と「文字列は送信していません」を返す。送信の途中で終了したprocessのlockは、次の送信が片付けて進む。
+
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
 `agent_launch`は任意の`write_scope`も受ける。Codex／Grokのread-onlyは`--sandbox read-only`、Cursorは公式`--mode ask`で実効化する。path説明は同等CLI引数がないためdeclaration-only。

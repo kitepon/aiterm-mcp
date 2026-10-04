@@ -265,6 +265,10 @@ const PTY_PASTE_CHUNK_PAUSE_MS = 10;
 const PTY_PASTE_PAUSE_BUFFER = new Int32Array(new SharedArrayBuffer(4));
 const SESSION_SEND_LOCK_WAIT_MS = isWin ? 130_000 : 10_000;
 const SESSION_SEND_LOCK_POLL_MS = 25;
+// 同じagent sessionへの送信が重なった時に、前の1通を待つ上限（ADR 0088）。
+// 起動から最初の描画を待つ上限と、貼り付けの上限の和。前の1通が正常に進んでいる間は待ち切れる長さにする。
+const AGENT_SEND_LOCK_WAIT_MS = AGENT_TUI_FIRST_DRAW_TIMEOUT_MS + SESSION_SEND_LOCK_WAIT_MS;
+const AGENT_SEND_LOCK_POLL_MS = 50;
 
 // CSI/OSC/ESC エスケープ・制御文字
 // CSI / OSC(BEL or ST 終端) / DCS・PM・APC・SOS(ESC P/^/_/X … BEL or ST 終端。ペイロード本文ごと除去=B10) / 残る2文字エスケープ
@@ -556,6 +560,15 @@ function markpath(name: string): string {
 function sendLockPath(name: string): string {
   assertSessionName(name);
   return path.join(SOCKDIR, name + ".send.lock");
+}
+// agent sessionへの送信1本（振り分け〜Enterの確認）を守るlock。貼り付け1回ぶんの`.send.lock`とは別に持つ。
+function agentSendLockPath(name: string): string {
+  assertSessionName(name);
+  return path.join(SOCKDIR, name + ".agent-send.lock");
+}
+// 持ち主が終了した`.agent-send.lock`を片付ける役の印。
+function agentSendReapPath(name: string): string {
+  return agentSendLockPath(name) + ".reap";
 }
 
 function readOffset(name: string): number {
@@ -1620,6 +1633,7 @@ function closeSessionInternal(name: string, observeDependency = true): string {
       /* noop */
     }
   }
+  cleanupAgentSendLock(name);
   cleanupAgentState(name);
   agentLaunchLines.delete(name);
   return `closed ${name}`;
@@ -1672,7 +1686,7 @@ export function killAll(): string {
     /* socketの置き場が無い */
   }
   for (const file of socketFiles) {
-    const name = file.replace(/\.(?:log|offset|lastcmd|mark|send\.lock)$/, "");
+    const name = file.replace(/\.(?:log|offset|lastcmd|mark|send\.lock|agent-send\.lock(?:\.reap)?)$/, "");
     if (name !== file && /^[A-Za-z0-9_-]{1,64}$/.test(name)) sessions.add(name);
   }
   {
@@ -1694,10 +1708,10 @@ export function killAll(): string {
   if (killed.code !== 0 && !/no server running|No such file or directory|failed to connect/i.test(killed.stderr)) {
     throw new AitermError("このsocketのserverを終了できません: " + killed.stderr.trim(), 2);
   }
-  // B9: SOCKDIR 内の .log/.offset/.lastcmd/.mark/.send.lock 残骸も掃除する。
+  // B9: SOCKDIR 内の .log/.offset/.lastcmd/.mark/.send.lock/.agent-send.lock 残骸も掃除する。
   try {
     for (const f of fs.readdirSync(SOCKDIR)) {
-      if (/\.(log|offset|lastcmd|mark)$/.test(f) || f.endsWith(".send.lock")) {
+      if (/\.(log|offset|lastcmd|mark)$/.test(f) || f.endsWith(".send.lock") || /\.agent-send\.lock(?:\.reap)?$/.test(f)) {
         try {
           fs.unlinkSync(path.join(SOCKDIR, f));
         } catch {
@@ -2344,6 +2358,156 @@ function acquireSessionSendFileLock(name: string): () => void {
       /* 別ownerのlockや置換済みpathは消さない */
     }
   };
+}
+
+// ── 同じagent sessionへの送信を1本ずつ通す（ADR 0088） ────
+// 振り分け（差し込みか新しいturnか）から送り終えるまでの間に、入力受付待ちなどの待ちが挟まる。
+// その間に次の1通が同じ状態を読むと、Claudeはturnの印の取り合いで後の1通が断られ、他のharnessは同じ入力欄へ2回貼る。
+// 同じprocessの中は着いた順の待ち行列、別のprocessの間はfileで排他し、後の1通は前の1通が終わってから振り分け直す。
+const agentSendQueues = new Map<string, Promise<void>>();
+const agentSendHeld = new Set<string>();
+let agentSendLockWaitMs = AGENT_SEND_LOCK_WAIT_MS;
+
+export function __testSetAgentSendLockWaitMs(value: number | null): void {
+  if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error("wait must be a non-negative integer");
+  agentSendLockWaitMs = value ?? AGENT_SEND_LOCK_WAIT_MS;
+}
+
+// `O_EXCL`で作れた時だけ持ち主になる。既に在れば null。
+function tryCreateOwnedLock(p: string): string | null {
+  const nofollow = (fs.constants as Record<string, number>).O_NOFOLLOW ?? 0;
+  let fd: number;
+  try {
+    fd = fs.openSync(p, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | nofollow, 0o600);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    // Windowsは、消している途中のfile（他のprocessがまだ開いている）と同じ名前を作るとEPERM／EACCESになる。
+    if (code === "EEXIST" || (isWin && (code === "EPERM" || code === "EACCES"))) return null;
+    throw e;
+  }
+  const token = randomBytes(16).toString("hex");
+  try {
+    // 書けなかったlockは中身が読めないまま残り、鮮度猶予の後に持ち主なしとして片付く。
+    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), token }) + "\n", "utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+  return token;
+}
+
+function releaseOwnedLock(p: string, token: string): void {
+  try {
+    const st = fs.lstatSync(p);
+    if (!st.isFile() || st.isSymbolicLink()) return;
+    const current = JSON.parse(fs.readFileSync(p, "utf8").split("\n", 1)[0]) as { token?: unknown };
+    if (current.token === token) fs.unlinkSync(p);
+  } catch {
+    /* 別の持ち主のlockや置換済みpathは消さない */
+  }
+}
+
+// 同じprocessの送信は待ち行列で1本になっているので、自分のpidのlockは外し損ねた残骸と読める（probeWaitLock）。
+// このprocessが持っている最中のlockだけは、その読みから外す。
+function probeAgentSendLock(name: string): WaitLockProbe {
+  const probe = probeWaitLock(agentSendLockPath(name));
+  return probe.pid === process.pid && agentSendHeld.has(name) ? { ...probe, live: true } : probe;
+}
+
+// 持ち主が終了したlockを片付ける。確かめてから消すまでの間に別のprocessが新しいlockを作ると生きたlockを消すので、
+// 消す役を`.reap`の`O_EXCL`で1つに絞り、その中でもう一度確かめてから消す。lockが在る間は誰も新しいlockを作れない。
+// done=片付けた（または片付ける物が無かった）／busy=別のprocessが片付け中／stuck=片付けの印が持ち主なしで残っている
+function reapDeadAgentSendLock(name: string): "done" | "busy" | "stuck" {
+  const guard = agentSendReapPath(name);
+  const token = tryCreateOwnedLock(guard);
+  if (token === null) return probeWaitLock(guard).live ? "busy" : "stuck";
+  try {
+    if (!probeAgentSendLock(name).live) {
+      try {
+        fs.unlinkSync(agentSendLockPath(name));
+      } catch {
+        /* 既に無い */
+      }
+    }
+  } finally {
+    releaseOwnedLock(guard, token);
+  }
+  return "done";
+}
+
+function agentSendBusyError(name: string, pid: number | null, waitMs: number): AitermError {
+  return new AitermError(
+    `AGENT_SEND_BUSY: agent session '${name}' は${pid != null ? `別プロセス（pid ${pid}）` : "先に受け付けた送信"}の処理中です。` +
+      `${waitMs}ms待っても順番が来ませんでした。文字列は送信していません。少し後で再度 pty_send してください。`,
+    2,
+  );
+}
+
+async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number): Promise<() => void> {
+  const p = agentSendLockPath(name);
+  for (;;) {
+    const token = tryCreateOwnedLock(p);
+    if (token !== null) return () => releaseOwnedLock(p, token);
+    const probe = probeAgentSendLock(name);
+    if (!probe.live && reapDeadAgentSendLock(name) === "stuck") {
+      throw new AitermError(
+        `agent session '${name}' に、終了した送信のlockを片付ける途中で残った印があります。` +
+          `自動回収は並行送信の混線を招くため行いません。文字列は送信していません。` +
+          `pty_listで対象を確認し、pty_closeでsessionを閉じてから同じIDで再作成してください`,
+        2,
+      );
+    }
+    if (performance.now() >= deadline) throw agentSendBusyError(name, probe.live ? probe.pid : null, waitMs);
+    await sleep(AGENT_SEND_LOCK_POLL_MS);
+  }
+}
+
+async function withAgentSendLock<T>(name: string, run: () => Promise<T>): Promise<T> {
+  const waitMs = agentSendLockWaitMs;
+  const deadline = performance.now() + waitMs;
+  const previous = agentSendQueues.get(name) ?? Promise.resolve();
+  let leave!: () => void;
+  const mine = new Promise<void>((resolve) => {
+    leave = resolve;
+  });
+  // 待ち切れずに抜けた送信の後ろも、前の送信が終わるまで待つ。行列の控えは、ここまでの送信が全部終わってから消す。
+  const tail = previous.then(() => mine);
+  agentSendQueues.set(name, tail);
+  void tail.then(() => {
+    if (agentSendQueues.get(name) === tail) agentSendQueues.delete(name);
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const myTurn = await Promise.race([
+      previous.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), waitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!myTurn) throw agentSendBusyError(name, null, waitMs);
+    const release = await acquireAgentSendFileLock(name, deadline, waitMs);
+    agentSendHeld.add(name);
+    try {
+      return await run();
+    } finally {
+      agentSendHeld.delete(name);
+      release();
+    }
+  } finally {
+    clearTimeout(timer);
+    leave();
+  }
+}
+
+// pty_closeの掃除。生きた持ち主のlockは残す（その送信はsessionが無くなった所で失敗し、自分のlockを外す）。
+function cleanupAgentSendLock(name: string): void {
+  const guard = agentSendReapPath(name);
+  try {
+    if (fs.existsSync(guard) && !probeWaitLock(guard).live) fs.unlinkSync(guard);
+    if (fs.existsSync(agentSendLockPath(name))) reapDeadAgentSendLock(name);
+  } catch {
+    /* 掃除の失敗で閉じる処理を止めない */
+  }
 }
 
 // close/killAll 用: 生きた別プロセス待機の wait lock を列挙する（stale 残骸は数えない）。
@@ -3911,6 +4075,16 @@ export async function sendInitialAgentPrompt(
   o: InitialAgentPromptOpts = {},
 ): Promise<InitialAgentPromptResult> {
   assertSessionName(name);
+  loadAgentMetadata(name);
+  // 起動時promptの準備中に届いたpty_sendは、起動時promptを送り終えてから振り分ける（ADR 0088）。
+  return withAgentSendLock(name, () => sendInitialAgentPromptInLock(name, text, o));
+}
+
+async function sendInitialAgentPromptInLock(
+  name: string,
+  text: string,
+  o: InitialAgentPromptOpts,
+): Promise<InitialAgentPromptResult> {
   const meta = loadAgentMetadata(name);
   if (meta.initial_prompt === "done") {
     throw new AitermError(`agent session '${name}' の起動時 prompt は既に完了しています`, 2);
@@ -4535,17 +4709,28 @@ async function assertCursorPromptNotHookBlocked(name: string): Promise<void> {
   } while (performance.now() < deadline || (performance.now() < hookDeadline && cursorPromptHooksRunning(screen)));
 }
 
+interface AgentDispatchOpts {
+  operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean;
+  before_send?: import("./agent-shared.js").BeforeAgentSend;
+  // sendAgentMessageが振り分け前に済ませた入力回復。二重に回復しない。
+  pane_input_recovery?: string[];
+}
+
 export async function dispatchAgentTurn(
   name: string,
   text: string,
-  o: {
-    operation_id?: string | null; ready_timeout?: number; force?: boolean; raw?: boolean;
-    before_send?: import("./agent-shared.js").BeforeAgentSend;
-    // sendAgentMessageが振り分け前に済ませた入力回復。二重に回復しない。
-    pane_input_recovery?: string[];
-  } = {},
+  o: AgentDispatchOpts = {},
 ): Promise<AgentDispatchReceipt> {
   assertSessionName(name);
+  loadAgentMetadata(name);
+  return withAgentSendLock(name, () => dispatchAgentTurnInLock(name, text, o));
+}
+
+async function dispatchAgentTurnInLock(
+  name: string,
+  text: string,
+  o: AgentDispatchOpts,
+): Promise<AgentDispatchReceipt> {
   const meta = loadAgentMetadata(name);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
@@ -4717,6 +4902,7 @@ export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
  * agent sessionへの唯一の送信口。呼び出し側は子の状態を知らないまま呼び、Aitermがこの時点の画面で振り分ける。
  * 実行中なら現在のturnへ差し込み（steer）、そうでなければ新しいturnとしてdispatchする。
  * 振り分けを呼び出し側へ任せると、状態を見てから呼ぶまでの間に子のturnが変わり、選んだ入口が外れる。
+ * 同じsessionへの送信は1本ずつ通し、重なった後の1通は前の1通が終わってから振り分け直す（ADR 0088）。
  */
 export async function sendAgentMessage(
   name: string,
@@ -4724,6 +4910,15 @@ export async function sendAgentMessage(
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend } = {},
 ): Promise<AgentSendReceipt> {
   assertSessionName(name);
+  loadAgentMetadata(name);
+  return withAgentSendLock(name, () => sendAgentMessageInLock(name, text, o));
+}
+
+async function sendAgentMessageInLock(
+  name: string,
+  text: string,
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend },
+): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
@@ -4742,7 +4937,7 @@ export async function sendAgentMessage(
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
   }
-  return dispatchAgentTurn(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery });
+  return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery });
 }
 
 /**

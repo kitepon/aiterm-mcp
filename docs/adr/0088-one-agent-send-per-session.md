@@ -1,0 +1,90 @@
+# ADR 0088: 同じagent sessionへの送信を1本ずつ通す
+
+状態: 採用。
+
+## 原因
+
+`pty_send`（`sendAgentMessage`）は、送る時点の子の状態を見て、差し込みか新しいturnかを決める。
+見てから決めた通りに送り終えるまでの間に待ちが挟まり、その区間を守るものが無かった。
+
+- Claude Codeは、turnの印（`claude-operation.json`）の有無で振り分ける。印を取るのは`dispatchAgentTurn`の送信直前で、
+  その前に、起動直後の入力受付待ち（最長30秒。画面が起動コマンドのままなら起動から50秒）と`before_send`の待ちがある。
+- 既にある送信lock（`<name>.send.lock`）は`send()`の貼り付け1回ぶんだけを守る。貼り付けとEnterの間、
+  振り分けと貼り付けの間は守らない。
+
+実物（2026-10-05 07:56 JST、Aiterm 0.52.0、BellTeam、Claude Codeの席）: 起こした直後の席へ1通目、8秒後に2通目。
+2通目は「印なし」と読んで同じ入力受付待ちへ入り、1通目が先に印を取った後で
+「operation_idなしのClaude turn が未解決です」と断られた。文は打たれていない。送り直しは通った。
+
+手元の再現（0.52.0、偽Claude、state・socket分離）: 起動直後の席へ`sendAgentMessage`を2本同時に呼び、0.3秒後に入力受付にした。
+1本目は`agent_dispatch`、2本目は同じ文面で断り。
+
+Codex・Grok・Cursorは画面で振り分けるので断りにはならない。2本とも新しいturnへ進み、同じ入力欄へ2回貼ってから
+Enterが2回届く。偽Codexでは、2通が1行につながって届いた。
+
+## 判断
+
+agent sessionへ文を送る処理は、sessionごとに1本ずつ通す。後の1通は、前の1通が終わってから振り分け直す。
+
+- 守る範囲: `sendAgentMessage`（振り分け〜Enterの確認）、`dispatchAgentTurn`（`claude_turn issue`）、
+  `sendInitialAgentPrompt`（起動時promptの準備〜開始の確かめ）。
+- 順に送った時と同じ動きになる。新しい振る舞いは足さない。Claude Codeへ重なった後の1通は、印があるので
+  差し込み（`mode=agent_steer`）で返る。`claude_turn issue`が重なった時は、前と同じく印で断る。
+- 同じprocessの中は、sessionごとの待ち行列で着いた順に通す。別のprocessの間は、
+  `<name>.agent-send.lock`（socketの置き場）で排他する。別のprocessの間の順番は決めない。
+- 送信lock（`<name>.send.lock`）は使い回さない。`send()`が中で取るので外から重ねて取れず、待ちが同期で
+  MCP processの他の呼び出しを止める。新しいlockは非同期に待つ。
+- 待つ上限は、起動から最初の描画を待つ上限と貼り付けの上限の和（POSIX 60秒、Windows 180秒）。前の1通が
+  正常に進んでいる間は待ち切れる長さにした。越えたら`AGENT_SEND_BUSY`と「文字列は送信していません」で断る。
+
+### 持ち主が死んだlock
+
+送信lockは、残骸を自動で消さない（確かめてから消すまでの間に別のprocessが同じpathへ新しいlockを作ると、
+生きたlockを消す）。同じ方針のままだと、今回のlockは持つ時間が長い（最長で1分前後）ので、親のCLIが送信の途中で
+終わるたびに、子のsessionを閉じて作り直す事になる。子の会話を失う。
+
+そこで、死んだ持ち主のlockは、消す役を1つに絞ってから消す。
+
+1. lockの持ち主のpidが死んでいたら、`<name>.agent-send.lock.reap`を`O_EXCL`で作る。作れたprocessだけが消す役になる。
+2. 消す役は、lockをもう一度読み、まだ死んだ持ち主のものなら消す。生きていれば何もしない。
+3. 消す役の印を消し、lockを取り合う列へ戻る。
+
+lockが在る間は誰も新しいlockを作れず、消すのは消す役だけなので、確かめた後で別のlockに入れ替わる事が無い。
+消す役の印そのものが残った時（1〜3の途中で消す役が死んだ時）は自動で消さず、送信lockと同じ案内
+（`pty_close`して同じIDで作り直す）で断る。
+
+持ち主の生死はpidで見る。死んだ持ち主のpidが別のprocessへ使い回されると、生きていると読む。その時は
+待つ上限で断り、`pty_close`で片付く。開始時刻まで照合する方法（`ps`・PowerShellの起動）は、送信のたびに払う
+重さに合わないので採らない。
+
+### 閉じる時
+
+`pty_close`は、このlockが生きていても断らない（送信lockは今まで通り断る）。閉じる側を止めると、
+起動直後の入力受付待ちの間、sessionを閉じられなくなる。閉じた後、死んだ持ち主のlockと残った消す役の印を片付ける。
+生きた持ち主のlockは残す。その送信は、sessionが無くなった所で失敗して自分のlockを外す。
+
+## 確かめ
+
+本物のCLI（2026-10-05、Linux）。別々のAiterm process 2本から、起動した直後のsessionへ同時に`pty_send`した。
+
+- 直す前（0.52.0）のClaude Code: 1通目は`agent_dispatch`、2通目は上の文面で断り。
+- 直した版: Claude Code・Codex・Grok・Cursorの4つとも、1通目は`agent_dispatch`（5.5〜5.6秒）、2通目は`agent_steer`（5.9〜9.7秒）。
+  2通の目印が同じ回答に出た。
+
+偽の席の試験は`test/agent-send-serial.test.mjs`。直す前のbuildでは全件が落ちる。
+
+## 採らなかった案
+
+- 呼び手に順番を守らせる。`pty_send`は、呼び手が子の状態を知らないまま呼べる唯一の送信口である。
+  BellTeamは自分の側で順に送るようにしたが、他の呼び手と、別のprocessからの送信は残る。
+- 印を先に取り、入力受付待ちをその後に回す（Claude Codeだけの直し）。待ちの途中で失敗した時に印を戻す処理が要り、
+  Codex・Grok・Cursorの2回貼りは直らない。
+- 後の1通を、待たずに断る。断りの文面は変わるが、呼び手が送り直す事は変わらない。
+
+## 影響
+
+- `aiterm.pty-send-result.v1`・`aiterm.agent-dispatch.v1`・`aiterm.agent-steer.v1`の形は変えない。
+- 重なった後の1通は、前の1通が終わるまで返らない。前の1通が起動直後の入力受付待ちなら、その分だけ遅れる。
+- socketの置き場に`<name>.agent-send.lock`と`<name>.agent-send.lock.reap`が増える。state schemaは変えない。
+  旧版へ戻す時の手当ては要らない（旧版はこのfileを見ない。残っても`pty_close`の掃除の対象外になるだけ）。
+- `pty_send(force:true)`・`pty_key`・`claude_approval`・`agent_configure`は今まで通りで、この列に並ばない。

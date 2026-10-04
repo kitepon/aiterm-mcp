@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 同じagent sessionへの`pty_send`が重なると、後の1通が断られる事があった（ADR 0088）。Aitermは送る時点の子の状態を見て
+  差し込みか新しいturnかを決めるが、見てから送り終えるまでの間に起動直後の入力受付待ち（最長30秒）が挟まり、
+  その区間を守るものが無かった。Claude Codeでは2通ともturnの印が無いと読み、後の1通が
+  「operation_idなしのClaude turn が未解決です」で断られた（文は打たれない）。Codex・Grok・Cursorでは断りにならず、
+  同じ入力欄へ2通が続けて貼られ、1行につながって届いた。同じsessionへの送信（`pty_send`、`claude_turn issue`、起動時prompt）を
+  1本ずつ通し、後の1通は前の1通が終わってから振り分け直す。順に送った時と同じ結果になり、Claude Codeへ重なった後の1通は
+  `mode=agent_steer`で返る。前の1通を待つ分だけ返りが遅れる。待つ上限（POSIX 60秒、Windows 180秒）を越えたら、
+  打鍵前に`AGENT_SEND_BUSY`と「文字列は送信していません」を返す。送信の途中で終了したprocessのlockは、次の送信が片付ける。
+  公開toolの返却形式とstate schemaは変えていない。旧版へ戻す時の手当ては要らない。
+
 ## [0.52.0] - 2026-10-04
 
 ### 修正

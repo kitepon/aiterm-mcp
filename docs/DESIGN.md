@@ -95,6 +95,9 @@ agent sessionへの送信口は`pty_send`だけとする。子の状態は呼び
 実行中なら現在のturnへ追加textを差し込み、新しい完了境界と配送は作らない。完了境界は差し込み後も1つに保つ。
 Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの実行中には表示が残る。turnの印を実行中判定の正本とする。Stopが発火しないAPIエラー終了では、次の送信時に印の作成後の会話記録にある`isApiErrorMessage`を確認し、終了したturnの印だけを解除する。過去のエラーで新しい印を解除しない。waiterは印を変更せず、読取専用のままエラーを返す。
 それ以外は新しいturnとしてdispatchする。
+振り分けから送り終えるまでの間には、起動直後の入力受付待ちなどの待ちが挟まる。同じsessionへの送信（`pty_send`、`claude_turn issue`、起動時prompt）は1本ずつ通し、
+重なった後の1通は前の1通が終わってから振り分け直す。同じprocessの中は着いた順の待ち行列、別のprocessの間はsocketの置き場の`<name>.agent-send.lock`で排他する。
+待つ上限は、起動から最初の描画を待つ上限と貼り付けの上限の和で、越えたら`AGENT_SEND_BUSY`で未送信を返す。判断の記録はADR 0088（`docs/adr/0088-one-agent-send-per-session.md`）。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
 待ち行列の表示は5秒待ち、子のturnが続いている間だけ30秒まで延ばす（表示が遅い端末がある。turnが終わっていれば、文は新しいturnとして始まっている）。
 Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
@@ -309,6 +312,8 @@ ADR 0074（repositoryの`docs/adr/0074-agent-model-catalog.md`）。
 境界失敗は明示errorにする。retry、別model、別harness、別backendへ自動fallbackしない。
 stale send lockは並行processとのABAを避けるため自動削除せず、公開APIでは対象sessionを`pty_close`して
 同じIDで再作成する。全session一括停止は公開しない。
+agent sessionへの送信1本を守る`<name>.agent-send.lock`は持つ時間が長いので、持ち主が終了した残骸を次の送信が片付ける。消す役を`<name>.agent-send.lock.reap`の排他作成で1つに絞り、
+その中でもう一度確かめてから消すので、確かめた後で別のlockに入れ替わらない。消す役の印そのものが残った時だけは自動で消さず、`pty_close`を案内する。
 
 Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は

@@ -39,14 +39,22 @@ test("実process表から自身のnative PIDを観測できる", () => {
   assert.match(own.argv_digest, /^[a-f0-9]{64}$/);
 });
 
-test("pidを指定した開始時刻の照会は、全process一覧と同じ開始時刻を返す", () => {
+test("pidを指定した開始時刻の照会は、全process一覧と一致し終了後のpid再利用を区別する", () => {
   const own = readRuntimeProcesses().find(row => row.pid === process.pid);
   assert.deepEqual(readProcessIdentities([process.pid]), [{ pid: process.pid, started_identity: own.started_identity }]);
   assert.deepEqual(readProcessIdentities([]), []);
-  // 終了したprocessのpidは結果に含めない（失敗にしない）
-  const gone = spawnSync(process.execPath, ["-e", ""]).pid;
-  assert.deepEqual(readProcessIdentities([gone]), []);
-  assert.deepEqual(readProcessIdentities([gone, process.pid]).map(row => row.pid), [process.pid]);
+  // 終了した子のpidは別processへ再利用され得る。終了前に開始時刻を保存し、同じprocessが残っていない事を確かめる。
+  const probe = spawnSync(process.execPath, ["--input-type=module", "-e",
+    `import { readProcessIdentities } from ${JSON.stringify(new URL("../dist/process-runtime.js", import.meta.url).href)}; process.stdout.write(JSON.stringify(readProcessIdentities([process.pid])[0]));`,
+  ], { encoding: "utf8" });
+  assert.equal(probe.status, 0, probe.stderr);
+  const gone = JSON.parse(probe.stdout);
+  assert.equal(gone.pid, probe.pid);
+  assert.ok(gone.started_identity);
+  for (const row of readProcessIdentities([gone.pid])) assert.notEqual(row.started_identity, gone.started_identity);
+  const mixed = readProcessIdentities([gone.pid, process.pid]);
+  assert.deepEqual(mixed.filter(row => row.pid === process.pid), [{ pid: process.pid, started_identity: own.started_identity }]);
+  for (const row of mixed.filter(row => row.pid === gone.pid)) assert.notEqual(row.started_identity, gone.started_identity);
 });
 
 test("Aitermがprocess表を引くために起こしたprocessを、コマンドの形で見分ける", () => {

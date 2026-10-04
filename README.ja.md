@@ -299,10 +299,15 @@ $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeo
 
 Cursorの`model`は`gpt-5.6-luna`のようなbase model、`reasoning_effort`は`high`のように別指定する。adapterは現行`model-effort` IDを`cursor-agent models`へ照合し、起動中変更はCursor標準model pickerのparameter editorを使う。不在時は別modelへfallbackしない。
 
+新しい端末の環境は、その端末を開いたMCP processの環境で決まる（v0.50.0から。ADR 0081）。tmuxのserverを
+先に起こした別の呼び出し元の値は入らない。Aitermが端末ごとに付け直す`AITERM_SESSION_ID`・`AITERM_AGENT_*`は
+継がない。harnessがMCP processへ渡す環境が少なければ、端末の環境もその分だけになる（Codexは既定で
+`HOME`・`PATH`・`SHELL`・`TERM`。要る変数は`[mcp_servers.aiterm]`の`env_vars`で渡す）。
+
 `env_vars`は環境変数の**名前**だけを並べるallowlistであり、name/value mapではない。aitermは
 launcher起動時に現在のMCP processから各名前を読み、存在する値をshell quoteして、その1回のvendor
 起動コマンドへ入れる。未設定名は省略し、shell変数名として不正な名前はsession作成前に失敗する。
-全環境の暗黙copy、backend server再起動、retry、fallbackは行わない。値はMCP tool引数には入らないが、
+名指しした値だけが`pty_list`の`env_keys`で読める。値はMCP tool引数には入らないが、
 PTYの起動コマンドとして送られ、sessionの`.lastcmd`にも保持されるため、起動先vendorと同じOS userへ
 到達する。秘密転送路ではなく、席identityやworkflow用の非secret変数だけに使う。
 
@@ -492,8 +497,9 @@ aiterm は同じ核心の洞察——端末を出会いの場にする——を�
 ### セッション観測と起動準備
 
 `pty_open`の既定shellはPOSIXでbash、WindowsでPowerShell 7。通常PTYとagentの内側では
-`AITERM_SESSION_ID`で自分のsessionを識別できる。`env_vars`はMCP processから継承する名前の配列で、
-`pty_list({ env_keys: ["JOB_OWNER"] })`は指定した非秘密キーだけを`environment`へ返す。未設定値はnull。
+`AITERM_SESSION_ID`で自分のsessionを識別できる。端末は開いたMCP processの環境を継ぐ。`env_vars`は、そのうち
+sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] })`は登録した非秘密キーだけを`environment`へ返す。
+登録していない値と未設定値はnull。
 一覧の`aiterm.pty-list-result.v1`は`observed_at`と`sessions`を持ち、各行に`session_id`、`current_command`、
 `attached`、`width`、`height`、`harness`、`environment`を返す。従来のtextも維持する。
 

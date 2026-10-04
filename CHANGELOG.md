@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- 新しい端末の環境を、その端末を開いたMCP processの環境にした（ADR 0081。POSIXのtmux。Windowsのpsmuxは元からこの動き）。
+  今までは、tmuxのserverを最初に起こした呼び出し元の環境が、後から開く全部の端末へ入っていた。別の呼び出し元の
+  `PATH`や`npm_config_prefix`、その呼び出し元だけが持つ変数が、名指ししていなくても端末に入る。
+  - harnessがMCP processへ渡す環境が少なければ、端末の環境もその分だけになる。Codexは既定で`HOME`・`PATH`・`SHELL`・`TERM`の
+    4つしか渡さない。要る変数は`~/.codex/config.toml`の`[mcp_servers.aiterm]`に`env_vars`で名前を並べる。
+  - `AITERM_SESSION_ID`・`AITERM_AGENT_*`・`TMUX`・`TMUX_PANE`は継がない（今までどおり、端末ごとに付く）。
+  - `env_vars`は今までどおり使える。`pty_list`の`env_keys`で読めるのは、`env_vars`で名指しした値と`AITERM_SESSION_ID`だけ。
+  - 同じtmuxのserverを、前の版のMCP processと並んで使える。前の版が開く端末は今までどおり動く。
+
+### 修正
+
+- 利用者の`~/.tmux.conf`を読んでいた。空のconfigを指す`-f`を`new-session`の引数として渡していて、tmux本体には届いていなかった。
+  READMEの「`-f /dev/null`で起動し、`~/.tmux.conf`を読まない」のとおりにした。
+- tmux 3.2未満で端末を1つも開けなかった（`new-session -f`を知らず「unknown option」で落ちる）。3.1cで開けることを確かめた。
+
 ## [0.49.0] - 2026-10-03
 
 ### 追加

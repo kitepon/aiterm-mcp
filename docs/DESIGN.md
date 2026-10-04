@@ -41,6 +41,12 @@ sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在
 psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AITERM_SESSION_ID`を注入し、
 `env_vars`の継承とsessionへの登録もAitermが所有する。古いtmuxは子へのenv注入とsession登録を使う。
 
+新しい端末の環境は、その端末を開いたprocessの環境にする（ADR 0081）。tmuxはserverを起こしたclientの環境を
+全sessionへ配るので、`new-session`の間だけ`update-environment`を差し替えてclientの環境をsessionへ写し、
+共通環境にしか無い変数はsessionで消す。`AITERM_SESSION_ID`・`AITERM_AGENT_*`・`TMUX`・`TMUX_PANE`は継がない。
+sessionの表には環境が丸ごと入るので、名指しで登録した名前をsessionのoption `@aiterm_env_keys`に控え、
+`env_keys`はその名前だけを返す。psmuxは元から端末ごとに呼び出し元の環境を継ぐ。
+
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。

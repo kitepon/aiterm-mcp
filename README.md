@@ -321,11 +321,17 @@ The canonical harness choices are:
 | `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check |
 | `cursor-cli` | Cursor Agent CLI | GPT, Claude, Grok, or another Cursor catalog model; normal transcript completion |
 
+A new terminal gets the environment of the MCP process that opened it (since v0.50.0, ADR 0081).
+Values from another caller that happened to start the tmux server first no longer appear in it.
+`AITERM_SESSION_ID` and `AITERM_AGENT_*` are not inherited; aiterm sets them per terminal. If a harness
+passes only a few variables to its MCP process, the terminal has only those (Codex passes `HOME`, `PATH`,
+`SHELL`, and `TERM` by default; forward more with `env_vars` under `[mcp_servers.aiterm]`).
+
 `env_vars` is an allowlist of environment-variable **names**, not a name/value map. At launch,
 aiterm reads each valid name from its current MCP process, shell-quotes present values, and places
 them on that one harness launch command. Missing names are omitted; invalid shell variable names
-fail before session creation. There is no implicit whole-environment copy, backend-server restart,
-retry, or fallback. Values do not enter the MCP tool arguments, but they are delivered through the
+fail before session creation. Only the named values can be read back with `env_keys` in `pty_list`.
+Values do not enter the MCP tool arguments, but they are delivered through the
 PTY launch command and retained in aiterm's per-session `.lastcmd`; the launched harness and other
 processes with access to the same OS user may read them. Use this for non-secret seat identity and
 workflow variables, not as a secret transport.
@@ -523,8 +529,8 @@ On top of that sits a productized layer a raw tmux bridge doesn't have: **token-
 ### Session observation and startup
 
 `pty_open` defaults to bash on POSIX and PowerShell 7 on Windows. Ordinary terminals and agents receive
-`AITERM_SESSION_ID`. Pass environment-variable names in `env_vars` to inherit ownership information from the MCP process.
-`pty_list({ env_keys: ["JOB_OWNER"] })` returns only the requested non-secret values in `environment`; missing values are null.
+`AITERM_SESSION_ID`. A terminal inherits the environment of the MCP process that opened it. Pass names in `env_vars` to register them on the session.
+`pty_list({ env_keys: ["JOB_OWNER"] })` returns only registered non-secret values in `environment`; unregistered and missing values are null.
 Its `aiterm.pty-list-result.v1` receipt contains `observed_at` and `sessions`, whose entries include `session_id`,
 `current_command`, `attached`, `width`, `height`, `harness`, and `environment`. Existing text remains available.
 
@@ -784,10 +790,9 @@ symlink, filter, or replace harness configuration, authentication, MCP, plugin, 
 trust, memory, or history stores. Cleanup removes only aiterm-owned launch metadata and completion
 correlation files.
 
-The ordinary environment still comes from the persistent shell session. When a caller needs a value that
-belongs to the current MCP process rather than the older persistent multiplexer server, every harness
-accepts `env_vars: ["NAME", ...]`. Only those names are refreshed at launch; this is a narrow
-per-launch overlay, not a replacement environment or configuration snapshot.
+The ordinary environment comes from the MCP process that opened the terminal, not from whichever caller
+started the persistent multiplexer server (since v0.50.0). Every harness still accepts
+`env_vars: ["NAME", ...]`; those names are placed on the launch command and registered on the session.
 
 ## License
 

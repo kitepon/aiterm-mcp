@@ -4,6 +4,8 @@
 
 Accepted — 2026-08-04
 
+第7項の「全環境の暗黙copyは行わない」と、受入の「未指定値は新たにcopyされない」は、ADR 0081で置き換えた。
+
 ## Context
 
 4つのagent launcherは同じ`cwd`を使う一方、完了検出を安定させるためvendor別のmanaged home／settingsを

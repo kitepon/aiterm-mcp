@@ -131,19 +131,32 @@ export function tmuxCommandWithInput(
   input: string | undefined,
   ...args: string[]
 ): { code: number; stdout: string; stderr: string } {
+  return runTmux(observe, input, args);
+}
+
+// session は、新しい session を作る呼び出しの時だけ渡す client の環境（POSIX のみ）。server を起こし得るのは
+// この呼び出しだけなので、空 config の指定と macOS の gui domain での起動もここに限る。
+function runTmux(
+  observe: boolean,
+  input: string | undefined,
+  args: string[],
+  session?: NodeJS.ProcessEnv,
+): { code: number; stdout: string; stderr: string } {
   // maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）や多セッションの list-sessions で
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。
   // Windows は tmux CLI 互換の native psmux を -L namespace 隔離で叩く（WSL 非依存）。
   let r;
-  const spawnOpts = { encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, input, env: tmuxSpawnEnv() };
+  const spawnOpts = { encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, input, env: session ?? tmuxSpawnEnv() };
   if (isWin) {
     ensureWinPsmux(observe);
     r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts);
   } else {
     // resolveTmux() は tmux を解決できなければ明確な AitermError を投げる（POSIX 版の事前確認）。
     const bin = resolveTmux(observe);
-    r = (args[0] === "new-session" && macGuiServerWanted(bin) && startTmuxInMacGui(bin, args, spawnOpts.env ?? process.env))
-      || spawnSync(bin, ["-S", SOCK, ...args], spawnOpts);
+    // -f は tmux 本体の引数で、server を起こす時にだけ読まれる（new-session の -f は別物で、config を指さない）。
+    const argv = session ? ["-f", TMUX_EMPTY_CONFIG, "-S", SOCK, ...args] : ["-S", SOCK, ...args];
+    r = (session && macGuiServerWanted(bin) && startTmuxInMacGui(bin, argv, session))
+      || spawnSync(bin, argv, spawnOpts);
   }
   // ENOBUFS（出力が 64MiB 超）を「code=1 の失敗」へ握り潰すと部分/空 stdout を正常扱いしてしまう。区別して投げる。
   // EXPECTED-FAILURE: 外部システム境界（tmux 出力過大）
@@ -206,8 +219,8 @@ export function macGuiTmuxPlist(label: string, dir: string, argv: string[], env:
   ].join("\n");
 }
 
-function startTmuxInMacGui(bin: string, args: string[], env: NodeJS.ProcessEnv): SpawnSyncReturns<string> | null {
-  return runInMacGui([bin, "-S", SOCK, ...args], env, process.cwd(), 30_000, "launchd経由のtmux起動が30秒以内に終わりませんでした");
+function startTmuxInMacGui(bin: string, argv: string[], env: NodeJS.ProcessEnv): SpawnSyncReturns<string> | null {
+  return runInMacGui([bin, ...argv], env, process.cwd(), 30_000, "launchd経由のtmux起動が30秒以内に終わりませんでした");
 }
 
 // 起動前の認証確認（`claude auth status`・`agent status` 等）も keychain を読むので、tmux server と同じく
@@ -321,20 +334,105 @@ export function pasteBufferBaseArgs(): string[] {
 // new-session -f 用の空 config（端末個人の設定ファイルを読まない）。Windows は NUL デバイス。
 export const TMUX_EMPTY_CONFIG = isWin ? "NUL" : "/dev/null";
 
+// tmux 3.2 で new-session -e と、update-environment のワイルドカードが入った。
+function tmuxHasSessionEnvironmentFlags(version?: string): boolean {
+  const observed = version ?? spawnSync(resolveTmux(), ["-V"], { encoding: "utf8", timeout: 5000 }).stdout;
+  const match = /^tmux (\d+)\.(\d+)/.exec(observed ?? "");
+  if (!match) throw new AitermError("tmuxの環境変数機能を判定できません", 2);
+  return Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2]) >= 2);
+}
+
 export function sessionEnvironmentLaunch(shell: string, environment: string[], version?: string): {
   shell: string; args: string[]; register_after_start: boolean;
 } {
-  let modern = isWin;
-  if (!isWin) {
-    const observed = version ?? spawnSync(resolveTmux(), ["-V"], { encoding: "utf8", timeout: 5000 }).stdout;
-    const match = /^tmux (\d+)\.(\d+)/.exec(observed ?? "");
-    if (!match) throw new AitermError("tmuxの環境変数機能を判定できません", 2);
-    modern = Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2]) >= 2);
-  }
+  const modern = isWin || tmuxHasSessionEnvironmentFlags(version);
   if (modern) return { shell, args: environment.flatMap(entry => ["-e", entry]), register_after_start: false };
   // tmux <3.2はnew-session -eを持たない。子への継承とsession台帳への登録を製品内で完結する。
   const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
   return { shell: `exec /usr/bin/env ${environment.map(quote).join(" ")} ${quote(shell)}`, args: [], register_after_start: true };
+}
+
+// Aiterm が端末ごとに付け直す名札と、呼んだ側の pane を指す値。新しい端末へは継がせない。
+const SESSION_OWN_ENV = /^(?:AITERM_SESSION_ID|AITERM_AGENT_[A-Z0-9_]+|TMUX|TMUX_PANE)$/;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function sessionCallerEnvironment(base: NodeJS.ProcessEnv = tmuxSpawnEnv() ?? process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined && !SESSION_OWN_ENV.test(key)) env[key] = value;
+  }
+  return env;
+}
+
+// update-environment へ渡す並び。3.2 以上は "*" で client の環境を丸ごと写す。それより前は名前を並べる。
+// client に無い名前は、その session で「消す」印になる。
+export function updateEnvironmentPatterns(caller: string[], others: string[], wildcard: boolean): string[] {
+  const names = caller.filter(key => ENV_NAME.test(key));
+  const known = new Set(names);
+  const rest = [...new Set(others)].filter(key => ENV_NAME.test(key) && !known.has(key));
+  return wildcard ? ["*", ...rest] : [...names, ...rest];
+}
+
+// `NAME=value` と、消す印の `-NAME` から名前を取り出す。server が無ければ null。
+function tmuxEnvironmentNames(...scope: string[]): string[] | null {
+  const r = runTmux(false, undefined, ["show-environment", ...scope]);
+  if (r.code !== 0) return null;
+  return r.stdout.split("\n").map(line => line.replace(/^-/, "").split("=", 1)[0]).filter(key => ENV_NAME.test(key));
+}
+
+// session の表には開いた process の環境が丸ごと入る。名指しで登録した名前は、session の option に控える。
+const REGISTERED_ENV_OPTION = "@aiterm_env_keys";
+
+// 控えが無ければ null（Windows と、この仕組みより前の版が開いた session）。
+export function registeredSessionEnvironment(name: string): string[] | null {
+  if (isWin) return null;
+  const r = runTmux(false, undefined, ["show-options", "-t", `=${name}:`, "-v", REGISTERED_ENV_OPTION]);
+  return r.code === 0 && r.stdout.trim() ? r.stdout.trim().split(" ") : null;
+}
+
+// tmux は、server を起こした client の環境を共通環境として全 session へ配る。何もしないと、最初に端末を
+// 開いた呼び出し元の値が、後から別の呼び出し元が開く端末へ入る。新しい端末の環境を「開いた process の環境」に
+// するため、new-session の間だけ update-environment を差し替えて client の環境を session へ写し、共通環境に
+// しか無い変数は session で消す（psmux は元から端末ごとに呼び出し元の環境を継ぐ）。共通環境そのものは
+// 変えない。同じ server を使う旧版の process が、開く端末の環境をそこから受け取っている。
+export function tmuxNewSession(
+  observe: boolean,
+  name: string,
+  launch: { args: string[]; shell: string },
+  registered: string[] = [],
+): { code: number; stdout: string; stderr: string } {
+  if (isWin) {
+    return runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
+  }
+  const env = sessionCallerEnvironment();
+  const wildcard = tmuxHasSessionEnvironmentFlags();
+  // tmux は起動時に PWD を共通環境へ足す。
+  const others = new Set(["PWD"]);
+  for (let attempt = 0; ; attempt++) {
+    for (const key of tmuxEnvironmentNames("-g") ?? []) others.add(key);
+    const r = runTmux(observe, undefined, [
+      "set-option", "-g", "update-environment", updateEnvironmentPatterns(Object.keys(env), [...others], wildcard).join(" "), ";",
+      "new-session", "-d", "-s", name, ...launch.args, launch.shell, ";",
+      "set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";",
+      "set-option", "-gu", "update-environment",
+    ], env);
+    if (r.code !== 0) {
+      // 途中の命令が失敗すると、後続の命令は実行されない。差し替えた設定を戻す。
+      runTmux(false, undefined, ["set-option", "-gu", "update-environment"]);
+      return r;
+    }
+    // 共通環境の名前が、どれも session 側で上書きか消去になっていることを確かめる。別の呼び出し元が同時に
+    // server を起こした時は、消す対象を取り違えている。
+    const shared = tmuxEnvironmentNames("-g");
+    const own = new Set(tmuxEnvironmentNames("-t", `=${name}`) ?? []);
+    const uncovered = shared?.filter(key => !own.has(key));
+    if (uncovered?.length === 0) return r;
+    runTmux(false, undefined, ["kill-session", "-t", `=${name}`]);
+    if (!uncovered || attempt >= 2) {
+      return { code: 1, stdout: "", stderr: "共通環境の変数をsessionから外せなかったため、sessionを破棄しました" };
+    }
+    for (const key of uncovered) others.add(key);
+  }
 }
 
 // 人が同じ session を覗く/介入するための attach コマンド。

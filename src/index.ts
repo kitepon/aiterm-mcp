@@ -270,7 +270,7 @@ registerRemoteAwareTool(
     inputSchema: {
       name: z.string().nullish().describe("セッション名（省略時は t1, t2... を自動採番）"),
       shell: z.string().default(DEFAULT_PTY_SHELL).describe(`起動シェル（既定 ${DEFAULT_PTY_SHELL}）`),
-      env_vars: z.array(z.string()).optional().describe("現在のMCP processからsessionへ継承する環境変数名"),
+      env_vars: z.array(z.string()).optional().describe("sessionへ登録する環境変数名（値は現在のMCP processから読む。pty_listのenv_keysで読める）。端末の環境は、名指ししなくても現在のMCP processの環境を継ぐ"),
     },
   },
   async ({ name, shell, env_vars }) => {

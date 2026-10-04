@@ -30,7 +30,8 @@ import {
   sendPsmuxPayload,
   loadPtyBufferChunk,
   pasteBufferBaseArgs,
-  TMUX_EMPTY_CONFIG,
+  tmuxNewSession,
+  registeredSessionEnvironment,
   attachCommand,
   normalizePaneCommand,
   atomicShellMultiline,
@@ -875,11 +876,10 @@ export function openSession(name?: string | null, shell = "bash", envVars: strin
     if (sessionExists(nm)) {
       if (explicit) throw new AitermError(`session '${nm}' は既に存在します（list で確認）`, 2);
     } else {
-      // -f は端末個人の設定ファイルを読まないための空 config。
       const environment = [...banner, ...envVars.filter(key => key !== "AITERM_SESSION_ID" && process.env[key] !== undefined)
         .map(key => `${key}=${process.env[key]}`), `AITERM_SESSION_ID=${nm}`];
       const launch = sessionEnvironmentLaunch(shell, environment);
-      const r = tmux("new-session", "-d", "-s", nm, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell);
+      const r = tmuxNewSession(true, nm, launch, environment.map(entry => entry.slice(0, entry.indexOf("="))));
       if (r.code === 0) {
         if (launch.register_after_start) for (const entry of environment) {
           const at = entry.indexOf("=");
@@ -1459,7 +1459,13 @@ export function listSessionsResult(envKeys: string[] = []): {
     const [name, command, attached, width, height] = line.split("\t");
     assertSessionName(name);
     const environment: Record<string, string | null> = {};
+    const registered = envKeys.length ? registeredSessionEnvironment(name) : null;
     for (const key of envKeys) {
+      // sessionの表には開いたprocessの環境も入っている。返すのは名指しで登録した値だけ。
+      if (registered && !registered.includes(key)) {
+        environment[key] = null;
+        continue;
+      }
       const value = tmux("show-environment", "-t", name, key);
       if (value.code !== 0 && !/unknown variable|not found|not set/i.test(value.stderr))
         throw new AitermError("session環境変数を照会できません", 2);

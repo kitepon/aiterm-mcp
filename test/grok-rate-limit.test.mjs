@@ -77,6 +77,18 @@ test("Grok完了: 今回の成功・上限エラー・通常エラーと古い�
     assert.equal((await grok.observeGrokDone(meta, 0, cursor, () => "You hit your weekly limit.")).outcome, "rate_limited");
     fs.appendFileSync(transcript, record("completed"));
     assert.equal((await grok.observeGrokDone(meta, 0, cursor, () => null)).outcome, "done");
+    // 完了を待つ間、質問カードの確認（画面を読む＝tmuxを起動する）は見回りのたびには行わない。最初の周回で1回、あとは2秒おき。
+    const end = fs.statSync(transcript).size;
+    let looked = 0;
+    assert.equal((await grok.observeGrokDone(meta, 1, end, () => { looked++; return null; })).outcome, "timeout");
+    assert.equal(looked, 1);
+    // 待っている途中で出た上限の知らせは、次の確認で拾う。
+    looked = 0;
+    const started = performance.now();
+    const limited = await grok.observeGrokDone(meta, 10, end, () => ++looked >= 2 ? "You hit your weekly limit." : null);
+    assert.equal(limited.outcome, "rate_limited");
+    assert.equal(looked, 2);
+    assert.ok(performance.now() - started < 4000);
   } finally { fs.rmSync(metadata, { force: true }); }
 });
 

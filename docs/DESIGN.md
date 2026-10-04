@@ -152,7 +152,8 @@ Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存す�
 受信口が明示拒否した場合は`failed`、子の異常終了はそのoutcomeを配送する。
 生存の確認は5秒おきにpidの存在だけをOSへ聞き、開始識別子の照合は初めて見たownerと60秒に1回だけ行う。
 全processの一覧は取らない。終了直後に同じpidが再利用された時だけ、引き継ぎが最長60秒遅れる（ADR 0078）。
-pidが別のprocessへ使い回されたownerは、回収側が`owner.json`を`closed`へ書き換え、照合を繰り返さない。照合できないownerは60秒に1回だけ問い合わせる。
+pidが別のprocessへ使い回されたownerと、pidは居ると出るがprocess表に無いownerは、回収側が`owner.json`を`closed`へ書き換え、照合を繰り返さない。
+process表にはあるが開始時刻を読めないownerだけ、60秒に1回問い合わせる（ADR 0086）。
 記録を引き継ぎ終えた保存場所は、自分で閉じたownerとpidの無いownerのものを消す。保存場所が消えても読める印（`removal_safe`）の無いownerが
 同じ置き場で生きている間は消さない（ADR 0084）。
 このstateは既存のPTY／harness stateと独立し、旧版は配送を再開しない。
@@ -324,6 +325,8 @@ Grokの終了済みerrorターンにweekly-limit質問カードが残る場合�
 `grokRateLimitDialog`が見出しと操作footerの組を所有し、過去logや後続UIのあるカードは採用しない。
 privacy案内は現在の枠付きcomposerとmodel footerが見える場合だけ入力受付を妨げない。
 完了観測は成功eventを優先し、今回のerror eventと現在のカードが揃えばturn情報付きの`rate_limited`を返す。
+完了の見回りは100msで、画面を読む確認（利用上限の知らせ、Cursorのhook拒否の表示）は別の間隔で行う。画面を読むたびにtmuxを1回起動するため。
+Claude・Grokは2秒、Cursorは1秒に1回で、待ちに入った最初の周回では必ず読む（ADR 0085）。
 新turnの完了前に古いlogだけで上限を返さない。購入・再認証・過去prompt再送・定期再試行は行わない。
 画面判定と模擬CLIの実PTY試験は`test/grok-rate-limit.test.mjs`に置く。
 

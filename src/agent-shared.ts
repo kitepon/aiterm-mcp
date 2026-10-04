@@ -170,6 +170,22 @@ export function shq(s: string): string {
 
 export const LAUNCH_ID_RE = /^[0-9a-f]{32}$/;
 export const AGENT_DONE_POLL_MS = 100;
+// 完了待ちの中で画面を読む間隔。画面を読むたびにtmux（capture-pane）を1回起動するので、完了の見回りとは別に持つ。
+// 画面でしか分からないのは利用上限の知らせとCursorのhook拒否の表示で、どちらも数秒は画面に残る。
+export const AGENT_RATE_LIMIT_POLL_MS = 2_000;
+// Cursorのhook拒否の表示は数秒で消える。見えている間に1回は読む。
+export const CURSOR_SCREEN_POLL_MS = 1_000;
+
+/** 最初の呼び出しと、前にtrueを返してから間隔が空いた呼び出しだけtrueを返す。 */
+export function pollGate(intervalMs: number, now: () => number = () => performance.now()): () => boolean {
+  let last = -Infinity;
+  return () => {
+    const at = now();
+    if (at - last < intervalMs) return false;
+    last = at;
+    return true;
+  };
+}
 export const AGENT_EVENT_MAX_BYTES = 1024 * 1024;
 export const AGENT_EVENT_TAIL_BYTES = 64 * 1024;
 export const CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES = 16 * 1024 * 1024;

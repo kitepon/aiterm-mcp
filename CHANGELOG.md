@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 完了待ちが、子の答えを待つ間ずっと、100msごとに`tmux capture-pane`を起動していた（ADR 0085）。利用上限の知らせを、完了の見回りの
+  たびに画面から確かめていたため。待ち1本で8秒に76回、4本重なった時はBellTeamのコンテナのCPUが148%だった。画面を読むのは、
+  Claude・Grokが2秒に1回、Cursorが1秒に1回（1回の画面で利用上限とhook拒否の両方を見る）にした。直した版は、待ち1本・8秒で
+  Claude Codeの子が4回、Cursorの子が8回。完了の見回り（100ms）は変えていない。子が利用上限で止まった時に`rate_limited`を返すのが、
+  最長で2秒（Cursorは1秒）遅れる。
+- 親配送の回収で、pidは居ると出るがOSのprocess表に無い持ち主を、終了として閉じる（ADR 0086）。Windowsでは、終了したprocessの
+  pidが、誰かがhandleを握っている間は空かずに残る。0.51.2はこの持ち主を閉じず、この版より前のMCP processが5秒おきに照会し続けていた
+  （実物で、3つのMCP processが各々1分に22〜24回）。process表にはあるが開始時刻を読めない持ち主だけ、今までどおり60秒に1回問い合わせる。
+  `owner.json`の`closed_reason`に`process_gone`が増える。0.51.2へ戻しても、そのまま動く。
+
 ## [0.51.2] - 2026-10-04
 
 ### 修正

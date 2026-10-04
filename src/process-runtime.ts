@@ -112,9 +112,10 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
 
 /**
  * 指定したpidの開始時刻だけを引く。readRuntimeProcessesと同じ開始時刻を返し、存在しないpidは結果に含めない。
+ * process表にpidはあるが開始時刻を読めない時は、started_identityをnullで返す（pidが無いのとは区別する）。
  * 全processのargvを読む一覧取得は、processの多い端末で重い（定期実行から呼ばない）。
  */
-export function readProcessIdentities(pids: number[]): { pid: number; started_identity: string }[] {
+export function readProcessIdentities(pids: number[]): { pid: number; started_identity: string | null }[] {
   const wanted = [...new Set(pids)];
   if (wanted.length === 0) return [];
   if (wanted.some(pid => !Number.isSafeInteger(pid) || pid < 0)) throw new AitermError("process照会のpidが不正です", 2);
@@ -133,10 +134,11 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
     });
   }
   // CommandLineの読めないprocess（別の権限のserviceなど）も返す。pidが使い回された先を「別のprocess」と確かめるのに要る。
+  // 開始時刻を読めない行も、pidがprocess表にある印として返す。
   const script = [
     ...WINDOWS_PROBE_HEADER,
-    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {`,
-    "[ordered]@{ pid=[int]$_.ProcessId; started_identity=$_.CreationDate.ToUniversalTime().ToString('o') }",
+    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | ForEach-Object {`,
+    "[ordered]@{ pid=[int]$_.ProcessId; started_identity=$(if ($null -ne $_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null }) }",
     "})",
     "ConvertTo-Json -Compress -InputObject $rows",
   ].join("\n");
@@ -148,8 +150,10 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
   try { rows = JSON.parse(result.stdout); } catch { throw new AitermError("Windows process一覧のJSONを読めません", 2); }
   if (!Array.isArray(rows)) throw new AitermError("Windows process一覧が配列ではありません", 2);
   return rows.map(row => {
-    if (!row || !Number.isSafeInteger(row.pid) || typeof row.started_identity !== "string"
-      || !Number.isFinite(Date.parse(row.started_identity))) throw new AitermError("Windows process一覧のfieldが不正です", 2);
+    if (!row || !Number.isSafeInteger(row.pid)) throw new AitermError("Windows process一覧のfieldが不正です", 2);
+    if (row.started_identity === null) return { pid: row.pid, started_identity: null };
+    if (typeof row.started_identity !== "string" || !Number.isFinite(Date.parse(row.started_identity)))
+      throw new AitermError("Windows process一覧のfieldが不正です", 2);
     return { pid: row.pid, started_identity: new Date(row.started_identity).toISOString() };
   });
 }

@@ -53,6 +53,8 @@ import {
   shq,
   LAUNCH_ID_RE,
   AGENT_DONE_POLL_MS,
+  AGENT_RATE_LIMIT_POLL_MS,
+  pollGate,
   AGENT_EVENT_MAX_BYTES,
   CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES,
   GROK_TRANSCRIPT_INCREMENT_MAX_BYTES,
@@ -3217,7 +3219,7 @@ export async function observeAgentDone(
     return observeCodexDone(meta, timeout, o.cursor, o.signal);
   }
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
-    return observeCursorDone(meta, timeout, o.cursor, detectAgentRateLimit, (session) => captureScreen(session, 0), o.signal);
+    return observeCursorDone(meta, timeout, o.cursor, (session) => captureScreen(session, 0), o.signal);
   }
   if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
     return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
@@ -3235,6 +3237,9 @@ export async function observeAgentDone(
   const transcriptFile = claudeSessionTranscriptPath(meta);
   let transcriptCursor = transcriptFile ? safeStatSize(transcriptFile) : 0;
   let transcriptCarry = "";
+  // 利用上限の知らせは画面でしか分からない。画面を読むとtmuxを起動するので、完了の見回りより間隔を空ける。
+  // 実被弾: 完了の見回り（100ms）のたびに読んでいて、待ち1本が1秒に約10回tmuxを起動していた（4本でコンテナのCPUが148%）。
+  const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
   const observation = (
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
@@ -3297,7 +3302,8 @@ export async function observeAgentDone(
     }
     // timeout=0 は「待たずに一度だけ見る」照会＝未完了は失敗ではなく running。
     // 1秒以上を指定した待機の未完了は従来どおり timeout で、待ち方の意味は変えない。
-    {
+    // 最初の周回では必ず見る（timeout=0の照会も1回は見る）。
+    if (rateLimitDue()) {
       const limited = detectAgentRateLimit(meta.kind, meta.aiterm_session);
       if (limited) return observation("rate_limited", null, limited);
     }

@@ -10,6 +10,8 @@ import { spawnAgentControlCommand } from "../agent-resolver.js";
 import { checkedCatalog, type AgentModelCatalog } from "../model-catalog.js";
 import {
   AGENT_DONE_POLL_MS,
+  CURSOR_SCREEN_POLL_MS,
+  pollGate,
   AGENT_EVENT_MAX_BYTES,
   agentEventPath,
   agentHarness,
@@ -219,7 +221,6 @@ export async function observeCursorDone(
   meta: AgentMetadata,
   timeout: number,
   requestedCursor: number | null | undefined,
-  detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
   readScreen: (aitermSession: string) => string,
   signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
@@ -228,6 +229,8 @@ export async function observeCursorDone(
   const startBoundary = requestedCursor ?? (transcript ? cursorTranscriptState(transcript).userTurns : 0);
   let malformedEvents = 0;
   const deadline = performance.now() + timeout * 1000;
+  // 画面を読むたびにtmuxを1回起動する。完了の見回りより間隔を空け、1回読んだ画面で利用上限とhook拒否の両方を見る。
+  const screenDue = pollGate(CURSOR_SCREEN_POLL_MS);
   const observation = (
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
@@ -262,11 +265,15 @@ export async function observeCursorDone(
         if (done) return observation("done", done);
       }
     }
-    const limited = detectRateLimit(meta.kind, meta.aiterm_session);
-    if (limited) return observation("rate_limited", null, limited);
-    // 拒否されたpromptのturnは始まらず、完了も来ない。拒否の表示は数秒で消えるので、見えている間に終わらせる。
-    const hookBlocked = cursorHookBlocked(readScreen(meta.aiterm_session));
-    if (hookBlocked) return observation("error", null, null, `USER_HOOK_BLOCKED: ${hookBlocked.message}`);
+    // 最初の周回では必ず読む（timeout=0の照会も1回は読む）。
+    if (screenDue()) {
+      const screen = readScreen(meta.aiterm_session);
+      const limited = cursorUsageLimit(screen)?.message ?? null;
+      if (limited) return observation("rate_limited", null, limited);
+      // 拒否されたpromptのturnは始まらず、完了も来ない。拒否の表示は数秒で消えるので、見えている間に終わらせる。
+      const hookBlocked = cursorHookBlocked(screen);
+      if (hookBlocked) return observation("error", null, null, `USER_HOOK_BLOCKED: ${hookBlocked.message}`);
+    }
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);
   }

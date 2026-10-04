@@ -442,12 +442,41 @@ test("回収処理は、pidが別のprocessへ使い回された持ち主を閉�
   assert.equal(calls.filter(pids => pids.includes(424242)).length, queried);
 });
 
-test("回収処理は、開始時刻を照合できない持ち主を60秒に1回だけ問い合わせ、保存場所を残す", async (t) => {
+// 実被弾: Windows 11で、終了したprocessのpidが空かずに残っていた（誰かがhandleを握っている）。権限の低いprocessからは
+// 「居るが開けない」（EPERM）と見え、OSのprocess表には無い。持ち主を閉じないと、前の版の回収が5秒おきに照会し続ける。
+test("回収処理は、pidは居ると出るがprocess表に無い持ち主を閉じ、照合を繰り返さない", async (t) => {
+  const calls = [];
+  let lingering = true;
+  let clock = 0;
+  const h = setup(t, { exists: (pid) => pid === process.pid || (pid === 424242 && lingering), now: () => clock,
+    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }].filter(row => pids.includes(row.pid)); } });
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  await manager.close();
+  const ended = plantOwner(h.root, "424242-ended", { pid: 424242, started_identity: "owner-start", closed: false });
+  fs.renameSync(stored.file, path.join(ended, path.basename(stored.file)));
+  const next = h.create(); await next.recover();
+  assert.equal(next.status("child").length, 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ended, "owner.json"), "utf8")),
+    { pid: 424242, started_identity: "owner-start", closed: true, closed_reason: "process_gone" });
+  const queried = () => calls.filter(pids => pids.includes(424242)).length;
+  assert.equal(queried(), 1);
+  for (let i = 0; i < 30; i++) { clock += 5_000; await next.recover(); }
+  assert.equal(queried(), 1);
+  // pidが空くまでは残し、空いたら消す。
+  assert.equal(fs.existsSync(ended), true);
+  lingering = false; clock += 5_000; await next.recover();
+  assert.equal(fs.existsSync(ended), false);
+});
+
+test("回収処理は、開始時刻を読めない持ち主を60秒に1回だけ問い合わせ、閉じずに残す", async (t) => {
   const calls = [];
   let clock = 0;
-  // pidは居るが、OSが行を返さない（照会の直前に終了した、または読めないprocess）。
+  // process表にpidはあるが、開始時刻を読めない。生きている持ち主かもしれない。
   const h = setup(t, { exists: () => true, now: () => clock,
-    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }].filter(row => pids.includes(row.pid)); } });
+    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" },
+      { pid: 424242, started_identity: null }].filter(row => pids.includes(row.pid)); } });
   const manager = h.create();
   await manager.request(parent()).before_send(boundary());
   const [stored] = records(h.root);

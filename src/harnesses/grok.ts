@@ -23,6 +23,8 @@ import {
   createEmpty0600,
   agentLineageFields,
   AGENT_DONE_POLL_MS,
+  AGENT_RATE_LIMIT_POLL_MS,
+  pollGate,
   AGENT_EVENT_MAX_BYTES,
   GROK_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
@@ -250,6 +252,7 @@ export async function observeGrokDone(
   let discardLeadingFragment = false;
   let initializedBoundary = false;
   const deadline = performance.now() + timeout * 1000;
+  const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
   const observation = (
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
@@ -316,7 +319,8 @@ export async function observeGrokDone(
         }
       }
     }
-    {
+    // 質問カードの確認は画面を読む（tmuxを起動する）。完了の見回りより間隔を空け、最初の周回では必ず見る。
+    if (rateLimitDue()) {
       const limited = detectRateLimit(meta.kind, meta.aiterm_session);
       if (limited) return observation("rate_limited", null, limited);
     }

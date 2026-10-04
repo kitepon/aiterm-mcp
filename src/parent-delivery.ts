@@ -53,10 +53,12 @@ type Owner = {
   // 他の持ち主の保存場所が消えても読める版の印。この印の無い生きた持ち主が居る間は、保存場所を消さない。
   removal_safe?: boolean;
   // 回収側が閉じた時の理由。持ち主が自分で閉じた時は付かない。
-  closed_reason?: "pid_reused";
+  closed_reason?: "pid_reused" | "process_gone";
 };
-// 回収の時点で見た、closeしていない持ち主の状態。unverifiedはpidは居るが開始時刻を照合できない。
-type OwnerFate = "alive" | "gone" | "reused" | "unverified";
+// 回収の時点で見た、closeしていない持ち主の状態。
+// gone: pidが無い。reused: pidは別のprocess。vanished: pidは居ると出るが、OSのprocess表に無い。
+// unverified: process表にはあるが、開始時刻を読めない。
+type OwnerFate = "alive" | "gone" | "reused" | "vanished" | "unverified";
 type Parent = CodexParent | ClaudeParent | CursorParent;
 const isClaude = (parent: Parent): parent is ClaudeParent => "kind" in parent && parent.kind === "claude";
 const isCursor = (parent: Parent): parent is CursorParent => "kind" in parent && parent.kind === "cursor";
@@ -79,8 +81,8 @@ export interface ParentDeliveryDependencies {
   answer: (session: string, options: Parameters<typeof readAgentTranscriptResult>[1] & { remote?: RemoteTarget }) => Promise<{ text: string }>;
   submit: typeof submitParentAnswer;
   verify: typeof verifyParent;
-  // 指定したpidのうち、今あるprocessの開始時刻を返す。全processの一覧は取らない。
-  processes: (pids: number[]) => { pid: number; started_identity: string }[];
+  // 指定したpidのうち、今あるprocessの開始時刻を返す。全processの一覧は取らない。開始時刻を読めないprocessはnull。
+  processes: (pids: number[]) => { pid: number; started_identity: string | null }[];
   // そのpidのprocessが今あるか。OSへ直接聞き、processを起動しない。
   exists: (pid: number) => boolean;
   now: () => number;
@@ -172,7 +174,7 @@ export class ParentDeliveryManager {
     this.results = path.join(this.root, "results");
     this.claims = path.join(options.root ?? path.join(stateRoot, prefix + "parent-deliveries"), "claims");
     const ownProcess = this.deps.processes([process.pid]).find((entry) => entry.pid === process.pid);
-    if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
+    if (!ownProcess || ownProcess.started_identity === null) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
     this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false, removal_safe: true };
     this.ownerDir = path.join(this.active, `${deliveryOwnerPrefix(this.owner)}${randomUUID()}`);
     fs.mkdirSync(this.ownerDir, { recursive: true, mode: 0o700 });
@@ -431,10 +433,15 @@ export class ParentDeliveryManager {
       const processes = this.deps.processes([...new Set(unverified.map((entry) => entry.pid))]);
       for (const entry of unverified) {
         const row = processes.find((candidate) => candidate.pid === entry.pid);
-        const state: OwnerFate = !row ? "unverified" : row.started_identity === entry.started_identity ? "alive" : "reused";
+        // pidは居ると出たのにprocess表に無いのは、照会の直前に終了したか、終了したprocessの名残
+        // （Windowsでは、誰かがhandleを握っている間、終了したprocessのpidが空かず、権限の低いprocessからは「居るが開けない」と見える）。
+        const state: OwnerFate = !row ? "vanished" : row.started_identity === null ? "unverified"
+          : row.started_identity === entry.started_identity ? "alive" : "reused";
         fate.set(entry.name, state);
-        // 別のprocessと分かった持ち主は下で閉じるので、照合の結果を覚えない。
-        if (state !== "reused") this.verifiedOwners.set(entry.name, { pid: entry.pid, started_identity: entry.started_identity, at: now, alive: state === "alive" });
+        // 終了と分かった持ち主は下で閉じるので、照合の結果を覚えない。
+        if (state === "alive" || state === "unverified") {
+          this.verifiedOwners.set(entry.name, { pid: entry.pid, started_identity: entry.started_identity, at: now, alive: state === "alive" });
+        }
       }
     }
     for (const name of this.verifiedOwners.keys()) {
@@ -499,15 +506,16 @@ export class ParentDeliveryManager {
           }
         } else this.finish(job);
       }
-      if (!owner.closed && state === "reused") {
+      if (!owner.closed && (state === "reused" || state === "vanished")) {
         // 同じpidと開始時刻の組は二度と現れない。閉じた事にして、どの版の回収にも照合を繰り返させない。
         // 書けなかった時は次の回でもう一度照合する。配送には影響しない。
-        try { writeJson0600(ownerFile, { ...owner, closed: true, closed_reason: "pid_reused" } satisfies Owner); }
+        const reason = state === "reused" ? "pid_reused" : "process_gone";
+        try { writeJson0600(ownerFile, { ...owner, closed: true, closed_reason: reason } satisfies Owner); }
         catch { /* 次の回 */ }
         continue;
       }
       // 持ち主が自分で閉じた保存場所と、pidがもう無い持ち主の保存場所だけを消す。
-      // 開始時刻の違いで閉じた保存場所は、そのpidが空くまで残す。
+      // 回収側が閉じた保存場所は、そのpidが空くまで残す。
       const ended = owner.closed ? owner.closed_reason === undefined || !this.deps.exists(owner.pid) : state === "gone";
       if (ended) finished.push(oldDir);
     }

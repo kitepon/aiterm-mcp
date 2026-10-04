@@ -321,6 +321,30 @@ test("cli: 完了済みclaude operationをreceiptで返しexit 0", async () => {
   }
 });
 
+// 実被弾: 完了の見回り（100ms）のたびに利用上限の知らせを画面で確かめ、待ち1本が1秒に約10回tmuxを起動していた
+// （8秒で76回。待ちが4本重なった時にBellTeamのコンテナのCPUが148%）。
+test("cli: 完了を待つ間、画面を読むtmuxの起動は見回りのたびには行わない", { skip: process.platform === "win32" }, async () => {
+  const { base, agents } = makeStateRoot();
+  try {
+    writeMeta(agents, "c3", "claude");
+    // tmuxの代わりに、呼ばれた引数を1行ずつ記録するscriptを渡す。
+    const calls = path.join(base, "tmux-calls.log");
+    const fake = path.join(base, "fake-tmux");
+    fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${calls}\n[ "$1" = "-V" ] && echo "tmux 3.4"\nexit 0\n`, { mode: 0o755 });
+    const r = spawnSync(process.execPath, [CLI, "--session", "c3", "--timeout", "3"], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, XDG_RUNTIME_DIR: base, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR, AITERM_TMUX: fake },
+    });
+    assert.equal(r.status, 3, r.stderr);
+    assert.equal(JSON.parse(r.stdout.trim()).outcome, "timeout");
+    const captures = fs.readFileSync(calls, "utf8").split("\n").filter(line => line.includes("capture-pane")).length;
+    // 3秒の待ちで、最初の1回と2秒後の1回。見回りごと（約30回）には読まない。
+    assert.ok(captures >= 1 && captures <= 3, `capture-pane ${captures}回`);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("cli: timeoutはreceiptを出しつつexit 3（exit≠完了）", async () => {
   const { base, agents } = makeStateRoot();
   try {

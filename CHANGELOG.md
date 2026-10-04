@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.2] - 2026-10-04
+
 ### 修正
 
 - 親配送の回収が、終了した持ち主の保存場所を残し続け、使い回されたpidを5秒おきにOSへ問い合わせていた（ADR 0084）。
@@ -2073,7 +2075,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.2...HEAD
+[0.51.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.1...v0.51.2
 [0.51.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.49.0...v0.50.0

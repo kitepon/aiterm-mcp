@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-04
+
 ### 変更
 
 - 新しい端末の環境を、その端末を開いたMCP processの環境にした（ADR 0081。POSIXのtmux。Windowsのpsmuxは元からこの動き）。
@@ -2026,7 +2028,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.49.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.50.0...HEAD
+[0.50.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.1...v0.48.0
 [0.47.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.47.0...v0.47.1

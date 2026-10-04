@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   中継は道具を初めて呼ばれた時に本体を自分の下に起こすので、中継ごしの席は道具を一度使うと数が0へ戻らなかった。
   見分けるのは、親の起動時のargvの先頭のbasenameが`mcp-lazy`で始まること。その下で動くprocessは今までどおり数える。
 
+### 修正
+
+- Cursor親の受け取りprocess（`cursor-parent-receive`）が、親のCursorが終わった後も残り、後から完了した子の回答を引き取っていた
+  （aiterm-steer-delivery 0.1.12）。Cursorの背景shellは親から切り離されて動くので、席を閉じても最長24時間残る。
+  引き取られた回答は`submitted`になるが、読む相手は居ない。受け取りprocessは、出力の読み手が居なくなったら引き取らずに終わる。
+  その配送は`sending`のまま残り、24時間で`CURSOR_PARENT_DELIVERY_UNCLAIMED`になる。本文は今までどおり記録に残る。
+
 ## [0.50.0] - 2026-10-04
 
 ### 変更

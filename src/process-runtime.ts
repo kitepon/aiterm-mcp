@@ -1,6 +1,7 @@
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { AitermError } from "./errors.js";
 import { isWin } from "./tmux-runtime.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
@@ -152,6 +153,13 @@ export function processSubtree(rows: RuntimeProcess[], rootPid: number): Runtime
     }
   }
   return rows.filter(row => selected.has(row.pid));
+}
+
+// 中継（mcp-lazy）は、登録されたMCPの本体と先行起動の判定を、自分の直接の子として起こす。
+// 見分けるのは起動した実行ファイルの名前（argvの先頭のbasenameが`mcp-lazy`で始まる）。取り決めはmcp-lazyのREADMEにある。
+export function lazyRelayProcess(command: string): boolean {
+  const first = /^(?:"([^"]+)"|(\S+))/.exec(command);
+  return path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/")).toLowerCase().startsWith("mcp-lazy");
 }
 
 export function backgroundProcesses(rows: RuntimeProcess[], root: RuntimeProcess): RuntimeProcess[] {

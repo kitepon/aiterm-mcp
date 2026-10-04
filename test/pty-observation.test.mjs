@@ -54,6 +54,36 @@ test("再利用された親PIDの循環があってもCursor起動を一つに�
   assert.deepEqual(core.selectHarnessProcesses(meta, rows, subtree).map(row => row.pid), [10]);
 });
 
+test("起動完了の後に増えたprocessのうち、中継の直接の子は数えず、その下は数える", () => {
+  const at = second => `2026-10-04T05:00:${String(second).padStart(2, "0")}.000Z`;
+  const row = (pid, parent_pid, second, command) => ({ pid, parent_pid, started_identity: at(second), command });
+  const startupRows = [
+    row(5, 1, 0, "/bin/bash"),
+    row(10, 5, 1, "/usr/local/bin/cursor-agent --force"),
+    row(11, 10, 2, "/srv/trial/mcp-lazy-0.3.0-7cdb9cc -- /usr/local/bin/node /srv/aiterm/dist/index.js"),
+    row(12, 10, 2, "/usr/local/bin/node /srv/other-mcp/server.js"),
+  ];
+  const startup = new Set(startupRows.map(item => `${item.pid}:${item.started_identity}`));
+  const count = (kind, added) => core.postStartupProcessCount(kind, [...startupRows, ...added], [...startupRows, ...added], startup);
+  assert.equal(count("cursor", []), 0);
+  // 道具を呼ぶと本体が中継の下に立つ。先行起動の判定も中継の直接の子。
+  const server = row(20, 11, 30, "/usr/local/bin/node /srv/aiterm/dist/index.js");
+  assert.equal(count("cursor", [server, row(21, 11, 31, "/usr/local/bin/node /srv/aiterm/dist/pending-check.js")]), 0);
+  // 本体の下で動くものと、中継を通らないものは今までどおり数える。
+  assert.equal(count("cursor", [server, row(22, 20, 40, "sleep 240")]), 1);
+  assert.equal(count("cursor", [row(23, 12, 40, "sleep 240"), row(24, 10, 41, "/bin/bash -c sleep 240")]), 2);
+  // 後から立った中継そのものは数える。その直接の子は数えない。
+  const lateRelay = row(30, 10, 50, "/usr/local/bin/mcp-lazy /usr/local/bin/node /srv/aiterm/dist/index.js");
+  assert.equal(count("cursor", [lateRelay, row(31, 30, 51, "/usr/local/bin/node /srv/aiterm/dist/index.js")]), 1);
+  // Windowsで再利用された親PID（子より後に始まったprocess）は親として扱わない。
+  const reused = row(40, 10, 59, '"C:\\tools\\mcp-lazy.exe" node.exe index.js');
+  assert.equal(count("cursor", [reused, row(41, 40, 45, "sleep 240")]), 2);
+  // Codexの補助processの扱いは変えない。
+  const helper = row(50, 10, 20, "/usr/local/lib/node_modules/@openai/codex/vendor/bin/codex-code-mode-host");
+  assert.equal(count("codex", [helper, row(51, 50, 21, "sleep 240")]), 1);
+  assert.equal(count("claude", [helper]), 1);
+});
+
 test("通常PTYの自己識別と明示キーだけの環境照会", async () => {
   const name = "ordinary";
   core.openSession(name, process.platform === "win32" ? "pwsh" : "bash", ["AITERM_TEST_OWNER"]);

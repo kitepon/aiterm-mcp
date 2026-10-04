@@ -70,6 +70,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/cursor-parent-receiver.ts`／`src/cursor-parent-hook.ts`／`src/cursor-parent-receive.ts`: Cursor親の会話束縛、公式hookへの差し込み、idle時の受け口。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
+- `src/delivery-wake-cli.ts`: 中継の後ろで眠っている本体を、親配送の引き取りのために起こすかの判定（`aiterm-delivery-wake`）。
+  node builtinと`src/state-root.ts`だけに依存し、子processを起こさない。
 - `src/runtime-error-*.ts`: 製品所有のerror aggregate。`src/runtime-error-report.ts`: BugHubへの報告（本文・署名・受領の確認・送信の頻度）。
 - `src/rtk.ts`: 自前reducer。pytestとgrepはrtk 0.50.0と一致し、`FAILED`理由全文保持だけ意図的に異なる。
 - `prototype/python/`: 旧MVPとreducer移植元。参照専用。

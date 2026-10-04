@@ -54,6 +54,8 @@ PIDは開始識別子・argv digestと組にし、paneとharnessを同一視し�
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
 sessionを閉じると失うものは数で返す（ADR 0080）。`activity.post_startup_process_count`は起動完了の時点に居なかったprocessの数、
 `pending_child_deliveries`はそのsessionが親として待つ未配送の数。数えられない時はnullで、0と区別する。
+harnessと中継が自分のために立てるprocessは数えない（Codexの`codex-code-mode-host`、中継`mcp-lazy`の直接の子。ADR 0082）。その下は数える。
+中継の後ろで眠っている本体を配送の引き取りのために起こすかは、`aiterm-delivery-wake`が返す（ADR 0082）。
 Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ出た後も、入力欄の形（`❯`行の上下の罫線）で読む。
 画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
 初回とpane再作成後の差分はnull。区間中にprocessが消えた時は観測できたCPU増分だけを返し、

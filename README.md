@@ -550,10 +550,21 @@ displayed token count or null. Callers do not need raw argv or pane-text parsing
 
 Two fields tell a caller what closing an agent session would lose. `activity.post_startup_process_count` is the number of
 processes in the session that did not exist when `agent_launch` finished startup (before the first prompt), so background work
-started in the first minute is counted too; Codex's own `codex-code-mode-host` helper is not counted. `pending_child_deliveries`
+started in the first minute is counted too. Two kinds of process are not counted: Codex's own `codex-code-mode-host` helper, and
+the direct children of an `mcp-lazy` relay (the MCP server it starts on first use and its wake predicate). What runs below them
+is counted. `pending_child_deliveries`
 is the number of sub-agent results this session is still waiting for as a parent, whoever the caller is. Both are null when
 Aiterm cannot tell (ordinary terminals, agents launched by 0.48.0 or earlier for the process count, or an unresolved harness
 process), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.
+
+When Aiterm is registered behind a relay that starts the MCP server only on first use, a sleeping server cannot take over the
+deliveries of an owner that has exited. `aiterm-delivery-wake --parent <codex|claude|cursor>` answers whether one needs to start:
+exit 0 when an exited owner still holds a delivery for that parent kind, exit 1 otherwise, exit 2 for bad arguments. It prints
+nothing, starts no child process, and marks the delivery so that only one of the seats running the same check starts its server
+(the mark is retaken after 30 seconds if nobody took the delivery over). For `mcp-lazy`, pass it as the wake predicate with the
+same environment as the server:
+`MCP_LAZY_WAKE_COMMAND='["/absolute/path/to/node","/absolute/path/to/aiterm-mcp/dist/delivery-wake-cli.js","--parent","claude"]'`.
+Owner start times are checked through `/proc` on Linux; elsewhere an existing PID is treated as a live owner.
 
 `agent_launch({ harness, cwd, trust_project: true })` completes known workspace, project-hook, and project-MCP startup
 consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.

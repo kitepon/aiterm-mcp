@@ -43,6 +43,7 @@
     "aiterm-setup": "dist/setup-cli.js",
     "aiterm-runtime-errors": "dist/runtime-errors-cli.js",
     "aiterm-wait": "dist/aiterm-wait-cli.js",
+    "aiterm-delivery-wake": "dist/delivery-wake-cli.js",
     "aiterm-update": "dist/update-cli.js"
   },
   "files": [

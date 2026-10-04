@@ -17,7 +17,7 @@ import * as rtk from "./rtk.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -1352,6 +1352,19 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
   return roots;
 }
 
+// 起動完了の控えに無いprocessの数。harnessと中継が自分のために立てるprocessは、利用者の作業ではないので数えない。
+// その下で動くprocessは数える。
+export function postStartupProcessCount(kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>): number {
+  const byPid = new Map(rows.map(row => [row.pid, row]));
+  const relayChild = (row: RuntimeProcess): boolean => {
+    const parent = parentProcess(row, byPid);
+    return parent !== undefined && lazyRelayProcess(parent.command);
+  };
+  return new Set(activityRows
+    .filter(row => !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row))
+    .map(row => `${row.pid}:${row.started_identity}`).filter(identity => !startup.has(identity))).size;
+}
+
 export function observeSession(name: string, cursor?: string): SessionObservation {
   assertSessionName(name);
   const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
@@ -1438,9 +1451,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     background_cpu_seconds: Object.values(backgroundCpu).reduce((sum, cpu) => sum + cpu, 0),
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
-    post_startup_process_count: startup ? new Set(activityRows
-      .filter(row => !(meta?.kind === "codex" && codexHelperProcess(row.command)))
-      .map(row => `${row.pid}:${row.started_identity}`).filter(identity => !startup.has(identity))).size : null,
+    post_startup_process_count: startup ? postStartupProcessCount(meta!.kind, activityRows, rows, startup) : null,
   };
   return result;
 }

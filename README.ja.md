@@ -517,10 +517,19 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 `token_hint`は画面の直近token表示値またはnull。画面本文や生argvを解析する必要はない。
 
 agent sessionを閉じると失うものは、次の2項目で分かる。`activity.post_startup_process_count`は、`agent_launch`の起動準備が
-完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。Codex自身の補助process
-（`codex-code-mode-host`）は数えない。`pending_child_deliveries`は、そのsessionが親として待っていて、まだ届け終えていない
+完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。数えないものは2つ。Codex自身の
+補助process（`codex-code-mode-host`）と、中継`mcp-lazy`の直接の子（初めて使う時に起こすMCPの本体と、先行起動の判定）。
+その下で動くprocessは数える。`pending_child_deliveries`は、そのsessionが親として待っていて、まだ届け終えていない
 子の結果の数。呼び出した側が誰でも付く。どちらも、分からない時はnull（通常PTY、harnessのprocessを特定できない時。
 processの数は0.48.0以前が起動したagentも）。別端末が旧版の時は項目ごと無い。nullと項目なしは「分からない」で、0ではない。
+
+MCPの本体を初めて使う時まで起こさない中継の後ろにAitermを登録すると、眠っている本体は、終了した持ち主の配送を引き取れない。
+`aiterm-delivery-wake --parent <codex|claude|cursor>`は、起こす必要があるかを返す。その種類の親の配送を、終了した持ち主が
+持ったままならexit 0、そうでなければexit 1、引数の誤りはexit 2。何も出力せず、子processを起こさない。同じ判定を回す席のうち
+1席だけが起こすよう、配送に印を付ける（引き取られないまま30秒過ぎたら、次の判定が印を取り直す）。`mcp-lazy`には、本体と同じ環境で
+先行起動の判定として渡す。
+`MCP_LAZY_WAKE_COMMAND='["/absolute/path/to/node","/absolute/path/to/aiterm-mcp/dist/delivery-wake-cli.js","--parent","claude"]'`
+持ち主の開始時刻はLinuxでは`/proc`で照合する。それ以外のOSでは、pidがあれば生きている持ち主として扱う。
 
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。

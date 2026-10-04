@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- `aiterm-delivery-wake --parent <codex|claude|cursor>`。MCPの本体を使う時だけ起こす中継（`mcp-lazy`）の後ろで、眠っている本体を
+  親配送の引き取りのために起こすべきかを返す（ADR 0082）。終了した持ち主がその種類の親の配送を持ったままならexit 0、
+  無ければexit 1。何も出力せず、子processを起こさない。同じ判定を回す席のうち1席だけが起こす。
+  中継には先行起動の判定として渡す（`MCP_LAZY_WAKE_COMMAND`）。
+
+### 変更
+
+- `pty_observe`の`activity.post_startup_process_count`で、中継`mcp-lazy`の直接の子を数えない（ADR 0082）。
+  中継は道具を初めて呼ばれた時に本体を自分の下に起こすので、中継ごしの席は道具を一度使うと数が0へ戻らなかった。
+  見分けるのは、親の起動時のargvの先頭のbasenameが`mcp-lazy`で始まること。その下で動くprocessは今までどおり数える。
+
 ## [0.50.0] - 2026-10-04
 
 ### 変更

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess } from "../dist/process-runtime.js";
 
 test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");
@@ -21,6 +21,15 @@ test("background活動から起動直後の足場processを除く", () => {
   const rows = [root, { pid: 2, started_identity: "2026-09-10T00:00:59.000Z" },
     { pid: 3, started_identity: "2026-09-10T00:01:00.000Z" }];
   assert.deepEqual(backgroundProcesses(rows, root).map(row => row.pid), [3]);
+});
+
+test("中継（mcp-lazy）を、起動した実行ファイルの名前で見分ける", () => {
+  assert.equal(lazyRelayProcess("/usr/local/bin/mcp-lazy /usr/local/bin/node /srv/aiterm/dist/index.js"), true);
+  assert.equal(lazyRelayProcess("/srv/trial/mcp-lazy-0.3.0-7cdb9cc --log-file /tmp/relay.log -- /usr/local/bin/node index.js"), true);
+  assert.equal(lazyRelayProcess('"C:\\Program Files\\MCP Lazy\\MCP-Lazy.exe" node.exe index.js'), true);
+  assert.equal(lazyRelayProcess("/usr/local/bin/node /srv/mcp-lazy/tools/real-stdio-smoke.mjs"), false);
+  assert.equal(lazyRelayProcess("/bin/sh -c mcp-lazy node index.js"), false);
+  assert.equal(lazyRelayProcess("/usr/local/bin/lazy-mcp node index.js"), false);
 });
 
 test("実process表から自身のnative PIDを観測できる", () => {

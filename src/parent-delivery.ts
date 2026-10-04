@@ -450,6 +450,8 @@ export class ParentDeliveryManager {
     }
     // 記録を引き取り終えた、終了した持ち主の保存場所。残すと、回収のたびに全部を読み直す。
     const finished: string[] = [];
+    // pidが無いと分かった、closeしていない持ち主。保存場所を消せない回は、閉じた事だけを書く。
+    const goneOwners: { file: string; owner: Owner }[] = [];
     // owner.jsonの無い、古い保存場所。
     const abandoned: string[] = [];
     // 旧版は、読んでいる最中に他の持ち主の保存場所が消えると回収が止まる。印の無い持ち主が生きている間は消さない。
@@ -518,8 +520,17 @@ export class ParentDeliveryManager {
       // 回収側が閉じた保存場所は、そのpidが空くまで残す。
       const ended = owner.closed ? owner.closed_reason === undefined || !this.deps.exists(owner.pid) : state === "gone";
       if (ended) finished.push(oldDir);
+      if (!owner.closed && state === "gone") goneOwners.push({ file: ownerFile, owner });
     }
-    if (removalBlocked) return;
+    if (removalBlocked) {
+      // 消せない間も、終了した持ち主は閉じておく。pidの有無は見る側の権限で変わる事があり（ADR 0086）、
+      // 閉じていない持ち主は、前の版の回収が照会の相手にし続ける。
+      for (const { file, owner } of goneOwners) {
+        try { writeJson0600(file, { ...owner, closed: true, closed_reason: "process_gone" } satisfies Owner); }
+        catch { /* 次の回 */ }
+      }
+      return;
+    }
     // 片付けの失敗は配送に影響しない。残った保存場所は次の回でもう一度消す。
     for (const directory of finished) {
       try { fs.rmSync(directory, { recursive: true, force: true }); } catch { /* 次の回 */ }

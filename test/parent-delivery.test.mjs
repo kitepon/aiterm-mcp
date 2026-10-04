@@ -519,6 +519,11 @@ test("回収処理は、保存場所が消えると止まる旧版の持ち主�
   const manager = h.create(); await manager.recover();
   assert.equal(fs.existsSync(gone), true);
   assert.equal(fs.existsSync(old), true);
+  // 消せない間も、終了した持ち主は閉じておく（旧版に照会を続けさせない）。生きている旧版の持ち主には触れない。
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(gone, "owner.json"), "utf8")),
+    { pid: 424242, started_identity: "gone-start", closed: true, closed_reason: "process_gone" });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(old, "owner.json"), "utf8")),
+    { pid: 515151, started_identity: "old-version-start", closed: false });
   // 旧版の持ち主が終了したら、次の回で両方消す。
   oldVersionAlive = false; await manager.recover();
   assert.equal(fs.existsSync(gone), false);

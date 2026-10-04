@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 親配送の回収で、pidは居ると出るがOSのprocess表に無い持ち主を、終了として閉じる（ADR 0086）。Windowsでは、終了したprocessの
   pidが、誰かがhandleを握っている間は空かずに残る。0.51.2はこの持ち主を閉じず、この版より前のMCP processが5秒おきに照会し続けていた
   （実物で、3つのMCP processが各々1分に22〜24回）。process表にはあるが開始時刻を読めない持ち主だけ、今までどおり60秒に1回問い合わせる。
+  pidが無い持ち主も、この版より前のMCP processが生きていて保存場所を消せない間は、`closed`を書いておく。
   `owner.json`の`closed_reason`に`process_gone`が増える。0.51.2へ戻しても、そのまま動く。
 
 ## [0.51.2] - 2026-10-04

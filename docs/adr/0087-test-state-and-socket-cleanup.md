@@ -12,7 +12,8 @@ AITERM_DISPATCH_RECEIPT_INVALIDとして失敗させた。消えた登録は対�
 ## 決定
 
 - npm test、文書試験、CIの試験processはtest/seat-env.mjsを読み、席のstate、系譜、tmux環境を引き継がない。
-  TMPDIR、TEMP、TMP、XDG_RUNTIME_DIRはprocessごとの短い一時領域へ向ける。個別試験はその中か別の試験領域へ変更できる。
+  TEMP、TMP、XDG_RUNTIME_DIRはprocessごとの短い一時領域へ向ける。POSIXはTMPDIRも揃える。
+  WindowsのTMPDIRは外して、socketをTEMP、stateをXDG_RUNTIME_DIRで隔離する。個別試験はXDGだけでstateを切り替えられる。
 - killAllは終了前にsocketのsession一覧とsocket内の残存ファイルから対象sessionを決める。
   待機lockの保護と登録の削除はその対象だけに行う。agents全体を走査して削除しない。
 - 一覧取得やserver終了が通常の「server無し」以外の理由で失敗した時は、登録を消さずエラーを返す。

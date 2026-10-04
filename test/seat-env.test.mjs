@@ -23,10 +23,11 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
         const environment = Object.fromEntries(['AITERM_STATE_BASE', 'AITERM_AGENT_ROLE', 'AITERM_AGENT_SESSION_ID',
           'AITERM_AGENT_DEPTH', 'AITERM_AGENT_LINEAGE', 'AITERM_AGENT_DELEGATION_ALLOWED', 'AITERM_SESSION_ID',
           'TMUX', 'TMUX_PANE'].map(key => [key, process.env[key] ?? null]));
-        const temporary = ['TMPDIR', 'TEMP', 'TMP', 'XDG_RUNTIME_DIR'].map(key => process.env[key]);
+        const temporary = ['TEMP', 'TMP', 'XDG_RUNTIME_DIR'].map(key => process.env[key]);
+        const socketTmpdir = process.env.TMPDIR ?? null;
         process.env.TMPDIR = process.env.INDIVIDUAL_TEST_STATE;
         process.env.XDG_RUNTIME_DIR = process.env.INDIVIDUAL_TEST_STATE;
-        console.log(JSON.stringify({ initial, exists: existsSync(initial), environment, temporary,
+        console.log(JSON.stringify({ initial, exists: existsSync(initial), environment, temporary, socketTmpdir,
           individual: runtimeStateBase() }));
       `], { encoding: 'utf8', timeout: 10000, env: {
       ...process.env, AITERM_STATE_BASE: inherited, AITERM_AGENT_ROLE: 'subagent',
@@ -39,7 +40,8 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(data.exists, true);
     assert.notEqual(data.initial, inherited);
     assert.deepEqual(Object.values(data.environment), Array(9).fill(null));
-    assert.deepEqual(data.temporary, Array(4).fill(data.initial));
+    assert.deepEqual(data.temporary, Array(3).fill(data.initial));
+    assert.equal(data.socketTmpdir, process.platform === 'win32' ? null : data.initial);
     assert.equal(data.individual, individual);
     assert.equal(readFileSync(registration, 'utf8'), 'keep owner registration\n');
   } finally {

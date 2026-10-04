@@ -81,6 +81,14 @@ export interface AgentMetadata {
   cursor_home?: string;
   // 起動準備が完了した時点のprocess（pid:開始時刻）。pty_observeはこれ以外を起動後のprocessとして数える。
   startup_processes?: string[];
+  // 上のprocessの親（pid:開始時刻）とargvのdigest。harnessが同じ親の下に同じargvで立て直したprocessを、控えの物として扱うために使う。
+  startup_process_shapes?: StartupProcessShape[];
+}
+
+export interface StartupProcessShape {
+  identity: string;
+  parent: string | null;
+  argv_digest: string;
 }
 
 export const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));

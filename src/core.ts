@@ -74,6 +74,7 @@ import type {
   AgentKind,
   AgentHarness,
   AgentMetadata,
+  StartupProcessShape,
   InitialPromptState,
   AgentDoneEvent,
   AgentWaitObservation,
@@ -1352,17 +1353,55 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
   return roots;
 }
 
+const processKey = (row: RuntimeProcess): string => `${row.pid}:${row.started_identity}`;
+
+/** 起動完了の控えに入れたprocessの、親とargvのdigest。控えた後に終了したprocessは入らない。 */
+export function startupProcessShapes(identities: string[], rows: RuntimeProcess[]): StartupProcessShape[] {
+  const byPid = new Map(rows.map(row => [row.pid, row]));
+  const byKey = new Map(rows.map(row => [processKey(row), row]));
+  return identities.flatMap(identity => {
+    const row = byKey.get(identity);
+    if (!row) return [];
+    const parent = parentProcess(row, byPid);
+    return [{ identity, parent: parent ? processKey(parent) : null, argv_digest: row.argv_digest }];
+  });
+}
+
 // 起動完了の控えに無いprocessの数。harnessと中継が自分のために立てるprocessは、利用者の作業ではないので数えない。
 // その下で動くprocessは数える。
-export function postStartupProcessCount(kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>): number {
+// harnessは起動の足場（MCP、language server）を自分で立て直す。控えた後に立て直されると、控えに無いprocessとして残る。
+// 控えの物が終了していて、同じ親の下に同じargvで立ったprocessは、その立て直しとして数えない。
+// 親も立て直されている時は、立て直された親の下を見る。終了した控え1つにつき、数えないのは1つまで。
+export function postStartupProcessCount(
+  kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
+  shapes: StartupProcessShape[] = [],
+): number {
   const byPid = new Map(rows.map(row => [row.pid, row]));
   const relayChild = (row: RuntimeProcess): boolean => {
     const parent = parentProcess(row, byPid);
     return parent !== undefined && lazyRelayProcess(parent.command);
   };
-  return new Set(activityRows
-    .filter(row => !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row))
-    .map(row => `${row.pid}:${row.started_identity}`).filter(identity => !startup.has(identity))).size;
+  const present = new Set(activityRows.map(processKey));
+  const added = new Map(activityRows
+    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row))
+    .map(row => [processKey(row), row]));
+  const gone = shapes.filter(shape => startup.has(shape.identity) && !present.has(shape.identity));
+  const replacedBy = new Map<string, string>();
+  for (let changed = gone.length > 0; changed;) {
+    changed = false;
+    for (const [key, row] of added) {
+      const parent = parentProcess(row, byPid);
+      if (!parent) continue;
+      const parentKey = processKey(parent);
+      const original = gone.find(shape => !replacedBy.has(shape.identity) && shape.argv_digest === row.argv_digest
+        && shape.parent !== null && (shape.parent === parentKey || replacedBy.get(shape.parent) === parentKey));
+      if (!original) continue;
+      replacedBy.set(original.identity, key);
+      added.delete(key);
+      changed = true;
+    }
+  }
+  return added.size;
 }
 
 export function observeSession(name: string, cursor?: string): SessionObservation {
@@ -1451,7 +1490,8 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     background_cpu_seconds: Object.values(backgroundCpu).reduce((sum, cpu) => sum + cpu, 0),
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
-    post_startup_process_count: startup ? postStartupProcessCount(meta!.kind, activityRows, rows, startup) : null,
+    post_startup_process_count: startup
+      ? postStartupProcessCount(meta!.kind, activityRows, rows, startup, meta!.startup_process_shapes) : null,
   };
   return result;
 }
@@ -2400,8 +2440,11 @@ function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt_delivery: m.initial_prompt_delivery, initial_prompt_cursor: m.initial_prompt_cursor,
   };
   const executableFields = m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable };
+  const startupShapes = Array.isArray(m.startup_process_shapes) && m.startup_process_shapes.every((shape: any) =>
+    shape && typeof shape.identity === "string" && (shape.parent === null || typeof shape.parent === "string") && typeof shape.argv_digest === "string")
+    ? { startup_process_shapes: m.startup_process_shapes as StartupProcessShape[] } : {};
   const startupFields = Array.isArray(m.startup_processes) && m.startup_processes.every((identity: unknown) => typeof identity === "string")
-    ? { startup_processes: m.startup_processes as string[] } : {};
+    ? { startup_processes: m.startup_processes as string[], ...startupShapes } : {};
   if (m.kind === "claude") {
     const expectedSettings = agentManagedClaudeSettingsPath(name, m.launch_id);
     const expectedResult = agentClaudeResultPath(name, m.launch_id);
@@ -3849,6 +3892,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   // ここまでに居るprocessは起動時の足場（harness・MCP・起動時hook）。初手を送る前に控える。
   if (live.activity.cursor !== null) {
     meta.startup_processes = Object.keys(decodeActivityCursor(live.activity.cursor, name).processes);
+    meta.startup_process_shapes = startupProcessShapes(meta.startup_processes, readRuntimeProcesses());
     writeAgentMetadata(meta);
   }
   return { status: "ready", reason: "composer_ready" };

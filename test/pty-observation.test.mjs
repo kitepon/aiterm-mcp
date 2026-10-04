@@ -84,6 +84,53 @@ test("起動完了の後に増えたprocessのうち、中継の直接の子は�
   assert.equal(count("claude", [helper]), 1);
 });
 
+test("harnessが同じ親の下に同じargvで立て直したprocessは、起動完了の控えの物として数えない", () => {
+  const at = second => `2026-10-04T05:00:${String(second).padStart(2, "0")}.000Z`;
+  const row = (pid, parent_pid, second, command) => ({ pid, parent_pid, started_identity: at(second), command, argv_digest: `digest:${command}` });
+  const key = item => `${item.pid}:${item.started_identity}`;
+  const shell = row(5, 1, 0, "/bin/bash");
+  const harness = row(10, 5, 1, "/usr/local/bin/cursor-agent --force");
+  const aiterm = row(11, 10, 2, "/usr/local/bin/node /srv/aiterm/dist/index.js");
+  const approval = row(12, 10, 2, "/usr/local/bin/node /srv/approval-box/cli.mjs mcp");
+  const npm = row(13, 10, 3, "npm exec typescript-language-server --stdio");
+  const language = row(14, 13, 3, "node typescript-language-server --stdio");
+  const startupRows = [shell, harness, aiterm, approval, npm, language];
+  const identities = startupRows.map(key);
+  const startup = new Set(identities);
+  const shapes = core.startupProcessShapes(identities, startupRows);
+  assert.deepEqual(shapes.find(shape => shape.identity === key(language)), { identity: key(language), parent: key(npm), argv_digest: language.argv_digest });
+  assert.equal(shapes.find(shape => shape.identity === key(shell)).parent, null);
+  // 控えた後に終了したprocessは、形を控えられない。
+  assert.equal(core.startupProcessShapes([...identities, "99:gone"], startupRows).length, startupRows.length);
+  const count = (now, known = shapes) => core.postStartupProcessCount("cursor", now, now, startup, known);
+
+  // Cursorは起動時にstdioのMCPを立て直す。控えの後にずれた時、控えの2つは終了し、同じargvの2つが同じ親の下に立つ。
+  const aiterm2 = row(21, 10, 15, aiterm.command);
+  const approval2 = row(22, 10, 15, approval.command);
+  const restarted = [shell, harness, aiterm2, approval2, npm, language];
+  assert.equal(count(restarted), 0);
+  // 形の控えが無い旧版の記録は、今までどおり数える。
+  assert.equal(count(restarted, []), 2);
+  assert.equal(core.postStartupProcessCount("cursor", restarted, restarted, startup), 2);
+  // 立て直されたMCPの下で動くものは数える。
+  assert.equal(count([...restarted, row(30, 21, 20, "sleep 240")]), 1);
+  // もう一度立て直されても、終了した控え1つにつき1つだけ数えない。
+  const aiterm3 = row(23, 10, 40, aiterm.command);
+  assert.equal(count([shell, harness, aiterm3, approval2, npm, language]), 0);
+  assert.equal(count([shell, harness, aiterm2, aiterm3, approval2, npm, language]), 1);
+  // 控えの物が生きている間に同じargvで立ったものは、立て直しではない。
+  assert.equal(count([...startupRows, aiterm2]), 1);
+  // 親が違う、argvが違うものは数える。
+  assert.equal(count([shell, harness, approval, npm, language, row(24, 5, 15, aiterm.command)]), 1);
+  assert.equal(count([shell, harness, approval, npm, language, row(25, 10, 15, `${aiterm.command} --other`)]), 1);
+  // 親ごと立て直された時は、立て直された親の下を見る。
+  const npm2 = row(26, 10, 15, npm.command);
+  const language2 = row(27, 26, 16, language.command);
+  assert.equal(count([shell, harness, aiterm, approval, npm2, language2]), 0);
+  assert.equal(count([shell, harness, aiterm, approval, language2, npm2]), 0);
+  assert.equal(count([shell, harness, aiterm, approval, npm, row(28, 26, 16, language.command)]), 1);
+});
+
 test("通常PTYの自己識別と明示キーだけの環境照会", async () => {
   const name = "ordinary";
   core.openSession(name, process.platform === "win32" ? "pwsh" : "bash", ["AITERM_TEST_OWNER"]);

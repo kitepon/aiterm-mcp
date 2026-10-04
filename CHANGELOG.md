@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `pty_observe`の`activity.post_startup_process_count`で、harnessが立て直した起動時のprocessを数えない（ADR 0083）。
+  Cursorは起動時にstdioのMCPを立て、最初のつなぎが済むと止めて立て直す。つながるのが遅いMCPがあると、立て直しが
+  起動完了の後になり、何もしていない席で数が残っていた（実物で、直結3・中継ごし4）。起動時のprocessが終了していて、
+  同じ親の下に同じargvで立っているprocessは、その立て直しとして扱う。その下で動くprocessは今までどおり数える。
+  この版より前のAitermが起動したagentは、今までどおり数える。
+
 ## [0.51.0] - 2026-10-04
 
 ### 追加

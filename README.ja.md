@@ -299,7 +299,7 @@ $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeo
 
 Cursorの`model`は`gpt-5.6-luna`のようなbase model、`reasoning_effort`は`high`のように別指定する。adapterは現行`model-effort` IDを`cursor-agent models`へ照合し、起動中変更はCursor標準model pickerのparameter editorを使う。不在時は別modelへfallbackしない。
 
-新しい端末の環境は、その端末を開いたMCP processの環境で決まる（v0.50.0から。ADR 0081）。tmuxのserverを
+新しい端末の環境は、その端末を開いたMCP processの環境で決まる（0.50.0から。ADR 0081）。tmuxのserverを
 先に起こした別の呼び出し元の値は入らない。Aitermが端末ごとに付け直す`AITERM_SESSION_ID`・`AITERM_AGENT_*`は
 継がない。harnessがMCP processへ渡す環境が少なければ、端末の環境もその分だけになる（Codexは既定で
 `HOME`・`PATH`・`SHELL`・`TERM`。要る変数は`[mcp_servers.aiterm]`の`env_vars`で渡す）。

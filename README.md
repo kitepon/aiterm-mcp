@@ -321,7 +321,7 @@ The canonical harness choices are:
 | `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check |
 | `cursor-cli` | Cursor Agent CLI | GPT, Claude, Grok, or another Cursor catalog model; normal transcript completion |
 
-A new terminal gets the environment of the MCP process that opened it (since v0.50.0, ADR 0081).
+A new terminal gets the environment of the MCP process that opened it (since 0.50.0, ADR 0081).
 Values from another caller that happened to start the tmux server first no longer appear in it.
 `AITERM_SESSION_ID` and `AITERM_AGENT_*` are not inherited; aiterm sets them per terminal. If a harness
 passes only a few variables to its MCP process, the terminal has only those (Codex passes `HOME`, `PATH`,
@@ -802,7 +802,7 @@ trust, memory, or history stores. Cleanup removes only aiterm-owned launch metad
 correlation files.
 
 The ordinary environment comes from the MCP process that opened the terminal, not from whichever caller
-started the persistent multiplexer server (since v0.50.0). Every harness still accepts
+started the persistent multiplexer server (since 0.50.0). Every harness still accepts
 `env_vars: ["NAME", ...]`; those names are placed on the launch command and registered on the session.
 
 ## License

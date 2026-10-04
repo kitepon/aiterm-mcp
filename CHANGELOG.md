@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.3] - 2026-10-04
+
 ### 修正
 
 - 完了待ちが、子の答えを待つ間ずっと、100msごとに`tmux capture-pane`を起動していた（ADR 0085）。利用上限の知らせを、完了の見回りの
@@ -2088,7 +2090,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.3...HEAD
+[0.51.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.2...v0.51.3
 [0.51.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.1...v0.51.2
 [0.51.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.50.0...v0.51.0

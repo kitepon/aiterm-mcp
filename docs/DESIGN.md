@@ -47,6 +47,16 @@ psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AIT
 sessionの表には環境が丸ごと入るので、名指しで登録した名前をsessionのoption `@aiterm_env_keys`に控え、
 `env_keys`はその名前だけを返す。psmuxは元から端末ごとに呼び出し元の環境を継ぐ。
 
+内部の`killAll`は終了するsocketのsession一覧と、そのsocketのログ等に残るsession名だけを対象にする。
+別socketが同じ`AITERM_STATE_BASE`を使っていても、他のsessionの登録・完了記録・待機lockを削除しない。
+対象の一覧取得やserver終了が失敗した場合は登録を削除しない（ADR 0087）。
+試験の正規入口（`npm test`とCI）は`test/seat-env.mjs`を前処理として読み、席の保存場所・系譜・tmux環境を外し、
+試験processごとの一時領域を指定する。個別試験が指定する`TMPDIR`と`XDG_RUNTIME_DIR`もそのまま利用できる。
+
+agent配送だけを期待する連携元は`pty_send(require_agent:true)`を指定する。agent登録が無ければ、通常PTYへ送る前に
+`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。未送信を確定してから対象sessionを復旧できる。
+省略時の通常PTY送信は維持し、`force:true`との併用は打鍵前に拒否する。
+
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。

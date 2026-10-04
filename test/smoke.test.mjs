@@ -119,6 +119,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.equal(ptySend.inputSchema.properties.timeout, undefined, "v0.16: pty_send はブロックしない");
   assert.equal(ptySend.inputSchema.properties.screen, undefined);
   assert.equal(ptySend.inputSchema.properties.lines, undefined);
+  assert.equal(ptySend.inputSchema.properties.require_agent.default, false);
   assert.equal(ptySend.outputSchema.properties.schema.const, "aiterm.pty-send-result.v1", "pty_send result schema");
   assert.deepEqual(ptySend.outputSchema.properties.mode.enum, ["sent", "agent_dispatch", "agent_steer"], "pty_send mode schema");
   assert.deepEqual(ptySend.outputSchema.properties.harness.anyOf[0].enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli"], "pty_send harness schema");

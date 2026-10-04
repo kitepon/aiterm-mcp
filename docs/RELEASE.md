@@ -17,6 +17,7 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 ## Release手順
 
 1. 変更に直結するfocused testを手元で通す。full regressionは手元で回さず、CIに任せる。
+   個別試験も`node --import ./test/seat-env.mjs --test ...`で起動する。稼働中の席の保存場所を試験へ継承しない。
 2. `CHANGELOG.md`の`## [Unreleased]`へ内容を書き、mainへcommitしてpushする。
 3. 一回で公開する。
 

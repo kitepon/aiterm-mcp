@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 席の中で起動した試験が`AITERM_STATE_BASE`を本番から引き継ぎ、`killAll`で他のsocketのagent登録まで
+  削除していた（ADR 0087）。BellTeamで複数席の送信が通常PTYの`mode=sent`となり、完了待ちと回答の表示が
+  失敗した。`killAll`は現在のsocketのsessionと控えに属する登録だけを消し、他のsocketの待機lockも保持する。
+  試験入口は本番の保存場所・系譜・tmux環境を外して一時領域を指定する。既に失った登録は対象sessionを
+  閉じて同じIDで起動し直して復旧する。登録の形式と公開toolの返却形式は変えていない。
+- `pty_send`に`require_agent:true`を追加した。agent登録が無いsessionには打鍵せず、
+  `AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。連携元は、登録消失後の二重送信を避けて復旧できる。
+  省略時は従来の通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
+
 ## [0.51.3] - 2026-10-04
 
 ### 修正

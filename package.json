@@ -64,10 +64,10 @@
     "mcpb:build": "npm run build && node scripts/build-mcpb.mjs && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --prefix dist/mcpb-stage/server && npx --yes @anthropic-ai/mcpb@2.1.2 validate dist/mcpb-stage/manifest.json && npx --yes @anthropic-ai/mcpb@2.1.2 pack dist/mcpb-stage dist/aiterm-mcp.mcpb",
     "verify:release-commit": "node scripts/verify-release-commit.mjs",
     "release": "node scripts/release.mjs",
-    "test:docs": "node --test test/repository-contract.test.mjs",
+    "test:docs": "node --import ./test/seat-env.mjs --test test/repository-contract.test.mjs",
     "prepublishOnly": "npm run verify:release-commit && npm run build",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test scripts/verify-release-commit.test.mjs test/*.test.mjs"
+    "test": "npm run build && node --import ./test/seat-env.mjs --test scripts/verify-release-commit.test.mjs test/*.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

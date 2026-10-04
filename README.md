@@ -280,6 +280,8 @@ The same primitive hosts another agent's TUI. `agent_launch` starts a selected e
 
 起動結果には正規`harness`を含む`aiterm.agent-launch-result.v1`が付き、旧`provider`は互換fieldとして残る。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`にも載る。Codexは通常rollout、Grokは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcriptの`turn_ended`を完了正本に使う。agentへの送信は`pty_send`だけで行い、Aitermが送る時点で子の状態を見て振り分ける。Claudeは画面の実行中表示ではなくStopまで残るturnの印で判定する。実行中のturnへは差し込み（`mode=agent_steer`、新しい`event_cursor`と配送は作らない）、それ以外は非ブロックdispatch（`mode=agent_dispatch`）で、harnessごとの完了境界を表す整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたはqueue、Claude Code親は公式非同期hookで本文を自動受信する。他の親は[`aiterm-wait`](#completion-push-for-parent-agents-aiterm-wait)を使う。CursorのsubmitはadapterがCLIのextended keyboard protocolへ変換し、送信本文がcomposerへ残る場合は明示errorにする。
 
+Set `require_agent:true` on `pty_send` when the integration requires agent delivery. If the agent registration is missing, Aiterm refuses before sending any text and returns `AGENT_SESSION_REQUIRED` with an explicit unsent message. The default preserves ordinary PTY sends; combining it with `force:true` is rejected before sending.
+
 `agent_launch` and `pty_send` (to an agent session) accept an optional `image`: an array of absolute paths to image files (png/jpg/jpeg/gif/webp). Aiterm appends an attachment block to the prompt, and every harness opens the path with its own file-reading tool and sees the image; the caller never learns harness-specific attachment tricks. Invalid paths are rejected before anything is sent.
 
 `agent_launch` accepts an optional `write_scope`: either `"read-only"` or a human-readable description of writable paths. Codex/Grok use `--sandbox read-only`; Cursor uses its official read-only `--mode ask`. A path description remains declaration-only because these CLI launch surfaces provide no equivalent path allowlist flag.
@@ -587,7 +589,7 @@ continue to use `claude_approval`.
 | Tool | Role | Key args |
 | --- | --- | --- |
 | `pty_open` | Open one terminal and return a `session_id` | `name?`, `shell?`, `env_vars?` |
-| `pty_send` | Send text. On an agent session Aiterm picks the route when it sends: if the child's turn is running, it steers the text into that turn (`agent_steer`); otherwise it is a non-blocking **dispatch** returning an `event_cursor` (`agent_dispatch`). Steering fails when Grok does not queue the text or Cursor leaves it in the composer | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
+| `pty_send` | Send text. On an agent session Aiterm picks the route when it sends: if the child's turn is running, it steers the text into that turn (`agent_steer`); otherwise it is a non-blocking **dispatch** returning an `event_cursor` (`agent_dispatch`). Steering fails when Grok does not queue the text or Cursor leaves it in the composer | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `rtk`, `raw` |
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |

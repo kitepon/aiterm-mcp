@@ -1654,9 +1654,30 @@ export function closeSessionResult(name: string): PtyCloseResult {
 }
 
 export function killAll(): string {
+  // agentsはAITERM_STATE_BASEを共有する別socketの席も含み得る。終了対象はこのsocketから確定する。
+  const sessions = new Set<string>();
+  const listed = tmux("list-sessions", "-F", "#{session_name}");
+  if (listed.code !== 0 && !/no server running|No such file or directory|failed to connect/i.test(listed.stderr)) {
+    throw new AitermError("killAllの対象sessionを取得できません: " + listed.stderr.trim(), 2);
+  }
+  if (listed.code === 0) for (const name of listed.stdout.trim().split(/\r?\n/).filter(Boolean)) {
+    assertSessionName(name);
+    sessions.add(name);
+  }
+  // serverが外から終了した時の控えも、このsocketの中に残る名前だけ片付ける。
+  let socketFiles: string[] = [];
+  try {
+    socketFiles = fs.readdirSync(SOCKDIR);
+  } catch {
+    /* socketの置き場が無い */
+  }
+  for (const file of socketFiles) {
+    const name = file.replace(/\.(?:log|offset|lastcmd|mark|send\.lock)$/, "");
+    if (name !== file && /^[A-Za-z0-9_-]{1,64}$/.test(name)) sessions.add(name);
+  }
   {
     // 別プロセスの待機（file lock が生きているもの）も巻き添えにしない
-    const foreign = liveWaitLocks(null);
+    const foreign = liveWaitLocks(null).filter((lock) => sessions.has(lock.session));
     if (foreign.length > 0) {
       const list = foreign.map((d) => `${d.session}${d.pid != null ? `(pid ${d.pid})` : ""}`).join(",");
       throw new AitermError(`agent_done 待機中の session があるため killAll できません: ${list}`, 2);
@@ -1669,7 +1690,10 @@ export function killAll(): string {
       throw new AitermError(`送信中の session があるため killAll できません: ${list}`, 2);
     }
   }
-  tmux("kill-server");
+  const killed = tmux("kill-server");
+  if (killed.code !== 0 && !/no server running|No such file or directory|failed to connect/i.test(killed.stderr)) {
+    throw new AitermError("このsocketのserverを終了できません: " + killed.stderr.trim(), 2);
+  }
   // B9: SOCKDIR 内の .log/.offset/.lastcmd/.mark/.send.lock 残骸も掃除する。
   try {
     for (const f of fs.readdirSync(SOCKDIR)) {
@@ -1684,37 +1708,7 @@ export function killAll(): string {
   } catch {
     /* SOCKDIR 不在等は無視 */
   }
-  const adir = existingAgentsDir();
-  if (adir) {
-    try {
-      for (const f of fs.readdirSync(adir)) {
-        if (
-          f.endsWith(".agent.json") ||
-          f.endsWith(".events.jsonl") ||
-          f.endsWith(".wait.lock") ||
-          f.endsWith(".claude-settings.json") ||
-          f.endsWith(".claude-mcp.json") ||
-          f.endsWith(".claude-result.json") ||
-          f.endsWith(".claude-operation.json") ||
-          f.endsWith(".claude-dispatch") ||
-          f.endsWith(".interim.json") ||
-          f.endsWith(".auth.json") ||
-          f.endsWith(".codex-home") ||
-          f.endsWith(".grok-home") ||
-          f.endsWith(".home")
-        ) {
-          try {
-            fs.rmSync(path.join(adir, f), { recursive: true, force: true });
-          } catch {
-            /* noop */
-          }
-        }
-      }
-    } catch {
-      /* agent state dir 不在等は無視 */
-    }
-  }
-  agentMetadataNegativeCache.clear();
+  for (const name of sessions) cleanupAgentState(name);
   return "killed all sessions on this socket";
 }
 

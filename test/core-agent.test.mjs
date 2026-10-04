@@ -2000,6 +2000,46 @@ test("openAgent grok agent_done: cleanup は共有 auth/config/GROK_HOME を残�
   }
 });
 
+test("killAll: 同じstateを使う別socketのagent登録を残す", { skip: skipAgentDone }, () => {
+  const foreignRoot = fs.mkdtempSync(path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", "ak-"));
+  const foreignSession = "foreign_socket_agent";
+  const foreignEnv = { ...process.env, TMPDIR: foreignRoot, XDG_RUNTIME_DIR: foreignRoot,
+    AITERM_STATE_BASE: process.env.TMPDIR };
+  const coreUrl = new URL("../dist/core.js", import.meta.url).href;
+  const runForeign = (body) => spawnSync(process.execPath, ["--input-type=module", "-e",
+    `const core = await import(${JSON.stringify(coreUrl)}); ${body}`],
+  { env: foreignEnv, encoding: "utf8", timeout: 15000 });
+  let localSession;
+  try {
+    const opened = runForeign(`core.openAgent("claude", { session_name: ${JSON.stringify(foreignSession)}, agent_done: true });`);
+    assert.equal(opened.status, 0, opened.stderr);
+    const foreignMeta = readAgentMeta(foreignSession);
+    const files = fs.readdirSync(agentStateDir()).filter((file) => file.startsWith(`${foreignSession}.`));
+    const before = new Map(files.map((file) => [file, fs.readFileSync(path.join(agentStateDir(), file))]));
+    [localSession] = core.openAgent("claude", { agent_done: true });
+    const localMeta = readAgentMeta(localSession);
+    core.killAll();
+    assert.equal(fs.existsSync(path.join(agentStateDir(), `${localSession}.${localMeta.launch_id}.agent.json`)), false);
+    for (const [file, bytes] of before) {
+      assert.deepEqual(fs.readFileSync(path.join(agentStateDir(), file)), bytes, `別socketの${file}を変えた`);
+    }
+    assert.equal(fs.existsSync(foreignMeta.event_file), true);
+    const observed = runForeign(`if (!core.listSessionsResult().sessions.some(session => session.session_id === ${JSON.stringify(foreignSession)}) || !core.isAgentSession(${JSON.stringify(foreignSession)})) process.exit(2);`);
+    assert.equal(observed.status, 0, observed.stderr);
+    // 別socketの生きた待機者も、このsocketの終了を妨げない。
+    const lock = path.join(agentStateDir(), `${foreignSession}.${foreignMeta.launch_id}.wait.lock`);
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.ppid, at: new Date().toISOString() }));
+    core.openSession("local_socket_only");
+    assert.doesNotThrow(() => core.killAll());
+    assert.equal(fs.existsSync(lock), true);
+    fs.unlinkSync(lock);
+  } finally {
+    runForeign(`core.closeSession(${JSON.stringify(foreignSession)});`);
+    if (localSession) core.closeSession(localSession);
+    fs.rmSync(foreignRoot, { recursive: true, force: true });
+  }
+});
+
 test("killAll: Claude operation markerとdispatch receiptもcleanupする", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   const operationId = `sha256:${"0".repeat(64)}`;

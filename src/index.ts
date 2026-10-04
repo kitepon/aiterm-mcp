@@ -295,6 +295,7 @@ registerRemoteAwareTool(
       "receipt の event_cursor を返す。" +
       NON_BLOCKING_RULE +
       "自動配送以外の結果回収は pty_read(agent_transcript:true)、Claude の durable turn は claude_turn を使う。" +
+      "require_agent:true はagent登録が無いsessionへ打鍵せず、AGENT_SESSION_REQUIREDで未送信を返す。" +
       "force:true は非Claude agent sessionへの手動介入用の素送信。aiterm相関付きClaudeの承認UIはclaude_approvalを使う。",
     inputSchema: {
       session_id: z.string(),
@@ -315,6 +316,7 @@ registerRemoteAwareTool(
         .boolean()
         .default(false)
         .describe("非Claude agent sessionでは自動dispatchせず素送信する。aiterm相関付きClaudeのactive turnには使えない"),
+      require_agent: z.boolean().default(false).describe("agent登録が無いsessionは打鍵前に拒否する。force:trueとは併用できない"),
       rtk: z.boolean().default(false).describe("既知コマンドを rtk 形へ委譲して送る（rtk 不在なら素通し）"),
       raw: z.boolean().default(false).describe("送信前サニタイズを無効化"),
       image: z
@@ -342,10 +344,17 @@ registerRemoteAwareTool(
       pane_input_recovery: z.array(z.string()).optional(),
     },
   },
-  async ({ session_id, text, enter, mark, force, rtk, raw, image }, extra) => {
+  async ({ session_id, text, enter, mark, force, require_agent, rtk, raw, image }, extra) => {
     let delivery: DeliveryRequest | null = null;
     try {
-      if (!force && core.isAgentSession(session_id)) {
+      if (require_agent && force) {
+        throw new Error("require_agent:true は force:true と併用できません。文字列は送信していません。");
+      }
+      const agentSession = !force && core.isAgentSession(session_id);
+      if (require_agent && !agentSession) {
+        throw new Error(`AGENT_SESSION_REQUIRED: session '${session_id}' のagent登録がありません。文字列は送信していません。`);
+      }
+      if (agentSession) {
         if (enter === false) throw new Error("agent session への dispatch は enter:false と併用できません（手動介入は force:true）");
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");

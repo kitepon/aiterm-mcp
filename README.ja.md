@@ -259,6 +259,8 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
 
+agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
+
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
 `agent_launch`は任意の`write_scope`も受ける。Codex／Grokのread-onlyは`--sandbox read-only`、Cursorは公式`--mode ask`で実効化する。path説明は同等CLI引数がないためdeclaration-only。
@@ -550,7 +552,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | ツール | 役割 | 主な引数 |
 | --- | --- | --- |
 | `pty_open` | 端末を1個開き`session_id`を返す | `name?`, `shell?`, `env_vars?` |
-| `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `rtk`, `raw` |
+| `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `rtk`, `raw` |
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |

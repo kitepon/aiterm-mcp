@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,10 +11,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 async function withClient(run, prepare = () => ({})) {
   const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "aiterm-public-"));
   const client = new Client({ name: "public-session-test", version: "1" });
-  const env = { ...process.env, TMPDIR: root, AITERM_TEST_OWNER: "公開試験", ...prepare(root) };
+  const env = { ...process.env, TMPDIR: root, XDG_RUNTIME_DIR: root, AITERM_STATE_BASE: root,
+    AITERM_TEST_OWNER: "公開試験", ...prepare(root) };
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve("dist/index.js")], env, stderr: "pipe" }));
-    await run((name, args = {}) => client.callTool({ name, arguments: args }));
+    await run((name, args = {}) => client.callTool({ name, arguments: args }), root);
   } finally {
     await client.close();
     // sessionを閉じてもpsmuxのwarm serverは残る。試験専用namespaceを終了してcwdのlockも解放する。
@@ -27,7 +28,7 @@ async function withClient(run, prepare = () => ({})) {
 }
 
 test("公開MCPで通常PTYの一覧・環境・活動・消滅を構造化して回収する", async () => {
-  await withClient(async call => {
+  await withClient(async (call, root) => {
     const sid = "public_ordinary";
     assert.equal((await call("pty_open", { name: sid, env_vars: ["AITERM_TEST_OWNER"] })).isError, undefined);
     try {
@@ -40,6 +41,14 @@ test("公開MCPで通常PTYの一覧・環境・活動・消滅を構造化し�
       assert.equal(before.activity.post_startup_process_count, null);
       assert.equal(before.pending_child_deliveries, null);
       const text = process.platform === "win32" ? "Write-Output '公開PTY試験'" : "printf '公開PTY試験\\n'";
+      const refused = await call("pty_send", { session_id: sid, text: "MUST_NOT_SEND_ORDINARY", require_agent: true });
+      assert.equal(refused.isError, true);
+      assert.match(refused.content[0].text, /^aiterm: AGENT_SESSION_REQUIRED:.*文字列は送信していません/);
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${sid}.log`), "utf8"), /MUST_NOT_SEND_ORDINARY/);
+      const forced = await call("pty_send", { session_id: sid, text: "MUST_NOT_SEND_FORCED", require_agent: true, force: true });
+      assert.equal(forced.isError, true);
+      assert.match(forced.content[0].text, /併用できません.*文字列は送信していません/);
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${sid}.log`), "utf8"), /MUST_NOT_SEND_FORCED/);
       await call("pty_send", { session_id: sid, text, mark: true });
       await call("pty_read", { session_id: sid, wait: true, timeout: 5 });
       const after = (await call("pty_observe", { session_id: sid, cursor: before.activity.cursor })).structuredContent;
@@ -47,6 +56,52 @@ test("公開MCPで通常PTYの一覧・環境・活動・消滅を構造化し�
       assert.equal(after.token_hint, null);
     } finally { await call("pty_close", { session_id: sid }); }
     assert.equal((await call("pty_observe", { session_id: sid })).structuredContent.state, "missing");
+  });
+});
+
+test("pty_send require_agentは通常PTYと消えたagent登録を打鍵前に拒否する", { skip: process.platform === "win32" }, async () => {
+  await withClient(async (call, root) => {
+    const ordinary = "required_ordinary";
+    const agent = "required_agent";
+    await call("pty_open", { name: ordinary });
+    try {
+      const rejected = await call("pty_send", { session_id: ordinary, text: "MUST_NOT_SEND_ORDINARY", require_agent: true });
+      assert.equal(rejected.isError, true);
+      assert.match(rejected.content[0].text, /^aiterm: AGENT_SESSION_REQUIRED:/);
+      assert.match(rejected.content[0].text, /文字列は送信していません/);
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${ordinary}.log`), "utf8"), /MUST_NOT_SEND_ORDINARY/);
+      const compatible = await call("pty_send", { session_id: ordinary, text: "echo COMPATIBLE_SEND" });
+      assert.equal(compatible.structuredContent.mode, "sent");
+      await call("agent_launch", { harness: "codex-cli", session_name: agent });
+      const dispatched = await call("pty_send", { session_id: agent, text: "VALID_AGENT_SEND", require_agent: true });
+      assert.equal(dispatched.isError, undefined);
+      assert.equal(dispatched.structuredContent.mode, "agent_dispatch");
+      const agents = join(root, `aiterm-mcp-${process.getuid()}`, "agents");
+      for (const file of readdirSync(agents)) {
+        if (file.startsWith(`${agent}.`) && file.endsWith(".agent.json")) unlinkSync(join(agents, file));
+      }
+      const lost = await call("pty_send", { session_id: agent, text: "MUST_NOT_SEND_LOST", require_agent: true });
+      assert.equal(lost.isError, true);
+      assert.match(lost.content[0].text, /AGENT_SESSION_REQUIRED.*文字列は送信していません/);
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${agent}.log`), "utf8"), /MUST_NOT_SEND_LOST/);
+      const forced = await call("pty_send", { session_id: ordinary, text: "MUST_NOT_SEND_FORCED", require_agent: true, force: true });
+      assert.equal(forced.isError, true);
+      assert.match(forced.content[0].text, /併用できません.*文字列は送信していません/);
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${ordinary}.log`), "utf8"), /MUST_NOT_SEND_FORCED/);
+    } finally {
+      await call("pty_close", { session_id: ordinary });
+      await call("pty_close", { session_id: agent });
+    }
+  }, root => {
+    const bin = join(root, "codex");
+    const home = join(root, "codex-home");
+    mkdirSync(home);
+    writeFileSync(bin, `#!/usr/bin/env node
+process.stdin.setRawMode(true);
+process.stdout.write('OpenAI Codex\\n› ready\\n');
+process.stdin.on('data', chunk => process.stdout.write('RECEIVED:' + chunk.toString() + '\\n'));
+`, { mode: 0o700 });
+    return { CODEX_BIN: bin, CODEX_HOME: home };
   });
 });
 

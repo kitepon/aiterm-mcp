@@ -20,17 +20,17 @@ if (scope === 'all') {
     'scripts/verify-release-commit.test.mjs',
     ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
   ];
-  run(process.execPath, ['--test', ...files]);
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
 } else if (scope === 'metadata') {
   build();
-  run(process.execPath, ['--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
 } else if (scope === 'selected') {
   const files = JSON.parse(process.env.PRODUCT_CI_TEST_FILES ?? '[]');
   if (!Array.isArray(files) || files.length === 0 || files.some((file) => typeof file !== 'string')) {
     throw new Error('PRODUCT_CI_TEST_FILES が不正です');
   }
   build();
-  run(process.execPath, ['--test', ...files]);
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
 } else {
   throw new Error(`PRODUCT_CI_TEST_SCOPE が不正です: ${scope || '未指定'}`);
 }

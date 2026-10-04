@@ -520,7 +520,7 @@ agent sessionを閉じると失うものは、次の2項目で分かる。`activ
 完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。数えないものは2つ。Codex自身の
 補助process（`codex-code-mode-host`）と、中継`mcp-lazy`の直接の子（初めて使う時に起こすMCPの本体と、先行起動の判定）。
 その下で動くprocessは数える。harnessが立て直した起動時のprocess（終了した起動時のprocessと同じ親の下に、同じargvで立ったもの。
-つなぎ直したMCPなど）も数えない。`pending_child_deliveries`は、そのsessionが親として待っていて、まだ届け終えていない
+つなぎ直したMCPなど）も数えない。Aitermがprocessの一覧を引くために起こすprocess（`ps`、WindowsではPowerShellとそのconsole host）も数えない。`pending_child_deliveries`は、そのsessionが親として待っていて、まだ届け終えていない
 子の結果の数。呼び出した側が誰でも付く。どちらも、分からない時はnull（通常PTY、harnessのprocessを特定できない時。
 processの数は0.48.0以前が起動したagentも）。別端末が旧版の時は項目ごと無い。nullと項目なしは「分からない」で、0ではない。
 

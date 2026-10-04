@@ -48,7 +48,15 @@ export function deliveryKey(sessionId: string, remote?: RemoteTarget): string {
 const boundaryKey = (boundary: DeliveryRecord["boundary"]) => deliveryKey(boundary.session_id, boundary.remote);
 export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
 type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void> };
-type Owner = { pid: number; started_identity: string; closed: boolean };
+type Owner = {
+  pid: number; started_identity: string; closed: boolean;
+  // 他の持ち主の保存場所が消えても読める版の印。この印の無い生きた持ち主が居る間は、保存場所を消さない。
+  removal_safe?: boolean;
+  // 回収側が閉じた時の理由。持ち主が自分で閉じた時は付かない。
+  closed_reason?: "pid_reused";
+};
+// 回収の時点で見た、closeしていない持ち主の状態。unverifiedはpidは居るが開始時刻を照合できない。
+type OwnerFate = "alive" | "gone" | "reused" | "unverified";
 type Parent = CodexParent | ClaudeParent | CursorParent;
 const isClaude = (parent: Parent): parent is ClaudeParent => "kind" in parent && parent.kind === "claude";
 const isCursor = (parent: Parent): parent is CursorParent => "kind" in parent && parent.kind === "cursor";
@@ -82,12 +90,19 @@ export interface ParentDeliveryDependencies {
 // 5秒おきの確認はpidの存在だけを見て、開始時刻は初めて見た持ち主とこの間隔でだけ照合する。
 // 持ち主が終了した直後に同じpidが再利用された時だけ、回収が最長でこの間隔だけ遅れる。生きている持ち主の記録は引き取らない。
 const OWNER_IDENTITY_RECHECK_MS = 60_000;
+// owner.jsonの無い保存場所を、作っている途中の持ち主として扱う時間。
+const OWNER_SETUP_GRACE_MS = 60_000;
 
 function processExists(pid: number): boolean {
   // 0以下はprocess groupを指す。持ち主のpidにはならない。
   if (pid <= 0) return false;
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+}
+
+function ownerSetupInProgress(directory: string): boolean {
+  try { return Date.now() - fs.statSync(directory).mtimeMs < OWNER_SETUP_GRACE_MS; }
+  catch { return false; }
 }
 
 function readRecord(file: string): DeliveryRecord {
@@ -132,8 +147,8 @@ export class ParentDeliveryManager {
   private readonly registering = new Map<string, Promise<void>>();
   private readonly timer: NodeJS.Timeout;
   private recovering: Promise<void> | null = null;
-  // 他の持ち主の開始時刻を最後に照合した時刻（持ち主の保存場所ごと）。
-  private readonly verifiedOwners = new Map<string, { pid: number; started_identity: string; at: number }>();
+  // 他の持ち主の開始時刻を最後に照合した時刻と結果（持ち主の保存場所ごと）。照合できなかった結果も覚える。
+  private readonly verifiedOwners = new Map<string, { pid: number; started_identity: string; at: number; alive: boolean }>();
   private serviceError: Error | null = null;
   private closing = false;
 
@@ -158,7 +173,7 @@ export class ParentDeliveryManager {
     this.claims = path.join(options.root ?? path.join(stateRoot, prefix + "parent-deliveries"), "claims");
     const ownProcess = this.deps.processes([process.pid]).find((entry) => entry.pid === process.pid);
     if (!ownProcess) throw new AitermError("PARENT_DELIVERY_OWNER_UNKNOWN: 配送processを識別できません", 2);
-    this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false };
+    this.owner = { pid: process.pid, started_identity: ownProcess.started_identity, closed: false, removal_safe: true };
     this.ownerDir = path.join(this.active, `${deliveryOwnerPrefix(this.owner)}${randomUUID()}`);
     fs.mkdirSync(this.ownerDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this.results, { recursive: true, mode: 0o700 });
@@ -360,7 +375,11 @@ export class ParentDeliveryManager {
       for (const owner of fs.readdirSync(active, { withFileTypes: true })) {
         if (!owner.isDirectory()) continue;
         const directory = path.join(active, owner.name);
-        files.push(...fs.readdirSync(directory).filter((name) => name !== "owner.json" && name.endsWith(".json")).map((name) => path.join(directory, name)));
+        let names: string[];
+        // 一覧を取った後に、回収が終了した持ち主の保存場所を消す事がある。
+        try { names = fs.readdirSync(directory); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+        files.push(...names.filter((name) => name !== "owner.json" && name.endsWith(".json")).map((name) => path.join(directory, name)));
       }
     }
     return files;
@@ -394,7 +413,7 @@ export class ParentDeliveryManager {
     const directories = fs.readdirSync(this.active, { withFileTypes: true })
       .filter((directory) => directory.isDirectory() && path.join(this.active, directory.name) !== this.ownerDir);
     const now = this.deps.now();
-    const alive = new Map<string, boolean>();
+    const fate = new Map<string, OwnerFate>();
     const unverified: { name: string; pid: number; started_identity: string }[] = [];
     for (const directory of directories) {
       let owner: Partial<Owner>;
@@ -402,32 +421,58 @@ export class ParentDeliveryManager {
       catch { continue; /* 形式の検査と失敗の扱いは下の回収で行う */ }
       if (owner?.closed !== false || !Number.isSafeInteger(owner.pid) || typeof owner.started_identity !== "string") continue;
       const pid = owner.pid as number;
-      if (!this.deps.exists(pid)) { alive.set(directory.name, false); continue; }
+      if (!this.deps.exists(pid)) { fate.set(directory.name, "gone"); continue; }
       const verified = this.verifiedOwners.get(directory.name);
       if (verified && verified.pid === pid && verified.started_identity === owner.started_identity
-        && now - verified.at < OWNER_IDENTITY_RECHECK_MS) alive.set(directory.name, true);
+        && now - verified.at < OWNER_IDENTITY_RECHECK_MS) fate.set(directory.name, verified.alive ? "alive" : "unverified");
       else unverified.push({ name: directory.name, pid, started_identity: owner.started_identity });
     }
     if (unverified.length > 0) {
       const processes = this.deps.processes([...new Set(unverified.map((entry) => entry.pid))]);
       for (const entry of unverified) {
-        const same = processes.some((row) => row.pid === entry.pid && row.started_identity === entry.started_identity);
-        alive.set(entry.name, same);
-        if (same) this.verifiedOwners.set(entry.name, { pid: entry.pid, started_identity: entry.started_identity, at: now });
+        const row = processes.find((candidate) => candidate.pid === entry.pid);
+        const state: OwnerFate = !row ? "unverified" : row.started_identity === entry.started_identity ? "alive" : "reused";
+        fate.set(entry.name, state);
+        // 別のprocessと分かった持ち主は下で閉じるので、照合の結果を覚えない。
+        if (state !== "reused") this.verifiedOwners.set(entry.name, { pid: entry.pid, started_identity: entry.started_identity, at: now, alive: state === "alive" });
       }
     }
-    for (const name of this.verifiedOwners.keys()) if (alive.get(name) !== true) this.verifiedOwners.delete(name);
+    for (const name of this.verifiedOwners.keys()) {
+      const state = fate.get(name);
+      if (state !== "alive" && state !== "unverified") this.verifiedOwners.delete(name);
+    }
+    // 記録を引き取り終えた、終了した持ち主の保存場所。残すと、回収のたびに全部を読み直す。
+    const finished: string[] = [];
+    // owner.jsonの無い、古い保存場所。
+    const abandoned: string[] = [];
+    // 旧版は、読んでいる最中に他の持ち主の保存場所が消えると回収が止まる。印の無い持ち主が生きている間は消さない。
+    let removalBlocked = false;
     for (const directory of directories) {
       const oldDir = path.join(this.active, directory.name);
+      const ownerFile = path.join(oldDir, "owner.json");
       let owner: Owner;
-      try { owner = JSON.parse(fs.readFileSync(path.join(oldDir, "owner.json"), "utf8")); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw new AitermError("PARENT_DELIVERY_OWNER_INVALID: 配送所有者の記録を読めません", 2); }
+      try { owner = JSON.parse(fs.readFileSync(ownerFile, "utf8")); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new AitermError("PARENT_DELIVERY_OWNER_INVALID: 配送所有者の記録を読めません", 2);
+        // 作っている途中の持ち主は版が分からない。
+        if (ownerSetupInProgress(oldDir)) removalBlocked = true;
+        else abandoned.push(oldDir);
+        continue;
+      }
       if (!Number.isSafeInteger(owner.pid) || typeof owner.started_identity !== "string" || typeof owner.closed !== "boolean") {
         throw new AitermError("PARENT_DELIVERY_OWNER_INVALID: 配送所有者の形式が不正です", 2);
       }
+      const state = fate.get(directory.name);
       // 生死を確かめた後に現れた持ち主は、次の回で扱う。生きている持ち主の記録は引き取らない。
-      if (!owner.closed && alive.get(directory.name) !== false) continue;
-      for (const name of fs.readdirSync(oldDir).filter((name) => name !== "owner.json" && name.endsWith(".json"))) {
+      if (!owner.closed && (state === undefined || state === "alive")) {
+        if (owner.removal_safe !== true) removalBlocked = true;
+        continue;
+      }
+      if (!owner.closed && state === "unverified" && owner.removal_safe !== true) removalBlocked = true;
+      let names: string[];
+      try { names = fs.readdirSync(oldDir); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+      for (const name of names.filter((name) => name !== "owner.json" && name.endsWith(".json"))) {
         const oldFile = path.join(oldDir, name);
         const file = path.join(this.ownerDir, name);
         // 元のpathが消えるrenameを使うため、同じ旧recordを二つのprocessで回収できない。
@@ -454,10 +499,31 @@ export class ParentDeliveryManager {
           }
         } else this.finish(job);
       }
+      if (!owner.closed && state === "reused") {
+        // 同じpidと開始時刻の組は二度と現れない。閉じた事にして、どの版の回収にも照合を繰り返させない。
+        // 書けなかった時は次の回でもう一度照合する。配送には影響しない。
+        try { writeJson0600(ownerFile, { ...owner, closed: true, closed_reason: "pid_reused" } satisfies Owner); }
+        catch { /* 次の回 */ }
+        continue;
+      }
+      // 持ち主が自分で閉じた保存場所と、pidがもう無い持ち主の保存場所だけを消す。
+      // 開始時刻の違いで閉じた保存場所は、そのpidが空くまで残す。
+      const ended = owner.closed ? owner.closed_reason === undefined || !this.deps.exists(owner.pid) : state === "gone";
+      if (ended) finished.push(oldDir);
+    }
+    if (removalBlocked) return;
+    // 片付けの失敗は配送に影響しない。残った保存場所は次の回でもう一度消す。
+    for (const directory of finished) {
+      try { fs.rmSync(directory, { recursive: true, force: true }); } catch { /* 次の回 */ }
+    }
+    for (const directory of abandoned) {
+      try { fs.rmdirSync(directory); } catch { /* 空でない、または既に無い */ }
     }
   }
 
   async close(): Promise<void> {
+    // 閉じた後の保存場所は、記録を引き取った他の持ち主が消す。二度目のcloseは何も書かない。
+    if (this.owner.closed) return;
     this.closing = true;
     clearInterval(this.timer);
     await this.recovering;

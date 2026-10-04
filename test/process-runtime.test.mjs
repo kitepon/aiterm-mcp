@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost } from "../dist/process-runtime.js";
 
 test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");
@@ -47,4 +47,30 @@ test("pidを指定した開始時刻の照会は、全process一覧と同じ開�
   const gone = spawnSync(process.execPath, ["-e", ""]).pid;
   assert.deepEqual(readProcessIdentities([gone]), []);
   assert.deepEqual(readProcessIdentities([gone, process.pid]).map(row => row.pid), [process.pid]);
+});
+
+test("Aitermがprocess表を引くために起こしたprocessを、コマンドの形で見分ける", () => {
+  // 一覧を取るprocessは、自分自身も一覧に載る。実際に起こした形と見分けの形が合っている事を、各OSの実物で確かめる。
+  assert.ok(readRuntimeProcesses().some(row => aitermProcessProbe(row.command)));
+  assert.equal(aitermProcessProbe("/bin/ps -axww -o pid=,ppid=,pgid=,stat=,lstart=,time=,command="), true);
+  assert.equal(aitermProcessProbe("/bin/ps -o pid=,lstart= -p 4242,4243"), true);
+  // 実測（Windows 11、2026-10-04）: 席の中のaiterm-mcpが約2.5秒おきに起こしていたPowerShell。
+  assert.equal(aitermProcessProbe('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnAAoAWwBDAG8AbgBzAG8AbABlAF0AOgA6AE8AdQB0AHAAdQB0AEUAbgBjAG8AZABpAG4AZwA9AFsAVABlAHgAdAAuAFUAVABGADgARQBuAGMAbwBkAGkAbgBnAF0AOgA6AG4AZQB3ACgAJABmAGEAbABzAGUAKQAKACQAcgBvAHcAcwA9AEAAKABHAGUAdAAtAEMAaQBtAEkAbgBzAHQAYQBuAGMAZQA='), true);
+  // 利用者や他の道具が起こすpsとPowerShellは、今までどおり数える側に残す。
+  assert.equal(aitermProcessProbe("ps aux"), false);
+  assert.equal(aitermProcessProbe("/bin/ps -o pid=,comm= -p 4242"), false);
+  assert.equal(aitermProcessProbe('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo -NoProfile -NonInteractive -Command "Get-Date"'), false);
+  assert.equal(aitermProcessProbe('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand RwBlAHQALQBEAGEAdABlAA=='), false);
+});
+
+test("Windowsのconsole hostを実行ファイルの名前で見分ける", () => {
+  assert.equal(windowsConsoleHost({ command: "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4" }), true);
+  assert.equal(windowsConsoleHost({ command: "conhost", executable: "C:\\WINDOWS\\system32\\conhost.exe" }), true);
+  assert.equal(windowsConsoleHost({ command: '"C:\\Program Files\\nodejs\\node.exe" conhost.exe' }), false);
+});
+
+test("Windowsの開始時刻の照会は、CommandLineを読めないprocessも返す", { skip: process.platform !== "win32" }, () => {
+  // pid 4（System）はCommandLineを持たない。pidが使い回された先を「別のprocess」と確かめるには、こういうprocessの行が要る。
+  assert.equal(readRuntimeProcesses().some(row => row.pid === 4), false);
+  assert.deepEqual(readProcessIdentities([4]).map(row => row.pid), [4]);
 });

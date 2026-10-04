@@ -56,6 +56,7 @@ sessionを閉じると失うものは数で返す（ADR 0080）。`activity.post
 `pending_child_deliveries`はそのsessionが親として待つ未配送の数。数えられない時はnullで、0と区別する。
 harnessと中継が自分のために立てるprocessは数えない（Codexの`codex-code-mode-host`、中継`mcp-lazy`の直接の子。ADR 0082）。その下は数える。
 harnessが同じ親の下に同じargvで立て直した起動時のprocessも数えない（ADR 0083）。
+Aitermがprocess表を引くために起こしたprocess（`ps`、WindowsのPowerShellと付いて立つconsole host）も数えない（ADR 0084）。
 中継の後ろで眠っている本体を配送の引き取りのために起こすかは、`aiterm-delivery-wake`が返す（ADR 0082）。
 Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ出た後も、入力欄の形（`❯`行の上下の罫線）で読む。
 画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
@@ -151,6 +152,9 @@ Codexの配送記録と本文はAiterm stateの`parent-deliveries`へ保存す�
 受信口が明示拒否した場合は`failed`、子の異常終了はそのoutcomeを配送する。
 生存の確認は5秒おきにpidの存在だけをOSへ聞き、開始識別子の照合は初めて見たownerと60秒に1回だけ行う。
 全processの一覧は取らない。終了直後に同じpidが再利用された時だけ、引き継ぎが最長60秒遅れる（ADR 0078）。
+pidが別のprocessへ使い回されたownerは、回収側が`owner.json`を`closed`へ書き換え、照合を繰り返さない。照合できないownerは60秒に1回だけ問い合わせる。
+記録を引き継ぎ終えた保存場所は、自分で閉じたownerとpidの無いownerのものを消す。保存場所が消えても読める印（`removal_safe`）の無いownerが
+同じ置き場で生きている間は消さない（ADR 0084）。
 このstateは既存のPTY／harness stateと独立し、旧版は配送を再開しない。
 
 ### Claude Code親への自動配送

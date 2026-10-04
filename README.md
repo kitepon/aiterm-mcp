@@ -553,7 +553,8 @@ processes in the session that did not exist when `agent_launch` finished startup
 started in the first minute is counted too. Two kinds of process are not counted: Codex's own `codex-code-mode-host` helper, and
 the direct children of an `mcp-lazy` relay (the MCP server it starts on first use and its wake predicate). What runs below them
 is counted. A startup process that the harness restarted (a process with the same parent and the same arguments as a startup
-process that has exited, such as a reconnected MCP server) is not counted either. `pending_child_deliveries`
+process that has exited, such as a reconnected MCP server) is not counted either, and neither are the processes Aiterm itself
+starts to read the process table (`ps`, or PowerShell and its console host on Windows). `pending_child_deliveries`
 is the number of sub-agent results this session is still waiting for as a parent, whoever the caller is. Both are null when
 Aiterm cannot tell (ordinary terminals, agents launched by 0.48.0 or earlier for the process count, or an unresolved harness
 process), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.

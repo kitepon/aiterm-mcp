@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 親配送の回収が、終了した持ち主の保存場所を残し続け、使い回されたpidを5秒おきにOSへ問い合わせていた（ADR 0084）。
+  Windowsでは問い合わせがPowerShellの起動で、MCP process 1つが約2.5秒に1回起こし続けていた（実物で、長く動く4つが85秒に約260回。
+  保存場所は約1,620）。macOSでは`ps`。記録を引き取り終えた保存場所は、自分で閉じた持ち主とpidの無い持ち主のものを消す。
+  pidが別のprocessへ使い回された持ち主は`owner.json`を`closed`へ書き換え、どの版の回収にも照合を繰り返させない。
+  開始時刻を照合できない持ち主は60秒に1回だけ問い合わせる。この版より前のMCP processが同じ置き場で生きている間は、保存場所を消さない。
+  `owner.json`に`removal_safe`と`closed_reason`が増える。前の版へ戻しても、そのまま動く（前の版はこの2つを読まない）。
+- Windowsの開始時刻の照会が、CommandLineを読めないprocessを結果から落としていた。pidがserviceへ使い回された時に、
+  別のprocessと確かめられなかった。
+- `pty_observe`の`activity.post_startup_process_count`で、Aitermがprocessの一覧を引くために起こすprocess
+  （`ps`、WindowsのPowerShellとそのconsole host）を数えない。Windowsで、何もしていない席の数が0と2を行き来していた。
+
 ## [0.51.1] - 2026-10-04
 
 ### 修正

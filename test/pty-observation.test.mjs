@@ -84,6 +84,32 @@ test("起動完了の後に増えたprocessのうち、中継の直接の子は�
   assert.equal(count("claude", [helper]), 1);
 });
 
+test("起動完了の後に増えたprocessのうち、Aitermがprocess表を引くために起こした物は数えない", () => {
+  const at = second => `2026-10-04T07:00:${String(second).padStart(2, "0")}.000Z`;
+  const row = (pid, parent_pid, second, command) => ({ pid, parent_pid, started_identity: at(second), command });
+  const startupRows = [
+    row(5, 1, 0, "/bin/bash"),
+    row(10, 5, 1, "/usr/local/bin/claude"),
+    row(11, 10, 2, "/usr/local/bin/node /srv/aiterm/dist/index.js"),
+  ];
+  const startup = new Set(startupRows.map(item => `${item.pid}:${item.started_identity}`));
+  const count = added => core.postStartupProcessCount("claude", [...startupRows, ...added], [...startupRows, ...added], startup);
+  // 席の中のAitermは、配送の持ち主の生存確認でpsを起こす。
+  assert.equal(count([row(20, 11, 30, "/bin/ps -o pid=,lstart= -p 4242")]), 0);
+  assert.equal(count([row(21, 11, 30, "/bin/ps -axww -o pid=,ppid=,pgid=,stat=,lstart=,time=,command=")]), 0);
+  // 実被弾（Windows 11）: 何もしていない席の数が、約20秒おきに0と2を行き来した。PowerShellと、付いて立つconsole host。
+  const probe = row(30, 11, 30, '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnAAoAWwBDAG8AbgBzAG8AbABlAF0AOgA6AE8AdQB0AHAAdQB0AEUAbgBjAG8AZABpAG4AZwA9AFsAVABlAHgAdAAuAFUAVABGADgARQBuAGMAbwBkAGkAbgBnAF0AOgA6AG4AZQB3ACgAJABmAGEAbABzAGUAKQAKACQAcgBvAHcAcwA9AEAAKABHAGUAdAAtAEMAaQBtAEkAbgBzAHQAYQBuAGMAZQA=');
+  const host = row(31, 30, 30, "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4");
+  assert.equal(count([probe, host]), 0);
+  // 問い合わせが先に終わって、console hostだけが残った瞬間。
+  assert.equal(count([host]), 0);
+  // Aitermの下でも、問い合わせでないものは数える。利用者の作業に付いたconsole hostも数える。
+  assert.equal(count([row(40, 11, 30, "ssh build-host aiterm-mcp")]), 1);
+  const work = row(50, 10, 30, '"C:\\Program Files\\nodejs\\node.exe" server.js');
+  assert.equal(count([work, row(51, 50, 30, "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4")]), 2);
+  assert.equal(count([row(60, 10, 30, "ps aux")]), 1);
+});
+
 test("harnessが同じ親の下に同じargvで立て直したprocessは、起動完了の控えの物として数えない", () => {
   const at = second => `2026-10-04T05:00:${String(second).padStart(2, "0")}.000Z`;
   const row = (pid, parent_pid, second, command) => ({ pid, parent_pid, started_identity: at(second), command, argv_digest: `digest:${command}` });

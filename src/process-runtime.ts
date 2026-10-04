@@ -49,22 +49,46 @@ export function parsePosixProcessTable(text: string): RuntimeProcess[] {
   });
 }
 
+// AitermがOSのprocess表を引く時のコマンドの形。席のprocessを数える側が、これを利用者の作業と取り違えないために使う。
+const POSIX_PS = "/bin/ps";
+const POSIX_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,stat=,lstart=,time=,command="];
+const POSIX_IDENTITY_ARGS = ["-o", "pid=,lstart=", "-p"];
+const WINDOWS_PROBE_HEADER = ["$ErrorActionPreference='Stop'", "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)"];
+const WINDOWS_PROBE_ARGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"];
+// 先頭2行だけのbase64。3 byteの区切りで切り、後ろの行に左右されない前方一致にする。
+const WINDOWS_PROBE_PREFIX = (() => {
+  const bytes = Buffer.from(WINDOWS_PROBE_HEADER.join("\n") + "\n", "utf16le");
+  return bytes.subarray(0, bytes.length - bytes.length % 3).toString("base64");
+})();
+
+/** Aitermがprocess表を引くために起こしたprocessか。引く側のAitermは、数えられる席の中のMCP processでもある。 */
+export function aitermProcessProbe(command: string): boolean {
+  if (command.includes(` ${WINDOWS_PROBE_ARGS.join(" ")} ${WINDOWS_PROBE_PREFIX}`)) return true;
+  return command === `${POSIX_PS} ${POSIX_TABLE_ARGS.join(" ")}` || command.startsWith(`${POSIX_PS} ${POSIX_IDENTITY_ARGS.join(" ")} `);
+}
+
+/** Windowsのconsole host。console processの起動に付いて立ち、最後のconsole processが終わると消える。 */
+export function windowsConsoleHost(row: RuntimeProcess): boolean {
+  const first = /^(?:"([^"]+)"|(\S+))/.exec(row.command);
+  const name = (row.executable || first?.[1] || first?.[2] || "").replace(/\\/g, "/");
+  return path.posix.basename(name).toLowerCase() === "conhost.exe";
+}
+
 export function readRuntimeProcesses(): RuntimeProcess[] {
   if (!isWin) {
-    const result = spawnSync("/bin/ps", ["-axww", "-o", "pid=,ppid=,pgid=,stat=,lstart=,time=,command="], {
+    const result = spawnSync(POSIX_PS, POSIX_TABLE_ARGS, {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
     });
     if (result.error || result.status !== 0) throw new AitermError("OSのprocess一覧を取得できません", 2);
     return parsePosixProcessTable(result.stdout);
   }
   const script = [
-    "$ErrorActionPreference='Stop'",
-    "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
+    ...WINDOWS_PROBE_HEADER,
     "@(Get-CimInstance Win32_Process | Where-Object { $null -ne $_.CreationDate -and $null -ne $_.CommandLine } | ForEach-Object {",
     "[ordered]@{ pid=[int]$_.ProcessId; parent_pid=[int]$_.ParentProcessId; executable=[string]$_.ExecutablePath; started_identity=$_.CreationDate.ToUniversalTime().ToString('o'); command=$_.CommandLine; cpu_seconds=([double]$_.KernelModeTime+[double]$_.UserModeTime)/10000000 }",
     "}) | ConvertTo-Json -Compress",
   ].join("\n");
-  const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+  const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {
     encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
   });
   if (result.error || result.status !== 0) throw new AitermError("Windowsのnative process一覧を取得できません", 2);
@@ -95,7 +119,7 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
   if (wanted.length === 0) return [];
   if (wanted.some(pid => !Number.isSafeInteger(pid) || pid < 0)) throw new AitermError("process照会のpidが不正です", 2);
   if (!isWin) {
-    const result = spawnSync("/bin/ps", ["-o", "pid=,lstart=", "-p", wanted.join(",")], {
+    const result = spawnSync(POSIX_PS, [...POSIX_IDENTITY_ARGS, wanted.join(",")], {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000,
     });
     // 該当するprocessが一つも無い時、psは何も出さずstatus 1で終わる。
@@ -108,15 +132,15 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
       return { pid: Number(match[1]), started_identity: match[2].trim() };
     });
   }
+  // CommandLineの読めないprocess（別の権限のserviceなど）も返す。pidが使い回された先を「別のprocess」と確かめるのに要る。
   const script = [
-    "$ErrorActionPreference='Stop'",
-    "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
-    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | Where-Object { $null -ne $_.CreationDate -and $null -ne $_.CommandLine } | ForEach-Object {`,
+    ...WINDOWS_PROBE_HEADER,
+    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {`,
     "[ordered]@{ pid=[int]$_.ProcessId; started_identity=$_.CreationDate.ToUniversalTime().ToString('o') }",
     "})",
     "ConvertTo-Json -Compress -InputObject $rows",
   ].join("\n");
-  const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+  const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {
     encoding: "utf8", timeout: 15000, windowsHide: true,
   });
   if (result.error || result.status !== 0) throw new AitermError("Windowsのnative process一覧を取得できません", 2);

@@ -387,16 +387,140 @@ test("回収処理は、pidが無くなった持ち主の記録を、processを�
   const calls = [];
   const h = setup(t, { exists: (pid) => pid === process.pid,
     processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }]; } });
-  const otherDir = path.join(h.root, "active", "424242-gone");
-  fs.mkdirSync(otherDir, { recursive: true });
-  fs.writeFileSync(path.join(otherDir, "owner.json"), JSON.stringify({ pid: 424242, started_identity: "gone-start", closed: false }));
   const manager = h.create();
   await manager.request(parent()).before_send(boundary());
   const [stored] = records(h.root);
   await manager.close();
+  // 終了した持ち主の記録として置き直す
+  const otherDir = path.join(h.root, "active", "424242-gone");
+  fs.mkdirSync(otherDir, { recursive: true });
+  fs.writeFileSync(path.join(otherDir, "owner.json"), JSON.stringify({ pid: 424242, started_identity: "gone-start", closed: false }));
   fs.renameSync(stored.file, path.join(otherDir, path.basename(stored.file)));
   const next = h.create(); await next.recover();
   assert.equal(next.status("child").length, 1);
-  assert.equal(fs.readdirSync(otherDir).filter(name => name !== "owner.json").length, 0);
+  // 引き取り終えた保存場所は消す。
+  assert.equal(fs.existsSync(otherDir), false);
   assert.ok(calls.every(pids => pids.length === 1 && pids[0] === process.pid), JSON.stringify(calls));
+});
+
+const ownerDirs = root => fs.readdirSync(path.join(root, "active")).sort();
+function plantOwner(root, name, owner) {
+  const directory = path.join(root, "active", name);
+  fs.mkdirSync(directory, { recursive: true });
+  if (owner) fs.writeFileSync(path.join(directory, "owner.json"), JSON.stringify(owner));
+  return directory;
+}
+
+// 実被弾: Windows 11で、aiterm-mcp 1つが約2.5秒おきにPowerShellを起こし続けた（長く動く4つで85秒に約260回）。
+// 終了した持ち主の保存場所が約1,600残り、そのpidが別のprocessへ使い回されていた。別のprocessと分かっても覚えず、5秒おきに照合し直していた。
+test("回収処理は、pidが別のprocessへ使い回された持ち主を閉じ、照合を繰り返さない", async (t) => {
+  const calls = [];
+  let reuser = true;
+  let clock = 0;
+  const h = setup(t, { exists: (pid) => pid === process.pid || (pid === 424242 && reuser), now: () => clock,
+    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" },
+      { pid: 424242, started_identity: "another-process" }].filter(row => pids.includes(row.pid)); } });
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  await manager.close();
+  const stale = plantOwner(h.root, "424242-stale", { pid: 424242, started_identity: "owner-start", closed: false });
+  fs.renameSync(stored.file, path.join(stale, path.basename(stored.file)));
+  const next = h.create(); await next.recover();
+  assert.equal(next.status("child").length, 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(stale, "owner.json"), "utf8")),
+    { pid: 424242, started_identity: "owner-start", closed: true, closed_reason: "pid_reused" });
+  // そのpidを別のprocessが使っている間は残す。照合は1回だけ。
+  const queried = calls.filter(pids => pids.includes(424242)).length;
+  assert.equal(queried, 1);
+  for (let i = 0; i < 30; i++) { clock += 5_000; await next.recover(); }
+  assert.equal(calls.filter(pids => pids.includes(424242)).length, queried);
+  assert.equal(fs.existsSync(stale), true);
+  // pidが空いたら消す。
+  reuser = false; clock += 5_000; await next.recover();
+  assert.equal(fs.existsSync(stale), false);
+  assert.equal(calls.filter(pids => pids.includes(424242)).length, queried);
+});
+
+test("回収処理は、開始時刻を照合できない持ち主を60秒に1回だけ問い合わせ、保存場所を残す", async (t) => {
+  const calls = [];
+  let clock = 0;
+  // pidは居るが、OSが行を返さない（照会の直前に終了した、または読めないprocess）。
+  const h = setup(t, { exists: () => true, now: () => clock,
+    processes: (pids) => { calls.push(pids); return [{ pid: process.pid, started_identity: "fixture-parent" }].filter(row => pids.includes(row.pid)); } });
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  await manager.close();
+  const unknown = plantOwner(h.root, "424242-unknown", { pid: 424242, started_identity: "owner-start", closed: false, removal_safe: true });
+  fs.renameSync(stored.file, path.join(unknown, path.basename(stored.file)));
+  const next = h.create(); await next.recover();
+  // 今までどおり記録は引き取る。閉じた印は付けず、消さない。
+  assert.equal(next.status("child").length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(unknown, "owner.json"), "utf8")).closed, false);
+  const queried = () => calls.filter(pids => pids.includes(424242)).length;
+  assert.equal(queried(), 1);
+  for (let i = 0; i < 11; i++) { clock += 5_000; await next.recover(); }
+  assert.equal(queried(), 1);
+  clock += 5_000; await next.recover();
+  assert.equal(queried(), 2);
+  assert.equal(fs.existsSync(unknown), true);
+});
+
+test("回収処理は、自分で閉じた持ち主の保存場所を、記録を引き取った後に消す", async (t) => {
+  const h = setup(t); const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  await manager.close();
+  assert.equal(ownerDirs(h.root).length, 1);
+  const next = h.create(); await next.recover();
+  assert.equal(next.status("child").length, 1);
+  // 残るのは引き取った側の保存場所だけ。
+  assert.equal(ownerDirs(h.root).length, 1);
+  assert.equal(records(h.root).length, 1);
+});
+
+test("回収処理は、保存場所が消えると止まる旧版の持ち主が生きている間は、何も消さない", async (t) => {
+  let oldVersionAlive = true;
+  const h = setup(t, { exists: (pid) => pid === process.pid || (pid === 515151 && oldVersionAlive),
+    processes: (pids) => [{ pid: process.pid, started_identity: "fixture-parent" },
+      { pid: 515151, started_identity: "old-version-start" }].filter(row => pids.includes(row.pid)) });
+  // 旧版のowner.jsonには印が無い。
+  const old = plantOwner(h.root, "515151-old-version", { pid: 515151, started_identity: "old-version-start", closed: false });
+  const gone = plantOwner(h.root, "424242-gone", { pid: 424242, started_identity: "gone-start", closed: false });
+  const manager = h.create(); await manager.recover();
+  assert.equal(fs.existsSync(gone), true);
+  assert.equal(fs.existsSync(old), true);
+  // 旧版の持ち主が終了したら、次の回で両方消す。
+  oldVersionAlive = false; await manager.recover();
+  assert.equal(fs.existsSync(gone), false);
+  assert.equal(fs.existsSync(old), false);
+});
+
+test("回収処理は、印のある生きた持ち主が居ても、終了した持ち主の保存場所を消す", async (t) => {
+  const h = setup(t, { exists: (pid) => pid === process.pid || pid === 515151,
+    processes: (pids) => [{ pid: process.pid, started_identity: "fixture-parent" },
+      { pid: 515151, started_identity: "current-version-start" }].filter(row => pids.includes(row.pid)) });
+  const current = plantOwner(h.root, "515151-current", { pid: 515151, started_identity: "current-version-start", closed: false, removal_safe: true });
+  const gone = plantOwner(h.root, "424242-gone", { pid: 424242, started_identity: "gone-start", closed: false });
+  const manager = h.create(); await manager.recover();
+  assert.equal(fs.existsSync(gone), false);
+  assert.equal(fs.existsSync(current), true);
+  // 自分の保存場所には、印を書いてある。
+  const own = ownerDirs(h.root).find(name => name !== "515151-current");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(h.root, "active", own, "owner.json"), "utf8")).removal_safe, true);
+});
+
+test("回収処理は、owner.jsonの無い保存場所を、作っている途中の間は残し、古くなったら消す", async (t) => {
+  const h = setup(t, { exists: (pid) => pid === process.pid });
+  const starting = plantOwner(h.root, "616161-starting", null);
+  const gone = plantOwner(h.root, "424242-gone", { pid: 424242, started_identity: "gone-start", closed: false });
+  const manager = h.create(); await manager.recover();
+  // 作っている途中の持ち主は版が分からないので、その間は何も消さない。
+  assert.equal(fs.existsSync(starting), true);
+  assert.equal(fs.existsSync(gone), true);
+  const past = new Date(Date.now() - 120_000);
+  fs.utimesSync(starting, past, past);
+  await manager.recover();
+  assert.equal(fs.existsSync(starting), false);
+  assert.equal(fs.existsSync(gone), false);
 });

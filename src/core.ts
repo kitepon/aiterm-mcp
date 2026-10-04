@@ -17,7 +17,7 @@ import * as rtk from "./rtk.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -1367,7 +1367,7 @@ export function startupProcessShapes(identities: string[], rows: RuntimeProcess[
   });
 }
 
-// 起動完了の控えに無いprocessの数。harnessと中継が自分のために立てるprocessは、利用者の作業ではないので数えない。
+// 起動完了の控えに無いprocessの数。harness・中継・Aitermが自分のために立てるprocessは、利用者の作業ではないので数えない。
 // その下で動くprocessは数える。
 // harnessは起動の足場（MCP、language server）を自分で立て直す。控えた後に立て直されると、控えに無いprocessとして残る。
 // 控えの物が終了していて、同じ親の下に同じargvで立ったprocessは、その立て直しとして数えない。
@@ -1381,9 +1381,16 @@ export function postStartupProcessCount(
     const parent = parentProcess(row, byPid);
     return parent !== undefined && lazyRelayProcess(parent.command);
   };
+  // 席の中のAitermも、配送の持ち主の生存確認でprocess表を引く。その問い合わせと、付いて立つconsole hostは数えない。
+  // 親の問い合わせが先に終わって残ったconsole hostも同じ扱いにする（console hostは最後のconsole processと一緒に消える）。
+  const ownProbe = (row: RuntimeProcess): boolean => {
+    if (aitermProcessProbe(row.command)) return true;
+    const parent = parentProcess(row, byPid);
+    return windowsConsoleHost(row) && (parent === undefined || aitermProcessProbe(parent.command));
+  };
   const present = new Set(activityRows.map(processKey));
   const added = new Map(activityRows
-    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row))
+    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row) && !ownProbe(row))
     .map(row => [processKey(row), row]));
   const gone = shapes.filter(shape => startup.has(shape.identity) && !present.has(shape.identity));
   const replacedBy = new Map<string, string>();

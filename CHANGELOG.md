@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- `agent_auth`の`start`に`relogin`を足す（既定false）。trueの時は、公式の状態が認証済みでも公式ログインを開始し、
+  `session_id`付きの結果を返す（`authenticated`かつ`session_id:null`は返さない）。別のアカウントへ入り直す時と、
+  ログインの期限切れを状態から見抜けない時に使う。Aitermは資格情報を消さず、置き換えは公式CLIが行う。
+  公式CLIがログインを始めた時点で元のログインを消す事がある（Codex 0.160.0の`codex login --device-auth`は、
+  始めた時点で`auth.json`を消し、途中で`cancel`しても戻らない。期限切れのログインの写しで確認）。
+  Claude CodeとCursorは、途中で`cancel`すれば元の資格情報が残った（無効な資格情報で確認）。
+  結果の形（`aiterm.agent-auth-result.v1`）は変えていない。
+- `agent_auth`の`status`（sessionなし）が、Grokの認証状態を答える。今までは「公式ログインsessionの終了結果で確認します」の
+  `blocked`だけだった。`grok models`が`You are not authenticated.`と答えれば`blocked`、答えなければ`authenticated`。
+  これに伴い、Grokが認証済みの時の`start`（`relogin`なし）は、何も起こさず`authenticated`を返す（今までは毎回ログインを始めていた）。
+
+### 修正
+
+- 期限が切れたCodexのログインを、`agent_auth`の`status`と`start`が`authenticated`と返していた（ADR 0090）。
+  `codex login status`は`auth.json`の有無だけを見て、ログインから30日でrefresh tokenが切れた後も「Logged in」と答える
+  （2026-10-05、Codex 0.160.0、BellTeamのコンテナ）。`start`は入り直しを始めず、`auth.json`の名前を手で変えるまで戻せなかった。
+  「Logged in」の時は公式App Serverへ`getAuthStatus`、`account/read`の順に聞き、`account`が`null`なら
+  `status`は`blocked`（「Codexのログインの期限が切れています」）、`start`は入り直しを始める。
+  生きているログインへ余計なtokenの取り直しはかけず、資格情報のfileも読まない。
+  App Serverがこの問い合わせを知らない旧版のCodexでは、今までどおり`codex login status`の答えに従う。
+- Cursorの公式statusが`Logged in (unable to fetch user details)`と答える時（無効なtoken。期限切れか通信できないかは分からない）、
+  `authenticated`でなく`failed`を返す。入り直しは`relogin:true`で始められる。
+- Grokのログインが無い・切れている時、`agent_launch`が30秒待ってから`unrecognized_screen`で返っていた。
+  Grokが起動してすぐ自分で始めるサインイン画面（`Approve in your browser to finish signing in`）を見分け、
+  すぐ`startup.status: blocked`／`reason: startup_dialog`で返す。Codexのサインイン画面も同じ`startup_dialog`のまま、
+  種別を「サインイン画面（ログインが必要）」と読む。
+
+### 分かっている限界
+
+- Claude Codeの期限切れは、`status`では見抜けない（`claude auth status --json`が`loggedIn:true`と答える）。
+  `agent_launch`は通り、最初のturnが認証の誤りで終わる。入り直しは`relogin:true`。
+- Cursorのログインが無効な時、`agent_launch`はsessionを作る前に
+  「Cursor model catalog を取得できません: Error: Authentication required…」の誤りで返る（今までと同じ）。
+
 ## [0.52.3] - 2026-10-05
 
 ### 修正

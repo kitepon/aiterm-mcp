@@ -37,12 +37,36 @@ for argument in "$@"; do printf '%s"%s"' "$separator" "$argument" >> "$log"; sep
 printf '],"no_open":"%s","marker":"%s"}\\n' "$NO_OPEN_BROWSER" "$AITERM_AUTH_TEST_MARKER" >> "$log"
 if { [ "$kind" = claude ] && [ "$1" = auth ] && [ "$2" = status ]; } || { [ "$kind" = codex ] && [ "$2" = status ]; } || { [ "$kind" = cursor ] && [ "$1" = status ]; }; then
  if [ -f "$state" ]; then
-  if [ "$kind" = claude ]; then printf '{"loggedIn":true}\\n'; else printf 'Logged in\\n'; fi
+  if [ "$kind" = claude ]; then printf '{"loggedIn":true}\\n'; elif [ "$kind" = cursor ] && [ -f "$state.expired" ]; then printf 'Login successful!\\nLogged in (unable to fetch user details)\\n'; else printf 'Logged in\\n'; fi
   exit 0
  else
   if [ "$kind" = claude ]; then printf '{"loggedIn":false}\\n'; else printf 'Not logged in\\n'; fi
   exit 1
  fi
+fi
+# Codexの公式App Server。account/readは、期限切れ（$state.expired）ならaccount:null、旧版（$state.old）なら問い合わせを知らない。
+if [ "$kind" = codex ] && [ "$1" = app-server ]; then
+ while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/^{"id":\\([0-9]*\\).*/\\1/p')
+  [ -z "$id" ] && continue
+  case "$line" in
+   *'"method":"initialize"'*) printf '{"id":%s,"result":{}}\\n' "$id";;
+   *) if [ -f "$state.old" ]; then printf '{"id":%s,"error":{"code":-32601,"message":"Method not found"}}\\n' "$id"
+      elif [ -f "$state.broken" ]; then exit 3
+      else case "$line" in
+       *'"method":"account/read"'*) if [ -f "$state.expired" ]; then printf '{"id":%s,"result":{"account":null,"requiresOpenaiAuth":true}}\\n' "$id"
+         else printf '{"id":%s,"result":{"account":{"type":"chatgpt","email":"x@example.com","planType":"pro"},"requiresOpenaiAuth":true}}\\n' "$id"; fi;;
+       *) printf '{"id":%s,"result":{"authMethod":"chatgpt","authToken":null,"requiresOpenaiAuth":true}}\\n' "$id";;
+      esac; fi;;
+  esac
+ done
+ exit 0
+fi
+# Grokは状態のcommandを持たない。modelsが、使えるログインが無い時だけ先頭で知らせる。
+if [ "$kind" = grok ] && [ "$1" = models ]; then
+ [ -f "$state" ] || printf 'You are not authenticated.\\n\\n'
+ printf 'Default model: grok-x\\n\\nAvailable models:\\n  * grok-x (default)\\n'
+ exit 0
 fi
 ${extra === "login_failed" ? 'touch "$state"; exit 7' : ""}
 if [ "$kind" = claude ] && [ "$#" = 0 ]; then
@@ -57,6 +81,7 @@ else
  esac
  IFS= read -r reply
  touch "$state"
+ rm -f "$state.expired"
  exit 0
 fi
 `, { mode: 0o755 });
@@ -128,12 +153,94 @@ for (const kind of ["codex", "grok", "cursor"]) test(`${kind}: 公式ログイ�
   sessions.splice(sessions.indexOf(start.session_id), 1);
 });
 
-test("認証session無しのGrokはファイル存在を成功扱いしない", posixPty, async () => {
+// Grokには状態のcommandが無い。`grok models`が「You are not authenticated.」と答えるかで見る（auth fileの存在は見ない）。
+test("認証session無しのGrokは、公式のmodelsの答えで状態を返す", posixPty, async () => {
   const fixture = cli("grok");
+  const before = await core.authenticateAgent("grok", { action: "status" });
+  assert.deepEqual([before.status, before.session_id], ["blocked", null]);
+  assert.match(before.message, /startで開始/);
   fs.writeFileSync(fixture.state, "yes");
-  const result = await core.authenticateAgent("grok", { action: "status" });
-  assert.equal(result.status, "blocked");
-  assert.match(result.message, /session/);
+  assert.deepEqual(await core.authenticateAgent("grok", { action: "status" }),
+    { schema: "aiterm.agent-auth-result.v1", harness: "grok-cli", status: "authenticated", session_id: null, url: null, user_code: null, input_required: false, message: null });
+  // 認証済みなら、reloginを付けないstartは何も起こさない。
+  assert.deepEqual([(await core.authenticateAgent("grok", { action: "start", cwd: fixture.home })).status, core.listSessions().length], ["authenticated", core.listSessions().length]);
+});
+
+// 2026-10-05 BellTeamのコンテナ: ログインから30日でCodexのログインが切れた後も`codex login status`は「Logged in」と答え、
+// agent_authのstatusとstartは`authenticated`を返して入り直しを始めなかった。auth.jsonの名前を手で変えるまで戻せなかった。
+test("Codex: 期限が切れたログインを認証済みと返さず、startは入り直しを始める", posixPty, async () => {
+  const fixture = cli("codex");
+  fs.writeFileSync(fixture.state, "yes");
+  assert.equal((await core.authenticateAgent("codex", { action: "status" })).status, "authenticated");
+  fs.writeFileSync(`${fixture.state}.expired`, "yes");
+  const status = await core.authenticateAgent("codex", { action: "status" });
+  assert.deepEqual([status.status, status.session_id], ["blocked", null]);
+  assert.match(status.message, /期限が切れています/);
+  const start = await core.authenticateAgent("codex", { action: "start", cwd: fixture.home }); sessions.push(start.session_id);
+  assert.equal(start.status, "waiting");
+  assert.equal(start.user_code, "ABCD-EFGH");
+  core.send(start.session_id, "ok");
+  assert.equal((await until("codex", start.session_id, "authenticated")).session_id, start.session_id);
+  // App Serverが問い合わせを知らない旧版は、今までどおり公式statusに従う。App Serverと話せない時は、認証済みとは返さない。
+  fs.writeFileSync(`${fixture.state}.expired`, "yes");
+  fs.writeFileSync(`${fixture.state}.old`, "yes");
+  assert.equal((await core.authenticateAgent("codex", { action: "status" })).status, "authenticated");
+  fs.rmSync(`${fixture.state}.old`);
+  fs.writeFileSync(`${fixture.state}.broken`, "yes");
+  const broken = await core.authenticateAgent("codex", { action: "status" });
+  assert.equal(broken.status, "failed");
+  assert.match(broken.message, /App Server/);
+});
+
+// Aitermは資格情報に触れない。公式CLIがログインの開始時に元のログインを消すか（Codex 0.160.0は消す）は、公式CLIの側の動き。
+test("relogin: 認証済みに見えても公式ログインを始め、Aitermは取り消しで元のログインに触れない", posixPty, async () => {
+  for (const kind of ["codex", "grok", "cursor"]) {
+    const fixture = cli(kind);
+    fs.writeFileSync(fixture.state, "yes");
+    const plain = await core.authenticateAgent(kind, { action: "start", cwd: fixture.home });
+    assert.deepEqual([plain.status, plain.session_id], ["authenticated", null], kind);
+    const start = await core.authenticateAgent(kind, { action: "start", cwd: fixture.home, relogin: true }); sessions.push(start.session_id);
+    assert.equal(start.status, "waiting", kind);
+    assert.ok(start.session_id, `${kind}: reloginのstartはsessionを返す`);
+    assert.ok(start.url?.startsWith("https://"), kind);
+    const cancel = await core.authenticateAgent(kind, { action: "cancel", session_id: start.session_id });
+    assert.equal(cancel.session_id, null);
+    sessions.splice(sessions.indexOf(start.session_id), 1);
+    assert.equal(fs.existsSync(fixture.state), true, `${kind}: 取り消しは元のログインに触れない`);
+    assert.equal((await core.authenticateAgent(kind, { action: "status" })).status, "authenticated", kind);
+  }
+});
+
+// 無効なtokenの時、Cursorの公式statusは「Logged in (unable to fetch user details)」と終了0で答える（偽の資格情報で再現）。
+test("Cursor: ログインを確認できない時は認証済みと返さず、reloginで入り直せる", posixPty, async () => {
+  const fixture = cli("cursor");
+  fs.writeFileSync(fixture.state, "yes");
+  fs.writeFileSync(`${fixture.state}.expired`, "yes");
+  const status = await core.authenticateAgent("cursor", { action: "status" });
+  assert.equal(status.status, "failed");
+  assert.match(status.message, /relogin:true/);
+  const plain = await core.authenticateAgent("cursor", { action: "start", cwd: fixture.home });
+  assert.deepEqual([plain.status, plain.session_id], ["failed", null]);
+  const start = await core.authenticateAgent("cursor", { action: "start", cwd: fixture.home, relogin: true }); sessions.push(start.session_id);
+  assert.equal(start.status, "waiting");
+  core.send(start.session_id, "ok");
+  assert.equal((await until("cursor", start.session_id, "authenticated")).session_id, start.session_id);
+});
+
+test("ログインが無い・切れた時の起動画面を、起動を止めるダイアログとして見分ける", async () => {
+  const { codexLaunchBlockingDialog } = await import("../dist/harnesses/codex.js");
+  const { grokLaunchBlockingDialog, grokPaneObservation } = await import("../dist/harnesses/grok.js");
+  // Codex 0.160.0（期限切れのログインの写しで起こした実物の画面）。
+  const codex = ["Welcome to Codex, OpenAI's command-line coding agent", "Sign in with ChatGPT to use Codex as part of your paid plan", "or connect an API key for usage-based billing",
+    "> 1. Sign in with ChatGPT", "2. Sign in with Device Code", "3. Provide your own API key", "Press enter to continue"].join("\n");
+  assert.match(codexLaunchBlockingDialog(codex), /サインイン画面/);
+  // Grok 1.0.46（値を全部ダミーにした資格情報で起こした実物の画面）。起動してすぐdevice codeのサインインを自分で始める。
+  const grok = ["/tmp/work", "Approve in your browser to finish signing in.", "ABCD-EFGH", "Make sure your browser shows this code.", "If it doesn't open, click here to copy.",
+    "Copying not working? Click here to show full URL.", "Waiting for approval...", "ctrl+q  quit"].join("\n");
+  assert.match(grokLaunchBlockingDialog(grok), /サインイン画面/);
+  assert.deepEqual(grokPaneObservation(grok), { state: "blocked", reason: "startup_dialog" });
+  // 過去の出力として残っているだけで、後ろに今の入力欄がある時は止めない。
+  assert.equal(grokLaunchBlockingDialog(`${grok}\n❯ `), null);
 });
 
 test("取消と状態確認は別harness・通常PTYへ触れない", posixPty, async () => {

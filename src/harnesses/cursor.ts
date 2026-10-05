@@ -647,6 +647,11 @@ export function cursorAuthStatus(bin: string, cwd: string, env = process.env): A
     { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   if (!result.error && /not logged in|unauthenticated|sign in/i.test(output)) return { status: "unauthenticated", message: null };
+  // 無効なtoken（期限切れ等）の時、公式statusは「Logged in (unable to fetch user details)」と終了0で答える（2026-10-05）。
+  // 期限切れか、通信できないだけかは、この答えからは分からない。認証済みとは返さない。
+  if (!result.error && /unable to fetch user details/i.test(output)) {
+    return { status: "failed", message: "Cursorのログインを確認できません（期限切れか、通信できない状態です）。入り直す時はagent_authのstartにrelogin:trueを付けてください。" };
+  }
   // launcherと同じ公式status契約。stderrやアカウント情報はreceiptへ載せない。
   if (!result.error && result.status === 0) return { status: "authenticated", message: null };
   return { status: "failed", message: "Cursor Agent CLIの公式認証状態を確認できません。" };

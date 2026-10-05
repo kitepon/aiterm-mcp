@@ -561,7 +561,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
-| `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?` |
+| `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?` |
 | `agent_models` | harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧からpromptを送らずに取得 | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | deprecated互換alias（`composer_agent`は0.41.0で削除。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
@@ -597,7 +597,18 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_configure({ session_id, model?, reasoning_effort? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
 
-`agent_auth({ harness, action:"start"|"status"|"cancel", session_id?, cwd?, env_vars? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
+`agent_auth({ harness, action:"start"|"status"|"cancel", session_id?, cwd?, env_vars?, relogin? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
+
+`start`は、公式の状態が認証済みなら何も起こさず`authenticated`（`session_id:null`）を返す。`relogin:true`を付けると、認証済みに見えても公式ログインを開始し、`session_id`付きの結果を返す。別のアカウントへ入り直す時と、ログインの期限切れを状態から見抜けない時に使う。Aitermは資格情報を消さず、置き換えは公式CLIが行う。ただし、公式CLIがログインを始めた時点で元のログインを消す事がある（Codex 0.160.0の`codex login --device-auth`は、始めた時点で`auth.json`を消す。途中で`cancel`しても戻らない）。Claude CodeとCursorは、途中で`cancel`すれば元の資格情報が残る（無効な資格情報で確認）。
+
+`status`（sessionなし）は、公式CLIに今の状態を聞く。
+
+| harness | 聞き方 | 期限が切れたログイン |
+|---|---|---|
+| Codex | `codex login status`が「Logged in」の時、公式App Serverの`getAuthStatus`→`account/read` | `blocked`（`account`が`null`）。`codex login status`だけでは「Logged in」のままで見抜けない |
+| Claude Code | `claude auth status --json` | **見抜けない**（公式の答えが`loggedIn:true`のまま）。起動は通り、最初のturnが認証の誤りで終わる |
+| Grok | `grok models`（状態の命令は無い） | `blocked`（`You are not authenticated.`）。Grokは使えない資格情報を自分で消す |
+| Cursor | `cursor-agent status` | `failed`（`Logged in (unable to fetch user details)`。期限切れか通信できないかは区別できない）。`relogin:true`で入り直す |
 
 結果は`aiterm.agent-auth-result.v1`。`status`は`waiting`／`authenticated`／`blocked`／`failed`、`session_id`・`url`・`user_code`・`input_required`・`message`を返す。`start`のsession IDを保存して`status`へ渡す。公式HTTPS URLと明示device codeだけを返し、CLIの生出力・token・OAuth callback codeを結果へ載せない。`input_required:true`なら同じsessionの`pty_read(screen:true)`で公式画面を表示し、`pty_send`／`pty_key`で人の入力を中継する。
 

@@ -395,6 +395,12 @@ export function assertGrokSandboxNotRejected(screen: string): void {
 }
 
 export function grokLaunchBlockingDialog(screen: string): string | null {
+  // ログインが無い・期限が切れた時、Grok 1.0.46は起動してすぐdevice codeのサインインを自分で始め、承認を待つ。
+  const signInAt = screen.lastIndexOf("Approve in your browser to finish signing in");
+  if (signInAt >= 0) {
+    const afterSignIn = screen.slice(signInAt);
+    if (afterSignIn.includes("Waiting for approval") && !/(?:^|\n)[ \t]*(?:│[ \t]*)?[❯>]/u.test(afterSignIn)) return "サインイン画面（ログインが必要）";
+  }
   const trustAt = screen.lastIndexOf("Do you trust the contents of this directory?");
   if (trustAt < 0) return null;
   const afterTrust = screen.slice(trustAt);
@@ -561,9 +567,17 @@ export function createGrokAgentMetadata(
 
 export function grokAuthPlan(): AgentAuthPlan { return { args: ["login", "--device-auth"], env: [] }; }
 
-export function grokAuthStatus(): AgentAuthStatus {
-  // 現行Grokには公式status commandが無い。auth fileの存在を成功とみなさない。
-  return { status: "unsupported", message: "Grokの認証状態はagent_authで開始した公式ログインsessionの終了結果で確認します。" };
+/**
+ * Grokには認証状態を答える公式commandが無い。`grok models`は、使えるログインが無い時に`You are not authenticated.`と答える
+ * （1.0.46。ログイン無しと、期限切れ・無効なtokenの両方。後者ではGrokが`auth.json`を自分で消す）。auth fileの存在は見ない。
+ */
+export function grokAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
+  const result = spawnAgentControlCommand(bin, ["models"], cwd,
+    { cwd, env, encoding: "utf8", timeout: 20000, maxBuffer: 256 * 1024 });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (!result.error && /You are not authenticated|Not signed in/i.test(output)) return { status: "unauthenticated", message: null };
+  if (!result.error && result.status === 0 && /Available models/i.test(output)) return { status: "authenticated", message: null };
+  return { status: "failed", message: "Grokの公式CLIで認証状態を確認できません。" };
 }
 
 export function grokAuthPane(screen: string): AgentAuthPane {

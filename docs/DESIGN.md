@@ -293,7 +293,10 @@ shell、接続先、各harnessの公式CLIが所有する。
 
 PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。
 
-Claude／Codex／Cursorは公式statusを照合する。Grokは公式status commandが無いため、認証sessionの公式login exit 0を正本にし、session無しの確認を`blocked`とする。Claudeはlogin完了後に同じPTYへ公式の初回TUIを用意し、初回案内の入力待ちを`blocked`／`input_required:true`へ写す。認証とlauncherの起動準備は別の結果であり、`agent_launch`のready gateを省略しない。
+Claude／Codex／Cursorは公式statusを照合する。Grokは公式status commandが無いため、`grok models`が`You are not authenticated.`と答えるかで見る（ADR 0090）。auth fileの存在は見ない。
+Codexの`codex login status`は`auth.json`の有無だけを答え、ログインの期限が切れた後も「Logged in」を返す。「Logged in」の時は、公式App Serverへ`getAuthStatus`（`refreshToken:false`）、`account/read`の順に聞き、`account`が`null`なら未認証とする。App Serverを起こす環境は、認証sessionへ引き継いだ環境を使う。
+Cursorの公式statusが`unable to fetch user details`を返す時は、認証済みとせず`failed`とする。Claudeの期限切れは、公式statusからは見抜けない。
+`start`の`relogin:true`は、今の状態を聞かずに公式ログインを始める。資格情報を消す処理は持たない。Claudeはlogin完了後に同じPTYへ公式の初回TUIを用意し、初回案内の入力待ちを`blocked`／`input_required:true`へ写す。認証とlauncherの起動準備は別の結果であり、`agent_launch`のready gateを省略しない。
 
 公開receiptは`aiterm.agent-auth-result.v1`で、公式HTTPS URLと明示device codeだけを抽出する。生の画面本文・credential・token・OAuth callback codeは含めない。人の入力は既存の`pty_send`／`pty_key`で同じPTYへ送る。`remote`は標準のremote tool中継を使い、callerはCLI commandや環境ごとの入力方言を組み立てない。
 

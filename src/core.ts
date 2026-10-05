@@ -4380,11 +4380,11 @@ function authPlan(kind: AgentKind, phase: AgentAuthMetadata["phase"]): AgentAuth
   }
 }
 
-function authStatus(kind: AgentKind, bin: string, cwd: string, env = process.env): AgentAuthStatus {
+async function authStatus(kind: AgentKind, bin: string, cwd: string, env = process.env): Promise<AgentAuthStatus> {
   switch (kind) {
     case "claude": return claudeAuthStatus(bin, cwd, env);
-    case "codex": return codexAuthStatus(bin, cwd, env);
-    case "grok": return grokAuthStatus();
+    case "codex": return await codexAuthStatus(bin, cwd, env);
+    case "grok": return grokAuthStatus(bin, cwd, env);
     case "cursor": return cursorAuthStatus(bin, cwd, env);
   }
 }
@@ -4446,9 +4446,13 @@ function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
   send(name, `cd ${shq(paneCwdArgument(meta.cwd))} && ${cmd}`, { enter: true, force: true, raw: true });
 }
 
-/** 公式CLIの認証processを起動・観測する。資格情報の読取り・copy・独自OAuthは行わない。 */
+/**
+ * 公式CLIの認証processを起動・観測する。資格情報の読取り・copy・独自OAuthは行わない。
+ * startは、公式の状態が認証済みなら何も起こさない。`relogin`は、認証済みに見えても公式ログインを始める
+ * （別のアカウントへ入り直す時と、期限切れを状態から見抜けない時のため）。資格情報を消すことはせず、置き換えは公式CLIが行う。
+ */
 export async function authenticateAgent(kind: AgentKind, options: {
-  action: "start" | "status" | "cancel"; session_id?: string; cwd?: string; env_vars?: string[];
+  action: "start" | "status" | "cancel"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
 }): Promise<AgentAuthResult> {
   const result = (status: AgentAuthResult["status"], session: string | null, message: string | null,
     pane?: AgentAuthPane): AgentAuthResult => ({ schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind),
@@ -4472,7 +4476,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
     const bin = resolveAgentBin(kind);
     if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
-    const before = authStatus(kind, bin, cwd);
+    // reloginは今の状態を聞かない。状態を確認できない時（failed）でも、入り直しは始められる。
+    const before: AgentAuthStatus = options.relogin ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd);
     if (before.status === "failed") return result("failed", null, before.message);
     if (before.status === "authenticated" && !before.verify_onboarding) return result("authenticated", null, null);
     const envVars = options.env_vars ?? [];
@@ -4490,7 +4495,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
     const bin = resolveAgentBin(kind);
     if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
-    const checked = authStatus(kind, bin, cwd);
+    const checked = await authStatus(kind, bin, cwd);
     return result(checked.status === "authenticated" ? "authenticated" : checked.status === "failed" ? "failed" : "blocked",
       null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null));
   } else {
@@ -4509,7 +4514,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const pane = authPane(meta, stripControl(captureScreen(session, 120)));
     if (dead === "1") {
       if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
-      const checked = authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
       if (checked.status === "failed") return result("failed", session, checked.message);
       if (checked.status === "unauthenticated") return result("failed", session, "公式認証processは終了しましたが、公式statusは未認証です。");
       if (!checked.verify_onboarding) return result("authenticated", session, null);
@@ -4523,7 +4528,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
     }
     if (dead !== "0") return result("failed", session, "認証processの生存状態の形式を認識できません。");
     if (pane.onboarding_complete) {
-      const checked = authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
       if (checked.status === "authenticated") return result("authenticated", session, null);
       return result("failed", session, checked.message ?? "公式CLIのstatusが未認証です。");
     }

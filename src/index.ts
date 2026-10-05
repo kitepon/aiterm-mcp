@@ -817,13 +817,17 @@ registerRemoteAwareTool(
   {
     description: "各harnessの公式CLI認証を開始・確認・取消する。CLIごとのコマンドと認証URL/codeの抽出はAitermが所有し、資格情報は各CLIだけが保存する。" +
       "waitingのURL/codeを人へ表示し、input_requiredなら同じsessionのpty_send／pty_keyで公式画面へ入力する。" +
-      "authenticatedは認証の結果であり、agent_launchの起動準備完了とは別。remoteは他toolと同じ標準対応。",
+      "authenticatedは認証の結果であり、agent_launchの起動準備完了とは別。remoteは他toolと同じ標準対応。" +
+      "startは公式の状態が認証済みなら何も起こさずauthenticatedを返す。relogin:trueを付けると、認証済みに見えても公式ログインを開始する" +
+      "（別のアカウントへ入り直す時、ログインの期限切れを状態から見抜けない時）。Aitermは資格情報を消さず、置き換えは公式CLIが行う。" +
+      "Codexの公式ログインは、始めた時点で元のログインを消す（途中でcancelしても戻らない）。",
     inputSchema: {
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       action: z.enum(["start", "status", "cancel"]),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
       cwd: z.string().optional().describe("公式CLIを実行する作業ディレクトリの絶対パス"),
       env_vars: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional().describe("startで認証PTYへ引き継ぐ環境変数名。値はreceiptへ返さない"),
+      relogin: z.boolean().optional().describe("startで、公式の状態が認証済みでも公式ログインを開始する。既定false。trueの時、authenticatedかつsession_idがnullの結果は返さない"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),

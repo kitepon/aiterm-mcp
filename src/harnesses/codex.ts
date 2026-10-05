@@ -599,6 +599,8 @@ export function codexLaunchBlockingDialog(screen: string): string | null {
     return "update確認ダイアログ";
   if (screen.includes("Do you trust the contents of this directory")) return "directory trust確認ダイアログ";
   if (screen.includes("Trust this folder?")) return "folder trust確認ダイアログ";
+  // ログインが無い・期限が切れた時の最初の画面（Codex 0.160.0）。
+  if (screen.includes("Sign in with ChatGPT") && screen.includes("Sign in with Device Code")) return "サインイン画面（ログインが必要）";
   if (screen.includes("Press enter to continue")) return "起動時ダイアログ（種別未特定）";
   return null;
 }
@@ -811,13 +813,37 @@ export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
 
 export function codexAuthPlan(): AgentAuthPlan { return { args: ["login", "--device-auth"], env: [] }; }
 
-export function codexAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
+const CODEX_AUTH_CHECK_TIMEOUT_MS = 15_000;
+
+/**
+ * `codex login status`は`auth.json`があるかだけを見る。ログインの期限が切れた後（refresh tokenの失効）も「Logged in」と答える
+ * （2026-10-05、Codex 0.160.0、ログインから30日後）。使えるログインかは、公式App Serverに聞く。
+ * `getAuthStatus`（`refreshToken:false`）は、Codex自身が要ると判断した時だけtokenを取り直す。取り直しが恒久的に失敗していると、
+ * 続く`account/read`が`account: null`を返す。Aitermは資格情報を読まず、生きているログインへ余計な取り直しもかけない。
+ */
+export async function codexAuthStatus(bin: string, cwd: string, env = process.env): Promise<AgentAuthStatus> {
   const result = spawnAgentControlCommand(bin, ["login", "status"], cwd,
     { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  if (!result.error && result.status === 0 && /Logged in/i.test(output)) return { status: "authenticated", message: null };
   if (!result.error && /Not logged in/i.test(output)) return { status: "unauthenticated", message: null };
-  return { status: "failed", message: "Codex CLIの公式認証状態を確認できません。" };
+  if (result.error || result.status !== 0 || !/Logged in/i.test(output)) return { status: "failed", message: "Codex CLIの公式認証状態を確認できません。" };
+  const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(env.CODEX_HOME || steer.realCodexHome()) };
+  let read: any;
+  try {
+    read = await steer.withCodexReceiver(AITERM_PROFILE, parent, async (request) => {
+      await request("getAuthStatus", { includeToken: false, refreshToken: false });
+      return await request("account/read", { refreshToken: false });
+    }, { executable: bin, timeout_ms: CODEX_AUTH_CHECK_TIMEOUT_MS, env });
+  } catch (error) {
+    // App Serverがこの問い合わせを知らない旧版は、今までどおり公式statusの答えに従う（期限切れは見抜けない）。
+    if (error instanceof steer.CodexDeliveryError && error.delivery_code === "CODEX_RECEIVER_REJECTED") return { status: "authenticated", message: null };
+    return { status: "failed", message: "Codexのログインが使えるかを、公式App Serverで確認できません。" };
+  }
+  if (read?.requiresOpenaiAuth === false || (read?.account !== null && typeof read?.account === "object")) return { status: "authenticated", message: null };
+  if (read?.account === null) {
+    return { status: "unauthenticated", message: "Codexのログインの期限が切れています。agent_authのstartで入り直してください。" };
+  }
+  return { status: "failed", message: "Codexの公式App Serverが返した認証状態の形式を認識できません。" };
 }
 
 export function codexAuthPane(screen: string): AgentAuthPane {

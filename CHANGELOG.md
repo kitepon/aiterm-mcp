@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.3] - 2026-10-05
+
 ### 修正
 
 - Claude Code親の配送hookの登録を、`args`を使わずshellを通す1行で書く（aiterm-steer-delivery 0.2.0、ADR 0089）。
@@ -2155,7 +2157,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.3...HEAD
+[0.52.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.2...v0.52.3
 [0.52.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.3...v0.52.0

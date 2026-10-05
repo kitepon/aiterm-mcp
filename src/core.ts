@@ -2506,9 +2506,6 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
       }
     }
     if (dead && reapDeadAgentSendLock(name, replacedToken) === "stuck") {
-      // BellTeamのため: 先頭の「agent session '<名前>' に、終了した送信のlockを片付ける途中で残った印があります。」と、
-      // 文中の「文字列は送信していません。」で見分け、pty_close→起動し直しへ回している（2026-10-05）。
-      // この文面と、pty_closeがこの印を片付ける事を変える時は、変える前に知らせる。
       throw new AitermError(
         `agent session '${name}' に、終了した送信のlockを片付ける途中で残った印があります。` +
           `自動回収は並行送信の混線を招くため行いません。文字列は送信していません。` +

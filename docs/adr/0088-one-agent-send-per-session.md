@@ -114,9 +114,9 @@ lockはsocketの置き場に作る。置き場ごと無くなっている時（a
 - `aiterm.pty-send-result.v1`・`aiterm.agent-dispatch.v1`・`aiterm.agent-steer.v1`の形は変えない。
 - `AGENT_SEND_BUSY`の断りは、先頭の「`AGENT_SEND_BUSY: agent session '<名前>' は`」と文中の「文字列は送信していません。」を
   連携元（BellTeam）が未送信の見分けに使う。この2か所は試験で留めてある。変える時は連携元へ先に知らせる。
-- 消す役の印が残った時の断りは、先頭の「`agent session '<名前>' に、終了した送信のlockを片付ける途中で残った印があります。`」と
-  「文字列は送信していません。」を、連携元（BellTeam）が`pty_close`→起動し直しへ回すのに使う。`pty_close`がこの印を片付ける事と、
-  画面が無いsessionへの`pty_close`が`already_closed`で返る事にも頼っている。どれも試験で留めてある。変える時は先に知らせる。
+- 消す役の印が残った時の断りは`pty_close`を案内する。`pty_close`がこの印を片付ける事と、画面が無いsessionへの`pty_close`が
+  `already_closed`で返る事は試験で留めてある。連携元（BellTeam）はこの断りを見分けていない
+  （見分けて起動し直す直しは2026-10-05に取り消された）。この断りを受けたsessionは、誰かが`pty_close`するまで送れない。
 - 重なった後の1通は、前の1通が終わるまで返らない。前の1通が起動直後の入力受付待ちなら、その分だけ遅れる。
 - socketの置き場に`<name>.agent-send.lock`と`<name>.agent-send.lock.reap`が増える。state schemaは変えない。
   旧版へ戻す時の手当ては要らない（旧版はこのfileを見ない。残っても`pty_close`の掃除の対象外になるだけ）。

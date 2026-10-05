@@ -338,7 +338,6 @@ test("片付けの途中で残った印は自動で消さず、pty_closeで片�
     writeLock(`${lock}.reap`, deadPid());
     await assert.rejects(
       () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      // 先頭と「文字列は送信していません。」は、連携元（BellTeam）がpty_close→起動し直しへ回すのに使う。
       (e) => e.code === 2 && e.message.startsWith(`agent session '${sid}' に、終了した送信のlockを片付ける途中で残った印があります。`)
         && e.message.includes("文字列は送信していません。") && /pty_close/.test(e.message),
     );
@@ -358,7 +357,7 @@ test("画面が無くなった席も閉じられ、残った印とlockが片付�
   core.closeSession(sid);
   writeLock(lock, deadPid());
   writeLock(`${lock}.reap`, deadPid());
-  // 連携元（BellTeam）は、印の断りの後、画面の有無を見ずにpty_closeを呼ぶ。
+  // 印の断りはpty_closeを案内する。呼び手は画面の有無を見ずに呼ぶ事がある。
   assert.deepEqual(core.closeSessionResult(sid), { schema: "aiterm.pty-close-result.v1", session_id: sid, outcome: "already_closed" });
   assert.equal(fs.existsSync(lock), false);
   assert.equal(fs.existsSync(`${lock}.reap`), false);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, parsePosixElapsed, processElapsedSeconds } from "../dist/process-runtime.js";
 
 test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");
@@ -81,4 +81,23 @@ test("Windowsの開始時刻の照会は、CommandLineを読めないprocessも�
   // pid 4（System）はCommandLineを持たない。pidが使い回された先を「別のprocess」と確かめるには、こういうprocessの行が要る。
   assert.equal(readRuntimeProcesses().some(row => row.pid === 4), false);
   assert.deepEqual(readProcessIdentities([4]).map(row => row.pid), [4]);
+});
+
+test("processの経過時間: psの「[[日-]時:]分:秒」を秒にし、照会はAiterm自身の物と見分ける", () => {
+  assert.equal(parsePosixElapsed("      00:05"), 5);
+  assert.equal(parsePosixElapsed("01:35:06"), 5706);
+  assert.equal(parsePosixElapsed("05-01:28:34"), 5 * 86400 + 5314);
+  assert.equal(parsePosixElapsed(""), null);
+  assert.equal(parsePosixElapsed("Mon Oct  5"), null);
+  assert.equal(aitermProcessProbe("/bin/ps -o etime= -p 1234"), true);
+  assert.equal(aitermProcessProbe("/bin/ps -o etime="), false);
+});
+
+test("processの経過時間: 生きているprocessは経過を返し、終了したprocessはnullを返す", () => {
+  const own = processElapsedSeconds(process.pid);
+  assert.ok(typeof own === "number" && own >= 0 && own < 3600, String(own));
+  const gone = spawnSync(process.execPath, ["-e", ""]);
+  assert.equal(gone.status, 0);
+  assert.equal(processElapsedSeconds(gone.pid), null);
+  assert.throws(() => processElapsedSeconds(0), /pidが不正/);
 });

@@ -53,6 +53,7 @@ export function parsePosixProcessTable(text: string): RuntimeProcess[] {
 const POSIX_PS = "/bin/ps";
 const POSIX_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,stat=,lstart=,time=,command="];
 const POSIX_IDENTITY_ARGS = ["-o", "pid=,lstart=", "-p"];
+const POSIX_ELAPSED_ARGS = ["-o", "etime=", "-p"];
 const WINDOWS_PROBE_HEADER = ["$ErrorActionPreference='Stop'", "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)"];
 const WINDOWS_PROBE_ARGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"];
 // 先頭2行だけのbase64。3 byteの区切りで切り、後ろの行に左右されない前方一致にする。
@@ -64,7 +65,8 @@ const WINDOWS_PROBE_PREFIX = (() => {
 /** Aitermがprocess表を引くために起こしたprocessか。引く側のAitermは、数えられる席の中のMCP processでもある。 */
 export function aitermProcessProbe(command: string): boolean {
   if (command.includes(` ${WINDOWS_PROBE_ARGS.join(" ")} ${WINDOWS_PROBE_PREFIX}`)) return true;
-  return command === `${POSIX_PS} ${POSIX_TABLE_ARGS.join(" ")}` || command.startsWith(`${POSIX_PS} ${POSIX_IDENTITY_ARGS.join(" ")} `);
+  return command === `${POSIX_PS} ${POSIX_TABLE_ARGS.join(" ")}` || command.startsWith(`${POSIX_PS} ${POSIX_IDENTITY_ARGS.join(" ")} `)
+    || command.startsWith(`${POSIX_PS} ${POSIX_ELAPSED_ARGS.join(" ")} `);
 }
 
 /** Windowsのconsole host。console processの起動に付いて立ち、最後のconsole processが終わると消える。 */
@@ -156,6 +158,37 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
       throw new AitermError("Windows process一覧のfieldが不正です", 2);
     return { pid: row.pid, started_identity: new Date(row.started_identity).toISOString() };
   });
+}
+
+/** `ps -o etime=`の「[[日-]時:]分:秒」を秒にする。 */
+export function parsePosixElapsed(value: string): number | null {
+  const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(value.trim());
+  if (!match) return null;
+  return Number(match[1] ?? 0) * 86400 + Number(match[2] ?? 0) * 3600 + Number(match[3]) * 60 + Number(match[4]);
+}
+
+/**
+ * processが始まってからの秒数。process表に無ければnull。OSへ照会できなかった時は例外にする。
+ * 開始時刻でなく経過で返す。POSIXのpsが出す開始時刻は、time zoneの設定と時計合わせで読みが変わる。
+ */
+export function processElapsedSeconds(pid: number): number | null {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new AitermError("process照会のpidが不正です", 2);
+  if (isWin) {
+    const row = readProcessIdentities([pid])[0];
+    if (!row) return null;
+    if (row.started_identity === null) throw new AitermError("processの開始時刻を取得できません", 2);
+    return Math.max(0, (Date.now() - Date.parse(row.started_identity)) / 1000);
+  }
+  const result = spawnSync(POSIX_PS, [...POSIX_ELAPSED_ARGS, String(pid)], {
+    encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000,
+  });
+  const text = (result.stdout ?? "").trim();
+  // 該当するprocessが無い時、psは何も出さずstatus 1で終わる。
+  if (result.error || (result.status !== 0 && !(result.status === 1 && !text))) throw new AitermError("OSのprocess一覧を取得できません", 2);
+  if (!text) return null;
+  const elapsed = parsePosixElapsed(text);
+  if (elapsed === null) throw new AitermError("processの経過時間の形式を認識できません", 2);
+  return elapsed;
 }
 
 // Windowsの親PIDは親の終了後も残り、別processへ再利用される。子より後に始まったprocessは

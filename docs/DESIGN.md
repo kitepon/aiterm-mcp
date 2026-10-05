@@ -314,6 +314,8 @@ stale send lockは並行processとのABAを避けるため自動削除せず、�
 同じIDで再作成する。全session一括停止は公開しない。
 agent sessionへの送信1本を守る`<name>.agent-send.lock`は持つ時間が長いので、持ち主が終了した残骸を次の送信が片付ける。消す役を`<name>.agent-send.lock.reap`の排他作成で1つに絞り、
 その中でもう一度確かめてから消すので、確かめた後で別のlockに入れ替わらない。消す役の印そのものが残った時だけは自動で消さず、`pty_close`を案内する。
+終了した持ち主のpidを別のprocessが使い回すと、pidだけでは生きて見える。生きて見える持ち主は、processが始まってからの経過とlockを作ってからの時間を比べ、
+lockより後に始まったprocessなら別人と読んで片付ける。消す役の印は、5秒より古ければ残った物と読む。`pty_close`は、どちらも片付ける。
 
 Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は

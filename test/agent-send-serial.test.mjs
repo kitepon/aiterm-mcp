@@ -92,10 +92,16 @@ function deadPid() {
   return done.pid;
 }
 
-function writeLock(file, pid) {
+// agoMsは、lockを作ってから経った時間（中身の時刻とfileの時刻の両方へ入れる）。
+function writeLock(file, pid, agoMs = 0) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, JSON.stringify({ pid, at: new Date().toISOString(), token: "0".repeat(32) }) + "\n", { mode: 0o600 });
+  const at = new Date(Date.now() - agoMs);
+  fs.writeFileSync(file, JSON.stringify({ pid, at: at.toISOString(), token: "0".repeat(32) }) + "\n", { mode: 0o600 });
+  fs.utimesSync(file, at, at);
 }
+
+// 終わるまで生きている、送信と無関係のprocess。
+const spawnIdle = () => spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
 
 after(() => {
   core.__testSetAgentTuiReadyStableSamples(null);
@@ -256,7 +262,7 @@ test("持ち主が終了したlockは片付けて送る", { skip }, async () => 
 
 test("別のprocessが送信中のまま待つ上限を越えたら、打たずに断る。sessionは閉じられる", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
-  const owner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+  const owner = spawnIdle();
   try {
     core.__testSetAgentSendLockWaitMs(400);
     await markFakeClaudeReady(sid);
@@ -332,7 +338,9 @@ test("片付けの途中で残った印は自動で消さず、pty_closeで片�
     writeLock(`${lock}.reap`, deadPid());
     await assert.rejects(
       () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      (e) => e.code === 2 && /pty_close/.test(e.message) && /文字列は送信していません/.test(e.message),
+      // 先頭と「文字列は送信していません。」は、連携元（BellTeam）がpty_close→起動し直しへ回すのに使う。
+      (e) => e.code === 2 && e.message.startsWith(`agent session '${sid}' に、終了した送信のlockを片付ける途中で残った印があります。`)
+        && e.message.includes("文字列は送信していません。") && /pty_close/.test(e.message),
     );
     assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /MUST_NOT_ARRIVE/);
     assert.ok(fs.existsSync(lock));
@@ -340,6 +348,58 @@ test("片付けの途中で残った印は自動で消さず、pty_closeで片�
     assert.equal(fs.existsSync(lock), false);
     assert.equal(fs.existsSync(`${lock}.reap`), false);
   } finally {
+    try { core.closeSession(sid); } catch { /* 閉じ済み */ }
+  }
+});
+
+test("画面が無くなった席も閉じられ、残った印とlockが片付く", { skip }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  const lock = agentSendLockPath(sid);
+  core.closeSession(sid);
+  writeLock(lock, deadPid());
+  writeLock(`${lock}.reap`, deadPid());
+  // 連携元（BellTeam）は、印の断りの後、画面の有無を見ずにpty_closeを呼ぶ。
+  assert.deepEqual(core.closeSessionResult(sid), { schema: "aiterm.pty-close-result.v1", session_id: sid, outcome: "already_closed" });
+  assert.equal(fs.existsSync(lock), false);
+  assert.equal(fs.existsSync(`${lock}.reap`), false);
+});
+
+test("終了した持ち主のpidを別のprocessが使っている時は、本人でないと確かめて片付けて送る", { skip }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  const unrelated = spawnIdle();
+  try {
+    await markFakeClaudeReady(sid);
+    // 1時間前に送信を始めた持ち主が終了し、そのpidを今始まったprocessが使っている形。
+    writeLock(agentSendLockPath(sid), unrelated.pid, 3600_000);
+    const receipt = await core.sendAgentMessage(sid, "echo AFTER_REUSED_PID");
+    assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
+    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
+  } finally {
+    unrelated.kill();
+    core.closeSession(sid);
+  }
+});
+
+test("pidを使い回されたlockと古い片付けの印は、生きて見えてもpty_closeで片付く", { skip }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  const lock = agentSendLockPath(sid);
+  const unrelated = spawnIdle();
+  try {
+    await markFakeClaudeReady(sid);
+    writeLock(lock, deadPid());
+    // 片付け役が印を持つのは一瞬。10秒前の印は、pidが生きて見えても残骸。
+    writeLock(`${lock}.reap`, unrelated.pid, 10_000);
+    await assert.rejects(
+      () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
+      (e) => e.code === 2 && /片付ける途中で残った印/.test(e.message) && e.message.includes("文字列は送信していません。"),
+    );
+    fs.rmSync(lock, { force: true });
+    writeLock(lock, unrelated.pid, 3600_000);
+    core.closeSession(sid);
+    assert.equal(fs.existsSync(lock), false, "使い回されたpidのlockを残さない");
+    assert.equal(fs.existsSync(`${lock}.reap`), false, "古い印を残さない");
+  } finally {
+    unrelated.kill();
     try { core.closeSession(sid); } catch { /* 閉じ済み */ }
   }
 });

@@ -17,7 +17,7 @@ import * as rtk from "./rtk.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -2233,6 +2233,9 @@ interface WaitLockProbe {
   pid: number | null;
   at: string | null;
   live: boolean;
+  // 同じ1回の読みで取ったlockの印と古さ。読めなかった時は無い。
+  token?: string | null;
+  ageMs?: number;
 }
 
 function isPidAlive(pid: number): boolean {
@@ -2251,20 +2254,22 @@ function isPidAlive(pid: number): boolean {
 function probeWaitLock(p: string): WaitLockProbe {
   let pid: number | null = null;
   let at: string | null = null;
+  let token: string | null = null;
   let ageMs = 0;
   try {
     const st = fs.lstatSync(p);
     if (!st.isFile() || st.isSymbolicLink()) return { pid: null, at: null, live: true };
     ageMs = Math.max(0, Date.now() - st.mtimeMs);
-    const v = JSON.parse(fs.readFileSync(p, "utf8").split("\n", 1)[0]) as { pid?: unknown; at?: unknown };
+    const v = JSON.parse(fs.readFileSync(p, "utf8").split("\n", 1)[0]) as { pid?: unknown; at?: unknown; token?: unknown };
     if (typeof v.pid === "number" && Number.isInteger(v.pid) && v.pid > 0) pid = v.pid;
     if (typeof v.at === "string") at = v.at;
+    if (typeof v.token === "string") token = v.token;
   } catch {
     /* pid 不明のまま鮮度判定に落ちる */
   }
-  if (pid == null) return { pid: null, at, live: ageMs < WAIT_LOCK_FRESH_MS };
-  if (pid === process.pid) return { pid, at, live: false };
-  return { pid, at, live: isPidAlive(pid) };
+  if (pid == null) return { pid: null, at, token, ageMs, live: ageMs < WAIT_LOCK_FRESH_MS };
+  if (pid === process.pid) return { pid, at, token, ageMs, live: false };
+  return { pid, at, token, ageMs, live: isPidAlive(pid) };
 }
 
 function unlinkStaleWaitLock(p: string): void {
@@ -2413,15 +2418,42 @@ function probeAgentSendLock(name: string): WaitLockProbe {
   return probe.pid === process.pid && agentSendHeld.has(name) ? { ...probe, live: true } : probe;
 }
 
+// 持ち主のpidが生きて見えても、lockより後に始まったprocessなら、終了した持ち主のpidを使い回した別のprocessである。
+// 読みの粗さ（psの経過は1秒刻み）と小さな時計合わせで本人を別人と読まないよう、この秒数を越えて若い時だけ別人とする。
+const AGENT_SEND_LOCK_OWNER_SLACK_S = 5;
+
+function agentSendLockOwnerReplaced(probe: WaitLockProbe): boolean {
+  if (!probe.live || probe.pid == null || probe.pid === process.pid) return false;
+  const created = probe.at === null ? Number.NaN : Date.parse(probe.at);
+  const lockAgeS = (Number.isFinite(created) ? Date.now() - created : probe.ageMs ?? 0) / 1000;
+  let elapsed: number | null;
+  try {
+    elapsed = processElapsedSeconds(probe.pid);
+  } catch {
+    // 確かめられない時は、今まで通り生きていると読む（誤って片付けるより断る方に倒す）。
+    return false;
+  }
+  return elapsed === null || elapsed + AGENT_SEND_LOCK_OWNER_SLACK_S < lockAgeS;
+}
+
+// 片付け役が印を持つのは一瞬。持ち主が終了しているか、鮮度猶予より古い印は、片付けの途中で残った物と読む。
+// 古さでも読むのは、終了した片付け役のpidを別のprocessが使い回すと、pidだけでは生きて見えるため。
+function agentSendReapMarkStuck(guard: string): boolean {
+  const probe = probeWaitLock(guard);
+  return !probe.live || (probe.ageMs ?? 0) >= WAIT_LOCK_FRESH_MS;
+}
+
 // 持ち主が終了したlockを片付ける。確かめてから消すまでの間に別のprocessが新しいlockを作ると生きたlockを消すので、
 // 消す役を`.reap`の`O_EXCL`で1つに絞り、その中でもう一度確かめてから消す。lockが在る間は誰も新しいlockを作れない。
-// done=片付けた（または片付ける物が無かった）／busy=別のprocessが片付け中／stuck=片付けの印が持ち主なしで残っている
-function reapDeadAgentSendLock(name: string): "done" | "busy" | "stuck" {
+// replacedTokenは、持ち主が別人と確かめたlockの印。pidが生きて見えるので、確かめた時と同じlockの時だけ消す。
+// done=片付けた（または片付ける物が無かった）／busy=別のprocessが片付け中／stuck=片付けの印が残っている
+function reapDeadAgentSendLock(name: string, replacedToken: string | null = null): "done" | "busy" | "stuck" {
   const guard = agentSendReapPath(name);
   const token = tryCreateOwnedLock(guard);
-  if (token === null) return probeWaitLock(guard).live ? "busy" : "stuck";
+  if (token === null) return agentSendReapMarkStuck(guard) ? "stuck" : "busy";
   try {
-    if (!probeAgentSendLock(name).live) {
+    const probe = probeAgentSendLock(name);
+    if (!probe.live || (replacedToken !== null && probe.token === replacedToken)) {
       try {
         fs.unlinkSync(agentSendLockPath(name));
       } catch {
@@ -2446,6 +2478,8 @@ function agentSendBusyError(name: string, pid: number | null, waitMs: number): A
 
 async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number): Promise<() => void> {
   const p = agentSendLockPath(name);
+  let checkedOwner: string | null = null;
+  let checkedOwnerReplaced = false;
   for (;;) {
     let token: string | null;
     try {
@@ -2457,7 +2491,24 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
     }
     if (token !== null) return () => releaseOwnedLock(p, token);
     const probe = probeAgentSendLock(name);
-    if (!probe.live && reapDeadAgentSendLock(name) === "stuck") {
+    let dead = !probe.live;
+    let replacedToken: string | null = null;
+    // 生きて見える持ち主は、初めて見た時に1回、本人かを確かめる。結果は覚え、待つ間にOSへ照会し直さない。
+    if (!dead && probe.pid != null) {
+      const owner = `${probe.pid}@${probe.at}`;
+      if (owner !== checkedOwner) {
+        checkedOwner = owner;
+        checkedOwnerReplaced = agentSendLockOwnerReplaced(probe);
+      }
+      if (checkedOwnerReplaced) {
+        dead = true;
+        replacedToken = probe.token ?? null;
+      }
+    }
+    if (dead && reapDeadAgentSendLock(name, replacedToken) === "stuck") {
+      // BellTeamのため: 先頭の「agent session '<名前>' に、終了した送信のlockを片付ける途中で残った印があります。」と、
+      // 文中の「文字列は送信していません。」で見分け、pty_close→起動し直しへ回している（2026-10-05）。
+      // この文面と、pty_closeがこの印を片付ける事を変える時は、変える前に知らせる。
       throw new AitermError(
         `agent session '${name}' に、終了した送信のlockを片付ける途中で残った印があります。` +
           `自動回収は並行送信の混線を招くため行いません。文字列は送信していません。` +
@@ -2465,7 +2516,7 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
         2,
       );
     }
-    if (performance.now() >= deadline) throw agentSendBusyError(name, probe.live ? probe.pid : null, waitMs);
+    if (performance.now() >= deadline) throw agentSendBusyError(name, dead ? null : probe.pid, waitMs);
     await sleep(AGENT_SEND_LOCK_POLL_MS);
   }
 }
@@ -2509,11 +2560,14 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>): Promis
 }
 
 // pty_closeの掃除。生きた持ち主のlockは残す（その送信はsessionが無くなった所で失敗し、自分のlockを外す）。
+// 持ち主が終了したlock、pidを使い回されて生きて見えるlock、残った片付けの印は片付ける。
 function cleanupAgentSendLock(name: string): void {
   const guard = agentSendReapPath(name);
   try {
-    if (fs.existsSync(guard) && !probeWaitLock(guard).live) fs.unlinkSync(guard);
-    if (fs.existsSync(agentSendLockPath(name))) reapDeadAgentSendLock(name);
+    if (fs.existsSync(guard) && agentSendReapMarkStuck(guard)) fs.unlinkSync(guard);
+    if (!fs.existsSync(agentSendLockPath(name))) return;
+    const probe = probeAgentSendLock(name);
+    reapDeadAgentSendLock(name, agentSendLockOwnerReplaced(probe) ? probe.token ?? null : null);
   } catch {
     /* 掃除の失敗で閉じる処理を止めない */
   }

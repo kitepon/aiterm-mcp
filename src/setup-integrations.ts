@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import * as steer from "aiterm-steer-delivery";
 import { resolveAgentBin } from "./agent-resolver.js";
+import { lazyRelayExecutable } from "./lazy-relay.js";
 import { SetupError, runSetupCommand, type SetupRun } from "./setup-platform.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
 export { powershellInvocation } from "./setup-platform.js";
@@ -12,6 +13,22 @@ export { powershellInvocation } from "./setup-platform.js";
 export type Registration = { command: string; args: string[]; type?: "stdio" };
 export type IntegrationResult = { status: "ready" | "not_detected" | "failed"; reason_code?: string };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * 既にある登録が、今から書く登録と同じ本体を指しているか。
+ * 直結（commandとargsが同じ）に加えて、中継（mcp-lazy）で包んだ同じ登録も同じと数える。
+ * 中継つきの形は、commandが`mcp-lazy`で始まる名前の実行ファイルで、argsが直結のcommand＋args
+ * （中継のflagを`--`の前に置いた形も含む）。中継は本体を道具が呼ばれるまで起こさない。
+ * 連携元が全席の登録を中継つきで書いた後、1席が引数なしのsetupを流しても、直結へ戻さない。
+ */
+export function sameRegistration(command: unknown, args: unknown, registration: Registration): boolean {
+  if (typeof command !== "string" || !Array.isArray(args)) return false;
+  if (command === registration.command && isDeepStrictEqual(args, registration.args)) return true;
+  if (!lazyRelayExecutable(command)) return false;
+  const direct = [registration.command, ...registration.args];
+  const separator = args.indexOf("--");
+  return isDeepStrictEqual(args, direct) || (separator >= 0 && isDeepStrictEqual(args.slice(separator + 1), direct));
+}
 
 export function mergeJsonMcp(file: string, registration: Registration): "configured" | "unchanged" {
   let current: Record<string, unknown> = {};
@@ -30,6 +47,8 @@ export function mergeJsonMcp(file: string, registration: Registration): "configu
   }
   const servers = (current.mcpServers ?? {}) as Record<string, unknown>;
   const previous = record(servers.aiterm) ? servers.aiterm : {};
+  // 中継で包んだ同じ登録は、そのまま残す（直結へ書き戻さない）。
+  if (previous.command !== registration.command && sameRegistration(previous.command, previous.args, registration)) return "unchanged";
   const updated = { ...previous, ...registration };
   if (isDeepStrictEqual(servers.aiterm, updated)) return "unchanged";
   const next = { ...current, mcpServers: { ...servers, aiterm: updated } };
@@ -136,8 +155,8 @@ export function configureIntegrations(home: string, registration: Registration, 
         const servers = JSON.parse(run(executable!, ["mcp", "list", "--json"]));
         if (!Array.isArray(servers)) throw new SetupError("config_readback_failed", "CodexのMCP一覧形式を確認できません");
         const existing = servers.find((entry: Record<string, unknown>) => entry.name === "aiterm");
-        // 公式CLIの追加は登録を作り直し、利用者が足した項目（待ち時間など）を落とす。同じ登録なら書き直さない。
-        if (existing?.transport?.command !== registration.command || !isDeepStrictEqual(existing?.transport?.args, registration.args)) {
+        // 公式CLIの追加は登録を作り直し、利用者が足した項目（待ち時間など）を落とす。同じ登録（中継で包んだ物を含む）なら書き直さない。
+        if (!sameRegistration(existing?.transport?.command, existing?.transport?.args, registration)) {
           const envArgs = Object.entries(existing?.transport?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
           run(executable!, ["mcp", "add", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
           const value = JSON.parse(run(executable!, ["mcp", "get", "aiterm", "--json"]));
@@ -150,7 +169,7 @@ export function configureIntegrations(home: string, registration: Registration, 
         if (!Array.isArray(servers)) throw new SetupError("config_readback_failed", "GrokのMCP一覧形式を確認できません");
         const existing = servers.find((entry: Record<string, unknown>) => entry.name === "aiterm" && entry.scope === "user");
         // Codexと同じく、同じ登録なら書き直さない。
-        if (existing?.command !== registration.command || !isDeepStrictEqual(existing?.args, registration.args)) {
+        if (!sameRegistration(existing?.command, existing?.args, registration)) {
           const envArgs = Object.entries(existing?.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
           run(executable!, ["mcp", "add", "--scope", "user", "aiterm", ...envArgs, "--", registration.command, ...registration.args]);
           const value = JSON.parse(run(executable!, ["mcp", "list", "--json"]));

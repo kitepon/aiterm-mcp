@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { AitermError } from "./errors.js";
+import { lazyRelayExecutable } from "./lazy-relay.js";
 import { isWin } from "./tmux-runtime.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
 
@@ -220,7 +221,7 @@ export function processSubtree(rows: RuntimeProcess[], rootPid: number): Runtime
 // 見分けるのは起動した実行ファイルの名前（argvの先頭のbasenameが`mcp-lazy`で始まる）。取り決めはmcp-lazyのREADMEにある。
 export function lazyRelayProcess(command: string): boolean {
   const first = /^(?:"([^"]+)"|(\S+))/.exec(command);
-  return path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/")).toLowerCase().startsWith("mcp-lazy");
+  return lazyRelayExecutable(first?.[1] ?? first?.[2] ?? "");
 }
 
 export function backgroundProcesses(rows: RuntimeProcess[], root: RuntimeProcess): RuntimeProcess[] {

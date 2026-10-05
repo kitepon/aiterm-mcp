@@ -16,7 +16,7 @@ Claude／CursorのJSONは参照先を原子的に更新して変更前backupを�
 各AIの読戻しは登録内容の確認であり、端末の実動作はその前の公開MCP試験で確認する。
 失敗は理由付きJSONと非ゼロ終了で返す。対応外の自動導入と全AI未検出を成功扱いしない。
 global packageは、npmの現在のglobal rootか、実行中のNodeの既定のglobal rootにあるものを指す。
-CodexとGrokは登録が同じなら公式CLIで作り直さない。`aiterm-setup --hooks-only`はClaude Code・Cursorの親配送hookだけを登録し、
+CodexとGrokは登録が同じなら公式CLIで作り直さない。中継（`mcp-lazy`）で包んだ同じ登録も「同じ」と数え、4つのclientとも直結へ書き戻さない（ADR 0091）。`aiterm-setup --hooks-only`はClaude Code・Cursorの親配送hookだけを登録し、
 依存準備、端末の実動作確認、MCP登録、Codex Steerに触れない。判断はADR 0077。
 
 ## Terminal model

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 引数なしの`aiterm-setup`が、中継（`mcp-lazy`）で包んだAitermの登録を直結へ書き戻していた（ADR 0091）。
+  連携元が全席の登録を中継つきにした後、1席がsetupを流すだけで、Claude Code・Codex・Grok・Cursorの4つの設定が直結へ戻り、
+  本体を眠らせておく節約が次の書き直しまで消えた。Codexは`mcp add`で作り直されるので、待ち時間（`startup_timeout_sec`・
+  `tool_timeout_sec`）と`env_vars`も一緒に消えた。
+  commandが`mcp-lazy`で始まる名前の実行ファイルで、argsが直結の登録のcommand＋args（中継のflagを`--`の前に置いた形も含む）なら、
+  同じ登録と数えて書き直さない。包んでいる本体のpathが違う時は、今までどおり直結の登録へ書き直す。
+
 ## [0.53.1] - 2026-10-05
 
 ### 修正

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { configureIntegrations, configureParentHooks, mergeJsonMcp, mergeClaudeParentHooks, removeClaudeParentHooks, mergeCursorParentHooks, removeCursorParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
+import { configureIntegrations, configureParentHooks, mergeJsonMcp, sameRegistration, mergeClaudeParentHooks, removeClaudeParentHooks, mergeCursorParentHooks, removeCursorParentHooks, powershellInvocation } from '../dist/setup-integrations.js';
 
 const registration = { command: '/usr/local/bin/node', args: ['/opt/aiterm/dist/index.js'] };
 test('初回登録と再実行で自エントリ以外を保持する', (t) => {
@@ -212,6 +212,62 @@ test('CodexとGrokは同じ登録なら公式CLIで作り直さない', (t) => {
     ['codex', ['mcp', 'list', '--json']],
     ['grok', ['mcp', 'list', '--json']],
   ]);
+});
+
+// 2026-10-05 BellTeam: 全席のAitermの登録を中継（mcp-lazy）つきにする段。1席が引数なしのaiterm-setupを流すと、
+// 4つの設定が直結へ戻り、全席の節約が次の書き直しまで黙って消える。Codexは待ち時間とenv_varsも一緒に消える。
+test('中継（mcp-lazy）で包んだ同じ登録を、同じ登録と数える', () => {
+  const direct = [registration.command, ...registration.args];
+  assert.equal(sameRegistration(registration.command, registration.args, registration), true);
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', direct, registration), true);
+  assert.equal(sameRegistration('C:\\tools\\mcp-lazy.exe', direct, registration), true);
+  assert.equal(sameRegistration('/opt/trial/mcp-lazy-0.3.2-abc1234', direct, registration), true, '版の付いた名前も中継');
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', ['--cache-dir', '/c', '--idle-stop', '0', '--', ...direct], registration), true, 'flagを--の前に置いた形');
+  // 中継でも、包んでいる本体が違えば別の登録。
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', [registration.command, '/old/aiterm/dist/index.js'], registration), false);
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', ['/other/node', ...registration.args], registration), false);
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', [...direct, '--extra'], registration), false);
+  // 中継でない包みは、同じ登録と数えない。
+  assert.equal(sameRegistration('/usr/bin/env', direct, registration), false);
+  assert.equal(sameRegistration('/usr/local/bin/not-mcp-lazy', direct, registration), false);
+  for (const [command, args] of [[undefined, direct], ['/usr/local/bin/mcp-lazy', undefined], [null, null], ['/usr/local/bin/mcp-lazy', 'node index.js']]) assert.equal(sameRegistration(command, args, registration), false);
+});
+
+test('引数なしのsetupは、中継つきの同じ登録を4つのclientとも直結へ戻さない', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-relay-registration-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const relay = { command: '/usr/local/bin/mcp-lazy', args: [registration.command, ...registration.args],
+    env: { MCP_LAZY_CACHE_DIR: '/home/u/.cache/mcp-lazy/aiterm-x', MCP_LAZY_IDLE_STOP: '0' } };
+  // ClaudeとCursorは設定のJSON。
+  const claude = join(dir, '.claude.json'), cursor = join(dir, '.cursor', 'mcp.json');
+  writeFileSync(claude, JSON.stringify({ mcpServers: { aiterm: { type: 'stdio', ...relay }, other: { command: 'other' } } }));
+  assert.equal(mergeJsonMcp(claude, { type: 'stdio', ...registration }), 'unchanged');
+  assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers.aiterm, { type: 'stdio', ...relay });
+  // CodexとGrokは公式CLIの一覧。待ち時間とenv_varsは、作り直すと消える。
+  const calls = [];
+  const run = (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === '--version') return '2.1.259 (Claude Code)';
+    if (args[0] === 'queue') return '--thread <ID> --message <TEXT>';
+    if (command === 'codex') return JSON.stringify([{ name: 'aiterm', transport: { type: 'stdio', ...relay }, startup_timeout_sec: 30, tool_timeout_sec: 120, env_vars: ['CODEX_HOME'] }]);
+    return JSON.stringify([{ name: 'aiterm', scope: 'user', ...relay, tool_timeout_sec: 120 }]);
+  };
+  mkdtempSync(join(dir, 'x-'));
+  writeFileSync(join(dir, 'cursor-placeholder'), '');
+  const home = join(dir, 'home');
+  for (const [file, value] of [[join(home, '.claude.json'), { mcpServers: { aiterm: { type: 'stdio', ...relay } } }], [join(home, '.cursor', 'mcp.json'), { mcpServers: { aiterm: relay } }]]) {
+    mkdirSync(join(file, '..'), { recursive: true });
+    writeFileSync(file, JSON.stringify(value));
+  }
+  const result = configureIntegrations(home, registration, run, client => client);
+  assert.deepEqual(result, { claude: { status: 'ready' }, codex: { status: 'ready' }, grok: { status: 'ready' }, cursor: { status: 'ready' } });
+  assert.equal(calls.some(([, args]) => args[0] === 'mcp' && args[1] === 'add'), false, 'CodexとGrokを公式CLIで作り直さない');
+  assert.deepEqual(JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')).mcpServers.aiterm, { type: 'stdio', ...relay });
+  assert.deepEqual(JSON.parse(readFileSync(join(home, '.cursor', 'mcp.json'), 'utf8')).mcpServers.aiterm, relay);
+  // 包んでいる本体が違う時（Aitermの置き場が変わった等）は、今までどおり直結の登録へ書き直す。
+  const moved = { command: registration.command, args: ['/new/aiterm/dist/index.js'] };
+  assert.equal(mergeJsonMcp(claude, { type: 'stdio', ...moved }), 'configured');
+  assert.deepEqual([JSON.parse(readFileSync(claude, 'utf8')).mcpServers.aiterm.command, JSON.parse(readFileSync(claude, 'utf8')).mcpServers.aiterm.args], [moved.command, moved.args]);
 });
 
 test('hookだけの登録はClaude CodeとCursorのhookを書き、MCP登録を作らない', (t) => {

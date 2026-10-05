@@ -536,6 +536,8 @@ MCPの本体を初めて使う時まで起こさない中継の後ろにAiterm�
 `MCP_LAZY_WAKE_COMMAND='["/absolute/path/to/node","/absolute/path/to/aiterm-mcp/dist/delivery-wake-cli.js","--parent","claude"]'`
 持ち主の開始時刻はLinuxでは`/proc`で照合する。それ以外のOSでは、pidがあれば生きている持ち主として扱う。
 
+`aiterm-setup`は、中継（`mcp-lazy`）で包んだ同じ登録を作り直さない。commandが`mcp-lazy`で始まる名前の実行ファイルで、argsが直結の登録のcommand＋args（中継のflagを`--`の前に置いた形も含む）なら、Claude Code・Codex・Grok・Cursorの登録をそのまま残す。包んでいる本体のpathが違う時は、直結の登録へ書き直す。
+
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
 Claude Code初回起動の文字表示テーマ選択では、画面で選択済みの項目を確定して起動を続ける。

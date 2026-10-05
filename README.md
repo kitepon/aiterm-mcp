@@ -572,6 +572,8 @@ same environment as the server:
 `MCP_LAZY_WAKE_COMMAND='["/absolute/path/to/node","/absolute/path/to/aiterm-mcp/dist/delivery-wake-cli.js","--parent","claude"]'`.
 Owner start times are checked through `/proc` on Linux; elsewhere an existing PID is treated as a live owner.
 
+`aiterm-setup` does not rewrite a registration that wraps the same server in the `mcp-lazy` relay. When the registered command is an executable whose name starts with `mcp-lazy` and its args are the direct registration's command followed by its args (relay flags before `--` are allowed), the Claude Code, Codex, Grok, and Cursor registrations are left as they are. If the wrapped server path differs, setup writes the direct registration.
+
 `agent_launch({ harness, cwd, trust_project: true })` completes known workspace, project-hook, and project-MCP startup
 consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.
 For Claude Code's first-run text-style menu, it confirms the item already selected on screen before continuing startup.

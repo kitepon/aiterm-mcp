@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.2] - 2026-10-05
+
 ### 修正
 
 - 引数なしの`aiterm-setup`が、中継（`mcp-lazy`）で包んだAitermの登録を直結へ書き戻していた（ADR 0091）。
@@ -2213,7 +2215,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.2...HEAD
+[0.53.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.3...v0.53.0
 [0.52.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.2...v0.52.3

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 0.52.1で、socketの置き場（`claude-tmux-sockets`）ごと無くなったagent sessionへの送信が、
+  `ENOENT: … .agent-send.lock`という生のエラーを返していた。0.52.0までは
+  「入力受付状態になりません。文字列は送信していません。」の断りだった。連携元が「文字列は送信していません」で
+  未送信を見分けている時、0.52.1ではこの場合だけ見分けられなかった。送信の順番を守るlock（ADR 0088）を
+  置き場に作れない時は、lockを取らずに進め、今まで通りの断りを返す。置き場が無ければsessionにも届かず、
+  守る相手が無い。sessionだけが無くなった時（置き場は残る）の断りは、0.52.1でも変わっていない。
+
 ## [0.52.1] - 2026-10-05
 
 ### 修正

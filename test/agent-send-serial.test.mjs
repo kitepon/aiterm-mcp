@@ -264,8 +264,9 @@ test("別のprocessが送信中のまま待つ上限を越えたら、打たず�
     const started = performance.now();
     await assert.rejects(
       () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      (e) => e.code === 2 && /AGENT_SEND_BUSY/.test(e.message) && e.message.includes(`pid ${owner.pid}`)
-        && /文字列は送信していません/.test(e.message),
+      // 先頭と「文字列は送信していません。」は、連携元（BellTeam）が未送信の断りを見分けるのに使う。
+      (e) => e.code === 2 && e.message.startsWith(`AGENT_SEND_BUSY: agent session '${sid}' は別プロセス（pid ${owner.pid}）`)
+        && e.message.includes("文字列は送信していません。"),
     );
     assert.ok(performance.now() - started >= 400, "上限まで待つ");
     assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /MUST_NOT_ARRIVE/);
@@ -287,7 +288,11 @@ test("同じprocessの前の1通が上限を越えて続く時も、後の1通�
     // 1通目は入力受付待ちで止まる。2通目は上限で断る。3通目は1通目の後で通る。
     const first = core.sendAgentMessage(sid, "echo QUEUE_ONE");
     const second = core.sendAgentMessage(sid, "echo QUEUE_TWO");
-    await assert.rejects(() => second, (e) => e.code === 2 && /AGENT_SEND_BUSY/.test(e.message));
+    await assert.rejects(
+      () => second,
+      (e) => e.code === 2 && e.message.startsWith(`AGENT_SEND_BUSY: agent session '${sid}' は先に受け付けた送信`)
+        && e.message.includes("文字列は送信していません。"),
+    );
     core.__testSetAgentSendLockWaitMs(null);
     const third = core.sendAgentMessage(sid, "echo QUEUE_THREE");
     await markFakeClaudeReady(sid);
@@ -336,5 +341,42 @@ test("片付けの途中で残った印は自動で消さず、pty_closeで片�
     assert.equal(fs.existsSync(`${lock}.reap`), false);
   } finally {
     try { core.closeSession(sid); } catch { /* 閉じ済み */ }
+  }
+});
+
+// psmuxのsessionはsocketの置き場と別に生き、置き場のfileは使用中で消せない。lockの層の判断はOSに依らないので、POSIXで確かめる。
+const skipMissingSocketDir = process.platform === "win32" ? "Windowsはsocketの置き場を消してもsessionが残る" : skip;
+
+test("socketの置き場が無くなった席への送信は、lockの作成失敗でなく、今まで通りの未送信の断りを返す", { skip: skipMissingSocketDir }, async () => {
+  // 置き場を消すので、別の保存場所を持つprocessで確かめる。
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR, "gone-"));
+  const script = path.join(root, "send-after-socket-dir-gone.mjs");
+  fs.writeFileSync(script, [
+    'import { spawnSync } from "node:child_process";',
+    'import * as fs from "node:fs";',
+    'import * as path from "node:path";',
+    "const core = await import(process.argv[2]);",
+    "core.__testSetAgentTuiReadyStableSamples(1);",
+    'const socketDir = path.join(process.env.TMPDIR, "claude-tmux-sockets");',
+    'const [sid] = core.openAgent("claude", { agent_done: true });',
+    'spawnSync("tmux", ["-S", path.join(socketDir, "claude.sock"), "kill-server"]);',
+    "fs.rmSync(socketDir, { recursive: true, force: true });",
+    "let message = null;",
+    // 入力受付待ちを待たずに結果を得る。lockの層はsendAgentMessageと同じ。
+    'try { await core.dispatchAgentTurn(sid, "echo MUST_NOT_ARRIVE", { ready_timeout: 0 }); } catch (error) { message = error.message; }',
+    "console.log(JSON.stringify({ message, socket_dir: fs.existsSync(socketDir) }));",
+    "",
+  ].join("\n"));
+  try {
+    const child = spawnSync(process.execPath, [script, coreUrl.href], {
+      env: { ...process.env, TMPDIR: root, XDG_RUNTIME_DIR: root }, encoding: "utf8", timeout: 60_000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout.trim().split("\n").at(-1));
+    assert.match(result.message, /入力受付状態になりません。文字列は送信していません。/);
+    assert.doesNotMatch(result.message, /ENOENT|agent-send\.lock/);
+    assert.equal(result.socket_dir, false, "送れなかった送信が置き場を作り直さない");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

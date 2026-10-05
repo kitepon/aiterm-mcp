@@ -2434,6 +2434,8 @@ function reapDeadAgentSendLock(name: string): "done" | "busy" | "stuck" {
   return "done";
 }
 
+// BellTeamのため: 先頭の「AGENT_SEND_BUSY: agent session '<名前>' は」と、文中の「文字列は送信していません。」で
+// 未送信の断りを見分けている（2026-10-05）。この2か所を変える時は、変える前に知らせる。
 function agentSendBusyError(name: string, pid: number | null, waitMs: number): AitermError {
   return new AitermError(
     `AGENT_SEND_BUSY: agent session '${name}' は${pid != null ? `別プロセス（pid ${pid}）` : "先に受け付けた送信"}の処理中です。` +
@@ -2445,7 +2447,14 @@ function agentSendBusyError(name: string, pid: number | null, waitMs: number): A
 async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number): Promise<() => void> {
   const p = agentSendLockPath(name);
   for (;;) {
-    const token = tryCreateOwnedLock(p);
+    let token: string | null;
+    try {
+      token = tryCreateOwnedLock(p);
+    } catch (e) {
+      // socketの置き場が無ければ、守る相手のsessionにも届かない。lockを取らずに進め、送信側の今まで通りの断りを返す。
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return () => {};
+      throw e;
+    }
     if (token !== null) return () => releaseOwnedLock(p, token);
     const probe = probeAgentSendLock(name);
     if (!probe.live && reapDeadAgentSendLock(name) === "stuck") {

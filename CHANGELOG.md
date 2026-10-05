@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 0.53.0で、Grokにログイン済みなのに`agent_auth`の`status`が`blocked`（認証が必要）を返す事があった。
+  `grok models`は、生きているログインでも古いtokenを取り直す回だけ`You are not authenticated.`と答える事がある
+  （macbook、Grok 1.0.46。1回目は未認証、同じ時刻に`auth.json`が更新され、2回目からは認証済み）。
+  「未認証」の答えは1回では決めず、1.5秒置いてもう1回聞く。2回とも未認証の時だけ`blocked`にする。
+
 ## [0.53.0] - 2026-10-05
 
 ### 追加

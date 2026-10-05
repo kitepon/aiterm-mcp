@@ -4384,7 +4384,7 @@ async function authStatus(kind: AgentKind, bin: string, cwd: string, env = proce
   switch (kind) {
     case "claude": return claudeAuthStatus(bin, cwd, env);
     case "codex": return await codexAuthStatus(bin, cwd, env);
-    case "grok": return grokAuthStatus(bin, cwd, env);
+    case "grok": return await grokAuthStatus(bin, cwd, env);
     case "cursor": return cursorAuthStatus(bin, cwd, env);
   }
 }

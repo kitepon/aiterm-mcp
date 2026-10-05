@@ -64,7 +64,7 @@ if [ "$kind" = codex ] && [ "$1" = app-server ]; then
 fi
 # Grokは状態のcommandを持たない。modelsが、使えるログインが無い時だけ先頭で知らせる。
 if [ "$kind" = grok ] && [ "$1" = models ]; then
- [ -f "$state" ] || printf 'You are not authenticated.\\n\\n'
+ if [ -f "$state.stale" ]; then rm -f "$state.stale"; printf 'You are not authenticated.\\n\\n'; elif [ ! -f "$state" ]; then printf 'You are not authenticated.\\n\\n'; fi
  printf 'Default model: grok-x\\n\\nAvailable models:\\n  * grok-x (default)\\n'
  exit 0
 fi
@@ -162,6 +162,11 @@ test("認証session無しのGrokは、公式のmodelsの答えで状態を返す
   fs.writeFileSync(fixture.state, "yes");
   assert.deepEqual(await core.authenticateAgent("grok", { action: "status" }),
     { schema: "aiterm.agent-auth-result.v1", harness: "grok-cli", status: "authenticated", session_id: null, url: null, user_code: null, input_required: false, message: null });
+  // 2026-10-05 macbook: 生きているログインで、1回目だけ「未認証」と答えた（同じ時刻にauth.jsonが更新された）。1回では決めない。
+  fs.writeFileSync(`${fixture.state}.stale`, "yes");
+  assert.equal((await core.authenticateAgent("grok", { action: "status" })).status, "authenticated");
+  const argv = fs.readFileSync(path.join(fixture.home, "argv"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(argv.filter(row => row.args[0] === "models").length, 5, "未認証の答えの時だけ、もう1回聞く（ログイン無しで2回、認証済みで1回、取り直しの回で2回）");
   // 認証済みなら、reloginを付けないstartは何も起こさない。
   assert.deepEqual([(await core.authenticateAgent("grok", { action: "start", cwd: fixture.home })).status, core.listSessions().length], ["authenticated", core.listSessions().length]);
 });

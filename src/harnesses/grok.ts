@@ -567,17 +567,27 @@ export function createGrokAgentMetadata(
 
 export function grokAuthPlan(): AgentAuthPlan { return { args: ["login", "--device-auth"], env: [] }; }
 
+const GROK_AUTH_RECHECK_MS = 1500;
+
 /**
  * Grokには認証状態を答える公式commandが無い。`grok models`は、使えるログインが無い時に`You are not authenticated.`と答える
  * （1.0.46。ログイン無しと、期限切れ・無効なtokenの両方。後者ではGrokが`auth.json`を自分で消す）。auth fileの存在は見ない。
+ * 生きているログインでも、古いtokenを取り直す回だけ「未認証」と答える事がある（2026-10-05 macbook。1回目は未認証、
+ * 同じ時刻に`auth.json`が更新され、2回目からは認証済み）。1回の「未認証」では決めず、少し置いてもう1回聞く。
  */
-export function grokAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {
-  const result = spawnAgentControlCommand(bin, ["models"], cwd,
-    { cwd, env, encoding: "utf8", timeout: 20000, maxBuffer: 256 * 1024 });
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  if (!result.error && /You are not authenticated|Not signed in/i.test(output)) return { status: "unauthenticated", message: null };
-  if (!result.error && result.status === 0 && /Available models/i.test(output)) return { status: "authenticated", message: null };
-  return { status: "failed", message: "Grokの公式CLIで認証状態を確認できません。" };
+export async function grokAuthStatus(bin: string, cwd: string, env = process.env): Promise<AgentAuthStatus> {
+  for (let attempt = 0; ; attempt += 1) {
+    const result = spawnAgentControlCommand(bin, ["models"], cwd,
+      { cwd, env, encoding: "utf8", timeout: 20000, maxBuffer: 256 * 1024 });
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    if (!result.error && /You are not authenticated|Not signed in/i.test(output)) {
+      if (attempt > 0) return { status: "unauthenticated", message: null };
+      await new Promise(resolve => setTimeout(resolve, GROK_AUTH_RECHECK_MS));
+      continue;
+    }
+    if (!result.error && result.status === 0 && /Available models/i.test(output)) return { status: "authenticated", message: null };
+    return { status: "failed", message: "Grokの公式CLIで認証状態を確認できません。" };
+  }
 }
 
 export function grokAuthPane(screen: string): AgentAuthPane {

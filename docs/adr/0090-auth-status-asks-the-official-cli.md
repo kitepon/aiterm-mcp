@@ -40,6 +40,8 @@ cacheされたauthが無い時と、tokenの取り直しの恒久的な失敗が
    `codex login status`に従う。App Serverと話せない時は、認証済みとせず`failed`とする。
 2. **Grok。** 状態のcommandが無いので、`grok models`の`You are not authenticated.`で未認証を見る。
    今までは「auth fileの存在を成功とみなさない」ために`unsupported`としていた。file は今も見ていない。
+   生きているログインでも、古いtokenを取り直す回だけ「未認証」と答える事がある（0.53.0を入れたmacbookで1回。
+   同じ時刻に`auth.json`が更新され、聞き直すと認証済みだった）。「未認証」は1回では決めず、1.5秒置いてもう1回聞く。
 3. **Cursor。** `unable to fetch user details`は、認証済みとせず`failed`とする。期限切れか通信できないかを区別できないため、
    「未認証」とも言わない。
 4. **Claude Code。** 公式の状態の口では見抜けない。資格情報のfileには期限の時刻があるが、Aitermは資格情報を読まない

@@ -83,8 +83,9 @@ aiterm-setup --json
 互換launcherを共有していた場合はAitermのSteer選択だけを解除し、所有外の起動設定を保持する。
 回答record schemaは従来と共通であり、新方式のSteer相当配送も`queued_submission_id`を保持する。
 
-Claude親配送hookのない旧版へ戻す場合は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を
-実行する。Aiterm専用の3 hookだけを解除し、他製品のhookと設定を保持する。
+Claude親配送hookのない旧版、または0.52.2以前へ戻す場合は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を
+実行する。Aiterm専用の3 hookだけを解除し、他製品のhookと設定を保持する。0.52.2以前は、shellを通す1行の登録（ADR 0089）を
+自分の物と数えず、もう1組を足す。
 
 ```bash
 npm install -g "aiterm-mcp@<known-good-version>"

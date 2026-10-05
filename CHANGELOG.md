@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Code親の配送hookの登録を、`args`を使わずshellを通す1行で書く（aiterm-steer-delivery 0.2.0、ADR 0089）。
+  Grokは共有の`~/.claude/settings.json`のhookも動かすが、`args`を落として`command`だけを動かす。
+  0.52.2までの`command=node, args=[claude-parent-hook.js]`の形では、Grokがnodeだけを起こし、nodeがhookの入力を
+  scriptとして読んで、会話の終わりのたびに`[stdin]:1`で失敗の記録を残していた（Grok 1.0.46、LinuxとWindowsで再現）。
+  POSIXは`exec '<node>' '<hook>'`、Windowsは`& '<node>' '<hook>'; exit (Get-Variable LASTEXITCODE -ValueOnly)`と
+  `shell: "powershell"`。`aiterm-setup`（`--hooks-only`も）を流すと、0.52.2までの登録をこの形へ置き換える。
+  Grokから起こされたhookは何もせず0で終わる。PreToolUseのhookは、間に挟まるshellではなくClaude Code本体を
+  依頼元として記録する。
+- Windowsで、Claude Code親へ子の回答が届いているのに、配送が`CLAUDE_PARENT_HOOK_CLOSED`（結果不明）で終わる事があった。
+  process表を読む間（約1秒）に受信hookが本文を出し終えて終わると、出し終えた後のhookを「途中で終わった」と数えていた。
+- `diagnostics`の親配送hookの状態は、0.52.2までの登録と新しい登録のどちらも「登録済み」と読む。
+
+### 注意
+
+- 0.52.2以前へ戻す時は、旧版のinstall前に`aiterm-setup --remove-claude-parent-hooks`を実行する。
+  0.52.2以前は新しい形の登録を自分の物と数えず、もう1組を足す。
+- Windowsでは、子の回答を待っているhook1つにつき、Claude Codeが起こすPowerShellのprocessが1つ残る。
+
 ## [0.52.2] - 2026-10-05
 
 ### 修正

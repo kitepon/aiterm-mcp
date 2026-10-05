@@ -186,6 +186,11 @@ hookはNodeの実行ファイルと引数配列で直接起動し、shellやWind
 子の予約は既存の`parent-deliveries/claims`で共有し、親の種類をまたぐ並行送信を防ぐ。
 hookとの受け渡しはAiterm stateの`claude-parent-hooks`へ置く。
 
+hookの登録は、`args`を使わずshellを通す1行で書く（ADR 0089）。POSIXは`exec '<node>' '<hook>'`、Windowsは
+`& '<node>' '<hook>'; exit (Get-Variable LASTEXITCODE -ValueOnly)`と`shell: "powershell"`。同じ設定をGrokも読み、
+`args`を落として`command`だけを動かすためである。Grokから起こされたhookは何もせず0で終わる。
+PreToolUseのhookは、間に挟まるshellを飛ばして、Claude Code本体を依頼元のprocessとして記録する。
+
 `PostToolUse`は`asyncRewake:true`で待機し、保存済み本文をstderrへ出してexit 2を返す。
 exit 2はClaudeが規定する再開信号であり、子の成功・失敗は本文の`outcome`で区別する。
 親は待機中も別作業や次のturnへ進める。Claudeの画面では`Stop hook feedback`として届く。

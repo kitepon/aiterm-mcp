@@ -655,7 +655,7 @@ Claude Codeは2.1.259以上の対話sessionに対応する。`aiterm-setup`が�
 
 `/clear`などで会話を終了すると未送信の旧回答の配送を止め、本文は保存する。受信hookの上限は24時間で、終了や出力失敗を成功扱いしない。hookが無効な場合は送信前に明示errorにし、waiterへ黙って切り替えない。Claude Desktopのチャット、Web、`agent_id`付きの会話（`--agent`起動とnative subagent）はこの受信契約に含めない。
 
-hookを持たない旧版へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
+hookを持たない旧版、または0.52.2以前へ戻す時は、install前に`aiterm-setup --remove-claude-parent-hooks`を実行する。Aiterm専用hookだけを解除し、他製品のhookと設定は保持する。
 
 Cursor親（`clientInfo.name`が`cursor-vscode`）も同じ完了観測と本文保存を使う。`aiterm-setup`が`~/.cursor/hooks.json`へ`afterMCPExecution`と`postToolUse`を追加し、他製品のhookと順序は保持する。hookが無い場合は子への送信前に`CURSOR_PARENT_HOOK_UNAVAILABLE`で止める。作業を続けていれば次のツール返りへ`additional_context`で本文が差し込まれ、ターンを終える前にreceiptの`wait_process`を背景で起動しておけばidle中の完了でも起きられる。`wait_command`はnull。`submitted`はhookまたは受け口が本文を受け取った状態であり、modelの読了ではない。24時間以内に受け取りが無ければ`failed`とし、本文は残して自動再送しない。解除は`aiterm-setup --remove-cursor-parent-hooks`。Cursor Cloud Agent／Background Agentはこの受信契約に含めない。
 

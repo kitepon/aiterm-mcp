@@ -43,19 +43,13 @@ export function claudeParentHookDiagnostic(file: string): ParentHookDiagnostic {
   if (settings === null || settings.hooks === undefined) return required("hooks_not_registered");
   if (!record(settings.hooks)) return unreadable;
   if (settings.disableAllHooks === true) return required("hooks_disabled");
-  const entry = AITERM_PROFILE.hooks.claude;
-  const owned = (value: string) => value === entry || value.endsWith(`/${entry}`) || value.endsWith(`\\${entry}`);
-  const scripts: string[] = [];
-  for (const event of Object.keys(steer.claudeParentHookEntries(AITERM_PROFILE, { command: "", script: entry }))) {
+  // 登録の形（0.52.2までの`args`形式と、今のshellを通す1行）は配送ライブラリが読む。ここで`args`を直接読まない。
+  for (const event of Object.keys(steer.claudeParentHookEntries(AITERM_PROFILE, { command: "", script: AITERM_PROFILE.hooks.claude }))) {
     const groups = settings.hooks[event];
     if (groups !== undefined && !Array.isArray(groups)) return unreadable;
-    const found = (groups ?? []).flatMap(group => record(group) && Array.isArray(group.hooks) ? group.hooks : [])
-      .filter(hook => record(hook) && hook.type === "command" && Array.isArray(hook.args) && typeof hook.args[0] === "string" && owned(hook.args[0]))
-      .map(hook => ((hook as Record<string, unknown>).args as string[])[0]);
-    if (found.length === 0) return required("hooks_not_registered");
-    scripts.push(...found);
   }
-  return scripts.every(script => existsSync(script)) ? ready : required("hook_script_missing");
+  if (!steer.claudeParentHooksRegistered(AITERM_PROFILE, settings)) return required("hooks_not_registered");
+  return steer.claudeParentHookScripts(AITERM_PROFILE, settings).every(script => existsSync(script)) ? ready : required("hook_script_missing");
 }
 
 export function cursorParentHookDiagnostic(file: string): ParentHookDiagnostic {

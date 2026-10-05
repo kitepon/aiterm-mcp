@@ -27,6 +27,24 @@ test('Claude Codeのhookは、setupが登録するeventがすべて揃い入口�
   assert.deepEqual(claudeParentHookDiagnostic(claude), required('hooks_not_registered'));
   mergeClaudeParentHooks(claude, registration);
   assert.deepEqual(claudeParentHookDiagnostic(claude), ready);
+  // 登録はshellを通す1行で、argsを持たない（Grokは共有の設定のhookからargsを落として動かす）。
+  const written = JSON.parse(readSettings(claude)).hooks;
+  for (const event of ['PreToolUse', 'PostToolUse', 'SessionEnd']) {
+    const hook = written[event].flatMap(group => group.hooks).find(entry => entry.command.includes('claude-parent-hook.js'));
+    assert.equal('args' in hook, false, event);
+  }
+  // 0.52.2までが書いたargs形式の登録も、登録済みと読む（更新した直後、setupを流し直す前の設定）。
+  const hookFile = join(dir, 'dist', 'claude-parent-hook.js');
+  const legacy = extra => ({ type: 'command', command: process.execPath, args: [hookFile], ...extra });
+  const matcher = written.PreToolUse.at(-1).matcher;
+  writeFileSync(claude, JSON.stringify({ hooks: {
+    PreToolUse: [{ matcher, hooks: [legacy({ timeout: 15 })] }], PostToolUse: [{ matcher, hooks: [legacy({ asyncRewake: true, timeout: 86400 })] }],
+    SessionEnd: [{ hooks: [legacy({ timeout: 15 })] }] } }));
+  assert.deepEqual(claudeParentHookDiagnostic(claude), ready);
+  // setupを流し直すと、args形式は今の形へ置き換わる。
+  assert.equal(mergeClaudeParentHooks(claude, registration), 'configured');
+  assert.equal(readSettings(claude).includes('"args"'), false);
+  assert.deepEqual(claudeParentHookDiagnostic(claude), ready);
   // eventが1つ欠けても配送は成立しない。
   const partial = JSON.parse(JSON.stringify(other));
   writeFileSync(claude, JSON.stringify(partial));

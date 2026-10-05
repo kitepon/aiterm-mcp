@@ -89,7 +89,8 @@ test('Claudeの親配送hookは他のhookと設定を保持し、再実行で増
   assert.deepEqual(value.hooks.Stop, [other]);
   assert.deepEqual(value.hooks.PreToolUse[0], other);
   assert.equal(value.hooks.PostToolUse[0].hooks[0].asyncRewake, true);
-  assert.deepEqual(value.hooks.PostToolUse[0].hooks[0].args, [join('/opt/aiterm/dist', 'claude-parent-hook.js')]);
+  assert.equal('args' in value.hooks.PostToolUse[0].hooks[0], false);
+  assert.ok(value.hooks.PostToolUse[0].hooks[0].command.includes(`'${join('/opt/aiterm/dist', 'claude-parent-hook.js')}'`));
   const before = statSync(file).mtimeMs;
   assert.equal(mergeClaudeParentHooks(file, registration), 'unchanged');
   assert.equal(statSync(file).mtimeMs, before);
@@ -229,7 +230,7 @@ test('hookだけの登録はClaude CodeとCursorのhookを書き、MCP登録を�
   assert.deepEqual(calls, [['claude', ['--version']], ['claude', ['--version']]]);
   const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.json'), 'utf8'));
   assert.deepEqual(Object.keys(settings.hooks), ['PreToolUse', 'PostToolUse', 'SessionEnd']);
-  assert.match(settings.hooks.PreToolUse[0].hooks[0].args[0], /claude-parent-hook\.js$/);
+  assert.match(settings.hooks.PreToolUse[0].hooks[0].command, /claude-parent-hook\.js'/);
   assert.match(JSON.parse(readFileSync(join(dir, '.cursor', 'hooks.json'), 'utf8')).hooks.postToolUse.at(-1).command, /cursor-parent-hook\.js/);
   for (const file of [join(dir, '.claude', '.claude.json'), join(dir, '.claude.json'), join(dir, '.cursor', 'mcp.json')]) {
     assert.throws(() => statSync(file), { code: 'ENOENT' });

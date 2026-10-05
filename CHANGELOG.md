@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-10-05
+
 ### 修正
 
 - 同じagent sessionへの`pty_send`が重なると、後の1通が断られる事があった（ADR 0088）。Aitermは送る時点の子の状態を見て
@@ -2115,7 +2117,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.1...HEAD
+[0.52.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.3...v0.52.0
 [0.51.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.2...v0.51.3
 [0.51.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.51.1...v0.51.2

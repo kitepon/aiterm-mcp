@@ -283,27 +283,41 @@ export function cursorTranscriptText(
   meta: AgentMetadata,
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
-): string {
+): string | null {
   const transcript = cursorTranscript(meta);
   if (!transcript) transcriptUnavailable();
   // tool_useで区切った本文の塊を持つ。道具を呼ぶ前の文は作業途中の報告なので、回答は最後の塊だけにする。
   let current: string[][] = [[]];
-  let completed: string[][] | null = null;
+  // 回答の場所が分かるturnか。assistant行があり、そのpartがtextとtool_useだけの時に限る（実記録にあるのはこの2種類）。
+  // 知らないpartがあるturnは、本文がそこへ移ったのかもしれないので「回答が空」とは言わない。
+  let assistantRows = 0;
+  let unknownParts = false;
+  let completed: { chunks: string[][]; located: boolean } | null = null;
   for (const line of readTranscriptLines(transcript)) {
     if (!line.trim()) continue;
     let record: any;
     try { record = JSON.parse(line); } catch { continue; }
-    if (record?.role === "user") current = [[]];
+    if (record?.role === "user") {
+      current = [[]];
+      assistantRows = 0;
+      unknownParts = false;
+    }
     if (record?.role === "assistant" && Array.isArray(record?.message?.content)) {
+      assistantRows += 1;
       for (const part of record.message.content) {
         if (part?.type === "text" && typeof part?.text === "string") current.at(-1)!.push(part.text);
-        else if (part?.type === "tool_use" && current.at(-1)!.length > 0) current.push([]);
+        else if (part?.type === "tool_use") { if (current.at(-1)!.length > 0) current.push([]); }
+        else unknownParts = true;
       }
     }
-    if (record?.type === "turn_ended") completed = current.map((chunk) => [...chunk]);
+    if (record?.type === "turn_ended") {
+      completed = { chunks: current.map((chunk) => [...chunk]), located: assistantRows > 0 && !unknownParts };
+    }
   }
   if (completed === null) transcriptUnavailable();
-  return (completed.filter((chunk) => chunk.length > 0).at(-1) ?? []).join("\n");
+  const text = (completed.chunks.filter((chunk) => chunk.length > 0).at(-1) ?? []).join("\n");
+  if (text.trim()) return text;
+  return completed.located ? "" : null;
 }
 
 export function createCursorAgentMetadata(

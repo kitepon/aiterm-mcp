@@ -484,7 +484,7 @@ export function grokTranscriptText(
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
   completedTurnId?: string | null,
-): string {
+): string | null {
   const directory = grokSessionDirectory(meta);
   if (!directory) transcriptUnavailable();
   const transcript = path.join(directory, "chat_history.jsonl");
@@ -525,9 +525,11 @@ export function grokTranscriptText(
   const replies = records
     .slice(lastUser + 1, end)
     .filter((record) => record?.type === "assistant" && typeof record?.content === "string")
-    .map((record) => record.content.trim())
-    .filter(Boolean);
-  return replies.at(-1) ?? "";
+    .map((record) => record.content.trim());
+  // contentが文字列のassistant行が1つも無ければnull（回答の場所が見つからない）。
+  // 道具を呼ぶだけの行はcontentが空文字列で残るので、そういう行だけのturnは「回答が空」になる。
+  if (replies.length === 0) return null;
+  return replies.filter(Boolean).at(-1) ?? "";
 }
 
 export function createGrokAgentMetadata(

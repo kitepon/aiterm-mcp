@@ -443,6 +443,7 @@ registerRemoteAwareTool(
       "セッションの出力をトークン削減して読む（既定は前回読取位置からの増分）。" +
       "削減: 制御文字除去 / 反復圧縮 / head+tail 折りたたみ＋復元ヒント＋メタ併記。" +
       "agent_transcript:true は agent session の直近完了ターンの最終 assistant メッセージを公開されたharness記録から平文で返す。" +
+      "回答が空で終わったターンは誤りにせず、空のtextとanswer_empty:trueを返す。" +
       "長い回答が screen tail で切れた時の回収用。",
     inputSchema: {
       session_id: z.string(),
@@ -484,6 +485,12 @@ registerRemoteAwareTool(
       turn_id: z.string().nullable(),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
       raw_chars: z.number().int().nonnegative().nullable(),
+      // remote付きは現地の結果をそのまま返す。この項目が無い旧版（0.53.2以前）の結果も通すのでoptional。
+      answer_empty: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe("agent_transcriptで、完了したturnの回答が空だった時だけtrue（textは空文字列）。回答を読めなかった時は誤りを返す。terminalではnull"),
     },
   },
   async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id }) => {
@@ -509,6 +516,7 @@ registerRemoteAwareTool(
             turn_id: result.turn_id,
             harness: result.harness,
             raw_chars: result.raw_chars,
+            answer_empty: result.answer_empty,
           },
         };
       }
@@ -551,6 +559,7 @@ registerRemoteAwareTool(
           turn_id: null,
           harness: null,
           raw_chars: null,
+          answer_empty: null,
         },
       };
     } catch (e) {

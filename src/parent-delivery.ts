@@ -309,7 +309,8 @@ export class ParentDeliveryManager {
         const answer = await this.deps.answer(record.boundary.session_id, { completion, operation_id: completion.operation_id, raw: true,
           ...(record.boundary.remote ? { remote: record.boundary.remote } : {}) });
         if (record.state !== "waiting") return;
-        record.text = answer.text;
+        // 回答を空で終えたturnも完了として届ける。親が完了を知る手段はこの配送だけなので、本文の代わりに知らせを入れる。
+        record.text = answer.text.trim() ? answer.text : "子のターンは完了しましたが、回答の本文は空でした。";
       } else {
         record.text = completion.error ?? completion.rate_limit ?? "子のセッションが閉じられたため、回答はありません。";
       }

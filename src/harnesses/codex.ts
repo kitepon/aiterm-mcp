@@ -640,13 +640,16 @@ export function codexMoreReasoningChoice(screen: string): string | null {
 }
 
 // 回収対象turnの最終assistantメッセージをroot rollout transcriptから抽出する。
+// 回答の場所が記録にあれば、中身が空でも文字列を返す。場所が見つからない時（記録の形が変わった時を含む）はnull。
+// Codexは回答を空で終えたturnも、textが空のfinal_answerをturn ID付きで残す（0.160.1の実記録 2026-10-06。
+// task_completeのlast_agent_messageはnull）。
 export function codexTranscriptText(
   meta: AgentMetadata,
   turnId: string | null,
   readTranscriptLines: (file: string) => string[],
   transcriptUnavailable: () => never,
   exactCompletion = false,
-): string {
+): string | null {
   if (!meta.codex_home || !meta.vendor_session_id) transcriptUnavailable();
   const transcript = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
   if (!transcript) transcriptUnavailable();
@@ -662,14 +665,14 @@ export function codexTranscriptText(
       if (record?.type === "event_msg" && payload?.type === "task_complete" && payload.turn_id === turnId) {
         if (typeof payload.last_agent_message === "string") return payload.last_agent_message;
         const text = matching.text();
-        if (text) return text;
+        if (text !== null) return text;
         transcriptUnavailable();
       }
     }
     transcriptUnavailable();
   }
   const matching = codexTurnAnswer();
-  let finalAnswer = "";
+  let finalAnswer: string | null = null;
   for (const line of lines) {
     if (!line.trim()) continue;
     let record: any;
@@ -689,7 +692,9 @@ export function codexTranscriptText(
       finalAnswer = payload.message;
     }
   }
-  return matching.text() || finalAnswer;
+  // turnの本文が記録にあれば、空でもそれが回答。agent_message（turn IDの無い旧形式）は別turnの物かもしれないので、
+  // turnの本文が見つからず、かつ空でない時だけ使う。
+  return matching.text() ?? (finalAnswer?.trim() ? finalAnswer : null);
 }
 
 // turnのassistant本文を集める。Codexは作業途中の報告をphase=commentary、回答をphase=final_answerで残すので、
@@ -708,7 +713,9 @@ function codexTurnAnswer() {
         if (payload.phase === "final_answer") finals.push(item.text);
       }
     },
-    text(): string {
+    // turnのassistant本文が1つも無ければnull（回答の場所が見つからない）。
+    text(): string | null {
+      if (all.length === 0) return null;
       return (finals.length > 0 ? finals : all).join("\n");
     },
   };

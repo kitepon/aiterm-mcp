@@ -95,6 +95,18 @@ test("親ごとの宛先を記録し、子の完了後に本文を一度ずつ�
   assert.equal("text" in manager.status("one")[0], false, "観測receiptへ本文を出さない");
 });
 
+test("子が回答を空で終えた時は、完了として知らせの文を親へ届ける", async (t) => {
+  const h = setup(t); const manager = h.create();
+  h.answers.set("turn-empty", "");
+  const request = manager.request(parent("1"));
+  await request.before_send(boundary("empty-child"));
+  h.finish(boundary("empty-child"), "turn-empty");
+  await until(() => manager.status("empty-child")[0]?.state === "submitted");
+  assert.equal(h.submitted.length, 1);
+  assert.match(h.submitted[0].text, /\noutcome=done\n\n子のターンは完了しましたが、回答の本文は空でした。$/);
+  assert.equal(records(h.root)[0].value.child_outcome, "done");
+});
+
 test("Claude親の初手とfollow-upをそれぞれのhookへ渡し、前の本文を保持する", async t => {
   const h = setup(t, { submit: submitClaudeParentAnswer });
   const root = path.join(h.root, 'hooks');

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- `pty_read(agent_transcript:true)`は、回答が空で終わったturnを誤りにせず、`text`が空文字列、`answer_empty`が`true`の
+  結果で返す（ADR 0092）。`aiterm.pty-read-result.v1`へ`answer_empty`を足した（回答がある時は`false`、terminalの読み取りは`null`）。
+  今までは、回答を空で終えただけのturnと、記録の形が変わって回答を読めなくなった時が、同じ
+  「最終 assistant メッセージを特定できませんでした」の誤りになり、呼び出し側が見分けられなかった。
+  Codex（0.160.1）は、道具で用を済ませて回答を空で終えたturnを、`text`が空の`final_answer`として記録に残す。
+  誤りにするのは、回答の場所を記録から見つけられない時だけにした（文面は同じ）。
+
+### 修正
+
+- 親への自動配送で、Codexの子が回答を空で終えると、親へ`AGENT_RESULT_UNAVAILABLE: transcript がまだありません。
+  ターン完了後に再取得してください`が`outcome=error`で届いていた。turnは終わっているので、
+  「子のターンは完了しましたが、回答の本文は空でした。」を`outcome=done`で届ける。Claude Code・Grok・Cursorの子も同じ。
+- Codexの回答の読み取りは、turn ID付きの本文が空の時に、turn IDの無い旧形式の本文（前のturnの物かもしれない）へ
+  落とす作りだった。turn ID付きの本文が記録にあれば、空でもそれを回答とする。今のCodexは旧形式を書かず、
+  実記録で前のturnの回答が返った例は確認していない。
+
 ## [0.53.2] - 2026-10-05
 
 ### 修正

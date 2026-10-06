@@ -4291,6 +4291,176 @@ test("readAgentTranscript: Codex は作業途中の報告(commentary)を除き f
   });
 });
 
+// 回答を空で終えたturn。Codex 0.160.1の実記録（2026-10-06）と同じ形: 途中の報告があり、final_answerのtextが空、
+// task_completeのlast_agent_messageがnull。
+function codexEmptyAnswerTurn(turnId) {
+  const message = (phase, text) => ({
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "assistant",
+      phase,
+      content: [{ type: "output_text", text }],
+      internal_chat_message_metadata_passthrough: { turn_id: turnId },
+    },
+  });
+  return [
+    { type: "event_msg", payload: { type: "task_started", turn_id: turnId } },
+    message("commentary", "伝える事は送ったよ"),
+    message("final_answer", ""),
+    { type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: null } },
+  ];
+}
+
+test("readAgentTranscript: Codex が回答を空で終えたturnは、誤りにせず空の回答として返す", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const vendorSessionId = "transcript-codex-empty";
+      const turnId = "transcript-turn-empty";
+      const meta = bindTranscriptTurn(sid, vendorSessionId, turnId);
+      writeCodexTranscript(meta, vendorSessionId, [
+        { type: "session_meta", payload: { id: vendorSessionId } },
+        // turn IDの無い旧形式のagent_message（前のturnの回答かもしれない）を、空のturnの回答として返さない。
+        { type: "event_msg", payload: { type: "agent_message", phase: "final_answer", message: "前のturnの回答" } },
+        ...codexEmptyAnswerTurn(turnId),
+      ]);
+      const result = await core.readAgentTranscriptResult(sid);
+      assert.equal(result.answer_empty, true);
+      assert.equal(result.text, "");
+      assert.equal(result.raw_chars, 0);
+      assert.equal(result.turn_id, turnId);
+      assert.match(result.display, /^このターンは完了しましたが、回答の本文は空でした。\n/);
+      assert.match(result.display, /vendor=codex turn_id=transcript-turn-empty harness=codex-cli raw_chars=0 answer_empty=true\]$/);
+      assert.doesNotMatch(result.display, /伝える事は送ったよ|前のturnの回答/);
+      // 親配送の読み方（完了turnを指定）でも同じ。
+      const completion = await core.observeAgentDone(sid, { cursor: 0, timeout: 0 });
+      const exact = await core.readAgentTranscriptResult(sid, { completion, raw: true });
+      assert.equal(exact.answer_empty, true);
+      assert.equal(exact.text, "");
+      // 回答があるturnはfalse。
+      appendCodexTranscript(meta, vendorSessionId, [
+        { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer",
+          content: [{ type: "output_text", text: "回答あり" }], internal_chat_message_metadata_passthrough: { turn_id: "answered-turn" } } },
+        { type: "event_msg", payload: { type: "task_complete", turn_id: "answered-turn", last_agent_message: "回答あり" } },
+      ]);
+      assert.equal((await core.readAgentTranscriptResult(sid)).answer_empty, false);
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
+test("readAgentTranscript: Codex のturnの本文が記録に見つからない時は、空の回答にせず誤りのままにする", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const vendorSessionId = "transcript-codex-unlocated";
+      const turnId = "transcript-turn-unlocated";
+      const meta = bindTranscriptTurn(sid, vendorSessionId, turnId);
+      writeCodexTranscript(meta, vendorSessionId, [
+        { type: "session_meta", payload: { id: vendorSessionId } },
+        // 記録の形が変わった時の見立て: 本文はあるが、turn IDの置き場が違う。
+        { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer",
+          content: [{ type: "output_text", text: "読めない回答" }], turn: { id: turnId } } },
+        // turn IDの無い旧形式のagent_messageは、空なら「回答が空」の証拠にしない。
+        { type: "event_msg", payload: { type: "agent_message", phase: "final_answer", message: "" } },
+        { type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: null } },
+      ]);
+      await assert.rejects(
+        () => core.readAgentTranscriptResult(sid),
+        (e) => e.code === 2 && /最終 assistant メッセージを特定できませんでした（harness=codex-cli, vendor=codex）/.test(e.message),
+      );
+      const completion = await core.observeAgentDone(sid, { cursor: 0, timeout: 0 });
+      await assert.rejects(
+        () => core.readAgentTranscriptResult(sid, { completion, raw: true }),
+        (e) => e.code === 2 && /transcript がまだありません/.test(e.message),
+      );
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
+test("readAgentTranscript: Claude のStop hookが空の回答を記録したturnは、空の回答として返す", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    const meta = readAgentMeta(sid);
+    const digest = createHash("sha256").update("", "utf8").digest("hex");
+    fs.writeFileSync(meta.result_file, JSON.stringify({
+      schema: "aiterm.claude-turn-result.v2",
+      operation_id: null,
+      vendor_session_id: meta.vendor_session_id,
+      result_digest: digest,
+      result_bytes: 0,
+      text: "",
+    }) + "\n", { mode: 0o600 });
+    fs.appendFileSync(meta.event_file, JSON.stringify({
+      type: "agent_done",
+      vendor: "claude",
+      aiterm_session: sid,
+      launch_id: meta.launch_id,
+      vendor_session_id: meta.vendor_session_id,
+      turn_id: null,
+      reason: "Stop",
+      done_status: "turn_done",
+      result_digest: digest,
+      result_bytes: 0,
+      at: new Date().toISOString(),
+    }) + "\n");
+    const result = await core.readAgentTranscriptResult(sid);
+    assert.equal(result.answer_empty, true);
+    assert.equal(result.text, "");
+    assert.match(result.display, /harness=claude-code raw_chars=0 answer_empty=true\]$/);
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
+test("readAgentTranscript: Grok は本文の無いassistant行だけのturnを空の回答、assistant行の無いturnを誤りにする", { skip: skipGrokFakeBin }, async () => {
+  const savedBin = process.env.GROK_BIN;
+  process.env.GROK_BIN = "/bin/echo";
+  try {
+    await withFakeGrokHome(async () => {
+      const [sid] = core.openAgent("grok", { agent_done: true, cwd: process.cwd() });
+      try {
+        const meta = readAgentMeta(sid);
+        appendAgentDone(meta, { turn_id: "transcript-turn-grok-empty" });
+        // 道具を呼ぶだけのassistant行はcontentが空文字列で残る（実記録の形）。
+        writeGrokTranscript(meta, meta.vendor_session_id, [
+          { type: "user", content: "old question" },
+          { type: "assistant", content: "old answer" },
+          { type: "user", content: "latest question" },
+          { type: "reasoning", content: "thinking" },
+          { type: "assistant", content: "", tool_calls: [{ id: "call-1" }] },
+          { type: "tool_result", content: "ok" },
+        ]);
+        const result = await core.readAgentTranscriptResult(sid);
+        assert.equal(result.answer_empty, true);
+        assert.equal(result.text, "");
+        assert.doesNotMatch(result.display, /old answer/);
+
+        writeGrokTranscript(meta, meta.vendor_session_id, [
+          { type: "user", content: "old question" },
+          { type: "assistant", content: "old answer" },
+          { type: "user", content: "latest question" },
+          // 記録の形が変わった時の見立て: contentが文字列でない。
+          { type: "assistant", content: [{ type: "text", text: "読めない回答" }] },
+        ]);
+        await assert.rejects(
+          () => core.readAgentTranscriptResult(sid),
+          (e) => e.code === 2 && /最終 assistant メッセージを特定できませんでした（harness=grok-cli, vendor=grok）/.test(e.message),
+        );
+      } finally {
+        core.closeSession(sid);
+      }
+    });
+  } finally {
+    if (savedBin === undefined) delete process.env.GROK_BIN;
+    else process.env.GROK_BIN = savedBin;
+  }
+});
+
 test("readAgentTranscript: Grok は最後の実 user 入力以降の確定assistantだけを回収する", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;
   process.env.GROK_BIN = "/bin/echo";

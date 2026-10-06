@@ -3089,6 +3089,9 @@ function transcriptUnavailable(): never {
   throw new AitermError(`transcript がまだありません。ターン完了後に再取得してください。${agentWaitGuide()}`, 2);
 }
 
+/** 完了したturnの回答が空だった時に、人とAIが読む表示へ出す文。機械はstructuredContentのanswer_emptyを見る。 */
+const AGENT_ANSWER_EMPTY_NOTICE = "このターンは完了しましたが、回答の本文は空でした。";
+
 function transcriptNotFound(vendor: AgentKind): never {
   throw new AitermError(
     `最終 assistant メッセージを特定できませんでした（harness=${agentHarness(vendor)}, vendor=${vendor}）。screen で確認してください。`,
@@ -3145,6 +3148,8 @@ export interface AgentTranscriptResult {
   turn_id: string | null;
   harness: string;
   raw_chars: number;
+  /** 完了したturnの回答が空だった時だけtrue。その時textは空文字列。回答を読めなかった時は誤りを投げる。 */
+  answer_empty: boolean;
 }
 
 /** BellTeamのため: agent sessionの現在（または直前）のturnの合間の言葉。agent sessionでなければnull。 */
@@ -3195,7 +3200,8 @@ export async function readAgentTranscriptResult(
     throw new AitermError(`operation ${operationId} はまだ完了していません。同じoperation_idで後から再取得してください。${agentWaitGuide(name)}`, 2);
   }
   const turnId = o.completion?.turn_id ?? done?.turn_id ?? null;
-  let text = "";
+  // 各harnessの読み取りは、回答の場所を見つけたら文字列（空でもよい）、見つからなければnullを返す。
+  let text: string | null;
 
   if (meta.kind === "claude") {
     if (!done) transcriptUnavailable();
@@ -3209,10 +3215,13 @@ export async function readAgentTranscriptResult(
     text = grokTranscriptText(meta, readTranscriptLines, transcriptUnavailable, o.completion?.turn_id);
   }
 
-  if (!text.trim()) transcriptNotFound(meta.kind);
-  if (o.lines != null) text = text.split("\n").slice(-o.lines).join("\n");
+  // 回答の場所が見つからない時だけ誤りにする。場所があって中身が空白だけのturnは「回答が空」として返す。
+  if (text === null) transcriptNotFound(meta.kind);
+  const answerEmpty = !text.trim();
+  if (answerEmpty) text = "";
+  else if (o.lines != null) text = text.split("\n").slice(-o.lines).join("\n");
   const rawChars = text.length;
-  const [body, outputMeta] = o.raw ? [text, ""] : reduceOutput(text, name, true);
+  const [body, outputMeta] = answerEmpty || o.raw ? [text, ""] : reduceOutput(text, name, true);
   const transcriptMeta = [
     "agent_transcript",
     `vendor=${meta.kind}`,
@@ -3220,14 +3229,16 @@ export async function readAgentTranscriptResult(
     `harness=${agentHarness(meta.kind)}`,
     done?.operation_id ? `operation_id=${done.operation_id}` : null,
     `raw_chars=${rawChars}`,
+    answerEmpty ? "answer_empty=true" : null,
   ].filter(Boolean).join(" ");
   return {
     text: body,
-    display: `${body}\n${outputMeta} [${transcriptMeta}]`,
+    display: `${answerEmpty ? AGENT_ANSWER_EMPTY_NOTICE : body}\n${outputMeta} [${transcriptMeta}]`,
     vendor: meta.kind,
     turn_id: turnId,
     harness: agentHarness(meta.kind),
     raw_chars: rawChars,
+    answer_empty: answerEmpty,
   };
 }
 

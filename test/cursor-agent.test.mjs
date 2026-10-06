@@ -222,6 +222,32 @@ test("Cursor adapter: launch markerで通常Cursor transcriptをbindしturn境�
       cursorTranscriptText(meta, (file) => fs.readFileSync(file, "utf8").split("\n"), () => { throw new Error("unavailable"); }),
       "結論\n補足",
     );
+
+    // 本文を1つも書かずに終えたturnは「回答が空」（空文字列）。回答の場所が分からないturnはnull。
+    const readText = () => cursorTranscriptText(meta, (file) => fs.readFileSync(file, "utf8").split("\n"), () => { throw new Error("unavailable"); });
+    const nextTurn = (...rows) => {
+      const prior = fs.readFileSync(transcript, "utf8").trimEnd().split("\n");
+      prior.pop();
+      fs.writeFileSync(transcript, [...prior,
+        JSON.stringify({ role: "user", message: { content: [{ type: "text", text: "次の依頼" }] } }),
+        ...rows.map((content) => JSON.stringify({ role: "assistant", message: { content } })),
+        JSON.stringify({ type: "turn_ended", status: "success" }),
+        "",
+      ].join("\n"));
+    };
+    nextTurn([{ type: "tool_use", name: "Shell" }]);
+    assert.equal(readText(), "");
+    nextTurn([{ type: "text", text: "  \n" }]);
+    assert.equal(readText(), "");
+    // 知らない種類のpartがあるturnは、本文がそこへ移ったのかもしれない。
+    nextTurn([{ type: "tool_use", name: "Shell" }], [{ type: "output_text", text: "読めない回答" }]);
+    assert.equal(readText(), null);
+    // assistant行が無いturn。
+    nextTurn();
+    assert.equal(readText(), null);
+    // 知らないpartがあっても、本文があればそれを返す（今までどおり）。
+    nextTurn([{ type: "thinking", thinking: "…" }, { type: "text", text: "本文あり" }]);
+    assert.equal(readText(), "本文あり");
     assert.equal(fs.existsSync(path.join(runtime, `aiterm-mcp-${typeof process.getuid === "function" ? process.getuid() : 0}`, "agents", `${session}.${meta.launch_id}.cursor-plugin`)), false);
   } finally {
     for (const [name, value] of Object.entries(previous)) {

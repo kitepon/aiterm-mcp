@@ -648,7 +648,7 @@ handoff contextを前置きできる。この任意経路は`throughline >= 0.9.
 `THROUGHLINE_BIN`、次に`PATH`から解決し、不在・不正・空のexportはPTY作成前に明示失敗する。
 任意の`throughline_supplement_file`はThroughline 0.10.8以降と`throughline_source_session`を必要とし、Aitermは内容を解釈せずThroughlineへ渡す。
 
-エージェントの回答が画面tailより長ければ、`pty_read({ agent_transcript:true })`で再promptなしに全文回収する。既存の人間向けcontentは診断suffixを維持し、機械呼出し側は`aiterm.pty-read-result.v1`の`structuredContent.text`から回答本文だけを取得する。Claudeはlaunch相関Stop hook、Codexは通常rollout、Grokは最後の実user行以後の最後の空でないassistantメッセージだけ、Cursorはlaunch IDでbindした通常agent transcriptから同じturnを回収する。
+エージェントの回答が画面tailより長ければ、`pty_read({ agent_transcript:true })`で再promptなしに全文回収する。既存の人間向けcontentは診断suffixを維持し、機械呼出し側は`aiterm.pty-read-result.v1`の`structuredContent.text`から回答本文だけを取得する。Claudeはlaunch相関Stop hook、Codexは通常rollout、Grokは最後の実user行以後の最後の空でないassistantメッセージだけ、Cursorはlaunch IDでbindした通常agent transcriptから同じturnを回収する。回答を空で終えたturnは誤りにせず、`text`が空文字列、`answer_empty`が`true`で返すので、回答を読めなかった時と見分けられる。回答の場所を記録から見つけられない時だけ誤りにする。
 
 ### 完了検出（5 層）
 

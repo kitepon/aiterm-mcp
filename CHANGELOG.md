@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.1] - 2026-10-06
+
 ### 修正
 
 - Claude Code親への配送で、道具の呼び出しごとの置き場（Aiterm stateの`claude-parent-hooks/<tool_use_id>/`）が、
@@ -2268,7 +2270,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.1...HEAD
+[0.55.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.0...v0.55.1
 [0.55.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.1...v0.53.2

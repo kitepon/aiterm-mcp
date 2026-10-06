@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.4] - 2026-10-06
+
 ### 変更
 
 - 止まっているCodex・Grok・Cursorの席へ`pty_send`で新しいturnを送る時、起動直後のための5秒の確かめを待たない
@@ -2312,7 +2314,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.4...HEAD
+[0.55.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.3...v0.55.4
 [0.55.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.2...v0.55.3
 [0.55.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.1...v0.55.2
 [0.55.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.0...v0.55.1

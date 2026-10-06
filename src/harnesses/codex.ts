@@ -26,6 +26,8 @@ import {
   AGENT_DONE_POLL_MS,
   AGENT_EVENT_MAX_BYTES,
   AGENT_EVENT_TAIL_BYTES,
+  AGENT_TURN_BOUNDARY_TAIL_BYTES,
+  readTailLinesNewestFirst,
   CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
 } from "../agent-shared.js";
@@ -275,6 +277,29 @@ export function codexTurnError(record: any): { message: string; info: string | n
 export function codexUsageLimit(record: any): string | null {
   const error = codexTurnError(record);
   return error?.info === "usage_limit_exceeded" ? error.message : null;
+}
+
+/**
+ * この起動のroot rolloutで、最後のturnが終わっていて、次のturnが始まっていないか。
+ * Codexはturnの開始でtask_started、終わりでtask_completeを書く（0.160.1の実記録）。末尾から見て最初の境界が
+ * task_completeの時だけtrue。rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はfalse
+ * （分からない時は「終わった」と数えない）。
+ */
+export function codexTurnSettled(meta: AgentMetadata): boolean {
+  let transcript: string | null;
+  try { transcript = codexRootTranscript(meta); } catch { return false; }
+  if (!transcript) return false;
+  const lines = readTailLinesNewestFirst(transcript, AGENT_TURN_BOUNDARY_TAIL_BYTES);
+  if (!lines) return false;
+  for (const line of lines) {
+    if (!line.includes("task_started") && !line.includes("task_complete")) continue;
+    let record: any;
+    try { record = JSON.parse(line); } catch { return false; }
+    if (record?.type !== "event_msg") continue;
+    if (record?.payload?.type === "task_started") return false;
+    if (record?.payload?.type === "task_complete") return typeof record.payload.turn_id === "string" && record.payload.turn_id !== "";
+  }
+  return false;
 }
 
 export function latestCodexCompletion(

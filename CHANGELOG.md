@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- 止まっているCodex・Grok・Cursorの席へ`pty_send`で新しいturnを送る時、起動直後のための5秒の確かめを待たない
+  （ADR 0097）。受け付けを返すまで毎回5.4〜5.7秒かかっていた。画面を500msおきに11回続けて読む入力受付の確かめ
+  （ADR 0014）を、2通目以降の文にも毎回通していた。連携元の本番で、Codexの席への新しいturn17通が
+  5,686〜5,858msに揃っているのを見た。
+  - 席のharnessが自分の記録（Codexのrollout、Grokの`events.jsonl`、Cursorのtranscript）で「この起動でturnを1つ終えていて、
+    次のturnを始めていない」と示している時は、100msおきに2回続けて画面が入力待ちなら送る。
+  - 実物の席での受け付けまでの時間: Codex 5.6秒→0.66秒、Grok 5.6秒→0.65秒、Cursor 5.4秒→0.41秒（Linux）。
+    Macは5.8秒→0.75秒、Windowsは6.5秒→1.4秒（Codex）。
+  - 起動直後の最初の文と、記録の上でturnが動いている間に届いた文は、今までどおり11回の確かめを通る。
+  - 起動時prompt、`agent_configure`の後、利用上限のmodalを閉じた直後の確かめは変わらない。Claudeの席は元から
+    この確かめを通らない。
+  - 道具の返りの形と断りの文面は変わらない。
+
 ## [0.55.3] - 2026-10-06
 
 ### 修正

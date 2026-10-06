@@ -26,6 +26,8 @@ import {
   AGENT_RATE_LIMIT_POLL_MS,
   pollGate,
   AGENT_EVENT_MAX_BYTES,
+  AGENT_TURN_BOUNDARY_TAIL_BYTES,
+  readTailLinesNewestFirst,
   GROK_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
 } from "../agent-shared.js";
@@ -212,6 +214,26 @@ export function latestGrokCompletion(
     }
   }
   return latest;
+}
+
+/**
+ * この起動のevents.jsonlで、最後のturnが終わっていて、次のturnが始まっていないか。
+ * 末尾から見て最初の境界が、完了と数えるturn_ended（grokCompletionEvent）の時だけtrue。差し込みの継ぎ目
+ * （cancelledかつsend_now）とturn_startedはfalse。記録が無い、書いている途中、境界が読む範囲に無い時もfalse。
+ */
+export function grokTurnSettled(meta: AgentMetadata): boolean {
+  const transcript = grokEventsTranscript(meta);
+  if (!transcript || !fs.existsSync(transcript)) return false;
+  const lines = readTailLinesNewestFirst(transcript, AGENT_TURN_BOUNDARY_TAIL_BYTES);
+  if (!lines) return false;
+  for (const line of lines) {
+    if (!line.includes("turn_started") && !line.includes("turn_ended")) continue;
+    let record: any;
+    try { record = JSON.parse(line); } catch { return false; }
+    if (record?.type === "turn_started") return false;
+    if (record?.type === "turn_ended") return grokCompletionEvent(meta, record) !== null;
+  }
+  return false;
 }
 
 export function grokInitializationComplete(meta: AgentMetadata): boolean {

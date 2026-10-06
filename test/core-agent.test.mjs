@@ -2107,6 +2107,41 @@ test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待
   });
 });
 
+// 2026-10-07: 起きていて動いていないCodexの席へ新しいturnで送ると、受け付けまで毎回5.7秒かかっていた（連携元の本番の記録）。
+// 起動直後のための11回の確かめ（ADR 0014）を、2通目以降にも毎回通していた（ADR 0097）。
+test("dispatch: この起動でturnを1つ終えたCodexの席は11回の確かめを待たずに送り、記録でturnが動いている間は待つ", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    // 11回の確かめを、時間内には通らない回数にする。送れたなら、短い道を通っている。
+    core.__testSetAgentTuiReadyStableSamples(1000);
+    const refused = /入力受付状態になりません。文字列は送信していません。/;
+    const turn = (type, id) => ({ type: "event_msg", payload: { type, turn_id: id } });
+    try {
+      const meta = readAgentMeta(sid);
+      await markFakeAgentReady(sid, "codex");
+      // 起動直後。記録にturnが無いので、短い道は使わない。
+      await assert.rejects(core.dispatchAgentTurn(sid, "echo COLD_MUST_NOT_SEND", { ready_timeout: 1_200 }), refused);
+      appendCodexTranscript(meta, "codex-session-settled", [turn("task_started", "turn-1"), turn("task_complete", "turn-1")]);
+      const first = await core.dispatchAgentTurn(sid, "echo SETTLED_FIRST_BODY", { ready_timeout: 1_200 });
+      assert.equal(first.schema, "aiterm.agent-dispatch.v1");
+      // 記録の上で次のturnが動いている間は、画面が入力待ちに見えても短い道を使わない。
+      appendCodexTranscript(meta, "codex-session-settled", [turn("task_started", "turn-2")]);
+      await assert.rejects(core.dispatchAgentTurn(sid, "echo RUNNING_MUST_NOT_SEND", { ready_timeout: 1_200 }), refused);
+      // そのturnが終われば、また短い道で送る（画面は変えていない）。
+      appendCodexTranscript(meta, "codex-session-settled", [turn("task_complete", "turn-2")]);
+      const second = await core.dispatchAgentTurn(sid, "echo SETTLED_SECOND_BODY", { ready_timeout: 1_200 });
+      assert.ok(second.event_cursor > first.event_cursor, "境界は、終わったturnの後ろに切る");
+      const log = fs.readFileSync(sessionLogPath(sid), "utf8");
+      assert.match(log, /SETTLED_FIRST_BODY/);
+      assert.match(log, /SETTLED_SECOND_BODY/);
+      assert.doesNotMatch(log, /MUST_NOT_SEND/);
+    } finally {
+      core.__testSetAgentTuiReadyStableSamples(1);
+      core.closeSession(sid);
+    }
+  });
+});
+
 test("dispatch/observe: Grok vendor event も待って suffix に vendor=grok を付ける", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;
   process.env.GROK_BIN = "/bin/echo";

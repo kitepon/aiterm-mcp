@@ -96,6 +96,7 @@ import {
   grokEventsTranscript,
   grokCompletionEvent,
   latestGrokCompletion,
+  grokTurnSettled,
   observeGrokDone,
   buildGrokAgentCmd,
   grokLaunchNote,
@@ -123,6 +124,7 @@ import {
   codexCompletionEvent,
   codexTranscriptSessionId,
   latestCodexCompletion,
+  codexTurnSettled,
   observeCodexDone,
   buildCodexAgentCmd,
   codexLaunchNote,
@@ -238,6 +240,11 @@ const LAUNCH_ECHO_TAIL_CHARS = 24;
 const LAUNCH_ECHO_MIN_CHARS = 8;
 const AGENT_TUI_READY_POLL_MS = 500;
 const AGENT_TUI_READY_STABLE_SAMPLES = 11;
+// 上の11回は、起動の途中に一瞬だけ出る入力欄を採らないための確かめ（ADR 0014）。席のharnessが自分の記録で
+// 「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は起動の途中ではないので、短い間隔で
+// 続けて確かめるだけで送る（ADR 0097）。記録で示せない時は、今までどおり11回。
+const AGENT_TUI_SETTLED_STABLE_SAMPLES = 2;
+const AGENT_TUI_SETTLED_POLL_MS = 100;
 const AGENT_TUI_READY_LINES = 45;
 const CLAUDE_APPROVAL_SCREEN_LINES = 80;
 // submit座礁観測（dispatch後にcomposerへ送信textが残存していないかの有界チェック）
@@ -3636,11 +3643,17 @@ async function waitAgentTuiReadyImpl(
     stableSamples?: number;
     launchLine?: string;
     now?: () => number;
+    // harnessの記録で、最後のturnが終わっていて次が始まっていないか。渡した時だけ、短い確かめで通す道を使う。
+    turnSettled?: () => boolean;
+    settledSamples?: number;
+    settledPollMs?: number;
   } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const timeoutMs = opts.timeoutMs ?? AGENT_TUI_READY_TIMEOUT_MS;
   const pollMs = opts.pollMs ?? AGENT_TUI_READY_POLL_MS;
   const stableSamples = opts.stableSamples ?? agentTuiReadyStableSamplesTestOverride ?? AGENT_TUI_READY_STABLE_SAMPLES;
+  const settledSamples = opts.settledSamples ?? AGENT_TUI_SETTLED_STABLE_SAMPLES;
+  const settledPollMs = opts.settledPollMs ?? AGENT_TUI_SETTLED_POLL_MS;
   const now = opts.now ?? (() => performance.now());
   const start = now();
   let deadline = start + timeoutMs;
@@ -3648,6 +3661,7 @@ async function waitAgentTuiReadyImpl(
   const firstDrawDeadline = timeoutMs >= AGENT_TUI_READY_TIMEOUT_MS ? start + AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : deadline;
   let samples = 0;
   let readyStreak = 0;
+  let settledStreak = 0;
   let lastScreen = "";
   for (;;) {
     lastScreen = sample();
@@ -3656,8 +3670,17 @@ async function waitAgentTuiReadyImpl(
     if (isAgentTuiIdleReady(kind, lastScreen)) {
       readyStreak++;
       if (readyStreak >= stableSamples) return { ready: true, samples, lastScreen };
+      if (opts.turnSettled?.()) {
+        settledStreak++;
+        if (settledStreak >= settledSamples) return { ready: true, samples, lastScreen };
+      } else if (settledStreak > 0) {
+        // 記録の上でturnが始まった。短い間隔で数えた分を、11回の確かめへ持ち越さない。
+        settledStreak = 0;
+        readyStreak = 1;
+      }
     } else {
       readyStreak = 0;
+      settledStreak = 0;
       if (isAgentTuiActionRequired(kind, lastScreen)) return { ready: false, samples, lastScreen };
     }
     if (now() >= deadline) {
@@ -3666,20 +3689,38 @@ async function waitAgentTuiReadyImpl(
         || !launchEchoIsLastOnScreen(lastScreen, opts.launchLine)) return { ready: false, samples, lastScreen };
       deadline = firstDrawDeadline;
     }
-    await sleepFn(pollMs);
+    await sleepFn(settledStreak > 0 ? settledPollMs : pollMs);
   }
+}
+
+/**
+ * 席のharnessが、この起動でturnを1つ終えていて、次のturnを始めていない事を、自分の記録で示しているか。
+ * 記録はこの起動に結び付いた物だけを読む（Codexはlaunch markerかsession ID、Grokは起動時に決めたsession、
+ * Cursorは最初の文に入れたmarker）。起動直後の席は記録が無いのでfalse。読めない時もfalse。
+ * Claudeはturnの印で差し込みか新しいturnかを決めていて、この確かめを通らない。
+ */
+function agentTurnSettled(meta: AgentMetadata): boolean {
+  try {
+    if (meta.kind === "codex") return codexTurnSettled(meta);
+    if (meta.kind === "grok") return meta.completion_route === "grok_transcript" && grokTurnSettled(meta);
+    if (meta.kind === "cursor") {
+      return meta.completion_route === "cursor_transcript" && latestCursorCompletion(meta, readTranscriptLines) !== null;
+    }
+  } catch { /* 読めない時は、11回の確かめで決める */ }
+  return false;
 }
 
 async function waitAgentTuiReady(
   name: string,
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
+  o: { settledTurn?: boolean } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const result = await waitAgentTuiReadyImpl(
     meta.kind,
     () => captureScreen(name, AGENT_TUI_READY_LINES),
     sleep,
-    { timeoutMs, launchLine: agentLaunchLines.get(name) },
+    { timeoutMs, launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
   );
   if (result.ready) agentLaunchLines.delete(name);
   return result;
@@ -3958,14 +3999,19 @@ export function __testIsAgentTuiReady(kind: AgentKind, screen: string): boolean 
 export async function __testWaitAgentTuiReady(
   kind: AgentKind,
   samples: string[],
-  opts: { timeoutMs?: number; pollMs?: number; stableSamples?: number; launchLine?: string; virtualClock?: boolean } = {},
+  opts: { timeoutMs?: number; pollMs?: number; stableSamples?: number; launchLine?: string; virtualClock?: boolean;
+    // 画面を読むたびの「記録の上でturnが終わっているか」。足りない分は最後の値を使う。
+    settled?: boolean[]; settledSamples?: number; settledPollMs?: number } = {},
 ): Promise<AgentTuiReadyWaitResult & { sleeps: number[] }> {
   if (samples.length === 0) throw new AitermError("agent ready test samples が空です", 2);
   let i = 0;
   const sleeps: number[] = [];
   // virtualClockは待った分だけ進む時計。実時間を使わずに締切の扱いを確かめる。
   let clock = 0;
-  const { virtualClock, ...waitOpts } = opts;
+  const { virtualClock, settled, ...rest } = opts;
+  let asked = 0;
+  const waitOpts = settled && settled.length > 0
+    ? { ...rest, turnSettled: () => settled[Math.min(asked++, settled.length - 1)] } : rest;
   const result = await waitAgentTuiReadyImpl(
     kind,
     () => samples[Math.min(i++, samples.length - 1)],
@@ -4388,9 +4434,11 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
   name: string,
   meta: AgentMetadata,
   timeoutMs: number,
+  o: { settledTurn?: boolean } = {},
 ): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
   let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
-  let ready = await waitAgentTuiReady(name, meta, timeoutMs);
+  // 上限のmodalを閉じた直後は、画面が落ち着くのを11回の確かめで待つ。
+  let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? {} : o);
   if (!ready.ready && !codexRateLimitModelSwitch) {
     codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
     if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs);
@@ -4862,8 +4910,9 @@ async function dispatchAgentTurnInLock(
     sendKey(name, limitDialog.dismissKey);
   }
   if (meta.kind !== "claude" || claudeColdStart) {
+    // 上限のpanelを閉じた直後（Grok）は、画面が落ち着くのを11回の確かめで待つ。
     const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
-      name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS,
+      name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, { settledTurn: !limitDialog },
     );
     codexRateLimitModelSwitch = recovery.codexRateLimitModelSwitch;
     const { ready } = recovery;

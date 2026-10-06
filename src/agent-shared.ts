@@ -104,6 +104,21 @@ export function safeStatSize(p: string): number {
   }
 }
 
+/**
+ * 記録の末尾から、行を新しい順に返す。書いている途中の行（改行で終わっていない末尾）がある時はnullを返す。
+ * 読む範囲の先頭で切れた行は捨てる。
+ */
+export function readTailLinesNewestFirst(file: string, maxBytes: number): string[] | null {
+  const size = safeStatSize(file);
+  if (size === 0) return [];
+  const from = Math.max(0, size - maxBytes);
+  const text = readFileRange(file, from, size).toString("utf8");
+  if (!text.endsWith("\n")) return null;
+  const lines = text.split("\n");
+  if (from > 0) lines.shift();
+  return lines.filter(line => line.trim() !== "").reverse();
+}
+
 export function readFileRange(p: string, from: number, to: number): Buffer {
   const len = Math.max(0, to - from);
   if (len === 0) return Buffer.alloc(0);
@@ -188,6 +203,8 @@ export function pollGate(intervalMs: number, now: () => number = () => performan
 }
 export const AGENT_EVENT_MAX_BYTES = 1024 * 1024;
 export const AGENT_EVENT_TAIL_BYTES = 64 * 1024;
+// turnの境界（開始・終わり）を、harnessの記録の末尾から探す時に読む大きさ。終わった席では境界は末尾の近くにある。
+export const AGENT_TURN_BOUNDARY_TAIL_BYTES = 1024 * 1024;
 export const CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES = 16 * 1024 * 1024;
 export const GROK_TRANSCRIPT_INCREMENT_MAX_BYTES = 16 * 1024 * 1024;
 

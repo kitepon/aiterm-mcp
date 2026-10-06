@@ -104,6 +104,9 @@ Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancel
 新turnが作業を継ぐので、完了判定はこの継ぎ目を完了と数えない。Grokが待ち行列へ入れない時とCursorの入力欄に本文が残る時は`steered`を返さない。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
+Codex・Grok・Cursorの席は、新しいturnを送るたびに入力受付を確かめる。起動の途中の入力欄を採らないよう、500msおきに11回続けて
+入力待ちを読む（ADR 0014）。席のharnessが自分の記録で「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は、
+100msおきに2回で通す（ADR 0097）。記録の上でturnが動いている間は、画面が入力待ちに見えても11回の確かめを通る。
 
 ### 親配送の共通モジュール化（設計）
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Code親からの呼び出しを誤りで返す時、その呼び出しの置き場（Aiterm stateの`claude-parent-hooks/<tool_use_id>/`）を
+  返す前に消す（ADR 0096、`aiterm-steer-delivery` 0.2.3）。Claude Codeは誤りの返りで`PostToolUse`のhookを走らせないので、
+  `request.json`だけの置き場が、1日後の見回りまで残っていた。連携元の本番で、`harness: "claude-code"`へ`write_scope`を
+  付けて断られた`agent_launch`の置き場が残っているのを見た。
+  - 消すのは、配送を結んでいない置き場だけ。配送を結んだ後に誤りで返した呼び出しの置き場は、今までどおり残す。
+  - 入力の検査で断る返りと、handlerの例外から作られる返りでも消す。
+  - Claude Codeが自分で断った呼び出し（引数が道具の定義に合わない）と、Claude側で打ち切られた呼び出しは、Aitermへ
+    返りが渡らないので、今までどおり1日後の見回りが消す。
+  - 道具の返り、配送の記録、hookの登録は変わらない。`aiterm-setup`の流し直しは要らない。
+
 ## [0.55.2] - 2026-10-06
 
 ### 修正

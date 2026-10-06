@@ -23,6 +23,10 @@ export function claudeParentFromRequest(clientName: string | undefined, metadata
 }
 export function verifyClaudeParent(parent: ClaudeParent): void { steer.verifyClaudeParent(AITERM_PROFILE, parent); }
 export function bindClaudeParentDelivery(parent: ClaudeParent, deliveryId: string): void { steer.bindClaudeParentDelivery(AITERM_PROFILE, parent, deliveryId); }
+/** 誤りで返す呼び出しの置き場を消す。配送を結んだ置き場は消さない。 */
+export function discardClaudeHookRequest(clientName: string | undefined, metadata: unknown, root = defaultRoot()): Promise<boolean> {
+  return steer.discardClaudeHookRequest(clientName, metadata, root);
+}
 /** SessionEndはその時点の依頼だけを終了する。同じ会話をresumeした新規依頼は別requestになる。 */
 export function closeClaudeParentSession(input: unknown, root = defaultRoot()): void { steer.closeClaudeParentSession(input, root); }
 export function submitClaudeParentAnswer(parent: ClaudeParent, deliveryId: string, text: string): Promise<{ queued_submission_id: null }> {

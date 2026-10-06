@@ -11,6 +11,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
 import * as core from "./core.js";
@@ -20,7 +21,7 @@ import { createRequire } from "node:module";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
-import { claudeParentFromRequest } from "./claude-parent-receiver.js";
+import { claudeParentFromRequest, discardClaudeHookRequest } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
@@ -33,6 +34,17 @@ import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
 const server = new McpServer({ name: "aiterm", version: pkg.version });
+// 誤りの返りでは、Claude Code親は受け口のPostToolUse hookを走らせず、配送を結ばなかった呼び出しの置き場が残る。
+// 返す前にここで消す（ADR 0096）。McpServerは入力の検査の失敗やhandlerの例外も誤りの返りへ変えるので、
+// toolごとのhandlerではなくtools/callの返りを見る。McpServerがそのhandlerを置くのは最初のtool登録の時で、その前に包む。
+const setRequestHandler = server.server.setRequestHandler.bind(server.server) as (schema: unknown, handler: unknown) => void;
+server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown, extra: { _meta?: unknown }) => unknown) =>
+  setRequestHandler(schema, schema !== CallToolRequestSchema ? handler : async (request: unknown, extra: { _meta?: unknown }) => {
+    const result = await handler(request, extra) as { isError?: boolean } | undefined;
+    // 片付けの失敗で返りを変えない。残った置き場は、後の依頼のhookが見回って消す。
+    if (result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, extra._meta); } catch { /* 見回りへ回す */ }
+    return result;
+  })) as typeof server.server.setRequestHandler;
 let parentDelivery: ParentDeliveryManager | null = null;
 // 別端末の子の配送。記録の保存場所を分けるため、この端末の子とは別のmanagerにする。
 let remoteParentDelivery: ParentDeliveryManager | null = null;

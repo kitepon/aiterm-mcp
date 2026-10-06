@@ -187,6 +187,7 @@ hookはNodeの実行ファイルと引数配列で直接起動し、shellやWind
 hookとの受け渡しはAiterm stateの`claude-parent-hooks`へ、道具の呼び出しごとの置き場として置く。
 届いた置き場は、送り手がhookの出し終えた記録を確かめた時に消す。届かなかった置き場と、配送を結ばなかった置き場は1日残し、
 次の依頼の`PreToolUse`のhookが消す。依頼元が居て配送を待っている置き場は残す（ADR 0094）。
+誤りで返す呼び出しは、Claude Codeが`PostToolUse`を走らせないので、配送を結んでいない置き場をAitermが返す前に消す（ADR 0096）。
 
 hookの登録は、`args`を使わずshellを通す1行で書く（ADR 0089）。POSIXは`exec '<node>' '<hook>'`、Windowsは
 `& '<node>' '<hook>'; exit (Get-Variable LASTEXITCODE -ValueOnly)`と`shell: "powershell"`。同じ設定をGrokも読み、

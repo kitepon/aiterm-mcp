@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   prepareClaudeHookRequest, claudeParentFromRequest, bindClaudeParentDelivery,
   runClaudeResultHook, closeClaudeParentSession, submitClaudeParentAnswer,
@@ -120,4 +125,88 @@ test('受信hookの終了を検出し、出力前の終了と出力中断を区�
   await assert.rejects(submitClaudeParentAnswer(parent, id, '回答'), error => error.delivery_code === 'CLAUDE_PARENT_HOOK_CLOSED' && !error.outcome_unknown);
   writeFileSync(join(dir, 'sending.json'), JSON.stringify({ delivery_id: id }));
   await assert.rejects(submitClaudeParentAnswer(parent, id, '回答'), error => error.delivery_code === 'CLAUDE_PARENT_HOOK_CLOSED' && error.outcome_unknown);
+});
+
+// 2026-10-06: 誤りで返った呼び出しの置き場（request.jsonだけ）が、1日後の見回りまで残っていた。連携元の本番で、
+// Claude Codeの親がclaude-code harnessへwrite_scopeを付けて呼び、引数の検査で断られた回の置き場を見た（0.55.2）。
+// Claude Codeは誤りの返りでPostToolUseを走らせないので、hookの片付けが走らない（ADR 0096）。
+test('誤りで返すMCPの呼び出しは、配送を結んでいない依頼の置き場を返す前に消す', async () => {
+  const base = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'aiterm-claude-error-'));
+  const env = { ...process.env, TMPDIR: base, XDG_RUNTIME_DIR: base, AITERM_STATE_BASE: base };
+  const inServer = code => spawnSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8' });
+  const moduleUrl = name => JSON.stringify(pathToFileURL(resolve('dist', name)).href);
+  // hookの置き場は、MCPのprocessと同じ環境から決まる。
+  const located = inServer(`const { ensureStateRoot } = await import(${moduleUrl('agent-shared.js')}); process.stdout.write(ensureStateRoot());`);
+  assert.equal(located.status, 0, located.stderr);
+  const root = join(located.stdout, 'claude-parent-hooks');
+  const session = randomUUID();
+  const client = new Client({ name: 'claude-code', version: '1' });
+  /** Claude Codeと同じ順に、PreToolUseのhookの記録を置いてからtoolを呼ぶ。 */
+  const call = (id, name, args, before = () => {}) => {
+    prepareClaudeHookRequest({ session_id: session, tool_use_id: id, hook_event_name: 'PreToolUse' }, root);
+    before(join(root, id));
+    return client.callTool({ name, arguments: args, _meta: { 'claudecode/toolUseId': id } });
+  };
+  try {
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('dist/index.js')], env, stderr: 'pipe' }));
+
+    // 連携元で見た形。toolが引数を断る。
+    const rejected = await call('toolu_rejected', 'agent_launch', { harness: 'claude-code', write_scope: 'read-only' });
+    assert.equal(rejected.isError, true);
+    assert.match(rejected.content[0].text, /write_scopeに対応していません/);
+    assert.equal(existsSync(join(root, 'toolu_rejected')), false);
+
+    // agentの席でない宛先への送信。別のtoolが断る形。
+    const missing = await call('toolu_missing_seat', 'pty_send', { session_id: 'claude_error_none', text: 'x', require_agent: true });
+    assert.equal(missing.isError, true);
+    assert.match(missing.content[0].text, /AGENT_SESSION_REQUIRED/);
+    assert.equal(existsSync(join(root, 'toolu_missing_seat')), false);
+
+    // 入力の検査で断る。toolのhandlerは走らず、McpServerが誤りの返りを作る。
+    const invalid = await call('toolu_invalid', 'agent_launch', { harness: 'no-such-harness' });
+    assert.equal(invalid.isError, true);
+    assert.match(invalid.content[0].text, /Input validation error/);
+    assert.equal(existsSync(join(root, 'toolu_invalid')), false);
+
+    // 配送を結んだ依頼は、誤りで返しても残す（届かなかった時に原因を調べる材料）。
+    const bound = await call('toolu_bound', 'agent_launch', { harness: 'claude-code', write_scope: 'read-only' },
+      dir => writeFileSync(join(dir, 'delivery.json'), JSON.stringify({ delivery_id: randomUUID() })));
+    assert.equal(bound.isError, true);
+    assert.deepEqual(readdirSync(join(root, 'toolu_bound')).sort(), ['delivery.json', 'request.json']);
+
+    // 誤りでない返りの置き場には触れない（PostToolUseのhookが片付ける）。
+    const listed = await call('toolu_ok', 'pty_list', {});
+    assert.equal(listed.isError, undefined);
+    assert.deepEqual(readdirSync(join(root, 'toolu_ok')), ['request.json']);
+    assert.deepEqual(readdirSync(root).sort(), ['toolu_bound', 'toolu_ok']);
+  } finally {
+    await client.close();
+    const cleanup = inServer(`const { killAll } = await import(${moduleUrl('core.js')}); killAll();`);
+    assert.equal(cleanup.status, 0, cleanup.stderr);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('Claude Codeでない親の誤りの返りでは、置き場に触れない', async () => {
+  const base = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'aiterm-claude-error-'));
+  const env = { ...process.env, TMPDIR: base, XDG_RUNTIME_DIR: base, AITERM_STATE_BASE: base };
+  const inServer = code => spawnSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8' });
+  const moduleUrl = name => JSON.stringify(pathToFileURL(resolve('dist', name)).href);
+  const located = inServer(`const { ensureStateRoot } = await import(${moduleUrl('agent-shared.js')}); process.stdout.write(ensureStateRoot());`);
+  assert.equal(located.status, 0, located.stderr);
+  const root = join(located.stdout, 'claude-parent-hooks');
+  const client = new Client({ name: 'other-client', version: '1' });
+  try {
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('dist/index.js')], env, stderr: 'pipe' }));
+    prepareClaudeHookRequest({ session_id: randomUUID(), tool_use_id: 'toolu_other', hook_event_name: 'PreToolUse' }, root);
+    const rejected = await client.callTool({ name: 'agent_launch', arguments: { harness: 'claude-code', write_scope: 'read-only' },
+      _meta: { 'claudecode/toolUseId': 'toolu_other' } });
+    assert.equal(rejected.isError, true);
+    assert.deepEqual(readdirSync(join(root, 'toolu_other')), ['request.json']);
+  } finally {
+    await client.close();
+    const cleanup = inServer(`const { killAll } = await import(${moduleUrl('core.js')}); killAll();`);
+    assert.equal(cleanup.status, 0, cleanup.stderr);
+    rmSync(base, { recursive: true, force: true });
+  }
 });

@@ -34,7 +34,7 @@ test("Codex 0.157のFolder access画面をtrust_projectの時だけ進める", (
   assert.equal(codexStartupAction(screen, false), null);
   assert.deepEqual(codexStartupAction(screen, true), { kind: 'workspace_trusted', keys: ['Enter'] });
 });
-import { claudeStartupAction, claudePaneObservation, claudeTuiReady, claudeUsageLimit } from "../dist/harnesses/claude.js";
+import { claudeStartupAction, claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeUsageLimit } from "../dist/harnesses/claude.js";
 import { paneTokenHint } from "../dist/harnesses/pane-tokens.js";
 import { cursorHookBlocked, cursorPaneObservation, cursorPromptHooksRunning, cursorUsageLimit } from "../dist/harnesses/cursor.js";
 
@@ -404,6 +404,40 @@ test("Claudeの利用上限は入力欄の下の知らせから返す", () => {
   assert.deepEqual(claudeUsageLimit(CLAUDE_USAGE_LIMIT_SCREEN.replace("  ⚠ Usage", "  \x1b[38;5;231m⚠ Usage")), {
     message: "Usage limit reached · continuing automatically at 4:10pm",
   });
+});
+
+// 2026-10-06: 会話欄に「esc to interrupt」の語があると、止まっているClaudeを動作中と読んでいた。Aitermの中身を話している席は、
+// 止まった後も画面にこの語が残る。動作中の印は、Claude Codeが自分で出す足元の行と進行行だけにある。
+test("Claudeの会話欄や打ちかけの文にある「esc to interrupt」を、動作中の印にしない", () => {
+  const footer = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents";
+  const idle = (...conversation) => [...conversation, "", "✻ Cooked for 1m 15s · done 20:31", CLAUDE_RULE, "❯ ", CLAUDE_RULE, footer].join("\n");
+  // 回答の行、回答の続きの行、依頼文、道具の出力。
+  for (const conversation of [
+    ["● 足元の行に esc to interrupt が出ている間は動作中と読みます。"],
+    ["● 画面の読み方は次のとおりです。", "  足元に「esc to interrupt」が無ければ入力待ちです。"],
+    ["❯ esc to interrupt という語が画面にあると busy になるのはなぜ？", "", "● 末尾32行を見ているためです。"],
+    ["> esc to interrupt の件を調べて"],
+    // macOSのClaude Code（2.1.289の実画面）は、回答の印が「⏺」になる。
+    ["  Ran 1 shell command", "", "⏺ REMOTE_START_OK the footer shows esc to interrupt while a turn runs"],
+    ["● Bash(grep -rn \"esc to interrupt\" src)", "  ⎿  src/harnesses/claude.ts:373:  return /esc to interrupt/i.test(screen)"],
+  ]) {
+    assert.deepEqual(claudePaneObservation(idle(...conversation)), { state: "idle", reason: "composer_ready" }, conversation.join(" / "));
+  }
+  // 入力欄へ打ちかけの文（1行目と続きの行）。
+  const typed = ["● 終わりました。", CLAUDE_RULE, "❯ esc to interrupt を見て", "  esc to interrupt をもう一度", CLAUDE_RULE, footer].join("\n");
+  assert.deepEqual(claudePaneObservation(typed), { state: "idle", reason: "composer_ready" });
+  // 動いている間の印は、今までどおり読む。足元の行（会話欄に同じ語があっても）。
+  const running = ["● esc to interrupt の話をしています。", "", CLAUDE_RULE, "❯ ", CLAUDE_RULE,
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents"].join("\n");
+  assert.deepEqual(claudePaneObservation(running), { state: "busy", reason: "turn_running" });
+  // 古い版の進行行（入力欄の上、行頭から始まる）。
+  for (const progress of ["✻ Musing… (esc to interrupt)", "* Herding… (3s · esc to interrupt)", "· Running stop hooks… (esc to interrupt)"]) {
+    const old = ["● 調べています。", "", progress, "", CLAUDE_RULE, "❯ ", CLAUDE_RULE, footer].join("\n");
+    assert.deepEqual(claudePaneObservation(old), { state: "busy", reason: "turn_running" }, progress);
+  }
+  // 入力欄の無い画面は、今までどおり末尾のどこにあっても動作中。
+  assert.equal(claudeTuiBusy("Claude Code\n✻ Musing… (esc to interrupt)\n❯ "), true);
+  assert.equal(claudeTuiBusy("Claude Code\n  esc to interrupt"), true);
 });
 
 test("Claudeの足元が描き直された後は、会話欄や依頼文に残る上限の文を数えない", () => {

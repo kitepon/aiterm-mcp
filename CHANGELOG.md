@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 会話欄か入力欄に`esc to interrupt`の語があるだけのClaude Codeを、動作中と読まない（ADR 0095）。回答や依頼文に
+  この語がある席は、turnが終わった後も`pty_observe`が`busy`を返し続けていた。起動時promptにこの語があると、送る前に
+  開始を確認した事になっていた。動作中の印として数えるのは、Claude Codeが自分で出す足元の行と進行行だけにする。
+  動いている間の読みは変わらない。
+
 ## [0.55.1] - 2026-10-06
 
 ### 修正

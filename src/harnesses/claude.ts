@@ -370,7 +370,29 @@ function claudeTurnProgress(screen: string): boolean {
 // 足元の「esc to interrupt」は、貼り付けの知らせ（paste again to expand）へ置き換わる間は出ない。複数行のpromptを
 // 送った後の約8秒がそうで、その間は動いているのに入力待ちと読んでいた（2.1.291、2026-10-06）。進行行も動作中の印にする。
 export function claudeTuiBusy(screen: string): boolean {
-  return /esc to interrupt/i.test(screen.split("\n").slice(-32).join("\n")) || claudeTurnProgress(screen);
+  return claudeInterruptHint(screen) || claudeTurnProgress(screen);
+}
+
+// 「esc to interrupt」は、Claude Codeが動いている間に自分で出す印である。会話欄（回答・依頼文・道具の出力）や、
+// 入力欄へ打ちかけの文にこの語があっても、動作中の印にしない。Aitermの中身を話している席は、止まった後も
+// 画面にこの語が残り、動作中と読まれ続けていた。
+// 入力欄（すぐ上が罫線の「❯」行）を見つけた時は、次の行だけを見る。
+//   - 入力欄の下の罫線より後（足元の行）。
+//   - 入力欄より上の、行頭から始まる行（古い版の進行行「✻ Musing… (esc to interrupt)」）。会話欄の行は
+//     回答の印（「●」。macOSは「⏺」）か依頼文の印（「❯」「>」）で始まるか、字下げされている。
+// 会話欄と見分けられない行は、今までどおり印にする（動いている席を入力待ちと読む方が害が大きい）。
+// 入力欄の無い画面も、今までどおり末尾のどこにあっても印にする。
+const CLAUDE_INTERRUPT_HINT_RE = /esc to interrupt/i;
+function claudeInterruptHint(screen: string): boolean {
+  const lines = screen.split("\n").slice(-32);
+  const rule = /^\s*─{8,}\s*$/u;
+  let marker = lines.length - 1;
+  while (marker >= 0 && !CLAUDE_COMPOSER_MARKER_RE.test(lines[marker])) marker--;
+  if (marker <= 0 || !rule.test(lines[marker - 1])) return CLAUDE_INTERRUPT_HINT_RE.test(lines.join("\n"));
+  const below = lines.findIndex((line, i) => i > marker && rule.test(line));
+  const footer = below < 0 ? marker + 1 : below + 1;
+  return lines.some((line, i) => CLAUDE_INTERRUPT_HINT_RE.test(line)
+    && (i >= footer || (i < marker - 1 && !/^(?:\s|[●⏺❯>])/u.test(line))));
 }
 
 export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {

@@ -128,6 +128,7 @@ import {
   codexLaunchNote,
   codexTuiReady,
   codexPaneObservation,
+  codexTuiBusy,
   codexHelperProcess,
   codexRateLimitModelSwitchDialog,
   codexApprovalDialog,
@@ -3555,7 +3556,8 @@ function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
 // Grok は実機で `Waiting for response` / `Responding…` / `[stop]` を表示する。
 function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
   if (kind === "cursor") return /ctrl\+c to stop/i.test(screen);
-  if (kind === "codex" || kind === "claude") return /esc to interrupt/i.test(screen);
+  if (kind === "codex") return codexTuiBusy(screen);
+  if (kind === "claude") return /esc to interrupt/i.test(screen);
   if (kind === "grok") {
     return grokTuiBusy(screen);
   }

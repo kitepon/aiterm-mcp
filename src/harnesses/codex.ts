@@ -470,6 +470,16 @@ export function codexHelperProcess(command: string): boolean {
   return path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/")).replace(/\.exe$/i, "") === "codex-code-mode-host";
 }
 
+// Codexは動いている間、入力欄の上へ「◦ Working (5s • esc to interrupt)」の行を出す。見出しの文は作業の内容で変わるが、
+// 括弧の中（経過時間、「•」、「esc to interrupt」）の形は変わらない。動作中の印として数えるのは、この形だけにする。
+// 会話欄（回答・依頼文）に「esc to interrupt」の語があるだけの席を動作中と読むと、止まっている席への送信が
+// 差し込みになり、その回の完了が呼び出し側へ届かない（Codex 0.160.1の実物、2026-10-06）。
+// Codexは動作中の行と回答の行が同じ印（•）で始まるので、行頭の印では見分けられない。
+const CODEX_INTERRUPT_HINT_RE = /\((?:\d+\s*[hms]\s*)+•\s*esc to interrupt\)/i;
+export function codexTuiBusy(screen: string): boolean {
+  return CODEX_INTERRUPT_HINT_RE.test(screen);
+}
+
 export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const failure = codexStartupFailure(screen);
   if (failure) return { state: "blocked", reason: failure };
@@ -480,7 +490,7 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
   const lastDialog = [...tail.matchAll(CODEX_MODAL_MARKER)].at(-1)?.index ?? -1;
   const modal = lastDialog > lastComposer;
   if (!modal) {
-    if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
+    if (codexTuiBusy(tail)) return { state: "busy", reason: "turn_running" };
     if (codexTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
   }
   const current = modal ? currentCodexDialog(screen) : tail;

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   この語がある席は、turnが終わった後も`pty_observe`が`busy`を返し続けていた。起動時promptにこの語があると、送る前に
   開始を確認した事になっていた。動作中の印として数えるのは、Claude Codeが自分で出す足元の行と進行行だけにする。
   動いている間の読みは変わらない。
+- 会話欄に`esc to interrupt`の語があるだけのCodexを、動作中と読まない（ADR 0095）。回答にこの語が残ったCodexの席は、
+  止まった後も`pty_observe`が`busy`を返し、次の`pty_send`が差し込み（`agent_steer`）として返っていた。Codexは文を
+  新しいturnとして処理するが、呼び出し側には完了待ちの手段も親への配送も渡らなかった。動作中の印として数えるのは、
+  Codexが自分で出す形（`(5s • esc to interrupt)`。括弧の中に経過時間、`•`、語）だけにする。
 
 ## [0.55.1] - 2026-10-06
 

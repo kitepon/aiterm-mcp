@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexHelperProcess, codexPaneObservation, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
+import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -129,6 +129,32 @@ test("Claude Code 2.1.282の番号付きログイン方式選択も初回設定�
   assert.equal(claudeTuiReady(screen), false);
   assert.deepEqual(claudePaneObservation(screen), { state: "blocked", reason: "vendor_onboarding_required" });
   assert.equal(claudeStartupAction(screen, true), null);
+});
+
+// Codex 0.160.1の実画面（BellTeamコンテナ 2026-10-06）。回答に「esc to interrupt」の語が残った席は、止まった後も動作中と読まれ、
+// 次の送信が差し込みになって、その回の完了が届かなかった。
+test("Codexの会話欄にある「esc to interrupt」を、動作中の印にしない", () => {
+  const footer = ["", "› Ask Codex to do anything", "", "  GPT-6.1-Sol default · /tmp/proj · Run delayed Node command", "  ? for shortcuts"];
+  const prompt = ["› Run this shell command once: node -e \"setTimeout(() => console.log(6*7),", "  6000)\" . When it finishes, reply with exactly this one line and nothing else:",
+    "  FIRST_OK the footer shows esc to interrupt while a turn runs", "", ""];
+  const idle = [...prompt, "• 指定のコマンドを一度実行します。", "", "• Ran node -e \"setTimeout(() => console.log(6*7), 6000)\"", "  └ 42", "",
+    "• FIRST_OK the footer shows esc to interrupt while a turn runs", "", "  Worked for 12s • 12:24 PM", "", ...footer].join("\n");
+  assert.deepEqual(codexPaneObservation(idle), { state: "idle", reason: "composer_ready" });
+  assert.equal(codexTuiBusy(idle), false);
+  // 括弧に入っていても、経過時間の無い形は印にしない。
+  assert.equal(codexTuiBusy("• 動いている間は (esc to interrupt) が出ます。\n› "), false);
+  // 動いている間の行は、今までどおり読む（会話欄に同じ語があっても）。見出しの文と後ろの知らせは変わる。
+  for (const status of [
+    "◦ Working (5s • esc to interrupt) · 1 background terminal running · /ps to view…",
+    "• Working (0s • esc to interrupt)",
+    "• Working (2m 18s • esc to interrupt)",
+    "• Investigating the failing test (1h 02m 03s • esc to interrupt)",
+    "• Working (12m • Esc to interrupt)",
+  ]) {
+    const running = [...prompt, "• 指定のコマンドを一度実行します。", "", status, "", ...footer].join("\n");
+    assert.deepEqual(codexPaneObservation(running), { state: "busy", reason: "turn_running" }, status);
+    assert.equal(codexTuiBusy(running), true, status);
+  }
 });
 
 test("Codexの古い承認を現在の入力欄へ持ち越さない", () => {

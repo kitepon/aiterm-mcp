@@ -68,10 +68,13 @@ toolごとのhandlerの外で起きる。Aitermは`tools/call`のhandlerを1か�
 - Aitermの試験（`test/claude-parent-receiver.test.mjs`。実物の`dist/index.js`へMCPでつなぎ、`PreToolUse`の記録を
   置いてから呼ぶ）: toolが引数を断る返り（連携元で見た形）、別のtoolが断る返り、入力の検査で`McpServer`が作る
   返りの3つで、置き場が消える事。配送を結んだ置き場と、誤りでない返りの置き場が残る事。Claude Codeでない親の
-  誤りの返りでは置き場に触れない事。直しを外すと、この試験は落ちる。
-- 実物の親（このコンテナ、Claude Code 2.1.291、専用の置き場。親が`agent_launch`を2回呼ぶ。1回目は断られる形、
-  2回目は同じ頼みを`write_scope`なしで）: 0.55.2は、1回目の置き場が`request.json`と`closed.json`で残った。
-  直した版は置き場が空で終わり、2回目の子の回答は親へ届いた（配送は`submitted`）。
+  誤りの返りでは置き場に触れない事。直しを外すと、この試験は落ちる。3環境の全試験（手動CI 37479687325）は
+  失敗0（Linux 731・Mac 732・Windows 636が通過）。
+- 実物の親（このコンテナ、Claude Code 2.1.291、専用の置き場、npmの`aiterm-steer-delivery` 0.2.3。親が`agent_launch`を
+  2回、`pty_send`を2回呼ぶ。`agent_launch`の1回目は断られる形、2回目は同じ頼みを`write_scope`なしで。`pty_send`の
+  1回目は無い席への送信で断られる形、2回目は起こした子への追加の頼み）: 0.55.2は、断られた2回の置き場が
+  `request.json`と`closed.json`で残った。直した版は置き場が空で終わった。どちらの版でも、子の回答は2つとも親へ届いた
+  （配送は2件とも`submitted`）。
 - 3つのOSの実物（公開前。親のAitermだけを直した版へ向け、hookは端末に入っている0.55.2のまま。結果は親の
   会話記録から読んだ）: rabbit（Linux、Claude Code 2.1.291）・macbook（Mac、2.1.289）・fox（Windows、2.1.291）の
   3台とも、0.55.2では1回目の置き場が残り、直した版では残らなかった。どちらの版でも、1回目の返りは誤りで、

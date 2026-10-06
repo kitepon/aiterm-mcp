@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-10-06
+
 ### 変更
 
 - `pty_read(agent_transcript:true)`は、回答が空で終わったturnを誤りにせず、`text`が空文字列、`answer_empty`が`true`の
@@ -2233,7 +2235,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.54.0...HEAD
+[0.54.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.52.3...v0.53.0

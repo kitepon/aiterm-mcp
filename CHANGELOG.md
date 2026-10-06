@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 変更
+
+- `agent_launch`は、起動時promptの開始を確認できなかった返り（`initial_prompt.status`が`submitted_unconfirmed`）に
+  `isError`を付けない（ADR 0093）。sessionは立ち、promptは入力欄を離れ、親への配送も登録済みなので、状態は
+  `initial_prompt`と本文で伝える。本文には「turnの開始は未確認（reason=…）。再送もagentの起動し直しもしない。
+  確かめる時は pty_observe」の案内が付く。誤りの印でこの状態を見分けていた呼び出し側は、`initial_prompt.status`を見る。
+  送信の途中で失敗した起動は、今までどおり誤りで返る。`remote`付きの起動は、現地が旧版で誤りを返しても同じ形で返す。
+
+### 修正
+
+- Claude Code親が起こした子の回答が、親へ届かない事があった。開始未確認の返りを誤りで返していて、Claude Codeは
+  誤りの返りでは受け口のhook（`PostToolUse`）を走らせない。配送は`sending`のまま残り、返りの本文は「回答は自動配送する。
+  回収は不要」と案内していた。上の変更で、受け口が出来て回答が届く。
+- 動いているClaude Codeを、入力待ち（`idle`／`composer_ready`）と読む事があった。Claude Code（2.1.289〜2.1.291で確認）は、
+  複数行のprompt（貼り付けの形で入る）を送った後の約8秒、足元の行を`paste again to expand`へ置き換える。動作中の印に
+  していた`esc to interrupt`がその間は画面に無い。複数行のpromptを付けたClaudeの子の起動は毎回、開始未確認になり、
+  `pty_observe`もその間`idle`を返していた。動いている間は入力欄の上に進行行（`✶ Slithering… (3s · ↓ 225 tokens)`）が
+  出続けるので、それも動作中の印にする。Linux・Mac・Windowsの実画面で確かめた。Codex・Grok・Cursorの読み方は変えていない。
+
 ## [0.54.0] - 2026-10-06
 
 ### 変更

@@ -583,7 +583,10 @@ waits up to 50 seconds from startup. If nothing is drawn by then, it still retur
 A prompt-free launch without this option retains `startup.status="not_checked"`. `initial_prompt.status` distinguishes
 `not_requested`, `not_sent`, `submitted_unconfirmed`, and `started`. Failure responses retain structured session information.
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
-Do not resend an unconfirmed prompt; observe or wait using its returned cursor.
+`submitted_unconfirmed` (the prompt left the composer, but the turn start was not observed within the confirmation window) is
+not a tool error: `isError` is not set, the text carries an unconfirmed-start note, the session is alive and the parent
+delivery stays registered. Do not resend an unconfirmed prompt or relaunch the agent; observe with `pty_observe` or wait
+using its returned cursor.
 
 For a live Codex approval, inspect with `agent_approval({ action: "inspect", session_id })`, review `prompt` and `choices`,
 then respond with `observed_prompt_digest` and `approval_choice` (`approve_once` or `deny`). Unknown or changed dialogs return

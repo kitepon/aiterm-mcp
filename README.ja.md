@@ -546,7 +546,10 @@ Claude Code初回起動の文字表示テーマ選択では、画面で選択済
 それでも描かれなければ、今までと同じく未送信（`initial_prompt=not_sent`）で返り、sessionは残る。
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
 初手の`initial_prompt.status`は`not_requested`／`not_sent`／`submitted_unconfirmed`／`started`を区別する。
-未送信・未確認の失敗もsession付きstructuredContentを保持する。未確認のpromptを再送せず、返ったcursorで観測する。
+未送信の失敗もsession付きstructuredContentを保持する。
+`submitted_unconfirmed`（promptは入力欄を離れたが、確認時間の内に開始を見られなかった）は誤りにしない。`isError`は付かず、
+本文に未確認の案内が付く。sessionは立っていて、親への配送も登録済み。未確認のpromptを再送せず、agentも起動し直さず、
+返ったcursorか`pty_observe`で観測する。
 
 Codexの実行中承認は`agent_approval({ action: "inspect", session_id })`の`prompt`と`choices`を確認し、
 `respond`へ`observed_prompt_digest`と`approval_choice`（`approve_once`／`deny`）を渡す。

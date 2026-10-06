@@ -32,7 +32,8 @@
 記録で示せない時は、今までどおり500msおきに11回。
 
 - 記録は、この起動に結び付いた物だけを読む。起動直後の席には記録が無いので、最初の文は今までどおり11回を待つ。
-  - Codex: root rolloutの最後の境界が`task_complete`（`task_started`が後ろに無い）。
+  - Codex: root rolloutの最後の境界が`task_complete`か、Escで止めた時の`turn_aborted`（`reason`が`interrupted`）。
+    後ろに`task_started`が無い事。他の理由の`turn_aborted`は、実物で見ていないので数えない。
   - Grok: `events.jsonl`の最後の境界が、完了と数える`turn_ended`。差し込みの継ぎ目（`cancelled`かつ`send_now`）は
     完了と数えない。
   - Cursor: transcriptの末尾が`turn_ended`。
@@ -87,8 +88,29 @@
 - 実物（Codexが400行の回答を流している最中に次の文を送る）: 0.55.2と直した版で同じ結果。受け付けは5.6〜5.7秒、
   返りは新しいturn、Codexは同じturnへ取り込み、完了は2つとも同じturnで届いた。
 
+- 実物（Codexのturnを途中でEscで止めた後に次の文を送る）: 記録には`task_started`の後に`turn_aborted`（`reason`は
+  `interrupted`）が残った。次の文の受け付けは0.68秒（直す前の決まりでは5.65秒）で、回答はその文の物だった。
+- 3つのOSの実物（rabbit・macbook・fox、専用の置き場。完了の知らせの数ms後に続けて送る。0.55.3と直した版）:
+
+  | 端末 | 席 | 0.55.3 | 直した版 |
+  | --- | --- | --- | --- |
+  | rabbit（Linux） | Codex 0.160.0 | 5.64秒 | 0.69秒 |
+  | rabbit | Grok 1.0.46 | 5.63秒（最初の文） | 0.69秒 |
+  | rabbit | Cursor 2026.10.01 | 5.85秒（最初の文） | 0.65秒 |
+  | macbook（Mac） | Codex 0.160.1 | 5.75〜5.78秒 | 0.70〜0.78秒 |
+  | macbook | Grok 1.0.46 | 5.71秒（最初の文） | 0.72秒 |
+  | macbook | Cursor | 5.84秒（最初の文） | 0.69秒 |
+  | fox（Windows） | Codex 0.160.0 | 6.46秒 | 1.40秒 |
+  | fox | Cursor 2026.10.01 | 8.05秒（最初の文） | 3.2秒 |
+
+  GrokとCursorの「0.55.3」の欄は、直した版で送った最初の文（今までと同じ11回の確かめを通る）の値。どの文も
+  新しいturnとして返り、回答はその文の物だった。foxのGrokは、文を受け付けてもturnが終わらない（前からある端末の側の
+  不調）。記録に終わったturnが無いので、直した版でも4通とも11回の確かめを通った（6.4秒）。
+
 ## 見ていない事
 
 - Codexの利用上限のmodalが、turnの終わりから遅れて出る場合。modalが出ている画面は入力待ちと読まないので送らないが、
   2回の確かめ（100ms）の後に出るmodalは、今までの5秒より見つけにくい。
 - 長く動いた席の、大きな記録での読む時間。末尾の1MiBだけを読む。
+- Codexの`turn_aborted`の、`interrupted`以外の理由。
+- WindowsのGrokの、2通目以降の文（foxのGrokはturnが終わらない）。

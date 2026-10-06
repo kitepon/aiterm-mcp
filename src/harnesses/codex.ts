@@ -281,9 +281,9 @@ export function codexUsageLimit(record: any): string | null {
 
 /**
  * この起動のroot rolloutで、最後のturnが終わっていて、次のturnが始まっていないか。
- * Codexはturnの開始でtask_started、終わりでtask_completeを書く（0.160.1の実記録）。末尾から見て最初の境界が
- * task_completeの時だけtrue。rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はfalse
- * （分からない時は「終わった」と数えない）。
+ * Codexはturnの開始でtask_started、終わりでtask_complete、Escで止めた時はturn_aborted（reasonはinterrupted）を書く
+ * （0.160.1の実記録）。末尾から見て最初の境界が、task_completeか、止めた時のturn_abortedの時だけtrue。
+ * rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はfalse（分からない時は「終わった」と数えない）。
  */
 export function codexTurnSettled(meta: AgentMetadata): boolean {
   let transcript: string | null;
@@ -292,12 +292,14 @@ export function codexTurnSettled(meta: AgentMetadata): boolean {
   const lines = readTailLinesNewestFirst(transcript, AGENT_TURN_BOUNDARY_TAIL_BYTES);
   if (!lines) return false;
   for (const line of lines) {
-    if (!line.includes("task_started") && !line.includes("task_complete")) continue;
+    if (!line.includes("task_started") && !line.includes("task_complete") && !line.includes("turn_aborted")) continue;
     let record: any;
     try { record = JSON.parse(line); } catch { return false; }
     if (record?.type !== "event_msg") continue;
     if (record?.payload?.type === "task_started") return false;
     if (record?.payload?.type === "task_complete") return typeof record.payload.turn_id === "string" && record.payload.turn_id !== "";
+    // 見たのはEscで止めた時の形だけ。他の理由（別のturnへの置き換え等）は、次のturnが続くかも知れないので数えない。
+    if (record?.payload?.type === "turn_aborted") return record.payload.reason === "interrupted";
   }
   return false;
 }

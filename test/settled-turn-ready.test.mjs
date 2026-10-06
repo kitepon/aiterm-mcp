@@ -84,7 +84,7 @@ function codexFixture(t, { bound = true } = {}) {
   return { meta, file, head, write: lines => writeFileSync(file, lines.join("\n") + "\n") };
 }
 
-test("Codexの記録: 最後の境界がtask_completeの時だけ「turnが終わっていて次が始まっていない」と読む", t => {
+test("Codexの記録: 最後の境界がturnの終わりの時だけ「turnが終わっていて次が始まっていない」と読む", t => {
   const { meta, file, head, write } = codexFixture(t);
   assert.equal(codexTurnSettled(meta), false, "記録が無い（起動直後）");
   write(head());
@@ -99,6 +99,12 @@ test("Codexの記録: 最後の境界がtask_completeの時だけ「turnが終�
   assert.equal(codexTurnSettled(meta), true);
   write([...head(), START, DONE, event("task_started", { turn_id: "turn-2" })]);
   assert.equal(codexTurnSettled(meta), false, "次のturnが始まった");
+  // Escで止めたturnも終わっている（Codex 0.160.1の実記録: task_startedの後にturn_aborted、reasonはinterrupted）。
+  write([...head(), START, event("turn_aborted", { turn_id: "turn-1", reason: "interrupted" })]);
+  assert.equal(codexTurnSettled(meta), true);
+  // 見ていない理由の中断は、終わったと数えない。
+  write([...head(), START, event("turn_aborted", { turn_id: "turn-1", reason: "replaced" })]);
+  assert.equal(codexTurnSettled(meta), false);
   // 書いている途中の行がある時は、終わったと数えない（次の境界かも知れない）。
   write([...head(), START, DONE]);
   appendFileSync(file, '{"type":"event_msg","payload":{"type":"task_sta');

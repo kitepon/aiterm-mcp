@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -37,6 +37,24 @@ test('登録した子の結果だけをhookへ渡し、長い日本語・改行�
   assert.equal(await hook, 2);
   assert.equal(output, text);
   assert.deepEqual(result, { queued_submission_id: null });
+});
+
+// 2026-10-06: 届いた後も依頼ごとの置き場が残り、届いた子1つにつき1つ増えていた（aiterm-steer-delivery 0.2.2で片付ける）。
+test('届いた依頼の置き場は残さず、届かなかった依頼の置き場は残す', async t => {
+  const { root, parent, input } = fixture(t);
+  const deliveryId = '4187418f-833e-453f-9823-803c2c23df0e';
+  bindClaudeParentDelivery(parent, deliveryId);
+  const hook = runClaudeResultHook({ ...input, hook_event_name: 'PostToolUse' }, () => {}, root);
+  await submitClaudeParentAnswer(parent, deliveryId, '届く回答');
+  assert.equal(await hook, 2);
+  assert.equal(existsSync(join(root, input.tool_use_id)), false);
+  const next = { ...input, tool_use_id: 'toolu_test_2' };
+  prepareClaudeHookRequest(next, root);
+  const second = claudeParentFromRequest('claude-code', { 'claudecode/toolUseId': next.tool_use_id }, root);
+  bindClaudeParentDelivery(second, deliveryId);
+  closeClaudeParentSession({ session_id: input.session_id }, root);
+  await assert.rejects(submitClaudeParentAnswer(second, deliveryId, '届かない回答'), /CLAUDE_PARENT_SESSION_CLOSED/);
+  assert.equal(existsSync(join(root, next.tool_use_id, 'answer.json')), true);
 });
 
 test('通常PTYなど配送を登録しないtoolのhookは即終了する', async t => {

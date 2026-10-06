@@ -184,7 +184,9 @@ hookはNodeの実行ファイルと引数配列で直接起動し、shellやWind
 本文の保存と同じ子への連続依頼の制御は`parent-delivery.ts`を共有する。Claude用記録は
 `claude-parent-deliveries`へ分け、旧版のCodex readerに未知のparentを読ませない。
 子の予約は既存の`parent-deliveries/claims`で共有し、親の種類をまたぐ並行送信を防ぐ。
-hookとの受け渡しはAiterm stateの`claude-parent-hooks`へ置く。
+hookとの受け渡しはAiterm stateの`claude-parent-hooks`へ、道具の呼び出しごとの置き場として置く。
+届いた置き場は、送り手がhookの出し終えた記録を確かめた時に消す。届かなかった置き場と、配送を結ばなかった置き場は1日残し、
+次の依頼の`PreToolUse`のhookが消す。依頼元が居て配送を待っている置き場は残す（ADR 0094）。
 
 hookの登録は、`args`を使わずshellを通す1行で書く（ADR 0089）。POSIXは`exec '<node>' '<hook>'`、Windowsは
 `& '<node>' '<hook>'; exit (Get-Variable LASTEXITCODE -ValueOnly)`と`shell: "powershell"`。同じ設定をGrokも読み、

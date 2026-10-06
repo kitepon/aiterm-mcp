@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude Code親への配送で、道具の呼び出しごとの置き場（Aiterm stateの`claude-parent-hooks/<tool_use_id>/`）が、
+  回答が届いた後も残っていたのを片付ける（ADR 0094、`aiterm-steer-delivery` 0.2.2）。届いた子1つにつき置き場が
+  1つ増え、Windowsの一時置き場では再起動でも消えなかった。
+  - 届いた置き場は、Aitermがhookの出し終えた記録を確かめた時に消す。消せなくても配送は成功のまま返す。
+  - 届かなかった置き場と、配送を結ばなかった置き場（誤りで返った呼び出し、打ち切られた呼び出し）は1日残し、
+    次の依頼の`PreToolUse`のhookが消す。依頼元のClaude processが居て配送を待っている置き場は、何日たっても残す。
+  - 会話終了のhookは、読めない記録が1つあっても止まらず、その会話の残りの依頼を閉じる。
+  - 0.55.0以前が残した置き場は、更新後に最初の依頼のhookが走った時に、上の決まりで消える。
+  - 道具の返り、配送の記録、hookの登録は変わらない。`aiterm-setup`の流し直しは要らない。
+
 ## [0.55.0] - 2026-10-06
 
 ### 変更

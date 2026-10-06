@@ -356,6 +356,46 @@ test("会話が長くて見出しが流れ出たClaude Codeも、入力欄の形
   assert.equal(claudeTuiReady(["出力", "❯ ls", rule].join("\n")), false);
 });
 
+// BellTeamコンテナ 2026-10-06、Claude Code 2.1.291の実画面。複数行のprompt（貼り付けの形）を送った後の約8秒は、足元の行が
+// 「paste again to expand」へ置き換わり「esc to interrupt」が出ない。動いているのに入力待ちと読み、起動時promptの開始を
+// 確認できなかった（submitted_unconfirmed）。動いている間は、入力欄の上に進行行が出続ける。
+test("Claudeの足元が貼り付けの知らせに置き換わっていても、入力欄の上の進行行で動作中と読む", () => {
+  const rule = "─".repeat(80);
+  const pasted = [rule, "❯ ", rule, "  paste again to expand"];
+  const busy = { state: "busy", reason: "turn_running" };
+  const idle = { state: "idle", reason: "composer_ready" };
+  const prompt = ["❯ 確認だけの小さな用件です。ファイルは何も変えないでください。", "", "  以上です。余計な説明は要りません。", ""];
+  // 送った直後（利用者のhookが動いている間）。
+  assert.deepEqual(claudePaneObservation([...prompt, "✢ Swirling… (running UserPromptSubmit hook · 0s)", "", ...pasted,
+    "  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and re…"].join("\n")), busy);
+  // 経過時間がまだ出ていない進行行。
+  assert.deepEqual(claudePaneObservation([...prompt, "* Swirling…                                     ", "", ...pasted].join("\n")), busy);
+  // 道具を動かしている間。
+  assert.deepEqual(claudePaneObservation([...prompt, "  Bash(node -e \"setTimeout(() => console.log(6*7), 7000)\")", "  ⎿  Running…", "",
+    "* Slithering… (3s · ↓ 200 tokens · thought for 2s)", "", ...pasted].join("\n")), busy);
+  // 作業の一覧を使う時は、進行行が進行中の項目の文になり、一覧が進行行と入力欄の間へ字下げで並ぶ。
+  assert.deepEqual(claudePaneObservation(["● 了解しました。まず TaskCreate", "  で作業を登録します。", "",
+    "✻ コマンド実行中… (11s · ↓ 846 tokens · thinking)", "  ⎿  ◼ 下の命令を1回だけ動かす", "     ◻ 終わったら答える", "", ...pasted].join("\n")), busy);
+  // 終わりのhookが動いている間（括弧の中にも「…」がある）。
+  assert.deepEqual(claudePaneObservation(["● START_OK", "",
+    "✻ Simmering… (running Stop hooks… 2/3 · 23s · ↓ 1.4k tokens · thinking)", "  ⎿  ✔ 下の命令を1回だけ動かす", "     ✔ 終わったら答える", "", ...pasted].join("\n")), busy);
+
+  // 終わった後は、同じ位置が完了の行に変わる。入力待ち。
+  const footer = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents";
+  assert.deepEqual(claudePaneObservation(["● START_OK", "", "✻ Cogitated for 11s · done 4:45 AM", "", rule, "❯ ", rule, footer].join("\n")), idle);
+  assert.deepEqual(claudePaneObservation(["● START_OK", "", "✻ Worked for 23s · done 4:46 AM", "", "  2 tasks (2 done, 0 open)",
+    "  ✔ 下の命令を1回だけ動かす", "  ✔ 終わったら答える", "", rule, "❯ ", rule,
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ctrl+t to hide tasks · ← fo…"].join("\n")), idle);
+  // 貼り付けの知らせが残ったまま終わった時も、入力待ち。
+  assert.deepEqual(claudePaneObservation(["● START_OK", "", "✻ Cogitated for 2s · done 4:45 AM", "", ...pasted].join("\n")), idle);
+  // 会話欄の行は進行行と数えない: 「…」で終わる回答、依頼文や回答の中の箇条書き（字下げされる）、古い進行行の引用。
+  assert.deepEqual(claudePaneObservation(["● テストを流しています…", "", rule, "❯ ", rule, footer].join("\n")), idle);
+  assert.deepEqual(claudePaneObservation(["❯ 次の行を見て", "  * Thinking… (3s · thinking)", "", "● 見ました。", "  ✻ Slithering… (3s · ↓ 200 tokens)",
+    "", "✻ Brewed for 4s · done 4:50 AM", "", rule, "❯ ", rule, footer].join("\n")), idle);
+  // 入力欄の形が無い画面（通常shellの❯）では、進行行の形の行があっても数えない。
+  assert.equal(claudePaneObservation(["* Building… (3s)", "", "~/work", "❯ "].join("\n")).state, "unknown");
+});
+
 test("Claudeの利用上限は入力欄の下の知らせから返す", () => {
   assert.deepEqual(claudeUsageLimit(CLAUDE_USAGE_LIMIT_SCREEN), {
     message: "Usage limit reached · continuing automatically at 4:10pm",

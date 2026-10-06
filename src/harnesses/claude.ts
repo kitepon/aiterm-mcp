@@ -344,12 +344,41 @@ export function claudeTuiReady(screen: string): boolean {
   return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b)/iu.test(lastMarker);
 }
 
+// Claude Codeは動いている間、入力欄の上へ進行行を出し続ける（2.1.291の実画面 2026-10-06）。
+//   ✻ Swirling… (running UserPromptSubmit hook · 0s)
+//   * Swirling…
+//   ✶ Slithering… (3s · ↓ 225 tokens · thought for 2s)
+//   ✢ コマンド実行中… (12s · ↓ 1.0k tokens · thinking)   ← 作業の一覧を使う時は、進行中の項目の文になる
+//     ⎿  ◼ 下の命令を1回だけ動かす                      ← 一覧は進行行の下へ字下げで並ぶ
+// 終わると同じ位置が「✻ Cogitated for 11s · done 4:45 AM」へ変わる（「…」が無く、「·」で区切る）。
+const CLAUDE_PROGRESS_LINE_RE = /^[·✢✳✶✻✽*∗] [^·…\s][^·…]*…(?: \(.*\))?\s*$/u;
+
+// 入力欄の上の罫線から上へ、空行と字下げの行を飛ばし、行頭から始まる最初の行が進行行かを見る。
+// 会話欄の行（「●」の回答、「❯」の依頼文、字下げの道具の出力）は進行行の形にならない。
+function claudeTurnProgress(screen: string): boolean {
+  const lines = screen.split(/\r?\n/u);
+  let marker = lines.length - 1;
+  while (marker >= 0 && !CLAUDE_COMPOSER_MARKER_RE.test(lines[marker])) marker--;
+  if (marker <= 0 || !/^\s*─{8,}\s*$/u.test(lines[marker - 1])) return false;
+  for (let i = marker - 2; i >= 0; i--) {
+    if (lines[i].trim() === "" || /^\s/u.test(lines[i])) continue;
+    return CLAUDE_PROGRESS_LINE_RE.test(lines[i]);
+  }
+  return false;
+}
+
+// 足元の「esc to interrupt」は、貼り付けの知らせ（paste again to expand）へ置き換わる間は出ない。複数行のpromptを
+// 送った後の約8秒がそうで、その間は動いているのに入力待ちと読んでいた（2.1.291、2026-10-06）。進行行も動作中の印にする。
+export function claudeTuiBusy(screen: string): boolean {
+  return /esc to interrupt/i.test(screen.split("\n").slice(-32).join("\n")) || claudeTurnProgress(screen);
+}
+
 export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
   if (claudeLoginMethodMenu(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
     return { state: "blocked", reason: "tool_approval" };
-  if (/esc to interrupt/i.test(tail)) return { state: "busy", reason: "turn_running" };
+  if (claudeTuiBusy(screen)) return { state: "busy", reason: "turn_running" };
   if (claudeTuiReady(screen)) return { state: "idle", reason: "composer_ready" };
   if (/new MCP servers? found in this project/i.test(tail)) return { state: "blocked", reason: "project_mcp_consent" };
   if (claudeStartupAction(screen, false)) return { state: "blocked", reason: "startup_dialog" };

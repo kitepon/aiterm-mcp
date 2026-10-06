@@ -985,12 +985,17 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
     return fail(new Error(`別端末でagentは起動しましたが、回答配送を登録できませんでした（session_id=${structured.session_id}）: ${e instanceof Error ? e.message : String(e)}`));
   }
   const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  // 現地が開始未確認を誤りで返す版（0.54.0以前）でも、ここでは誤りにしない（ADR 0093）。案内が無ければ足す。
+  const unconfirmed = core.launchStartUnconfirmed(structured);
+  const noted = result.content.some(item => item.type === "text" && item.text.includes(core.INITIAL_PROMPT_UNCONFIRMED_MARK));
   return {
     content: [...result.content, remoteNote(target, result),
+      ...(unconfirmed && !noted
+        ? [{ type: "text" as const, text: core.initialPromptUnconfirmedNote(structured.session_id, structured.initial_prompt.reason) }] : []),
       { type: "text" as const, text: `以後このsessionを操作する時は、同じremoteを付けて呼ぶ。${deliveryIdLine(delivery)}` }],
     structuredContent: { ...structured, ...waited, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
       remote_host: remoteLabel(target), remote_version: result.remote_version },
-    ...(result.isError ? { isError: true } : {}),
+    ...(result.isError && !unconfirmed ? { isError: true } : {}),
   };
 }
 
@@ -1040,10 +1045,11 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
           }
         : {}),
     };
+    // 開始未確認（submitted_unconfirmed）は誤りにしない。sessionは立ち、promptは入力欄を離れ、配送も登録済み。
+    // 誤りで返すとClaude Code親は受け口のhookを走らせず、子の回答が届かない（ADR 0093）。状態はinitial_promptと本文で伝える。
     return {
       content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}${deliveryIdLine(delivery)}` }],
       structuredContent: structured,
-      ...(initialDelivery.status === "submitted_unconfirmed" ? { isError: true } : {}),
     };
   } catch (e) {
     delivery?.failed(e);

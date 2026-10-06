@@ -146,3 +146,32 @@ process.stdin.on('data', chunk => {
     return { CODEX_BIN: bin, CODEX_HOME: home };
   });
 });
+
+// BellTeamコンテナ 2026-10-06: 開始未確認の返りを誤り（isError）にしていた。Claude Code親は誤りの返りで受け口のhook
+// （PostToolUse）を走らせないので、登録済みの配送が届かなかった（ADR 0093）。
+test("起動時promptの開始を確認できなくても誤りにせず、本文とinitial_promptで未確認を伝える", { skip: process.platform === "win32" }, async () => {
+  await withClient(async call => {
+    const sid = "public_unconfirmed";
+    const launch = await call("agent_launch", { harness: "codex-cli", session_name: sid, prompt: "開始未確認の試験" });
+    try {
+      assert.equal(launch.isError, undefined, JSON.stringify(launch));
+      assert.deepEqual(launch.structuredContent.initial_prompt, { status: "submitted_unconfirmed", reason: "start_unconfirmed", turn_started: null });
+      assert.deepEqual(launch.structuredContent.startup, { status: "ready", reason: "composer_ready" });
+      assert.equal(typeof launch.structuredContent.event_cursor, "number");
+      const text = launch.content[0].text;
+      assert.match(text, /initial_prompt=pending vendor=codex/);
+      assert.match(text, new RegExp(`turnの開始は未確認（reason=start_unconfirmed）。.*再送もagentの起動し直しもしない。.*pty_observe\\(${sid}\\)`));
+    } finally { await call("pty_close", { session_id: sid }); }
+  }, root => {
+    // 入力は受けるが、動作中の表示を出さないCodex。
+    const bin = join(root, "codex");
+    const home = join(root, "codex-home");
+    mkdirSync(home);
+    writeFileSync(bin, `#!/usr/bin/env node
+process.stdin.setRawMode(true);
+process.stdout.write('OpenAI Codex\\n› ready\\n');
+process.stdin.on('data', () => {});
+`, { mode: 0o700 });
+    return { CODEX_BIN: bin, CODEX_HOME: home };
+  });
+});

@@ -755,6 +755,26 @@ test("agentDispatchGuide: 先頭で待たないことを宣言し、待ちコマ
   assert.match(guide, /pty_read\(agent_transcript:true\)/, "回収経路を示す");
 });
 
+test("開始未確認の返りは、起動が普通に返った形と組で見分け、案内は再送と起動し直しを止める", () => {
+  const ready = { status: "ready", reason: "composer_ready" };
+  const unconfirmed = { status: "submitted_unconfirmed", reason: "start_unconfirmed", turn_started: null };
+  assert.equal(core.launchStartUnconfirmed({ initial_prompt: unconfirmed, startup: ready }), true);
+  assert.equal(core.launchStartUnconfirmed({ initial_prompt: { ...unconfirmed, reason: "rate_limited" }, startup: ready }), true);
+  assert.equal(core.launchStartUnconfirmed({ initial_prompt: { status: "started", reason: "turn_running", turn_started: true }, startup: ready }), false);
+  // 送信の途中で失敗した起動は、同じstatusでもstartup.reasonが失敗の理由になる。誤りのまま通す。
+  assert.equal(core.launchStartUnconfirmed({
+    initial_prompt: { status: "submitted_unconfirmed", reason: "user_hook_blocked", turn_started: false },
+    startup: { status: "ready", reason: "user_hook_blocked" },
+  }), false);
+  assert.equal(core.launchStartUnconfirmed({ initial_prompt: { status: "not_sent", reason: "startup_dialog", turn_started: false }, startup: { status: "blocked", reason: "startup_dialog" } }), false);
+  assert.equal(core.launchStartUnconfirmed({}), false);
+  const note = core.initialPromptUnconfirmedNote("child", "start_unconfirmed");
+  assert.ok(note.includes(core.INITIAL_PROMPT_UNCONFIRMED_MARK));
+  assert.match(note, /reason=start_unconfirmed/);
+  assert.match(note, /再送もagentの起動し直しもしない/);
+  assert.match(note, /pty_observe\(child\)/);
+});
+
 test("Claude Code親へのdispatchはwaiter起動を要求せず、自動配送を案内する", () => {
   try {
     core.setParentClient("claude-code");

@@ -3851,6 +3851,26 @@ async function waitCursorPromptVisible(name: string, text: string): Promise<Curs
   );
 }
 
+// 起動時promptは入力欄を離れたが、確認時間の内にturnの開始を見られなかった時の案内。この返りは誤り（isError）にしない。
+// 誤りで返すと、Claude Code親は受け口のhook（PostToolUse）を走らせず、登録済みの配送が届かない（ADR 0093）。
+// 親が同じ依頼で起動し直すと子が2つ動くので、再送も再起動もしない事を先に書く。
+export const INITIAL_PROMPT_UNCONFIRMED_MARK = "turnの開始は未確認";
+export function initialPromptUnconfirmedNote(name: string, reason: string): string {
+  return (
+    `注意: ${INITIAL_PROMPT_UNCONFIRMED_MARK}（reason=${reason}）。promptは入力欄を離れているので、再送もagentの起動し直しもしない。` +
+    `開始していれば結果は上の方法で届く。確かめる時は pty_observe(${name}) で状態を見る。`
+  );
+}
+
+// 起動そのものは普通に返り、初手の開始だけが未確認の返りか。送信の途中で失敗した起動も同じstatusを持つ
+// （その時のstartup.reasonは失敗の理由になる）ので、起動が普通に返った形（ready／composer_ready）と組で見る。
+export function launchStartUnconfirmed(structured: {
+  initial_prompt?: { status?: unknown } | null; startup?: { status?: unknown; reason?: unknown } | null;
+}): boolean {
+  return structured.initial_prompt?.status === "submitted_unconfirmed"
+    && structured.startup?.status === "ready" && structured.startup?.reason === "composer_ready";
+}
+
 export function agentSubmitResidueWarning(name: string, residue: boolean | null): string {
   if (residue !== true) return "";
   return (
@@ -4251,6 +4271,7 @@ async function sendInitialAgentPromptInLock(
     text:
       `initial_prompt=pending vendor=${meta.kind} event_cursor=${startOffset} harness=${agentHarness(meta.kind)}\n` +
       `起動時 prompt を送信した。${agentDispatchGuide(name, startOffset)}` +
+      (delivery.status === "submitted_unconfirmed" ? `\n${initialPromptUnconfirmedNote(name, delivery.reason)}` : "") +
       agentSubmitResidueWarning(name, residue.residue),
     event_cursor: startOffset,
     submit_residue: residue.residue,

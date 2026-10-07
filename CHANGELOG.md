@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.2] - 2026-10-07
+
 ### 修正
 
 - Codexのturnがサービスの誤りや通信の失敗（HTTP 500・401・途中で切れる応答など）で終わった時、完了待ちが`done`・空の回答を返していた件を直す（ADR 0103）。
@@ -2395,7 +2397,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.2...HEAD
+[0.57.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.1...v0.57.0
 [0.56.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.0...v0.56.1

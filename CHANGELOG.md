@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     記録が同じturnの開始のままで画面が動いている時だけ、動いていると数える。1つでも欠けたら、今までどおり新しいturnで返す。
   - その間に届いた文の受け付けは、5.6秒から約0.8秒になる（入力受付の11回の確かめを通らない。Windowsは約2秒）。
   - 引数・返りの形・断りの文面、Claude Code・Grok・Cursorの席、画面に動作中の行が出ている時の動きは変わらない。
+- 配送パッケージ`aiterm-steer-delivery`を0.3.1へ上げる。
+  - Codexの親配送の登録（`aiterm-setup --codex-steer enable`、`ensureCodexParentSteer`）が、登録の間に終わったCodexを、再起動待ちの記録
+    （`stale_processes`）へ残さない。ほかの導入が設定のために一時的に起こして止めたCodexが、止まり切る前の一覧に載って残っていた。
+    居ないprocessは照合で当たらないので、配送は止まっていなかった。
+  - Codexを起こす時、PATHにnodeの場所が無ければ足す。0.56.1で`aiterm-parent-delivery`が自分でしていた事を、MCPの本体からCodexを
+    起こす所（認証の確かめ、model一覧、親配送）にも広げる。
 
 ## [0.57.0] - 2026-10-07
 

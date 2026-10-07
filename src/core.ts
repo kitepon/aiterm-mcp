@@ -125,6 +125,7 @@ import {
   codexTranscriptSessionId,
   latestCodexCompletion,
   codexTurnSettled,
+  codexRunningTurn,
   observeCodexDone,
   buildCodexAgentCmd,
   codexLaunchNote,
@@ -5190,6 +5191,33 @@ export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
   return kind === "cursor" ? cursorSteerQueued(screen) : grokSteerQueued(screen);
 }
 
+// 記録の上でturnが動いている席を、間を置いて見直すまでの待ち。回答を流している画面は、この間に必ず動く（実測で0.15秒ごと）。
+const CODEX_RECORD_RUNNING_CONFIRM_MS = 400;
+
+/**
+ * Codexの席で、画面は入力待ちに見えるが、記録の上ではturnが動いているか（回答を流している間。Codex 0.160.1は、その間
+ * 動作中の行を出さない）。
+ * 止まっている席を動いていると読むと、文は新しいturnになるのに差し込みとして返り、その完了を誰も待たない。
+ * 読み違えない方へ倒し、次を全部満たす時だけtrueにする。1つでも欠けたら、今までどおり新しいturnの道へ回す。
+ * - 画面に入力欄が見えている（承認などの画面は、新しいturnの道が今までどおり打鍵前に断る）。
+ * - この起動の記録の最後の境界がturnの開始で、harnessのprocessが生きている（Codexは、生きている間はturnの終わりを必ず書く）。
+ * - 間を置いて見直しても、記録は同じturnの開始のままで、画面が動いている（止まっている席の画面は動かない）。
+ */
+async function codexTurnRunningBehindIdleScreen(name: string, meta: AgentMetadata, screen: string): Promise<boolean> {
+  try {
+    if (!isAgentTuiIdleReady("codex", screen)) return false;
+    const turn = codexRunningTurn(meta);
+    if (turn === null) return false;
+    if (observeSession(name).harness_alive !== true) return false;
+    await sleep(CODEX_RECORD_RUNNING_CONFIRM_MS);
+    const later = captureScreen(name, AGENT_TUI_READY_LINES);
+    if (codexRunningTurn(meta) !== turn) return false;
+    // 見直す間に動作中の行が出た時は、画面の読みでも動いている。
+    if (isAgentTuiBusy("codex", later)) return true;
+    return later !== screen && isAgentTuiIdleReady("codex", later);
+  } catch { return false; /* 読めない時は、動いていると数えない */ }
+}
+
 /**
  * agent sessionへの唯一の送信口。呼び出し側は子の状態を知らないまま呼び、Aitermがこの時点の画面で振り分ける。
  * 実行中なら現在のturnへ差し込み（steer）、そうでなければ新しいturnとしてdispatchする。
@@ -5216,7 +5244,8 @@ async function sendAgentMessageInLock(
   const meta = loadAgentMetadata(name);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
-  let running = isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
+  const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+  let running = isAgentTuiBusy(meta.kind, screen);
   // Claudeのtool処理中は画面のbusy表示が消えることがある。Stopまで保持するturnの印を正とし、
   // APIエラーでStopが来なかった印は、会話記録の終了時刻を確認して消す。
   // 有効な印がある間は差し込み、終了後は画面にbusy表示が残っても新しいturnとして送る。
@@ -5228,6 +5257,8 @@ async function sendAgentMessageInLock(
   // STEER_NOT_QUEUEDで失敗していた（実測 2026-09-28、完了通知の直後の送信で3回中2回）。記録の末尾がturn_endedなら
   // turnは終わっているので新しいturnとして送る。dispatchは入力を受け付けるまで待ってから送る。
   if (running && meta.kind === "cursor" && latestCursorCompletion(meta, readTranscriptLines) !== null) running = false;
+  // Codexは回答を流している間、画面に動作中の行を出さない。その間に届いた文を、Codexは動いているturnへ取り込む（ADR 0101）。
+  if (!running && meta.kind === "codex" && await codexTurnRunningBehindIdleScreen(name, meta, screen)) running = true;
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface });
   }

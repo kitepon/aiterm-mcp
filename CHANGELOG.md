@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-10-07
+
 ### 追加
 
 - ほかの製品が、Codexの親への回答をAitermの親配送へ頼む命令`aiterm-parent-delivery`を足す（ADR 0098）。製品はCodex用のhookを登録せず、
@@ -2331,7 +2333,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.0...HEAD
+[0.56.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.4...v0.56.0
 [0.55.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.3...v0.55.4
 [0.55.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.2...v0.55.3
 [0.55.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.1...v0.55.2

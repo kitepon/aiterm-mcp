@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 文書
+
+- 通信の失敗・取消・待ちの時間切れを実行時エラーとして記録しない事と、重さの決め方を、決まりとして書く（ADR 0102）。動きは変えない。
+
 ## [0.57.1] - 2026-10-07
 
 ### 修正

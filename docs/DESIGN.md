@@ -390,7 +390,8 @@ Claude・Grokは2秒、Cursorは1秒に1回で、待ちに入った最初の周�
 `diagnostics`はread-onlyで、PTY backendとagent dependencyを検査する。runtime error aggregateは
 製品所有のlocal stateに固定codeと集約metadataだけを保存し、既定ではnetwork I/Oを持たない。
 BugHubへの報告は、利用者が明示して有効にし、合鍵のファイルがある端末だけが、別processで行う。
-きっかけは記録・解決・起動・手動の4つで、定期的な見張りは置かない。受け取り済みにするのは応答の署名まで確かめた時だけ（ADR 0079）。工場reporterとの
+きっかけは記録・解決・起動・手動の4つで、定期的な見張りは置かない。受け取り済みにするのは応答の署名まで確かめた時だけ（ADR 0079）。
+記録するのは、Aitermが動く前提が欠けた時の固定の3種類だけ。通信の失敗・取消・待ちの時間切れは記録せず、呼んだ側へ返す（ADR 0102）。工場reporterとの
 連携は明示opt-inの任意adapterであり、未設定時もAiterm本体は単独動作する。raw error、prompt、出力、
 transcript、path、credentialを保存・公開しない。
 親配送hook（Claude Code・Cursor）の登録状態は`src/parent-hook-diagnostic.ts`が利用者設定の読取りだけで要約し、

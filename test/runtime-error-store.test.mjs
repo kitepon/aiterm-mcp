@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  RUNTIME_ERROR_DEFINITIONS,
   RuntimeErrorStore,
   defaultRuntimeErrorPaths,
   recordRuntimeError,
@@ -169,6 +170,18 @@ test("収集 API は固定 code だけを受け、raw payload/privacy field を�
     { code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE", file_contents: "raw" },
     { code: "UNKNOWN" },
   ]) assert.throws(() => validateRuntimeObservation(value), /allowlist|field|object/);
+});
+
+// 種類を足す時は、ADR 0102の3つ（通信の値・取消・時間切れではない事、起きた時の実害、自力で戻るか）を書いてからにする。
+test("記録する種類は、Aiterm自身が動く前提が欠けた3つだけで、通信の失敗・取消・時間切れの種類を持たない", () => {
+  assert.deepEqual(
+    Object.entries(RUNTIME_ERROR_DEFINITIONS).map(([code, definition]) => [code, definition.severity]).sort(),
+    [
+      ["AITERM.PERSISTENCE_WRITE_FAILED", "high"],
+      ["AITERM.PTY_DEPENDENCY_UNAVAILABLE", "high"],
+      ["AITERM.VENDOR_LAUNCHER_FAILED", "warn"],
+    ],
+  );
 });
 
 test("同じ固定 failure は SHA-256 fingerprint で集約し count/first/last/sequence を更新する", () => {

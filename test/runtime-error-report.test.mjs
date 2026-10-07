@@ -277,6 +277,9 @@ test("報告: 署名の合わない200・5xx・届かない宛先は「届いた
   away.store.record({ code: "AITERM.PTY_DEPENDENCY_UNAVAILABLE" });
   assert.equal((await away.report()).status, "delivery_unknown");
   assert.equal(away.store.snapshot().acknowledged_cursor, 0);
+  // 送れなかった事そのものは、実行時エラーとして数えない（ADR 0102）。記録は元の1件・1回のまま。
+  assert.deepEqual(away.store.snapshot().records.map((record) => [record.error_code, record.occurrence_count]),
+    [["AITERM.PTY_DEPENDENCY_UNAVAILABLE", 1]]);
 });
 
 test("報告: 自動の送信は多くても1時間に1回、合鍵が無効な間は同じ合鍵で送り続けない", { skip: posixOnly }, async (t) => {

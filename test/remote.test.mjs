@@ -5,7 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import { TelemetryOwnedError } from "../dist/errors.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
 
 const parent = { thread_id: "11111111-2222-4333-8444-555555555551", codex_home: path.join(os.tmpdir(), "親のCodex") };
@@ -147,6 +148,24 @@ test("現地のaiterm-waitのreceiptをそのまま観測結果として返す",
 test("現地のaiterm-waitが失敗を返したら、つなぎ直さずに理由付きで失敗する", { skip: process.platform === "win32" }, async (t) => {
   fakeSsh(t, `echo '{"ok":false,"code":"AITERM_WAIT_FAILED","message":"agent session が見つかりません"}'; exit 1`);
   await assert.rejects(observeRemoteAgentDone({ host: "rabbit" }, "t1", { cursor: 0, timeout: 5 }), /REMOTE_WAIT_FAILED.*見つかりません/);
+});
+
+// 実行時エラーとして記録するのはTelemetryOwnedErrorだけ（errors.tsのtelemetryOwnedFailure）。通信の失敗と取消は、
+// 呼んだ側へ理由を返すだけにする（ADR 0102）。
+test("別端末へつながらない時と観測を止めた時は理由を返すだけで、実行時エラーとして記録しない", { skip: process.platform === "win32" }, async (t) => {
+  fakeSsh(t, `echo 'ssh: connect to host away port 22: Network is unreachable' >&2; exit 255`);
+  await assert.rejects(remoteShell({ host: "away-for-test" }), (error) => {
+    assert.match(error.message, /REMOTE_CONNECT_FAILED.*Network is unreachable/);
+    assert.equal(error instanceof TelemetryOwnedError, false);
+    return true;
+  });
+  const stopped = new AbortController();
+  stopped.abort();
+  await assert.rejects(observeRemoteAgentDone({ host: "rabbit" }, "t1", { cursor: 0, timeout: 5, signal: stopped.signal }), (error) => {
+    assert.match(error.message, /REMOTE_OBSERVE_ABORTED/);
+    assert.equal(error instanceof TelemetryOwnedError, false);
+    return true;
+  });
 });
 
 test("別端末の子は接続先ごとに予約し、観測と回答回収へ接続情報を渡す", async (t) => {

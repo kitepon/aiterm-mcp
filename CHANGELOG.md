@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-10-07
+
 ### 修正
 
 - Windowsで、`pty_close`されたClaude Codeが会話終了のhook（SessionEnd）を走らせない件を直す（ADR 0100）。psmuxは、sessionを止める時に
@@ -2378,7 +2380,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.1...HEAD
+[0.57.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.1...v0.57.0
 [0.56.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.0...v0.56.1
 [0.56.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.4...v0.56.0

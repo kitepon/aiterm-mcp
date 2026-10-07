@@ -62,6 +62,10 @@ agentの席への`pty_send`は、任意の`preface`（本文の前に置く1行�
 ほかのharnessの席へは1つにつないで貼る。`preface`は入力欄がそのまま読むので、1行・200字以内・制御文字なし・行頭が記号や空白でない・
 `@`を含まない文だけを通し、外れた時は打鍵前に断る。
 
+Windowsの`pty_close`は、Claude Codeの席を止める前に、C-cを間を空けずに2回送って、Claude Codeが自分で終わるのを待つ（ADR 0100）。
+psmuxは切断の合図なしでsessionを止めるので、そのままでは会話終了のhook（SessionEnd）が走らない。動いている番の席へは、先にC-cを
+1回送って入力待ちに戻るのを待つ。待ちは同期で、上限つき。終わらなくても、その後にsessionを止める。POSIXとほかのharnessの席は変えない。
+
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。

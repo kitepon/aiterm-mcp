@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Windowsで、`pty_close`されたClaude Codeが会話終了のhook（SessionEnd）を走らせない件を直す（ADR 0100）。psmuxは、sessionを止める時に
+  画面のprocessへ切断の合図を送らない（POSIXのtmuxは送る）。
+  - WindowsのClaude Codeの席を閉じる時、止める前にC-cを間を空けずに2回送り、Claude Codeが自分で終わるのを最大4秒待つ。
+    動いている番の席へは、先にC-cを1回送って入力待ちに戻るのを最大1.5秒待つ。終わらなくても、その後は今までどおり止める。
+  - `pty_close`は、WindowsのClaude Codeの席でだけ遅くなる（実物で、入力待ちの席は約2.3秒、動いている番の席は約3.2秒）。
+  - Linux・macOS、Codex・Grok・Cursorの席、返りの形は変わらない。
+
 ## [0.57.0] - 2026-10-07
 
 ### 追加

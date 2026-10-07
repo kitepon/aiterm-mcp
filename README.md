@@ -431,6 +431,9 @@ pty_close("t1")                     → terminal released
 
 `pty_close` is idempotent and returns a structured `closed` / `already_closed`
 receipt, so durable callers can retry the same `session_id` after losing the MCP response.
+On Windows, closing a Claude Code session first asks Claude Code to exit on its own (Ctrl-C twice, then a wait of up to 4 seconds)
+so that its `SessionEnd` hooks run; psmux stops a session without the hangup signal that tmux sends on POSIX. The session is stopped
+afterwards either way.
 
 That's it. The terminal in `t1` is real and persistent — `ssh`, `docker exec`, a REPL, or a launched agent's TUI are just things that live inside it. To launch a worker agent instead, one call does it: `agent_launch({ harness: "codex-cli" })` returns a `session_id` you drive with the same `pty_read` / `pty_send`.
 

@@ -1668,8 +1668,8 @@ export function readOnlyPtyListDiagnostic(runTmux = tmux): { status: DiagnosticS
   return { status: "unverified", session_count: null };
 }
 
-function closeSessionInternal(name: string, observeDependency = true): string {
-  assertSessionName(name);
+/** 別processが待機中・送信中のsessionは閉じない。閉じる前の操作（下のClaude Codeへの終了の鍵）より先に確かめる。 */
+function assertSessionClosable(name: string): void {
   {
     // 別プロセスの待機は in-memory Set に映らない。生きた file lock があれば close で state を消さない
     const foreign = liveWaitLocks(name);
@@ -1691,6 +1691,88 @@ function closeSessionInternal(name: string, observeDependency = true): string {
       );
     }
   }
+}
+
+// Windowsのpsmuxは、sessionを止める時に画面のprocessへ切断の合図を送らない（POSIXのtmuxはSIGHUPを送り、Claude Codeは
+// 片付けて終わる）。合図なしで止められたClaude Codeは、会話終了のhook（SessionEnd）を走らせない。
+// 止める前に、Claude Codeへ自分で終わる機会を与える（ADR 0100）。
+// 動いている番を止めた後、入力待ちに戻るのを待つ上限。
+const CLAUDE_EXIT_INTERRUPT_WAIT_MS = 1500;
+// 終了の受付（「Press Ctrl-C again to exit」）は短い。実物では、間が0.3〜0.7秒の2回は通り、2.2秒の2回は切れた。
+const CLAUDE_EXIT_KEY_GAP_MS = 200;
+// 2回目の後、会話終了のhookを走らせて終わるのを待つ上限。実物（fox）では、hookが走ったのは2回目の約1秒後で、processはその
+// 0.2〜0.3秒後に終わった。hookが遅い端末でも走り切れるように、余りを取る。
+const CLAUDE_EXIT_WAIT_MS = 4000;
+const CLAUDE_EXIT_POLL_MS = 100;
+
+export interface ClaudeExitSteps {
+  /** 画面が、入力欄の見える入力待ちか。 */
+  idle(): boolean;
+  /** C-cを1回送る。 */
+  interrupt(): void;
+  /** Claude Codeのprocessがまだ居るか。 */
+  alive(): boolean;
+  pause(ms: number): void;
+  now(): number;
+}
+
+/**
+ * Claude Codeへ終了を頼む鍵と待ちの順番。
+ * 入力待ちでない席（動いている番など）へは、先にC-cを1回送って入力待ちに戻るのを待つ（そのC-cは番を止めるのに使われ、
+ * 終了の受付にならない）。その後、C-cを間を空けずに2回送り、processが終わるのを待つ。
+ * 終わらなかった時も、呼ぶ側は今までどおりsessionを止める。
+ */
+export function requestClaudeExit(steps: ClaudeExitSteps): "exited" | "still_running" {
+  if (!steps.idle()) {
+    steps.interrupt();
+    const until = steps.now() + CLAUDE_EXIT_INTERRUPT_WAIT_MS;
+    while (!steps.idle() && steps.now() < until) steps.pause(CLAUDE_EXIT_POLL_MS);
+  }
+  steps.interrupt();
+  steps.pause(CLAUDE_EXIT_KEY_GAP_MS);
+  steps.interrupt();
+  const until = steps.now() + CLAUDE_EXIT_WAIT_MS;
+  for (;;) {
+    if (!steps.alive()) return "exited";
+    if (steps.now() >= until) return "still_running";
+    steps.pause(CLAUDE_EXIT_POLL_MS);
+  }
+}
+
+let claudeExitBeforeCloseTestOverride: boolean | null = null;
+/** 試験用: POSIXでも、閉じる前にClaude Codeへ終了を頼む（nullで既定へ戻す）。 */
+export function __testSetClaudeExitBeforeClose(value: boolean | null): void {
+  claudeExitBeforeCloseTestOverride = value;
+}
+
+/**
+ * 閉じる席がWindowsのClaude Codeで、processが生きている時だけ、止める前に終了を頼む。
+ * 待ちは同期のまま（最大で数秒）。待つ間にほかの呼び出しを通すと、閉じかけの席へ送信が入る。
+ * 席の観測や鍵の送信に失敗した時は、何もせずに今までどおり止める（閉じる事を妨げない）。
+ */
+function letClaudeExitBeforeClose(name: string): void {
+  if (!(claudeExitBeforeCloseTestOverride ?? isWin)) return;
+  try {
+    if (tryLoadAgentMetadata(name)?.kind !== "claude" || !sessionExists(name)) return;
+    const seen = observeSession(name);
+    if (seen.harness_alive !== true) return;
+    const harness = seen.harness_process;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    requestClaudeExit({
+      idle: () => claudePaneObservation(captureScreen(name, AGENT_TUI_READY_LINES)).state === "idle",
+      interrupt: () => { tmux("send-keys", "-t", name, "C-c"); },
+      // processが1つに決まらない席は、席の観測で見る（Windowsではprocessの一覧を引くので遅い）。
+      alive: () => harness ? isPidAlive(harness.pid) : observeSession(name).harness_alive === true,
+      pause: ms => { Atomics.wait(pause, 0, 0, ms); },
+      now: () => performance.now(),
+    });
+  } catch { /* 終了を頼めなかった席は、今までどおり止める */ }
+}
+
+function closeSessionInternal(name: string, observeDependency = true, o: { letHarnessExit?: boolean } = {}): string {
+  assertSessionName(name);
+  assertSessionClosable(name);
+  if (o.letHarnessExit) letClaudeExitBeforeClose(name);
   (observeDependency ? tmux : tmuxCleanup)("kill-session", "-t", name);
   for (const p of [logpath(name), offsetpath(name), lastcmdpath(name), markpath(name), sendLockPath(name)]) {
     try {
@@ -1725,7 +1807,7 @@ export type PtyCloseResult = {
 export function closeSessionResult(name: string): PtyCloseResult {
   assertSessionName(name);
   const existed = sessionExists(name);
-  closeSessionInternal(name, true);
+  closeSessionInternal(name, true, { letHarnessExit: true });
   return {
     schema: "aiterm.pty-close-result.v1",
     session_id: name,

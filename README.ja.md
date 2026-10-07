@@ -401,6 +401,9 @@ pty_close("t1")                     → 端末を解放
 
 `pty_close` は冪等で、`closed` / `already_closed` のstructured receiptを返す。
 MCP応答を失ったdurable callerも同じ`session_id`への再試行だけでclose結果を確定できる。
+Windowsでは、Claude Codeの席を閉じる前に、Claude Codeへ自分で終わる機会を与える（C-cを2回送り、最大4秒待つ）。
+psmuxは、POSIXのtmuxが送る切断の合図なしでsessionを止めるので、そのままでは会話終了のhook（SessionEnd）が走らない。
+終わっても終わらなくても、その後にsessionを止める。
 
 これだけ。`t1` の端末は本物で永続——`ssh`・`docker exec`・REPL・起動したエージェントのTUIは、そこに住む「もの」に過ぎない。ワーカー起動も1コールで、`agent_launch({ harness: "codex-cli" })`が返す`session_id`を同じ`pty_read`／`pty_send`で操作する。
 

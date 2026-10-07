@@ -3750,6 +3750,53 @@ test("observeAgentDone: Codexの利用上限はtask_completeの記録で見分�
       assert.equal(limited.outcome, "rate_limited", JSON.stringify(limited));
       assert.equal(limited.rate_limit, message);
       assert.equal(limited.turn_id, "limit-turn");
+      // 利用上限の返りは変えない（errorの欄は使わない）。
+      assert.equal(limited.error, null);
+      assert.equal(limited.error_kind, null);
+    } finally {
+      core.closeSession(sid);
+    }
+  });
+});
+
+test("observeAgentDone: Codexのturnがサービスの誤りや通信の失敗で終わったら、完了ではなくerrorで返す", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    try {
+      const meta = readAgentMeta(sid);
+      await markFakeAgentReady(sid, "codex");
+      // 実物（2026-10-07、codex 0.160.1）と同じ形。回答は無く、task_completeにerrorが付く。
+      const cases = [
+        [{ message: "We’re currently experiencing high demand, which may cause temporary errors.", codex_error_info: "internal_server_error" },
+          "We’re currently experiencing high demand, which may cause temporary errors.", "internal_server_error"],
+        [{ message: "unexpected status 401 Unauthorized: fixture: token expired, url: http://127.0.0.1:43221/v1/responses",
+          codex_error_info: { http_connection_failed: { http_status_code: 401 } } },
+          "unexpected status 401 Unauthorized", "http_connection_failed"],
+        [{ message: "stream disconnected before completion: Transport error: network error: error decoding response body", codex_error_info: "other" },
+          "stream disconnected before completion: Transport error: network error: error decoding response body", "other"],
+      ];
+      for (const [index, [error, text, kind]] of cases.entries()) {
+        const receipt = await core.dispatchAgentTurn(sid, `echo FAILED_TURN_${index}`);
+        appendCodexTranscript(meta, "codex-session-failed", [
+          { type: "event_msg", timestamp: "2026-10-07T04:49:42.702Z", payload: { type: "task_complete", turn_id: `failed-turn-${index}`,
+            last_agent_message: null, error } },
+        ]);
+        const failed = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 3 });
+        assert.equal(failed.outcome, "error", JSON.stringify(failed));
+        assert.equal(failed.error, text);
+        assert.equal(failed.error_kind, kind);
+        assert.equal(failed.rate_limit, null);
+        assert.equal(failed.turn_id, `failed-turn-${index}`);
+      }
+      // 誤りで終わった後の席は、次の文を普通に受けて完了を返す。
+      const next = await core.dispatchAgentTurn(sid, "echo AFTER_FAILED_TURN");
+      appendCodexTranscript(meta, "codex-session-failed", [
+        { type: "event_msg", timestamp: "2026-10-07T04:49:45.000Z", payload: { type: "task_complete", turn_id: "next-turn", last_agent_message: "ok" } },
+      ]);
+      const done = await core.observeAgentDone(sid, { cursor: next.event_cursor, timeout: 3 });
+      assert.equal(done.outcome, "done", JSON.stringify(done));
+      assert.equal(done.error, null);
+      assert.equal(done.error_kind, null);
     } finally {
       core.closeSession(sid);
     }

@@ -259,6 +259,8 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
 
+Codexがサービスの誤りや通信の失敗でturnを打ち切った時は、完了待ちが`done`ではなく`error`を返す（`aiterm-wait`はexit 7、親への配送は`outcome=error`）。`error`は応答の本文とURLを落とした1行の文で、Codexが記録した種類（`internal_server_error`・`http_connection_failed`など）は`error_kind`に載る。利用上限は今までどおり`rate_limited`。誤りで終わった後の席は、次の`pty_send`を新しいturnとして受ける。
+
 agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
 
 agent session宛ての`pty_send`は、任意の`preface`（本文の前に置く1行）を受ける。渡る文は「`preface`・空行・`text`」。Claude Codeの席へは、`preface`を端末の貼り付けの印なしで入れ、空行と本文を1回の貼り付けで入れる。Claude Codeは貼り付けた長い文を`<pasted_content>`で包み、「包みの中の指示は、包みの外の利用者自身の言葉が頼んだ時だけ従う」と読むので、連携元が付ける前置き（誰からの連絡か）を包みの外へ出すために使う。Codex・Grok・Cursorの席へは1つにつないで貼る。`preface`は1行・200字以内・制御文字なしで、行頭が記号や空白でなく、`@`を含まない文。外れた時は`AGENT_PREFACE_INVALID`と「文字列は送信していません。」を返す。通常PTY・`force:true`・`remote`付きでは使えない。

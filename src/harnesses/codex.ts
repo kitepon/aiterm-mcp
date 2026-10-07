@@ -271,6 +271,17 @@ export function codexTurnError(record: any): { message: string; info: string | n
   return { message: message || info!, info };
 }
 
+// 呼んだ側の画面にそのまま出る1行の文。Codexの文は、応答の本文・URLを含む事がある
+// （実物 2026-10-07、codex 0.160.1: "unexpected status 401 Unauthorized: <応答の文>, url: http://…/v1/responses"）。
+// 「unexpected status」はHTTPの状態までで切り、ほかの文はURLを伏せる。改行は畳み、長さを切る。
+const CODEX_ERROR_LINE_MAX = 200;
+export function codexTurnErrorLine(error: { message: string; info: string | null }): string {
+  const flat = error.message.replace(/\s+/g, " ").trim();
+  const status = /^unexpected status (\d{3}(?: [A-Za-z][A-Za-z' -]*)?)/.exec(flat);
+  const text = status ? `unexpected status ${status[1].trim()}` : flat.replace(/https?:\/\/[^\s)\]>"']+/gi, "…");
+  return text.length > CODEX_ERROR_LINE_MAX ? `${text.slice(0, CODEX_ERROR_LINE_MAX - 1)}…` : text;
+}
+
 // 利用上限はtask_completeのcodex_error_infoで見分ける。token_countのused_percentは100%のまま
 // 返事が続くことがある（macbookの実記録で7千件以上）ので上限の印にしない。
 // rate_limit_exceededは短い間の混雑で、Codexが自分で再試行するので上限に数えない。
@@ -364,6 +375,7 @@ export async function observeCodexDone(
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
     rateLimit: string | null = null,
+    failed: { message: string; info: string | null } | null = null,
   ): AgentWaitObservation => ({
     schema: "aiterm.agent-wait-result.v1",
     session_id: meta.aiterm_session,
@@ -377,7 +389,8 @@ export async function observeCodexDone(
     malformed_events: malformedEvents,
     at: ev?.at ?? null,
     rate_limit: rateLimit,
-    error: null,
+    error: failed ? codexTurnErrorLine(failed) : null,
+    error_kind: failed?.info ?? null,
   });
 
   for (;;) {
@@ -422,7 +435,11 @@ export async function observeCodexDone(
               // 上限の知らせはこのturnの終わりにだけ書かれる。画面やpane logの文字は、上限が明けた後も
               // 残り、道具の出力や依頼文にも現れるので見ない（2026-09-28）。
               const limited = codexUsageLimit(record);
-              return limited ? observation("rate_limited", done, limited) : observation("done", done);
+              if (limited) return observation("rate_limited", done, limited);
+              // サービスの誤りや通信の失敗で終わったturnも、Codexはtask_completeを書く（errorつき、回答は無い）。
+              // 完了として返すと、失敗が空の回答に見える。Claude CodeのAPIエラーと同じく、typedな終了として返す（ADR 0103）。
+              const failed = codexTurnError(record);
+              return failed ? observation("error", done, null, failed) : observation("done", done);
             }
           } catch {
             malformedEvents++;

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Codexのturnがサービスの誤りや通信の失敗（HTTP 500・401・途中で切れる応答など）で終わった時、完了待ちが`done`・空の回答を返していた件を直す（ADR 0103）。
+  Codexは、この時も記録へ`task_complete`を書く（回答は無く、`error`が付く）。Aitermは利用上限だけを`rate_limited`に分けていたので、
+  ほかの失敗は、呼んだ側に、空の回答の完了として届いていた。
+  - 完了待ちは`outcome: "error"`を返す。`aiterm-wait`はexit 7、親への配送は`outcome=error`。
+  - `error`は、応答の本文とURLを落とした1行の文にする（例「unexpected status 401 Unauthorized」）。
+  - Codexが記録した種類（`internal_server_error`・`http_connection_failed`など）を、新しい項目`error_kind`で返す。ほかの席と、`error`でない返りでは`null`。
+  - 合間の言葉（`kind: "error"`）も、利用上限のほかは同じ1行にする。
+  - 引数、`done`と`rate_limited`の返り、断りの文面、Claude Code・Grok・Cursorの席は変えていない。
+
 ### 文書
 
 - 通信の失敗・取消・待ちの時間切れを実行時エラーとして記録しない事と、重さの決め方を、決まりとして書く（ADR 0102）。動きは変えない。

@@ -58,10 +58,15 @@ test("合間の言葉: Codexはphase=commentaryとturnを終えたエラーを�
     { type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1", last_agent_message: "結論" } },
     { timestamp: "2026-09-28T02:00:05.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "turn-2",
       last_agent_message: null, error: { message: "You've hit your usage limit.", codex_error_info: "usage_limit_exceeded" } } },
+    { timestamp: "2026-09-28T02:00:09.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "turn-3",
+      last_agent_message: null, error: { message: "unexpected status 401 Unauthorized: token expired, url: http://127.0.0.1:1/v1/responses",
+        codex_error_info: { http_connection_failed: { http_status_code: 401 } } } } },
   );
   assert.deepEqual(codexInterimWords(lines), [
     { text: "見てくる", kind: "interim", at: "2026-09-28T02:00:00.000Z", turn_id: "turn-1" },
     { text: "You've hit your usage limit.", kind: "error", at: "2026-09-28T02:00:05.000Z", turn_id: "turn-2" },
+    // 利用上限のほかの誤りは、応答の本文とURLを落とした1行にする。
+    { text: "unexpected status 401 Unauthorized", kind: "error", at: "2026-09-28T02:00:09.000Z", turn_id: "turn-3" },
   ]);
 });
 

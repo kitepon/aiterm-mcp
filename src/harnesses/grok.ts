@@ -293,6 +293,7 @@ export async function observeGrokDone(
     at: ev?.at ?? null,
     rate_limit: rateLimit,
     error: ev?.done_status === "turn_error" ? ev.reason : null,
+    error_kind: null,
   });
 
   for (;;) {

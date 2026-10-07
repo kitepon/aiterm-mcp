@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexUsageLimit } from "../dist/harnesses/codex.js";
+import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexTurnErrorLine, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -500,4 +500,24 @@ test("Codexのturnエラーはtask_completeのerrorから読み、利用上限�
   assert.equal(codexTurnError(done(null)), null);
   assert.equal(codexUsageLimit({ type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 100 } } } }), null);
   assert.equal(codexUsageLimit({ type: "response_item", payload: { type: "function_call_output", output: message } }), null);
+});
+
+test("Codexのturnエラーの文は、応答の本文とURLを落とした1行にする", () => {
+  const line = (message, info = "other") => codexTurnErrorLine({ message, info });
+  // 実物（2026-10-07、codex 0.160.1、偽のmodelの401）: 状態の後ろに応答の文とURLが続く。
+  assert.equal(line("unexpected status 401 Unauthorized: fixture: token expired, url: http://127.0.0.1:43221/v1/responses", "http_connection_failed"),
+    "unexpected status 401 Unauthorized");
+  assert.equal(line("unexpected status 502 Bad Gateway: <html>\n<body>secret-token=abc</body>\n</html>, url: https://example.test/v1, cf-ray: 1, request id: 2"),
+    "unexpected status 502 Bad Gateway");
+  // Codex自身の文はそのまま。
+  assert.equal(line("We’re currently experiencing high demand, which may cause temporary errors.", "internal_server_error"),
+    "We’re currently experiencing high demand, which may cause temporary errors.");
+  assert.equal(line("stream disconnected before completion: Transport error: network error: error decoding response body"),
+    "stream disconnected before completion: Transport error: network error: error decoding response body");
+  // ほかの文に混ざったURLは伏せ、改行は畳み、長さを切る。
+  assert.equal(line("stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses?key=abc)\n  caused by: timeout"),
+    "stream disconnected before completion: error sending request for url (…) caused by: timeout");
+  const long = line("x".repeat(500));
+  assert.equal(long.length, 200);
+  assert.ok(long.endsWith("…"));
 });

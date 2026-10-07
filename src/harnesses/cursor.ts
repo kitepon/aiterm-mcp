@@ -250,6 +250,7 @@ export async function observeCursorDone(
     at: ev?.at ?? null,
     rate_limit: rateLimit,
     error,
+    error_kind: null,
   });
 
   for (;;) {

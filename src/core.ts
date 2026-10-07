@@ -3637,6 +3637,7 @@ export async function observeAgentDone(
     at: ev?.at ?? apiError?.at ?? null,
     rate_limit: rateLimit,
     error: apiError?.text ?? null,
+    error_kind: null,
   });
   for (;;) {
     o.signal?.throwIfAborted();

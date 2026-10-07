@@ -23,7 +23,7 @@ import {
 } from "./agent-shared.js";
 import type { AgentHarness, AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
-import { codexRootTranscript, codexTurnError } from "./harnesses/codex.js";
+import { codexRootTranscript, codexTurnError, codexTurnErrorLine } from "./harnesses/codex.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { cursorTranscript } from "./harnesses/cursor.js";
 
@@ -134,7 +134,9 @@ export function codexInterimWords(lines: readonly string[]): Found[] {
     const error = codexTurnError(record);
     if (error) {
       words.push({
-        text: error.message,
+        // 利用上限はCodexの利用者向けの文をそのまま出す。ほかの誤りは、完了の返り（error）と同じ1行にする
+        // （応答の本文やURLが混ざる文があるため）。
+        text: error.info === "usage_limit_exceeded" ? error.message : codexTurnErrorLine(error),
         kind: "error",
         at: typeof record.timestamp === "string" ? record.timestamp : null,
         turn_id: typeof payload.turn_id === "string" && payload.turn_id ? payload.turn_id : null,

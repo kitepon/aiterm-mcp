@@ -348,6 +348,10 @@ agent sessionへの送信1本を守る`<name>.agent-send.lock`は持つ時間が
 終了した持ち主のpidを別のprocessが使い回すと、pidだけでは生きて見える。生きて見える持ち主は、processが始まってからの経過とlockを作ってからの時間を比べ、
 lockより後に始まったprocessなら別人と読んで片付ける。消す役の印は、5秒より古ければ残った物と読む。`pty_close`は、どちらも片付ける。
 
+Codexは、サービスの誤りや通信の失敗でturnを打ち切る時も、記録へ`task_complete`を書く（回答は無く、`error`が付く）。完了待ちは、
+利用上限（`usage_limit_exceeded`）を`rate_limited`、ほかの`error`つきを`error`で返す。`error`は応答の本文とURLを落とした1行の文、
+Codexが書いた種類は`error_kind`で返す。失敗を空の回答の完了として返さない（ADR 0103）。判定と文の整え方は`src/harnesses/codex.ts`が所有する。
+
 Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は
 Grokの場合だけこの判定を呼び、`GROK_SANDBOX_STARTUP_FAILED`で原因と未送信を返す。

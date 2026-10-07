@@ -119,6 +119,23 @@ async function deliveryState(target: CodexParent, delivery: string): Promise<Par
   }
 }
 
+/**
+ * 起こすCodexが、この命令を動かしているnodeを見つけられるPATHを返す。
+ * npm版のCodexは`#!/usr/bin/env node`の起動役で、呼ぶ側のPATHにnodeの場所が無いと起きない（exit 127）。製品の常駐processや
+ * アプリ配下のprocessは、PATHが細い事がある（2026-10-07、素のsshの環境からの呼び出しで起きた）。
+ * nodeの場所がPATHに無い時だけ頭へ足す。既にあれば、並びも中身も変えない。
+ */
+export function pathWithNode(env: NodeJS.ProcessEnv, node = process.execPath, platform: NodeJS.Platform = process.platform): { key: string; value: string } {
+  const windows = platform === "win32";
+  // Windowsの環境変数名は大文字小文字を区別しない（`Path`で入っている事が多い）。
+  const key = Object.keys(env).find(name => windows ? name.toLowerCase() === "path" : name === "PATH") ?? "PATH";
+  const delimiter = windows ? ";" : ":";
+  const directory = (windows ? path.win32 : path.posix).dirname(node);
+  const current = env[key] ?? "";
+  const listed = current.split(delimiter).some(part => windows ? part.toLowerCase() === directory.toLowerCase() : part === directory);
+  return { key, value: listed ? current : current ? `${directory}${delimiter}${current}` : directory };
+}
+
 /** この命令の場所と版。製品側の入口（aiterm-steer-delivery）が、呼べる相手かどうかを確かめるのに使う。 */
 export function providerDescription(): { version: string; node: string; cli: string } {
   return { version: pkg.version, node: process.execPath, cli: fileURLToPath(import.meta.url) };
@@ -166,6 +183,8 @@ function isDirectExecution(): boolean {
 
 if (isDirectExecution()) {
   try {
+    const found = pathWithNode(process.env);
+    process.env[found.key] = found.value;
     process.stdout.write(JSON.stringify({ ok: true, schema: PARENT_DELIVERY_SCHEMA, ...(await runParentDelivery(process.argv.slice(2))) }) + "\n");
   } catch (error) {
     // 配送の誤り（delivery_code）と使い方の誤りは、文面が呼び出し元向けに決めてあるのでそのまま返す。

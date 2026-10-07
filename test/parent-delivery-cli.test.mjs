@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { configureCodexSteer } from '../dist/setup-codex-hooks.js';
 import { codexInputDirectory } from '../dist/codex-hook-state.js';
+import { pathWithNode } from '../dist/parent-delivery-cli.js';
 
 const binary = process.env.AITERM_TEST_CODEX_BINARY;
 const cli = fileURLToPath(new URL('../dist/parent-delivery-cli.js', import.meta.url));
@@ -46,6 +47,19 @@ test('provider: この命令の場所と版を返す', async () => {
   assert.equal(code, 0);
   assert.equal(lines, 1, 'stdoutは1行');
   assert.deepEqual(result, { ok: true, schema: 'aiterm.parent-delivery.v1', version, node: process.execPath, cli });
+});
+
+test('起こすCodexのPATHへ、nodeの場所が無い時だけ足す', () => {
+  // npm版のCodexはnodeで動く起動役。呼ぶ側のPATHにnodeの場所が無いと起きない。
+  assert.deepEqual(pathWithNode({ PATH: '/usr/bin:/bin' }, '/opt/node/bin/node', 'linux'), { key: 'PATH', value: '/opt/node/bin:/usr/bin:/bin' });
+  assert.deepEqual(pathWithNode({ PATH: '/usr/bin:/opt/node/bin:/bin' }, '/opt/node/bin/node', 'linux'), { key: 'PATH', value: '/usr/bin:/opt/node/bin:/bin' }, '既にあれば並びを変えない');
+  assert.deepEqual(pathWithNode({}, '/opt/node/bin/node', 'linux'), { key: 'PATH', value: '/opt/node/bin' });
+  assert.deepEqual(pathWithNode({ PATH: '' }, '/opt/node/bin/node', 'darwin'), { key: 'PATH', value: '/opt/node/bin' });
+  // Windowsは変数名も場所も大文字小文字を区別しない。
+  assert.deepEqual(pathWithNode({ Path: 'C:\\Windows\\System32' }, 'C:\\Program Files\\nodejs\\node.exe', 'win32'),
+    { key: 'Path', value: 'C:\\Program Files\\nodejs;C:\\Windows\\System32' });
+  assert.deepEqual(pathWithNode({ Path: 'c:\\program files\\NODEJS;C:\\Windows' }, 'C:\\Program Files\\nodejs\\node.exe', 'win32'),
+    { key: 'Path', value: 'c:\\program files\\NODEJS;C:\\Windows' });
 });
 
 test('使い方の誤りは、何も送らずに理由つきで断る', async () => {
@@ -146,7 +160,8 @@ function connect(executable, root, env) {
 // running: 親の番が動いている間に頼む（hookが同じ番へ入れる）。idle: 番が終わってから頼む（公式キューが会話を起こす）。
 // queue-only: Aitermのhookを入れていないCodex環境（steerはdisabledと返り、番が終わってから届く）。
 // via cli: 命令を直に起こす。via package: 製品が使う入口（aiterm-steer-deliveryの…ViaAiterm）から頼む。
-for (const [via, mode] of [['cli', 'running'], ['cli', 'idle'], ['cli', 'queue-only'], ['package', 'running'], ['package', 'idle']])
+// via cli-bare: 呼ぶ側のPATHにnodeの場所が無い（製品の常駐processやアプリ配下のprocess）。nodeで動くCodexの起動役も起こせる事。
+for (const [via, mode] of [['cli', 'running'], ['cli', 'idle'], ['cli', 'queue-only'], ['cli-bare', 'queue-only'], ['package', 'running'], ['package', 'idle']])
 test(`公式Codexへ別processから頼む: ${mode}（${via}）`, { skip: !binary ? true : via === 'package' && !hasClient ? '入っているaiterm-steer-deliveryに製品側の入口が無い' : false, timeout: 45_000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'aiterm pd product '));
   const home = join(root, 'home');
@@ -220,7 +235,8 @@ args = [${JSON.stringify(probe)}]
   const env = { ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot, PATHEXT: process.env.PATHEXT, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: root, TMP: root } : {}),
     PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
   // 頼む側のprocessの環境。Codexの実行ファイルは、hookの設定（binary）か、無ければPATHから探す。
-  const callerEnv = { ...env, ...(mode === 'queue-only' ? { CODEX_BIN: binary } : {}) };
+  const barePath = process.platform === 'win32' ? `${process.env.SystemRoot}\\System32` : '/usr/bin:/bin';
+  const callerEnv = { ...env, ...(mode === 'queue-only' ? { CODEX_BIN: binary } : {}), ...(via === 'cli-bare' ? { PATH: barePath } : {}) };
   const parent = connect(binary, root, env);
   t.after(async () => {
     releaseFirst();
@@ -235,7 +251,7 @@ args = [${JSON.stringify(probe)}]
   const destination = { thread_id: thread.id, codex_home: home };
   const options = { cli, env: callerEnv };
   // どちらの道も、同じ形（確かめ・受け付け・届き方の事実・断りの理由）へ揃えて見る。
-  const call = via === 'cli' ? {
+  const call = via !== 'package' ? {
     verify: async () => { const out = await run(['codex', 'verify', ...target], { env: callerEnv }); assert.equal(out.code, 0, JSON.stringify(out)); assert.equal(out.result.verified, true); return { thread: out.result.thread, steer: out.result.steer }; },
     submit: async text => { const out = await run(['codex', 'submit', ...target, '--delivery', DELIVERY, '--text-file', '-'], { env: callerEnv, input: text }); return out.code === 0 ? { queued_submission_id: out.result.queued_submission_id } : { refused: out.result.code, message: out.result.message, outcome_unknown: out.result.outcome_unknown }; },
     detail: async () => { const { ok, schema, ...rest } = (await run(['codex', 'state', ...target, '--delivery', DELIVERY], { env: callerEnv })).result; assert.deepEqual([ok, schema], [true, 'aiterm.parent-delivery.v1']); return rest; },

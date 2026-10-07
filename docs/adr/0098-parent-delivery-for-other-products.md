@@ -47,6 +47,11 @@ Aitermが、ほかの製品から回答を受け取って親へ届ける入口�
    homeを引数で受け、その下だけを書く。動いているCodexは要らない（Codexの実行ファイルを一時的に起こし、登録の読戻しと承認を公式の口で行う）。
    登録済みで承認済みなら何も書かない。失敗は投げずに`{status:"failed", reason_code}`で返す。
 
+7. **命令は、自分を動かしているnodeの場所を、起こすCodexのPATHの頭へ足す**（0.56.1。`pathWithNode`）。npm版のCodexはnodeで動く起動役
+   （`#!/usr/bin/env node`）で、呼ぶ側のPATHにnodeの場所が無いと起きない（exit 127）。製品の常駐processやアプリ配下のprocessは
+   PATHが細い事がある。0.56.0を素のsshの環境から呼んで、Linuxの実機で`CODEX_RECEIVER_TRANSPORT_FAILED`になった。
+   既にPATHにあれば何も変えない。呼ぶ側にlogin shellを挟ませる形は取らない（起こすprocessの環境は、起こす側が整える）。
+
 ## 変えていない事
 
 - Aiterm自身の親配送（子の回答を親へ届ける道）、hookの登録の形、公式キューの使い方。

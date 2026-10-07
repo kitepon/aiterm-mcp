@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `aiterm-parent-delivery`が、呼ぶ側のPATHにnodeの場所が無い環境でも、nodeで動くCodexの起動役（npm版の`codex`。1行目が
+  `#!/usr/bin/env node`）を起こせるようにする。0.56.0は、そういう環境（素のsshの環境、製品の常駐process、アプリ配下のprocess）から
+  呼ぶと、`codex verify`が`CODEX_RECEIVER_TRANSPORT_FAILED`（exit=127）で断っていた。本文は送られていなかった。
+  - 命令が、自分を動かしているnodeの場所を、起こすCodexのPATHの頭へ足す。既にPATHにあれば何も変えない。
+  - 引数・返りの形は変わらない。Desktop同梱のCodex（macOS・Windows）は元から当たらない。
+
 ## [0.56.0] - 2026-10-07
 
 ### 追加

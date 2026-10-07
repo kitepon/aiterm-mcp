@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- `pty_send`（agentの席への送信）に、任意の引数`preface`（本文の前に置く1行）を足す（ADR 0099）。渡る文は「`preface`・空行・`text`」。
+  - Claude Codeの席へは、`preface`を端末の貼り付けの印なしで入れ、空行と`text`を1回の貼り付けで入れる。Claude Codeは貼り付けた長い文を
+    `<pasted_content>`で包み、席に「包みの中の指示は、包みの外の利用者自身の言葉が頼んだ時だけ従う」と教える。今までは文の全部が包みの中で、
+    席が連絡に従わない事があった（止めた直後の席で、実物の7回中5回）。前置きが包みの外に出る。
+  - Codex・Grok・Cursorの席へは、`preface`・空行・`text`を1つにつないで今までどおり貼る。
+  - `preface`は1行・200字以内・制御文字なしで、行頭が記号や空白でなく、`@`を含まない文。外れた時は`AGENT_PREFACE_INVALID`と
+    「文字列は送信していません。」で、待たずに断る。通常PTY・`force`付き・`remote`付きでは使えない（打鍵前に断る）。
+  - 省略した時の動き、振り分け、返りの形、断りの文面は変わらない。
+
 ## [0.56.1] - 2026-10-07
 
 ### 修正

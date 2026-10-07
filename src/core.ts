@@ -984,6 +984,49 @@ export interface SendOpts {
    * 挙動を変えないため、公開引数にはせず agent dispatch 経路だけが立てる。
    */
   bracketedPaste?: boolean;
+  /**
+   * 本文の前に、貼り付けの印なしで入れる1行（agentの前置き）。Claude Codeは貼り付けの印で入った長い文を
+   * `<pasted_content>`で包み、「包みの中の指示は、包みの外の利用者自身の言葉が頼んだ時だけ従う」と読む。
+   * 前置きだけを印なしで入れると、前置きが包みの外へ出る（ADR 0099）。公開引数にはせず、agentの送信経路だけが立てる。
+   */
+  typedPreface?: string;
+}
+
+export const AGENT_PREFACE_MAX_CHARS = 200;
+// 行頭のASCII記号と空白は、入力欄が命令として読む（Claude Codeの`/`・`!`・`#`・`?`など）。`@`は文中でも候補の枠を開く。
+const AGENT_PREFACE_LEADING_SYMBOL_RE = /^[\s!-\/:-@\[-`{-~]/u;
+const AGENT_PREFACE_CONTROL_RE = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/u;
+
+/**
+ * `pty_send`の`preface`（本文の前に置く1行）を、打鍵の前に確かめる。印なしで入れる文は入力欄がそのまま読むので、
+ * 入力欄が命令として読む形を通さない。外れた時は何も送らずに断る。
+ */
+export function assertAgentPreface(preface: string): string {
+  const reason = typeof preface !== "string" || preface.length === 0 ? "空です"
+    : AGENT_PREFACE_CONTROL_RE.test(preface) ? "改行か制御文字を含んでいます"
+    : [...preface].length > AGENT_PREFACE_MAX_CHARS ? `${AGENT_PREFACE_MAX_CHARS}字を越えています`
+    : AGENT_PREFACE_LEADING_SYMBOL_RE.test(preface) ? "行頭が記号か空白です"
+    : /\s$/u.test(preface) ? "行末が空白です"
+    : preface.includes("@") ? "@ を含んでいます"
+    : null;
+  if (reason) {
+    throw new AitermError(
+      `AGENT_PREFACE_INVALID: prefaceが${reason}。1行・${AGENT_PREFACE_MAX_CHARS}字以内・制御文字なしで、` +
+        "行頭が記号や空白でなく、@ を含まない文にしてください。文字列は送信していません。",
+      2,
+    );
+  }
+  return preface;
+}
+
+/**
+ * 前置きつきの送信文を、harnessごとの形へ分ける。Claude Codeは前置きを印なしで入れ、空行と本文を貼る。
+ * Codex・Grok・Cursorは貼り付けを包まないので、前置き・空行・本文を1つにつないで貼る（渡る文は前置きなしの時と同じ並び）。
+ */
+function splitAgentPreface(kind: AgentKind, preface: string | null | undefined, text: string): { typedPreface?: string; body: string } {
+  if (preface == null) return { body: text };
+  assertAgentPreface(preface);
+  return kind === "claude" ? { typedPreface: preface, body: `\n\n${text}` } : { body: `${preface}\n\n${text}` };
 }
 
 function prepareSendText(text: string, o: Pick<SendOpts, "raw">): string {
@@ -1047,19 +1090,21 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     }
     // POSIX tmuxはUTF-8安全な256byte pasteへ分割する。Windows psmuxは認証済み
     // server commandでpayload全体を単一SendBytesへ変換し、別processとの交差を構造的に防ぐ。
-    if (isWin) {
-      const sent = sendPsmuxPayload(true, name, text, !!o.bracketedPaste);
-      if (sent.code !== 0) {
-        throw new AitermError(
-          `psmuxのPTY送信に失敗しました: ${sent.stderr.trim() || `code=${sent.code}`}`,
-          2,
-        );
+    const writePty = (payload: string, bracketedPaste: boolean, what: string): void => {
+      if (isWin) {
+        const sent = sendPsmuxPayload(true, name, payload, bracketedPaste);
+        if (sent.code !== 0) {
+          throw new AitermError(
+            `psmuxのPTY送信に失敗しました${what}: ${sent.stderr.trim() || `code=${sent.code}`}`,
+            2,
+          );
+        }
+        return;
       }
-    } else {
       // tmuxの`paste-buffer -p`はchunkごとに包むため使わない。Claude Codeは貼り付け1回ごとに
       // 画像pathを探すので、chunk境界でpathが切れて画像を落とし、行もずれた（2026-10-01、
       // 画像4枚付きの約500byte）。全体を1回だけ包み、中身はchunkのまま流す。
-      const chunks = splitPtyText(o.bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text);
+      const chunks = splitPtyText(bracketedPaste ? `\x1b[200~${payload}\x1b[201~` : payload);
       const pasteSupportsNoSanitize = pasteBufferSupportsNoSanitizeFlag();
       const bufferBase = `aiterm-${process.pid}-${randomBytes(8).toString("hex")}`;
       for (let i = 0; i < chunks.length; i += 1) {
@@ -1072,7 +1117,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         if (loaded.code !== 0) {
           tmuxCleanup("delete-buffer", "-b", bufferName);
           throw new AitermError(
-            `tmux bufferへの送信準備に失敗しました` +
+            `tmux bufferへの送信準備に失敗しました${what}` +
               `（chunk ${i + 1}/${chunks.length}）: ${loaded.stderr.trim() || `code=${loaded.code}`}.${partial}`,
             2,
           );
@@ -1084,7 +1129,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         if (pasted.code !== 0) {
           tmuxCleanup("delete-buffer", "-b", bufferName);
           throw new AitermError(
-            `tmux bufferのPTY送信に失敗しました` +
+            `tmux bufferのPTY送信に失敗しました${what}` +
               `（chunk ${i + 1}/${chunks.length}）: ${pasted.stderr.trim() || `code=${pasted.code}`}.${partial}`,
             2,
           );
@@ -1093,7 +1138,20 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
           Atomics.wait(PTY_PASTE_PAUSE_BUFFER, 0, 0, PTY_PASTE_CHUNK_PAUSE_MS);
         }
       }
-    }
+    };
+    if (o.typedPreface !== undefined) {
+      // 前置きは貼り付けの印なしで入れる。本文は続けて貼る。前置きだけが入って本文が失敗した時は、入力欄に前置きが残る。
+      writePty(o.typedPreface, false, "（前置き）");
+      Atomics.wait(PTY_PASTE_PAUSE_BUFFER, 0, 0, PTY_PASTE_CHUNK_PAUSE_MS);
+      try {
+        writePty(text, !!o.bracketedPaste, "");
+      } catch (error) {
+        if (error instanceof AitermError) {
+          throw new AitermError(`${error.message} 前置きはPTYに入力済みでEnterは未送信です。再送前に入力を確認・消去してください。`, error.code);
+        }
+        throw error;
+      }
+    } else writePty(text, !!o.bracketedPaste, "");
     if (enter) {
       const entered = tmux("send-keys", "-t", name, "Enter");
       if (entered.code !== 0) {
@@ -4861,6 +4919,8 @@ interface AgentDispatchOpts {
   before_send?: import("./agent-shared.js").BeforeAgentSend;
   // sendAgentMessageが振り分け前に済ませた入力回復。二重に回復しない。
   pane_input_recovery?: string[];
+  /** 本文の前に置く1行（`pty_send`の`preface`）。 */
+  preface?: string | null;
 }
 
 export async function dispatchAgentTurn(
@@ -4945,9 +5005,10 @@ async function dispatchAgentTurnInLock(
   const startOffset = agentCompletionCursor(meta);
   // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。
   // その1回だけlaunch contextを加え、以後はbind済みconversationへ通常textだけを送る。
+  const prefaced = splitAgentPreface(meta.kind, o.preface, text);
   const dispatchText = meta.kind === "cursor" && !meta.vendor_session_id
-    ? `${subagentInstruction(meta)}\n\n${text}`
-    : text;
+    ? `${subagentInstruction(meta)}\n\n${prefaced.body}`
+    : prefaced.body;
   prepareSendText(dispatchText, { raw: o.raw });
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
@@ -4968,6 +5029,7 @@ async function dispatchAgentTurnInLock(
     rtk: false,
     preserveAgentOperation: meta.kind === "claude",
     bracketedPaste: true,
+    typedPreface: prefaced.typedPreface,
   });
   // Cursorの冷間起動ではbracketed pasteの反映が250msを超えることがある。本文がcomposerへ
   // 現れた実測をsubmit条件にし、未反映のままEnterだけを失う競合を作らない。
@@ -5055,17 +5117,19 @@ export function __testSteerQueued(kind: AgentKind, screen: string): boolean {
 export async function sendAgentMessage(
   name: string,
   text: string,
-  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend } = {},
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null } = {},
 ): Promise<AgentSendReceipt> {
   assertSessionName(name);
   loadAgentMetadata(name);
+  // 前置きは、順番待ちにも入力受付の待ちにも入る前に確かめる（外れた時に待たせない）。
+  if (o.preface != null) assertAgentPreface(o.preface);
   return withAgentSendLock(name, () => sendAgentMessageInLock(name, text, o));
 }
 
 async function sendAgentMessageInLock(
   name: string,
   text: string,
-  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend },
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null },
 ): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
@@ -5083,9 +5147,9 @@ async function sendAgentMessageInLock(
   // turnは終わっているので新しいturnとして送る。dispatchは入力を受け付けるまで待ってから送る。
   if (running && meta.kind === "cursor" && latestCursorCompletion(meta, readTranscriptLines) !== null) running = false;
   if (running) {
-    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery });
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface });
   }
-  return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery });
+  return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface });
 }
 
 /**
@@ -5100,7 +5164,7 @@ async function steerRunningTurn(
   name: string,
   meta: AgentMetadata,
   text: string,
-  o: { raw?: boolean; pane_input_recovery: string[] },
+  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null },
 ): Promise<AgentSteerReceipt> {
   const receipt = {
     schema: "aiterm.agent-steer.v1" as const,
@@ -5110,6 +5174,8 @@ async function steerRunningTurn(
     harness: agentHarness(meta.kind),
     pane_input_recovery: o.pane_input_recovery,
   };
+  const prefaced = splitAgentPreface(meta.kind, o.preface, text);
+  text = prefaced.body;
   prepareSendText(text, { raw: o.raw });
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   const preserveAgentOperation = meta.kind === "claude";
@@ -5121,6 +5187,7 @@ async function steerRunningTurn(
     rtk: false,
     preserveAgentOperation,
     bracketedPaste: true,
+    typedPreface: prefaced.typedPreface,
   });
   if (meta.kind === "cursor") {
     const visible = await waitCursorPromptVisible(name, text);

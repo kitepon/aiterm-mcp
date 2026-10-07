@@ -217,6 +217,8 @@ function remoteToolHandler(name: string): RemoteToolHandler {
 
 async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<any> {
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  // 現地が古い版だと、知らない引数として前置きだけが黙って落ちる。届く形を確かめられるまで通さない。
+  if (args.preface !== undefined) throw new core.AitermError("REMOTE_PREFACE_UNSUPPORTED: 別端末へのprefaceには未対応です。文字列は送信していません。", 2);
   const key = deliveryKey(args.session_id, target);
   const delivery = args.force ? null : await deliveryForRequest(extra, true);
   // 終わった依頼の回答は送る前に保存する。実行中の依頼は残る。現地が差し込みを選べばその依頼が回答を受け取る。
@@ -308,6 +310,8 @@ registerRemoteAwareTool(
       NON_BLOCKING_RULE +
       "自動配送以外の結果回収は pty_read(agent_transcript:true)、Claude の durable turn は claude_turn を使う。" +
       "require_agent:true はagent登録が無いsessionへ打鍵せず、AGENT_SESSION_REQUIREDで未送信を返す。" +
+      "preface はagent sessionへの送信で本文の前に置く1行。Claude Codeの席では貼り付けの印なしで入れ、本文だけを貼る" +
+      "（前置きが貼り付けの包みの外へ出る）。他のharnessでは前置き・空行・本文を1つで貼る。" +
       "force:true は非Claude agent sessionへの手動介入用の素送信。aiterm相関付きClaudeの承認UIはclaude_approvalを使う。",
     inputSchema: {
       session_id: z.string(),
@@ -329,6 +333,15 @@ registerRemoteAwareTool(
         .default(false)
         .describe("非Claude agent sessionでは自動dispatchせず素送信する。aiterm相関付きClaudeのactive turnには使えない"),
       require_agent: z.boolean().default(false).describe("agent登録が無いsessionは打鍵前に拒否する。force:trueとは併用できない"),
+      preface: z
+        .string()
+        .optional()
+        .describe(
+          "agent session への送信（forceなし）で、本文の前に置く1行。送る文は「preface・空行・text」の並びになる。" +
+            "Claude Codeの席ではprefaceを貼り付けの印なしで入れ、textだけを貼る。Codex／Grok／Cursorの席では1つで貼る。" +
+            "1行・200字以内・制御文字なしで、行頭が記号や空白でなく、@ を含まない文。外れた時と通常PTY送信・force送信・remote付きでは、" +
+            "打鍵前に拒否する",
+        ),
       rtk: z.boolean().default(false).describe("既知コマンドを rtk 形へ委譲して送る（rtk 不在なら素通し）"),
       raw: z.boolean().default(false).describe("送信前サニタイズを無効化"),
       image: z
@@ -356,7 +369,7 @@ registerRemoteAwareTool(
       pane_input_recovery: z.array(z.string()).optional(),
     },
   },
-  async ({ session_id, text, enter, mark, force, require_agent, rtk, raw, image }, extra) => {
+  async ({ session_id, text, enter, mark, force, require_agent, rtk, raw, image, preface }, extra) => {
     let delivery: DeliveryRequest | null = null;
     try {
       if (require_agent && force) {
@@ -366,12 +379,18 @@ registerRemoteAwareTool(
       if (require_agent && !agentSession) {
         throw new Error(`AGENT_SESSION_REQUIRED: session '${session_id}' のagent登録がありません。文字列は送信していません。`);
       }
+      if (preface !== undefined) {
+        if (!agentSession) {
+          throw new Error("preface は agent session への送信（forceなし）だけで使えます。文字列は送信していません。");
+        }
+        core.assertAgentPreface(preface);
+      }
       if (agentSession) {
         if (enter === false) throw new Error("agent session への dispatch は enter:false と併用できません（手動介入は force:true）");
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
         delivery = await deliveryForRequest(extra);
-        const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send });
+        const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface });
         if (receipt.schema === "aiterm.agent-steer.v1") {
           return {
             content: [

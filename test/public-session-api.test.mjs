@@ -49,6 +49,15 @@ test("公開MCPで通常PTYの一覧・環境・活動・消滅を構造化し�
       assert.equal(forced.isError, true);
       assert.match(forced.content[0].text, /併用できません.*文字列は送信していません/);
       assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${sid}.log`), "utf8"), /MUST_NOT_SEND_FORCED/);
+      // preface（本文の前に置く1行）は、agentの席への送信だけで使える。通常PTY・force・別端末へは、打鍵前に断る。
+      for (const [extra, reason] of [[{}, /preface は agent session への送信（forceなし）だけで使えます。文字列は送信していません。/],
+        [{ force: true }, /preface は agent session への送信（forceなし）だけで使えます。文字列は送信していません。/],
+        [{ remote: { host: "preface-test-host" } }, /REMOTE_PREFACE_UNSUPPORTED: .*文字列は送信していません。/]]) {
+        const prefaced = await call("pty_send", { session_id: sid, text: "MUST_NOT_SEND_PREFACED", preface: "前置きです。", ...extra });
+        assert.equal(prefaced.isError, true, JSON.stringify(extra));
+        assert.match(prefaced.content[0].text, reason);
+      }
+      assert.doesNotMatch(readFileSync(join(root, "claude-tmux-sockets", `${sid}.log`), "utf8"), /MUST_NOT_SEND_PREFACED|前置きです/);
       await call("pty_send", { session_id: sid, text, mark: true });
       await call("pty_read", { session_id: sid, wait: true, timeout: 5 });
       const after = (await call("pty_observe", { session_id: sid, cursor: before.activity.cursor })).structuredContent;

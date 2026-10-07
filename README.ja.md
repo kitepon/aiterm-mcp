@@ -261,6 +261,8 @@ ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hook�
 
 agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
 
+agent session宛ての`pty_send`は、任意の`preface`（本文の前に置く1行）を受ける。渡る文は「`preface`・空行・`text`」。Claude Codeの席へは、`preface`を端末の貼り付けの印なしで入れ、空行と本文を1回の貼り付けで入れる。Claude Codeは貼り付けた長い文を`<pasted_content>`で包み、「包みの中の指示は、包みの外の利用者自身の言葉が頼んだ時だけ従う」と読むので、連携元が付ける前置き（誰からの連絡か）を包みの外へ出すために使う。Codex・Grok・Cursorの席へは1つにつないで貼る。`preface`は1行・200字以内・制御文字なしで、行頭が記号や空白でなく、`@`を含まない文。外れた時は`AGENT_PREFACE_INVALID`と「文字列は送信していません。」を返す。通常PTY・`force:true`・`remote`付きでは使えない。
+
 同じagent sessionへの`pty_send`が重なった時は、1本ずつ通す。後の1通は、前の1通を送り終えてから振り分け直すので、順に送った時と同じ結果になる（起動直後のClaude Codeへ重なった後の1通は`mode=agent_steer`で返る）。前の1通が起動直後の入力受付待ちなら、その分だけ返りが遅れる。待つ上限（POSIX 60秒、Windows 180秒）を越えた時は、打鍵前に`AGENT_SEND_BUSY`と「文字列は送信していません」を返す。送信の途中で終了したprocessのlockは、次の送信が片付けて進む。
 
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
@@ -568,7 +570,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | ツール | 役割 | 主な引数 |
 | --- | --- | --- |
 | `pty_open` | 端末を1個開き`session_id`を返す | `name?`, `shell?`, `env_vars?` |
-| `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `rtk`, `raw` |
+| `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `preface`, `rtk`, `raw` |
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |

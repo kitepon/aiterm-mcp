@@ -57,6 +57,11 @@ agent配送だけを期待する連携元は`pty_send(require_agent:true)`を指
 `AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。未送信を確定してから対象sessionを復旧できる。
 省略時の通常PTY送信は維持し、`force:true`との併用は打鍵前に拒否する。
 
+agentの席への`pty_send`は、任意の`preface`（本文の前に置く1行）を受ける（ADR 0099）。Claude Codeの席へは、`preface`を貼り付けの印なしで入れ、
+空行と本文を1回の貼り付けで入れる。貼り付けた長い文をClaude Codeが`<pasted_content>`で包んでも、前置きは包みの外に出る。
+ほかのharnessの席へは1つにつないで貼る。`preface`は入力欄がそのまま読むので、1行・200字以内・制御文字なし・行頭が記号や空白でない・
+`@`を含まない文だけを通し、外れた時は打鍵前に断る。
+
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。

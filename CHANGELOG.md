@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-10-07
+
 ### 追加
 
 - `pty_send`（agentの席への送信）に、任意の引数`preface`（本文の前に置く1行）を足す（ADR 0099）。渡る文は「`preface`・空行・`text`」。
@@ -2354,7 +2356,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...HEAD
+[0.57.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.1...v0.57.0
 [0.56.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.0...v0.56.1
 [0.56.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.4...v0.56.0
 [0.55.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.55.3...v0.55.4

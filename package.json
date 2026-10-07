@@ -44,6 +44,7 @@
     "aiterm-runtime-errors": "dist/runtime-errors-cli.js",
     "aiterm-wait": "dist/aiterm-wait-cli.js",
     "aiterm-delivery-wake": "dist/delivery-wake-cli.js",
+    "aiterm-parent-delivery": "dist/parent-delivery-cli.js",
     "aiterm-update": "dist/update-cli.js"
   },
   "files": [
@@ -71,7 +72,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "aiterm-steer-delivery": "^0.2.3",
+    "aiterm-steer-delivery": "^0.3.0",
     "ws": "8.21.3",
     "zod": "^4.4.3"
   },

@@ -563,6 +563,16 @@ is the number of sub-agent results this session is still waiting for as a parent
 Aiterm cannot tell (ordinary terminals, agents launched by 0.48.0 or earlier for the process count, or an unresolved harness
 process), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.
 
+Another product that needs to deliver an answer to a Codex parent can ask Aiterm with `aiterm-parent-delivery` instead of registering its own hooks.
+Aiterm's registered hooks and the official queue deliver it. `codex verify --thread <uuid>` checks the parent and reports configuration in `steer`
+(`enabled`: the hooks are registered and trusted and the parent started after they were installed; `disabled`: official queue only, so the text arrives
+after the turn ends). `codex submit --thread <uuid> --delivery <uuid> --text-file <file|->` hands the text over once and returns the queue's acceptance id.
+`codex state --thread <uuid> --delivery <uuid>` reports how it arrived (`hook:"emitted"` with `turn_id`: the hook put the text into that turn; `queued`:
+whether it is still in the official queue). Each result is one JSON line; failures are `{ok:false, code, message, outcome_unknown}` with exit 1, and a
+reused delivery id is refused with `PARENT_DELIVERY_DUPLICATE`. Only Codex parents are supported. `aiterm-setup` records the command's location in
+`~/.config/aiterm-mcp/delivery-provider.json`. Node products can call it through `aiterm-steer-delivery` (0.3.0 or later), for example
+`submitCodexParentAnswerViaAiterm`.
+
 When Aiterm is registered behind a relay that starts the MCP server only on first use, a sleeping server cannot take over the
 deliveries of an owner that has exited. `aiterm-delivery-wake --parent <codex|claude|cursor>` answers whether one needs to start:
 exit 0 when an exited owner still holds a delivery for that parent kind, exit 1 otherwise, exit 2 for bad arguments. It prints

@@ -9,6 +9,9 @@ import { lazyRelayExecutable } from "./lazy-relay.js";
 import { SetupError, runSetupCommand, type SetupRun } from "./setup-platform.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
 export { powershellInvocation } from "./setup-platform.js";
+// aiterm-setupを通らない導入（コンテナの起動時）が、ClaudeとCursorのhookと同じ並びで呼べるように、ここからも出す。
+export { ensureCodexParentSteer, type CodexParentSteerResult } from "./setup-codex-hooks.js";
+export { writeDeliveryProvider, deliveryProviderFile } from "./delivery-provider.js";
 
 export type Registration = { command: string; args: string[]; type?: "stdio" };
 export type IntegrationResult = { status: "ready" | "not_detected" | "failed"; reason_code?: string };

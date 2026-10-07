@@ -9,6 +9,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { prepareBackend, runSetupCommand, SetupError, type SetupRun } from "./setup-platform.js";
 import { configureIntegrations, configureParentHooks, type Registration, type IntegrationResult, type ParentHookResult } from "./setup-integrations.js";
 import { configureCodexSteer, codexSteerSelected, type CodexSteerAction, type CodexSteerResult } from "./setup-codex-hooks.js";
+import { writeDeliveryProvider } from "./delivery-provider.js";
 import { setupNodeExecutable } from "./setup-node.js";
 
 /** 実行中のNodeに付属するnpmの既定のglobal root。npmのprefixを環境変数や設定で別の場所へ向けていても変わらない。 */
@@ -76,6 +77,7 @@ export async function runSetup(options: {
   progress?: (message: string) => void;
   codex_steer?: CodexSteerAction;
   steer?: (action: CodexSteerAction) => Promise<CodexSteerResult>;
+  provider?: (home: string, registration: Registration) => unknown;
 } = {}): Promise<SetupResult> {
   const result: SetupResult = { schema: "aiterm.setup-result.v1", status: "failed", backend: { kind: process.platform === "win32" ? "psmux" : "tmux", status: "failed" }, integrations: {} };
   const progress = options.progress ?? ((message: string) => process.stderr.write(`aiterm-setup: ${message}\n`));
@@ -100,6 +102,9 @@ export async function runSetup(options: {
       result.reason_code = "clients_not_detected";
     } else result.status = "ready";
     if (result.status === "ready") {
+      // ほかの製品がAitermの親配送を頼む入口（aiterm-parent-delivery）の場所を残す。
+      stage = "delivery_provider";
+      (options.provider ?? writeDeliveryProvider)(process.env.HOME ?? homedir(), registration);
       stage = "codex_steer";
       result.codex_steer = await (options.steer ?? configureCodexSteer)(options.codex_steer ?? (codexSteerSelected() ? "enable" : "status"));
       if (["failed", "unsupported", "restart_required"].includes(result.codex_steer.status)) {

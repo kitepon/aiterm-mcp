@@ -70,6 +70,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/cursor-parent-receiver.ts`／`src/cursor-parent-hook.ts`／`src/cursor-parent-receive.ts`: Cursor親の会話束縛、公式hookへの差し込み、idle時の受け口。
 - `src/tmux-runtime.ts`／`src/psmux-send-worker.ts`／`src/agent-resolver.ts`: OS・multiplexer差。
 - `src/process-runtime.ts`: native process identity、親子関係、CPU時間のOS差。
+- `src/parent-delivery-cli.ts`／`src/delivery-provider.ts`: ほかの製品がCodexの親への回答をAitermの親配送へ頼む入口（`aiterm-parent-delivery`）と、
+  その場所の記録。製品のhookを増やさず、設定・受付・実際に届いた事を分けて返す（ADR 0098）。
 - `src/delivery-wake-cli.ts`: 中継の後ろで眠っている本体を、親配送の引き取りのために起こすかの判定（`aiterm-delivery-wake`）。
   node builtinと`src/state-root.ts`だけに依存し、子processを起こさない。
 - `src/runtime-error-*.ts`: 製品所有のerror aggregate。`src/runtime-error-report.ts`: BugHubへの報告（本文・署名・受領の確認・送信の頻度）。

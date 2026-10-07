@@ -41,6 +41,28 @@ export async function verifyCodexParent(parent: CodexParent, runtime?: CodexRece
   await steer.verifyCodexParent(AITERM_PROFILE, parent, runtime);
 }
 
+export interface CodexParentCheck {
+  /** 確かめた親thread。旧中継で確かめた時はcwdとsourceを読まない。 */
+  thread: steer.CodexParentThread;
+  /** enabled＝動いている番へ同じ番で渡せる（hookが登録・承認済みで、親がhookの導入後に起きている。または旧中継）。disabled＝公式キューだけ（番が終わってから届く）。 */
+  steer: "enabled" | "disabled";
+}
+
+/**
+ * 親を確かめ、渡した文が同じ番へ入るかどうかも返す。ほかの製品がAitermへ配送を頼む入口（aiterm-parent-delivery）が使う。
+ * 確かめる中身は`verifyCodexParent`と同じ。hookが有効なのに未承認・親が導入前から動いている時は、今までどおり理由つきで断る。
+ */
+export async function checkCodexParent(parent: CodexParent, runtime?: CodexReceiverRuntime): Promise<CodexParentCheck> {
+  const socket = relaySocket(runtime);
+  if (socket) {
+    await withCodexRelay(socket, request => verifyLoadedParent(request, parent.thread_id), runtime?.timeout_ms);
+    return { thread: { thread_id: parent.thread_id, cwd: null, source: null }, steer: "enabled" };
+  }
+  const thread = await steer.verifyCodexParent(AITERM_PROFILE, parent, runtime);
+  const config = runtime ? (runtime.hook_directory ? readCodexHookConfig(runtime.hook_directory) : null) : readCodexHookConfig();
+  return { thread, steer: config?.enabled ? "enabled" : "disabled" };
+}
+
 export async function submitCodexParentAnswer(
   parent: CodexParent,
   deliveryId: string,

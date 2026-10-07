@@ -68,6 +68,10 @@ harnessと中継が自分のために立てるprocessは数えない（Codexの`
 harnessが同じ親の下に同じargvで立て直した起動時のprocessも数えない（ADR 0083）。
 Aitermがprocess表を引くために起こしたprocess（`ps`、WindowsのPowerShellと付いて立つconsole host）も数えない（ADR 0084）。
 中継の後ろで眠っている本体を配送の引き取りのために起こすかは、`aiterm-delivery-wake`が返す（ADR 0082）。
+ほかの製品がCodexの親へ回答を届ける時は、製品のhookを登録せず、`aiterm-parent-delivery`でAitermの親配送へ頼む（ADR 0098）。
+Aitermの登録済みhookと公式キューで届け、設定（`steer`）・受付（`queued_submission_id`）・実際に届いた事（`hook:"emitted"`と`turn_id`）を分けて返す。
+命令の場所は`aiterm-setup`が`~/.config/aiterm-mcp/delivery-provider.json`へ残す。`aiterm-setup`を通らない導入は、
+`dist/setup-integrations.js`の`ensureCodexParentSteer(home)`でCodexのhookを登録する。
 Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ出た後も、入力欄の形（`❯`行の上下の罫線）で読む。
 画面本文とargv本文は返さず、活動cursorには画面digestとprocess別CPUだけを持たせる。
 初回とpane再作成後の差分はnull。区間中にprocessが消えた時は観測できたCPU増分だけを返し、

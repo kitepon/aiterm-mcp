@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- ほかの製品が、Codexの親への回答をAitermの親配送へ頼む命令`aiterm-parent-delivery`を足す（ADR 0098）。製品はCodex用のhookを登録せず、
+  Aitermが登録したhookと公式キューで届く。決裁箱（Approval Box）が専用hookを捨てるための入口。
+  - `codex verify`・`codex submit`・`codex state`・`provider`。結果は1行のJSON。失敗は`{ok:false, code, message, outcome_unknown}`とexit 1。
+  - 設定・受付・実際に届いた事を分けて返す。`verify`の`steer`は設定（`enabled`＝hookが登録・承認済みで親がhookの導入後に起きている、
+    `disabled`＝公式キューだけ）。`submit`は公式キューの受付。`state`は`hook:"emitted"`と`turn_id`（hookがその番へ入れた）、`queued`（今も
+    公式キューにあるか）。
+  - 同じ配送idの2回目は`PARENT_DELIVERY_DUPLICATE`で断る。対象はCodexの親だけ。
+  - 実物の確かめ（公式のCodex、一時HOME）: 別のprocessから頼んで、動いている番へは同じ番へ、止まっている会話は公式キューが起こして届く。
+    hookを入れていない環境では`steer:"disabled"`と返り、番の後に届く。
+- `aiterm-setup`が、命令の場所を`~/.config/aiterm-mcp/delivery-provider.json`へ残す。残せなければ成功にしない（`delivery_provider_failed`）。
+- `dist/setup-integrations.js`に`ensureCodexParentSteer(home, options)`を足す。`aiterm-setup`を通らない導入（コンテナの起動時など）が、
+  Codexの親配送のhookを登録する入口。homeを引数で受け、その下だけを書く。動いているCodexは要らない。登録済みで承認済みなら何も書かない。
+  失敗は投げずに`{status:"failed", reason_code}`で返す。`writeDeliveryProvider(home, registration)`も同じ所から出す。
+- 今までの動きは変えていない。Aiterm自身の親配送、hookの登録の形、`aiterm-setup --codex-steer`はそのまま。
+
 ## [0.55.4] - 2026-10-06
 
 ### 変更

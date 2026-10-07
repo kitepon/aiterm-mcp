@@ -528,6 +528,15 @@ agent sessionを閉じると失うものは、次の2項目で分かる。`activ
 子の結果の数。呼び出した側が誰でも付く。どちらも、分からない時はnull（通常PTY、harnessのprocessを特定できない時。
 processの数は0.48.0以前が起動したagentも）。別端末が旧版の時は項目ごと無い。nullと項目なしは「分からない」で、0ではない。
 
+ほかの製品が、Codexの親へ回答を届ける時は、製品のhookを登録せずに`aiterm-parent-delivery`でAitermへ頼める。Aitermが登録したhookと
+公式キューで届く。`codex verify --thread <uuid>`は親を確かめ、`steer`で設定を返す（`enabled`＝hookが登録・承認済みで親がhookの導入後に
+起きている。`disabled`＝公式キューだけで、ターンが終わってから届く）。`codex submit --thread <uuid> --delivery <uuid> --text-file <file|->`は
+本文を一度だけ渡し、公式キューの受付IDを返す。`codex state --thread <uuid> --delivery <uuid>`は届き方の事実を返す（`hook:"emitted"`と
+`turn_id`＝hookがそのターンへ本文を入れた。`queued`＝今も公式キューにあるか）。結果は1行のJSONで、失敗は
+`{ok:false, code, message, outcome_unknown}`とexit 1。同じ配送IDの2回目は`PARENT_DELIVERY_DUPLICATE`で断る。対象はCodexの親だけ。
+命令の場所は`aiterm-setup`が`~/.config/aiterm-mcp/delivery-provider.json`へ残す。Nodeの製品は`aiterm-steer-delivery`（0.3.0以上）の
+`submitCodexParentAnswerViaAiterm`などから呼べる。
+
 MCPの本体を初めて使う時まで起こさない中継の後ろにAitermを登録すると、眠っている本体は、終了した持ち主の配送を引き取れない。
 `aiterm-delivery-wake --parent <codex|claude|cursor>`は、起こす必要があるかを返す。その種類の親の配送を、終了した持ち主が
 持ったままならexit 0、そうでなければexit 1、引数の誤りはexit 2。何も出力せず、子processを起こさない。同じ判定を回す席のうち

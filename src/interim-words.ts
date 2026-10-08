@@ -23,7 +23,7 @@ import {
 } from "./agent-shared.js";
 import type { AgentHarness, AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
-import { codexRootTranscript, codexTurnError, codexTurnErrorLine } from "./harnesses/codex.js";
+import { codexBoundTranscript, codexRootTranscript, codexTurnError, codexTurnErrorLine } from "./harnesses/codex.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { cursorTranscript } from "./harnesses/cursor.js";
 
@@ -283,7 +283,8 @@ export function readInterimWords(meta: AgentMetadata, after: number): InterimWor
   if (recorded || launchTurn) {
     const boundary = recorded?.boundary ?? 0;
     if (meta.kind === "claude") found = claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), boundary));
-    else if (meta.kind === "codex") found = codexInterimWords(readLines(codexRootTranscript(meta), boundary));
+    // 境界は、送った時に結び付いていた会話のrolloutの位置。会話の切り替えは追わない（ADR 0105）。
+    else if (meta.kind === "codex") found = codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), boundary));
     else if (meta.kind === "grok") found = grokInterimWords(readLines(grokChatHistory(meta)), boundary);
     else found = cursorInterimWords(readLines(cursorTranscript(meta)), boundary);
   }

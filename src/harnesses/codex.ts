@@ -144,19 +144,30 @@ export function listCodexTranscripts(codexHome: string): string[] {
   return files.sort();
 }
 
-export function codexTranscriptMatchesLaunch(file: string, meta: AgentMetadata): boolean {
+type CodexLaunchVerdict = "match" | "other" | "undecided";
+
+/**
+ * rolloutがこの起動のroot会話かを、頭の1MBから読む。
+ * - match: Codex CLIのroot会話で、developerの文にこの起動の印がある。
+ * - other: root会話でない。または、最初のturnの文脈（turn_context）まで書かれているのに印が無い。後から変わらない。
+ * - undecided: 書いている途中などで、まだ決められない。
+ * forkedは、ほかの会話から派生した会話（session_metaのforked_from_id）か。派生は元の会話の文を写すので、印だけでは持ち主を決められない。
+ */
+function codexLaunchVerdict(file: string, meta: AgentMetadata): { verdict: CodexLaunchVerdict; forked: boolean } {
   const createdAt = Date.parse(meta.created_at);
   try {
     const st = fs.statSync(file);
-    if (Number.isFinite(createdAt) && st.mtimeMs + 5_000 < createdAt) return false;
+    if (Number.isFinite(createdAt) && st.mtimeMs + 5_000 < createdAt) return { verdict: "other", forked: false };
   } catch {
-    return false;
+    return { verdict: "undecided", forked: false };
   }
   const size = Math.min(safeStatSize(file), 1024 * 1024);
-  if (size === 0) return false;
+  if (size === 0) return { verdict: "undecided", forked: false };
   const marker = `AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`;
   let rootCli = false;
+  let forked = false;
   let launchMarker = false;
+  let firstTurnContext = false;
   for (const line of readFileRange(file, 0, size).toString("utf8").split("\n")) {
     if (!line.trim()) continue;
     let record: any;
@@ -167,8 +178,10 @@ export function codexTranscriptMatchesLaunch(file: string, meta: AgentMetadata):
     }
     if (record?.type === "session_meta") {
       rootCli = record?.payload?.originator === "codex-tui" && record?.payload?.source === "cli";
-      if (!rootCli) return false;
+      if (!rootCli) return { verdict: "other", forked: false };
+      forked = typeof record?.payload?.forked_from_id === "string" && record.payload.forked_from_id !== "";
     }
+    if (record?.type === "turn_context") firstTurnContext = true;
     if (
       record?.type === "response_item" &&
       record?.payload?.type === "message" &&
@@ -182,9 +195,13 @@ export function codexTranscriptMatchesLaunch(file: string, meta: AgentMetadata):
           item.text.includes(marker),
       );
     }
-    if (rootCli && launchMarker) return true;
+    if (rootCli && launchMarker) return { verdict: "match", forked };
   }
-  return false;
+  return { verdict: rootCli && firstTurnContext ? "other" : "undecided", forked };
+}
+
+export function codexTranscriptMatchesLaunch(file: string, meta: AgentMetadata): boolean {
+  return codexLaunchVerdict(file, meta).verdict === "match";
 }
 
 export function codexTranscriptSessionId(file: string): string | null {
@@ -205,9 +222,82 @@ export function codexTranscriptSessionId(file: string): string | null {
   return null;
 }
 
+/** rolloutのfile名にある会話ID（UUIDv7）と、そこに入っている作成時刻（ms）。v7でなければnull。 */
+function codexRolloutCreation(file: string): { id: string; ms: number } | null {
+  const id = /-([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.jsonl$/.exec(path.basename(file))?.[1];
+  return id ? { id, ms: Number.parseInt(id.slice(0, 8) + id.slice(9, 13), 16) } : null;
+}
+
+// 起動ごとの、rolloutの判定の控え（file → この起動の会話か）。頭の読み直しを避ける。決められなかったfileは入れない。
+const CODEX_LAUNCH_VERDICT_MEMO_MAX = 64;
+const codexLaunchVerdictMemo = new Map<string, Map<string, boolean>>();
+
+function codexLaunchVerdictMemoFor(launchId: string): Map<string, boolean> {
+  let memo = codexLaunchVerdictMemo.get(launchId);
+  if (!memo) {
+    if (codexLaunchVerdictMemo.size >= CODEX_LAUNCH_VERDICT_MEMO_MAX) {
+      codexLaunchVerdictMemo.delete(codexLaunchVerdictMemo.keys().next().value as string);
+    }
+    memo = new Map();
+    codexLaunchVerdictMemo.set(launchId, memo);
+  }
+  return memo;
+}
+
+/** 結び付けた会話（vendor_session_id）のroot rollout。会話の切り替えは追わない。完了の読み位置（cursor）はこのfileの位置。 */
+export function codexBoundTranscript(meta: AgentMetadata): string | null {
+  if (meta.kind !== "codex" || !meta.codex_home || !meta.vendor_session_id) return null;
+  return findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+}
+
+/**
+ * 結び付けた会話より後に書かれた、この起動の別の会話のroot rollout。無ければnull（ADR 0105）。
+ * Codexは、入力欄の /new・/clear で、processを生かしたまま新しい会話（別のrollout）へ移る。古いrolloutには何も書かない。
+ * 新しい会話の候補は、次を全部満たすrolloutだけ。
+ * - 会話IDがUUIDv7で、その作成時刻がこの席の起動より後。
+ * - 結び付けた会話のrolloutより後に書かれている（mtime）。
+ * - Codex CLIのroot会話で、派生（forked_from_id）でなく、developerの文にこの起動の印がある。
+ *   印は起動時に渡したdeveloper_instructionsから来るので、派生でない会話が持つなら、この席のprocessが始めた会話。
+ *   派生は元の会話の文を写すので、別の端末で派生させた会話を拾わないよう、追わない。
+ * 候補が複数なら、最後に書かれた物。
+ */
+function codexSwitchedTranscript(meta: AgentMetadata, bound: string): string | null {
+  if (!meta.codex_home || meta.hook_route !== "shared_codex_home") return null;
+  const launchedAt = Date.parse(meta.created_at);
+  if (!Number.isFinite(launchedAt)) return null;
+  let boundMtime: number;
+  try { boundMtime = fs.statSync(bound).mtimeMs; } catch { return null; }
+  const memo = codexLaunchVerdictMemoFor(meta.launch_id);
+  let latest: string | null = null;
+  let latestMtime = boundMtime;
+  for (const file of listCodexTranscripts(meta.codex_home)) {
+    if (file === bound || memo.get(file) === false) continue;
+    const creation = codexRolloutCreation(file);
+    if (!creation || creation.ms + 5_000 < launchedAt) continue;
+    let mtime: number;
+    try { mtime = fs.statSync(file).mtimeMs; } catch { continue; }
+    if (mtime <= latestMtime) continue;
+    let own = memo.get(file);
+    if (own === undefined) {
+      const { verdict, forked } = codexLaunchVerdict(file, meta);
+      if (verdict === "undecided") continue;
+      own = verdict === "match" && !forked;
+      memo.set(file, own);
+    }
+    if (!own) continue;
+    latest = file;
+    latestMtime = mtime;
+  }
+  return latest;
+}
+
+/** この起動の、今の会話のroot rollout。結び付けた会話から、同じprocessの新しい会話へ移っていれば、新しい方。 */
 export function codexRootTranscript(meta: AgentMetadata): string | null {
   if (meta.kind !== "codex" || !meta.codex_home) return null;
-  if (meta.vendor_session_id) return findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+  if (meta.vendor_session_id) {
+    const bound = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+    return bound ? codexSwitchedTranscript(meta, bound) ?? bound : null;
+  }
   if (meta.hook_route === "shared_codex_home") {
     const matches = listCodexTranscripts(meta.codex_home).filter((file) => codexTranscriptMatchesLaunch(file, meta));
     if (matches.length > 1) {
@@ -218,11 +308,21 @@ export function codexRootTranscript(meta: AgentMetadata): string | null {
   return listCodexTranscripts(meta.codex_home)[0] ?? null;
 }
 
+/** rolloutの会話ID。結び付けた会話のrolloutならそのID、会話が切り替わった後のrolloutなら、その頭に書かれたID。 */
+function codexRolloutSessionId(meta: AgentMetadata, transcript: string): string | null {
+  if (meta.vendor_session_id && path.basename(transcript).includes(meta.vendor_session_id)) return meta.vendor_session_id;
+  return codexTranscriptSessionId(transcript) ?? codexRolloutCreation(transcript)?.id ?? meta.vendor_session_id;
+}
+
+/**
+ * 今の会話のroot rolloutを返し、席の登録の会話ID（vendor_session_id）をその会話へ合わせる。
+ * 会話が切り替わっていた時は、ここで結び付け直す。呼ぶのは席の持ち主（送信の道）だけ。完了待ちは書かない。
+ */
 export function bindCodexTranscriptSession(meta: AgentMetadata): string | null {
   const transcript = codexRootTranscript(meta);
   if (!transcript) return null;
-  const harnessSessionId = codexTranscriptSessionId(transcript);
-  if (harnessSessionId && !meta.vendor_session_id) {
+  const harnessSessionId = meta.vendor_session_id ? codexRolloutSessionId(meta, transcript) : codexTranscriptSessionId(transcript);
+  if (harnessSessionId && meta.vendor_session_id !== harnessSessionId) {
     meta.vendor_session_id = harnessSessionId;
     writeAgentMetadata(meta);
   }
@@ -290,6 +390,9 @@ export function codexUsageLimit(record: any): string | null {
   return error?.info === "usage_limit_exceeded" ? error.message : null;
 }
 
+// 完了待ちが、会話の切り替えを確かめる間隔。送った文はすぐ記録へ書かれるので、普通のturnはここへ来ない。
+const CODEX_SWITCH_CHECK_MS = 3_000;
+
 type CodexTurnBoundary = { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: unknown; reason: unknown };
 
 /**
@@ -343,7 +446,7 @@ export function latestCodexCompletion(
 ): AgentDoneEvent | null {
   const transcript = codexRootTranscript(meta);
   if (!transcript) return null;
-  const harnessSessionId = meta.vendor_session_id ?? codexTranscriptSessionId(transcript);
+  const harnessSessionId = codexRolloutSessionId(meta, transcript);
   let latest: AgentDoneEvent | null = null;
   for (const line of readTranscriptLines(transcript)) {
     if (!line.trim()) continue;
@@ -363,13 +466,19 @@ export async function observeCodexDone(
   signal?: AbortSignal,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
-  let transcript = codexRootTranscript(meta);
-  const startOffset = requestedCursor ?? (transcript ? safeStatSize(transcript) : 0);
+  // 読み位置（cursor）は、送った時に結び付いていた会話のrolloutの位置。結び付けが済んだ席は、そのrolloutから読み始める。
+  const anchored = (): string | null => meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta);
+  let transcript = anchored();
+  let startOffset = requestedCursor ?? (transcript ? safeStatSize(transcript) : 0);
   let cursor = startOffset;
   let carry = "";
   let malformedEvents = 0;
   let discardLeadingFragment = false;
   let initializedBoundary = false;
+  // 待ち始めてからrolloutが1行も増えない時、会話が切り替わっていないかを見る時刻（ADR 0105）。
+  let switchCheckAt = performance.now() + CODEX_SWITCH_CHECK_MS;
+  // 切り替わった後の会話では、前の会話の最後の書き込みより後の完了だけを数える。
+  let completedAfter: number | null = null;
   const deadline = performance.now() + timeout * 1000;
   const observation = (
     outcome: AgentWaitObservation["outcome"],
@@ -396,7 +505,28 @@ export async function observeCodexDone(
   for (;;) {
     signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
-    transcript ??= codexRootTranscript(meta);
+    transcript ??= anchored();
+    if (transcript && meta.vendor_session_id && cursor === startOffset && performance.now() >= switchCheckAt) {
+      switchCheckAt = performance.now() + CODEX_SWITCH_CHECK_MS;
+      let current: string | null = null;
+      try { current = codexRootTranscript(meta); } catch { /* 読めない時は、今のrolloutを見続ける */ }
+      if (current && current !== transcript && safeStatSize(transcript) === cursor) {
+        // 送った後に、同じprocessの新しい会話へ移っていた。送る時に無かった会話なので、前の会話の最後の書き込みより後の記録が今回の分。
+        // 読み位置を指定せずに待ち始めた時は、今までどおり、今より後の完了を待つ。
+        const size = safeStatSize(current);
+        if (requestedCursor == null) {
+          cursor = size;
+        } else {
+          try { completedAfter = fs.statSync(transcript).mtimeMs; } catch { completedAfter = null; }
+          cursor = Math.max(0, size - CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES);
+        }
+        transcript = current;
+        startOffset = cursor;
+        carry = "";
+        initializedBoundary = false;
+        discardLeadingFragment = false;
+      }
+    }
     if (transcript) {
       if (!initializedBoundary) {
         if (cursor > 0) {
@@ -421,7 +551,7 @@ export async function observeCodexDone(
           parts.shift();
           discardLeadingFragment = false;
         }
-        const harnessSessionId = meta.vendor_session_id ?? codexTranscriptSessionId(transcript);
+        const harnessSessionId = meta.vendor_session_id ? codexRolloutSessionId(meta, transcript) : codexTranscriptSessionId(transcript);
         for (const line of parts) {
           if (!line.trim()) continue;
           if (Buffer.byteLength(line, "utf8") > AGENT_EVENT_MAX_BYTES) {
@@ -431,6 +561,10 @@ export async function observeCodexDone(
           try {
             const record = JSON.parse(line);
             const done = codexCompletionEvent(meta, harnessSessionId, record);
+            if (done && completedAfter !== null) {
+              const at = Date.parse(record.timestamp);
+              if (Number.isFinite(at) && at <= completedAfter) continue;
+            }
             if (done) {
               // 上限の知らせはこのturnの終わりにだけ書かれる。画面やpane logの文字は、上限が明けた後も
               // 残り、道具の出力や依頼文にも現れるので見ない（2026-09-28）。
@@ -727,7 +861,8 @@ export function codexTranscriptText(
   exactCompletion = false,
 ): string | null {
   if (!meta.codex_home || !meta.vendor_session_id) transcriptUnavailable();
-  const transcript = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+  // 完了待ちが切り替わった後の会話で完了を見つけた時も、同じ会話から回答を読む（ADR 0105）。
+  const transcript = codexRootTranscript(meta);
   if (!transcript) transcriptUnavailable();
   const lines = readTranscriptLines(transcript);
   if (exactCompletion) {

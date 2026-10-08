@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 手で打った`/compact`の途中に届いた文が、差し込みで返るのにCodexでは後の別のturnになる件は、直していない（理由はADR 0105）。
     自動の圧縮の途中に届いた文は、同じturnへ入る事を実物で確かめた。
 
+- Cursorのturnが誤りで終わった時、完了待ちが`done`を返していた件を直す（ADR 0106）。
+  Cursorは、記録の`turn_ended`へ`status: "error"`と文を書く。Aitermは`status`を見ていなかったので、呼んだ側に、
+  失敗が、空の（または途中までの）回答の完了として届いていた。Codexで0.57.2に直したのと同じ形。
+  - サービスの誤り（`[unavailable] Error`など）: `outcome: "error"`。`aiterm-wait`はexit 7。`error`は1行の文、
+    文の頭の角括弧の名前を`error_kind`で返す。
+  - 利用上限の文: `outcome: "rate_limited"`。画面から読めた時と同じ返りに揃える。
+  - 席で止めたturn（`User aborted request`）と、`status: "success"`は、今までどおり`done`。
+  - 引数、断りの文面、送信の振り分け、ほかの席は変えていない。
+
 ### Tests
 
 - 試験の前処理（`test/seat-env.mjs`）が作る置き場（`/tmp/at-*`）を、試験processの終わりに消す（ADR 0104）。

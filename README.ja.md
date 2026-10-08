@@ -260,6 +260,7 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
 
 Codexがサービスの誤りや通信の失敗でturnを打ち切った時は、完了待ちが`done`ではなく`error`を返す（`aiterm-wait`はexit 7、親への配送は`outcome=error`）。`error`は応答の本文とURLを落とした1行の文で、Codexが記録した種類（`internal_server_error`・`http_connection_failed`など）は`error_kind`に載る。利用上限は今までどおり`rate_limited`。誤りで終わった後の席は、次の`pty_send`を新しいturnとして受ける。
+Cursorが誤りでturnを終えた時（記録の`turn_ended`が`status: "error"`）も同じで、完了待ちは`error`を返し、文の頭の角括弧の名前（`unavailable`など）を`error_kind`に載せる。利用上限の文は`rate_limited`、席で止めたturn（`User aborted request`）は今までどおり`done`。
 
 agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
 

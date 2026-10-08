@@ -15,6 +15,7 @@ import {
   cursorTranscriptRoot,
   cursorTranscriptText,
   cursorTurnBoundary,
+  cursorTurnError,
   cursorWorkspaceId,
   cursorModelArgument,
   cursorEffortNavigation,
@@ -256,4 +257,97 @@ test("Cursor adapter: launch markerで通常Cursor transcriptをbindしturn境�
     }
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// Cursorは、turnが誤りで終わると、turn_endedへ status "error" と文を書く。完了（done）で返すと、失敗が空の回答に見える（ADR 0106）。
+// 文は実記録（2026-08-24〜09-28、macbook・rabbit）にあった形。
+test("Cursor adapter: 誤りで終わったturnは完了ではなくerror・利用上限はrate_limitedで返し、席で止めたturnは今までどおり完了で返す", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-cursor-error-"));
+  const runtime = path.join(root, "runtime");
+  const home = path.join(root, "home");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.mkdirSync(home, { recursive: true });
+  const previous = { HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR };
+  process.env.HOME = home;
+  process.env.XDG_RUNTIME_DIR = runtime;
+  const session = `cursor_err_${Date.now().toString(36)}`;
+  const conversation = "71171692-0813-4002-b05a-0fbfb8433ee4";
+  try {
+    const meta = createCursorAgentMetadata(session, "/repo", "pending", null, {
+      agentRole: "subagent", parentSessionId: "host-root", delegationDepth: 1, lineage: `host-root>cursor:${session}`, delegationAllowed: true,
+    });
+    const transcript = path.join(cursorTranscriptRoot(meta), conversation, `${conversation}.jsonl`);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    const user = (text) => JSON.stringify({ role: "user", message: { content: [{ type: "text", text }] } });
+    const head = [user(`AITERM_AGENT_LAUNCH_ID=${meta.launch_id}\n最初の依頼`),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "最初の答え" }] } })];
+    /** 最初のturn（普通の終わり）の後に、2つ目のturnを、渡した終わり方で書く。 */
+    const second = (ended, rows = []) => fs.writeFileSync(transcript, [...head, user("次の依頼"), ...rows, JSON.stringify(ended), ""].join("\n"));
+    const lines = (file) => fs.readFileSync(file, "utf8").split("\n");
+
+    fs.writeFileSync(transcript, [...head, JSON.stringify({ type: "turn_ended", status: "success" }), ""].join("\n"));
+    assert.equal((await observeCursorDone(meta, 0, 0, () => "")).outcome, "done");
+    assert.equal(bindCursorTranscriptSession(meta), transcript);
+
+    // サービスの誤り。
+    second({ type: "turn_ended", status: "error", error: "[unavailable] Error" },
+      [JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "調べるね" }, { type: "tool_use", name: "Shell" }] } })]);
+    const failed = await observeCursorDone(meta, 0, 1, () => "");
+    assert.equal(failed.outcome, "error");
+    assert.equal(failed.error, "[unavailable] Error");
+    assert.equal(failed.error_kind, "unavailable");
+    assert.equal(failed.turn_id, "cursor:2");
+    assert.equal(failed.rate_limit, null);
+    assert.equal(latestCursorCompletion(meta, lines).done_status, "turn_error", "記録の上ではturnは終わっている（次の文は新しいturnで送れる）");
+
+    second({ type: "turn_ended", status: "error", error: "[resource_exhausted] Error" });
+    const exhausted = await observeCursorDone(meta, 0, 1, () => "");
+    assert.deepEqual([exhausted.outcome, exhausted.error_kind], ["error", "resource_exhausted"]);
+
+    // 利用上限。画面から読めた時と同じ返りに揃える。
+    const limit = "You've hit your usage limit You've saved $766 on API model usage this month with Ultra. Switch to a different model or set a Spend Limit to continue with Sonnet. Your usage limits will reset when your monthly cycle ends on 10/17/2026.";
+    second({ type: "turn_ended", status: "error", error: limit });
+    const limited = await observeCursorDone(meta, 0, 1, () => "");
+    assert.equal(limited.outcome, "rate_limited");
+    assert.equal(limited.rate_limit, limit);
+    assert.equal(limited.error, null);
+    second({ type: "turn_ended", status: "error", error: "Other Models usage limit reached\nSwitched to grok-4.6 after reaching Other Models usage limit." });
+    const switched = await observeCursorDone(meta, 0, 1, () => "");
+    assert.equal(switched.outcome, "rate_limited");
+    assert.equal(switched.rate_limit, "Other Models usage limit reached Switched to grok-4.6 after reaching Other Models usage limit.");
+
+    // 席で止めたturnは、今までどおり完了。
+    second({ type: "turn_ended", status: "error", error: "User aborted request" },
+      [JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "途中まで" }] } })]);
+    const aborted = await observeCursorDone(meta, 0, 1, () => "");
+    assert.equal(aborted.outcome, "done");
+    assert.equal(aborted.error, null);
+    assert.equal(latestCursorCompletion(meta, lines).done_status, "turn_done");
+
+    // 誤りで終わった後の、次のturnの普通の終わりは完了。
+    fs.writeFileSync(transcript, [...head, user("次の依頼"), user("もう一度"),
+      JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "今度は答えた" }] } }),
+      JSON.stringify({ type: "turn_ended", status: "success" }), ""].join("\n"));
+    const next = await observeCursorDone(meta, 0, 2, () => "");
+    assert.deepEqual([next.outcome, next.turn_id, next.error_kind], ["done", "cursor:3", null]);
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Cursor adapter: 誤りの文は1行にしてURLを伏せ、長さを切る", () => {
+  const ended = (error, status = "error") => ({ type: "turn_ended", status, ...(error === undefined ? {} : { error }) });
+  assert.equal(cursorTurnError(ended(undefined, "success")), null);
+  assert.equal(cursorTurnError({ role: "assistant" }), null);
+  assert.equal(cursorTurnError(ended("User aborted request")), null);
+  assert.deepEqual(cursorTurnError(ended("[unavailable]\n  Error")), { message: "[unavailable] Error", kind: "unavailable", limit: false });
+  assert.deepEqual(cursorTurnError(ended("request to https://api.example.test/v1/chat?key=abc failed")),
+    { message: "request to … failed", kind: null, limit: false });
+  assert.equal(cursorTurnError(ended("x".repeat(500))).message.length, 200);
+  assert.equal(cursorTurnError(ended(undefined)).message, "Cursorのturnが誤りで終わりました（理由の文は記録にありません）");
+  assert.equal(cursorTurnError(ended("You've hit your usage limit")).limit, true);
 });

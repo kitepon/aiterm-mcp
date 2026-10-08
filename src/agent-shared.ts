@@ -335,8 +335,9 @@ export interface AgentWaitObservation {
   rate_limit: string | null;
   // outcome=error の時だけ harness の記録にあるエラー本文（例: "API Error: 529 Overloaded ..."）。
   error: string | null;
-  // outcome=error の時、harness が記録に書いたエラーの種類。今はCodexだけ（task_completeのcodex_error_info。
-  // internal_server_error・http_connection_failed など）。画面に出す文（error）から切り出さずに見分けるための項目で、無ければnull。
+  // outcome=error の時、harness が記録に書いたエラーの種類。Codex（task_completeのcodex_error_info。internal_server_error・
+  // http_connection_failed など）と、Cursor（turn_endedのerrorの頭の角括弧の名前。unavailable・resource_exhausted など）。
+  // 画面に出す文（error）から切り出さずに見分けるための項目で、無ければnull。
   error_kind: string | null;
 }
 

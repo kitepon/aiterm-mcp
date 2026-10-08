@@ -355,6 +355,9 @@ lockより後に始まったprocessなら別人と読んで片付ける。消す
 Codexは、サービスの誤りや通信の失敗でturnを打ち切る時も、記録へ`task_complete`を書く（回答は無く、`error`が付く）。完了待ちは、
 利用上限（`usage_limit_exceeded`）を`rate_limited`、ほかの`error`つきを`error`で返す。`error`は応答の本文とURLを落とした1行の文、
 Codexが書いた種類は`error_kind`で返す。失敗を空の回答の完了として返さない（ADR 0103）。判定と文の整え方は`src/harnesses/codex.ts`が所有する。
+Cursorは、誤りで終わったturnを、記録の`turn_ended`へ`status: "error"`と文で書く。完了待ちは、利用上限の文を`rate_limited`、
+席で止めたturn（`User aborted request`）を今までどおり`done`、ほかを`error`で返す。`error`は1行の文、文の頭の角括弧の名前は
+`error_kind`で返す（ADR 0106）。判定と文の整え方は`src/harnesses/cursor.ts`が所有する。
 
 Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は

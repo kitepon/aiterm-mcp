@@ -136,6 +136,28 @@ export function bindCursorTranscriptSession(meta: AgentMetadata): string | null 
   return transcript;
 }
 
+// Cursorは、turnが誤りで終わると、turn_endedへ status "error" と文を書く（普通の終わりは "success" で、errorは無い）。
+// 実記録（2026-08-24〜09-28、macbook 23件・rabbit 1件）にあった文:
+//   "[unavailable] Error" / "[resource_exhausted] Error"（サービスの誤り）
+//   "You've hit your usage limit You've saved $… Your usage limits will reset when …" / "Other Models usage limit reached Switched to …"（利用上限）
+//   "User aborted request"（席で止めたturn）
+// 席で止めたturnは誤りに数えない（今までどおり完了として返す）。文は呼んだ側の画面にそのまま出るので、1行にしてURLを伏せ、長さを切る。
+const CURSOR_ERROR_LINE_MAX = 200;
+const CURSOR_LIMIT_LINE_MAX = 600;
+export function cursorTurnError(record: any): { message: string; kind: string | null; limit: boolean } | null {
+  if (record?.type !== "turn_ended" || record?.status !== "error") return null;
+  const flat = typeof record.error === "string" ? record.error.replace(/\s+/g, " ").trim() : "";
+  if (/^user aborted request\b/i.test(flat)) return null;
+  const limit = /usage limit/i.test(flat);
+  const text = flat.replace(/https?:\/\/[^\s)\]>"']+/gi, "…") || "Cursorのturnが誤りで終わりました（理由の文は記録にありません）";
+  const max = limit ? CURSOR_LIMIT_LINE_MAX : CURSOR_ERROR_LINE_MAX;
+  return {
+    message: text.length > max ? `${text.slice(0, max - 1)}…` : text,
+    kind: /^\[([a-z][a-z0-9_]*)\]/i.exec(flat)?.[1].toLowerCase() ?? null,
+    limit,
+  };
+}
+
 export function cursorCompletionEvent(
   meta: AgentMetadata,
   harnessSessionId: string | null,
@@ -152,7 +174,7 @@ export function cursorCompletionEvent(
     turn_id: turnId,
     operation_id: null,
     reason: `Cursor transcript turn_ended:${record.status}`,
-    done_status: "turn_done",
+    done_status: cursorTurnError(record) ? "turn_error" : "turn_done",
     stop_hook_active: false,
     at: new Date().toISOString(),
   };
@@ -236,6 +258,7 @@ export async function observeCursorDone(
     ev: AgentDoneEvent | null = null,
     rateLimit: string | null = null,
     error: string | null = null,
+    errorKind: string | null = null,
   ): AgentWaitObservation => ({
     schema: "aiterm.agent-wait-result.v1",
     session_id: meta.aiterm_session,
@@ -250,7 +273,7 @@ export async function observeCursorDone(
     at: ev?.at ?? null,
     rate_limit: rateLimit,
     error,
-    error_kind: null,
+    error_kind: errorKind,
   });
 
   for (;;) {
@@ -263,7 +286,12 @@ export async function observeCursorDone(
       if (state.userTurns > startBoundary && state.terminalRecord) {
         const harnessSessionId = meta.vendor_session_id ?? cursorTranscriptSessionId(transcript);
         const done = cursorCompletionEvent(meta, harnessSessionId, state.terminalRecord, `cursor:${state.userTurns}`);
-        if (done) return observation("done", done);
+        if (done) {
+          // 誤りで終わったturnを完了として返すと、失敗が空の回答に見える。Codexと同じく、typedな終了として返す（ADR 0106）。
+          const failed = cursorTurnError(state.terminalRecord);
+          if (failed?.limit) return observation("rate_limited", done, failed.message);
+          return failed ? observation("error", done, null, failed.message, failed.kind) : observation("done", done);
+        }
       }
     }
     // 最初の周回では必ず読む（timeout=0の照会も1回は読む）。
@@ -592,7 +620,9 @@ export function cursorTuiReady(screen: string): boolean {
     (CURSOR_COMPOSER_MARKER_RE.test(screen) || CURSOR_START_PROMPT_MARKER_RE.test(screen));
 }
 
-// 利用上限に達したCursorは、transcriptへturn_endedを書かず、入力欄も戻さずに説明を出して止まる（2026.09.26-dd393fe、macOSで実測）。
+// 利用上限に達したCursorは、入力欄も戻さずに説明を出して止まる（2026.09.26-dd393fe、macOSで実測）。
+// transcriptには、user turnを残さずにturn_ended（status "error"）だけを書く事がある（実記録で8件）。その時は完了の条件
+// （user turnが増えている）に当たらないので、画面で見る。user turnがある時は、完了待ちが記録から読む（cursorTurnError）。
 //   Error: You've hit your usage limit
 //   You've saved $766 ... Switch to a different model or set a Spend Limit to continue with Sonnet. ...
 //   fallbackModel: / spendLimitHit: true / chatMessage: ...

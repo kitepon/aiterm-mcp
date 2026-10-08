@@ -640,18 +640,27 @@ export function codexLaunchNote(
   return (summary ? `${launch}\n${summary}\n` : launch) + writeScopeNote;
 }
 
+// 入力欄の行頭の印（「›」。古い描画では「>」）。番号つきの行（「› 1. …」）はmodalで選択中の選択肢。
+// 起動の見出し（「>_ OpenAI Codex (v0.161.0)」）の「>_」は入力欄ではない。これを入力欄と数えると、見出しが残っている席で
+// 入力欄が別の画面（F2で開いた警告の画面など）に置き換わっていても入力待ちと読み、文がその画面に吸われる
+// （Codex 0.161.0の実物、2026-10-08。ADR 0107）。
+const CODEX_COMPOSER_LINE = String.raw`(?:^|\n)[ \t]*[›>](?!_)(?![ \t]*\d+\.)`;
+
 export function codexTuiReady(screen: string): boolean {
   if (codexStartupFailure(screen)) return false;
   // 起動直後は製品header、長寿命sessionでは常駐footerがCodex TUIの識別子になる。
   // capture-paneは直近45行だけなので、会話が進むとheaderは正常に画面外へ流れる。
   const codexFrontend = screen.includes("OpenAI Codex")
     || /(^|\n)\s*\S+\s+(?:default|low|medium|high|xhigh|max|ultra)(?:\s+fast)?\s+·\s+\S.*$/m.test(screen);
-  return codexFrontend && /(^|\n)[ \t]*[›>](?![ \t]*\d+\.)/.test(screen);
+  return codexFrontend && new RegExp(CODEX_COMPOSER_LINE).test(screen);
 }
 
 // 0.155までは文章のfooter、0.157からは「enter select · esc back」のようなkey hint行になった。
-const CODEX_MODAL_FOOTER = /Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|(?<=^|\n)[ \t]*(?:[^\n]*· )?enter [a-z]+ · (?:[^\n]* · )?esc [a-z]+[ \t]*(?=\n|$)/gi;
-const CODEX_DIALOG_HEADING = /Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits/g;
+// 足元の「⚠ N warnings · f2 to view」をF2で開いた警告の画面は、入力欄の場所に出て、鍵を自分で受ける
+// （足元は「k keep & next · esc dismiss & close · ^o copy · ←/→ warning · ↓ scroll」、見出しは「Warnings · 1 of 3 · Startup」）。
+// 開いている間に打った文は入力欄へ入らないので、応答の要るmodalと同じに数える。Aitermは閉じない（Escはその警告を消す）。
+const CODEX_MODAL_FOOTER = /Press enter to confirm or esc to (?:cancel|go back)|enter to submit\s*\|\s*esc to cancel|(?<=^|\n)[ \t]*(?:[^\n]*· )?enter [a-z]+ · (?:[^\n]* · )?esc [a-z]+[ \t]*(?=\n|$)|(?<=^|\n)[ \t]*(?:[^\n]*· )?esc dismiss(?: & close)?(?: · [^\n]*)?[ \t]*(?=\n|$)/gi;
+const CODEX_DIALOG_HEADING = /Would you like to run the following command\?|Allow the [^\n]+ MCP server to run tool|Hooks need review|Do you trust the contents of this directory|Trust this folder\?|Update available!|Approaching rate limits|(?<=^|\n)[ \t]*Warnings · \d+ of \d+(?= ·|[ \t]*(?:\n|$))/g;
 const CODEX_MODAL_MARKER = new RegExp(`${CODEX_MODAL_FOOTER.source}|${CODEX_DIALOG_HEADING.source}`, "gi");
 
 function currentCodexDialog(screen: string): string {
@@ -686,7 +695,7 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
   // psmuxはmodalを画面上部へ描き、下の空行もcaptureへ含める。空行を落としてから末尾を取る。
   const tail = screen.replace(/\s+$/, "").split("\n").slice(-24).join("\n");
   // 現在のmodal footerがある時だけ、折返しで上へ出た質問を画面全体から探す。
-  const lastComposer = [...tail.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
+  const lastComposer = [...tail.matchAll(new RegExp(CODEX_COMPOSER_LINE, "g"))].at(-1)?.index ?? -1;
   const lastDialog = [...tail.matchAll(CODEX_MODAL_MARKER)].at(-1)?.index ?? -1;
   const modal = lastDialog > lastComposer;
   if (!modal) {
@@ -713,7 +722,7 @@ export function codexPaneObservation(screen: string): HarnessPaneObservation {
 export function codexRateLimitModelSwitchDialog(screen: string): { keepCurrentIndex: 2; selectedIndex: 1 | 2 | 3 | null } | null {
   const current = currentCodexDialog(screen);
   const footer = [...current.matchAll(CODEX_MODAL_FOOTER)].at(-1)?.index ?? -1;
-  const composer = [...current.matchAll(/(?:^|\n)[ \t]*[›>](?![ \t]*\d+\.)/g)].at(-1)?.index ?? -1;
+  const composer = [...current.matchAll(new RegExp(CODEX_COMPOSER_LINE, "g"))].at(-1)?.index ?? -1;
   // footerが無いか、現在のcomposerがmodal footerより後なら、scrollbackの古いmodalである。
   if (footer < 0 || composer > footer) return null;
   // 切替先modelは版とアカウントで変わる（gpt-5.6-luna、gpt-6-luna）。質問と選択肢1が同じmodelを指すことだけ確かめる。
@@ -796,7 +805,7 @@ export function codexStartupAction(screen: string, trustProject: boolean): impor
 }
 
 // submit座礁観測のcomposer領域マーカー（ready判定と同じ記号を行頭基準で探す）。
-export const CODEX_COMPOSER_MARKER_RE = /^\s*[›>]/;
+export const CODEX_COMPOSER_MARKER_RE = /^\s*[›>](?!_)/;
 
 // Codexの起動前modalダイアログ検知。表示中はheader/footerが描かれず codexTuiReady が
 // 恒久falseになるため、ready gate失敗の原因究明用に画面から種別を特定する

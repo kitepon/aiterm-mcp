@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexTurnErrorLine, codexUsageLimit } from "../dist/harnesses/codex.js";
+import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexTuiReady, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexTurnErrorLine, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -155,6 +155,59 @@ test("Codexの会話欄にある「esc to interrupt」を、動作中の印に�
     assert.deepEqual(codexPaneObservation(running), { state: "busy", reason: "turn_running" }, status);
     assert.equal(codexTuiBusy(running), true, status);
   }
+});
+
+test("Codexの警告の画面（F2）が開いている間は、入力待ちと読まない", () => {
+  // Codex 0.161.0の実物の画面（2026-10-08）。足元の「⚠ N warnings · f2 to view」をF2で開くと、入力欄の場所に警告が出て、鍵をその画面が受ける。
+  const header = ["  >_ OpenAI Codex (v0.161.0)", "     /tmp/proj", "", "  permissions: YOLO mode", "",
+    "  To get started, describe a task or try one of these commands:", "", "  /init - create an AGENTS.md file with instructions for Codex",
+    "  /status - show current session configuration", "  /permissions - choose what Codex is allowed to do",
+    "  /model - choose what model and reasoning effort to use", "  /review - review any changes and find issues", ""];
+  const keys = "  k keep & next · esc dismiss & close · ^o copy · ←/→ warning · ↓ scroll";
+  const startup = ["  Warnings · 1 of 3 · Startup", "", "  Running without the shared background server: command-line configuration",
+    "  overrides (-c, --enable, --disable, or --search) requires embedded mode.", "", keys];
+  const composer = ["› Ask Codex to do anything", "", "  GPT-6.1-Sol default · /tmp/proj", "  ? for shortcuts                                     ⚠ 3 warnings · f2 to view"];
+  // 起こしたての席（見出しが残っている）。直す前は、見出しの「>_」を入力欄と読んで入力待ちにしていた。
+  const fresh = [...header, ...startup].join("\n");
+  assert.deepEqual(codexPaneObservation(fresh), { state: "blocked", reason: "unknown_dialog" });
+  assert.equal(codexTuiReady(fresh), false);
+  // 番が動いている間。動作中の行は警告の画面に隠れる。
+  const running = [...header.slice(5), "› Reply with exactly SLOW_OK.", "", "  Warnings · 1 of 2 · Startup", "",
+    "  Model metadata for `mock-model` not found. Defaulting to fallback metadata;", "  this can degrade performance and cause issues.", "", keys].join("\n");
+  assert.deepEqual(codexPaneObservation(running), { state: "blocked", reason: "unknown_dialog" });
+  // 回答を流している間。MCPの警告は本文が長く、鍵の案内の行は同じ。
+  const streaming = [...Array.from({ length: 10 }, (_, index) => `  ${index + 6}. item number ${index + 6} is here`), "",
+    "  Warnings · 2 of 3 · MCP · bellteam", "", "  MCP client for `bellteam` failed to start: MCP startup failed:",
+    "  handshaking with MCP server failed: Send message error Transport", "  response: HTTP 400: {\"error\":\"BELLTEAM_SEAT_UNRESOLVED\"},", "", keys].join("\n");
+  assert.deepEqual(codexPaneObservation(streaming), { state: "blocked", reason: "unknown_dialog" });
+  // 会話に製品名があり、前の依頼文が残っている席でも、警告の画面が下にある間は入力待ちにしない。
+  const mentioned = ["› Tell me about OpenAI Codex.", "", "• OpenAI Codex is a coding agent.", "", "  Worked for 2s • 3:26 AM", "", ...startup].join("\n");
+  assert.deepEqual(codexPaneObservation(mentioned), { state: "blocked", reason: "unknown_dialog" });
+  // 閉じた後は、今までどおり入力待ち。動いている番も今までどおり読む。
+  assert.deepEqual(codexPaneObservation([...header, ...composer].join("\n")), { state: "idle", reason: "composer_ready" });
+  assert.deepEqual(codexPaneObservation([...header.slice(5), "› Reply with exactly SLOW_OK.", "", "• Working (3s • esc to interrupt)", "", ...composer].join("\n")),
+    { state: "busy", reason: "turn_running" });
+  // 回答や依頼文に同じ案内の行があっても、その下に入力欄がある席は入力待ち。
+  const quoted = ["› What does the warnings view show?", "", "• The footer reads:", keys, "", "  Worked for 2s • 3:26 AM", "", ...composer].join("\n");
+  assert.deepEqual(codexPaneObservation(quoted), { state: "idle", reason: "composer_ready" });
+  // Codex 0.160.0の鍵の案内は「ctrl+o copy」（0.161.0は「^o copy」）。どちらも同じに読む。
+  const older = [...header, "  Warnings · 1 of 3 · Startup", "", "  Codex could not find bubblewrap on PATH. Install bubblewrap with", "  your OS package manager.", "",
+    "  k keep & next · esc dismiss & close · ctrl+o copy · ←/→ warning · ↓ scroll"].join("\n");
+  assert.deepEqual(codexPaneObservation(older), { state: "blocked", reason: "unknown_dialog" });
+  // 承認の画面ではない。
+  assert.equal(codexApprovalDialog(fresh), null);
+  assert.equal(codexRateLimitModelSwitchDialog(fresh), null);
+});
+
+test("Codexの起動の見出しの「>_」だけでは、入力待ちと読まない", () => {
+  // 見出しは出たが、入力欄がまだ無い（または別の画面に置き換わっている）画面。
+  const header = "  >_ OpenAI Codex (v0.161.0)\n     /tmp/proj\n\n  permissions: YOLO mode\n";
+  assert.equal(codexTuiReady(header), false);
+  assert.deepEqual(codexPaneObservation(header), { state: "unknown", reason: "unrecognized_screen" });
+  // 入力欄が出れば入力待ち。古い描画の「>」の入力欄も今までどおり。
+  assert.equal(codexTuiReady(`${header}\n› Ask Codex to do anything\n`), true);
+  assert.equal(codexTuiReady(`${header}\n> Ask Codex to do anything\n`), true);
+  assert.deepEqual(codexPaneObservation(`${header}\n› Ask Codex to do anything\n\n  GPT-6.1-Sol default · /tmp/proj`), { state: "idle", reason: "composer_ready" });
 });
 
 test("Codexの古い承認を現在の入力欄へ持ち越さない", () => {

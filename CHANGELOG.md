@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   製品の動きは変えない。
 - `test/codex-relay-official.test.mjs`を、対象のOS（macOSとWindows）でだけ流す。Linuxで公式のCodexの実行ファイルを指定すると、
   対象でない確かめ（`ps`の`comm=`、socketの確かめ）で2件落ちていた。
+- `test/claude-exit-before-close.test.mjs`の2件を、席を閉じた0.3秒後に記録を読む形から、切断の合図の記録が出るまで待つ形へ直す。
+  混んだmacOSのCIで、記録が0.3秒より遅れて1件落ちた。
 
 ## [0.57.2] - 2026-10-07
 

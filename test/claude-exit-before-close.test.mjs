@@ -69,6 +69,11 @@ const events = (name) => {
   try { return fs.readFileSync(seatLog(name), "utf8").split("\n").filter(Boolean).map(line => line.replace(/^\d+ /, "")); }
   catch { return []; }
 };
+/** 止められた席が切断の合図（SIGHUP）を記録するまで待つ。席のprocessが書くので、閉じた直後にはまだ無い事がある（混んだmacOSで0.3秒を超えた）。 */
+async function eventsAfterHangup(name) {
+  for (let waited = 0; waited < 5000 && !events(name).includes("SIGHUP"); waited += 50) await sleep(50);
+  return events(name);
+}
 
 const core = await import(new URL("../dist/core.js", import.meta.url).href);
 core.__testSetAgentTuiReadyStableSamples(1);
@@ -161,8 +166,7 @@ test("鍵で終わらない席は、待った後に今までどおり止める",
     const took = Date.now() - started;
     assert.ok(took >= 4000 && took < 8000, `終わるのを待つ上限（4秒）の後に止める: ${took}ms`);
     assert.equal(core.observeSession(sid).exists, false);
-    await sleep(300);
-    assert.deepEqual(events("deaf"), ["C-c", "C-c", "SIGHUP"]);
+    assert.deepEqual(await eventsAfterHangup("deaf"), ["C-c", "C-c", "SIGHUP"]);
   } finally { core.__testSetClaudeExitBeforeClose(null); try { core.closeSession(sid); } catch { /* noop */ } }
 });
 
@@ -174,8 +178,7 @@ test("既定では、POSIXの席へ鍵を送らない（tmuxが切断の合図�
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
     assert.ok(Date.now() - started < 1500, "待たずに閉じる");
-    await sleep(300);
-    assert.deepEqual(events("posix"), ["SIGHUP"]);
+    assert.deepEqual(await eventsAfterHangup("posix"), ["SIGHUP"]);
   } finally { try { core.closeSession(sid); } catch { /* noop */ } }
 });
 

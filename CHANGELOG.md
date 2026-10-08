@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.4] - 2026-10-08
+
 ### 修正
 
 - Codexの席で、警告の画面（足元の「⚠ N warnings · f2 to view」をF2で開いた所）が開いている間に送った文が、届かないのに
@@ -2443,7 +2445,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.4...HEAD
+[0.57.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.3...v0.57.4
 [0.57.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.2...v0.57.3
 [0.57.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...v0.57.1

@@ -20,6 +20,10 @@ import { buildWindowsLauncher, windowsLauncherSource } from '../dist/windows-cod
 import { ensurePrivateDirectory } from '../dist/windows-codex-state.js';
 import { windowsSocketConnection, readWindowsProcesses, readWindowsRelay, windowsDesktopRelay } from '../dist/windows-codex-connection.js';
 const windows = process.platform === 'win32';
+// 中継（旧Steer）を導入できるのはmacOSとWindowsだけ（src/setup-codex-relay.tsは、ほかのOSでunsupportedを返す）。
+// Linuxでは、psのcomm=が実行ファイルの名前しか返さない事と、socketの確かめで落ちる。対象でないOSでは流さない。
+const skip = !binary ? '公式Codexの実行ファイル（AITERM_TEST_CODEX_BINARY）が必要'
+  : !['darwin', 'win32'].includes(process.platform) ? '中継の対象はmacOSとWindowsだけ' : false;
 
 class Rpc {
   constructor(send) { this.send = send; this.pending = new Map(); this.events = []; this.listeners = []; }
@@ -68,7 +72,7 @@ function responseEvents(number, item) {
 
 for (const mode of ['delivery', 'active-disconnect']) test(mode === 'delivery'
   ? '公式署名版で中継・接続分離・Steer・終了後再開・終了処理を確認する'
-  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', { timeout: 60_000, skip: !binary }, async t => {
+  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', { timeout: 60_000, skip }, async t => {
   const root = await mkdtemp(join(windows ? tmpdir() : '/tmp', 'aiterm-relay-test-'));
   if (windows) ensurePrivateDirectory(root);
   const home = join(root, 'home');

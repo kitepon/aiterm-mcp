@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,6 +38,7 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(result.status, 0, result.stderr);
     const data = JSON.parse(result.stdout);
     assert.equal(data.exists, true);
+    assert.equal(existsSync(data.initial), false, '前処理が作った置き場は、processの終わりに消える');
     assert.notEqual(data.initial, inherited);
     assert.deepEqual(Object.values(data.environment), Array(9).fill(null));
     assert.deepEqual(data.temporary, Array(3).fill(data.initial));
@@ -46,5 +47,51 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(readFileSync(registration, 'utf8'), 'keep owner registration\n');
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// 前処理つきのprocessが、自分の置き場にsocketを開くprocessを1つ起こす。
+// leave='live'ならそのprocessを残して終わり、'dead'なら強制終了してsocketのfileだけを残して終わる。
+function runWithSocket(leave) {
+  const result = spawnSync(process.execPath, ['--import', new URL('./seat-env.mjs', import.meta.url).href,
+    '--input-type=module', '-e', `
+      import { spawn } from 'node:child_process';
+      import { once } from 'node:events';
+      import { join } from 'node:path';
+      const file = join(process.env.TMPDIR, 'server', 'test.sock');
+      const listener = spawn(process.execPath, ['-e', \`
+        const fs = require('node:fs');
+        fs.mkdirSync(require('node:path').dirname(process.argv[1]), { recursive: true });
+        require('node:net').createServer().listen(process.argv[1], () => fs.writeSync(1, 'ready'));
+      \`, file], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      await once(listener.stdout, 'data');
+      if (process.env.SEAT_ENV_LEAVE === 'dead') {
+        listener.kill('SIGKILL');
+        await once(listener, 'exit');
+      } else {
+        listener.stdout.destroy();
+        listener.unref();
+      }
+      console.log(JSON.stringify({ root: process.env.TMPDIR, file, listener: listener.pid }));
+    `], { encoding: 'utf8', timeout: 20000, env: { ...process.env, SEAT_ENV_LEAVE: leave } });
+  assert.equal(result.status, 0, result.stderr);
+  return { ...JSON.parse(result.stdout), stderr: result.stderr };
+}
+
+test('終わったserverのsocketだけが残った置き場は消す', { skip: process.platform === 'win32' }, () => {
+  const data = runWithSocket('dead');
+  assert.equal(existsSync(data.root), false);
+  assert.equal(data.stderr, '');
+});
+
+test('生きたserverのsocketが残った置き場は消さず、場所を知らせる', { skip: process.platform === 'win32' }, () => {
+  const data = runWithSocket('live');
+  try {
+    assert.equal(existsSync(data.file), true);
+    assert.match(data.stderr, /試験の置き場を消しません/);
+    assert.ok(data.stderr.includes(data.file), data.stderr);
+  } finally {
+    try { process.kill(data.listener, 'SIGKILL'); } catch { /* 既に終了 */ }
+    rmSync(data.root, { recursive: true, force: true });
   }
 });

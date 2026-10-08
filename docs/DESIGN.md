@@ -52,6 +52,7 @@ sessionの表には環境が丸ごと入るので、名指しで登録した名�
 対象の一覧取得やserver終了が失敗した場合は登録を削除しない（ADR 0087）。
 試験の正規入口（`npm test`とCI）は`test/seat-env.mjs`を前処理として読み、席の保存場所・系譜・tmux環境を外し、
 試験processごとの一時領域を指定する。個別試験が指定する`TMPDIR`と`XDG_RUNTIME_DIR`もそのまま利用できる。
+前処理は、作った一時領域をprocessの終わりに消す。つながるtmuxのserverが残っている時だけ、消さずに場所を標準エラーへ書く（ADR 0104）。
 
 agent配送だけを期待する連携元は`pty_send(require_agent:true)`を指定する。agent登録が無ければ、通常PTYへ送る前に
 `AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。未送信を確定してから対象sessionを復旧できる。

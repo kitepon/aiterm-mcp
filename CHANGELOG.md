@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+- 試験の前処理（`test/seat-env.mjs`）が作る置き場（`/tmp/at-*`）を、試験processの終わりに消す（ADR 0104）。
+  今までは誰も消しておらず、全部の試験を1回流すと約100個残っていた。つながるtmuxのserverが残っている置き場は消さず、場所を標準エラーへ書く。
+  製品の動きは変えない。
+
 ## [0.57.2] - 2026-10-07
 
 ### 修正

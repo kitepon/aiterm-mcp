@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.3] - 2026-10-08
+
 ### 修正
 
 - Codexの席で、入力欄の`/new`・`/clear`で会話が切り替わった後、完了待ちが完了を拾えずに時間切れになっていた件を直す（ADR 0105）。
@@ -2428,7 +2430,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.3...HEAD
+[0.57.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.2...v0.57.3
 [0.57.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.56.1...v0.57.0

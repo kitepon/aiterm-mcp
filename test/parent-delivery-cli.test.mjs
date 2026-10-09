@@ -95,6 +95,23 @@ test('空の本文は送らずに断る', async () => {
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test('寝ている会話を起こした結果が残っていれば、届き方の事実と一緒に返す', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'aiterm-pd-wake-'));
+  try {
+    const wake = { delivery_id: DELIVERY, thread_id: THREAD, outcome: 'woken', turn: 'completed', checked_at: '2026-10-09T13:00:15.000Z', opened_at: '2026-10-09T13:00:15.500Z' };
+    const directory = join(home, '.config', 'aiterm-mcp', 'codex-parent-hooks', 'wake');
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, `${DELIVERY}.json`), JSON.stringify(wake));
+    const env = { HOME: home, USERPROFILE: home, PATH: '' };
+    const { code, result } = await run(['codex', 'state', '--thread', THREAD, '--delivery', DELIVERY, '--codex-home', home], { env });
+    assert.equal(code, 0);
+    assert.deepEqual(result, { ok: true, schema: 'aiterm.parent-delivery.v1', state: null, hook: null, turn_id: null, queued: null, queue_error: 'CODEX_RECEIVER_UNAVAILABLE', wake });
+    // 結果の無い配送は、今までと同じ形（wakeを付けない）。
+    const other = await run(['codex', 'state', '--thread', THREAD, '--delivery', '99999999-9999-4999-8999-999999999999', '--codex-home', home], { env });
+    assert.equal('wake' in other.result, false);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 test('配送の記録が無く、公式キューも読めない時は、分からない所を分からないと返す', async () => {
   const home = await mkdtemp(join(tmpdir(), 'aiterm-pd-state-'));
   try {
@@ -233,7 +250,9 @@ args = [${JSON.stringify(probe)}]
     assert.equal((await configureCodexSteer('enable', setupRuntime)).status, 'ready');
   }
   const env = { ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot, PATHEXT: process.env.PATHEXT, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: root, TMP: root } : {}),
-    PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
+    PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error',
+    // この環境は一から組む。見張りを止める印（test/seat-env.mjs）を、ここでも渡す。
+    AITERM_STEER_CODEX_WAKE: '0' };
   // 頼む側のprocessの環境。Codexの実行ファイルは、hookの設定（binary）か、無ければPATHから探す。
   const barePath = process.platform === 'win32' ? `${process.env.SystemRoot}\\System32` : '/usr/bin:/bin';
   const callerEnv = { ...env, ...(mode === 'queue-only' ? { CODEX_BIN: binary } : {}), ...(via === 'cli-bare' ? { PATH: barePath } : {}) };

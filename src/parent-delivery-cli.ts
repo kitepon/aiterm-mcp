@@ -13,13 +13,15 @@
 //   verify の steer:"enabled" は設定の話（hookが登録・承認済みで、親がhookの導入後に起きている）。届いた事は言わない。
 //   submit の queued_submission_id は、公式キューが受け付けた事。
 //   state は届き方の事実を返す。hook:"emitted" と turn_id は、Aitermのhookがその番へ本文を入れた事。queued は、今も公式キューに残っているか。
+//   wake は、寝ている会話を起こす見張り（ADR 0108）の結果。見張りが終わった後だけ付く。outcome:"woken" は、アプリに会話を開かせてキューが動いた事。
 //
 // 対象はCodexの親だけ。親の指定は、CodexがMCP要求へ付けるthreadIdと、そのCodexのCODEX_HOME。
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { realCodexHome } from "aiterm-steer-delivery";
+import { realCodexHome, readCodexWakeResult, type CodexWakeResult } from "aiterm-steer-delivery";
+import { AITERM_PROFILE } from "./steer-profile.js";
 import { checkCodexParent, submitCodexParentAnswer, withCodexReceiver, type CodexParent } from "./codex-parent-receiver.js";
 import { codexHookDeliveryState, codexHookDirectory, codexInputDirectory } from "./codex-hook-state.js";
 
@@ -82,6 +84,11 @@ export interface ParentDeliveryState {
   /** 今も公式キューに残っているか。確かめられなかった時はnull（queue_errorに理由）。 */
   queued: boolean | null;
   queue_error?: string;
+  /**
+   * 寝ている会話を起こす見張りの結果（ADR 0108）。見張りが結果を残した後だけ付く（入れて約15秒後から。3日で消える）。
+   * 見張りを起こさない環境（画面の無いLinux、止めてある端末）では付かない。
+   */
+  wake?: CodexWakeResult;
 }
 
 /** 届き方の事実を読む。何も書き換えない。 */
@@ -101,6 +108,9 @@ async function deliveryState(target: CodexParent, delivery: string): Promise<Par
     // 所有権のlinkだけを作った段階（まだ公式キューから取り出していない）は、受け付けた後と同じ。
     else if (claim !== null || fs.existsSync(path.join(directory, "pending", `${delivery}.json`))) hook = "pending";
   }
+  let wake: { wake?: CodexWakeResult } = {};
+  try { const saved = readCodexWakeResult(AITERM_PROFILE, delivery); if (saved) wake = { wake: saved }; }
+  catch { /* 読めない結果は、無い物として扱う（届き方の事実は下で返す） */ }
   try {
     const queued = await withCodexReceiver(target, async request => {
       let cursor: string | null = null;
@@ -112,10 +122,10 @@ async function deliveryState(target: CodexParent, delivery: string): Promise<Par
       } while (cursor);
       return false;
     });
-    return { state, hook, turn_id: turn, queued };
+    return { state, hook, turn_id: turn, queued, ...wake };
   } catch (error) {
     const code = (error as { delivery_code?: unknown })?.delivery_code;
-    return { state, hook, turn_id: turn, queued: null, queue_error: typeof code === "string" ? code : "CODEX_QUEUE_UNREADABLE" };
+    return { state, hook, turn_id: turn, queued: null, queue_error: typeof code === "string" ? code : "CODEX_QUEUE_UNREADABLE", ...wake };
   }
 }
 

@@ -11,6 +11,9 @@ for (const key of Object.keys(process.env)) {
 }
 delete process.env.TMUX;
 delete process.env.TMUX_PANE;
+// 試験の配送で、寝ている会話を起こす見張り（ADR 0108）を起こさない。見張りは、その端末のCodexのアプリにリンクを開かせる。
+// 試験の会話は一時の置き場にあり、開発機やrunnerのアプリには無い。
+process.env.AITERM_STEER_CODEX_WAKE = '0';
 // macOSのos.tmpdir()は長く、tmux socketの104 byte上限を超え得る。
 const root = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'at-'));
 for (const key of ['TEMP', 'TMP', 'XDG_RUNTIME_DIR']) process.env[key] = root;

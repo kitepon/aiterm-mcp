@@ -62,7 +62,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/core.ts`は該当harnessで判定を呼び出すだけとし、CLIの拒否文言や設定の修復処理を持たない。
 - `src/agent-shared.ts`／`src/state-root.ts`: harness中立の相関state。
 - `src/parent-delivery.ts`: 子の完了観測・回答保存・配送state。
-  `src/codex-parent-receiver.ts`: Codex親の識別と公式キューの受信口。
+  `src/codex-parent-receiver.ts`: Codex親の識別と公式キューの受信口。アプリが寝かせた会話は、共通パッケージの見張りが会話を開かせて起こす（ADR 0108）。
   `src/codex-parent-hooks.ts`／`src/codex-parent-hook.ts`／`src/codex-hook-state.ts`: 同一ターンへの公式hook配送と所有記録。
   `src/setup-codex-hooks.ts`: hookの選択導入、公式APIでの承認・読戻し、旧中継からの移行。
   `src/codex-relay-arguments.ts`／`src/codex-relay-stdio.ts`／`src/codex-relay-setup.ts`: 全OS共通の引数・中継・設定処理。

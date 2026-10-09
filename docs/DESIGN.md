@@ -149,6 +149,9 @@ Steerを選択した端末（macOS・Windows・Linux。Desktop同梱のCLI、無
 `src/codex-parent-hooks.ts`の同期`PostToolUse`がAitermの回答を同じターンの文脈へ渡し、
 `Stop`が最終応答の生成中に届いた回答で同じターンを継続する。
 取り込まれていない回答は公式キューに残り、親がidleになった時に通常配送される。終了後の再開には約10秒かかる場合がある。
+公式キューを番にするのは、会話を載せているprocessだけ。アプリが下ろした会話（見ている接続が無くなって60秒）は、
+入れた後の見張り（共通パッケージの`codex-wake`）が約15秒後に見直し、アプリの会話で最後の番が普通に終わっている時だけ、
+OSの口で`codex://threads/<会話>`を開かせて起こす（ADR 0108。macOSとWindows。Linuxのアプリはまだ起こせない）。番の途中、途中で止められた会話、CLIの席は起こさない。
 親を別processでload／resumeせず、modelや権限のoverrideを渡さない。native sub-agentは自動配送の親にしない。
 
 `src/codex-hook-state.ts`は同じCodex home・thread・配送UUID・本文hashへの所有記録を保持する。

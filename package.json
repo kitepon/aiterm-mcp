@@ -72,7 +72,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "aiterm-steer-delivery": "^0.4.1",
+    "aiterm-steer-delivery": "^0.4.3",
     "ws": "8.21.3",
     "zod": "^4.4.3"
   },

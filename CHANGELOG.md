@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Windowsで、Codexの親へ文を届けた後に、端末の窓（Windows Terminal）が一瞬出る事がある件を直す（共通パッケージ`aiterm-steer-delivery` 0.4.3）。
+  0.58.0で足した「寝ている会話を起こす見張り」（ADR 0108）は、切り離したprocess（consoleを持たない）で動く。
+  CodexのSteerを有効にしていない端末では、見張りがCodexの実行ファイルを`where codex`で探し、その子に窓を隠す指定が無かった。
+  consoleを持たないprocessが、窓を隠さずにconsoleの子を起こすと、窓が一瞬出る。
+  - Steerが有効な端末（実行ファイルの場所がhookの設定にある）では、ここを通らない。その道では、0.58.0も窓を出していない（Windowsの実物で測った）。
+  - 共通パッケージが子のprocessを起こす所の全部に、窓を隠す指定を付けた。
+- 共通パッケージを0.4.3へ上げる。0.4.2の直し（Claude Codeが起動し直して再開した会話へのchannelの配送）は、channelを使う製品向けで、Aitermの動きは変わらない。
+
 ## [0.58.0] - 2026-10-09
 
 ### 修正

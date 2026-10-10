@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-10-10
+
 ### 修正
 
 - Windowsで、Codexの親へ文を届けた後に、端末の窓（Windows Terminal）が一瞬出る事がある件を直す（共通パッケージ`aiterm-steer-delivery` 0.4.3）。
@@ -2474,7 +2476,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.1...HEAD
+[0.58.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.4...v0.58.0
 [0.57.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.3...v0.57.4
 [0.57.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.2...v0.57.3

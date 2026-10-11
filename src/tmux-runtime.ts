@@ -46,6 +46,7 @@ export function psmuxVersionSupported(output: string): boolean {
   return major > 3 || (major === 3 && (minor > 3 || (minor === 3 && patch >= 8)));
 }
 let winPsmuxOk = false;
+let winPsmuxVersion: string | null = null;
 export function ensureWinPsmux(observe = true): void {
   if (winPsmuxOk) return;
   const r = spawnSync(psmuxBin(), ["-V"], { encoding: "utf8", timeout: 10000 });
@@ -62,7 +63,128 @@ export function ensureWinPsmux(observe = true): void {
     ptyDependencyError("psmux -V が失敗しました。`psmux -V` が通るか確認してください。", observe);
   if (!psmuxVersionSupported(r.stdout ?? ""))
     ptyDependencyError("psmux 3.3.8以上が必要です。winget upgrade --id marlocarlo.psmux --source winget で更新してください。", observe);
+  winPsmuxVersion = /^psmux (\d+\.\d+\.\d+)(?:\s|$)/mu.exec(r.stdout ?? "")?.[1] ?? null;
   winPsmuxOk = true;
+}
+
+// ---- psmux 3.3.8: 画面の無いlogonで立てた本体の控えが、画面のある側から消される（psmux #650）----
+// sshで入った側やserviceの下（Terminal Servicesのsession 0）で立てたpsmuxの本体を、同じ利用者の、画面のある側の
+// 普段の権限のprocessは開けない（OpenProcessがERROR_ACCESS_DENIED）。psmux 3.3.8は「開けない＝本体は終わっている」と
+// 読み、画面のある側でpsmuxが1回呼ばれるたびに（`psmux -V`でも）、その端末の控え（~/.psmux の port・key・pid・sid）を消す。
+// 本体が5秒以内に書き戻すまで端末は一覧から消え、その間にこちら側でpsmuxを呼ぶと、控えの無い本体として止められる
+// （実被弾 2026-10-11 fox: sshの側で立てたGrokの席が、4回中2回、文を送った20秒ほど後に消えた）。
+// 直しはpsmuxのmasterに入っているが、公開された版は3.3.8が最後。それまでの間、立てた本体へ
+// 「同じ利用者が名前を問う権利（PROCESS_QUERY_LIMITED_INFORMATION）」だけを足す。画面のある側が本体を開けるようになり、控えは消されない。
+const PSMUX_DESKTOP_ACCESS_VERSION = "3.3.8";
+const PSMUX_SERVER_PID_WAIT_MS = 5500;
+const PSMUX_REGISTRY_SETTLE_MS = 6000;
+const PSMUX_DESKTOP_ACCESS_POLL_MS = 250;
+let psmuxOnDesktop = false;
+
+/** 手当てが要る見込みか。processを起こさずに決める。 */
+export function psmuxDesktopAccessWanted(version: string | null, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (version !== PSMUX_DESKTOP_ACCESS_VERSION) return false;
+  // SESSIONNAME（Console・RDP-Tcp#N）は画面のあるlogonの印。ある時は画面のある側で、手当ては要らない。
+  // 無いのは、ssh・serviceの下か、画面のある側のタスク。どちらかは、手当てのscriptがsessionの番号で見分ける。
+  return !env.SESSIONNAME;
+}
+
+/** 本体へ権利を足すPowerShellのscript。出力は1行: `ok`（足した）・`desktop`（画面のある側なので何もしない）・それ以外（失敗の理由）。 */
+export function psmuxServerAccessScript(serverPid: number): string {
+  return `$ErrorActionPreference = 'Stop'
+if ([Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0) { 'desktop'; exit 0 }
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class AitermPsmuxAccess {
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
+  [DllImport("advapi32.dll")] static extern uint GetSecurityInfo(IntPtr handle, int objectType, uint info, IntPtr owner, IntPtr group, out IntPtr dacl, IntPtr sacl, out IntPtr sd);
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode)] static extern uint SetEntriesInAclW(uint count, ref EXPLICIT_ACCESS entries, IntPtr oldAcl, out IntPtr newAcl);
+  [DllImport("advapi32.dll")] static extern uint SetSecurityInfo(IntPtr handle, int objectType, uint info, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+  [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool ConvertStringSidToSidW(string sid, out IntPtr psid);
+  [StructLayout(LayoutKind.Sequential)] struct TRUSTEE { public IntPtr pMultipleTrustee; public int MultipleTrusteeOperation; public int TrusteeForm; public int TrusteeType; public IntPtr ptstrName; }
+  [StructLayout(LayoutKind.Sequential)] struct EXPLICIT_ACCESS { public uint grfAccessPermissions; public int grfAccessMode; public uint grfInheritance; public TRUSTEE Trustee; }
+  public static string Grant(uint pid, string sid, uint mask) {
+    IntPtr h = OpenProcess(0x00060000, false, pid); // READ_CONTROL | WRITE_DAC
+    if (h == IntPtr.Zero) return "OpenProcess " + Marshal.GetLastWin32Error();
+    try {
+      IntPtr dacl, sd, psid, newAcl;
+      uint r = GetSecurityInfo(h, 6, 4, IntPtr.Zero, IntPtr.Zero, out dacl, IntPtr.Zero, out sd); // SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION
+      if (r != 0) return "GetSecurityInfo " + r;
+      if (!ConvertStringSidToSidW(sid, out psid)) return "ConvertStringSidToSid " + Marshal.GetLastWin32Error();
+      EXPLICIT_ACCESS ea = new EXPLICIT_ACCESS();
+      ea.grfAccessPermissions = mask; ea.grfAccessMode = 1; ea.grfInheritance = 0; // GRANT_ACCESS
+      ea.Trustee.TrusteeForm = 0; ea.Trustee.TrusteeType = 1; ea.Trustee.ptstrName = psid; // TRUSTEE_IS_SID, TRUSTEE_IS_USER
+      r = SetEntriesInAclW(1, ref ea, dacl, out newAcl);
+      if (r != 0) return "SetEntriesInAcl " + r;
+      r = SetSecurityInfo(h, 6, 4, IntPtr.Zero, IntPtr.Zero, newAcl, IntPtr.Zero);
+      LocalFree(newAcl); LocalFree(psid); LocalFree(sd);
+      return r == 0 ? "ok" : "SetSecurityInfo " + r;
+    } finally { CloseHandle(h); }
+  }
+}
+"@
+[AitermPsmuxAccess]::Grant(${serverPid}, [Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 0x1000)
+`;
+}
+
+function runPsmuxServerAccessScript(serverPid: number): string {
+  const powershell = path.win32.join(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const encoded = Buffer.from(psmuxServerAccessScript(serverPid), "utf16le").toString("base64");
+  const r = spawnSync(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+    { encoding: "utf8", windowsHide: true, timeout: 15000 });
+  if (r.error) return `powershell ${(r.error as NodeJS.ErrnoException).code ?? "error"}`;
+  return (r.stdout ?? "").trim().split(/\r?\n/).pop() || `powershell exit ${r.status}`;
+}
+
+export type PsmuxDesktopAccess = "skipped" | "desktop" | "granted" | "failed";
+
+/**
+ * 立てたばかりの端末の本体を、画面のある側から問えるようにする（上の説明）。端末を作った直後に1回呼ぶ。
+ * 失敗しても端末は使えるので、投げない。足せなかった時は、理由を1行だけstderrへ書く。
+ */
+export function openPsmuxServerToDesktop(
+  session: string,
+  o: {
+    wanted?: boolean;
+    tmux?: (...args: string[]) => { code: number; stdout: string };
+    grant?: (serverPid: number) => string;
+    pause?: (ms: number) => void;
+  } = {},
+): PsmuxDesktopAccess {
+  if (o.wanted === undefined) {
+    if (!isWin || psmuxOnDesktop) return "skipped";
+    ensureWinPsmux(false);
+  }
+  if (!(o.wanted ?? psmuxDesktopAccessWanted(winPsmuxVersion))) return "skipped";
+  const tmux = o.tmux ?? ((...args: string[]) => runTmux(false, undefined, args));
+  const pause = o.pause ?? ((ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); });
+  // 立てた直後に控えを消されていると、本体のpidを問えない。本体が控えを書き戻す（5秒以内）まで待つ。
+  // 立てて10秒以内の本体は、控えが無くても止められない。待ちは、足しても10秒より短くしてある。
+  let serverPid = 0;
+  for (let waited = 0; ; waited += PSMUX_DESKTOP_ACCESS_POLL_MS) {
+    const r = tmux("display-message", "-p", "-t", session, "#{pid}");
+    serverPid = r.code === 0 && /^\d+$/.test(r.stdout.trim()) ? Number(r.stdout.trim()) : 0;
+    if (serverPid > 0 || waited >= PSMUX_SERVER_PID_WAIT_MS) break;
+    pause(PSMUX_DESKTOP_ACCESS_POLL_MS);
+  }
+  const result = serverPid > 0 ? (o.grant ?? runPsmuxServerAccessScript)(serverPid) : "psmuxの本体のpidを問えません";
+  if (result === "desktop") {
+    // 画面のある側のprocessは、何度立てても同じ答えになる。以後は問わない。
+    if (o.wanted === undefined) psmuxOnDesktop = true;
+    return "desktop";
+  }
+  if (result !== "ok") {
+    process.stderr.write(`aiterm: PSMUX_SERVER_ACCESS_NOT_GRANTED session=${session} ${result.slice(0, 200)}\n`);
+    return "failed";
+  }
+  // 足す前に消された控えが戻るのを待ってから、端末を使い始める。
+  for (let waited = 0; waited < PSMUX_REGISTRY_SETTLE_MS; waited += PSMUX_DESKTOP_ACCESS_POLL_MS) {
+    if (tmux("has-session", "-t", session).code === 0) break;
+    pause(PSMUX_DESKTOP_ACCESS_POLL_MS);
+  }
+  return "granted";
 }
 
 // tmux が見つからないときの説明。macOS は tmux を同梱せず、Homebrew の bin は GUI 起動時の PATH に

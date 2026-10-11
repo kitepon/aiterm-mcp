@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Windowsで、sshの側（`remote`付きの呼び出しを含む）やserviceの下で立てた端末・席が、一覧から消えたり、途中で止められたりする件を直す（ADR 0109）。
+  psmux 3.3.8は、画面のある側でどの命令が呼ばれても、開けない本体の控えを「終わった物」として消す（psmux #650。直しは未公開）。
+  画面の無いlogonで立てた本体は、同じ利用者の画面のある側から開けないので、ほかの席が動くたびに控えが消えていた。
+  その間、Aitermは`missing / session_missing`や「paneの活動観測を取得できません」を返し、席ごと止められる事もあった
+  （Windowsの実物で、sshの側で立てたGrokの席が4回中2回、文を送った20秒ほど後に消えた）。
+  - 端末を立てた直後に、本体のprocessへ「同じ利用者が名前を問う権利」（`PROCESS_QUERY_LIMITED_INFORMATION`）だけを足す。画面のある側が本体を開けるようになり、控えは消されない。
+  - 足すのは、psmuxが3.3.8で、画面のあるlogonの印（`SESSIONNAME`）が無い時だけ。アプリや端末から起こしたAitermでは、何も起こさない。
+  - sshの側で端末を1つ立てるたびに、約0.35秒かかる。足せなかった時も端末は使え、理由を1行だけstderrへ書く。
+  - 更新の前に立てた端末には効かない。
+
 ## [0.58.1] - 2026-10-10
 
 ### 修正

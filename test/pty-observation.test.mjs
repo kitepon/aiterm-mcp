@@ -208,3 +208,17 @@ test('子へ渡されたAITERM_STATE_BASEがあれば、XDG_RUNTIME_DIRより優
   process.env.AITERM_STATE_BASE = path.join(base, 'missing');
   assert.notEqual(runtimeStateBase(), path.join(base, 'missing'));
 });
+
+// psmux 3.3.8: 画面の無いlogon（CIのservice・ssh）で立てた端末の控えを、画面のある側のpsmuxが消す（psmux #650）。
+// 実物の端末で、手当て（本体へ名前を問う権利を足す）が失敗しない事を見る。どの道を通ったかは記録へ出す。
+test("Windows: 立てた端末の本体を、画面のある側から問えるようにできる", { skip: process.platform !== "win32" }, async (t) => {
+  const { openPsmuxServerToDesktop } = await import("../dist/tmux-runtime.js");
+  const name = `access-${process.pid}`;
+  core.openSession(name, "pwsh", []);
+  try {
+    const result = openPsmuxServerToDesktop(name);
+    t.diagnostic(`openPsmuxServerToDesktop: ${result} (SESSIONNAME=${process.env.SESSIONNAME ?? "なし"})`);
+    assert.notEqual(result, "failed");
+    assert.match(core.listSessions(), new RegExp(`^${name}\\t`, "mu"));
+  } finally { core.closeSession(name); }
+});

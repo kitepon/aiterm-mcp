@@ -31,6 +31,7 @@ import {
   loadPtyBufferChunk,
   pasteBufferBaseArgs,
   tmuxNewSession,
+  openPsmuxServerToDesktop,
   registeredSessionEnvironment,
   attachCommand,
   normalizePaneCommand,
@@ -906,6 +907,8 @@ export function openSession(name?: string | null, shell = "bash", envVars: strin
       const launch = sessionEnvironmentLaunch(shell, environment);
       const r = tmuxNewSession(true, nm, launch, environment.map(entry => entry.slice(0, entry.indexOf("="))));
       if (r.code === 0) {
+        // Windowsで、画面の無いlogon（ssh・service）で立てた本体の控えを、画面のある側のpsmuxに消させない（psmux 3.3.8）。
+        openPsmuxServerToDesktop(nm);
         if (launch.register_after_start) for (const entry of environment) {
           const at = entry.indexOf("=");
           const registered = tmux("set-environment", "-t", nm, entry.slice(0, at), entry.slice(at + 1));

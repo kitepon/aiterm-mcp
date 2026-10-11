@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 
-import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand } from "../dist/tmux-runtime.js";
+import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
+  psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop } from "../dist/tmux-runtime.js";
 
 test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {
   const source = "文字列'\\\n2行目\r\n";
@@ -84,4 +85,77 @@ test("macOSのGUI側tmux起動jobは引数と環境を逐語でlaunchdへ渡し�
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// psmux 3.3.8は、画面の無いlogon（ssh・service）で立てた本体を画面のある側から開けないと、その端末の控えを消す（psmux #650）。
+test("psmuxの本体を画面のある側へ開く手当ては、直しの無い版で、画面のあるlogonの印が無い時だけ要る", () => {
+  assert.equal(psmuxDesktopAccessWanted("3.3.8", {}), true);
+  assert.equal(psmuxDesktopAccessWanted("3.3.8", { SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }), true);
+  assert.equal(psmuxDesktopAccessWanted("3.3.8", { SESSIONNAME: "Console" }), false);
+  assert.equal(psmuxDesktopAccessWanted("3.3.8", { SESSIONNAME: "RDP-Tcp#0" }), false);
+  assert.equal(psmuxDesktopAccessWanted("3.3.9", {}), false);
+  assert.equal(psmuxDesktopAccessWanted("4.0.0", {}), false);
+  assert.equal(psmuxDesktopAccessWanted(null, {}), false);
+});
+
+test("本体へ足す権利は、名前を問う権利（0x1000）だけで、画面のある側のprocessからは何もしない", () => {
+  const script = psmuxServerAccessScript(4321);
+  assert.match(script, /SessionId -ne 0\) \{ 'desktop'; exit 0 \}/u);
+  assert.match(script, /\[AitermPsmuxAccess\]::Grant\(4321, \[Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)\.User\.Value, 0x1000\)/u);
+  // 本体を開く時の権利は、控えの読み書きに要る READ_CONTROL と WRITE_DAC だけ。
+  assert.match(script, /OpenProcess\(0x00060000, false, pid\)/u);
+  assert.equal(Buffer.from(Buffer.from(script, "utf16le").toString("base64"), "base64").toString("utf16le"), script);
+});
+
+function accessRun(steps) {
+  const calls = [];
+  let paused = 0;
+  const result = openPsmuxServerToDesktop("seat", {
+    wanted: steps.wanted ?? true,
+    tmux: (...args) => { calls.push(args[0]); return (args[0] === "display-message" ? steps.pid : steps.has)?.(calls.filter(c => c === args[0]).length) ?? { code: 1, stdout: "" }; },
+    grant: (pid) => { calls.push(`grant:${pid}`); return steps.grant; },
+    pause: (ms) => { paused += ms; },
+  });
+  return { result, calls, paused };
+}
+
+test("要らない時は、psmuxもPowerShellも呼ばない", () => {
+  assert.deepEqual(accessRun({ wanted: false }), { result: "skipped", calls: [], paused: 0 });
+});
+
+test("立てた直後に控えを消されていても、本体が書き戻すのを待ってから権利を足し、控えが戻ってから返す", () => {
+  const run = accessRun({
+    pid: n => n < 3 ? { code: 1, stdout: "" } : { code: 0, stdout: "4321\r\n" },
+    grant: "ok",
+    has: n => ({ code: n < 2 ? 1 : 0, stdout: "" }),
+  });
+  assert.equal(run.result, "granted");
+  assert.deepEqual(run.calls, ["display-message", "display-message", "display-message", "grant:4321", "has-session", "has-session"]);
+  assert.equal(run.paused, 750);
+});
+
+test("画面のある側のprocessと分かった時は、権利を足さずに返す", () => {
+  const run = accessRun({ pid: () => ({ code: 0, stdout: "77\n" }), grant: "desktop" });
+  assert.equal(run.result, "desktop");
+  assert.deepEqual(run.calls, ["display-message", "grant:77"]);
+});
+
+test("権利を足せない時も端末は使わせる。投げずに、理由を1行だけstderrへ書く。待ちは10秒より短い", () => {
+  const written = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => { written.push(String(chunk)); return true; };
+  let refused, lost;
+  try {
+    refused = accessRun({ pid: () => ({ code: 0, stdout: "77" }), grant: "OpenProcess 5" });
+    lost = accessRun({ grant: "ok" });
+  } finally { process.stderr.write = original; }
+  assert.equal(refused.result, "failed");
+  assert.deepEqual(refused.calls, ["display-message", "grant:77"]);
+  assert.equal(lost.result, "failed");
+  assert.equal(lost.calls.includes("grant:0"), false);
+  assert.ok(lost.paused <= 5500, String(lost.paused));
+  assert.deepEqual(written, [
+    "aiterm: PSMUX_SERVER_ACCESS_NOT_GRANTED session=seat OpenProcess 5\n",
+    "aiterm: PSMUX_SERVER_ACCESS_NOT_GRANTED session=seat psmuxの本体のpidを問えません\n",
+  ]);
 });

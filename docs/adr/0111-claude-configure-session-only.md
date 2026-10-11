@@ -45,6 +45,7 @@ Claude Codeの席では、`/model`を引数なしで開いた選ぶ画面を1歩
 |---|---|
 | `CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE` | 選ぶ画面に`s to use this session only`が無い（古い版、管理された設定）。既定を書き換える選び方へは落ちない |
 | `CLAUDE_MODEL_NOT_IN_PICKER` | 選ぶ画面に無いmodel。文に選べる機種の名前を並べる |
+| `CLAUDE_MODEL_NOT_SELECTABLE` | 行はあるが選べない。起きた後にClaude Codeが更新された席に出る「Update Claude Code to use this model」の行（その行の足元は「Esc to cancel」だけ） |
 | `CLAUDE_EFFORT_NOT_SELECTABLE` | effortに対応しないmodel（Haiku 4.5）、そのmodelに無い段（Opus 4.6のxhigh） |
 | `CLAUDE_MODEL_PICKER_NOT_SHOWN`・`CLAUDE_MODEL_PICKER_UNREADABLE`・`CLAUDE_MODEL_SWITCH_UNCONFIRMED` | 画面が想定と違う |
 | `CLAUDE_MODEL_SWITCH_REFUSED` | Claude Codeが切り替えなかった（hookが止めた、など） |

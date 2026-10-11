@@ -831,7 +831,9 @@ test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで�
       try {
         await withFakeCodexHome(async () => {
           const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
-          const receipt = await core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY", { ready_timeout: 2_000 });
+          // 待ちは上限で、入力待ちへ戻ればすぐ進む。2秒では、混んだWindowsの端末で模擬のTUIの描き直しが間に合わず、
+          // 「入力受付状態になりません」「RECOVERY_FAILED」で落ちた（2026-10-12、CPU 68%・node 233個のfoxで2回続けて）。
+          const receipt = await core.dispatchAgentTurn(actualSid, "RATE_LIMIT_BODY", { ready_timeout: 10_000 });
           assert.equal(receipt.session_id, actualSid);
           assert.ok(receipt.pane_input_recovery.includes("codex_rate_limit_model_switch_kept_current"));
           assert.match(core.listSessions(), new RegExp(`(^|\\n)${actualSid}\\t`), "同じsessionを保つ");

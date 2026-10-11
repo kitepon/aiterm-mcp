@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `model`は、catalogのID（`claude-opus-5-5`）、別名（`opus`）、表示名（`Opus 5.5`）のどれでも受ける。
   - 選べない時は、選ぶ画面をEscで閉じて、何も変えずに断る。`s`の選び方が無い版では、保存する選び方へ落ちずに断る
     （`CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`）。選ぶ画面に無いmodelは`CLAUDE_MODEL_NOT_IN_PICKER`（文に選べる機種を並べる）、
+    行はあるが選べないmodel（席のClaude Codeが古い時の「Update Claude Code to use this model」）は`CLAUDE_MODEL_NOT_SELECTABLE`、
     そのmodelで選べないeffortは`CLAUDE_EFFORT_NOT_SELECTABLE`。今までは、Claude Codeが受け付けない値でも成功で返っていた。
   - `reasoning_effort`が`low`/`medium`/`high`/`xhigh`/`max`/`ultracode`のどれでもない時は、打つ前に断る。
   - 引数と返りの形（`aiterm.agent-configure-result.v1`）、Codex・Grok・Cursorの席の動きは変わらない。

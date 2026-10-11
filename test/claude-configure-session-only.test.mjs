@@ -155,13 +155,16 @@ const options = ${JSON.stringify(options)};
 const ALL = ["low", "medium", "high", "xhigh", "max"];
 const rows = [["Default (recommended)", ALL], ["Opus 5.5", ALL], ["Fable 5.1", ALL], ["Sonnet 5.5", ALL], ["Haiku 5.5", ALL], ["Haiku 4.5", []],
   ["Sonnet 5", ALL], ["Opus 5", ALL], ["Fable 5", ALL], ["Opus 4.8", ALL], ["Opus 4.7", ALL],
-  ["Opus 4.6", ["low", "medium", "high", "max"]], ["Sonnet 4.6", ["low", "medium", "high", "max"]]];
+  ["Opus 4.6", ["low", "medium", "high", "max"]], ["Sonnet 4.6", ["low", "medium", "high", "max"]],
+  // 起きた後にClaude Codeが更新された席に出る、選べない行（macOSの実物 2026-10-12）。
+  ...(options.staleRow ? [["Haiku 6", null]] : [])];
 const label = { low: "Low", medium: "Medium", high: "High", xhigh: "xHigh", max: "Max" };
 const rule = "─".repeat(60);
 let mode = "composer", line = "", log = [], current = 3, cursor = 3, effort = "medium", picked = "medium", dropped = false;
 // 本物と同じく、同じ場所へ描き直す（画面を消して送ると、前の表示が端末の履歴に残る）。
 const render = (lines) => process.stdout.write("\\x1b[H" + lines.map(l => l + "\\x1b[K").join("\\n") + "\\n\\x1b[J");
-const supported = () => rows[cursor][1];
+const selectable = () => rows[cursor][1] !== null;
+const supported = () => rows[cursor][1] ?? [];
 // そのmodelに無い段は、1つ下の段で見せる。
 const shown = () => { const list = supported(); return list.length === 0 ? null : list.includes(picked) ? picked : [...list].reverse().find(l => ALL.indexOf(l) < ALL.indexOf(picked)) ?? list[0]; };
 function draw() {
@@ -174,8 +177,10 @@ function draw() {
   const view = rows.slice(start, start + 3).map(([name], i) => {
     const at = start + i;
     const mark = at === cursor ? "❯" : i === 0 && start > 0 ? "↑" : i === 2 && start + 3 < rows.length ? "↓" : " ";
-    return "  " + mark + " " + String(at + 1) + ".  " + (name + (at === current ? " ✔" : "")).padEnd(24) + "  For some kind of work";
+    return "  " + mark + " " + String(at + 1) + ".  " + (name + (at === current ? " ✔" : "")).padEnd(24) + (rows[at][1] === null ? "  Update Claude Code to use this model" : "  For some kind of work");
   });
+  if (!selectable()) return render([...top, rule, "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
+    "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models", "  Esc to cancel"]);
   const level = shown();
   render([...top, rule, options.newLayout ? "  Choose a model" : "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
     "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models",
@@ -219,8 +224,8 @@ process.stdin.on("data", (chunk) => {
     const list = supported(), at = list.indexOf(shown());
     if (at >= 0) picked = list[Math.max(0, Math.min(list.length - 1, at + (arrow === "C" ? 1 : -1)))];
   }
-  else if (key === "s" && !options.noSessionOnly) { if (options.cached && cursor !== current) mode = "confirm"; else apply("session"); }
-  else if (key === "\\r") apply("saved");
+  else if (key === "s" && !options.noSessionOnly && selectable()) { if (options.cached && cursor !== current) mode = "confirm"; else apply("session"); }
+  else if (key === "\\r" && selectable()) apply("saved");
   else if (key === "\\x1b") { log.push("  ⎿  Kept model as " + rows[current][0]); mode = "composer"; }
   draw();
 });
@@ -310,6 +315,21 @@ test("agent_configure: 「この会話だけ」の選び方が無いClaude Code�
     assert.equal(saved(), false);
     assert.equal(keys(), "/model⏎⎋");
     assert.equal(core.observeSession(sid).state, "idle");
+  });
+});
+
+test("agent_configure: 選べない行（席のClaude Codeが古い）を通り抜けて選べる。その行そのものは断る", { skip: ptySkip }, async () => {
+  await withPickerClaude({ staleRow: true }, async ({ sid, keys, screen, saved }) => {
+    // 行を集める途中で、選べない14行目（足元が「Esc to cancel」だけ）を通る。そこで止まらず、Enterも押さない。
+    assert.deepEqual(await core.configureAgent(sid, { model: "opus", reasoning_effort: "high" }), done(sid, "opus", "high"));
+    assert.match(await screen(), /Set model to Opus 5\.5 for this session only with high effort/u);
+    assert.equal(keys(), `/model⏎${"↓".repeat(14)}↑↑→s`);
+    await assert.rejects(core.configureAgent(sid, { model: "Haiku 6" }),
+      /CLAUDE_MODEL_NOT_SELECTABLE vendor=claude[\s\S]*Haiku 6 は、この席のClaude Codeでは選べません[\s\S]*modelとreasoning_effortは変えていません。/u);
+    assert.ok(keys().endsWith("⎋"), keys());
+    assert.equal(core.observeSession(sid).state, "idle");
+    assert.match(await screen(), /Kept model as Opus 5\.5/u);
+    assert.equal(saved(), false);
   });
 });
 

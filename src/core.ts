@@ -4908,6 +4908,13 @@ async function configureClaudeForSessionOnly(
       at = cursorOf(next)!.index;
     }
     if (at !== target.index) return refuse("CLAUDE_MODEL_PICKER_UNREADABLE", `選ぶ画面で ${target.label} の行へ動けません`);
+    // 起きた後にClaude Codeが更新された席では、「Update Claude Code to use this model」の行が出る。その行にはEnterもsも無い。
+    if (!now.session_only) {
+      return refuse(
+        "CLAUDE_MODEL_NOT_SELECTABLE",
+        `${target.label} は、この席のClaude Codeでは選べません（選ぶ画面のその行に、選ぶためのキーが出ていません。席のClaude Codeが古い見込み）`,
+      );
+    }
     targetIndex = target.index;
   }
 

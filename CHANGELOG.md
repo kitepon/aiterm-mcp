@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `reasoning_effort`が`low`/`medium`/`high`/`xhigh`/`max`/`ultracode`のどれでもない時は、打つ前に断る。
   - 引数と返りの形（`aiterm.agent-configure-result.v1`）、Codex・Grok・Cursorの席の動きは変わらない。
   - 「この会話だけ」の替えなので、席を閉じて立て直すと端末の既定へ戻る。立て直す時は`agent_launch`へ同じ値を渡す。
+  - 選ぶ画面に無いmodel（`opus[1m]`のような名前、古い機種のID）は、動いている席では替えられなくなる。今までは`/model <名前>`で通っていた
+    （端末の既定へ保存されていた）。席を閉じて、`agent_launch`の`model`で渡して立て直す。
 
 ### 追加
 

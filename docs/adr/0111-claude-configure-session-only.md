@@ -61,6 +61,14 @@ Claude Codeの席では、`/model`を引数なしで開いた選ぶ画面を1歩
 - 実際に2400行を超える会話の席（macOS）で、確かめの画面を1番で進めて切り替わった。
 - Aitermが席ごとに渡す設定file（`--settings`の先）へ`model`・`effortLevel`を書いても、動いている席は読み直さなかった。この道は使えない。
 
+## 出来なくなった事
+
+- 選ぶ画面に無いmodel（`opus[1m]`のような文脈の大きさ付きの名前、古い機種のID）は、動いている席では替えられない。
+  Claude Codeの画面にも「For other/previous model names, specify with --model」とある。今までは`/model <名前>`で通っていた
+  （その代わり、端末の既定へ保存されていた）。そういうmodelにする時は、席を閉じて、`agent_launch`の`model`で渡して立て直す。
+- 行は表示名で探す。IDは`claude-<系統>-<版>`の形を「<系統> <版>」へ読み替える。この決まりから外れるIDは、選ぶ画面にあっても
+  `CLAUDE_MODEL_NOT_IN_PICKER`で断る（今のcatalogの13個は全部対応する）。断りの文に選べる表示名が並ぶので、表示名で渡せば選べる。
+
 ## 変えなかった事
 
 - 引数（`session_id`・`model`・`reasoning_effort`）と返りの形（`aiterm.agent-configure-result.v1`）。

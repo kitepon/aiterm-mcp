@@ -42,4 +42,7 @@ Windowsの実物では、起こすstdioのMCPが8個以上の時に毎回こう�
 
 - `test/grok-unaccepted-prompt.test.mjs`: 実物から写した画面での読み分け、完了待ちの2回読み、
   模擬のGrok（1通目を受け取らない）で「受け取り待ちの間は断る→取り消しの後に完了待ちが`error`で終わる→戻された文を消して次の文だけを送る→答えが届く」。
-- 実物（Windows、MCPが10個の設定のGrok 1.0.50）での確かめは、CHANGELOGに書く。
+- 実物（Windows、MCPが10個の設定のGrok 1.0.50、枝の版）: 受け取り待ちの15秒目に送った文は`GROK_PROMPT_NOT_ACCEPTED_YET`で断られ、
+  完了待ちは文を送って124秒後に`outcome: "error"`で終わった。その後に送った文は`pane_input_recovery: ["grok_unaccepted_prompt_cleared"]`で送られ、
+  画面の文は2通目だけだった（前の文とつながらない）。
+- 実物（Linux、受け取るGrok 1.0.46）: 差し込みと、待機中の送信は今までどおり通る。

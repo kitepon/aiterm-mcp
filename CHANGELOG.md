@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.2] - 2026-10-11
+
 ### 修正
 
 - Windowsで、sshの側（`remote`付きの呼び出しを含む）やserviceの下で立てた端末・席が、一覧から消えたり、途中で止められたりする件を直す（ADR 0109）。
@@ -2495,7 +2497,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.2...HEAD
+[0.58.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.1...v0.58.2
 [0.58.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.4...v0.58.0
 [0.57.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.3...v0.57.4

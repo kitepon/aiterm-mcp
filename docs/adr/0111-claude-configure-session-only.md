@@ -50,6 +50,8 @@ Claude Codeの席では、`/model`を引数なしで開いた選ぶ画面を1歩
 | `CLAUDE_MODEL_SWITCH_REFUSED` | Claude Codeが切り替えなかった（hookが止めた、など） |
 
 - Escは、選ぶ画面か確かめの画面が出ている間だけ打つ。入力欄へ戻った後に打つと、ほかの操作を取り消してしまう。
+- 選ぶ画面を読めない時（`CLAUDE_MODEL_PICKER_NOT_SHOWN`。Claude Codeの版で画面の形が変わった時）は、席が入力待ちでも動作中でもない
+  時だけ、Escを1度打つ。読めない画面を開いたまま残すと、席が次の文を受け取れなくなる。断りの文に、その後の席の状態を書く。
 - キーが1つ落ちた時のために、画面が変わらなければ1度だけ押し直す。
 - `reasoning_effort`が5段と`ultracode`のどれでもない時は、画面を開く前に断る。`ultracode`は選ぶ画面に出ないsession設定で、
   Claude Code自身が「this session only」と返すので、今までどおり`/effort ultracode`で送る。

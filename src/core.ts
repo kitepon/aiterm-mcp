@@ -4856,9 +4856,16 @@ async function configureClaudeForSessionOnly(
   await sendAgentPromptText(name, "/model");
   let now = await until(picker, CLAUDE_MODEL_PICKER_TIMEOUT_MS);
   if (!now) {
+    // 読めない形の画面が開いたままだと、席が次の文を受け取れない。入力待ちでも動作中でもない時だけ、Escを1度打って閉じる。
+    let state = claudePaneObservation(screen());
+    if (state.state === "unknown") {
+      sendMenuChoice(name, "Escape");
+      await sleep(500);
+      state = claudePaneObservation(screen());
+    }
     throw new AitermError(
-      `CLAUDE_MODEL_PICKER_NOT_SHOWN vendor=claude session=${name}\n` +
-        "Claude Codeの /model の選ぶ画面を確認できません。modelとreasoning_effortは変えていません。",
+      `CLAUDE_MODEL_PICKER_NOT_SHOWN vendor=claude session=${name} state=${state.state}/${state.reason}\n` +
+        "Claude Codeの /model の選ぶ画面を読めません（Claude Codeの版で画面の形が変わった見込み）。modelとreasoning_effortは変えていません。",
       2,
     );
   }

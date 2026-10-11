@@ -177,7 +177,7 @@ function draw() {
     return "  " + mark + " " + String(at + 1) + ".  " + (name + (at === current ? " ✔" : "")).padEnd(24) + "  For some kind of work";
   });
   const level = shown();
-  render([...top, rule, "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
+  render([...top, rule, options.newLayout ? "  Choose a model" : "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
     "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models",
     level ? "  ◐ " + label[level] + " effort" + (level === "medium" ? " (default)" : "") + " ←/→ to adjust" : "  ○ Effort not supported for " + rows[cursor][0],
     options.noSessionOnly ? "  Enter to confirm · Esc to cancel" : "  Enter to set as default · s to use this session only · Esc to cancel"]);
@@ -307,6 +307,16 @@ test("agent_configure: 「この会話だけ」の選び方が無いClaude Code�
   await withPickerClaude({ noSessionOnly: true }, async ({ sid, keys, saved }) => {
     await assert.rejects(core.configureAgent(sid, { model: "opus", reasoning_effort: "high" }),
       /CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE vendor=claude[\s\S]*端末の既定を書き換える選び方は使いません。modelとreasoning_effortは変えていません。/u);
+    assert.equal(saved(), false);
+    assert.equal(keys(), "/model⏎⎋");
+    assert.equal(core.observeSession(sid).state, "idle");
+  });
+});
+
+test("agent_configure: 選ぶ画面の形が変わって読めない時は、開いた画面をEscで閉じてから断る（席を塞がない）", { skip: ptySkip }, async () => {
+  await withPickerClaude({ newLayout: true }, async ({ sid, keys, saved }) => {
+    await assert.rejects(core.configureAgent(sid, { model: "opus", reasoning_effort: "high" }),
+      /CLAUDE_MODEL_PICKER_NOT_SHOWN vendor=claude session=\S+ state=idle\/composer_ready\n[\s\S]*modelとreasoning_effortは変えていません。/u);
     assert.equal(saved(), false);
     assert.equal(keys(), "/model⏎⎋");
     assert.equal(core.observeSession(sid).state, "idle");

@@ -164,6 +164,8 @@ test("通常PTYの自己識別と明示キーだけの環境照会", async () =>
   assert.deepEqual(list.sessions[0].environment, {
     AITERM_SESSION_ID: name, AITERM_TEST_OWNER: "観測担当", AITERM_UNSET_TEST: null,
   });
+  assert.equal(list.sessions[0].harness, null);
+  assert.equal(list.sessions[0].vendor_session_id, null, "通常PTYには会話IDが無い");
   const before = core.observeSession(name);
   assert.equal(before.exists, true);
   assert.equal(before.pane_alive, true);

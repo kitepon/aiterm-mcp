@@ -622,7 +622,7 @@ continue to use `claude_approval`.
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
-| `pty_list` | Text and structured session list, with explicitly requested non-secret environment values | `env_keys?` |
+| `pty_list` | Text and structured session list (each agent session carries its harness conversation ID as `vendor_session_id`), with explicitly requested non-secret environment values | `env_keys?` |
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?` |
@@ -663,6 +663,8 @@ enables collection on that host.
 `agent_launch` starts a selected harness's interactive coding-agent TUI inside a fresh persistent PTY and returns its `session_id`. The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is independent. The TUI is a full-screen app, so read it with `pty_read({ screen: true })` for the rendered view.
 
 `agent_configure({ session_id, model?, reasoning_effort? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
+
+Claude Codeの席では、`/model`の選ぶ画面の`s`（use this session only）で替える。`/model <名前>`・`/effort <値>`は選んだ値を端末の`~/.claude/settings.json`へ新しい会話の既定として保存するので、打たない（ADR 0111）。その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る（`CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`・`CLAUDE_MODEL_NOT_IN_PICKER`・`CLAUDE_EFFORT_NOT_SELECTABLE`）。席を閉じて立て直すと端末の既定へ戻るので、立て直す時は`agent_launch`へ同じ`model`・`reasoning_effort`を渡す。
 
 `agent_auth({ harness, action:"start"|"status"|"cancel", session_id?, cwd?, env_vars?, relogin? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
 

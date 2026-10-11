@@ -953,32 +953,7 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
   }
 });
 
-test("agent_configure: Claudeへ/modelと/effortを同じsessionのまま送る", { skip: skipAgentDone }, async () => {
-  const savedBin = process.env.CLAUDE_BIN;
-  const fakeBin = makeFakeClaudeTuiBin();
-  process.env.CLAUDE_BIN = fakeBin;
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  try {
-    const result = await core.configureAgent(sid, { model: "opus", reasoning_effort: "high" });
-    assert.deepEqual(result, {
-      schema: "aiterm.agent-configure-result.v1",
-      session_id: sid,
-      provider: "claude",
-      harness: "claude-code",
-      model: "opus",
-      reasoning_effort: "high",
-    });
-    const out = await core.readOutput(sid, { full: true, raw: true });
-    assert.match(out, /\/model opus/);
-    assert.match(out, /\/effort high/);
-    assert.match(core.listSessions(), new RegExp(`(^|\\n)${sid}\\t`), "同じsessionが残る");
-  } finally {
-    core.closeSession(sid);
-    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
-    else process.env.CLAUDE_BIN = savedBin;
-    fs.rmSync(fakeBin, { force: true });
-  }
-});
+// Claude Codeの席のagent_configureは test/claude-configure-session-only.test.mjs（選ぶ画面の「この会話だけ」で替える。ADR 0111）。
 
 test("target contract: Grokへ/modelと/effortを同じsessionのまま送る", { skip: skipGrokFakeBin }, async () => {
   await withFakeGrokHome(async () => {

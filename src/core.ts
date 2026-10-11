@@ -149,6 +149,7 @@ import {
   codexModelChoices,
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
+import type { ClaudeModelPicker } from "./harnesses/claude.js";
 import {
   claudeAuthPlan, claudeAuthStatus, claudeAuthPane,
   OPERATION_ID_RE,
@@ -169,6 +170,10 @@ import {
   claudeTuiReady,
   claudePaneObservation,
   claudeUsageLimit,
+  claudeModelPicker,
+  claudeModelPickerRow,
+  claudeModelSwitchConfirm,
+  claudeModelSwitchResult,
   claudeStartupAction,
   claudeLoginMethodMenu,
   CLAUDE_COMPOSER_MARKER_RE,
@@ -1353,6 +1358,8 @@ export interface ListedSession {
   width: number;
   height: number;
   harness: AgentHarness | null;
+  /** agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値、CodexとCursorは分かった後。 */
+  vendor_session_id: string | null;
   environment: Record<string, string | null>;
 }
 
@@ -1620,7 +1627,8 @@ export function listSessionsResult(envKeys: string[] = []): {
     }
     const meta = tryLoadAgentMetadata(name);
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
-      width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null, environment });
+      width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
+      vendor_session_id: meta?.vendor_session_id ?? null, environment });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
 }
@@ -4795,6 +4803,164 @@ export async function listAgentModels(
   }
 }
 
+const CLAUDE_MODEL_PICKER_TIMEOUT_MS = 8_000;
+const CLAUDE_MODEL_PICKER_KEY_TIMEOUT_MS = 1_500;
+const CLAUDE_MODEL_SWITCH_TIMEOUT_MS = 15_000;
+const CLAUDE_EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Claude Codeの席のmodel／effortを、この会話だけで替える（ADR 0111）。
+ * `/model <名前>` と `/effort <値>` は、選んだ値を端末の ~/.claude/settings.json へ新しい会話の既定として保存する
+ * （2.1.296で確かめた）。引数なしの `/model` の選ぶ画面で s を押すと保存されないので、画面を1歩ずつ読んでそちらを打つ。
+ * 保存しない選び方が画面に無い時、行やeffortを選べない時は、Escで閉じて何も変えずに断る。
+ */
+async function configureClaudeForSessionOnly(
+  name: string,
+  meta: AgentMetadata,
+  model: string | null,
+  effort: string | null,
+): Promise<void> {
+  const screen = () => captureScreen(name, AGENT_TUI_READY_LINES);
+  const until = async <T>(read: () => T | null | undefined, timeoutMs: number): Promise<T | null> => {
+    const deadline = performance.now() + timeoutMs;
+    do {
+      const got = read();
+      if (got) return got;
+      await sleep(100);
+    } while (performance.now() < deadline);
+    return null;
+  };
+  // Escは、選ぶ画面か確かめの画面が出ている間だけ打つ（入力欄へ戻った後のEscは、ほかの操作を取り消してしまう）。
+  const refuse = async (code: string, reason: string): Promise<never> => {
+    for (let i = 0; i < 3; i++) {
+      const now = screen();
+      if (!claudeModelPicker(now) && !claudeModelSwitchConfirm(now)) break;
+      sendMenuChoice(name, "Escape");
+      await sleep(300);
+    }
+    throw new AitermError(`${code} vendor=claude session=${name}\n${reason}。modelとreasoning_effortは変えていません。`, 2);
+  };
+  const picker = (): ClaudeModelPicker | null => claudeModelPicker(screen());
+  const cursorOf = (p: ClaudeModelPicker | null) => p?.rows.find((row) => row.cursor) ?? null;
+  // 1回押して、画面の今の行かeffortが変わるまで待つ。変わらなければnull（端で止まった・キーが落ちた）。
+  // キーが落ちる事があるので、変わらなければ1度だけ押し直す。
+  const press = async (key: string, changed: (p: ClaudeModelPicker) => boolean): Promise<ClaudeModelPicker | null> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      sendMenuChoice(name, key);
+      const next = await until(() => { const p = picker(); return p && changed(p) ? p : null; }, CLAUDE_MODEL_PICKER_KEY_TIMEOUT_MS);
+      if (next) return next;
+    }
+    return null;
+  };
+
+  await sendAgentPromptText(name, "/model");
+  let now = await until(picker, CLAUDE_MODEL_PICKER_TIMEOUT_MS);
+  if (!now) {
+    throw new AitermError(
+      `CLAUDE_MODEL_PICKER_NOT_SHOWN vendor=claude session=${name}\n` +
+        "Claude Codeの /model の選ぶ画面を確認できません。modelとreasoning_effortは変えていません。",
+      2,
+    );
+  }
+  if (!now.session_only) {
+    return refuse(
+      "CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE",
+      "このClaude Codeの /model の選ぶ画面に、この会話だけで使う選び方（s to use this session only）がありません。" +
+        "端末の既定を書き換える選び方は使いません",
+    );
+  }
+
+  let targetIndex: number | null = null;
+  if (model) {
+    // 見えていない行は、下へ送りながら集める（一周するか、端で止まるまで）。
+    const known = new Map(now.rows.map((row) => [row.index, row]));
+    const start = cursorOf(now);
+    if (!start) return refuse("CLAUDE_MODEL_PICKER_UNREADABLE", "選ぶ画面の今の行を読めません");
+    let at = start.index;
+    const seen = new Set([at]);
+    for (let i = 0; i < 80; i++) {
+      const before = at;
+      const next = await press("Down", (p) => { const c = cursorOf(p); return !!c && c.index !== before; });
+      if (!next) break;
+      now = next;
+      for (const row of next.rows) known.set(row.index, row);
+      at = cursorOf(next)!.index;
+      if (seen.has(at)) break;
+      seen.add(at);
+    }
+    const target = claudeModelPickerRow([...known.values()], model);
+    if (!target) {
+      const names = [...known.values()].sort((a, b) => a.index - b.index).map((row) => row.label).join(", ");
+      return refuse("CLAUDE_MODEL_NOT_IN_PICKER", `Claude Codeの /model の選ぶ画面に ${model} がありません（選べる機種: ${names}）`);
+    }
+    for (let i = 0; i < 80 && at !== target.index; i++) {
+      const before = at;
+      const next = await press(target.index > at ? "Down" : "Up", (p) => { const c = cursorOf(p); return !!c && c.index !== before; });
+      if (!next) break;
+      now = next;
+      at = cursorOf(next)!.index;
+    }
+    if (at !== target.index) return refuse("CLAUDE_MODEL_PICKER_UNREADABLE", `選ぶ画面で ${target.label} の行へ動けません`);
+    targetIndex = target.index;
+  }
+
+  if (effort) {
+    const wanted = CLAUDE_EFFORT_ORDER.indexOf(effort);
+    const row = cursorOf(now)?.label ?? model ?? "このmodel";
+    // そのmodelに無い段は飛ばされて行き来になるので、回数で打ち切る。
+    for (let i = 0; i < CLAUDE_EFFORT_ORDER.length + 3 && now.effort !== effort; i++) {
+      const current: string | null = now.effort;
+      const from = current === null ? -1 : CLAUDE_EFFORT_ORDER.indexOf(current);
+      if (from < 0) return refuse("CLAUDE_EFFORT_NOT_SELECTABLE", `${row} では reasoning_effort を選べません`);
+      const next = await press(wanted > from ? "Right" : "Left", (p) => p.effort !== current);
+      if (!next) break;
+      now = next;
+    }
+    if (now.effort !== effort) return refuse("CLAUDE_EFFORT_NOT_SELECTABLE", `${row} では reasoning_effort=${effort} を選べません`);
+  }
+
+  // 打つ直前に、もう1度読んで確かめる。
+  const last = picker();
+  const lastRow = cursorOf(last);
+  if (!last || !lastRow || !last.session_only
+    || (targetIndex !== null && lastRow.index !== targetIndex)
+    || (effort && last.effort !== effort)) {
+    return refuse("CLAUDE_MODEL_PICKER_UNREADABLE", "選ぶ直前の画面が、選んだ行・effortと合いません");
+  }
+  sendMenuChoice(name, "s");
+
+  let confirmed = false;
+  const result = await until(() => {
+    const text = screen();
+    const confirm = claudeModelSwitchConfirm(text);
+    if (confirm === "yes_selected" && !confirmed) {
+      // 会話が今のmodelでcacheされている時の確かめ。1番（Yes, switch）が選ばれている時だけ進める。
+      confirmed = true;
+      sendMenuChoice(name, "Enter");
+      return null;
+    }
+    if (confirm || claudeModelPicker(text)) return null;
+    return claudeModelSwitchResult(text);
+  }, CLAUDE_MODEL_SWITCH_TIMEOUT_MS);
+  if (!result) return refuse("CLAUDE_MODEL_SWITCH_UNCONFIRMED", "Claude Codeの切り替えの知らせを確認できません");
+  if (result.scope === "saved_as_default") {
+    throw new AitermError(
+      `CLAUDE_MODEL_SAVED_AS_DEFAULT vendor=claude session=${name}\n` +
+        `Claude Codeが、選んだ値を端末の既定として保存したと返しました（${result.line}）。~/.claude/settings.json を確かめてください。`,
+      2,
+    );
+  }
+  if (result.scope !== "session_only") {
+    throw new AitermError(
+      `CLAUDE_MODEL_SWITCH_REFUSED vendor=claude session=${name}\n` +
+        `Claude Codeがmodelを切り替えませんでした（${result.line}）。modelとreasoning_effortは変えていません。`,
+      2,
+    );
+  }
+  const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+  if (!ready.ready) throw new AitermError("Claudeのmodel変更完了を確認できません", 2);
+}
+
 export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null },
@@ -4821,12 +4987,13 @@ export async function configureAgent(
   }
 
   if (meta.kind === "claude") {
-    if (model) {
-      await sendAgentPromptText(name, `/model ${model}`);
-      const modelReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
-      if (!modelReady.ready) throw new AitermError(`Claudeのmodel変更完了を確認できません`, 2);
+    // ultracodeはClaude Codeが自分で「this session only」と返すsession設定で、選ぶ画面には出ない。
+    const level = effort && CLAUDE_EFFORTS.has(effort) ? effort : null;
+    if (effort && !level && effort !== "ultracode") {
+      throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
-    if (effort) {
+    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level);
+    if (effort && !level) {
       await sendAgentPromptText(name, `/effort ${effort}`);
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError(`Claudeのeffort変更完了を確認できません`, 2);

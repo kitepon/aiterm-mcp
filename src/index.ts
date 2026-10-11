@@ -658,6 +658,10 @@ registerRemoteAwareTool(
         session_id: z.string(), current_command: z.string(), attached: z.boolean(),
         width: z.number(), height: z.number(),
         harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+        // 0.58.3より前の現地（remote）は返さないので、無い事も受ける。
+        vendor_session_id: z.string().nullable().optional().describe(
+          "agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値（席の中で会話を移した後は追わない）、" +
+            "CodexとCursorは分かった後の値。通常PTYと、まだ分からない席はnull"),
         environment: z.record(z.string(), z.string().nullable()),
       })),
     },
@@ -893,7 +897,9 @@ registerRemoteAwareTool(
   {
     description:
       "起動済みのClaude／Codex／Grok／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effortを変更する。" +
-      "各harnessのCLI標準model操作を使う。Cursorのreasoning_effort変更はmodelと同時指定する。",
+      "各harnessのCLI標準model操作を使う。Cursorのreasoning_effort変更はmodelと同時指定する。" +
+      "Claude Codeの席では /model の選ぶ画面の「この会話だけ」（s）で替え、端末の ~/.claude/settings.json の既定は書き換えない。" +
+      "その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る。",
     inputSchema: {
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       model: z.string().min(1).nullish().describe("変更後のmodel。省略時はmodelを変更しない"),

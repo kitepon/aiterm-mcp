@@ -37,7 +37,8 @@ UTF-8のBase64を復元したscriptblockのdot-sourceを使う。変数と作業
 sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在の標準PowerShell promptを
 検出した場合は、Aiterm hostのOSに関係なくPowerShell構文を使う。過去のpromptでは切り替えない。
 
-`pty_list`はtextと構造化したsession一覧を返す。`env_keys`は帰属等の非秘密キーの明示照会だけで、
+`pty_list`はtextと構造化したsession一覧を返す。agent sessionには、harness側の会話ID（`vendor_session_id`。Claude CodeとGrokは
+起動時に`--session-id`で渡した値、CodexとCursorは掴んだ後の値）を載せる。`env_keys`は帰属等の非秘密キーの明示照会だけで、
 psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AITERM_SESSION_ID`を注入し、
 `env_vars`の継承とsessionへの登録もAitermが所有する。古いtmuxは子へのenv注入とsession登録を使う。
 

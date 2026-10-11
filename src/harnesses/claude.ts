@@ -428,6 +428,108 @@ export function claudeUsageLimit(screen: string): { message: string } | null {
   return null;
 }
 
+// `/model` を引数なしで開いた選ぶ画面（2.1.293・2.1.296の実画面 2026-10-12）。Enterは選んだ値を端末の
+// ~/.claude/settings.json へ新しい会話の既定として保存し、sはこの会話だけに使う。
+//   Select model
+//   Switch between Claude models. Your pick becomes the default for new
+//   sessions. For other/previous model names, specify with --model.
+//     1.  Default (recommended)  Opus 5.5 · Best for everyday, complex tasks
+//   ↑ 2.  Opus 5.5               For complex work and everyday tasks
+//   ❯ 4.  Sonnet 5.5 ✔           Most efficient for simpler tasks
+//   ↓ 5.  Haiku 5.5              Fastest for quick answers
+//      … +8 models
+//   ◐ Medium effort (default) ←/→ to adjust       ← 非対応の行では「○ Effort not supported for Haiku 4.5」
+//   Enter to set as default · s to use this session only · Esc to cancel
+export interface ClaudeModelPickerRow { index: number; label: string; cursor: boolean; current: boolean }
+export interface ClaudeModelPicker { rows: ClaudeModelPickerRow[]; effort: string | null; session_only: boolean }
+
+function lastLineIndex(lines: string[], re: RegExp): number {
+  for (let i = lines.length - 1; i >= 0; i--) if (re.test(lines[i])) return i;
+  return -1;
+}
+
+export function claudeModelPicker(screen: string): ClaudeModelPicker | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  const head = lastLineIndex(lines, /^\s*Select model\s*$/u);
+  if (head < 0) return null;
+  const body = lines.slice(head + 1);
+  const foot = body.findIndex((line) => /\bEsc to cancel\b/u.test(line));
+  if (foot < 0) return null;
+  const rows: ClaudeModelPickerRow[] = [];
+  let effort: string | null = null;
+  for (const line of body.slice(0, foot)) {
+    const row = /^\s*([❯↓↑]\s+)?(\d+)\.\s+(.*?)\s*$/u.exec(line);
+    if (row) {
+      const name = row[3].split(/\s{2,}/u)[0];
+      rows.push({
+        index: Number(row[2]),
+        label: name.replace(/\s*✔$/u, ""),
+        cursor: row[1]?.includes("❯") === true,
+        current: /✔$/u.test(name),
+      });
+      continue;
+    }
+    const level = /(?:^|\s)(low|medium|high|xhigh|max) effort\b/iu.exec(line);
+    if (level) effort = level[1].toLowerCase();
+  }
+  if (rows.length === 0) return null;
+  return { rows, effort, session_only: /\bs to use this session only\b/u.test(body[foot]) };
+}
+
+/**
+ * 指定されたmodel（catalogのID・別名・表示名）が、選ぶ画面のどの行かを決める。
+ * `claude-opus-5-5` は「Opus 5.5」、別名の `opus` はその系統で番号が一番若い行（catalogの並びで最新）。
+ */
+export function claudeModelPickerRow(rows: ClaudeModelPickerRow[], model: string): ClaudeModelPickerRow | null {
+  const want = model.trim().toLowerCase();
+  const sorted = [...rows].sort((a, b) => a.index - b.index);
+  const id = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/u.exec(want);
+  const name = id ? `${id[1]} ${id[2]}${id[3] ? `.${id[3]}` : ""}` : want;
+  return sorted.find((row) => row.label.toLowerCase() === name)
+    ?? (want === "default" ? sorted.find((row) => /^default\b/iu.test(row.label)) : undefined)
+    ?? (/^[a-z]+$/u.test(want) ? sorted.find((row) => row.label.toLowerCase().startsWith(`${want} `) && /^\S+ \d/u.test(row.label)) : undefined)
+    ?? null;
+}
+
+// 会話が今のmodelでcacheされている時だけ、sの後に出る確かめ（2.1.293・2.1.296）。
+//   Switch model?
+//   Your next response will be slower and use more tokens
+//   ❯ 1. Yes, switch to Opus 5.5
+//     2. No, go back
+export function claudeModelSwitchConfirm(screen: string): "yes_selected" | "other_selected" | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  const head = lastLineIndex(lines, /^\s*Switch model\?\s*$/u);
+  if (head < 0) return null;
+  const body = lines.slice(head + 1);
+  if (!body.some((line) => /^\s*(?:❯\s*)?1\.\s*Yes, switch to\b/u.test(line))) return null;
+  return body.some((line) => /^\s*❯\s*1\.\s*Yes, switch to\b/u.test(line)) ? "yes_selected" : "other_selected";
+}
+
+// 選ぶ画面を閉じた後、最後の `/model` の下に出る1件の知らせ。長い機種名では折り返す。
+//   ❯ /model
+//     ⎿  Set model to Opus 5.5 for this session only with high effort
+//     ⎿  Set model to Opus 5.5 and saved as your default for new sessions
+//     ⎿  Kept model as Sonnet 5.5
+export type ClaudeModelSwitchScope = "session_only" | "saved_as_default" | "kept" | "blocked";
+export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwitchScope; line: string } | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  const command = lastLineIndex(lines, /^\s*❯\s*\/model\s*$/u);
+  if (command < 0) return null;
+  const start = lines.findIndex((line, i) => i > command && /^\s*⎿\s+\S/u.test(line));
+  if (start < 0) return null;
+  const parts = [lines[start].replace(/^\s*⎿\s+/u, "").trim()];
+  for (const line of lines.slice(start + 1)) {
+    if (!/^\s{3,}\S/u.test(line) || /^\s*⎿/u.test(line)) break;
+    parts.push(line.trim());
+  }
+  const line = parts.join(" ");
+  if (/\bblocked by a PreModelSwitch hook\b/u.test(line)) return { scope: "blocked", line };
+  if (/^Kept model as\b/u.test(line)) return { scope: "kept", line };
+  if (!/^(?:Set model to|Model set to)\b/u.test(line)) return null;
+  if (/\bsaved as your default\b/u.test(line)) return { scope: "saved_as_default", line };
+  return /\bfor this session only\b/u.test(line) ? { scope: "session_only", line } : null;
+}
+
 // Claude Code 2.1.282 は選択肢へ「1.」などの番号を付ける。番号の有無のどちらも受ける。
 export function claudeLoginMethodMenu(screen: string): boolean {
   const tail = screen.split("\n").slice(-32).join("\n");

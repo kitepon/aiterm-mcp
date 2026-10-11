@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- `agent_configure`が、Claude Codeの席のmodel／effortを替える時に、端末の`~/.claude/settings.json`の既定を書き換えていた件を直す（ADR 0111）。
+  今までは`/model <名前>`と`/effort <値>`を打っていた。Claude Code（2.1.293・2.1.296で見た）は、この2つで選んだ値を
+  「新しい会話の既定」として保存する（`model`と、`modelSettings.<機種>.effortLevel`）。1つの席を替えただけで、その端末でこの後に
+  引数なしで立つ全部のClaude Codeの既定が変わり、利用者が自分で決めた既定も上書きしていた。
+  - `/model`を引数なしで開いた選ぶ画面を読み、行とeffortを合わせて、`s`（use this session only）で選ぶ。Enter（set as default）は押さない。
+  - 会話がcacheされている席で出る「Switch model?」の確かめは、1番（Yes, switch to …）が選ばれている時だけ進める。
+  - `model`は、catalogのID（`claude-opus-5-5`）、別名（`opus`）、表示名（`Opus 5.5`）のどれでも受ける。
+  - 選べない時は、選ぶ画面をEscで閉じて、何も変えずに断る。`s`の選び方が無い版では、保存する選び方へ落ちずに断る
+    （`CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`）。選ぶ画面に無いmodelは`CLAUDE_MODEL_NOT_IN_PICKER`（文に選べる機種を並べる）、
+    そのmodelで選べないeffortは`CLAUDE_EFFORT_NOT_SELECTABLE`。今までは、Claude Codeが受け付けない値でも成功で返っていた。
+  - `reasoning_effort`が`low`/`medium`/`high`/`xhigh`/`max`/`ultracode`のどれでもない時は、打つ前に断る。
+  - 引数と返りの形（`aiterm.agent-configure-result.v1`）、Codex・Grok・Cursorの席の動きは変わらない。
+  - 「この会話だけ」の替えなので、席を閉じて立て直すと端末の既定へ戻る。立て直す時は`agent_launch`へ同じ値を渡す。
+
+### 追加
+
+- `pty_list`の構造の返り（`aiterm.pty-list-result.v1`）の席ごとの項目に、harness側の会話ID`vendor_session_id`を足す。
+  Claude CodeとGrokは起動時に`--session-id`で渡した値（席の中で会話を移した後は追わない）、CodexとCursorは掴んだ後の値。
+  通常PTYと、まだ分からない席は`null`。文字の返りには前から載っていた。`remote`の先が0.58.2以前の時は、項目そのものが無い。
+
 ## [0.58.2] - 2026-10-11
 
 ### 修正

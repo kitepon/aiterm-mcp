@@ -106,6 +106,8 @@ import {
   grokTuiBusy,
   grokPaneObservation,
   grokRateLimitDialog,
+  grokPromptAwaitingAccept,
+  grokUnacceptedPromptRestored,
   grokStartupAction,
   grokLaunchBlockingDialog,
   assertGrokSandboxNotRejected,
@@ -3603,7 +3605,14 @@ export async function observeAgentDone(
     return observeCursorDone(meta, timeout, o.cursor, (session) => captureScreen(session, 0), o.signal);
   }
   if (meta.kind === "grok" && meta.completion_route === "grok_transcript") {
-    return observeGrokDone(meta, timeout, o.cursor, detectAgentRateLimit, o.signal);
+    // 上限の知らせと、受け取られなかった文の知らせは、同じ見回りで読んだ1枚の画面から見る（画面を読むたびにtmuxを起動する）。
+    let read = { at: -Infinity, screen: "" };
+    const screen = (session: string): string => {
+      if (performance.now() - read.at > AGENT_RATE_LIMIT_POLL_MS / 4) read = { at: performance.now(), screen: captureScreen(session, 0) };
+      return read.screen;
+    };
+    return observeGrokDone(meta, timeout, o.cursor, (_kind, session) => grokRateLimitDialog(screen(session))?.message ?? null, o.signal,
+      session => grokUnacceptedPromptRestored(screen(session)));
   }
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   // 境界の優先順: dispatch receipt の event_cursor（起動順序に依存しない）→ operation相関
@@ -5056,6 +5065,22 @@ async function dispatchAgentTurnInLock(
     }
     sendKey(name, limitDialog.dismissKey);
   }
+  // Grokが受け取らずに入力欄へ戻した文が残っていると、次の文とつながって1通になる。送る前に消す。
+  // 入力欄に文がある時のC-cは、入力欄を空にするだけ（Grok 1.0.46・1.0.50実測）。空の時に押すと終了の構えになるので、文がある時だけ押す。
+  let grokRestoredPromptCleared = false;
+  if (meta.kind === "grok" && !limitDialog && grokUnacceptedPromptRestored(captureScreen(name, 0))) {
+    sendKey(name, "C-c");
+    for (let i = 0; i < 20 && !grokRestoredPromptCleared; i++) {
+      await sleep(100);
+      grokRestoredPromptCleared = !grokUnacceptedPromptRestored(captureScreen(name, 0));
+    }
+    if (!grokRestoredPromptCleared) {
+      throw new AitermError(
+        `GROK_UNACCEPTED_PROMPT_NOT_CLEARED vendor=grok session=${name}\n` +
+          "Grokが受け取らずに入力欄へ戻した前の文を、消せませんでした。文字列は送信していません。pty_read(screen:true)で入力欄を確かめてください。", 2,
+      );
+    }
+  }
   if (meta.kind !== "claude" || claudeColdStart) {
     // 上限のpanelを閉じた直後（Grok）は、画面が落ち着くのを11回の確かめで待つ。
     const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
@@ -5089,6 +5114,7 @@ async function dispatchAgentTurnInLock(
   }
   if (codexRateLimitModelSwitch) paneInputRecovery.push("codex_rate_limit_model_switch_kept_current");
   if (limitDialog) paneInputRecovery.push("grok_rate_limit_dialog_dismissed");
+  if (grokRestoredPromptCleared) paneInputRecovery.push("grok_unaccepted_prompt_cleared");
   const startOffset = agentCompletionCursor(meta);
   // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。
   // その1回だけlaunch contextを加え、以後はbind済みconversationへ通常textだけを送る。
@@ -5263,6 +5289,14 @@ async function sendAgentMessageInLock(
   if (running && meta.kind === "cursor" && latestCursorCompletion(meta, readTranscriptLines) !== null) running = false;
   // Codexは回答を流している間、画面に動作中の行を出さない。その間に届いた文を、Codexは動いているturnへ取り込む（ADR 0101）。
   if (!running && meta.kind === "codex" && await codexTurnRunningBehindIdleScreen(name, meta, screen)) running = true;
+  // Grokが前の文をまだ受け取っていない間は、差し込む先の番が無い。待ち行列へ入れても動かず、Grokが前の文を取り消した後も残る。
+  if (running && meta.kind === "grok" && grokPromptAwaitingAccept(screen)) {
+    throw new AitermError(
+      `GROK_PROMPT_NOT_ACCEPTED_YET vendor=grok session=${name}\n` +
+        "Grokが前の文をまだ受け取っていません（画面の「Waiting for the agent to accept the prompt」）。文字列は送信していません。" +
+        "前の文の完了待ちが終わってから送り直してください。Grokは120秒受け取れないと、前の文を自分から取り消します。", 2,
+    );
+  }
   if (running) {
     return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface });
   }

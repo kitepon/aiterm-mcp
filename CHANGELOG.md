@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 足すのは、psmuxが3.3.8で、画面のあるlogonの印（`SESSIONNAME`）が無い時だけ。アプリや端末から起こしたAitermでは、何も起こさない。
   - sshの側で端末を1つ立てるたびに、約0.35秒かかる。足せなかった時も端末は使え、理由を1行だけstderrへ書く。
   - 更新の前に立てた端末には効かない。
+- Grokが文を受け取らなかった時に、待ち続けず、次の文と混ぜないようにする（ADR 0110）。
+  Grok（1.0.50）は、送った文を中のagentが受け取らないと、120秒で自分から取り消して、文を入力欄へ戻す。会話の記録には何も出ない
+  （Windowsでは、起こすstdioのMCPが8個以上の時に毎回こうなる。Grokの側の不具合で、これ自体はAitermでは直らない）。
+  - 完了待ちは、時間切れ（既定600秒）まで待たずに、結果なしの終了（`error`、exit 7）で返す。`error`の文に、Grokが受け取らなかった事を書く。
+  - 入力欄へ戻された文は、次の文を送る前に消す（返りの`pane_input_recovery`に`grok_unaccepted_prompt_cleared`）。今までは、前の文と次の文がつながって1通になっていた。
+  - 受け取り待ちの間（画面の「Waiting for the agent to accept the prompt」）に送った文は、差し込まずに、送らずに断る（`GROK_PROMPT_NOT_ACCEPTED_YET`）。
+    今までは差し込みの道へ入り、文がGrokの待ち行列に残っていた（`STEER_STILL_QUEUED`、または`agent_steer`で返っていた）。
 
 ## [0.58.1] - 2026-10-10
 

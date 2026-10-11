@@ -263,6 +263,7 @@ export async function observeGrokDone(
   requestedCursor: number | null | undefined,
   detectRateLimit: (kind: AgentKind, aitermSession: string) => string | null,
   signal?: AbortSignal,
+  detectUnacceptedPrompt: (aitermSession: string) => boolean = () => false,
 ): Promise<AgentWaitObservation> {
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   const transcript = grokEventsTranscript(meta);
@@ -273,12 +274,15 @@ export async function observeGrokDone(
   let malformedEvents = 0;
   let discardLeadingFragment = false;
   let initializedBoundary = false;
+  let turnStarted = false;
+  let unacceptedSeen = 0;
   const deadline = performance.now() + timeout * 1000;
   const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
   const observation = (
     outcome: AgentWaitObservation["outcome"],
     ev: AgentDoneEvent | null = null,
     rateLimit: string | null = null,
+    error: string | null = null,
   ): AgentWaitObservation => ({
     schema: "aiterm.agent-wait-result.v1",
     session_id: meta.aiterm_session,
@@ -292,7 +296,7 @@ export async function observeGrokDone(
     malformed_events: malformedEvents,
     at: ev?.at ?? null,
     rate_limit: rateLimit,
-    error: ev?.done_status === "turn_error" ? ev.reason : null,
+    error: error ?? (ev?.done_status === "turn_error" ? ev.reason : null),
     error_kind: null,
   });
 
@@ -330,7 +334,9 @@ export async function observeGrokDone(
             continue;
           }
           try {
-            const done = grokCompletionEvent(meta, JSON.parse(line));
+            const record = JSON.parse(line);
+            if (record?.type === "turn_started") turnStarted = true;
+            const done = grokCompletionEvent(meta, record);
             if (done) {
               const limited = done.done_status === "turn_error"
                 ? detectRateLimit(meta.kind, meta.aiterm_session) : null;
@@ -346,6 +352,11 @@ export async function observeGrokDone(
     if (rateLimitDue()) {
       const limited = detectRateLimit(meta.kind, meta.aiterm_session);
       if (limited) return observation("rate_limited", null, limited);
+      // Grokが文を受け取らずに入力欄へ戻した時は、記録に何も出ないので、画面の知らせで終わりを知る。
+      // 送った直後は前の番の知らせがまだ画面に残っている事があるので、この待ちの間に番が始まっておらず、
+      // 間を置いた2回の読みが続けて同じ時だけ、結果なしの終了として返す（1回だけの照会では返さない）。
+      unacceptedSeen = !turnStarted && detectUnacceptedPrompt(meta.aiterm_session) ? unacceptedSeen + 1 : 0;
+      if (unacceptedSeen >= 2) return observation("error", null, null, GROK_UNACCEPTED_PROMPT_ERROR);
     }
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);
@@ -448,6 +459,32 @@ export function grokTuiBusy(screen: string): boolean {
     || screen.includes("Responding...")
     || screen.includes("[stop]");
 }
+
+// Grok（1.0.50実測）は、送った文を中のagentが10秒受け取らないと、足元の表示を「Waiting for the agent to accept the prompt…」に変え、
+// 120秒で自分から取り消して、文を入力欄へ戻す（「The agent did not accept your prompt within 120s. Your text is back in the input box; …」）。
+// 会話の記録（events.jsonl）には、番の行が1つも出ない。
+/** 動いている表示が「受け取り待ち」か。差し込む先の番は、まだ無い。 */
+export function grokPromptAwaitingAccept(screen: string): boolean {
+  const live = screen.split("\n").filter(line => /Waiting for|Responding|\[stop\]/u.test(line)).at(-1);
+  return live?.includes("Waiting for the agent to accept the prompt") ?? false;
+}
+
+/**
+ * 受け取られなかった文が、入力欄へ戻されたままか。
+ * 知らせは次の番が始まった後も画面の上に残るので、知らせより後に動いている表示が無く、今の入力欄に文がある時だけtrue。
+ */
+export function grokUnacceptedPromptRestored(screen: string): boolean {
+  const clean = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const at = clean.lastIndexOf("The agent did not accept your prompt within");
+  if (at < 0) return false;
+  const after = clean.slice(at);
+  if (grokTuiBusy(after)) return false;
+  const composer = [...after.matchAll(/^[ \t]*│[ \t]*[❯>]([^\n]*?)│?[ \t]*$/gmu)].at(-1);
+  return !!composer && composer[1].trim() !== "";
+}
+
+export const GROK_UNACCEPTED_PROMPT_ERROR =
+  "Grokが文を受け取りませんでした（Grokの画面の知らせ: The agent did not accept your prompt）。文は実行されず、Grokの入力欄へ戻されています。";
 
 // 現在の質問カードだけを認識する。選択肢が空でも操作欄は残る。
 // footer後に描画があれば過去のカードなので、会話履歴からキー操作を起こさない。

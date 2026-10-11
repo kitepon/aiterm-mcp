@@ -158,7 +158,11 @@ export function openPsmuxServerToDesktop(
     ensureWinPsmux(false);
   }
   if (!(o.wanted ?? psmuxDesktopAccessWanted(winPsmuxVersion))) return "skipped";
-  const tmux = o.tmux ?? ((...args: string[]) => runTmux(false, undefined, args));
+  // 問うだけの命令なので、窓を隠して起こす。consoleを持たないprocessから呼ばれた時に、この手当てで窓を増やさない。
+  const tmux = o.tmux ?? ((...args: string[]) => {
+    const r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], { encoding: "utf8", windowsHide: true, env: tmuxSpawnEnv(), timeout: 10000 });
+    return { code: r.status ?? 1, stdout: r.stdout ?? "" };
+  });
   const pause = o.pause ?? ((ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); });
   // 立てた直後に控えを消されていると、本体のpidを問えない。本体が控えを書き戻す（5秒以内）まで待つ。
   // 立てて10秒以内の本体は、控えが無くても止められない。待ちは、足しても10秒より短くしてある。

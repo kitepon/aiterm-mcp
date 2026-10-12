@@ -5019,7 +5019,9 @@ const CODEX_FAST_OFFER_TIMEOUT_MS = 3_000;
 const CODEX_FAST_NOTICE_TIMEOUT_MS = 8_000;
 const CURSOR_FAST_ROW_TIMEOUT_MS = 3_000;
 const GROK_DEFAULT_SETTLE_MS = 400;
-const GROK_LAUNCH_DEFAULT_WAIT_MS = 20_000;
+// Grokは起動して1秒もせずに既定を書く（1.0.50の記録で、起動完了の直後）。書かない時（同じ値、古い版）に起動を長く待たせない。
+const GROK_LAUNCH_DEFAULT_WAIT_MS = 8_000;
+const GROK_LAUNCH_ALIVE_CHECK_MS = 1_000;
 
 export interface AgentFastLaunchResult {
   /** 起こした後の、席の実際の状態 */
@@ -5129,13 +5131,20 @@ async function launchGrokKeepingDefault<T extends [string, string]>(launchedMode
     const before = readGrokModelDefaults(configPath);
     const launched = launch();
     if (before.body === null || (before.default.present && before.default.value === launchedModel)) return launched;
-    const deadline = performance.now() + GROK_LAUNCH_DEFAULT_WAIT_MS;
+    const started = performance.now();
+    const deadline = started + GROK_LAUNCH_DEFAULT_WAIT_MS;
+    let aliveCheckedAt = started;
     do {
       await sleep(150);
       if (readGrokModelDefaults(configPath).body !== before.body) break;
       if (!sessionExists(launched[0])) break;
       // 入力待ちになっても書かれていなければ、少し待ってから戻しへ進む（書かない版・同じ値の時）。
       if (grokTuiReady(captureScreen(launched[0], AGENT_TUI_READY_LINES))) { await sleep(GROK_DEFAULT_SETTLE_MS); break; }
+      // Grokのprocessがもう居ない（起動に失敗した等）なら、書かれる事は無い。
+      if (performance.now() - aliveCheckedAt >= GROK_LAUNCH_ALIVE_CHECK_MS) {
+        aliveCheckedAt = performance.now();
+        if (observeSession(launched[0]).harness_alive === false) break;
+      }
     } while (performance.now() < deadline);
     await sleep(GROK_DEFAULT_SETTLE_MS);
     restoreGrokModelDefaults(configPath, before);

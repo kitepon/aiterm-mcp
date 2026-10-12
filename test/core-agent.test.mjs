@@ -939,6 +939,7 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
         harness: "codex-cli",
         model: "gpt-5.6-sol",
         reasoning_effort: "low",
+        fast: false,
       });
       assert.match(core.listSessions(), new RegExp(`(^|\\n)${actualSid}\\t`), "同じsessionを保つ");
       const input = readFakeTuiInput(fake.input);
@@ -976,6 +977,7 @@ test("target contract: Grokへ/modelと/effortを同じsessionのまま送る", 
             harness: "grok-cli",
             model,
             reasoning_effort: "high",
+            fast: false,
           });
           const effortResult = await core.configureAgent(sid, { reasoning_effort: "medium" });
           assert.deepEqual(effortResult, {
@@ -985,6 +987,7 @@ test("target contract: Grokへ/modelと/effortを同じsessionのまま送る", 
             harness: "grok-cli",
             model: null,
             reasoning_effort: "medium",
+            fast: false,
           });
           await assert.rejects(
             core.configureAgent(sid, { reasoning_effort: "impossible" }),
@@ -1615,7 +1618,8 @@ test("openAgent claude agent_done: user MCPをsnapshotせず通常configへ委�
     const meta = readAgentMeta(sid);
     assert.equal(meta.claude_mcp_config, undefined);
     const settings = JSON.parse(fs.readFileSync(meta.claude_settings, "utf8"));
-    assert.deepEqual(Object.keys(settings), ["hooks"], "aiterm所有fileは追加Stop hookだけを持つ");
+    assert.deepEqual(Object.keys(settings), ["fastMode", "hooks"], "aiterm所有fileは、通常の速度の明示と追加Stop hookだけを持つ");
+    assert.equal(settings.fastMode, false, "席は通常の速度で始める（ADR 0114）");
     const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
     assert.doesNotMatch(out, /--mcp-config/);
     assert.doesNotMatch(out, /fixture-only/, "MCP定義や秘密値をargvへ展開しない");

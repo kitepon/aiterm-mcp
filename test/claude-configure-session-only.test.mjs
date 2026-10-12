@@ -249,6 +249,8 @@ process.stdin.on("data", (chunk) => {
 
 const done = (sid, model, reasoning_effort) => ({
   schema: "aiterm.agent-configure-result.v1", session_id: sid, provider: "claude", harness: "claude-code", model, reasoning_effort,
+  // 席は通常の速度で起きる。fastを渡さない設定替えは、その状態を変えない（ADR 0114）。
+  fast: false,
 });
 
 test("agent_configure: Claude Codeの席は、選ぶ画面の s（この会話だけ）で替え、既定として保存しない", { skip: ptySkip }, async () => {

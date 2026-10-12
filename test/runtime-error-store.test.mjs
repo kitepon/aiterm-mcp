@@ -519,15 +519,27 @@ test("canonical config が実FIFOでも telemetry child 隔離により main pro
   const stderr = [];
   try {
     process.env.XDG_CONFIG_HOME = configHome;
+    // 記録の係（子）が自分で終わった事を、終わる時に書く印で待つ。「持ち時間の中で終わったか」を時計で決めない。
+    // 持ち時間はNodeの起動を含む。200ms・2秒と延ばしても、混んだmacOSの端末では、FIFOで固まっていないのに時間切れで落ちた
+    // （2026-09-26 に3回、10-04 に1回）。FIFOを開いて固まる係は自分で終わらないので、持ち時間（30秒）で止められて報告が出る。
+    const exited = path.join(root, "worker-exit");
+    const worker = path.join(root, "worker.mjs");
+    fs.writeFileSync(worker, [
+      'import fs from "node:fs";',
+      `process.on("exit", (code) => fs.writeFileSync(${JSON.stringify(exited)}, String(code)));`,
+      `await import(${JSON.stringify(pathToFileURL(path.join(HERE, "..", "dist", "runtime-error-worker.js")).href)});`,
+      "",
+    ].join("\n"), { mode: 0o600 });
     const started = Date.now();
-    // 子の持ち時間はNodeの起動を含む。負荷の高いmacOS runnerでは起動だけで約190msかかり、200msでは
-    // FIFOで固まっていなくても時間切れになった。FIFOを開いて固まれば、広げた持ち時間でも時間切れで報告される。
     recordRuntimeError("AITERM.PTY_DEPENDENCY_UNAVAILABLE", {
-      timeoutMs: 2000, stderr: (line) => stderr.push(line),
+      workerPath: worker, timeoutMs: 30_000, stderr: (line) => stderr.push(line),
     });
     assert.ok(Date.now() - started < 200);
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    for (let waited = 0; waited < 35_000 && stderr.length === 0 && !fs.existsSync(exited); waited += 25) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     assert.deepEqual(stderr, [], "FIFOはcanonical configでないためfail-closedし、store failureとは扱わない");
+    assert.equal(fs.readFileSync(exited, "utf8"), "0", "記録の係は、FIFOを開かずに自分で終わる");
   } finally {
     if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = saved;

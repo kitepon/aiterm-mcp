@@ -31,7 +31,6 @@ fs.writeFileSync(seat, [
   "const [log, mode] = process.argv.slice(2);",
   "const note = line => fs.appendFileSync(log, `${Date.now()} ${line}\\n`);",
   "let busy = mode === 'busy';",
-  "process.stdout.write(busy ? 'Claude Code\\n● working\\n✻ Musing… (esc to interrupt)\\n' : 'Claude Code\\n❯ ready\\n');",
   // 実物と同じく、動作中の行をその場で描き直して入力欄へ戻す（画面を流さない）。
   "const idle = () => process.stdout.write('\\x1b[1A\\x1b[2K❯ ready\\n');",
   "if (process.stdin.isTTY) process.stdin.setRawMode(true);",
@@ -46,6 +45,9 @@ fs.writeFileSync(seat, [
   "  process.stdout.write('  Press Ctrl-C again to exit\\n');",
   "} });",
   "process.on('SIGHUP', () => { note('SIGHUP'); process.exit(0); });",
+  // 画面は、鍵と切断の合図の受け口を付けた後に描く。先に描くと、試験が画面を見て席を閉じた時に、合図の受け口がまだ無い事がある
+  // （受け口の無いSIGHUPはprocessを黙って終わらせ、記録が残らない。混んだmacOSで1回、2026-10-11）。
+  "process.stdout.write(busy ? 'Claude Code\\n● working\\n✻ Musing… (esc to interrupt)\\n' : 'Claude Code\\n❯ ready\\n');",
   "setInterval(() => {}, 60000);",
   "",
 ].join("\n"));
@@ -161,6 +163,7 @@ test("鍵で終わらない席は、待った後に今までどおり止める",
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
+    assert.equal(core.observeSession(sid).state, "idle");
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
     const took = Date.now() - started;
@@ -175,6 +178,7 @@ test("既定では、POSIXの席へ鍵を送らない（tmuxが切断の合図�
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
+    assert.equal(core.observeSession(sid).state, "idle");
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
     assert.ok(Date.now() - started < 1500, "待たずに閉じる");

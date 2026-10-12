@@ -493,3 +493,10 @@ test("JSONの設定: 複数の項目をまとめて戻す（Cursorの既定のmo
   assert.equal(restoreJsonSetting(file, before, cursor.CURSOR_DEFAULT_MODEL_KEYS), true);
   assert.equal(fs.readFileSync(file, "utf8"), before.toString("utf8"));
 });
+
+test("一覧: Claude Codeが「fastの可否を確かめている最中」と答えた時を見分ける（聞き直すため）", () => {
+  assert.equal(claude.claudeFastStatePending(claudeInitialize("pending"), "r1"), true);
+  assert.equal(claude.claudeFastStatePending(claudeInitialize("extra_usage_disabled"), "r1"), false);
+  assert.equal(claude.claudeFastStatePending(claudeInitialize(undefined), "r1"), false);
+  assert.equal(claude.claudeFastStatePending("not json\n", "r1"), false);
+});

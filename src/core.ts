@@ -5046,6 +5046,19 @@ interface LaunchFastPlan {
   fast_error: FastModeFailure | null;
 }
 
+const GROK_FAST_CATALOG_RETRY_MS = 1_500;
+
+/**
+ * Grokの一覧（fast版の対を読むため）。Grokは、しばらく聞かれていないと最初の答えにfast版が入っていない事がある
+ * （Windowsの1.0.50で見た。直後の聞き直しには入っている）。そのmodelのfast版が見えない時は、少し置いて1度だけ聞き直す。
+ */
+async function grokCatalogForFast(bin: string, cwd: string, base: string): Promise<AgentModelCatalog> {
+  const first = await grokModelChoices(bin, cwd);
+  if (first.fast_ids?.[base]) return first;
+  await sleep(GROK_FAST_CATALOG_RETRY_MS);
+  return grokModelChoices(bin, cwd);
+}
+
 /** modelへ直に書かれたIDが、fast版のIDか（fastが別のmodel IDのharnessだけ）。 */
 function modelIsFastVariant(kind: AgentKind, model: string | null): boolean {
   if (!model) return false;
@@ -5115,7 +5128,7 @@ async function planLaunchFast(
     return { ...plan, cursor_fast: true, state: true };
   }
   const base = o.model ?? GROK_MODEL_DEFAULTS[kind];
-  const catalog = await grokModelChoices(bin, cwd);
+  const catalog = await grokCatalogForFast(bin, cwd, base);
   const fastId = catalog.fast_ids?.[base];
   if (!fastId) {
     throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
@@ -5445,8 +5458,14 @@ async function switchGrokFast(name: string, meta: AgentMetadata, target: boolean
   const untouched = "席の速度は変えていません。";
   const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
   if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Grok の CLI が見つからず、fastの対応を確かめられません。${untouched}`);
-  const catalog = await grokModelChoices(bin, meta.cwd ?? process.cwd());
-  const current = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+  let catalog = await grokModelChoices(bin, meta.cwd ?? process.cwd());
+  let current = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+  if (!current || (target && !catalog.fast_ids?.[current.base])) {
+    // 一覧にfast版が見えない時（今のmodelがfast版だと、足元の表示も一覧と合わない）は、1度聞き直す。
+    await sleep(GROK_FAST_CATALOG_RETRY_MS);
+    catalog = await grokModelChoices(bin, meta.cwd ?? process.cwd());
+    current = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+  }
   if (!current) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Grokの足元から、今のmodelを読めません。${untouched}`);
   if (current.fast === target) return target;
   const next = target ? catalog.fast_ids?.[current.base] : current.base;
@@ -5634,7 +5653,7 @@ export async function configureAgent(
       if (!bin) throw new AitermError(`${agentLabel(meta.kind)} の CLI が見つかりません`, 2);
       assertGrokModelAvailable(bin, meta.cwd ?? process.cwd(), model);
       if ((fast ?? (meta.fast === true)) && !modelIsFastVariant("grok", model)) {
-        const fastIds = (await grokModelChoices(bin, meta.cwd ?? process.cwd())).fast_ids ?? {};
+        const fastIds = (await grokCatalogForFast(bin, meta.cwd ?? process.cwd(), model)).fast_ids ?? {};
         if (fastIds[model]) next = fastIds[model];
         else if (fast === true) {
           throw new FastModeError("FAST_MODE_NOT_SUPPORTED",

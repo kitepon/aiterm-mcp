@@ -196,26 +196,43 @@ export async function claudeModelChoices(bin: string, cwd: string): Promise<Agen
     // fastMode: true を付けて聞くと、応答の fast_mode_disabled_reason が「このアカウントで使えない訳」になる
     // （付けないと sdk_opt_in_required が返るだけ）。promptは送らないので、fastで流れる番は無い。
     fs.writeFileSync(settings, JSON.stringify({ disableAllHooks: true, fastMode: true }), { mode: 0o600 });
-    const requestId = `aiterm-models-${randomUUID()}`;
-    const request = { type: "control_request", request_id: requestId, request: { subtype: "initialize" } };
-    const result = await runAgentProtocolCommand(bin, [
-      "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
-      "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
-    ], {
-      cwd,
-      env: process.env,
-      input: JSON.stringify(request) + "\n",
-      until: requestId,
-      timeout: CLAUDE_MODELS_TIMEOUT_MS,
-      maxBuffer: CLAUDE_MODELS_MAX_BYTES,
-    });
-    if (result.error || result.status !== 0) {
-      throw catalogUnavailable("Claude Code", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);
+    // Claude Codeは、起きてすぐは「fastの可否を確かめている最中（pending）」と答える事がある（その端末で初めて聞いた時。Windowsで見た）。
+    // 少し置いて聞き直すと、アカウントの答え（使える、または使えない訳）が返る。
+    for (let attempt = 0; ; attempt++) {
+      const requestId = `aiterm-models-${randomUUID()}`;
+      const request = { type: "control_request", request_id: requestId, request: { subtype: "initialize" } };
+      const result = await runAgentProtocolCommand(bin, [
+        "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
+        "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
+      ], {
+        cwd,
+        env: process.env,
+        input: JSON.stringify(request) + "\n",
+        until: requestId,
+        timeout: CLAUDE_MODELS_TIMEOUT_MS,
+        maxBuffer: CLAUDE_MODELS_MAX_BYTES,
+      });
+      if (result.error || result.status !== 0) {
+        throw catalogUnavailable("Claude Code", result.error?.message || result.stderr?.trim() || `exit=${result.status ?? "unknown"}`);
+      }
+      if (attempt < CLAUDE_FAST_PENDING_RETRIES && claudeFastStatePending(result.stdout, requestId)) {
+        await new Promise((resolve) => setTimeout(resolve, CLAUDE_FAST_PENDING_WAIT_MS));
+        continue;
+      }
+      return claudeCatalogFromInitialize(result.stdout, requestId, processSummary(result));
     }
-    return claudeCatalogFromInitialize(result.stdout, requestId, processSummary(result));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+const CLAUDE_FAST_PENDING_RETRIES = 2;
+const CLAUDE_FAST_PENDING_WAIT_MS = 1_500;
+
+/** initializeの応答が、fastの可否を「確かめている最中」と答えているか。 */
+export function claudeFastStatePending(stdout: string, requestId: string): boolean {
+  const response = findJsonLine(stdout, (value) => value?.type === "control_response" && value.response?.request_id === requestId);
+  return response?.response?.response?.fast_mode_disabled_reason === "pending";
 }
 
 // initializeの応答の fast_mode_disabled_reason と、Claude Codeが画面に出す文（2.1.296）。

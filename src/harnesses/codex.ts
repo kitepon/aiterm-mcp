@@ -830,7 +830,8 @@ export function codexLaunchBlockingDialog(screen: string): string | null {
 export function codexModelChoice(screen: string, model: string): string | null {
   for (const line of screen.slice(screen.lastIndexOf("Select Model and Effort")).split("\n")) {
     const match = line.match(/^\s*(?:›\s*)?(\d+)\.\s+(\S+)/);
-    if (match?.[2] === model) return match[1];
+    // 選ぶ画面は表示名（GPT-6.1-Sol）で並ぶ。一覧のID（gpt-6.1-sol）とは大文字と小文字だけが違う（0.162.1）。
+    if (match?.[2].toLowerCase() === model.toLowerCase()) return match[1];
   }
   return null;
 }
@@ -1115,23 +1116,27 @@ export function codexFastCommandOffered(screen: string): boolean {
   return screen.split("\n").slice(-14).some((line) => /^\s*›?\s*\/fast\s{2,}\S/.test(line));
 }
 
+/** Codexが、席の中の切り替えのたびに利用者のconfig.tomlへ保存する、最上位の項目。 */
+export type CodexDefaultKey = "service_tier" | "model" | "model_reasoning_effort";
+
 /**
- * 利用者のconfig.tomlの service_tier を、公式の口（App Serverの config/batchWrite）で元の値へ戻す。
- * `/fast` は切り替えのたびに利用者の既定として保存する。戻しても、切り替えた席の段は保たれる（0.162.1で確かめた）。
+ * 利用者のconfig.tomlの最上位の項目を、公式の口（App Serverの config/batchWrite）で元の値へ戻す。
+ * `/fast` は service_tier を、`/model` の選択は model と model_reasoning_effort を、利用者の既定として保存する。
+ * 戻しても、切り替えた席の中の値は保たれる（0.162.1で確かめた）。
  */
-export async function restoreCodexServiceTier(bin: string, codexHome: string, before: CodexConfigPin): Promise<void> {
+export async function restoreCodexDefaults(bin: string, codexHome: string, before: Partial<Record<CodexDefaultKey, CodexConfigPin>>): Promise<void> {
   // 読めない書き方の値（表や複数行）は、元の値が分からないので触らない。
-  if (before.present && before.value === null) return;
+  const edits = Object.entries(before).filter(([, pin]) => pin && !(pin.present && pin.value === null))
+    .map(([keyPath, pin]) => ({ keyPath, value: (pin as CodexConfigPin).present ? (pin as CodexConfigPin).value : null, mergeStrategy: "replace" }));
+  if (edits.length === 0) return;
   const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(codexHome) };
   await steer.withCodexReceiver(AITERM_PROFILE, parent, async (request) => {
-    await request("config/batchWrite", {
-      edits: [{ keyPath: "service_tier", value: before.present ? before.value : null, mergeStrategy: "replace" }],
-    });
+    await request("config/batchWrite", { edits });
   }, { executable: bin, timeout_ms: CODEX_MODELS_TIMEOUT_MS });
 }
 
-/** 公式の口で戻せなかった時のための戻し。config.tomlの最上位の service_tier の1行だけを、元の値へ直す。 */
-export function restoreCodexServiceTierInFile(configPath: string, before: CodexConfigPin): void {
+/** 公式の口で戻せなかった時のための戻し。config.tomlの最上位の、その項目の1行だけを、元の値へ直す。 */
+export function restoreCodexDefaultInFile(configPath: string, key: CodexDefaultKey, before: CodexConfigPin): void {
   if (before.present && before.value === null) return;
   let body: string;
   try { body = fs.readFileSync(configPath, "utf8"); } catch { return; }
@@ -1139,8 +1144,8 @@ export function restoreCodexServiceTierInFile(configPath: string, before: CodexC
   const rows = body.split(/\r?\n/);
   let firstTable = rows.findIndex((row) => /^\s*\[/.test(row));
   if (firstTable === -1) firstTable = rows.length;
-  const line = rows.slice(0, firstTable).findIndex((row) => /^\s*service_tier\s*=/.test(row));
-  const wanted = before.present ? `service_tier = ${JSON.stringify(before.value)}` : null;
+  const line = rows.slice(0, firstTable).findIndex((row) => new RegExp(`^\\s*${key}\\s*=`).test(row));
+  const wanted = before.present ? `${key} = ${JSON.stringify(before.value)}` : null;
   if (line === -1 && wanted === null) return;
   if (line !== -1 && wanted !== null && rows[line].trim() === wanted) return;
   if (line === -1) rows.splice(firstTable, 0, wanted as string);

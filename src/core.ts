@@ -156,8 +156,9 @@ import {
   codexFastCommandOffered,
   codexFooterShowsFast,
   codexServiceTierNotices,
-  restoreCodexServiceTier,
-  restoreCodexServiceTierInFile,
+  restoreCodexDefaults,
+  restoreCodexDefaultInFile,
+  type CodexDefaultKey,
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
 import type { ClaudeModelPicker } from "./harnesses/claude.js";
@@ -5292,35 +5293,53 @@ async function switchCodexFast(name: string, meta: AgentMetadata, target: boolea
   if (meta.fast === target && !shownFast) return target;
   const bin = meta.agent_executable ?? resolveAgentBin("codex");
   const codexHome = meta.codex_home ?? realCodexHome();
-  const configPath = path.join(codexHome, "config.toml");
   if (target && !verified) {
     if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", "Codex の CLI が見つからず、fastの対応を確かめられません。席の速度は変えていません。");
     await assertCodexFastSupported(bin, codexHome, meta.model ?? null, "席の速度は変えていません。");
   }
+  // /fast は切り替えのたびに、利用者のconfig.tomlへ service_tier を保存する。切り替えの直前の値へ戻す。
+  return keepingCodexDefaults(bin, codexHome, ["service_tier"], async () => {
+    let state = await toggleCodexFast(name);
+    // 控えと実際が違っていた時（席で人が切り替えた等）は、1回で逆へ動く。もう1回打って頼まれた向きにする。
+    if (state !== target) state = await toggleCodexFast(name);
+    if (state !== target) {
+      throw new FastModeError("FAST_MODE_UNCONFIRMED", "Codexの /fast を2回打っても、頼まれた向きになりません。");
+    }
+    return target;
+  });
+}
+
+/**
+ * Codexの席の中の切り替え（/fast、/model の選択）を鍵の中で流し、Codexが利用者のconfig.tomlへ保存した項目を、切り替えの直前の値へ戻す。
+ * 戻しは公式の口（App Serverの config/batchWrite）。戻せない時と、戻した後もfileが前の値でない時は、その1行だけをfileで直す
+ * （戻さずに残すと、利用者の次のCodexが、席の値で始まる）。
+ */
+async function keepingCodexDefaults<T>(bin: string | null, codexHome: string, keys: CodexDefaultKey[], action: () => Promise<T>): Promise<T> {
+  const configPath = path.join(codexHome, "config.toml");
+  const pinKey = { service_tier: "service_tier", model: "model", model_reasoning_effort: "effort" } as const;
   return withUserConfigLock(configPath, async () => {
-    // /fast は切り替えのたびに、利用者のconfig.tomlへ service_tier を保存する。切り替えの直前の値を読んでおく。
-    const before = readCodexConfigPins(configPath).service_tier;
-    try {
-      let state = await toggleCodexFast(name);
-      // 控えと実際が違っていた時（席で人が切り替えた等）は、1回で逆へ動く。もう1回打って頼まれた向きにする。
-      if (state !== target) state = await toggleCodexFast(name);
-      if (state !== target) {
-        throw new FastModeError("FAST_MODE_UNCONFIRMED", "Codexの /fast を2回打っても、頼まれた向きになりません。");
+    const pins = readCodexConfigPins(configPath);
+    const before = Object.fromEntries(keys.map((key) => [key, pins[pinKey[key]]])) as Record<CodexDefaultKey, CodexConfigPin>;
+    const fixInFile = (): void => {
+      const now = readCodexConfigPins(configPath);
+      for (const key of keys) {
+        const pin = now[pinKey[key]];
+        if (pin.present === before[key].present && pin.value === before[key].value) continue;
+        try { restoreCodexDefaultInFile(configPath, key, before[key]); } catch { /* 戻せなくても、切り替えの結果は返す */ }
       }
-      return target;
+    };
+    try {
+      return await action();
     } finally {
+      // Codexは切り替えの知らせを出した後に保存する。保存を待ってから戻す。
+      await sleep(USER_DEFAULT_SETTLE_MS);
       try {
         if (!bin) throw new AitermError("Codex の CLI が見つかりません", 2);
-        await restoreCodexServiceTier(bin, codexHome, before);
-      } catch {
-        // 公式の口で戻せない時は、その1行だけをfileで直す（戻さずに残すと、利用者の次のCodexがfastで始まる）。
-        try { restoreCodexServiceTierInFile(configPath, before); } catch { /* 戻せなくても、切り替えの結果は返す */ }
-      }
-      // 公式の口が成功と返しても、fileが前の値になっていなければ、その1行を直す。
-      const now = readCodexConfigPins(configPath).service_tier;
-      if (now.present !== before.present || now.value !== before.value) {
-        try { restoreCodexServiceTierInFile(configPath, before); } catch { /* 上と同じ */ }
-      }
+        await restoreCodexDefaults(bin, codexHome, before);
+      } catch { /* 下で、fileのその行を直す */ }
+      fixInFile();
+      await sleep(USER_DEFAULT_SETTLE_MS);
+      fixInFile();
     }
   });
 }
@@ -5679,7 +5698,11 @@ export async function configureAgent(
     return configured();
   }
 
-  if (model || effort) await configureCodexModel(name, model, effort);
+  // `/model` の選択は、利用者のconfig.tomlへ model と model_reasoning_effort を既定として保存する。席だけの替えにするため、直前の値へ戻す。
+  if (model || effort) {
+    await keepingCodexDefaults(meta.agent_executable ?? resolveAgentBin("codex"), meta.codex_home ?? realCodexHome(),
+      ["model", "model_reasoning_effort"], () => configureCodexModel(name, model, effort));
+  }
   rememberModel();
   if (fast !== null) recordAgentFast(meta, await switchCodexFast(name, meta, fast, fastVerified));
   else await dropFastIfUnsupported();
@@ -5688,6 +5711,21 @@ export async function configureAgent(
 
 /** Codexの `/model` の選ぶ画面で、modelとreasoning effortを替える。 */
 async function configureCodexModel(name: string, model: string | null, effort: string | null): Promise<void> {
+  try {
+    await chooseCodexModel(name, model, effort);
+  } catch (error) {
+    // 選べずに断る時は、開いた選ぶ画面を閉じてから断る（開いたままだと、席は次の文を受け付けない）。
+    for (let i = 0; i < 3; i++) {
+      const tail = captureScreen(name, AGENT_TUI_READY_LINES).split("\n").map((line) => line.trim()).filter(Boolean).slice(-2).join("\n");
+      if (!/esc back/.test(tail)) break;
+      sendMenuChoice(name, "Escape");
+      await sleep(400);
+    }
+    throw error;
+  }
+}
+
+async function chooseCodexModel(name: string, model: string | null, effort: string | null): Promise<void> {
   await sendAgentPromptText(name, "/model");
   const modelScreen = await waitForScreenText(name, "Select Model and Effort");
   if (model) {

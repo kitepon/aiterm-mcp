@@ -211,18 +211,23 @@ test("Codex: config.tomlの最上位の service_tier を読み、1行だけを�
   // /fast が書いた後（Codexは最上位へ足す）。
   fs.writeFileSync(file, 'model = "gpt-6.1-sol"\n# 速度の段は書いていない\nservice_tier = "fast"\n\n[features]\nfast_mode = true\n');
   assert.deepEqual(codex.readCodexConfigPins(file).service_tier, { present: true, value: "fast" });
-  codex.restoreCodexServiceTierInFile(file, { present: false, value: null });
+  codex.restoreCodexDefaultInFile(file, "service_tier", { present: false, value: null });
   assert.equal(fs.readFileSync(file, "utf8"), 'model = "gpt-6.1-sol"\n# 速度の段は書いていない\n\n[features]\nfast_mode = true\n');
   // 元に値があった時は、その値へ戻す。行が消えていれば、最初の表の前へ足す。
   fs.writeFileSync(file, 'service_tier = "default"\n[features]\nservice_tier = "table-key"\n');
-  codex.restoreCodexServiceTierInFile(file, { present: true, value: "flex" });
+  codex.restoreCodexDefaultInFile(file, "service_tier", { present: true, value: "flex" });
   assert.equal(fs.readFileSync(file, "utf8"), 'service_tier = "flex"\n[features]\nservice_tier = "table-key"\n', "表の中の同じ名前の鍵には触らない");
   fs.writeFileSync(file, '[features]\nfast_mode = true\n');
-  codex.restoreCodexServiceTierInFile(file, { present: true, value: "flex" });
+  codex.restoreCodexDefaultInFile(file, "service_tier", { present: true, value: "flex" });
   assert.equal(fs.readFileSync(file, "utf8"), 'service_tier = "flex"\n[features]\nfast_mode = true\n');
+  // model と model_reasoning_effort も同じ形で戻す（/model の選択が保存する）。
+  fs.writeFileSync(file, 'model = "gpt-6-sol"\nmodel_reasoning_effort = "low"\n[features]\n');
+  codex.restoreCodexDefaultInFile(file, "model", { present: true, value: "gpt-6.1-sol" });
+  codex.restoreCodexDefaultInFile(file, "model_reasoning_effort", { present: false, value: null });
+  assert.equal(fs.readFileSync(file, "utf8"), 'model = "gpt-6.1-sol"\n[features]\n');
   // 元の値が読めない書き方だった時は触らない。
   fs.writeFileSync(file, 'service_tier = "fast"\n');
-  codex.restoreCodexServiceTierInFile(file, { present: true, value: null });
+  codex.restoreCodexDefaultInFile(file, "service_tier", { present: true, value: null });
   assert.equal(fs.readFileSync(file, "utf8"), 'service_tier = "fast"\n');
 });
 
@@ -499,4 +504,15 @@ test("一覧: Claude Codeが「fastの可否を確かめている最中」と答
   assert.equal(claude.claudeFastStatePending(claudeInitialize("extra_usage_disabled"), "r1"), false);
   assert.equal(claude.claudeFastStatePending(claudeInitialize(undefined), "r1"), false);
   assert.equal(claude.claudeFastStatePending("not json\n", "r1"), false);
+});
+
+test("Codex: /model の選ぶ画面は表示名で並ぶ。一覧のIDを、大文字と小文字を問わずに行へ対応させる", () => {
+  // 0.162.1の実物。
+  const screen = ["  Select Model and Effort", "› 1. GPT-6.1-Sol (current)  Latest workhorse model for coding and everyday work.",
+    "  2. GPT-6-Astra            Frontier intelligence for the most demanding work.", "  3. GPT-6-Sol              Previous generation workhorse model.",
+    "  8. GPT-5.5                Legacy coding model.", "  enter select · esc back"].join("\n");
+  assert.equal(codex.codexModelChoice(screen, "gpt-6.1-sol"), "1");
+  assert.equal(codex.codexModelChoice(screen, "gpt-6-sol"), "3", "gpt-6.1-sol の行と取り違えない");
+  assert.equal(codex.codexModelChoice(screen, "GPT-5.5"), "8");
+  assert.equal(codex.codexModelChoice(screen, "gpt-9"), null);
 });

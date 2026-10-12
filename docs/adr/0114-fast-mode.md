@@ -14,7 +14,7 @@
 | Claude Code | `/fast on`・`/fast off` | `~/.claude/settings.json`へ`fastMode: true`を書く／消す。もう off でもfileを書き直す | 結果の行「Fast mode ON …」「Fast mode OFF」「Fast mode unavailable: …」 |
 | Codex | `/fast`（入り切りの交互。引数は無い） | `~/.codex/config.toml`へ`service_tier = "fast"`か`"default"`を保存する | 「Service tier set to priority」「Service tier set to default」。足元にも`/status`にも今の段は出ない |
 | Grok | `/model <fast版のID>`（fastは別のmodel） | `~/.grok/config.toml`の`[models]`の`default`と`default_reasoning_effort`を書き換える。**起動の`--model`でも書く** | 「✓ Default model: Grok 4.7 Fast」、足元の「Grok 4.7 Fast (high)」 |
-| Cursor | `/model`→Tab→「Fast」の行でEnter→Esc→Enter | 無い | パラメータの画面の`◯ Fast`／`◉ Fast`、見出しの「Codex 5.3 Low Fast」 |
+| Cursor | `/model`→Tab→「Fast」の行でEnter→Esc→Enter | 版による。2026.10.01-14929f9は、起動の`--model`と`/model`の選択のたびに`~/.cursor/cli-config.json`の既定のmodelの項目（`model`・`selectedModel`・`modelParameters`ほか）を書く。fastを入れた選択なら`selectedModel.parameters`に`fast: true`が残る。2026.10.01-e373342は書かない | パラメータの画面の`◯ Fast`／`◉ Fast`、見出しの「Codex 5.3 Low Fast」 |
 
 harnessは、切り替えを利用者の好み（次の会話にも残る既定）として扱う。そのまま使うと、1つの席の切り替えが、同じ端末のほかの席と、
 利用者自身の次の会話へ漏れる。全席が1つのHOMEを使う端末では、漏れた先の全部がファストで流れる。
@@ -45,7 +45,12 @@ harnessは、切り替えを利用者の好み（次の会話にも残る既定�
      （Claude Codeは書く時に項目の並びを変える）。ほかの項目も変わっていたら、`fastMode`だけを直す。
    - Grok: `config.toml`の`[models]`の`default`と`default_reasoning_effort`を戻す。**起動の前後でも戻す**（起動が既定を書くため）。
      `agent_configure`でmodelやeffortを替える時も同じ（今までは、替えた値が利用者の既定に残っていた）。
-   - Cursor: 書き込みが無いので、戻しも無い。
+   - Cursor: `cli-config.json`の既定のmodelの項目（`model`・`hasChangedDefaultModel`・`modelParameters`・`selectedModel`・
+     `modelSelectionHistory`・`maxMode`）を戻す。起動（modelを渡した時）の前後と、`agent_configure`の前後。Cursorが同じ時に進める控えの時刻
+     （`privacyCache`ほか）は、そのまま残す。
+   - Codexの`agent_configure`でmodelやeffortを替える時も、`model`と`model_reasoning_effort`を同じ口で戻す
+     （`/model`の選択は、利用者の既定として保存する。今までは残っていた）。
+   - harnessは1回の切り替えで何度か書く事がある（Grokの起動で見た）。戻した後も少し置きながら見直し、後から書かれた分も戻す。
 4. **読む→切り替える→戻すは、設定fileごとの鍵で1つずつにする**（`withUserConfigLock`）。2つの席が同じ頃に切り替えると、
    後の席が読む「直前の値」が先の席の書いたファストになり、それへ戻すとファストが利用者の既定に残る。鍵は設定fileの隣
    （`<設定file>.aiterm-lock`）に作る。Aitermの置き場はprocessごとに変えられるが、設定fileの場所は全員が同じに見る。
@@ -83,6 +88,12 @@ harnessは、切り替えを利用者の好み（次の会話にも残る既定�
   `FAST_MODE_UNAVAILABLE`と`FAST_MODE_UNCONFIRMED`は、起動を断らずに通常の速度で起こし、返りを`fast: false`、`fast_error`に訳を入れる
   （credits切れ等で起動まで断ると、呼び手の席が起きず、届いた文が落ちる）。`agent_configure`は4つとも断る。
 
+## 一緒に直した事（Codexの席のmodelの替え）
+
+Codex 0.162.1の`/model`の選ぶ画面は、表示名（`GPT-6.1-Sol`）で並ぶ。一覧のID（`gpt-6.1-sol`）と行の先頭を、大文字と小文字まで同じ物として
+比べていたので、`agent_configure`へ一覧のIDを渡すと「Codexの/modelに … がありません」で断り、選ぶ画面を開いたまま返していた
+（開いたままの席は、次の文を受け付けない）。大文字と小文字を問わずに比べ、選べずに断る時は選ぶ画面を閉じてから断る。
+
 ## 一緒に直した事（今のCursorで、設定替えの後に席が入力待ちと読めなくなる）
 
 Cursor 2026.10.01は、`/model`の選ぶ画面を閉じても入力欄の行を描かない（選ぶ画面の「Filter:」の行が残り、鍵が1つ入るまでそのまま）。
@@ -93,13 +104,19 @@ Cursor 2026.10.01は、`/model`の選ぶ画面を閉じても入力欄の行を�
 - 入力欄の案内（Plan, search, build anything）があれば、見出しが画面に無くても入力待ちと読む。
 - `/model`の画面の今の姿（選ぶ画面・パラメータの画面・閉じた）は、画面の最後の行（操作の案内）で読む。
   Cursorは閉じた画面の行を消さないので、文字の有無では、前に開いた画面を今の物と読み違える（同じ席で2回目の設定替えが外れる）。
+- パラメータの画面の矢印は、1歩ずつ、画面で動いたのを確かめて進める。矢印を続けて送ると鍵が落ちる事があり、違う行でEnterを押すと
+  別のeffortを選んでしまう。目当ての行に着けない時は、選ばずに閉じて断る。開いた直後の矢印は、選んである段でなく1行目に居る。
 
 ## 確かめ
 
 - Codex 0.162.1: 一時のCODEX_HOMEと偽のmodel（問い合わせごとの`service_tier`を控える）で、起動時のfast・動いている席の入り切り・
   番ごとの段・利用者のconfigが切り替えの後も元のままである事を見た（`tools/aiterm-probe/codex-fast-probe.mjs`）。
 - Grok 1.0.50: 一時のGROK_HOMEの本物の席で、fast版での起動・入り切り・modelとeffortの替えのたびに、`[models]`の2つの既定が元へ戻る事を見た。
-- Cursor 2026.10.01: 本物の席で、fastの起動・入り切り・effortの替え・対応していないmodelの断りを見た。`cli-config.json`は前後で同じ。
+- Cursor 2026.10.01: 本物の席で、fastの起動・入り切り・effortの替え・対応していないmodelの断りを見た。既定を書く版（14929f9）では、
+  切り替えのたびに`cli-config.json`のmodelの項目が元へ戻る（残る差は、Cursorの控えの時刻だけ）。
+- Linux・macOS・Windowsの本物の端末の、4つのharnessの席で、起動と切り替えを流した。利用者の設定fileは、流す前に写しを取って後で比べた。
+  Windowsでは、Claude Codeが初めて聞かれた時にfastの可否を「確かめている最中」と答える事と、Grokの一覧の最初の答えにfast版が入っていない事を見て、
+  どちらも少し置いて聞き直す形にした。Grokのmodelの替えの知らせは、Windowsで3秒を超えるので10秒まで待ち、取り逃しても足元の表示で確かめる。
 - Claude Code 2.1.296: 本物の席で、アカウントで使えない時（usage creditsが無い）の起動（通常で起きて`fast_error`が入る）と
   `agent_configure`の断り、対応していないmodelの断りを見た。利用者の`settings.json`は前後で同じ。
   **ファストへ入る所は、usage creditsが要るので本物では見ていない。** 実行fileの中の作りを写した模したClaude Code
@@ -109,4 +126,4 @@ Cursor 2026.10.01は、`/model`の選ぶ画面を閉じても入力欄の行を�
 
 - harnessの切り替えの命令そのもの（`/fast`、`/model`）。Aitermは、harnessの標準の操作を打つ。
 - Claude Codeの`fastModePerSessionOptIn`には頼らない（利用者の設定へ置く物で、Aitermは置かない）。
-- Codexの`/model`の選択が利用者の既定のmodelとeffortを保存する件は、この決定の範囲の外（同じ仕組みで戻せる）。
+- Codexの`/model`の段の画面には「s session」（この会話だけ）の選び方がある（0.162.1）。今は番号の鍵で選んで、保存された既定を戻している。

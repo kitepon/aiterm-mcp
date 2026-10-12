@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Codexは`-c service_tier=default`を明示する。利用者の設定にファストが残っていても、modelの既定の段がFastでも、席は通常で始まる。
     `fast: true`は、通常で起こしてから、その席を切り替える。
   - **切り替えは席だけに留める。** harnessの切り替えの命令は利用者の既定も書き換える（Claude Codeの`/fast`は`settings.json`の`fastMode`、
-    Codexの`/fast`は`config.toml`の`service_tier`、Grokの`/model`は`config.toml`の`[models]`）。切り替えの直前の値へ戻す。
+    Codexの`/fast`は`config.toml`の`service_tier`、Grokの`/model`は`config.toml`の`[models]`、Cursorは版によって`cli-config.json`）。
+    切り替えの直前の値へ戻す。
     読む・切り替える・戻すは、設定fileごとの鍵で、同じ端末の全てのAitermの間で1つずつにする。
   - `agent_models`のmodelごとに`fast`（そのmodelで切り替えられるか。harnessが返す値）。fastが別のmodel IDのharness（Cursor・Grok）は、
     fast版を別のmodelとして並べず、元のmodelの`fast: true`にする（**Grokの一覧から`grok-4.7-build-fast`が消え、`grok-4.7`が`fast: true`になる**）。
@@ -36,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grokの席を起こすたびに、利用者の`~/.grok/config.toml`の既定のmodelが、その席のmodelへ書き換わっていた件を直す（ADR 0114）。
   Grok 1.0.50は、`--model`を付けて起こすだけで`[models].default`を書く。`agent_configure`でmodelやeffortを替えた時も、
   `default`と`default_reasoning_effort`に残っていた。起動と設定替えの前後で、直前の値へ戻す。
+- Cursorの席を起こした時と設定替えの時に、利用者の`~/.cursor/cli-config.json`の既定のmodelが、その席のmodelへ書き換わっていた件を直す
+  （書くのはCursorの版による。2026.10.01-14929f9）。起動と設定替えの前後で、直前の値へ戻す。
+- Codexの席で`agent_configure`がmodelやeffortを替えると、利用者の`~/.codex/config.toml`の既定（`model`・`model_reasoning_effort`）に残っていた件を直す。
+  公式の口（App Serverの`config/batchWrite`）で、直前の値へ戻す。
+- Codex 0.162.1で、`agent_configure`へ一覧のmodel ID（`gpt-6.1-sol`）を渡すと「Codexの/modelに … がありません」で断り、選ぶ画面を開いたまま
+  返していた件を直す（選ぶ画面は表示名`GPT-6.1-Sol`で並ぶ）。大文字と小文字を問わずに比べ、選べずに断る時は選ぶ画面を閉じる。
+- Cursorのパラメータの画面で、矢印を続けて送って鍵が落ちると、違う行（別のeffort）を選びかねなかった件を直す。1歩ずつ画面で確かめて進める。
 - 今のCursor（2026.10.01）で、`agent_configure`がeffortを替えた後に「変更完了を確認できません」で返り、その席への次の送信が
   「入力待ちではありません」で断られていた件を直す（替え自体は効いていた）。Cursorは`/model`の選ぶ画面を閉じても入力欄を描かず、
   閉じた画面の行も消さない。閉じた後に入力欄を描き直させ、画面の今の姿を最後の行で読む。同じ席で設定替えを繰り返しても外れない。

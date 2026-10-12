@@ -529,7 +529,7 @@ export function assertCursorModelAvailable(bin: string, cwd: string, model: stri
 export function cursorEffortNavigation(screen: string, effort: string): { down: number; label: string } {
   const label = CURSOR_EFFORT_LABELS[effort.toLowerCase()];
   if (!label) throw new AitermError(`Cursorのreasoning_effort ${JSON.stringify(effort)} は未対応です`, 2);
-  const choices = screen.split("\n").flatMap((line) => {
+  const choices = cursorParameterLines(screen).flatMap((line) => {
     const match = line.match(/^\s*(→\s*)?[●○◯]\s+(.+?)(?:\s+✓)?\s*$/);
     return match ? [{ selected: !!match[1], label: match[2] }] : [];
   });
@@ -635,8 +635,10 @@ const CURSOR_START_PROMPT_MARKER_RE = /(?:^|\n)\s*(?:→|->)\s*Plan,\s*search,\s
 
 export function cursorTuiReady(screen: string): boolean {
   if (CURSOR_FOLLOWUP_MARKER_RE.test(screen)) return true;
-  return /Cursor Agent/i.test(screen) &&
-    (CURSOR_COMPOSER_MARKER_RE.test(screen) || CURSOR_START_PROMPT_MARKER_RE.test(screen));
+  // 入力欄の案内（Plan, search, build anything）はCursorの入力欄だけが出す文なので、見出し（Cursor Agent）が画面の外へ流れた後も
+  // 入力待ちと読む。まだ番を流していない席で `/model` の選ぶ画面を開いて閉じると、見出しは流れて戻らない（2026.10.01）。
+  if (CURSOR_START_PROMPT_MARKER_RE.test(screen)) return true;
+  return /Cursor Agent/i.test(screen) && CURSOR_COMPOSER_MARKER_RE.test(screen);
 }
 
 // 利用上限に達したCursorは、入力欄も戻さずに説明を出して止まる（2026.09.26-dd393fe、macOSで実測）。
@@ -726,17 +728,38 @@ export function cursorAuthPane(screen: string): AgentAuthPane {
     user_code: null, input_required: false, message: null };
 }
 
+/**
+ * `/model` の画面の今の姿を、画面の最後の行（操作の案内）で読む。list は選ぶ画面、parameters はパラメータの画面、null は閉じている。
+ * Cursorは選ぶ画面を閉じても前の行を消さないので（上に残る）、文字の有無では今の姿が分からない。
+ */
+export function cursorPickerView(screen: string): "list" | "parameters" | null {
+  const last = screen.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? "";
+  if (/Enter to select\s*•\s*Esc to go back/.test(last)) return "parameters";
+  if (/Enter to select\s*•\s*Tab to edit/.test(last)) return "list";
+  return null;
+}
+
+/** 今開いているパラメータの画面の行（最後の「Edit Parameters」の見出しより後）。見出しが無ければ画面の全部。 */
+function cursorParameterLines(screen: string): string[] {
+  const lines = screen.split("\n");
+  let title = lines.length - 1;
+  while (title >= 0 && !lines[title].includes("Edit Parameters")) title--;
+  return lines.slice(title + 1);
+}
+
+/** 今開いているパラメータの画面で、そのeffortの行に選択済みの印（✓）が付いているか。 */
+export function cursorEffortSelected(screen: string, label: string): boolean {
+  return cursorParameterLines(screen).some((line) => new RegExp(`[●○◯]\\s+${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+✓\\s*$`).test(line));
+}
+
 // ---- ファスト。Cursorは `/model` のパラメータの画面（Edit Parameters）に「Fast」の行がある（2026.10.01）。
 //   入っていない: 「◯ Fast」 / 入っている: 「◉ Fast」。行が無いmodelはfastへ切り替えられない。
 
 /** パラメータの画面のFastの行。state は今の入り切り、down は選択中（→）の行からFastの行までの下矢印の数。 */
 export function cursorFastParameter(screen: string): { state: boolean; down: number } | null {
-  const lines = screen.split("\n");
-  let title = lines.length - 1;
-  while (title >= 0 && !lines[title].includes("Edit Parameters")) title--;
-  if (title < 0) return null;
+  if (!screen.includes("Edit Parameters")) return null;
   // 画面は行ごとに横へずれて描かれる事がある。行の中身だけを見る。
-  const rows = lines.slice(title + 1).map((line) => line.trim()).filter((line) => /^(?:→\s*)?[●○◯◉]\s+\S/u.test(line));
+  const rows = cursorParameterLines(screen).map((line) => line.trim()).filter((line) => /^(?:→\s*)?[●○◯◉]\s+\S/u.test(line));
   const fast = rows.findIndex((line) => /^(?:→\s*)?[◯◉]\s+Fast\s*$/u.test(line));
   const selected = rows.findIndex((line) => line.startsWith("→"));
   if (fast < 0 || selected < 0) return null;
@@ -745,9 +768,9 @@ export function cursorFastParameter(screen: string): { state: boolean; down: num
 
 /** 見出しのmodelの表示（「Codex 5.3 Low Fast」）が、ファストが入っている形か。 */
 export function cursorHeaderShowsFast(screen: string): boolean | null {
-  // 見出しは「<modelの表示>   <権限の表示>」の1行。権限の表示は Run Everything／Ask 等。
+  // 見出しは「<modelの表示>   <権限の表示>」の1行。権限の表示は Run Everything／Ask 等（画面の幅で後ろが切れる事がある）。
   const header = screen.split("\n").map((line) => line.trim())
-    .filter((line) => /\s{2,}(?:Run Everything|Auto-Run|Ask|Plan|Manual)\b/.test(line)).at(-1);
+    .filter((line) => /\S\s{2,}(?:Run|Auto-Run|Ask|Plan|Manual)\b/.test(line)).at(-1);
   if (!header) return null;
   return /\bFast\s{2,}/.test(header);
 }

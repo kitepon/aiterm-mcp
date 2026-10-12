@@ -209,6 +209,8 @@ import {
   cursorModelIsFastVariant,
   cursorFastParameter,
   cursorHeaderShowsFast,
+  cursorPickerView,
+  cursorEffortSelected,
   buildCursorAgentCmd,
   cursorAgentArgv,
   cursorPwshLaunchLine,
@@ -2845,6 +2847,11 @@ function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt_delivery: m.initial_prompt_delivery, initial_prompt_cursor: m.initial_prompt_cursor,
   };
   const executableFields = m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable };
+  // 席のファストの状態と、起動・設定替えで渡したmodel（ADR 0114）。この項目より前の版が書いた控えには無い。
+  const fastFields = {
+    ...(typeof m.fast === "boolean" ? { fast: m.fast as boolean } : {}),
+    ...(typeof m.model === "string" || m.model === null ? { model: m.model as string | null } : {}),
+  };
   const startupShapes = Array.isArray(m.startup_process_shapes) && m.startup_process_shapes.every((shape: any) =>
     shape && typeof shape.identity === "string" && (shape.parent === null || typeof shape.parent === "string") && typeof shape.argv_digest === "string")
     ? { startup_process_shapes: m.startup_process_shapes as StartupProcessShape[] } : {};
@@ -2879,6 +2886,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...fastFields,
       ...startupFields,
       launch_operation_id: launchOperationId,
       launch_request_digest: launchRequestDigest,
@@ -2911,6 +2919,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...fastFields,
       ...startupFields,
       hook_route: "shared_codex_home",
       completion_route: "codex_transcript",
@@ -2941,6 +2950,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
+      ...fastFields,
       ...startupFields,
       hook_route: "shared_cursor_home",
       completion_route: "cursor_transcript",
@@ -5250,35 +5260,63 @@ async function switchCodexFast(name: string, meta: AgentMetadata, target: boolea
   });
 }
 
+const CURSOR_PICKER_CLOSE_MS = 600;
+
+/**
+ * Cursorの `/model` の選ぶ画面を閉じた後、入力欄を描き直させる。
+ * 2026.10.01のCursorは、選ぶ画面を閉じても入力欄の行を描かず（選ぶ画面の「Filter:」の行が残る）、鍵が1つ入るまでそのまま。
+ * そのままだとAitermは入力待ちと読めず、次の送信を断る。空白を1つ打って消すと、入力欄が描かれる（入力欄は空のまま）。
+ */
+async function redrawCursorComposer(name: string): Promise<void> {
+  await sleep(CURSOR_PICKER_CLOSE_MS);
+  sendMenuChoice(name, "Space");
+  await sleep(150);
+  sendMenuChoice(name, "BSpace");
+  await sleep(150);
+}
+
+/** Cursorの `/model` の画面が、その姿（list＝選ぶ画面、parameters＝パラメータの画面、null＝閉じた）になるのを待つ。 */
+async function waitCursorPickerView(name: string, view: "list" | "parameters" | null, timeoutMs = 4_000): Promise<string> {
+  const deadline = performance.now() + timeoutMs;
+  do {
+    const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    if (cursorPickerView(screen) === view) return screen;
+    await sleep(100);
+  } while (performance.now() < deadline);
+  throw new AitermError(`Cursor の /model の画面（${view === "list" ? "選ぶ画面" : view === "parameters" ? "Edit Parameters" : "閉じた後"}）を確認できません`, 2);
+}
+
 async function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
   // 引数なしの /model は、今のmodelの行に印を付けて開く。Tabでそのmodelのパラメータの画面（Edit Parameters）。
   await sendAgentPromptText(name, "/model", meta.kind);
-  await waitForScreenText(name, "Available models");
+  await waitCursorPickerView(name, "list");
   sendMenuChoice(name, "Tab");
-  const closeWithoutChange = async (fromParameters: boolean) => {
-    if (fromParameters) {
+  /** 選ばずに閉じる。パラメータの画面ならEscで選ぶ画面へ戻り、もう一度Escで閉じる。 */
+  const closeWithoutChange = async () => {
+    for (let i = 0; i < 2 && cursorPickerView(captureScreen(name, AGENT_TUI_READY_LINES)) !== null; i++) {
+      const view = cursorPickerView(captureScreen(name, AGENT_TUI_READY_LINES));
       sendMenuChoice(name, "Escape");
-      await waitForScreenText(name, "Available models").catch(() => undefined);
+      await waitCursorPickerView(name, view === "parameters" ? "list" : null).catch(() => undefined);
     }
-    sendMenuChoice(name, "Escape");
+    await redrawCursorComposer(name);
     await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
   };
   let parameters: string;
   try {
-    parameters = await waitForScreenText(name, "Edit Parameters");
+    parameters = await waitCursorPickerView(name, "parameters");
   } catch {
-    await closeWithoutChange(false);
+    await closeWithoutChange();
     if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Cursorの今のmodelには、パラメータの画面がありません。席の速度は変えていません。");
     return false;
   }
   const row = cursorFastParameter(parameters);
   if (!row) {
-    await closeWithoutChange(true);
+    await closeWithoutChange();
     if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Cursorの今のmodelのパラメータに、Fastの行がありません。席の速度は変えていません。");
     return false;
   }
   if (row.state === target) {
-    await closeWithoutChange(true);
+    await closeWithoutChange();
     return target;
   }
   for (let i = 0; i < Math.abs(row.down); i++) sendMenuChoice(name, row.down > 0 ? "Down" : "Up");
@@ -5289,12 +5327,14 @@ async function switchCursorFast(name: string, meta: AgentMetadata, target: boole
     if (now.state === target) break;
   }
   if (now.state !== target) {
-    await closeWithoutChange(true);
+    await closeWithoutChange();
     throw new FastModeError("FAST_MODE_UNCONFIRMED", "Cursorのパラメータの画面で、Fastの行の印が替わりません。選ばずに閉じました。");
   }
   sendMenuChoice(name, "Escape");
-  await waitForScreenText(name, "Available models");
+  await waitCursorPickerView(name, "list");
   sendMenuChoice(name, "Enter");
+  await waitCursorPickerView(name, null);
+  await redrawCursorComposer(name);
   const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
   const shown = cursorHeaderShowsFast(captureScreen(name, AGENT_TUI_READY_LINES));
   if (!ready.ready || (shown !== null && shown !== target)) {
@@ -5471,16 +5511,22 @@ export async function configureAgent(
     }
     if (model && effort) {
       await sendAgentPromptText(name, "/model", meta.kind);
-      await waitForScreenText(name, "Available models");
+      await waitCursorPickerView(name, "list");
       sendMenuChoice(name, "Tab");
-      const parameterScreen = await waitForScreenText(name, "Edit Parameters");
+      const parameterScreen = await waitCursorPickerView(name, "parameters");
       const navigation = cursorEffortNavigation(parameterScreen, effort);
       for (let i = 0; i < navigation.down; i++) sendMenuChoice(name, "Down");
       sendMenuChoice(name, "Enter");
-      await waitForScreenText(name, `${navigation.label} ✓`);
+      let selected = false;
+      for (const deadline = performance.now() + CURSOR_FAST_ROW_TIMEOUT_MS; !selected && performance.now() < deadline; await sleep(100)) {
+        selected = cursorEffortSelected(captureScreen(name, AGENT_TUI_READY_LINES), navigation.label);
+      }
+      if (!selected) throw new AitermError(`Cursor の ${navigation.label} ✓ 画面を確認できません`, 2);
       sendMenuChoice(name, "Escape");
-      await waitForScreenText(name, "Available models");
+      await waitCursorPickerView(name, "list");
       sendMenuChoice(name, "Enter");
+      await waitCursorPickerView(name, null);
+      await redrawCursorComposer(name);
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError("Cursorのreasoning effort変更完了を確認できません", 2);
     }

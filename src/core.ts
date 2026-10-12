@@ -212,6 +212,7 @@ import {
   cursorHeaderShowsFast,
   cursorPickerView,
   cursorEffortSelected,
+  cursorParameterRows,
   cursorUserConfigPath,
   CURSOR_DEFAULT_MODEL_KEYS,
   realCursorHome,
@@ -5336,6 +5337,28 @@ async function waitCursorPickerView(name: string, view: "list" | "parameters" | 
   throw new AitermError(`Cursor の /model の画面（${view === "list" ? "選ぶ画面" : view === "parameters" ? "Edit Parameters" : "閉じた後"}）を確認できません`, 2);
 }
 
+const CURSOR_PARAMETER_STEP_TIMEOUT_MS = 800;
+
+/**
+ * Cursorのパラメータの画面で、選択中（→）の行を、目当ての名前の行まで動かす。
+ * 矢印を続けて送ると鍵が落ちる事があり（2026.10.01で見た）、違う行でEnterを押すと別の値を選んでしまう。
+ * 1歩ずつ、画面で矢印が動いたのを確かめる。目当ての行に着いた時だけtrueを返す。
+ */
+async function moveCursorParameterTo(name: string, label: string): Promise<boolean> {
+  for (let step = 0; step < 24; step++) {
+    const rows = cursorParameterRows(captureScreen(name, AGENT_TUI_READY_LINES));
+    const at = rows.findIndex((row) => row.cursor);
+    const target = rows.findIndex((row) => row.label === label);
+    if (at < 0 || target < 0) return false;
+    if (at === target) return true;
+    sendMenuChoice(name, target > at ? "Down" : "Up");
+    for (const deadline = performance.now() + CURSOR_PARAMETER_STEP_TIMEOUT_MS; performance.now() < deadline; await sleep(60)) {
+      if (cursorParameterRows(captureScreen(name, AGENT_TUI_READY_LINES)).findIndex((row) => row.cursor) !== at) break;
+    }
+  }
+  return false;
+}
+
 /** Cursorの `/model` の操作を流し、Cursorが利用者の既定（cli-config.jsonのmodelの項目）へ書いた分を、直前の値へ戻す。 */
 function keepingCursorDefaults<T>(meta: AgentMetadata, action: () => Promise<T>): Promise<T> {
   const configPath = cursorUserConfigPath(meta.cursor_home ?? realCursorHome());
@@ -5379,7 +5402,10 @@ async function toggleCursorFast(name: string, meta: AgentMetadata, target: boole
     await closeWithoutChange();
     return target;
   }
-  for (let i = 0; i < Math.abs(row.down); i++) sendMenuChoice(name, row.down > 0 ? "Down" : "Up");
+  if (!(await moveCursorParameterTo(name, "Fast"))) {
+    await closeWithoutChange();
+    throw new FastModeError("FAST_MODE_UNCONFIRMED", "Cursorのパラメータの画面で、Fastの行へ動かせません。選ばずに閉じました。席の速度は変えていません。");
+  }
   sendMenuChoice(name, "Enter");
   let now = row;
   for (const deadline = performance.now() + CURSOR_FAST_ROW_TIMEOUT_MS; performance.now() < deadline; await sleep(100)) {
@@ -5569,7 +5595,13 @@ export async function configureAgent(
       sendMenuChoice(name, "Tab");
       const parameterScreen = await waitCursorPickerView(name, "parameters");
       const navigation = cursorEffortNavigation(parameterScreen, effort);
-      for (let i = 0; i < navigation.down; i++) sendMenuChoice(name, "Down");
+      if (!(await moveCursorParameterTo(name, navigation.label))) {
+        sendMenuChoice(name, "Escape");
+        await waitCursorPickerView(name, "list").catch(() => undefined);
+        sendMenuChoice(name, "Escape");
+        await redrawCursorComposer(name);
+        throw new AitermError(`Cursorのパラメータの画面で ${navigation.label} の行へ動かせません。reasoning effortは選んでいません。`, 2);
+      }
       sendMenuChoice(name, "Enter");
       let selected = false;
       for (const deadline = performance.now() + CURSOR_FAST_ROW_TIMEOUT_MS; !selected && performance.now() < deadline; await sleep(100)) {

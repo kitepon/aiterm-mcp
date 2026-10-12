@@ -747,6 +747,14 @@ function cursorParameterLines(screen: string): string[] {
   return lines.slice(title + 1);
 }
 
+/** 今開いているパラメータの画面の選べる行。cursor は選択中（→）の行、label は印と✓を除いた名前（Low・High・Fast 等）。 */
+export function cursorParameterRows(screen: string): { label: string; cursor: boolean }[] {
+  return cursorParameterLines(screen).flatMap((line) => {
+    const match = line.trim().match(/^(→\s*)?[●○◯◉]\s+(.+?)(?:\s+✓)?\s*$/u);
+    return match ? [{ label: match[2], cursor: !!match[1] }] : [];
+  });
+}
+
 /** 今開いているパラメータの画面で、そのeffortの行に選択済みの印（✓）が付いているか。 */
 export function cursorEffortSelected(screen: string, label: string): boolean {
   return cursorParameterLines(screen).some((line) => new RegExp(`[●○◯]\\s+${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+✓\\s*$`).test(line));

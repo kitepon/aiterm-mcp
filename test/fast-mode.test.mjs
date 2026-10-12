@@ -169,6 +169,11 @@ test("Cursor: /model の画面の今の姿は最後の行で読み、パラメ�
   assert.equal(cursor.cursorEffortSelected(parameters(false, "High"), "High"), true);
   assert.equal(cursor.cursorEffortSelected(`${parameters(false, "High")}\n${list}\n${parameters(false, "Low")}`, "High"), false, "前の画面の印を、今の物として読まない");
   assert.deepEqual(cursor.cursorEffortNavigation(parameters(true, "Low"), "high"), { down: 2, label: "High" });
+  // 開いた直後は、選んである段（✓）でなく1行目に矢印が居る（実物）。矢印の行と名前を読む。
+  const opened = parameters(true, "Low").replace("→ ● Low ✓", "→ ○ Low").replace("○ High", "● High ✓");
+  assert.deepEqual(cursor.cursorParameterRows(opened), [{ label: "Low", cursor: true }, { label: "Medium", cursor: false }, { label: "High", cursor: false },
+    { label: "Extra High", cursor: false }, { label: "Fast", cursor: false }]);
+  assert.deepEqual(cursor.cursorFastParameter(opened), { state: true, down: 4 });
   assert.equal(cursor.cursorHeaderShowsFast(closed), true);
   assert.equal(cursor.cursorHeaderShowsFast(closed.replace("Low Fast", "Low     ")), false);
   // 画面の幅で権限の表示が切れた見出し。

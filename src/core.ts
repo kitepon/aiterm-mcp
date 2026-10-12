@@ -5047,6 +5047,7 @@ interface LaunchFastPlan {
 }
 
 const GROK_FAST_CATALOG_RETRY_MS = 1_500;
+const GROK_MODEL_SWITCH_TIMEOUT_MS = 10_000;
 
 /**
  * Grokの一覧（fast版の対を読むため）。Grokは、しばらく聞かれていないと最初の答えにfast版が入っていない事がある
@@ -5450,7 +5451,8 @@ async function sendGrokModelCommand(
   await keepingUserDefaults(configPath, restoreGrokDefaults(configPath), async () => {
     const before = captureScreen(name, AGENT_TUI_READY_LINES);
     await sendAgentPromptText(name, command);
-    await waitForGrokConfigurationResult(name, before, model, effort);
+    // modelの替えは、端末によって知らせが出るまで数秒かかる（Windowsで3秒を超えた）。
+    await waitForGrokConfigurationResult(name, before, model, effort, model ? GROK_MODEL_SWITCH_TIMEOUT_MS : undefined);
   });
 }
 
@@ -5473,12 +5475,16 @@ async function switchGrokFast(name: string, meta: AgentMetadata, target: boolean
     throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
       `Grok の ${current.base} にfast版のmodelがありません（fast版があるmodel: ${Object.keys(catalog.fast_ids ?? {}).join(", ") || "なし"}）。${untouched}`);
   }
-  await sendGrokModelCommand(name, meta, `/model ${next}`, next, null);
+  // 切り替えの知らせを取り逃しても、足元のmodelの表示が頼んだ向きになっていれば、切り替わっている。
+  let noticeError: unknown = null;
+  try { await sendGrokModelCommand(name, meta, `/model ${next}`, next, null); } catch (error) { noticeError = error; }
   const after = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
-  if (after && after.fast !== target) {
-    throw new FastModeError("FAST_MODE_UNCONFIRMED", "Grokの足元のmodelの表示で、切り替えた後の状態を確かめられません。席の速度は変わった可能性があります。");
+  if (after?.fast === target) return target;
+  if (noticeError && after?.fast === current.fast) {
+    throw new FastModeError("FAST_MODE_UNCONFIRMED",
+      `Grokが /model ${next} を受け付けたのを確かめられません（${noticeError instanceof Error ? noticeError.message : String(noticeError)}）。足元のmodelの表示は前のままです。`);
   }
-  return target;
+  throw new FastModeError("FAST_MODE_UNCONFIRMED", "Grokの足元のmodelの表示で、切り替えた後の状態を確かめられません。席の速度は変わった可能性があります。");
 }
 
 /** 起動の後、入力待ちになった席をfastへ切り替える。出来なかった訳は返りへ入れ、起動は続ける。 */

@@ -689,66 +689,97 @@ export function grokAuthPane(screen: string): AgentAuthPane {
   return { url, user_code: embedded, input_required: false, message: null };
 }
 
-// ---- ファスト。Grokのfastは別のmodel。動いている席の `/model <ID>` は、利用者のconfig.tomlの [models].default を書き換える
-// （1.0.50で確かめた。「✓ Default model: …」）。席だけの切り替えにするため、切り替えの直前の値へ戻す。
+// ---- ファスト。Grokのfastは別のmodel。Grokは、起動の --model と、動いている席の `/model <ID> [effort]`・`/effort` で、
+// 利用者のconfig.tomlの [models] の default と default_reasoning_effort を書き換える（1.0.50で確かめた。「✓ Default model: …」）。
+// 席だけの切り替えにするため、切り替えの直前の値へ戻す。
 
-/** 利用者の ~/.grok/config.toml の [models] の節の default。present=false は行が無い。valueがnullは読めない書き方。 */
-export function readGrokDefaultModelPin(configPath: string): { present: boolean; value: string | null; body: string | null } {
-  let body: string;
-  try { body = fs.readFileSync(configPath, "utf8"); } catch { return { present: false, value: null, body: null }; }
-  const line = grokModelsDefaultLine(body);
-  if (line === null) return { present: false, value: null, body };
-  const value = body.split(/\r?\n/)[line].match(/^\s*default\s*=\s*"([^"\\]*)"\s*(?:#.*)?$/);
-  return { present: true, value: value ? value[1] : null, body };
+const GROK_DEFAULT_KEYS = ["default", "default_reasoning_effort"] as const;
+type GrokDefaultKey = typeof GROK_DEFAULT_KEYS[number];
+
+/** 利用者の ~/.grok/config.toml の [models] の既定。present=false は行が無い。valueがnullは読めない書き方。 */
+export interface GrokModelDefaults {
+  /** 読んだ時のfileの中身。fileが無い・読めない時はnull（その時は戻さない）。 */
+  body: string | null;
+  default: { present: boolean; value: string | null };
+  default_reasoning_effort: { present: boolean; value: string | null };
 }
 
-/** [models] の節の中の `default = …` の行の番号。節や行が無ければnull。 */
-function grokModelsDefaultLine(body: string): number | null {
-  const rows = body.split(/\r?\n/);
+/** [models] の節の中の `<key> = …` の行の番号。節や行が無ければnull。 */
+function grokModelsLine(rows: string[], key: GrokDefaultKey): number | null {
   const start = rows.findIndex((row) => /^\s*\[models\]\s*(?:#.*)?$/.test(row));
   if (start < 0) return null;
   for (let index = start + 1; index < rows.length && !/^\s*\[/.test(rows[index]); index++) {
-    if (/^\s*default\s*=/.test(rows[index])) return index;
+    if (new RegExp(`^\\s*${key}\\s*=`).test(rows[index])) return index;
   }
   return null;
 }
 
+export function readGrokModelDefaults(configPath: string): GrokModelDefaults {
+  let body: string;
+  try { body = fs.readFileSync(configPath, "utf8"); }
+  catch { return { body: null, default: { present: false, value: null }, default_reasoning_effort: { present: false, value: null } }; }
+  const rows = body.split(/\r?\n/);
+  const pick = (key: GrokDefaultKey) => {
+    const line = grokModelsLine(rows, key);
+    if (line === null) return { present: false, value: null };
+    const value = rows[line].match(/=\s*"([^"\\]*)"\s*(?:#.*)?$/);
+    return { present: true, value: value ? value[1] : null };
+  };
+  return { body, default: pick("default"), default_reasoning_effort: pick("default_reasoning_effort") };
+}
+
+function withoutGrokDefaults(body: string): string {
+  const rows = body.split(/\r?\n/);
+  for (const key of GROK_DEFAULT_KEYS) {
+    const line = grokModelsLine(rows, key);
+    if (line !== null) rows.splice(line, 1);
+  }
+  return rows.join("\n");
+}
+
 /**
- * `/model` がconfig.tomlへ書いた [models].default を、切り替えの直前の値へ戻す。
- * 切り替えの前後で、ほかの行が同じなら前の中身をそのまま書き戻す。ほかの行も変わっていたら、default の行だけを直す。
- * 元の値が読めない書き方だった時、今のfileに default の行が無い時は触らない。
+ * Grokがconfig.tomlへ書いた [models] の既定（default・default_reasoning_effort）を、切り替えの直前の値へ戻す。
+ * 切り替えの前後で、ほかの行が同じなら前の中身をそのまま書き戻す。ほかの行も変わっていたら、既定の行だけを直す。
+ * 前の中身を読めなかった時、元の値が読めない書き方だった時、今のfileに [models] の節が無い時は、その項目に触らない。
  */
-export function restoreGrokDefaultModel(configPath: string, before: { present: boolean; value: string | null; body: string | null }): void {
-  if (before.body === null || (before.present && before.value === null)) return;
+export function restoreGrokModelDefaults(configPath: string, before: GrokModelDefaults): void {
+  if (before.body === null) return;
   let now: string;
   try { now = fs.readFileSync(configPath, "utf8"); } catch { return; }
   if (now === before.body) return;
-  const line = grokModelsDefaultLine(now);
-  if (line === null) return;
-  const rows = now.split(/\r?\n/);
   const eol = now.includes("\r\n") ? "\r\n" : "\n";
-  if (before.present) rows[line] = rows[line].replace(/=\s*"[^"\\]*"/, `= ${JSON.stringify(before.value)}`);
-  else rows.splice(line, 1);
+  const rows = now.split(/\r?\n/);
+  for (const key of GROK_DEFAULT_KEYS) {
+    const pin = before[key];
+    if (pin.present && pin.value === null) continue;
+    const line = grokModelsLine(rows, key);
+    if (pin.present) {
+      const wanted = `${key} = ${JSON.stringify(pin.value)}`;
+      if (line !== null) rows[line] = wanted;
+      else {
+        const header = rows.findIndex((row) => /^\s*\[models\]\s*(?:#.*)?$/.test(row));
+        if (header >= 0) rows.splice(header + 1, 0, wanted);
+      }
+    } else if (line !== null) {
+      rows.splice(line, 1);
+    }
+  }
   const edited = rows.join(eol);
+  if (edited === now) return;
   // ほかの行が前と同じなら、前の中身（空白や並びもそのまま）を書き戻す。
-  const next = normalizedWithoutDefault(edited) === normalizedWithoutDefault(before.body) ? before.body : edited;
+  const next = withoutGrokDefaults(edited) === withoutGrokDefaults(before.body) ? before.body : edited;
   const temp = `${configPath}.aiterm-restore-${process.pid}`;
   fs.writeFileSync(temp, next, { mode: fs.statSync(configPath).mode & 0o777 });
   fs.renameSync(temp, configPath);
 }
 
-function normalizedWithoutDefault(body: string): string {
-  const line = grokModelsDefaultLine(body);
-  const rows = body.split(/\r?\n/);
-  if (line !== null) rows.splice(line, 1);
-  return rows.join("\n");
-}
-
-/** 足元の「Grok 4.7 Fast (high) · always-approve」から、今のmodelを一覧のIDで返す。base は元のmodel、fast はfast版かどうか。 */
+/** 足元の「Grok 4.7 Fast (high)」から、今のmodelを一覧のIDで返す。base は元のmodel、fast はfast版かどうか。 */
 export function grokModelFromFooter(screen: string, catalog: AgentModelCatalog): { id: string; base: string; fast: boolean } | null {
+  // 足元の枠の行の「<modelの表示> (<effort>)」。権限の表示（· always-approve）は、付く時と付かない時がある。
+  // 切り替えの知らせ（Switched to Grok 4.7 Fast (high effort)）は、かっこの中に空白があるので拾わない。
   let name: string | null = null;
   for (const line of screen.split("\n")) {
-    const match = line.match(/(Grok [^()·│╯╰─]+?) \([a-z-]+\) ·/);
+    const match = line.match(/(Grok [^()·│╯╰─]+?) \([a-z-]+\)/);
     if (match) name = match[1].trim();
   }
   if (!name) return null;

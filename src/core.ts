@@ -98,8 +98,8 @@ import {
   assertGrokModelAvailable,
   grokModelChoices,
   grokModelFromFooter,
-  readGrokDefaultModelPin,
-  restoreGrokDefaultModel,
+  readGrokModelDefaults,
+  restoreGrokModelDefaults,
   grokEventsTranscript,
   grokCompletionEvent,
   latestGrokCompletion,
@@ -2989,6 +2989,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt: normalizeInitialPromptState(m.initial_prompt),
     ...deliveryFields,
     ...executableFields,
+    ...fastFields,
       ...startupFields,
     hook_route: "shared_grok_home",
     completion_route: "grok_transcript",
@@ -5125,19 +5126,19 @@ async function planLaunchFast(
 async function launchGrokKeepingDefault<T extends [string, string]>(launchedModel: string, launch: () => T): Promise<T> {
   const configPath = path.join(realGrokHome(), "config.toml");
   return withUserConfigLock(configPath, async () => {
-    const before = readGrokDefaultModelPin(configPath);
+    const before = readGrokModelDefaults(configPath);
     const launched = launch();
-    if (before.body === null || (before.present && before.value === launchedModel)) return launched;
+    if (before.body === null || (before.default.present && before.default.value === launchedModel)) return launched;
     const deadline = performance.now() + GROK_LAUNCH_DEFAULT_WAIT_MS;
     do {
       await sleep(150);
-      if (readGrokDefaultModelPin(configPath).body !== before.body) break;
+      if (readGrokModelDefaults(configPath).body !== before.body) break;
       if (!sessionExists(launched[0])) break;
       // 入力待ちになっても書かれていなければ、少し待ってから戻しへ進む（書かない版・同じ値の時）。
       if (grokTuiReady(captureScreen(launched[0], AGENT_TUI_READY_LINES))) { await sleep(GROK_DEFAULT_SETTLE_MS); break; }
     } while (performance.now() < deadline);
     await sleep(GROK_DEFAULT_SETTLE_MS);
-    restoreGrokDefaultModel(configPath, before);
+    restoreGrokModelDefaults(configPath, before);
     return launched;
   });
 }
@@ -5343,20 +5344,20 @@ async function switchCursorFast(name: string, meta: AgentMetadata, target: boole
   return target;
 }
 
-/** Grokの `/model …`（`/effort …`）を打ち、Grokが利用者の既定へ書いた [models].default を、切り替えの直前の値へ戻す。 */
+/** Grokの `/model …`（`/effort …`）を打ち、Grokが利用者の既定（[models] の default・default_reasoning_effort）へ書いた分を、切り替えの直前の値へ戻す。 */
 async function sendGrokModelCommand(
   name: string, meta: AgentMetadata, command: string, model: string | null, effort: string | null,
 ): Promise<void> {
   const configPath = path.join(meta.grok_home ?? realGrokHome(), "config.toml");
   await withUserConfigLock(configPath, async () => {
-    const pin = readGrokDefaultModelPin(configPath);
+    const defaults = readGrokModelDefaults(configPath);
     const before = captureScreen(name, AGENT_TUI_READY_LINES);
     try {
       await sendAgentPromptText(name, command);
       await waitForGrokConfigurationResult(name, before, model, effort);
     } finally {
       await sleep(GROK_DEFAULT_SETTLE_MS);
-      restoreGrokDefaultModel(configPath, pin);
+      restoreGrokModelDefaults(configPath, defaults);
     }
   });
 }

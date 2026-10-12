@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- ファスト（各harnessの、費用や利用量を多く払って応答を速くする切り替え）を、席ごとに切り替えられる（ADR 0114）。
+  - `agent_launch`・`agent_configure`に`fast`（真偽、省略可）。返りの`fast`は、切り替えた後の実際の状態。
+    `agent_configure`は`fast`だけの指定も受け、省略はその席の今の状態を変えない。
+  - **席は必ず通常の速度で起きる。** `fast`を省いた起動とfalseは同じ。Claude Codeは席ごとの設定で`fastMode: false`、
+    Codexは`-c service_tier=default`を明示する。利用者の設定にファストが残っていても、modelの既定の段がFastでも、席は通常で始まる。
+    `fast: true`は、通常で起こしてから、その席を切り替える。
+  - **切り替えは席だけに留める。** harnessの切り替えの命令は利用者の既定も書き換える（Claude Codeの`/fast`は`settings.json`の`fastMode`、
+    Codexの`/fast`は`config.toml`の`service_tier`、Grokの`/model`は`config.toml`の`[models]`）。切り替えの直前の値へ戻す。
+    読む・切り替える・戻すは、設定fileごとの鍵で、同じ端末の全てのAitermの間で1つずつにする。
+  - `agent_models`のmodelごとに`fast`（そのmodelで切り替えられるか。harnessが返す値）。fastが別のmodel IDのharness（Cursor・Grok）は、
+    fast版を別のmodelとして並べず、元のmodelの`fast: true`にする（**Grokの一覧から`grok-4.7-build-fast`が消え、`grok-4.7`が`fast: true`になる**）。
+    最上位の`fast_unavailable`は、アカウントの都合でどのmodelでも使えない時の訳（今はClaude Code）。
+  - 断りの符号（文の先頭）: `FAST_MODE_NOT_SUPPORTED`・`FAST_MODE_UNAVAILABLE`・`FAST_MODE_MODEL_CONFLICT`・`FAST_MODE_UNCONFIRMED`。
+    起動で`FAST_MODE_UNAVAILABLE`・`FAST_MODE_UNCONFIRMED`になった時は、起動を断らずに通常の速度で起こし、返りの`fast_error`に訳を入れる。
+  - Claude Codeをファストへ入れる所は、usage creditsが要るので本物では確かめていない（使えない時の断りまでを本物で、入る所は実物の作りを写した模擬で確かめた）。
+
+### 変更
+
+- Codexの席は、`-c service_tier=default`を付けて起こす。今までは何も渡さず、利用者のconfigの`service_tier`と、modelの既定の段で流れていた。
+- Claude Codeの席ごとの設定（Aitermが`--settings`で渡すfile）へ`fastMode: false`が入る。
+- `agent_configure`は、何も指定しない時の文が「model、reasoning_effort、fast のいずれかを指定してください」になる。
+
 ### 修正
+
+- Grokの席を起こすたびに、利用者の`~/.grok/config.toml`の既定のmodelが、その席のmodelへ書き換わっていた件を直す（ADR 0114）。
+  Grok 1.0.50は、`--model`を付けて起こすだけで`[models].default`を書く。`agent_configure`でmodelやeffortを替えた時も、
+  `default`と`default_reasoning_effort`に残っていた。起動と設定替えの前後で、直前の値へ戻す。
+- 今のCursor（2026.10.01）で、`agent_configure`がeffortを替えた後に「変更完了を確認できません」で返り、その席への次の送信が
+  「入力待ちではありません」で断られていた件を直す（替え自体は効いていた）。Cursorは`/model`の選ぶ画面を閉じても入力欄を描かず、
+  閉じた画面の行も消さない。閉じた後に入力欄を描き直させ、画面の今の姿を最後の行で読む。同じ席で設定替えを繰り返しても外れない。
 
 - 動いている最中にNodeが更新されて前の版の場所が消えると、補助のprocessを起こせなくなっていた件を直す（ADR 0113）。
   - **起きていた事**: MCP processが、不具合の記録の係を起こす時と、呼び手へ待ち受けの起動先（`wait_process.executable`）を渡す時に、

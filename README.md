@@ -624,12 +624,12 @@ continue to use `claude_approval`.
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
 | `pty_list` | Text and structured session list (each agent session carries its harness conversation ID as `vendor_session_id`), with explicitly requested non-secret environment values | `env_keys?` |
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
-| `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?` |
 | `agent_models` | List the models and reasoning efforts a harness offers now, read from that harness's own catalog without sending a prompt | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | Deprecated compatibility aliases (`composer_agent` was removed in 0.41.0; run Composer with `agent_launch` on `cursor-cli`) | legacy launcher arguments |
-| `agent_configure` | Change model/effort in a running Claude, Codex, Grok, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?` |
+| `agent_configure` | Change model/effort/fast in a running Claude, Codex, Grok, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?`, `fast?` |
 | `claude_turn` | Issue (dispatch-only) or recover one correlated Claude operation | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | Inspect or answer the current correlated Claude approval prompt | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |
 | `diagnostics` | Read-only factory readiness as machine-readable JSON | (none) |
@@ -662,7 +662,15 @@ enables collection on that host.
 
 `agent_launch` starts a selected harness's interactive coding-agent TUI inside a fresh persistent PTY and returns its `session_id`. The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is independent. The TUI is a full-screen app, so read it with `pty_read({ screen: true })` for the rendered view.
 
-`agent_configure({ session_id, model?, reasoning_effort? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
+`agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
+
+**ファスト（`fast`）。** 各harnessの、費用や利用量を多く払って応答を速くする切り替え（Claude Codeの`/fast`、Codexの速度の段、GrokとCursorのfast版のmodel）を、席ごとに切り替える（ADR 0114）。
+
+- 席は必ず通常の速度で起きる。`agent_launch`の`fast`を省いた時とfalseは同じで、利用者の設定にファストが残っていても通常で始まる。`fast: true`は通常で起こしてから、その席を切り替える。
+- `agent_configure({ session_id, fast })`は、動いている席を起こし直さずに切り替える。`fast`だけでも渡せる。省略は、その席の今の状態を変えない。
+- 切り替えは席だけに留める。harnessの切り替えの命令は利用者の既定（`~/.claude/settings.json`の`fastMode`、`~/.codex/config.toml`の`service_tier`、`~/.grok/config.toml`の`[models]`）も書き換えるので、Aitermが切り替えの直前の値へ戻す。Grokは起動の`--model`でも既定を書くので、起動の前後でも戻す。
+- 返りの`fast`は、切り替えた後の実際の状態。`agent_models`のmodelごとの`fast`が、そのmodelで切り替えられるかを示す（GrokとCursorのfast版は別のmodelとして並ばず、元のmodelの`fast: true`になる）。最上位の`fast_unavailable`は、アカウントの都合でどのmodelでも使えない時の訳。
+- 断りは文の先頭の符号で分かる: `FAST_MODE_NOT_SUPPORTED`（そのmodelは対応していない）、`FAST_MODE_UNAVAILABLE`（アカウントや契約で使えない）、`FAST_MODE_MODEL_CONFLICT`（modelへfast版のIDを書いて`fast: false`を渡した）、`FAST_MODE_UNCONFIRMED`（切り替えた後の状態を確かめられない）。起動で`FAST_MODE_UNAVAILABLE`・`FAST_MODE_UNCONFIRMED`になった時は、起動を断らずに通常の速度で起こし、返りを`fast: false`、`fast_error: { code, message }`にする。
 
 Claude Codeの席では、`/model`の選ぶ画面の`s`（use this session only）で替える。`/model <名前>`・`/effort <値>`は選んだ値を端末の`~/.claude/settings.json`へ新しい会話の既定として保存するので、打たない（ADR 0111）。その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る（`CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`・`CLAUDE_MODEL_NOT_IN_PICKER`・`CLAUDE_EFFORT_NOT_SELECTABLE`）。席を閉じて立て直すと端末の既定へ戻るので、立て直す時は`agent_launch`へ同じ`model`・`reasoning_effort`を渡す。
 

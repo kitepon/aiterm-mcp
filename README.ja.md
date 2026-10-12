@@ -582,12 +582,12 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
 | `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
-| `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
+| `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?` |
 | `agent_models` | harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧からpromptを送らずに取得 | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | deprecated互換alias（`composer_agent`は0.41.0で削除。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
-| `agent_configure` | 起動中のClaude／Codex／Grok／Cursorを再起動せずmodel／effort変更 | `session_id`, `model?`, `reasoning_effort?` |
+| `agent_configure` | 起動中のClaude／Codex／Grok／Cursorを再起動せずmodel／effort／fast変更 | `session_id`, `model?`, `reasoning_effort?`, `fast?` |
 | `claude_turn` | 相関済みClaude operationをdispatch（issue）または回収（recover） | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | 現在表示中の相関済みClaude承認UIを検査または応答 | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |
 | `diagnostics` | 機械可読 JSON による read-only factory readiness | （なし） |
@@ -617,7 +617,15 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。
 
-`agent_configure({ session_id, model?, reasoning_effort? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
+`agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
+
+**ファスト（`fast`）。** 各harnessの、費用や利用量を多く払って応答を速くする切り替え（Claude Codeの`/fast`、Codexの速度の段、GrokとCursorのfast版のmodel）を、席ごとに切り替える（ADR 0114）。
+
+- 席は必ず通常の速度で起きる。`agent_launch`の`fast`を省いた時とfalseは同じで、利用者の設定にファストが残っていても通常で始まる。`fast: true`は通常で起こしてから、その席を切り替える。
+- `agent_configure({ session_id, fast })`は、動いている席を起こし直さずに切り替える。`fast`だけでも渡せる。省略は、その席の今の状態を変えない。
+- 切り替えは席だけに留める。harnessの切り替えの命令は利用者の既定（`~/.claude/settings.json`の`fastMode`、`~/.codex/config.toml`の`service_tier`、`~/.grok/config.toml`の`[models]`）も書き換えるので、Aitermが切り替えの直前の値へ戻す。Grokは起動の`--model`でも既定を書くので、起動の前後でも戻す。
+- 返りの`fast`は、切り替えた後の実際の状態。`agent_models`のmodelごとの`fast`が、そのmodelで切り替えられるかを示す（GrokとCursorのfast版は別のmodelとして並ばず、元のmodelの`fast: true`になる）。最上位の`fast_unavailable`は、アカウントの都合でどのmodelでも使えない時の訳。
+- 断りは文の先頭の符号で分かる: `FAST_MODE_NOT_SUPPORTED`（そのmodelは対応していない）、`FAST_MODE_UNAVAILABLE`（アカウントや契約で使えない）、`FAST_MODE_MODEL_CONFLICT`（modelへfast版のIDを書いて`fast: false`を渡した）、`FAST_MODE_UNCONFIRMED`（切り替えた後の状態を確かめられない）。起動で`FAST_MODE_UNAVAILABLE`・`FAST_MODE_UNCONFIRMED`になった時は、起動を断らずに通常の速度で起こし、返りを`fast: false`、`fast_error: { code, message }`にする。
 
 `agent_auth({ harness, action:"start"|"status"|"cancel", session_id?, cwd?, env_vars?, relogin? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
 
@@ -647,7 +655,7 @@ PTYが消失した場合は、相関記録の有無にかかわらず`status`が
 | `grok-cli` | `grok agent stdio`の`initialize`（`_meta.modelState`） | modelごとのeffort。sessionは作らない |
 | `cursor-cli` | `cursor-agent models` | 素のmodel IDと、Aitermが`<model>-<effort>`へ連結できるeffortへ分ける。`-fast`版とeffortが途中に入るIDは候補にしない。使う時は完成形をeffortなしで`model`に渡す |
 
-結果（`aiterm.agent-models.v1`）は`{ harness, source, harness_version, default_model, efforts, adapter_efforts, models: [{ id, display_name, efforts, default_effort, hidden }] }`。`id`とeffortはそのまま`agent_launch`／`agent_configure`へ渡せる。上位の`efforts`は全modelの和。取得不能は`MODEL_CATALOG_UNAVAILABLE`、形式異常は`MODEL_CATALOG_INVALID`で、別の一覧へfallbackしない。`remote`を付けると、その端末のharnessの一覧を返す。
+結果（`aiterm.agent-models.v1`）は`{ harness, source, harness_version, default_model, efforts, adapter_efforts, fast_unavailable, models: [{ id, display_name, efforts, default_effort, hidden, fast }] }`。`id`とeffortはそのまま`agent_launch`／`agent_configure`へ渡せる。上位の`efforts`は全modelの和。取得不能は`MODEL_CATALOG_UNAVAILABLE`、形式異常は`MODEL_CATALOG_INVALID`で、別の一覧へfallbackしない。`remote`を付けると、その端末のharnessの一覧を返す。
 
 ```json
 { "name": "agent_models", "arguments": { "harness": "grok-cli" } }

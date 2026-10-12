@@ -892,18 +892,32 @@ registerRemoteAwareTool(
   },
 );
 
+// ファスト（高速の応答。ADR 0114）。断りの符号は4つのharnessで共通で、文の先頭に付く。
+const fastModeErrorCodes = ["FAST_MODE_NOT_SUPPORTED", "FAST_MODE_UNAVAILABLE", "FAST_MODE_MODEL_CONFLICT", "FAST_MODE_UNCONFIRMED"] as const;
+const fastModeFailureSchema = z.object({
+  code: z.enum(fastModeErrorCodes),
+  message: z.string(),
+});
+const fastModeDesc =
+  "ファスト（harnessの高速の応答。費用や利用量が増える）。席は必ず通常の速度で起きる。trueはその席をfastへ切り替え、falseは通常の速度にする" +
+  "（fastに対応していないmodelでもfalseは受ける）。切り替えは席だけに留め、harnessが利用者の既定へ書いた分は切り替えの直前の値へ戻す。" +
+  "断りは文の先頭の符号で分かる: FAST_MODE_NOT_SUPPORTED（そのmodelは対応していない）、FAST_MODE_UNAVAILABLE（アカウントや契約で使えない）、" +
+  "FAST_MODE_MODEL_CONFLICT（modelへfast版のIDを書いてfalseを渡した）、FAST_MODE_UNCONFIRMED（切り替えた後の状態を確かめられない）。";
+
 registerRemoteAwareTool(
   "agent_configure",
   {
     description:
-      "起動済みのClaude／Codex／Grok／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effortを変更する。" +
+      "起動済みのClaude／Codex／Grok／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effort／fastを変更する。" +
       "各harnessのCLI標準model操作を使う。Cursorのreasoning_effort変更はmodelと同時指定する。" +
       "Claude Codeの席では /model の選ぶ画面の「この会話だけ」（s）で替え、端末の ~/.claude/settings.json の既定は書き換えない。" +
-      "その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る。",
+      "その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る。" +
+      "fastだけの指定も受ける。" + fastModeDesc,
     inputSchema: {
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       model: z.string().min(1).nullish().describe("変更後のmodel。省略時はmodelを変更しない"),
       reasoning_effort: z.string().min(1).nullish().describe("変更後のreasoning effort。省略時はeffortを変更しない"),
+      fast: z.boolean().nullish().describe("変更後のfast。省略時は、その席の今の状態を変えない"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-configure-result.v1"),
@@ -912,11 +926,12 @@ registerRemoteAwareTool(
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
       model: z.string().nullable(),
       reasoning_effort: z.string().nullable(),
+      fast: z.boolean().nullable().optional().describe("切り替えた後の、席のfastの状態。Aitermが確かめた事の無い席（前の版が起こした席）はnull"),
     },
   },
-  async ({ session_id, model, reasoning_effort }) => {
+  async ({ session_id, model, reasoning_effort, fast }) => {
     try {
-      const result = await core.configureAgent(session_id, { model, reasoning_effort });
+      const result = await core.configureAgent(session_id, { model, reasoning_effort, fast });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         structuredContent: { ...result },
@@ -933,6 +948,8 @@ const agentModelChoiceSchema = z.object({
   efforts: z.array(z.string()).describe("このmodelで選べるreasoning_effort。空ならeffort非対応"),
   default_effort: z.string().nullable(),
   hidden: z.boolean().describe("harnessが一覧で隠すmodel（Codexのinclude_hidden時だけtrueがある）"),
+  fast: z.boolean().describe("このharness・このmodelでfastへ切り替えられるか（agent_launch／agent_configureのfast: true）。" +
+    "fastが別のmodel IDのharness（Cursor・Grok）は、fast版を別のmodelとして並べず、元のmodelのここがtrueになる"),
 });
 
 registerRemoteAwareTool(
@@ -942,6 +959,7 @@ registerRemoteAwareTool(
       "harnessが今返すmodelとreasoning effortの候補を、そのharnessの公式の一覧から取得する。promptもturnも送らず推論を消費しない。" +
       "Codexはapp-server model/list、Claude Codeはstream-json initializeのmodels、Grokはagent stdio initializeのmodelState、" +
       "Cursorはcursor-agent modelsを素のmodel IDとeffortへ分けたもの。返るidとeffortsはagent_launch／agent_configureへそのまま渡せる。" +
+      "modelごとのfastは、そのmodelでfastへ切り替えられるか（harnessが返す値）。fast_unavailableは、アカウントの都合でどのmodelでも使えない時の訳。" +
       "取得不能はMODEL_CATALOG_UNAVAILABLE、形式異常はMODEL_CATALOG_INVALIDのエラーで返し、別の一覧へfallbackしない。" +
       "remoteを付けると別端末のharnessの候補を返す。",
     inputSchema: {
@@ -957,6 +975,8 @@ registerRemoteAwareTool(
       default_model: z.string().nullable().describe("model省略時にharnessが使うmodel。一覧のIDで表せなければnull"),
       efforts: z.array(z.string()).describe("全modelのeffortの和"),
       adapter_efforts: z.record(z.string(), z.string()).describe("harnessの一覧には無く、Aitermのadapterが足したeffortと理由"),
+      fast_unavailable: fastModeFailureSchema.nullable().optional().describe(
+        "このアカウント・この端末では、どのmodelでもfastを使えない時の訳（harnessが先に答えられる時だけ。今はClaude Code）。使える・分からない時はnull"),
       models: z.array(agentModelChoiceSchema),
     },
   },
@@ -977,6 +997,12 @@ registerRemoteAwareTool(
 // 新規APIの選択軸はharness。旧4 launcher名は移行期間中の薄いaliasとして同じ実装へ流す。
 const kindForHarness = (harness: core.AgentHarness): core.AgentKind =>
   harness === "claude-code" ? "claude" : harness === "codex-cli" ? "codex" : harness === "cursor-cli" ? "cursor" : "grok";
+const fastModeLaunchDesc =
+  "ファスト（harnessの高速の応答。費用や利用量が増える）。省略とfalseは通常の速度で起こす（利用者の設定にfastが残っていても通常）。" +
+  "trueは通常で起こしてから、その席をfastへ切り替える。modelがfastに対応していない時（FAST_MODE_NOT_SUPPORTED）と、" +
+  "modelへfast版のIDを書いてfalseを渡した時（FAST_MODE_MODEL_CONFLICT）は起動を断る。アカウントの都合で使えない時・確かめられない時は、" +
+  "起動を断らずに通常の速度で起こし、返りの fast を false、fast_error に訳を入れる。" +
+  "modelへfast版のIDを直に書いて省略した時だけ、そのIDのまま起こす（返りの fast は true）。";
 const agentModelDesc = (kind: core.AgentKind) =>
   kind === "claude"
     ? "起動モデル（例: claude-sonnet-4-6）。省略時はClaude CLI既定"
@@ -1038,7 +1064,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project } = args;
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
@@ -1046,12 +1072,13 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     }
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
     if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
-    const [sid, hint, eventCursor, submitResidue, initialDelivery, startup] = await core.openAgentWithInitialPrompt(kind, {
+    const [sid, hint, eventCursor, submitResidue, initialDelivery, startup, fastState] = await core.openAgentWithInitialPrompt(kind, {
       prompt: initialPrompt,
       throughline_source_session,
       throughline_supplement_file,
       model: model ?? undefined,
       reasoning_effort: reasoning_effort ?? undefined,
+      fast: fast ?? undefined,
       env_vars,
       trust_project,
       before_send: delivery?.before_send,
@@ -1072,6 +1099,8 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       submit_residue: submitResidue,
       initial_prompt: initialDelivery,
       startup,
+      fast: fastState.fast,
+      fast_error: fastState.fast_error,
       ...(supportsWriteScope && write_scope !== undefined
         ? {
             write_scope,
@@ -1084,8 +1113,11 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     };
     // 開始未確認（submitted_unconfirmed）は誤りにしない。sessionは立ち、promptは入力欄を離れ、配送も登録済み。
     // 誤りで返すとClaude Code親は受け口のhookを走らせず、子の回答が届かない（ADR 0093）。状態はinitial_promptと本文で伝える。
+    const fastLine = fastState.fast_error
+      ? `\nfast: false（通常の速度で起こした）。${fastState.fast_error.message}`
+      : fast === true ? `\nfast: ${fastState.fast}` : "";
     return {
-      content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}${deliveryIdLine(delivery)}` }],
+      content: [{ type: "text" as const, text: `session_id: ${sid}\n${hint}${fastLine}${deliveryIdLine(delivery)}` }],
       structuredContent: structured,
     };
   } catch (e) {
@@ -1151,6 +1183,7 @@ function registerAgentTool(
         model: z.string().nullish().describe(agentModelDesc(kind)),
         // CLI／model側の値集合が版で変わるため公開enumでは縛らない（core側も同方針）。
         reasoning_effort: z.string().nullish().describe(agentEffortDesc(kind)),
+        fast: z.boolean().nullish().describe(fastModeLaunchDesc),
         env_vars: z.array(z.string()).optional().describe("起動したagentへ現在のMCP processから継承する環境変数名。値はtool引数へ渡さない"),
         trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
         cwd: z.string().nullish().describe("作業ディレクトリ（対象リポのルート等・任意）"),
@@ -1175,6 +1208,8 @@ function registerAgentTool(
         // 初回prompt dispatch後のsubmit座礁観測（additive）。true=composerに残存を確認（submit未成立の疑い）/
         // false=残存を観測せず（submit成立の保証ではない）/ null=promptなし・判定不能。
         submit_residue: z.boolean().nullable(),
+        fast: z.boolean().optional().describe("起こした後の、席のfastの状態"),
+        fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
         ...writeScopeOutputSchema,
       },
     },
@@ -1199,6 +1234,7 @@ server.registerTool(
       throughline_supplement_file: z.string().min(1).optional().describe("Throughline 0.10.8以降へそのまま渡すproject束縛済み長期記憶・知識の補足JSON path"),
       model: z.string().nullish().describe("harnessが選ぶモデル。provider名ではなくlive catalog上のmodel ID"),
       reasoning_effort: z.string().nullish().describe("harness adapterが標準CLI表現へ変換する思考レベル。Cursorではmodel同時指定が必要"),
+      fast: z.boolean().nullish().describe(fastModeLaunchDesc),
       env_vars: z.array(z.string()).optional().describe("現在のMCP processから継承する環境変数名"),
       trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
       cwd: z.string().nullish().describe("作業ディレクトリ（絶対パス・任意）"),
@@ -1222,6 +1258,8 @@ server.registerTool(
       wait_command: z.string().nullable(),
       parent_delivery: parentDeliveryOutputSchema.optional(),
       submit_residue: z.boolean().nullable(),
+      fast: z.boolean().optional().describe("起こした後の、席のfastの状態（この項目を返さない版の別端末では無い）"),
+      fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
     },

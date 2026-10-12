@@ -11,6 +11,7 @@ import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
+import type { FastModeFailure } from "../fast-mode.js";
 import {
   currentUid,
   writeJson0600,
@@ -97,6 +98,9 @@ export function createClaudeCorrelationSettings(
   writeJson0600(settings, {
     ...(model ? { model } : {}),
     ...(effort ? { effortLevel: effort } : {}),
+    // 席は必ず通常の速度で始める（ADR 0114）。--settingsは利用者の設定より強いので、共有の設定にfastModeが残っていても効かない。
+    // ここへtrueは入れない: 後で/fast offにしても、機種を替えた時にClaude Codeがこの値を見てfastへ戻す。
+    fastMode: false,
     hooks: {
       Stop: [
         {
@@ -189,7 +193,9 @@ export async function claudeModelChoices(bin: string, cwd: string): Promise<Agen
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-claude-models-"));
   try {
     const settings = path.join(dir, "settings.json");
-    fs.writeFileSync(settings, JSON.stringify({ disableAllHooks: true }), { mode: 0o600 });
+    // fastMode: true を付けて聞くと、応答の fast_mode_disabled_reason が「このアカウントで使えない訳」になる
+    // （付けないと sdk_opt_in_required が返るだけ）。promptは送らないので、fastで流れる番は無い。
+    fs.writeFileSync(settings, JSON.stringify({ disableAllHooks: true, fastMode: true }), { mode: 0o600 });
     const requestId = `aiterm-models-${randomUUID()}`;
     const request = { type: "control_request", request_id: requestId, request: { subtype: "initialize" } };
     const result = await runAgentProtocolCommand(bin, [
@@ -210,6 +216,31 @@ export async function claudeModelChoices(bin: string, cwd: string): Promise<Agen
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// initializeの応答の fast_mode_disabled_reason と、Claude Codeが画面に出す文（2.1.296）。
+const CLAUDE_FAST_DISABLED_TEXT: Readonly<Record<string, string>> = {
+  extra_usage_disabled: "Fast mode requires usage credits",
+  free: "Fast mode requires a paid subscription",
+  preference: "Fast mode has been disabled by your organization",
+  network_error: "Fast mode unavailable due to network connectivity issues",
+  not_first_party: "Fast mode is only available when using the Anthropic API directly",
+  disabled_by_env: "Fast mode is not available",
+  model_not_allowed: "Opus is not in your organization's allowed models",
+  unknown: "Fast mode is currently unavailable",
+};
+
+/**
+ * initializeの応答の理由から、fastを使えない時の断りを作る。
+ * 使える時（理由なし）と、まだ分からない時（pending）・聞き方の都合（sdk_opt_in_required）はnull。
+ */
+export function claudeFastUnavailable(reason: unknown): FastModeFailure | null {
+  if (typeof reason !== "string" || !reason || reason === "pending" || reason === "sdk_opt_in_required") return null;
+  const text = CLAUDE_FAST_DISABLED_TEXT[reason];
+  return {
+    code: "FAST_MODE_UNAVAILABLE",
+    message: `FAST_MODE_UNAVAILABLE: Claude Codeが、このアカウントではファストを使えないと答えました（${reason}${text ? `: ${text}` : ""}）。`,
+  };
 }
 
 /** stream-jsonのcontrol_response（initialize）からmodel候補を作る。 */
@@ -233,14 +264,24 @@ export function claudeCatalogFromInitialize(stdout: string, requestId: string, s
       efforts: levels.length > 0 ? [...levels, "ultracode"] : [],
       default_effort: null,
       hidden: false,
+      fast: model.supportsFastMode === true,
     };
   });
+  // fast対応はModelInfoのsupportsFastMode。一覧の値（opus等）に加えて、実体のID（resolvedModel）でも引けるようにする。
+  const fastIds: Record<string, string> = {};
+  for (const model of models) {
+    if (model?.supportsFastMode !== true) continue;
+    fastIds[model.value] = model.value;
+    if (typeof model.resolvedModel === "string" && model.resolvedModel) fastIds[model.resolvedModel] ??= model.resolvedModel;
+  }
   return checkedCatalog("Claude Code", {
     source: "claude stream-json control_request initialize (models)",
     harness_version: null,
     default_model: choices.some((choice: { id: string }) => choice.id === "default") ? "default" : null,
     adapter_efforts: choices.some((choice: { efforts: string[] }) => choice.efforts.includes("ultracode")) ? { ultracode: CLAUDE_ULTRACODE_NOTE } : {},
     models: choices,
+    fast_ids: fastIds,
+    fast_unavailable: claudeFastUnavailable(response.response.response?.fast_mode_disabled_reason),
   });
 }
 
@@ -697,4 +738,39 @@ export function claudeAuthPane(screen: string, onboarding = false): AgentAuthPan
   return { url, user_code: null, input_required: input && !complete,
     message: complete ? null : input ? "Claude Codeの公式画面で入力または初回案内の選択を完了してください。" : null,
     onboarding_complete: complete };
+}
+
+// ---- ファスト。Claude Codeの `/fast on`・`/fast off` は、結果を1行で返す（2.1.296）。
+//   on: 「↯ Fast mode ON · …」（対応していないmodelでは「 · model set to …」が付き、Opusへ替わる。送る前に一覧で断る）
+//   off: 「Fast mode OFF」 / 使えない: 「Fast mode unavailable: <訳>」 / 変えなかった: 「Fast mode was not …」「Fast mode unchanged (cancelled)」
+
+export type ClaudeFastResult =
+  | { state: "on" | "off"; line: string }
+  | { state: "unavailable" | "unchanged"; line: string };
+
+/** `/fast on|off` を送る前の画面と後の画面から、増えた結果の行を読む。まだ出ていなければnull。 */
+export function claudeFastResult(before: string, after: string): ClaudeFastResult | null {
+  const count = (screen: string, test: RegExp) => screen.split("\n").filter((line) => test.test(line)).length;
+  const kinds: [ClaudeFastResult["state"], RegExp][] = [
+    ["unavailable", /Fast mode unavailable:|Fast mode is (?:not available|only available|currently unavailable)|Fast mode requires/],
+    ["unchanged", /Fast mode (?:was not |unchanged)|fast mode may still have been/],
+    ["on", /Fast mode ON/],
+    ["off", /Fast mode OFF/],
+  ];
+  for (const [state, test] of kinds) {
+    if (count(after, test) <= count(before, test)) continue;
+    const lines = after.split("\n");
+    let index = lines.length - 1;
+    while (index > 0 && !test.test(lines[index])) index--;
+    // 使えない訳は次の行へ折り返す事がある（「… /usage-credits to」「turn them on」）。続きの行を1つだけ足す。
+    const next = lines[index + 1]?.trim() ?? "";
+    const tail = state === "unavailable" && next && !/^[❯>─╭╰│]/u.test(next) ? ` ${next}` : "";
+    return { state, line: `${lines[index].replace(/^\s*⎿\s*/u, "").trim()}${tail}` };
+  }
+  return null;
+}
+
+/** 入力欄の近くに、ファストが入っている印（↯）が出ているか。 */
+export function claudeFastIndicatorShown(screen: string): boolean {
+  return screen.split("\n").slice(-8).some((line) => line.includes("\u21AF"));
 }

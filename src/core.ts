@@ -88,6 +88,8 @@ import type {
 } from "./agent-shared.js";
 import type { AgentAuthMetadata, AgentAuthResult, AgentAuthPlan, AgentAuthStatus, AgentAuthPane } from "./agent-auth.js";
 import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
+import { FastModeError, fastModeFailure, launchContinuesWithoutFast, type FastModeFailure } from "./fast-mode.js";
+import { readFileOrNull, restoreJsonSetting, withUserConfigLock } from "./user-config.js";
 import {
   grokAuthPlan, grokAuthStatus, grokAuthPane,
   GROK_MODEL_DEFAULTS,
@@ -95,6 +97,9 @@ import {
   resolveAndValidateGrokAuth,
   assertGrokModelAvailable,
   grokModelChoices,
+  grokModelFromFooter,
+  readGrokDefaultModelPin,
+  restoreGrokDefaultModel,
   grokEventsTranscript,
   grokCompletionEvent,
   latestGrokCompletion,
@@ -148,6 +153,10 @@ import {
   codexTranscriptText,
   createCodexAgentMetadata,
   codexModelChoices,
+  codexFastCommandOffered,
+  codexServiceTierNotices,
+  restoreCodexServiceTier,
+  restoreCodexServiceTierInFile,
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
 import type { ClaudeModelPicker } from "./harnesses/claude.js";
@@ -166,6 +175,9 @@ import {
   readClaudeResultText,
   assertClaudeAuthenticationReady,
   claudeModelChoices,
+  claudeConfigDir,
+  claudeFastIndicatorShown,
+  claudeFastResult,
   buildClaudeAgentCmd,
   claudeLaunchNote,
   claudeTuiReady,
@@ -194,6 +206,9 @@ import {
   assertCursorAuthenticationReady,
   assertCursorModelAvailable,
   cursorModelChoices,
+  cursorModelIsFastVariant,
+  cursorFastParameter,
+  cursorHeaderShowsFast,
   buildCursorAgentCmd,
   cursorAgentArgv,
   cursorPwshLaunchLine,
@@ -4257,6 +4272,8 @@ export interface InitialAgentPromptOpts {
   ready_timeout?: number;
   trust_project?: boolean;
   before_send?: import("./agent-shared.js").BeforeAgentSend;
+  // 入力待ちになった後、起動時promptを送る前に呼ぶ（起動時のfastの切り替え）。
+  after_ready?: (name: string, meta: AgentMetadata) => Promise<void>;
 }
 
 async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
@@ -4409,6 +4426,7 @@ async function sendInitialAgentPromptInLock(
       2,
     );
   }
+  await o.after_ready?.(name, meta);
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
   try {
@@ -4518,6 +4536,8 @@ export interface AgentConfigureResult {
   harness: AgentHarness;
   model: string | null;
   reasoning_effort: string | null;
+  /** 切り替えた後の、席のfastの状態。Aitermが確かめた事の無い席（前の版が起こした席）はnull。 */
+  fast: boolean | null;
 }
 
 async function waitForScreenText(name: string, text: string, timeoutMs = 3_000): Promise<string> {
@@ -4976,18 +4996,384 @@ async function configureClaudeForSessionOnly(
   if (!ready.ready) throw new AitermError("Claudeのmodel変更完了を確認できません", 2);
 }
 
+// ===================== ファスト（高速の応答）の切り替え（ADR 0114） =====================
+// 席は必ず通常の速度で起こす。fast: true は、通常で起こしてから、その席で切り替える（Claude Code・Codex）。
+// CursorとGrokはfastが別のmodel IDなので、起動時のIDをfast版にする。
+// harnessの切り替えの命令は利用者の既定も書き換えるので（Cursorを除く）、切り替えの直前の値へ戻す。
+// 読む→切り替える→戻すは、設定fileごとの鍵（withUserConfigLock）で、同じ端末の全てのAitermの間で1つずつにする。
+
+const CLAUDE_FAST_RESULT_TIMEOUT_MS = 20_000;
+const CLAUDE_FAST_SETTLE_MS = 400;
+const CODEX_FAST_OFFER_TIMEOUT_MS = 3_000;
+const CODEX_FAST_NOTICE_TIMEOUT_MS = 8_000;
+const CURSOR_FAST_ROW_TIMEOUT_MS = 3_000;
+const GROK_DEFAULT_SETTLE_MS = 400;
+const GROK_LAUNCH_DEFAULT_WAIT_MS = 20_000;
+
+export interface AgentFastLaunchResult {
+  /** 起こした後の、席の実際の状態 */
+  fast: boolean;
+  /** fastを頼まれたが、通常の速度で起こした時の訳 */
+  fast_error: FastModeFailure | null;
+}
+
+interface LaunchFastPlan {
+  /** harnessへ渡すmodel ID。Grokはfast版のIDへ替える。ほかは渡されたまま。 */
+  model: string | null;
+  /** Cursorの起動のIDへ -fast を付ける */
+  cursor_fast: boolean;
+  /** 起こした直後の席の状態（席の控えへ書く） */
+  state: boolean;
+  /** 通常で起こしてから、その席で切り替える（Claude Code・Codex） */
+  switch_after_ready: boolean;
+  /** 起動は続けるが、fastへは出来ない訳（アカウントの都合） */
+  fast_error: FastModeFailure | null;
+}
+
+/** modelへ直に書かれたIDが、fast版のIDか（fastが別のmodel IDのharnessだけ）。 */
+function modelIsFastVariant(kind: AgentKind, model: string | null): boolean {
+  if (!model) return false;
+  if (kind === "cursor") return cursorModelIsFastVariant(model);
+  // Grokのfast版は一覧の表示名で対にする（grokFastVariants）。起動の前は一覧を引かずに済むよう、IDの末尾で見る。
+  if (kind === "grok") return /-fast$/.test(model);
+  return false;
+}
+
+function claudeUserSettingsPath(): string {
+  return path.join(claudeConfigDir(), "settings.json");
+}
+
+/** Claude Codeの席のmodelがfastへ切り替えられるかを、一覧で確かめる。使えない時は断る。 */
+async function assertClaudeFastSupported(bin: string, cwd: string, model: string | null, untouched: string): Promise<FastModeFailure | null> {
+  const catalog = await claudeModelChoices(bin, cwd);
+  const key = model ?? "default";
+  if (!catalog.fast_ids?.[key]) {
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      `Claude Code の ${key} はfastに対応していません（対応: ${Object.keys(catalog.fast_ids ?? {}).join(", ") || "なし"}）。${untouched}`);
+  }
+  return catalog.fast_unavailable ?? null;
+}
+
+/** Codexの席のmodel（省略時は利用者のconfig、無ければ一覧の既定）がfastへ切り替えられるかを、一覧で確かめる。 */
+async function assertCodexFastSupported(bin: string, codexHome: string, model: string | null, untouched: string): Promise<void> {
+  const catalog = await codexModelChoices(bin, true);
+  const effective = model ?? readCodexConfigPins(path.join(codexHome, "config.toml")).model.value ?? catalog.default_model;
+  if (!effective || !catalog.fast_ids?.[effective]) {
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      `Codex の ${effective ?? "（modelを特定できません）"} はfastに対応していません（対応: ${Object.keys(catalog.fast_ids ?? {}).join(", ") || "なし"}）。${untouched}`);
+  }
+}
+
+/** 起動の前の確かめ。設定の誤り（対応していないmodel、IDとの食い違い）はここで断り、席を作らない。 */
+async function planLaunchFast(
+  kind: AgentKind,
+  o: { model: string | null; effort: string | null; fast: boolean | null; cwd: string | null },
+): Promise<LaunchFastPlan> {
+  const variant = modelIsFastVariant(kind, o.model);
+  const plan: LaunchFastPlan = { model: o.model, cursor_fast: false, state: variant, switch_after_ready: false, fast_error: null };
+  if (o.fast === false && variant) {
+    throw new FastModeError("FAST_MODE_MODEL_CONFLICT",
+      `model=${o.model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。起動していません。`);
+  }
+  if (o.fast !== true || variant) return plan;
+  const untouched = "起動していません。";
+  const bin = resolveAgentBin(kind);
+  // CLIが無い時は、後の起動が同じ訳で断る。ここでは先へ進める。
+  if (!bin) return plan;
+  const cwd = o.cwd ?? process.cwd();
+  if (kind === "claude") {
+    plan.fast_error = await assertClaudeFastSupported(bin, cwd, o.model, untouched);
+    plan.switch_after_ready = plan.fast_error === null;
+    return plan;
+  }
+  if (kind === "codex") {
+    await assertCodexFastSupported(bin, realCodexHome(), o.model, untouched);
+    plan.switch_after_ready = true;
+    return plan;
+  }
+  if (kind === "cursor") {
+    if (!o.model) {
+      throw new FastModeError("FAST_MODE_NOT_SUPPORTED", `Cursor のfastはmodelごとです。modelを指定してください。${untouched}`);
+    }
+    assertCursorModelAvailable(bin, cwd, o.model, o.effort, true);
+    return { ...plan, cursor_fast: true, state: true };
+  }
+  const base = o.model ?? GROK_MODEL_DEFAULTS[kind];
+  const catalog = await grokModelChoices(bin, cwd);
+  const fastId = catalog.fast_ids?.[base];
+  if (!fastId) {
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      `Grok の ${base} にfast版のmodelがありません（fast版があるmodel: ${Object.keys(catalog.fast_ids ?? {}).join(", ") || "なし"}）。${untouched}`);
+  }
+  return { ...plan, model: fastId, state: true };
+}
+
+/**
+ * Grokは起動時に、--model の値を利用者のconfig.tomlの [models].default へ書く（1.0.50で確かめた）。
+ * 鍵を取り、起動の直前の値を読み、起こして、書かれるのを待ってから元の値へ戻す。
+ */
+async function launchGrokKeepingDefault<T extends [string, string]>(launchedModel: string, launch: () => T): Promise<T> {
+  const configPath = path.join(realGrokHome(), "config.toml");
+  return withUserConfigLock(configPath, async () => {
+    const before = readGrokDefaultModelPin(configPath);
+    const launched = launch();
+    if (before.body === null || (before.present && before.value === launchedModel)) return launched;
+    const deadline = performance.now() + GROK_LAUNCH_DEFAULT_WAIT_MS;
+    do {
+      await sleep(150);
+      if (readGrokDefaultModelPin(configPath).body !== before.body) break;
+      if (!sessionExists(launched[0])) break;
+      // 入力待ちになっても書かれていなければ、少し待ってから戻しへ進む（書かない版・同じ値の時）。
+      if (grokTuiReady(captureScreen(launched[0], AGENT_TUI_READY_LINES))) { await sleep(GROK_DEFAULT_SETTLE_MS); break; }
+    } while (performance.now() < deadline);
+    await sleep(GROK_DEFAULT_SETTLE_MS);
+    restoreGrokDefaultModel(configPath, before);
+    return launched;
+  });
+}
+
+function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
+  meta.fast = fast;
+  writeAgentMetadata(meta);
+}
+
+/** 動いている席のfastを切り替える。返りは切り替えた後の状態。席は入力待ちである事（呼び手が確かめる）。 */
+async function switchAgentFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+  const state = meta.kind === "claude" ? await switchClaudeFast(name, meta, target)
+    : meta.kind === "codex" ? await switchCodexFast(name, meta, target)
+    : meta.kind === "cursor" ? await switchCursorFast(name, meta, target)
+    : await switchGrokFast(name, meta, target);
+  recordAgentFast(meta, state);
+  return state;
+}
+
+async function switchClaudeFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
+  // もう通常の速度なら何も打たない（/fast off は、もう off でも利用者の設定を書き直す）。
+  if (!target && meta.fast !== true && !claudeFastIndicatorShown(captureScreen(name, AGENT_TUI_READY_LINES))) return false;
+  const untouched = "席の速度は変えていません。";
+  if (target && !verified) {
+    // 対応していないmodelで /fast on を打つと、Claude Codeは勝手にOpusへ替える。送る前に一覧で確かめる。
+    const bin = meta.agent_executable ?? resolveAgentBin("claude");
+    if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Claude Code の CLI が見つからず、fastの対応を確かめられません。${untouched}`);
+    if (meta.model === undefined) {
+      throw new FastModeError("FAST_MODE_UNCONFIRMED",
+        `この席のmodelが控えに無く（前の版のAitermが起こした席）、fastの対応を確かめられません。agent_configureへmodelも渡してください。${untouched}`);
+    }
+    const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), meta.model, untouched);
+    if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
+  }
+  const settings = claudeUserSettingsPath();
+  const seen = await withUserConfigLock(settings, async () => {
+    const before = readFileOrNull(settings);
+    const beforeScreen = captureScreen(name, AGENT_TUI_READY_LINES);
+    try {
+      await sendAgentPromptText(name, target ? "/fast on" : "/fast off");
+      const deadline = performance.now() + CLAUDE_FAST_RESULT_TIMEOUT_MS;
+      let result = null;
+      do {
+        await sleep(150);
+        result = claudeFastResult(beforeScreen, captureScreen(name, AGENT_TUI_READY_LINES));
+      } while (!result && performance.now() < deadline);
+      return result;
+    } finally {
+      // Claude Codeは結果の行を出す前に、利用者の設定へ fastMode を書く（on は true、off は項目を消す）。切り替えの前の値へ戻す。
+      await sleep(CLAUDE_FAST_SETTLE_MS);
+      restoreJsonSetting(settings, before, "fastMode");
+    }
+  });
+  await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+  if (!seen) {
+    throw new FastModeError("FAST_MODE_UNCONFIRMED",
+      `Claude Codeへ ${target ? "/fast on" : "/fast off"} を送りましたが、結果の行を確かめられません。席の速度は変わった可能性があります。`);
+  }
+  if (seen.state === "unavailable") throw new FastModeError("FAST_MODE_UNAVAILABLE", `Claude Code: ${seen.line}。${untouched}`);
+  if (seen.state === "unchanged") throw new FastModeError("FAST_MODE_UNCONFIRMED", `Claude Code: ${seen.line}`);
+  if ((seen.state === "on") !== target) {
+    throw new FastModeError("FAST_MODE_UNCONFIRMED", `Claude Codeの結果の行が頼んだ向きと違います（${seen.line}）。`);
+  }
+  return target;
+}
+
+/** Codexの入力欄で `/fast` を1回打つ（入り切りの交互）。返りは、切り替えた後にfastかどうか。 */
+async function toggleCodexFast(name: string): Promise<boolean> {
+  const before = codexServiceTierNotices(captureScreen(name, AGENT_TUI_READY_LINES));
+  send(name, "/fast", { enter: false, force: true, raw: false, mark: false, rtk: false, preserveAgentOperation: true, bracketedPaste: true });
+  // 命令の候補に /fast が出ていない時にEnterを押すと、文として送られて番が始まる。出るのを見てから押す。
+  let offered = false;
+  for (const deadline = performance.now() + CODEX_FAST_OFFER_TIMEOUT_MS; performance.now() < deadline; await sleep(100)) {
+    if (codexFastCommandOffered(captureScreen(name, AGENT_TUI_READY_LINES))) { offered = true; break; }
+  }
+  if (!offered) {
+    for (let i = 0; i < "/fast".length; i++) sendMenuChoice(name, "BSpace");
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      "Codexの入力欄に /fast の命令が出ません（このmodel・この設定では速度の段を切り替えられません）。席の速度は変えていません。");
+  }
+  sendKey(name, "Enter", { preserveAgentOperation: true });
+  for (const deadline = performance.now() + CODEX_FAST_NOTICE_TIMEOUT_MS; performance.now() < deadline; await sleep(120)) {
+    const now = codexServiceTierNotices(captureScreen(name, AGENT_TUI_READY_LINES));
+    if (now.length > before.length || (now.length > 0 && now.at(-1) !== before.at(-1))) return now.at(-1) === "fast";
+  }
+  throw new FastModeError("FAST_MODE_UNCONFIRMED",
+    "Codexへ /fast を送りましたが、切り替えた後の「Service tier set to …」の行を確かめられません。席の速度は変わった可能性があります。");
+}
+
+async function switchCodexFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
+  // Codexの画面には今の段が出ない（足元にも /status にも）。席の控えが、Aitermの知る今の状態。
+  if (meta.fast === target) return target;
+  const bin = meta.agent_executable ?? resolveAgentBin("codex");
+  const codexHome = meta.codex_home ?? realCodexHome();
+  const configPath = path.join(codexHome, "config.toml");
+  if (target && !verified) {
+    if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", "Codex の CLI が見つからず、fastの対応を確かめられません。席の速度は変えていません。");
+    await assertCodexFastSupported(bin, codexHome, meta.model ?? null, "席の速度は変えていません。");
+  }
+  return withUserConfigLock(configPath, async () => {
+    // /fast は切り替えのたびに、利用者のconfig.tomlへ service_tier を保存する。切り替えの直前の値を読んでおく。
+    const before = readCodexConfigPins(configPath).service_tier;
+    try {
+      let state = await toggleCodexFast(name);
+      // 控えと実際が違っていた時（席で人が切り替えた等）は、1回で逆へ動く。もう1回打って頼まれた向きにする。
+      if (state !== target) state = await toggleCodexFast(name);
+      if (state !== target) {
+        throw new FastModeError("FAST_MODE_UNCONFIRMED", "Codexの /fast を2回打っても、頼まれた向きになりません。");
+      }
+      return target;
+    } finally {
+      try {
+        if (!bin) throw new AitermError("Codex の CLI が見つかりません", 2);
+        await restoreCodexServiceTier(bin, codexHome, before);
+      } catch {
+        // 公式の口で戻せない時は、その1行だけをfileで直す（戻さずに残すと、利用者の次のCodexがfastで始まる）。
+        restoreCodexServiceTierInFile(configPath, before);
+      }
+    }
+  });
+}
+
+async function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+  // 引数なしの /model は、今のmodelの行に印を付けて開く。Tabでそのmodelのパラメータの画面（Edit Parameters）。
+  await sendAgentPromptText(name, "/model", meta.kind);
+  await waitForScreenText(name, "Available models");
+  sendMenuChoice(name, "Tab");
+  const closeWithoutChange = async (fromParameters: boolean) => {
+    if (fromParameters) {
+      sendMenuChoice(name, "Escape");
+      await waitForScreenText(name, "Available models").catch(() => undefined);
+    }
+    sendMenuChoice(name, "Escape");
+    await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+  };
+  let parameters: string;
+  try {
+    parameters = await waitForScreenText(name, "Edit Parameters");
+  } catch {
+    await closeWithoutChange(false);
+    if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Cursorの今のmodelには、パラメータの画面がありません。席の速度は変えていません。");
+    return false;
+  }
+  const row = cursorFastParameter(parameters);
+  if (!row) {
+    await closeWithoutChange(true);
+    if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Cursorの今のmodelのパラメータに、Fastの行がありません。席の速度は変えていません。");
+    return false;
+  }
+  if (row.state === target) {
+    await closeWithoutChange(true);
+    return target;
+  }
+  for (let i = 0; i < Math.abs(row.down); i++) sendMenuChoice(name, row.down > 0 ? "Down" : "Up");
+  sendMenuChoice(name, "Enter");
+  let now = row;
+  for (const deadline = performance.now() + CURSOR_FAST_ROW_TIMEOUT_MS; performance.now() < deadline; await sleep(100)) {
+    now = cursorFastParameter(captureScreen(name, AGENT_TUI_READY_LINES)) ?? now;
+    if (now.state === target) break;
+  }
+  if (now.state !== target) {
+    await closeWithoutChange(true);
+    throw new FastModeError("FAST_MODE_UNCONFIRMED", "Cursorのパラメータの画面で、Fastの行の印が替わりません。選ばずに閉じました。");
+  }
+  sendMenuChoice(name, "Escape");
+  await waitForScreenText(name, "Available models");
+  sendMenuChoice(name, "Enter");
+  const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+  const shown = cursorHeaderShowsFast(captureScreen(name, AGENT_TUI_READY_LINES));
+  if (!ready.ready || (shown !== null && shown !== target)) {
+    throw new FastModeError("FAST_MODE_UNCONFIRMED", "Cursorの見出しのmodelの表示で、切り替えた後の状態を確かめられません。席の速度は変わった可能性があります。");
+  }
+  return target;
+}
+
+/** Grokの `/model …`（`/effort …`）を打ち、Grokが利用者の既定へ書いた [models].default を、切り替えの直前の値へ戻す。 */
+async function sendGrokModelCommand(
+  name: string, meta: AgentMetadata, command: string, model: string | null, effort: string | null,
+): Promise<void> {
+  const configPath = path.join(meta.grok_home ?? realGrokHome(), "config.toml");
+  await withUserConfigLock(configPath, async () => {
+    const pin = readGrokDefaultModelPin(configPath);
+    const before = captureScreen(name, AGENT_TUI_READY_LINES);
+    try {
+      await sendAgentPromptText(name, command);
+      await waitForGrokConfigurationResult(name, before, model, effort);
+    } finally {
+      await sleep(GROK_DEFAULT_SETTLE_MS);
+      restoreGrokDefaultModel(configPath, pin);
+    }
+  });
+}
+
+async function switchGrokFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+  const untouched = "席の速度は変えていません。";
+  const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
+  if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Grok の CLI が見つからず、fastの対応を確かめられません。${untouched}`);
+  const catalog = await grokModelChoices(bin, meta.cwd ?? process.cwd());
+  const current = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+  if (!current) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Grokの足元から、今のmodelを読めません。${untouched}`);
+  if (current.fast === target) return target;
+  const next = target ? catalog.fast_ids?.[current.base] : current.base;
+  if (!next) {
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      `Grok の ${current.base} にfast版のmodelがありません（fast版があるmodel: ${Object.keys(catalog.fast_ids ?? {}).join(", ") || "なし"}）。${untouched}`);
+  }
+  await sendGrokModelCommand(name, meta, `/model ${next}`, next, null);
+  const after = grokModelFromFooter(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+  if (after && after.fast !== target) {
+    throw new FastModeError("FAST_MODE_UNCONFIRMED", "Grokの足元のmodelの表示で、切り替えた後の状態を確かめられません。席の速度は変わった可能性があります。");
+  }
+  return target;
+}
+
+/** 起動の後、入力待ちになった席をfastへ切り替える。出来なかった訳は返りへ入れ、起動は続ける。 */
+async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastModeFailure | null> {
+  try {
+    await switchAgentFast(name, meta, true);
+    return null;
+  } catch (error) {
+    const failure = fastModeFailure(error);
+    if (failure) return failure;
+    return {
+      code: "FAST_MODE_UNCONFIRMED",
+      message: `FAST_MODE_UNCONFIRMED: 起動の後の切り替えで失敗しました: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 export async function configureAgent(
   name: string,
-  opts: { model?: string | null; reasoning_effort?: string | null },
+  opts: { model?: string | null; reasoning_effort?: string | null; fast?: boolean | null },
 ): Promise<AgentConfigureResult> {
   assertSessionName(name);
   const model = opts.model?.trim() || null;
   const effort = opts.reasoning_effort?.trim() || null;
-  if (!model && !effort) throw new AitermError("model または reasoning_effort を指定してください", 2);
+  const fast = opts.fast ?? null;
+  if (!model && !effort && fast === null) throw new AitermError("model、reasoning_effort、fast のいずれかを指定してください", 2);
   if ((model && /[\r\n]/.test(model)) || (effort && /[\r\n]/.test(effort))) {
     throw new AitermError("model／reasoning_effort に改行を含められません", 2);
   }
   const meta = loadAgentMetadata(name);
+  if (fast === false && modelIsFastVariant(meta.kind, model)) {
+    throw new FastModeError("FAST_MODE_MODEL_CONFLICT",
+      `model=${model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。設定は変えていません。`);
+  }
   bindCompletedInitialPrompt(meta);
   const { ready, codexRateLimitModelSwitch } = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
     name, meta, AGENT_TUI_READY_TIMEOUT_MS,
@@ -5000,6 +5386,47 @@ export async function configureAgent(
     }
     throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
   }
+  const configured = (): AgentConfigureResult => ({
+    schema: "aiterm.agent-configure-result.v1",
+    session_id: name,
+    provider: meta.kind,
+    harness: agentHarness(meta.kind),
+    model,
+    reasoning_effort: effort,
+    fast: typeof meta.fast === "boolean" ? meta.fast : null,
+  });
+  const rememberModel = (): void => {
+    if (!model) return;
+    meta.model = model;
+    writeAgentMetadata(meta);
+  };
+  // fast: true は、modelやeffortを替える前に対応を確かめる（断る時は何も変えない）。
+  let fastVerified = false;
+  if (fast === true && (meta.kind === "claude" || meta.kind === "codex")) {
+    const untouched = "設定は変えていません。";
+    const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
+    if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", `${agentLabel(meta.kind)} の CLI が見つからず、fastの対応を確かめられません。${untouched}`);
+    if (meta.kind === "claude") {
+      const target = model ?? meta.model;
+      if (target === undefined) {
+        throw new FastModeError("FAST_MODE_UNCONFIRMED",
+          `この席のmodelが控えに無く（前の版のAitermが起こした席）、fastの対応を確かめられません。modelも渡してください。${untouched}`);
+      }
+      const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), target, untouched);
+      if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
+    } else {
+      await assertCodexFastSupported(bin, meta.codex_home ?? realCodexHome(), model ?? meta.model ?? null, untouched);
+    }
+    fastVerified = true;
+  }
+  /** modelを替えた後、fastを省いた時: harnessは替えた先がfastに対応していなければfastを外す。席の控えを実際へ合わせる。 */
+  const dropFastIfUnsupported = async (): Promise<void> => {
+    if (fast !== null || !model || meta.fast !== true) return;
+    const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
+    if (!bin) return;
+    const catalog = meta.kind === "claude" ? await claudeModelChoices(bin, meta.cwd ?? process.cwd()) : await codexModelChoices(bin, true);
+    if (!catalog.fast_ids?.[model]) recordAgentFast(meta, false);
+  };
 
   if (meta.kind === "claude") {
     // ultracodeはClaude Codeが自分で「this session only」と返すsession設定で、選ぶ画面には出ない。
@@ -5013,29 +5440,36 @@ export async function configureAgent(
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError(`Claudeのeffort変更完了を確認できません`, 2);
     }
-    return {
-      schema: "aiterm.agent-configure-result.v1",
-      session_id: name,
-      provider: "claude",
-      harness: agentHarness("claude"),
-      model,
-      reasoning_effort: effort,
-    };
+    rememberModel();
+    if (fast !== null) recordAgentFast(meta, await switchClaudeFast(name, meta, fast, fastVerified));
+    else await dropFastIfUnsupported();
+    return configured();
   }
 
   if (meta.kind === "cursor") {
     validateCursorModelEffort(model, effort);
-    if (!model) throw new AitermError("Cursorのreasoning_effort変更にはmodelも指定してください", 2);
-    const bin = resolveAgentBin("cursor");
-    if (!bin) throw new AitermError("Cursor Agent CLI の CLI が見つかりません", 2);
-    assertCursorModelAvailable(bin, meta.cwd ?? process.cwd(), model, effort);
+    if (!model && effort) throw new AitermError("Cursorのreasoning_effort変更にはmodelも指定してください", 2);
+    if (model) {
+      const bin = resolveAgentBin("cursor");
+      if (!bin) throw new AitermError("Cursor Agent CLI の CLI が見つかりません", 2);
+      assertCursorModelAvailable(bin, meta.cwd ?? process.cwd(), model, effort);
+      if (fast === true && !modelIsFastVariant("cursor", model)) {
+        // そのmodelのどの組にもfast版が無ければ、modelを替える前に断る（組ごとの有無は、替えた後のパラメータの画面で分かる）。
+        const fastIds = Object.keys(cursorModelChoices(bin, meta.cwd ?? process.cwd()).fast_ids ?? {});
+        if (!fastIds.some((key) => key === model || key.startsWith(`${model}-`))) {
+          throw new FastModeError("FAST_MODE_NOT_SUPPORTED", `Cursor の ${model} にfast版がありません。設定は変えていません。`);
+        }
+      }
+    }
     // Cursor TUIの `/model <base model>` はmodelを直接切り替える一方、flatten済みcatalog ID
     // （例: gpt-5.6-luna-high）を渡すとno matchesのfilter画面へ入る。effortは標準model pickerの
     // parameter editorで選び、同じsessionと会話contextを保つ。
-    await sendAgentPromptText(name, `/model ${model}`, meta.kind);
-    const modelReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
-    if (!modelReady.ready) throw new AitermError("Cursorのmodel変更完了を確認できません", 2);
-    if (effort) {
+    if (model) {
+      await sendAgentPromptText(name, `/model ${model}`, meta.kind);
+      const modelReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+      if (!modelReady.ready) throw new AitermError("Cursorのmodel変更完了を確認できません", 2);
+    }
+    if (model && effort) {
       await sendAgentPromptText(name, "/model", meta.kind);
       await waitForScreenText(name, "Available models");
       sendMenuChoice(name, "Tab");
@@ -5050,38 +5484,53 @@ export async function configureAgent(
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError("Cursorのreasoning effort変更完了を確認できません", 2);
     }
-    return {
-      schema: "aiterm.agent-configure-result.v1",
-      session_id: name,
-      provider: "cursor",
-      harness: agentHarness("cursor"),
-      model,
-      reasoning_effort: effort,
-    };
+    rememberModel();
+    if (fast !== null) recordAgentFast(meta, await switchCursorFast(name, meta, fast));
+    else if (model) {
+      // modelを替えた後の実際の状態を、見出しのmodelの表示で読む。
+      const shown = cursorHeaderShowsFast(captureScreen(name, AGENT_TUI_READY_LINES));
+      if (shown !== null) recordAgentFast(meta, shown);
+    }
+    return configured();
   }
 
   if (meta.kind === "grok") {
+    // Grokのfastは別のmodel ID。modelを替える時は、頼まれた（省略なら席の今の）fastに合わせて、渡すIDを決める。
+    let next = model;
     if (model) {
       const bin = resolveAgentBin(meta.kind);
       if (!bin) throw new AitermError(`${agentLabel(meta.kind)} の CLI が見つかりません`, 2);
       assertGrokModelAvailable(bin, meta.cwd ?? process.cwd(), model);
+      if ((fast ?? (meta.fast === true)) && !modelIsFastVariant("grok", model)) {
+        const fastIds = (await grokModelChoices(bin, meta.cwd ?? process.cwd())).fast_ids ?? {};
+        if (fastIds[model]) next = fastIds[model];
+        else if (fast === true) {
+          throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+            `Grok の ${model} にfast版のmodelがありません（fast版があるmodel: ${Object.keys(fastIds).join(", ") || "なし"}）。設定は変えていません。`);
+        }
+      }
     }
-    const command = model
-      ? `/model ${model}${effort ? ` ${effort}` : ""}`
-      : `/effort ${effort}`;
-    const before = captureScreen(name, AGENT_TUI_READY_LINES);
-    await sendAgentPromptText(name, command);
-    await waitForGrokConfigurationResult(name, before, model, effort);
-    return {
-      schema: "aiterm.agent-configure-result.v1",
-      session_id: name,
-      provider: meta.kind,
-      harness: agentHarness(meta.kind),
-      model,
-      reasoning_effort: effort,
-    };
+    if (model || effort) {
+      // `/model` はGrokが利用者の既定（[models].default）へも書くので、切り替えの直前の値へ戻す。
+      await sendGrokModelCommand(name, meta, next ? `/model ${next}${effort ? ` ${effort}` : ""}` : `/effort ${effort}`, next, effort);
+      if (model) {
+        rememberModel();
+        recordAgentFast(meta, next !== model || modelIsFastVariant("grok", model));
+      }
+    }
+    if (!model && fast !== null) recordAgentFast(meta, await switchGrokFast(name, meta, fast));
+    return configured();
   }
 
+  if (model || effort) await configureCodexModel(name, model, effort);
+  rememberModel();
+  if (fast !== null) recordAgentFast(meta, await switchCodexFast(name, meta, fast, fastVerified));
+  else await dropFastIfUnsupported();
+  return configured();
+}
+
+/** Codexの `/model` の選ぶ画面で、modelとreasoning effortを替える。 */
+async function configureCodexModel(name: string, model: string | null, effort: string | null): Promise<void> {
   await sendAgentPromptText(name, "/model");
   const modelScreen = await waitForScreenText(name, "Select Model and Effort");
   if (model) {
@@ -5109,14 +5558,6 @@ export async function configureAgent(
     sendMenuChoice(name, "Enter");
   }
   await waitForScreenText(name, "Model changed to");
-  return {
-    schema: "aiterm.agent-configure-result.v1",
-    session_id: name,
-    provider: "codex",
-    harness: agentHarness("codex"),
-    model,
-    reasoning_effort: effort,
-  };
 }
 
 export function __testCodexConfigureChoices(screen: string, model: string, effort: string): {
@@ -5715,10 +6156,11 @@ function buildAgentCmd(
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null = null,
+  cursorFast = false,
 ): string {
   if (kind === "claude") return buildClaudeAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "codex") return buildCodexAgentCmd(bin, model, effort, prompt, meta);
-  if (kind === "cursor") return buildCursorAgentCmd(bin, model, effort, prompt, meta);
+  if (kind === "cursor") return buildCursorAgentCmd(bin, model, effort, prompt, meta, cursorFast);
   return buildGrokAgentCmd(kind, bin, model, effort, prompt, meta);
 }
 
@@ -5845,6 +6287,11 @@ export function openAgent(
     launch_operation_id?: string | null;
     write_scope?: string;
     env_vars?: string[];
+    // ファスト（ADR 0114）。openAgentWithInitialPromptが起動の前に決めて渡す。
+    // cursor_fast: 起動のmodel IDへ -fast を付ける。fast_state: 起こした直後の席の状態。base_model: fast版へ替える前の元のmodel ID。
+    cursor_fast?: boolean;
+    fast_state?: boolean;
+    base_model?: string | null;
   } = {},
 ): [string, string] {
   const label = agentLabel(kind);
@@ -5966,8 +6413,9 @@ export function openAgent(
   if (kind === "grok") {
     if (model) assertGrokModelAvailable(bin, cwd ?? process.cwd(), model);
   }
+  const cursorFast = kind === "cursor" && opts.cursor_fast === true;
   if (kind === "cursor" && model) {
-    assertCursorModelAvailable(bin, cwd ?? process.cwd(), model, effort);
+    assertCursorModelAvailable(bin, cwd ?? process.cwd(), model, effort, cursorFast);
   }
 
   let sid: string;
@@ -6006,6 +6454,9 @@ export function openAgent(
       : null;
     if (meta) {
       meta.agent_executable = bin;
+      // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
+      meta.fast = opts.fast_state === true;
+      meta.model = opts.base_model !== undefined ? opts.base_model : model;
       writeAgentMetadata(meta);
       agentMetadataNegativeCache.delete(sid);
     }
@@ -6013,9 +6464,9 @@ export function openAgent(
     let full: string;
     if (paneShell === "pwsh" && meta) {
       full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
-        cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta));
+        cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast));
     } else {
-      const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta);
+      const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
       const envPrefix = agentEnvPrefix(meta, sid, envVars);
       full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
     }
@@ -6080,8 +6531,9 @@ export async function openAgentWithInitialPrompt(
     env_vars?: string[];
     trust_project?: boolean;
     before_send?: import("./agent-shared.js").BeforeAgentSend;
+    fast?: boolean | null;
   } = {},
-): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult]> {
+): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
   const mission = opts.prompt ?? null;
   const sourceSessionId = opts.throughline_source_session ?? null;
   const supplementFile = opts.throughline_supplement_file ?? null;
@@ -6106,25 +6558,61 @@ export async function openAgentWithInitialPrompt(
   if (opts.launch_operation_id != null && prompt !== null) {
     throw new AitermError("launch_operation_idはpromptなしのClaude相関launchだけで指定できます", 2);
   }
+  // ファスト（ADR 0114）。設定の誤りは席を作る前に断る。fastへ出来ない訳がアカウントの都合なら、通常で起こして返りへ訳を入れる。
+  const requestedModel = opts.model == null ? null : opts.model.trim() || null;
+  const fastPlan = await planLaunchFast(kind, {
+    model: requestedModel, effort: opts.reasoning_effort ?? null, fast: opts.fast ?? null, cwd: opts.cwd ?? null,
+  });
+  const fastResult: AgentFastLaunchResult = { fast: fastPlan.state, fast_error: fastPlan.fast_error };
+  const openOptions = {
+    session_name: opts.session_name ?? null,
+    // modelは呼び手の渡した形のまま渡す（空文字の断りはopenAgentがする）。Grokのfastだけ、fast版のIDへ替える。
+    model: fastPlan.model !== requestedModel ? fastPlan.model : opts.model ?? null,
+    reasoning_effort: opts.reasoning_effort ?? null,
+    cwd: opts.cwd ?? null,
+    prompt: null,
+    agent_done: true,
+    launch_operation_id: opts.launch_operation_id ?? null,
+    write_scope: opts.write_scope,
+    env_vars: opts.env_vars,
+    cursor_fast: fastPlan.cursor_fast,
+    fast_state: fastPlan.state,
+    base_model: requestedModel,
+  };
+  // Grokは起動時に --model の値を利用者の既定へ書くので、起動の前後で元の値へ戻す。
+  const launch = (): Promise<[string, string]> => kind === "grok"
+    ? launchGrokKeepingDefault(fastPlan.model ?? GROK_MODEL_DEFAULTS[kind], () => openAgent(kind, openOptions))
+    : Promise.resolve().then(() => openAgent(kind, openOptions));
+  // 入力待ちになった席を、その席の中でfastへ切り替える（Claude Code・Codex）。出来なかった訳は返りへ入れ、起動は続ける。
+  const switchAfterReady = async (name: string, meta: AgentMetadata): Promise<void> => {
+    if (!fastPlan.switch_after_ready) return;
+    fastResult.fast_error = await applyLaunchFast(name, meta);
+    fastResult.fast = meta.fast === true;
+  };
   // v0.16.0: launcher は常に managed（Stop hook つき）で立つ。手動運転したい場合は
   // pty_open で素の PTY を開き、harness CLI を自分で send する。
   // prompt無しはTUIを起動するだけ。prompt有りはharnessを問わず、TUI ready確認後の
   // sendInitialAgentPromptへ一本化する。Grokの--verbatim argvはCLIが本文をqueueへ置いただけで
   // turnを開始しない版があり、event_cursor=0を「実行中」と返すと利用側へ嘘をつく。
   if (!prompt) {
-    const [sid, hint] = openAgent(kind, {
-      session_name: opts.session_name ?? null,
-      model: opts.model ?? null,
-      reasoning_effort: opts.reasoning_effort ?? null,
-      cwd: opts.cwd ?? null,
-      prompt: null,
-      agent_done: true,
-      launch_operation_id: opts.launch_operation_id ?? null,
-      write_scope: opts.write_scope,
-      env_vars: opts.env_vars,
-    });
+    const [sid, hint] = await launch();
     const delivery: InitialPromptDelivery = { status: "not_requested", reason: "not_requested", turn_started: false };
     let startup: AgentStartupResult = { status: "not_checked", reason: "startup_not_requested" };
+    if (opts.trust_project !== true && fastPlan.switch_after_ready) {
+      // 起動の準備待ちを頼まれていなくても、切り替えは入力待ちの席にしか打てない。待って、なれなければ通常のまま返す。
+      const meta = loadAgentMetadata(sid);
+      let ready: AgentStartupResult = { status: "blocked", reason: "startup_failed" };
+      try { ready = await prepareAgentInput(sid, meta, { ready_timeout: opts.ready_timeout ?? undefined }); } catch { /* 訳は下の fast_error で返す */ }
+      if (ready.status === "ready") {
+        startup = ready;
+        await switchAfterReady(sid, meta);
+      } else {
+        fastResult.fast_error = {
+          code: "FAST_MODE_UNCONFIRMED",
+          message: `FAST_MODE_UNCONFIRMED: 席が入力待ちにならず（reason=${ready.reason}）、fastへ切り替えていません。席は通常の速度です。`,
+        };
+      }
+    }
     if (opts.trust_project === true) {
       try {
         startup = await prepareAgentInput(sid, loadAgentMetadata(sid), {
@@ -6141,28 +6629,20 @@ export async function openAgentWithInitialPrompt(
         `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}${startupBlockedHint(startup.reason)}`,
         2, sid, delivery, null, startup,
       );
+      await switchAfterReady(sid, loadAgentMetadata(sid));
     }
-    return [sid, hint, null, null, delivery, startup];
+    return [sid, hint, null, null, delivery, startup, fastResult];
   }
-  const [sid, hint] = openAgent(kind, {
-    session_name: opts.session_name ?? null,
-    model: opts.model ?? null,
-    reasoning_effort: opts.reasoning_effort ?? null,
-    cwd: opts.cwd ?? null,
-    prompt: null,
-    agent_done: true,
-    launch_operation_id: opts.launch_operation_id ?? null,
-    write_scope: opts.write_scope,
-    env_vars: opts.env_vars,
-  });
+  const [sid, hint] = await launch();
   try {
     const initial = await sendInitialAgentPrompt(sid, prompt, {
       ready_timeout: opts.ready_timeout ?? undefined,
       trust_project: opts.trust_project,
       before_send: opts.before_send,
+      after_ready: switchAfterReady,
     });
     return [sid, `${hint}\n${initial.text}`, initial.event_cursor, initial.submit_residue, initial.initial_prompt,
-      { status: "ready", reason: "composer_ready" }];
+      { status: "ready", reason: "composer_ready" }, fastResult];
   } catch (e) {
     const code = e instanceof AitermError ? e.code : 1;
     const message = e instanceof Error ? e.message : String(e);

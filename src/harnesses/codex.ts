@@ -41,12 +41,12 @@ export function realCodexHome(): string {
 // 持ち込まず基本形（key = "値"）だけ解決する。行はあるが値を解析できない場合も「継承あり」として
 // 正直に報告する（黙って CLI 既定扱いにしない）。
 export type CodexConfigPin = { present: boolean; value: string | null };
-export function readCodexConfigPins(configPath: string): { model: CodexConfigPin; effort: CodexConfigPin } {
+export function readCodexConfigPins(configPath: string): { model: CodexConfigPin; effort: CodexConfigPin; service_tier: CodexConfigPin } {
   let body: string;
   try {
     body = fs.readFileSync(configPath, "utf8");
   } catch {
-    return { model: { present: false, value: null }, effort: { present: false, value: null } };
+    return { model: { present: false, value: null }, effort: { present: false, value: null }, service_tier: { present: false, value: null } };
   }
   const rows = body.split(/\r?\n/);
   let firstTable = rows.findIndex((l) => /^\s*\[/.test(l));
@@ -61,7 +61,7 @@ export function readCodexConfigPins(configPath: string): { model: CodexConfigPin
     }
     return { present: false, value: null };
   };
-  return { model: pick("model"), effort: pick("model_reasoning_effort") };
+  return { model: pick("model"), effort: pick("model_reasoning_effort"), service_tier: pick("service_tier") };
 }
 
 export function codexConfigSummary(configPath: string): string {
@@ -598,6 +598,9 @@ export function buildCodexAgentCmd(
   // launcher自身が実効能力壁を作る。パス説明はCodex CLIに同等のallowlist引数がないため宣言のまま残す。
   if (meta?.kind === "codex" && meta.write_scope === "read-only") parts.push("--sandbox", "read-only");
   if (meta?.kind === "codex") parts.push("-c", "check_for_update_on_startup=false");
+  // 席は必ず通常の速度で始める（ADR 0114）。何も渡さないと、利用者のconfigの値や、modelの既定の段（Fastのmodelがある）で流れる。
+  // ここへfastは渡さない: 後で/fastで戻しても、番ごとの補助の問い合わせが起動時の値のまま残る（0.162.1で確かめた）。
+  if (meta?.kind === "codex") parts.push("-c", "service_tier=default");
   // model/effort は共有configを書き換えず、CLI引数で明示して起動単位に優先する。
   if (model) parts.push("-m", shq(model));
   if (effort) parts.push("-c", `model_reasoning_effort=${shq(effort)}`);
@@ -1006,6 +1009,12 @@ export async function codexModelChoices(bin: string, includeHidden: boolean): Pr
   return codexCatalogFromPages(pages);
 }
 
+/** CodexのTUIの `/fast` と同じ見方: modelの速度の段（serviceTiers）に、名前が Fast の段がある。 */
+function codexModelHasFastTier(model: any): boolean {
+  return Array.isArray(model?.serviceTiers)
+    && model.serviceTiers.some((tier: any) => typeof tier?.name === "string" && tier.name.toLowerCase() === "fast");
+}
+
 /** `model/list` の応答（全ページ）からmodel候補を作る。 */
 export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
   let defaultModel: string | null = null;
@@ -1025,6 +1034,7 @@ export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
         efforts,
         default_effort: typeof model.defaultReasoningEffort === "string" ? model.defaultReasoningEffort : null,
         hidden: model.hidden === true,
+        fast: codexModelHasFastTier(model),
       };
     });
   });
@@ -1034,6 +1044,7 @@ export function codexCatalogFromPages(pages: any[]): AgentModelCatalog {
     default_model: defaultModel,
     adapter_efforts: {},
     models,
+    fast_ids: Object.fromEntries(models.filter((model) => model.fast).map((model) => [model.id, model.id])),
   });
 }
 
@@ -1076,4 +1087,57 @@ export async function codexAuthStatus(bin: string, cwd: string, env = process.en
 export function codexAuthPane(screen: string): AgentAuthPane {
   return { url: authUrl(screen, ["auth.openai.com", "auth0.openai.com", "login.openai.com"]),
     user_code: authUserCode(screen), input_required: false, message: null };
+}
+
+// ---- ファスト（速度の段）。CodexのTUIの `/fast` は入り切りの交互で、切り替えた後に「Service tier set to …」を1行出す。
+// 足元にも /status にも今の段は出ない（0.162.1）。
+
+/** 画面にある「Service tier set to …」の行を、上から順に。priority は fast、default は通常の速度。 */
+export function codexServiceTierNotices(screen: string): ("fast" | "standard")[] {
+  return screen.split("\n").flatMap((line): ("fast" | "standard")[] => {
+    const match = line.match(/^\s*[•◦]?\s*Service tier (?:set to (\S+)|cleared)\s*$/);
+    if (!match) return [];
+    return [match[1] === "priority" || match[1] === "fast" ? "fast" : "standard"];
+  });
+}
+
+/** 入力欄へ `/fast` と打った時に、命令の候補として `/fast` が出ているか（出ていない時にEnterを押すと、文として送られる）。 */
+export function codexFastCommandOffered(screen: string): boolean {
+  return screen.split("\n").slice(-14).some((line) => /^\s*›?\s*\/fast\s{2,}\S/.test(line));
+}
+
+/**
+ * 利用者のconfig.tomlの service_tier を、公式の口（App Serverの config/batchWrite）で元の値へ戻す。
+ * `/fast` は切り替えのたびに利用者の既定として保存する。戻しても、切り替えた席の段は保たれる（0.162.1で確かめた）。
+ */
+export async function restoreCodexServiceTier(bin: string, codexHome: string, before: CodexConfigPin): Promise<void> {
+  // 読めない書き方の値（表や複数行）は、元の値が分からないので触らない。
+  if (before.present && before.value === null) return;
+  const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(codexHome) };
+  await steer.withCodexReceiver(AITERM_PROFILE, parent, async (request) => {
+    await request("config/batchWrite", {
+      edits: [{ keyPath: "service_tier", value: before.present ? before.value : null, mergeStrategy: "replace" }],
+    });
+  }, { executable: bin, timeout_ms: CODEX_MODELS_TIMEOUT_MS });
+}
+
+/** 公式の口で戻せなかった時のための戻し。config.tomlの最上位の service_tier の1行だけを、元の値へ直す。 */
+export function restoreCodexServiceTierInFile(configPath: string, before: CodexConfigPin): void {
+  if (before.present && before.value === null) return;
+  let body: string;
+  try { body = fs.readFileSync(configPath, "utf8"); } catch { return; }
+  const eol = body.includes("\r\n") ? "\r\n" : "\n";
+  const rows = body.split(/\r?\n/);
+  let firstTable = rows.findIndex((row) => /^\s*\[/.test(row));
+  if (firstTable === -1) firstTable = rows.length;
+  const line = rows.slice(0, firstTable).findIndex((row) => /^\s*service_tier\s*=/.test(row));
+  const wanted = before.present ? `service_tier = ${JSON.stringify(before.value)}` : null;
+  if (line === -1 && wanted === null) return;
+  if (line !== -1 && wanted !== null && rows[line].trim() === wanted) return;
+  if (line === -1) rows.splice(firstTable, 0, wanted as string);
+  else if (wanted === null) rows.splice(line, 1);
+  else rows[line] = wanted;
+  const temp = `${configPath}.aiterm-restore-${process.pid}`;
+  fs.writeFileSync(temp, rows.join(eol), { mode: fs.statSync(configPath).mode & 0o777 });
+  fs.renameSync(temp, configPath);
 }

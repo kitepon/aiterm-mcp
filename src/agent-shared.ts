@@ -79,6 +79,10 @@ export interface AgentMetadata {
   grok_home?: string;
   grok_auth_path?: string | null;
   cursor_home?: string;
+  // 席のファストの状態（ADR 0114）。Aitermが起こした時・切り替えを確かめた時にだけ書く。無いのは、この項目より前の版が起こした席。
+  fast?: boolean;
+  // 起動・agent_configureで渡したmodel ID（fast版へ替える前の元のID）。省略して起こした席はnull。fastの対応を一覧で確かめるのに使う。
+  model?: string | null;
   // 起動準備が完了した時点のprocess（pid:開始時刻）。pty_observeはこれ以外を起動後のprocessとして数える。
   startup_processes?: string[];
   // 上のprocessの親（pid:開始時刻）とargvのdigest。harnessが同じ親の下に同じargvで立て直したprocessを、控えの物として扱うために使う。

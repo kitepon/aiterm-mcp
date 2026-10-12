@@ -1,6 +1,7 @@
 // agent_modelsの共通の形。harnessごとの取得口・出力形式・model IDとeffortの変換は src/harnesses/ が持ち、
 // ここはharness中立の型、effortの並び、形の検証だけを持つ。
 import { AitermError } from "./errors.js";
+import type { FastModeFailure } from "./fast-mode.js";
 
 // 並びはBellTeamの候補表示と同じ。未知のeffortは既知のものの後ろへ、出てきた順で置く。
 const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "extra-high", "max", "ultra", "ultracode"];
@@ -13,6 +14,8 @@ export interface AgentModelChoice {
   efforts: string[];
   default_effort: string | null;
   hidden: boolean;
+  /** このharness・このmodelでファスト（高速の応答）へ切り替えられるか（agent_launch／agent_configureのfast: true） */
+  fast: boolean;
 }
 
 export interface AgentModelCatalog {
@@ -24,6 +27,14 @@ export interface AgentModelCatalog {
   models: AgentModelChoice[];
   /** harnessの一覧には無く、Aitermのadapterが足したeffortと理由 */
   adapter_efforts: Record<string, string>;
+  /**
+   * fast: true を受けるmodel IDと、その時harnessへ渡すID（公開の結果には出さない）。
+   * 切り替え式のharness（Claude Code・Codex）は同じID。fastが別のmodel IDのharness（Cursor・Grok）はfast版のID。
+   * Cursorの鍵は `${model}` と `${model}-${effort}`。Claude Codeは一覧の値に加えて実体のID（resolvedModel）も鍵に持つ。
+   */
+  fast_ids?: Record<string, string>;
+  /** このアカウント・この端末では、どのmodelでもfastを使えない時の理由（harnessが先に答えられる時だけ）。使える・分からない時はnull。 */
+  fast_unavailable?: FastModeFailure | null;
 }
 
 export function sortEfforts(efforts: Iterable<string>): string[] {
@@ -73,6 +84,7 @@ export function agentModelsResult(harness: string, catalog: AgentModelCatalog) {
     default_model: catalog.default_model,
     efforts: sortEfforts(catalog.models.flatMap(model => model.efforts)),
     adapter_efforts: catalog.adapter_efforts,
+    fast_unavailable: catalog.fast_unavailable ?? null,
     models: catalog.models,
   };
 }

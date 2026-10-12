@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { AitermError } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
 import { checkedCatalog, type AgentModelCatalog } from "../model-catalog.js";
+import { FastModeError } from "../fast-mode.js";
 import {
   AGENT_DONE_POLL_MS,
   CURSOR_SCREEN_POLL_MS,
@@ -387,9 +388,15 @@ export function validateCursorModelEffort(model: string | null, effort: string |
   }
 }
 
-export function cursorModelArgument(model: string | null, effort: string | null): string | null {
+export function cursorModelArgument(model: string | null, effort: string | null, fast = false): string | null {
   if (!model) return null;
-  return effort ? `${model}-${effort}` : model;
+  // fastは完成形のIDの末尾（`<model>[-<effort>]-fast`）。そのIDが一覧にあるかは assertCursorModelAvailable が見る。
+  return `${model}${effort ? `-${effort}` : ""}${fast ? "-fast" : ""}`;
+}
+
+/** modelへ直に書かれたIDが、fast版の完成形か（`composer-2.5-fast`、`gpt-5.3-codex-low-fast`）。 */
+export function cursorModelIsFastVariant(model: string | null): boolean {
+  return !!model && model.endsWith("-fast");
 }
 
 const CURSOR_AUTH_TIMEOUT_MS = 5_000;
@@ -469,10 +476,13 @@ export function cursorModelChoices(bin: string, cwd: string): AgentModelCatalog 
 export function cursorCatalogFromLines(lines: { id: string; label: string }[]): AgentModelCatalog {
   const choices = new Map<string, { efforts: Set<string>; label: string | null }>();
   let defaultModel: string | null = null;
+  // fast: true で起こす時に渡すID。鍵は `${model}` と `${model}-${effort}`、値は一覧にある `-fast` 付きの完成形。
+  const fastIds: Record<string, string> = {};
   for (const line of lines) {
     const parsed = cursorBaseModel(line.id);
     if (!parsed) continue;
     const choice = choices.get(parsed.base) ?? { efforts: new Set<string>(), label: null };
+    if (parsed.fast) fastIds[parsed.effort ? `${parsed.base}-${parsed.effort}` : parsed.base] = line.id;
     // -fast版だけにあるeffortは `${model}-${effort}` の連結で作れないので数えない。
     if (parsed.effort && !parsed.fast) choice.efforts.add(parsed.effort);
     if (line.id === parsed.base) {
@@ -492,14 +502,21 @@ export function cursorCatalogFromLines(lines: { id: string; label: string }[]): 
       efforts: CURSOR_SELECTABLE_EFFORTS.filter((effort) => choice.efforts.has(effort)),
       default_effort: null,
       hidden: false,
+      // そのmodelのどれかの組（effortなし、またはeffort付き）にfast版がある。組ごとの有無は起動時に一覧で確かめる。
+      fast: Object.keys(fastIds).some((key) => key === id || key.startsWith(`${id}-`)),
     })),
+    fast_ids: fastIds,
   });
 }
 
-export function assertCursorModelAvailable(bin: string, cwd: string, model: string, effort: string | null): void {
-  const effective = cursorModelArgument(model, effort) as string;
+export function assertCursorModelAvailable(bin: string, cwd: string, model: string, effort: string | null, fast = false): void {
+  const effective = cursorModelArgument(model, effort, fast) as string;
   const models = cursorModelCatalog(bin, cwd);
-  const available = effort ? models.includes(effective) : models.includes(model) || models.some((id) => id.startsWith(`${model}-`));
+  if (fast && !models.includes(effective)) {
+    throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
+      `Cursor の一覧に ${JSON.stringify(effective)} がありません（model=${model}${effort ? `、reasoning_effort=${effort}` : ""} のfast版）。起動していません。`);
+  }
+  const available = effort || fast ? models.includes(effective) : models.includes(model) || models.some((id) => id.startsWith(`${model}-`));
   if (!available) {
     throw new AitermError(
       `Cursor model catalog に ${JSON.stringify(effective)} がありません。` +
@@ -553,10 +570,11 @@ export function cursorAgentArgv(
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null,
+  fast = false,
 ): string[] {
   validateCursorModelEffort(model, effort);
   const parts = [bin];
-  const modelArg = cursorModelArgument(model, effort);
+  const modelArg = cursorModelArgument(model, effort, fast);
   if (modelArg) parts.push("--model", modelArg);
   // managed agentは人の対話承認を待てない。Cursor公式の無人運転フラグで
   // workspace・MCP server・各tool callの確認をadapter内に閉じ込める。
@@ -572,9 +590,10 @@ export function buildCursorAgentCmd(
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null,
+  fast = false,
 ): string {
   // 固定の語彙（--force、--mode ask等）は引用しない。実行ファイル、model、promptだけを引用する。
-  const argv = cursorAgentArgv(bin, model, effort, prompt, meta);
+  const argv = cursorAgentArgv(bin, model, effort, prompt, meta, fast);
   return argv.map((part, index) =>
     index === 0 || argv[index - 1] === "--model" || (prompt !== null && index === argv.length - 1) ? shq(part) : part,
   ).join(" ");
@@ -705,4 +724,30 @@ export function cursorAuthStatus(bin: string, cwd: string, env = process.env): A
 export function cursorAuthPane(screen: string): AgentAuthPane {
   return { url: authUrl(screen, ["cursor.com", "www.cursor.com", "auth.cursor.com"]),
     user_code: null, input_required: false, message: null };
+}
+
+// ---- ファスト。Cursorは `/model` のパラメータの画面（Edit Parameters）に「Fast」の行がある（2026.10.01）。
+//   入っていない: 「◯ Fast」 / 入っている: 「◉ Fast」。行が無いmodelはfastへ切り替えられない。
+
+/** パラメータの画面のFastの行。state は今の入り切り、down は選択中（→）の行からFastの行までの下矢印の数。 */
+export function cursorFastParameter(screen: string): { state: boolean; down: number } | null {
+  const lines = screen.split("\n");
+  let title = lines.length - 1;
+  while (title >= 0 && !lines[title].includes("Edit Parameters")) title--;
+  if (title < 0) return null;
+  // 画面は行ごとに横へずれて描かれる事がある。行の中身だけを見る。
+  const rows = lines.slice(title + 1).map((line) => line.trim()).filter((line) => /^(?:→\s*)?[●○◯◉]\s+\S/u.test(line));
+  const fast = rows.findIndex((line) => /^(?:→\s*)?[◯◉]\s+Fast\s*$/u.test(line));
+  const selected = rows.findIndex((line) => line.startsWith("→"));
+  if (fast < 0 || selected < 0) return null;
+  return { state: rows[fast].includes("◉"), down: fast - selected };
+}
+
+/** 見出しのmodelの表示（「Codex 5.3 Low Fast」）が、ファストが入っている形か。 */
+export function cursorHeaderShowsFast(screen: string): boolean | null {
+  // 見出しは「<modelの表示>   <権限の表示>」の1行。権限の表示は Run Everything／Ask 等。
+  const header = screen.split("\n").map((line) => line.trim())
+    .filter((line) => /\s{2,}(?:Run Everything|Auto-Run|Ask|Plan|Manual)\b/.test(line)).at(-1);
+  if (!header) return null;
+  return /\bFast\s{2,}/.test(header);
 }

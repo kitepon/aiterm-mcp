@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { AitermError } from "../errors.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
-import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
+import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog, type AgentModelChoice } from "../model-catalog.js";
 import {
   shq,
   subagentInstruction,
@@ -134,15 +134,41 @@ export function grokCatalogFromInitialize(stdout: string, summary = ""): AgentMo
       // 候補に無い既定値は黙って捨てず、checkedCatalogで形式異常にする。
       default_effort: efforts.length > 0 ? defaultEffort : null,
       hidden: false,
+      fast: false,
     };
   });
+  // Grokのfastは別のmodel（表示名が「<元の表示名> Fast」。1.0.50: Grok 4.7 と Grok 4.7 Fast＝grok-4.7-build-fast）。
+  // fast版は別のmodelとして並べず、元のmodelの fast: true にまとめる。元のmodelが一覧に無いfast版は、そのまま1つのmodelとして残す。
+  const fastIds = grokFastVariants(models);
+  const variants = new Set(Object.values(fastIds));
+  const current = typeof state.currentModelId === "string" ? state.currentModelId : null;
+  const baseOf = (id: string | null) => Object.keys(fastIds).find((base) => fastIds[base] === id) ?? id;
   return checkedCatalog("Grok", {
     source: "grok agent stdio initialize (_meta.modelState)",
     harness_version: typeof meta.agentVersion === "string" ? meta.agentVersion : null,
-    default_model: typeof state.currentModelId === "string" ? state.currentModelId : null,
+    default_model: baseOf(current),
     adapter_efforts: {},
-    models,
+    models: models.filter((model: AgentModelChoice) => !variants.has(model.id))
+      .map((model: AgentModelChoice) => ({ ...model, fast: model.id in fastIds })),
+    fast_ids: fastIds,
   });
+}
+
+/** 元のmodel ID → fast版のmodel ID。表示名が「<元の表示名> Fast」のmodelを、その元のmodelのfast版と読む。 */
+export function grokFastVariants(models: { id: string; display_name: string | null }[]): Record<string, string> {
+  const byName = new Map(models.flatMap((model) => model.display_name ? [[model.display_name, model.id] as const] : []));
+  const pairs: Record<string, string> = {};
+  for (const model of models) {
+    const match = model.display_name?.match(/^(.+) Fast$/);
+    const base = match ? byName.get(match[1]) : undefined;
+    if (base && base !== model.id) pairs[base] = model.id;
+  }
+  return pairs;
+}
+
+/** model IDが、一覧の上でほかのmodelのfast版なら、その元のmodel ID。 */
+export function grokFastBase(catalog: AgentModelCatalog, model: string): string | null {
+  return Object.keys(catalog.fast_ids ?? {}).find((base) => catalog.fast_ids?.[base] === model) ?? null;
 }
 
 export function assertGrokModelAvailable(bin: string, cwd: string, model: string): void {
@@ -661,4 +687,75 @@ export function grokAuthPane(screen: string): AgentAuthPane {
     throw new AitermError("AGENT_AUTH_CHALLENGE_INVALID: Grokの公式URLにあるdevice codeの形式が不正です。", 2);
   }
   return { url, user_code: embedded, input_required: false, message: null };
+}
+
+// ---- ファスト。Grokのfastは別のmodel。動いている席の `/model <ID>` は、利用者のconfig.tomlの [models].default を書き換える
+// （1.0.50で確かめた。「✓ Default model: …」）。席だけの切り替えにするため、切り替えの直前の値へ戻す。
+
+/** 利用者の ~/.grok/config.toml の [models] の節の default。present=false は行が無い。valueがnullは読めない書き方。 */
+export function readGrokDefaultModelPin(configPath: string): { present: boolean; value: string | null; body: string | null } {
+  let body: string;
+  try { body = fs.readFileSync(configPath, "utf8"); } catch { return { present: false, value: null, body: null }; }
+  const line = grokModelsDefaultLine(body);
+  if (line === null) return { present: false, value: null, body };
+  const value = body.split(/\r?\n/)[line].match(/^\s*default\s*=\s*"([^"\\]*)"\s*(?:#.*)?$/);
+  return { present: true, value: value ? value[1] : null, body };
+}
+
+/** [models] の節の中の `default = …` の行の番号。節や行が無ければnull。 */
+function grokModelsDefaultLine(body: string): number | null {
+  const rows = body.split(/\r?\n/);
+  const start = rows.findIndex((row) => /^\s*\[models\]\s*(?:#.*)?$/.test(row));
+  if (start < 0) return null;
+  for (let index = start + 1; index < rows.length && !/^\s*\[/.test(rows[index]); index++) {
+    if (/^\s*default\s*=/.test(rows[index])) return index;
+  }
+  return null;
+}
+
+/**
+ * `/model` がconfig.tomlへ書いた [models].default を、切り替えの直前の値へ戻す。
+ * 切り替えの前後で、ほかの行が同じなら前の中身をそのまま書き戻す。ほかの行も変わっていたら、default の行だけを直す。
+ * 元の値が読めない書き方だった時、今のfileに default の行が無い時は触らない。
+ */
+export function restoreGrokDefaultModel(configPath: string, before: { present: boolean; value: string | null; body: string | null }): void {
+  if (before.body === null || (before.present && before.value === null)) return;
+  let now: string;
+  try { now = fs.readFileSync(configPath, "utf8"); } catch { return; }
+  if (now === before.body) return;
+  const line = grokModelsDefaultLine(now);
+  if (line === null) return;
+  const rows = now.split(/\r?\n/);
+  const eol = now.includes("\r\n") ? "\r\n" : "\n";
+  if (before.present) rows[line] = rows[line].replace(/=\s*"[^"\\]*"/, `= ${JSON.stringify(before.value)}`);
+  else rows.splice(line, 1);
+  const edited = rows.join(eol);
+  // ほかの行が前と同じなら、前の中身（空白や並びもそのまま）を書き戻す。
+  const next = normalizedWithoutDefault(edited) === normalizedWithoutDefault(before.body) ? before.body : edited;
+  const temp = `${configPath}.aiterm-restore-${process.pid}`;
+  fs.writeFileSync(temp, next, { mode: fs.statSync(configPath).mode & 0o777 });
+  fs.renameSync(temp, configPath);
+}
+
+function normalizedWithoutDefault(body: string): string {
+  const line = grokModelsDefaultLine(body);
+  const rows = body.split(/\r?\n/);
+  if (line !== null) rows.splice(line, 1);
+  return rows.join("\n");
+}
+
+/** 足元の「Grok 4.7 Fast (high) · always-approve」から、今のmodelを一覧のIDで返す。base は元のmodel、fast はfast版かどうか。 */
+export function grokModelFromFooter(screen: string, catalog: AgentModelCatalog): { id: string; base: string; fast: boolean } | null {
+  let name: string | null = null;
+  for (const line of screen.split("\n")) {
+    const match = line.match(/(Grok [^()·│╯╰─]+?) \([a-z-]+\) ·/);
+    if (match) name = match[1].trim();
+  }
+  if (!name) return null;
+  const fastIds = catalog.fast_ids ?? {};
+  for (const model of catalog.models) {
+    if (model.display_name === name) return { id: model.id, base: model.id, fast: false };
+    if (fastIds[model.id] && `${model.display_name} Fast` === name) return { id: fastIds[model.id], base: model.id, fast: true };
+  }
+  return null;
 }

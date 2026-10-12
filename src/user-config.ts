@@ -63,13 +63,14 @@ function writeInPlace(file: string, body: Buffer | string): void {
 }
 
 /**
- * JSONの設定fileの、最上位の1項目を、切り替えの前の値へ戻す。
+ * JSONの設定fileの、最上位の項目（1つ、または複数）を、切り替えの前の値へ戻す。
  * - 項目が前と同じで、ほかの項目の値も同じ（harnessが書き直して並びが変わっただけ）なら、前の中身をそのまま書き戻す。
- * - ほかの項目が変わっていたら（ほかの人の書き込み）、その項目だけを直して、ほかは今のまま残す。
+ * - ほかの項目が変わっていたら（ほかの人の書き込み、harnessの控えの更新）、その項目だけを直して、ほかは今のまま残す。
  * - 今のfileが無い・JSONとして読めない時、前の中身が読めない時は触らない。
  * 戻り値は、書き戻したかどうか。
  */
-export function restoreJsonSetting(file: string, before: Buffer | null, key: string): boolean {
+export function restoreJsonSetting(file: string, before: Buffer | null, key: string | readonly string[]): boolean {
+  const keys = typeof key === "string" ? [key] : key;
   const now = readFileOrNull(file);
   if (now === null) return false;
   if (before !== null && now.equals(before)) return false;
@@ -83,10 +84,11 @@ export function restoreJsonSetting(file: string, before: Buffer | null, key: str
   }
   if (!current || typeof current !== "object" || Array.isArray(current)) return false;
   if (previous !== null && (typeof previous !== "object" || Array.isArray(previous))) return false;
-  const had = previous !== null && Object.hasOwn(previous, key);
   const edited: Record<string, unknown> = { ...current };
-  if (had) edited[key] = (previous as Record<string, unknown>)[key];
-  else delete edited[key];
+  for (const name of keys) {
+    if (previous !== null && Object.hasOwn(previous, name)) edited[name] = previous[name];
+    else delete edited[name];
+  }
   if (before !== null && isDeepStrictEqual(edited, previous)) {
     writeInPlace(file, before);
     return true;

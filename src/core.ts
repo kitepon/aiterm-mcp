@@ -98,7 +98,7 @@ import {
   assertGrokModelAvailable,
   grokModelChoices,
   grokModelFromFooter,
-  readGrokModelDefaults,
+  grokModelDefaultsFromBody,
   restoreGrokModelDefaults,
   grokEventsTranscript,
   grokCompletionEvent,
@@ -212,6 +212,9 @@ import {
   cursorHeaderShowsFast,
   cursorPickerView,
   cursorEffortSelected,
+  cursorUserConfigPath,
+  CURSOR_DEFAULT_MODEL_KEYS,
+  realCursorHome,
   buildCursorAgentCmd,
   cursorAgentArgv,
   cursorPwshLaunchLine,
@@ -5015,14 +5018,12 @@ async function configureClaudeForSessionOnly(
 // 読む→切り替える→戻すは、設定fileごとの鍵（withUserConfigLock）で、同じ端末の全てのAitermの間で1つずつにする。
 
 const CLAUDE_FAST_RESULT_TIMEOUT_MS = 20_000;
-const CLAUDE_FAST_SETTLE_MS = 400;
 const CODEX_FAST_OFFER_TIMEOUT_MS = 3_000;
 const CODEX_FAST_NOTICE_TIMEOUT_MS = 8_000;
 const CURSOR_FAST_ROW_TIMEOUT_MS = 3_000;
-const GROK_DEFAULT_SETTLE_MS = 400;
 // Grokは起動して1秒もせずに既定を書く（1.0.50の記録で、起動完了の直後）。書かない時（同じ値、古い版）に起動を長く待たせない。
-const GROK_LAUNCH_DEFAULT_WAIT_MS = 8_000;
-const GROK_LAUNCH_ALIVE_CHECK_MS = 1_000;
+const LAUNCH_DEFAULT_WAIT_MS = 8_000;
+const LAUNCH_ALIVE_CHECK_MS = 1_000;
 
 export interface AgentFastLaunchResult {
   /** 起こした後の、席の実際の状態 */
@@ -5122,36 +5123,72 @@ async function planLaunchFast(
   return { ...plan, model: fastId, state: true };
 }
 
+const USER_DEFAULT_SETTLE_MS = 400;
+const USER_DEFAULT_RESTORE_PASSES = 3;
+
 /**
- * Grokは起動時に、--model の値を利用者のconfig.tomlの [models].default へ書く（1.0.50で確かめた）。
- * 鍵を取り、起動の直前の値を読み、起こして、書かれるのを待ってから元の値へ戻す。
+ * harnessが利用者の既定へ書いた分を、切り替えの直前の中身（before）を元に戻す。
+ * harnessは1回の切り替えで何度か書く事があるので（Grokの起動で見た）、少し置きながら何度か見て、後から書かれた分も戻す。
  */
-async function launchGrokKeepingDefault<T extends [string, string]>(launchedModel: string, launch: () => T): Promise<T> {
-  const configPath = path.join(realGrokHome(), "config.toml");
+async function restoreUserDefaults(restore: () => void): Promise<void> {
+  for (let pass = 0; pass < USER_DEFAULT_RESTORE_PASSES; pass++) {
+    await sleep(USER_DEFAULT_SETTLE_MS);
+    try { restore(); } catch { /* 戻せなくても、切り替えの結果は返す */ }
+  }
+}
+
+/** 設定fileを触る切り替えを鍵の中で流し、終わったら、harnessが書いた既定を切り替えの直前の値へ戻す。 */
+async function keepingUserDefaults<T>(
+  configPath: string, restore: (before: Buffer | null) => void, action: () => Promise<T>,
+): Promise<T> {
   return withUserConfigLock(configPath, async () => {
-    const before = readGrokModelDefaults(configPath);
+    const before = readFileOrNull(configPath);
+    try {
+      return await action();
+    } finally {
+      await restoreUserDefaults(() => restore(before));
+    }
+  });
+}
+
+/**
+ * 起動の --model の値を利用者の既定へ書くharness（Grok 1.0.50。Cursorは版による）を起こす。
+ * 鍵を取り、起動の直前の中身を読み、起こして、書かれる（または入力待ちになる）のを待ってから、直前の値へ戻す。
+ */
+async function launchKeepingUserDefaults<T extends [string, string]>(
+  configPath: string, restore: (before: Buffer | null) => void, ready: (screen: string) => boolean, launch: () => T,
+): Promise<T> {
+  return withUserConfigLock(configPath, async () => {
+    const before = readFileOrNull(configPath);
     const launched = launch();
-    if (before.body === null || (before.default.present && before.default.value === launchedModel)) return launched;
     const started = performance.now();
-    const deadline = started + GROK_LAUNCH_DEFAULT_WAIT_MS;
+    const deadline = started + LAUNCH_DEFAULT_WAIT_MS;
     let aliveCheckedAt = started;
     do {
       await sleep(150);
-      if (readGrokModelDefaults(configPath).body !== before.body) break;
+      const now = readFileOrNull(configPath);
+      if ((now === null) !== (before === null) || (now !== null && before !== null && !now.equals(before))) break;
       if (!sessionExists(launched[0])) break;
-      // 入力待ちになっても書かれていなければ、少し待ってから戻しへ進む（書かない版・同じ値の時）。
-      if (grokTuiReady(captureScreen(launched[0], AGENT_TUI_READY_LINES))) { await sleep(GROK_DEFAULT_SETTLE_MS); break; }
-      // Grokのprocessがもう居ない（起動に失敗した等）なら、書かれる事は無い。
-      if (performance.now() - aliveCheckedAt >= GROK_LAUNCH_ALIVE_CHECK_MS) {
+      // 入力待ちになっても書かれていなければ、戻しへ進む（書かない版・同じ値の時）。
+      if (ready(captureScreen(launched[0], AGENT_TUI_READY_LINES))) break;
+      // harnessのprocessがもう居ない（起動に失敗した等）なら、書かれる事は無い。
+      if (performance.now() - aliveCheckedAt >= LAUNCH_ALIVE_CHECK_MS) {
         aliveCheckedAt = performance.now();
         if (observeSession(launched[0]).harness_alive === false) break;
       }
     } while (performance.now() < deadline);
-    await sleep(GROK_DEFAULT_SETTLE_MS);
-    restoreGrokModelDefaults(configPath, before);
+    await restoreUserDefaults(() => restore(before));
     return launched;
   });
 }
+
+const grokUserConfigPath = (grokHome: string): string => path.join(grokHome, "config.toml");
+const restoreGrokDefaults = (configPath: string) => (before: Buffer | null): void =>
+  restoreGrokModelDefaults(configPath, grokModelDefaultsFromBody(before === null ? null : before.toString("utf8")));
+const restoreCursorDefaults = (configPath: string) => (before: Buffer | null): void => {
+  // 前はfileが無かった時は、Cursorが作った物をそのまま残す（既定を持たない端末に、消す項目は無い）。
+  if (before !== null) restoreJsonSetting(configPath, before, CURSOR_DEFAULT_MODEL_KEYS);
+};
 
 function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
   meta.fast = fast;
@@ -5184,23 +5221,17 @@ async function switchClaudeFast(name: string, meta: AgentMetadata, target: boole
     if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
   }
   const settings = claudeUserSettingsPath();
-  const seen = await withUserConfigLock(settings, async () => {
-    const before = readFileOrNull(settings);
+  // Claude Codeは結果の行を出す前に、利用者の設定へ fastMode を書く（on は true、off は項目を消す）。切り替えの前の値へ戻す。
+  const seen = await keepingUserDefaults(settings, (before) => { restoreJsonSetting(settings, before, "fastMode"); }, async () => {
     const beforeScreen = captureScreen(name, AGENT_TUI_READY_LINES);
-    try {
-      await sendAgentPromptText(name, target ? "/fast on" : "/fast off");
-      const deadline = performance.now() + CLAUDE_FAST_RESULT_TIMEOUT_MS;
-      let result = null;
-      do {
-        await sleep(150);
-        result = claudeFastResult(beforeScreen, captureScreen(name, AGENT_TUI_READY_LINES));
-      } while (!result && performance.now() < deadline);
-      return result;
-    } finally {
-      // Claude Codeは結果の行を出す前に、利用者の設定へ fastMode を書く（on は true、off は項目を消す）。切り替えの前の値へ戻す。
-      await sleep(CLAUDE_FAST_SETTLE_MS);
-      restoreJsonSetting(settings, before, "fastMode");
-    }
+    await sendAgentPromptText(name, target ? "/fast on" : "/fast off");
+    const deadline = performance.now() + CLAUDE_FAST_RESULT_TIMEOUT_MS;
+    let result = null;
+    do {
+      await sleep(150);
+      result = claudeFastResult(beforeScreen, captureScreen(name, AGENT_TUI_READY_LINES));
+    } while (!result && performance.now() < deadline);
+    return result;
   });
   await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
   if (!seen) {
@@ -5268,7 +5299,12 @@ async function switchCodexFast(name: string, meta: AgentMetadata, target: boolea
         await restoreCodexServiceTier(bin, codexHome, before);
       } catch {
         // 公式の口で戻せない時は、その1行だけをfileで直す（戻さずに残すと、利用者の次のCodexがfastで始まる）。
-        restoreCodexServiceTierInFile(configPath, before);
+        try { restoreCodexServiceTierInFile(configPath, before); } catch { /* 戻せなくても、切り替えの結果は返す */ }
+      }
+      // 公式の口が成功と返しても、fileが前の値になっていなければ、その1行を直す。
+      const now = readCodexConfigPins(configPath).service_tier;
+      if (now.present !== before.present || now.value !== before.value) {
+        try { restoreCodexServiceTierInFile(configPath, before); } catch { /* 上と同じ */ }
       }
     }
   });
@@ -5300,7 +5336,17 @@ async function waitCursorPickerView(name: string, view: "list" | "parameters" | 
   throw new AitermError(`Cursor の /model の画面（${view === "list" ? "選ぶ画面" : view === "parameters" ? "Edit Parameters" : "閉じた後"}）を確認できません`, 2);
 }
 
-async function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+/** Cursorの `/model` の操作を流し、Cursorが利用者の既定（cli-config.jsonのmodelの項目）へ書いた分を、直前の値へ戻す。 */
+function keepingCursorDefaults<T>(meta: AgentMetadata, action: () => Promise<T>): Promise<T> {
+  const configPath = cursorUserConfigPath(meta.cursor_home ?? realCursorHome());
+  return keepingUserDefaults(configPath, restoreCursorDefaults(configPath), action);
+}
+
+function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+  return keepingCursorDefaults(meta, () => toggleCursorFast(name, meta, target));
+}
+
+async function toggleCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
   // 引数なしの /model は、今のmodelの行に印を付けて開く。Tabでそのmodelのパラメータの画面（Edit Parameters）。
   await sendAgentPromptText(name, "/model", meta.kind);
   await waitCursorPickerView(name, "list");
@@ -5361,17 +5407,11 @@ async function switchCursorFast(name: string, meta: AgentMetadata, target: boole
 async function sendGrokModelCommand(
   name: string, meta: AgentMetadata, command: string, model: string | null, effort: string | null,
 ): Promise<void> {
-  const configPath = path.join(meta.grok_home ?? realGrokHome(), "config.toml");
-  await withUserConfigLock(configPath, async () => {
-    const defaults = readGrokModelDefaults(configPath);
+  const configPath = grokUserConfigPath(meta.grok_home ?? realGrokHome());
+  await keepingUserDefaults(configPath, restoreGrokDefaults(configPath), async () => {
     const before = captureScreen(name, AGENT_TUI_READY_LINES);
-    try {
-      await sendAgentPromptText(name, command);
-      await waitForGrokConfigurationResult(name, before, model, effort);
-    } finally {
-      await sleep(GROK_DEFAULT_SETTLE_MS);
-      restoreGrokModelDefaults(configPath, defaults);
-    }
+    await sendAgentPromptText(name, command);
+    await waitForGrokConfigurationResult(name, before, model, effort);
   });
 }
 
@@ -5518,12 +5558,12 @@ export async function configureAgent(
     // Cursor TUIの `/model <base model>` はmodelを直接切り替える一方、flatten済みcatalog ID
     // （例: gpt-5.6-luna-high）を渡すとno matchesのfilter画面へ入る。effortは標準model pickerの
     // parameter editorで選び、同じsessionと会話contextを保つ。
-    if (model) {
+    // Cursorは選んだmodelとパラメータを、利用者の既定（cli-config.json）へも書く版がある。席だけの替えにするため、直前の値へ戻す。
+    if (model) await keepingCursorDefaults(meta, async () => {
       await sendAgentPromptText(name, `/model ${model}`, meta.kind);
       const modelReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!modelReady.ready) throw new AitermError("Cursorのmodel変更完了を確認できません", 2);
-    }
-    if (model && effort) {
+      if (!effort) return;
       await sendAgentPromptText(name, "/model", meta.kind);
       await waitCursorPickerView(name, "list");
       sendMenuChoice(name, "Tab");
@@ -5543,7 +5583,7 @@ export async function configureAgent(
       await redrawCursorComposer(name);
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError("Cursorのreasoning effort変更完了を確認できません", 2);
-    }
+    });
     rememberModel();
     if (fast !== null) recordAgentFast(meta, await switchCursorFast(name, meta, fast));
     else if (model) {
@@ -6639,10 +6679,18 @@ export async function openAgentWithInitialPrompt(
     fast_state: fastPlan.state,
     base_model: requestedModel,
   };
-  // Grokは起動時に --model の値を利用者の既定へ書くので、起動の前後で元の値へ戻す。
-  const launch = (): Promise<[string, string]> => kind === "grok"
-    ? launchGrokKeepingDefault(fastPlan.model ?? GROK_MODEL_DEFAULTS[kind], () => openAgent(kind, openOptions))
-    : Promise.resolve().then(() => openAgent(kind, openOptions));
+  // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
+  const launch = (): Promise<[string, string]> => {
+    if (kind === "grok") {
+      const configPath = grokUserConfigPath(realGrokHome());
+      return launchKeepingUserDefaults(configPath, restoreGrokDefaults(configPath), grokTuiReady, () => openAgent(kind, openOptions));
+    }
+    if (kind === "cursor" && openOptions.model) {
+      const configPath = cursorUserConfigPath(realCursorHome());
+      return launchKeepingUserDefaults(configPath, restoreCursorDefaults(configPath), cursorTuiReady, () => openAgent(kind, openOptions));
+    }
+    return Promise.resolve().then(() => openAgent(kind, openOptions));
+  };
   // 入力待ちになった席を、その席の中でfastへ切り替える（Claude Code・Codex）。出来なかった訳は返りへ入れ、起動は続ける。
   const switchAfterReady = async (name: string, meta: AgentMetadata): Promise<void> => {
     if (!fastPlan.switch_after_ready) return;

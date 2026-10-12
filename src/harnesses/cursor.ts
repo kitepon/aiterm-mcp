@@ -774,3 +774,16 @@ export function cursorHeaderShowsFast(screen: string): boolean | null {
   if (!header) return null;
   return /\bFast\s{2,}/.test(header);
 }
+
+/**
+ * Cursorが、起動の --model と `/model` の選択のたびに、利用者の ~/.cursor/cli-config.json へ書く項目（次の会話の既定のmodelとパラメータ）。
+ * 書く版と書かない版がある（2026.10.01-14929f9は書く。fastを入れた選択なら `selectedModel.parameters` に fast: true が残る）。
+ * 席だけの切り替えにするため、切り替えの直前の値へ戻す。
+ */
+export const CURSOR_DEFAULT_MODEL_KEYS: readonly string[] = [
+  "model", "hasChangedDefaultModel", "modelParameters", "selectedModel", "modelSelectionHistory", "maxMode",
+];
+
+export function cursorUserConfigPath(cursorHome: string): string {
+  return path.join(cursorHome, "cli-config.json");
+}

@@ -715,9 +715,14 @@ function grokModelsLine(rows: string[], key: GrokDefaultKey): number | null {
 }
 
 export function readGrokModelDefaults(configPath: string): GrokModelDefaults {
-  let body: string;
-  try { body = fs.readFileSync(configPath, "utf8"); }
-  catch { return { body: null, default: { present: false, value: null }, default_reasoning_effort: { present: false, value: null } }; }
+  let body: string | null;
+  try { body = fs.readFileSync(configPath, "utf8"); } catch { body = null; }
+  return grokModelDefaultsFromBody(body);
+}
+
+/** config.tomlの中身（読めなかった時はnull）から、[models] の既定を読む。 */
+export function grokModelDefaultsFromBody(body: string | null): GrokModelDefaults {
+  if (body === null) return { body: null, default: { present: false, value: null }, default_reasoning_effort: { present: false, value: null } };
   const rows = body.split(/\r?\n/);
   const pick = (key: GrokDefaultKey) => {
     const line = grokModelsLine(rows, key);

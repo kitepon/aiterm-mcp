@@ -469,3 +469,22 @@ test("Codex: 足元のmodelの表示に fast と出ていれば読む（出て�
   assert.equal(codex.codexFooterShowsFast("• Service tier set to priority\n› Ask Codex to do anything\n  GPT-6.1-Sol default · /tmp/proj"), null);
   assert.equal(codex.codexFooterShowsFast("› please be fast · thanks\n  GPT-6.1-Sol default · /tmp/proj"), null, "入力欄の文は足元でない");
 });
+
+test("JSONの設定: 複数の項目をまとめて戻す（Cursorの既定のmodelの項目）", () => {
+  const file = path.join(base, "cli-config.json");
+  const original = { version: 1, model: { modelId: "default", displayName: "Auto" }, selectedModel: { modelId: "default", parameters: [] },
+    modelSelectionHistory: ["default"], modelParameters: { default: [] }, privacyCache: { updatedAt: 1 }, authInfo: { email: "a@example.com" } };
+  const before = Buffer.from(JSON.stringify(original, null, 2));
+  // Cursor（2026.10.01-14929f9）が、fastを入れたmodelの選択で書いた後。控えの時刻（privacyCache）も一緒に進む。
+  fs.writeFileSync(file, JSON.stringify({ ...original, model: { modelId: "gpt-5.3-codex", displayName: "Codex 5.3 Low Fast" },
+    selectedModel: { modelId: "gpt-5.3-codex", parameters: [{ id: "reasoning", value: "low" }, { id: "fast", value: "true" }] },
+    modelSelectionHistory: ["gpt-5.3-codex", "default"], modelParameters: { default: [], "gpt-5.3-codex": [{ id: "fast", value: "true" }] },
+    maxMode: false, hasChangedDefaultModel: true, privacyCache: { updatedAt: 2 } }, null, 2));
+  assert.equal(restoreJsonSetting(file, before, cursor.CURSOR_DEFAULT_MODEL_KEYS), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { ...original, privacyCache: { updatedAt: 2 } },
+    "modelの項目は前の値へ戻り（前に無かった項目は消える）、Cursorの控えの更新は残る");
+  // modelの項目だけが変わっていた時は、前の中身をそのまま書き戻す。
+  fs.writeFileSync(file, JSON.stringify({ ...original, selectedModel: { modelId: "x", parameters: [] } }));
+  assert.equal(restoreJsonSetting(file, before, cursor.CURSOR_DEFAULT_MODEL_KEYS), true);
+  assert.equal(fs.readFileSync(file, "utf8"), before.toString("utf8"));
+});

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 試験: `test/core-agent.test.mjs`を、話題の切れ目で5つのfileへ分けた（共通の準備は`test/core-agent-support.mjs`）。試験の中身と本数は同じ。
   fileの中の試験は1本ずつ順に走るので、この1 fileがWindowsで687秒かかり、全体の試験（720秒）の長さを決めていた。分けたfileは並んで走る。
+  同じ訳で、`test/runtime-error-store.test.mjs`（Windowsで236秒）も2つに分けた（共通の準備は`test/runtime-error-store-support.mjs`）。
 
 ### 修正
 

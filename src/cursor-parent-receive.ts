@@ -3,9 +3,10 @@
 import { fileURLToPath } from "node:url";
 import * as steer from "aiterm-steer-delivery";
 import { cursorHookRoots } from "./cursor-parent-receiver.js";
+import { liveNodeExecutable } from "./live-node.js";
 import type { AgentWaitProcess } from "./core.js";
 
-export function cursorReceiveProcess(deliveryId: string, executable = process.execPath): AgentWaitProcess {
+export function cursorReceiveProcess(deliveryId: string, executable = liveNodeExecutable()): AgentWaitProcess {
   return steer.cursorReceiveProcess(fileURLToPath(import.meta.url), deliveryId, executable);
 }
 

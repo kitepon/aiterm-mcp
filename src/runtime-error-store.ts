@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { defaultRuntimeErrorReportPaths, runtimeErrorReportingStatus } from "./runtime-error-os.js";
+import { liveNodeExecutable } from "./live-node.js";
 import { defaultRuntimeErrorPaths, windowsPrivateDaclCommand, windowsPrivateDaclVerifyCommand, expectedHostProfiles, readBoundedFile, processStartIdentity, forceKill } from "./runtime-error-os.js";
 export { defaultRuntimeErrorPaths, windowsPrivateDaclCommand, windowsPrivateDaclVerifyCommand } from "./runtime-error-os.js";
 import { fileURLToPath } from "node:url";
@@ -599,7 +600,7 @@ export function recordRuntimeError(code: RuntimeErrorCode, options: {
   let reported = false;
   const report = () => { if (!reported) { reported = true; fixedStoreFailure(stderr); } };
   try {
-    const child = spawn(process.execPath, [options.workerPath ?? WORKER, "record", code], {
+    const child = spawn(liveNodeExecutable(), [options.workerPath ?? WORKER, "record", code], {
       stdio: "ignore", windowsHide: true, env: process.env,
     });
     const timer = setTimeout(() => { report(); forceKill(child); }, options.timeoutMs ?? defaultWorkerTimeoutMs("record"));
@@ -625,7 +626,7 @@ export async function runtimeErrorStoreDiagnostic(options: { workerPath?: string
     const finish = (value: RuntimeErrorDiagnostic) => { if (!settled) { settled = true; resolve(value); } };
     let child;
     try {
-      child = spawn(process.execPath, [options.workerPath ?? WORKER, "diagnostic"], {
+      child = spawn(liveNodeExecutable(), [options.workerPath ?? WORKER, "diagnostic"], {
         stdio: ["ignore", "pipe", "ignore"], windowsHide: true, env: process.env,
       });
     } catch { finish(fallback); return; }

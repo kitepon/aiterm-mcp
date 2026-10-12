@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { configureCodexSteer } from '../dist/setup-codex-hooks.js';
+import { liveNodeExecutable } from '../dist/live-node.js';
 import { codexInputDirectory } from '../dist/codex-hook-state.js';
 import { pathWithNode } from '../dist/parent-delivery-cli.js';
 
@@ -46,7 +47,7 @@ test('provider: この命令の場所と版を返す', async () => {
   const { code, lines, result } = await run(['provider']);
   assert.equal(code, 0);
   assert.equal(lines, 1, 'stdoutは1行');
-  assert.deepEqual(result, { ok: true, schema: 'aiterm.parent-delivery.v1', version, node: process.execPath, cli });
+  assert.deepEqual(result, { ok: true, schema: 'aiterm.parent-delivery.v1', version, node: liveNodeExecutable(), cli });
 });
 
 test('起こすCodexのPATHへ、nodeの場所が無い時だけ足す', () => {

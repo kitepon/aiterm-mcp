@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as core from "../dist/core.js";
+import { liveNodeExecutable } from "../dist/live-node.js";
 import * as claudeHarness from "../dist/harnesses/claude.js";
 import * as grokHarness from "../dist/harnesses/grok.js";
 import * as fs from "node:fs";
@@ -710,7 +711,7 @@ test("agentWaitLaunchForm: claude-code親には実際の非ブロック呼び出
 
 test("agentWaitProcess: npm shimを解釈せず現在Nodeと同梱CLIを分離して返す", () => {
   const waitProcess = core.agentWaitProcess("session-1", 42);
-  assert.equal(waitProcess.executable, process.execPath);
+  assert.equal(waitProcess.executable, liveNodeExecutable());
   assert.match(waitProcess.args[0], /aiterm-wait-cli\.js$/);
   assert.deepEqual(waitProcess.args.slice(1), ["--session", "session-1", "--cursor", "42"]);
   assert.equal(

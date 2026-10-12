@@ -19,6 +19,7 @@ import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
+import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
@@ -3503,7 +3504,7 @@ export function agentWaitProcess(
   cursor: number,
   runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform } = {},
 ): AgentWaitProcess {
-  const executable = runtime.executable ?? process.execPath;
+  const executable = runtime.executable ?? liveNodeExecutable();
   const args = [
     runtime.cliPath ?? fileURLToPath(new URL("./aiterm-wait-cli.js", import.meta.url)),
     "--session",

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- 動いている最中にNodeが更新されて前の版の場所が消えると、補助のprocessを起こせなくなっていた件を直す（ADR 0113）。
+  - **起きていた事**: MCP processが、不具合の記録の係を起こす時と、呼び手へ待ち受けの起動先（`wait_process.executable`）を渡す時に、
+    自分が起きた時のNodeの場所（`process.execPath`）を使っていた。Homebrewは版ごとの場所へ入れて、更新で前の版を消す。
+    2026-10-12にMacでNodeが26.10.0_1から26.11.1へ上がり、前から動いていたMCP process 19個が、無いNodeを指したまま黙って失敗していた
+    （不具合の記録が残らない、`diagnostics`の`runtime_error_store`が`unverified`、渡した待ち受けが起きない）。
+  - **直した後**: 使う時に、今ある場所を返す（`liveNodeExecutable`）。Homebrewは更新でも残る`opt`の場所、実体が消えていればPATHの`node`。
+  - **変わる値**: Homebrewの端末で、`wait_process.executable`と`aiterm-parent-delivery provider`の`node`が`…/opt/node/bin/node`になる。形は同じ。
+  - **効く範囲**: この版より後に起きたprocess。前から動いているprocessは、会話を開き直すまで古いまま。
+
 ## [0.58.4] - 2026-10-12
 
 ### 修正

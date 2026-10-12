@@ -22,6 +22,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { realCodexHome, readCodexWakeResult, type CodexWakeResult } from "aiterm-steer-delivery";
 import { AITERM_PROFILE } from "./steer-profile.js";
+import { liveNodeExecutable } from "./live-node.js";
 import { checkCodexParent, submitCodexParentAnswer, withCodexReceiver, type CodexParent } from "./codex-parent-receiver.js";
 import { codexHookDeliveryState, codexHookDirectory, codexInputDirectory } from "./codex-hook-state.js";
 
@@ -135,7 +136,7 @@ async function deliveryState(target: CodexParent, delivery: string): Promise<Par
  * アプリ配下のprocessは、PATHが細い事がある（2026-10-07、素のsshの環境からの呼び出しで起きた）。
  * nodeの場所がPATHに無い時だけ頭へ足す。既にあれば、並びも中身も変えない。
  */
-export function pathWithNode(env: NodeJS.ProcessEnv, node = process.execPath, platform: NodeJS.Platform = process.platform): { key: string; value: string } {
+export function pathWithNode(env: NodeJS.ProcessEnv, node = liveNodeExecutable(), platform: NodeJS.Platform = process.platform): { key: string; value: string } {
   const windows = platform === "win32";
   // Windowsの環境変数名は大文字小文字を区別しない（`Path`で入っている事が多い）。
   const key = Object.keys(env).find(name => windows ? name.toLowerCase() === "path" : name === "PATH") ?? "PATH";
@@ -148,7 +149,7 @@ export function pathWithNode(env: NodeJS.ProcessEnv, node = process.execPath, pl
 
 /** この命令の場所と版。製品側の入口（aiterm-steer-delivery）が、呼べる相手かどうかを確かめるのに使う。 */
 export function providerDescription(): { version: string; node: string; cli: string } {
-  return { version: pkg.version, node: process.execPath, cli: fileURLToPath(import.meta.url) };
+  return { version: pkg.version, node: liveNodeExecutable(), cli: fileURLToPath(import.meta.url) };
 }
 
 export async function runParentDelivery(argv: string[]): Promise<object> {

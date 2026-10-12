@@ -171,6 +171,7 @@ hookコマンドはCodexが使うshellで評価される。Windowsでは引用�
 承認省略flagを恒久設定へ書かない。利用者の別hookを承認しない。
 選択と配送の所有記録は`~/.config/aiterm-mcp/codex-parent-hooks/`に置く。
 Nodeは`src/setup-node.ts`でHomebrewの同じformulaの`opt`へ正規化し、更新で消えるCellar実体を保存しない。
+動いているprocessが自分のNodeを起こす時・呼び手へ渡す時も、`src/live-node.ts`で今ある場所を引く（`process.execPath`を直接使わない。ADR 0113）。
 
 新規の起動差し替えは作らない。旧中継の設定は新しいhookの確認後に従来の解除処理で復元する。
 macOSの専用LaunchAgent、Windowsのユーザー環境変数、所有外の値の保持は旧adapterが担う。

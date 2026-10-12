@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultRuntimeErrorReportPaths, readBoundedFile, runtimeErrorReportingStatus } from "./runtime-error-os.js";
+import { liveNodeExecutable } from "./live-node.js";
 import { RuntimeErrorStore, type RuntimeErrorRecord } from "./runtime-error-store.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -267,7 +268,7 @@ export function triggerRuntimeErrorReport(env: NodeJS.ProcessEnv = process.env):
   if (env.NODE_TEST_CONTEXT) return false;
   try {
     if (runtimeErrorReportingStatus(defaultRuntimeErrorReportPaths().reportingConfigPath) !== "enabled") return false;
-    const child = spawn(process.execPath, [WORKER, "report"], { stdio: "ignore", detached: true, windowsHide: true, env });
+    const child = spawn(liveNodeExecutable(), [WORKER, "report"], { stdio: "ignore", detached: true, windowsHide: true, env });
     child.once("error", () => { /* 送れない時は次の機会に送る */ });
     child.unref();
     return true;

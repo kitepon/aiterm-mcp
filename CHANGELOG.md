@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **直した後**: 使う時に、今ある場所を返す（`liveNodeExecutable`）。Homebrewは更新でも残る`opt`の場所、実体が消えていればPATHの`node`。
   - **変わる値**: Homebrewの端末で、`wait_process.executable`と`aiterm-parent-delivery provider`の`node`が`…/opt/node/bin/node`になる。形は同じ。
   - **効く範囲**: この版より後に起きたprocess。前から動いているprocessは、会話を開き直すまで古いまま。
+  - 共通部品`aiterm-steer-delivery`を`^0.4.6`へ上げる（止まったCodexの会話を起こす見張りと、Codexへ渡すPATHにも同じ直しが入る）。
 
 ## [0.58.4] - 2026-10-12
 

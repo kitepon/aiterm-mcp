@@ -460,3 +460,12 @@ test("起動: fast版のIDと fast: false の食い違いは、席を作る前�
   await assert.rejects(core.openAgentWithInitialPrompt("grok", { model: "grok-4.7-build-fast", fast: false }), /FAST_MODE_MODEL_CONFLICT/u);
   assert.equal(sessions(), before, "席を作っていない");
 });
+
+test("Codex: 足元のmodelの表示に fast と出ていれば読む（出ていない時は、通常とは言い切らない）", () => {
+  // 本物のログインの席（0.162.1）。
+  assert.equal(codex.codexFooterShowsFast("• Service tier set to priority\n› Ask Codex to do anything\n  GPT-5.6-Sol xhigh fast · ~/proj\n  ? for shortcuts"), true);
+  assert.equal(codex.codexFooterShowsFast("› Ask Codex to do anything\n  GPT-5.6-Sol xhigh · ~/proj\n  ? for shortcuts"), null);
+  // 独自のproviderの席は、fastでも足元に出さない。
+  assert.equal(codex.codexFooterShowsFast("• Service tier set to priority\n› Ask Codex to do anything\n  GPT-6.1-Sol default · /tmp/proj"), null);
+  assert.equal(codex.codexFooterShowsFast("› please be fast · thanks\n  GPT-6.1-Sol default · /tmp/proj"), null, "入力欄の文は足元でない");
+});

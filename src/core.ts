@@ -154,6 +154,7 @@ import {
   createCodexAgentMetadata,
   codexModelChoices,
   codexFastCommandOffered,
+  codexFooterShowsFast,
   codexServiceTierNotices,
   restoreCodexServiceTier,
   restoreCodexServiceTierInFile,
@@ -5238,8 +5239,11 @@ async function toggleCodexFast(name: string): Promise<boolean> {
 }
 
 async function switchCodexFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
-  // Codexの画面には今の段が出ない（足元にも /status にも）。席の控えが、Aitermの知る今の状態。
-  if (meta.fast === target) return target;
+  // 席の控えが、Aitermの知る今の状態。足元に fast と出ている時（本物のログインの席は「GPT-5.6-Sol xhigh fast · …」と出す）は、
+  // 控えより画面を信じる（席で人が切り替えた時に、fastのまま「通常」と返さない）。出ていない時は、通常か、段を出さない構成かを区別できない。
+  const shownFast = codexFooterShowsFast(captureScreen(name, AGENT_TUI_READY_LINES)) === true;
+  if (shownFast && target) return true;
+  if (meta.fast === target && !shownFast) return target;
   const bin = meta.agent_executable ?? resolveAgentBin("codex");
   const codexHome = meta.codex_home ?? realCodexHome();
   const configPath = path.join(codexHome, "config.toml");

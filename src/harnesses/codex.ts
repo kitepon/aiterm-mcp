@@ -1101,6 +1101,15 @@ export function codexServiceTierNotices(screen: string): ("fast" | "standard")[]
   });
 }
 
+/**
+ * 足元のmodelの表示（「GPT-5.6-Sol xhigh fast · ~/proj」）に fast と出ているか。出ていればtrue。
+ * 出ていない時はnull: 通常の速度か、足元に段を出さない構成（独自のprovider等）かを、画面からは区別できない。
+ */
+export function codexFooterShowsFast(screen: string): true | null {
+  return screen.split("\n").slice(-6).some((line) =>
+    /^\s*\S+\s+(?:default|none|minimal|low|medium|high|xhigh|max|ultra)\s+fast\s+·\s/.test(line)) ? true : null;
+}
+
 /** 入力欄へ `/fast` と打った時に、命令の候補として `/fast` が出ているか（出ていない時にEnterを押すと、文として送られる）。 */
 export function codexFastCommandOffered(screen: string): boolean {
   return screen.split("\n").slice(-14).some((line) => /^\s*›?\s*\/fast\s{2,}\S/.test(line));

@@ -390,7 +390,7 @@ test("cli: timeout 0でも完了済みならdoneでexit 0", async () => {
 
 // 照会経路でも「知らないsession」をrunningへ倒さない。倒すと打ち間違えたsession名が
 // 永久に「まだ走ってる」と報告され、親が存在しない子を待ち続ける。
-test("cli: timeout 0でも未知sessionはエラー（runningへ倒さない）", async () => {
+test("cli: timeout 0でも未知sessionはエラー（runningへ倒さない）。AitermErrorの文言つきでexit 1", async () => {
   const { base } = makeStateRoot();
   try {
     const r = runCli(["--session", "nosuch", "--timeout", "0"], base);
@@ -398,6 +398,7 @@ test("cli: timeout 0でも未知sessionはエラー（runningへ倒さない）"
     const out = JSON.parse(r.stdout.trim());
     assert.equal(out.ok, false);
     assert.notEqual(out.outcome, "running");
+    assert.match(out.message, /agent_done 管理セッション/);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -463,19 +464,6 @@ test("cli: 不正引数はok:false envelopeでexit 1", () => {
       assert.equal(out.ok, false);
       assert.equal(out.code, "AITERM_WAIT_FAILED");
     }
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
-  }
-});
-
-test("cli: 未管理sessionはAitermErrorの文言つきでexit 1", () => {
-  const { base } = makeStateRoot();
-  try {
-    const r = runCli(["--session", "nosuch", "--timeout", "0"], base);
-    assert.equal(r.status, 1);
-    const out = JSON.parse(r.stdout.trim());
-    assert.equal(out.ok, false);
-    assert.match(out.message, /agent_done 管理セッション/);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

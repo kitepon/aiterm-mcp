@@ -3315,20 +3315,6 @@ test("sendInitialAgentPrompt: 初回 prompt の内容を評価せず専用 bound
   });
 });
 
-test("sendInitialAgentPrompt: 送信後は常に pending 文字列を返し成功扱いしない", { skip: skipAgentDone }, async () => {
-  await withFakeCodexTuiHome(async () => {
-    const [sid] = core.openAgent("codex", { agent_done: true });
-    try {
-      const out = await core.sendInitialAgentPrompt(sid, "echo INITIAL_TIMEOUT_BODY");
-      assert.match(out.text, /initial_prompt=pending vendor=codex event_cursor=\d+/, `pending hint: ${out.text}`);
-      const meta = readAgentMeta(sid);
-      assert.equal(meta.initial_prompt, "pending");
-    } finally {
-      core.closeSession(sid);
-    }
-  });
-});
-
 test("sendInitialAgentPrompt: 送信後は pending にし follow-up を送信前に拒否する", { skip: skipAgentDone }, async () => {
   await withFakeCodexTuiHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });

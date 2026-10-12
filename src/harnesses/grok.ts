@@ -775,18 +775,31 @@ export function restoreGrokModelDefaults(configPath: string, before: GrokModelDe
   const next = withoutGrokDefaults(edited) === withoutGrokDefaults(before.body) ? before.body : edited;
   const temp = `${configPath}.aiterm-restore-${process.pid}`;
   fs.writeFileSync(temp, next, { mode: fs.statSync(configPath).mode & 0o777 });
-  fs.renameSync(temp, configPath);
+  try {
+    fs.renameSync(temp, configPath);
+  } catch (error) {
+    // Windowsでは、ほかのprocessがfileを開いている間、置き換えに失敗する事がある。途中のfileを残さず、呼び手に次の回で試させる。
+    try { fs.unlinkSync(temp); } catch { /* 残っても中身は前の値 */ }
+    throw error;
+  }
 }
 
-/** 足元の「Grok 4.7 Fast (high)」から、今のmodelを一覧のIDで返す。base は元のmodel、fast はfast版かどうか。 */
-export function grokModelFromFooter(screen: string, catalog: AgentModelCatalog): { id: string; base: string; fast: boolean } | null {
-  // 足元の枠の行の「<modelの表示> (<effort>)」。権限の表示（· always-approve）は、付く時と付かない時がある。
-  // 切り替えの知らせ（Switched to Grok 4.7 Fast (high effort)）は、かっこの中に空白があるので拾わない。
+/**
+ * 足元の枠の行の「<modelの表示> (<effort>)」から、modelの表示（「Grok 4.7 Fast」）を読む。権限の表示（· always-approve）は、付く時と付かない時がある。
+ * 切り替えの知らせ（Switched to Grok 4.7 Fast (high effort)）は、かっこの中に空白があるので拾わない。
+ */
+export function grokFooterModelName(screen: string): string | null {
   let name: string | null = null;
   for (const line of screen.split("\n")) {
     const match = line.match(/(Grok [^()·│╯╰─]+?) \([a-z-]+\)/);
     if (match) name = match[1].trim();
   }
+  return name;
+}
+
+/** 足元の「Grok 4.7 Fast (high)」から、今のmodelを一覧のIDで返す。base は元のmodel、fast はfast版かどうか。 */
+export function grokModelFromFooter(screen: string, catalog: AgentModelCatalog): { id: string; base: string; fast: boolean } | null {
+  const name = grokFooterModelName(screen);
   if (!name) return null;
   const fastIds = catalog.fast_ids ?? {};
   for (const model of catalog.models) {

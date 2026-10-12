@@ -1153,5 +1153,11 @@ export function restoreCodexDefaultInFile(configPath: string, key: CodexDefaultK
   else rows[line] = wanted;
   const temp = `${configPath}.aiterm-restore-${process.pid}`;
   fs.writeFileSync(temp, rows.join(eol), { mode: fs.statSync(configPath).mode & 0o777 });
-  fs.renameSync(temp, configPath);
+  try {
+    fs.renameSync(temp, configPath);
+  } catch (error) {
+    // Windowsでは、ほかのprocessがfileを開いている間、置き換えに失敗する事がある。途中のfileを残さず、呼び手に次の回で試させる。
+    try { fs.unlinkSync(temp); } catch { /* 残っても中身は前の値 */ }
+    throw error;
+  }
 }

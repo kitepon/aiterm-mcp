@@ -516,3 +516,9 @@ test("Codex: /model の選ぶ画面は表示名で並ぶ。一覧のIDを、大�
   assert.equal(codex.codexModelChoice(screen, "GPT-5.5"), "8");
   assert.equal(codex.codexModelChoice(screen, "gpt-9"), null);
 });
+
+test("Grok: 足元のmodelの表示の名前だけを読む（一覧を引かずに、今がfast版かを見るため）", () => {
+  assert.equal(grok.grokFooterModelName("  ╰──────── Grok 4.7 Fast (high) ─╯\n  Shift+Tab:mode"), "Grok 4.7 Fast");
+  assert.equal(grok.grokFooterModelName("  ╰──── Grok 4.6 (medium) · always-approve ─╯"), "Grok 4.6");
+  assert.equal(grok.grokFooterModelName("   Switched to Grok 4.7 Fast (high effort)\n  │ ❯ │"), null);
+});

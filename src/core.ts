@@ -90,6 +90,7 @@ import type { AgentAuthMetadata, AgentAuthResult, AgentAuthPlan, AgentAuthStatus
 import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
 import { FastModeError, fastModeFailure, launchContinuesWithoutFast, type FastModeFailure } from "./fast-mode.js";
 import { readFileOrNull, restoreJsonSetting, withUserConfigLock } from "./user-config.js";
+import { isDeepStrictEqual } from "node:util";
 import {
   grokAuthPlan, grokAuthStatus, grokAuthPane,
   GROK_MODEL_DEFAULTS,
@@ -98,6 +99,7 @@ import {
   assertGrokModelAvailable,
   grokModelChoices,
   grokModelFromFooter,
+  grokFooterModelName,
   grokModelDefaultsFromBody,
   restoreGrokModelDefaults,
   grokEventsTranscript,
@@ -5025,6 +5027,8 @@ const CODEX_FAST_NOTICE_TIMEOUT_MS = 8_000;
 const CURSOR_FAST_ROW_TIMEOUT_MS = 3_000;
 // Grokは起動して1秒もせずに既定を書く（1.0.50の記録で、起動完了の直後）。書かない時（同じ値、古い版）に起動を長く待たせない。
 const LAUNCH_DEFAULT_WAIT_MS = 8_000;
+// 既定が必ず書かれる見込みの時に、書かれるのを待つ上限（Cursorは、遅い起動で入力待ちの数秒後に書く）。
+const LAUNCH_DEFAULT_MUST_WRITE_WAIT_MS = 25_000;
 const LAUNCH_ALIVE_CHECK_MS = 1_000;
 
 export interface AgentFastLaunchResult {
@@ -5168,34 +5172,69 @@ async function keepingUserDefaults<T>(
 }
 
 /**
- * 起動の --model の値を利用者の既定へ書くharness（Grok 1.0.50。Cursorは版による）を起こす。
- * 鍵を取り、起動の直前の中身を読み、起こして、書かれる（または入力待ちになる）のを待ってから、直前の値へ戻す。
+ * 起動の --model の値を利用者の既定へ書くharness（Grok 1.0.50。Cursorは、既定のmodelを設定に持つ端末）を起こす。
+ * 鍵を取り、起動の直前の中身を読み、起こして、既定が書かれるのを待ってから、直前の値へ戻す。
+ * - written: 起動の直前の中身と今の中身で、既定の項目が変わったか（harnessは起動時に、既定と関係の無い控えも書く。fileの変化だけでは見ない）。
+ * - mustWrite: この起動で、既定が必ず書かれる見込みか。trueなら、入力待ちになっても書かれるまで待つ（遅い起動では、入力待ちの後に書かれる）。
  */
 async function launchKeepingUserDefaults<T extends [string, string]>(
-  configPath: string, restore: (before: Buffer | null) => void, ready: (screen: string) => boolean, launch: () => T,
+  configPath: string,
+  o: {
+    restore: (before: Buffer | null) => void;
+    written: (before: Buffer | null, now: Buffer | null) => boolean;
+    mustWrite: (before: Buffer | null) => boolean;
+    ready: (screen: string) => boolean;
+  },
+  launch: () => T,
 ): Promise<T> {
   return withUserConfigLock(configPath, async () => {
     const before = readFileOrNull(configPath);
+    const mustWrite = o.mustWrite(before);
     const launched = launch();
     const started = performance.now();
-    const deadline = started + LAUNCH_DEFAULT_WAIT_MS;
+    const deadline = started + (mustWrite ? LAUNCH_DEFAULT_MUST_WRITE_WAIT_MS : LAUNCH_DEFAULT_WAIT_MS);
     let aliveCheckedAt = started;
     do {
       await sleep(150);
-      const now = readFileOrNull(configPath);
-      if ((now === null) !== (before === null) || (now !== null && before !== null && !now.equals(before))) break;
+      if (o.written(before, readFileOrNull(configPath))) break;
       if (!sessionExists(launched[0])) break;
-      // 入力待ちになっても書かれていなければ、戻しへ進む（書かない版・同じ値の時）。
-      if (ready(captureScreen(launched[0], AGENT_TUI_READY_LINES))) break;
+      // 書かれる見込みが無い時は、入力待ちになった所で戻しへ進む（書かない端末・同じ値の時）。
+      if (!mustWrite && o.ready(captureScreen(launched[0], AGENT_TUI_READY_LINES))) break;
       // harnessのprocessがもう居ない（起動に失敗した等）なら、書かれる事は無い。
       if (performance.now() - aliveCheckedAt >= LAUNCH_ALIVE_CHECK_MS) {
         aliveCheckedAt = performance.now();
         if (observeSession(launched[0]).harness_alive === false) break;
       }
     } while (performance.now() < deadline);
-    await restoreUserDefaults(() => restore(before));
+    await restoreUserDefaults(() => o.restore(before));
     return launched;
   });
+}
+
+function parseJsonObject(body: Buffer | null): Record<string, unknown> | null {
+  if (body === null) return null;
+  try {
+    const value = JSON.parse(body.toString("utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cursorのcli-config.jsonで、既定のmodelの項目（CURSOR_DEFAULT_MODEL_KEYS）が、前の中身から変わったか。 */
+function cursorDefaultsWritten(before: Buffer | null, now: Buffer | null): boolean {
+  const previous = parseJsonObject(before), current = parseJsonObject(now);
+  if (current === null) return false;
+  return CURSOR_DEFAULT_MODEL_KEYS.some((key) => !isDeepStrictEqual(previous?.[key], current[key]));
+}
+
+/** Grokのconfig.tomlで、[models] の既定（default・default_reasoning_effort）が、前の中身から変わったか。 */
+function grokDefaultsWritten(before: Buffer | null, now: Buffer | null): boolean {
+  if (now === null) return false;
+  const previous = grokModelDefaultsFromBody(before === null ? null : before.toString("utf8"));
+  const current = grokModelDefaultsFromBody(now.toString("utf8"));
+  return (["default", "default_reasoning_effort"] as const).some((key) =>
+    previous[key].present !== current[key].present || previous[key].value !== current[key].value);
 }
 
 const grokUserConfigPath = (grokHome: string): string => path.join(grokHome, "config.toml");
@@ -5212,9 +5251,9 @@ function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
 }
 
 /** 動いている席のfastを切り替える。返りは切り替えた後の状態。席は入力待ちである事（呼び手が確かめる）。 */
-async function switchAgentFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
-  const state = meta.kind === "claude" ? await switchClaudeFast(name, meta, target)
-    : meta.kind === "codex" ? await switchCodexFast(name, meta, target)
+async function switchAgentFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
+  const state = meta.kind === "claude" ? await switchClaudeFast(name, meta, target, verified)
+    : meta.kind === "codex" ? await switchCodexFast(name, meta, target, verified)
     : meta.kind === "cursor" ? await switchCursorFast(name, meta, target)
     : await switchGrokFast(name, meta, target);
   recordAgentFast(meta, state);
@@ -5398,7 +5437,9 @@ function keepingCursorDefaults<T>(meta: AgentMetadata, action: () => Promise<T>)
   return keepingUserDefaults(configPath, restoreCursorDefaults(configPath), action);
 }
 
-function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+async function switchCursorFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
+  // 見出しのmodelの表示が、もう頼まれた向きなら、選ぶ画面を開かない（設定替えのたびに fast: false を渡す呼び手がいる）。
+  if (cursorHeaderShowsFast(captureScreen(name, AGENT_TUI_READY_LINES)) === target) return target;
   return keepingCursorDefaults(meta, () => toggleCursorFast(name, meta, target));
 }
 
@@ -5477,6 +5518,9 @@ async function sendGrokModelCommand(
 
 async function switchGrokFast(name: string, meta: AgentMetadata, target: boolean): Promise<boolean> {
   const untouched = "席の速度は変えていません。";
+  // 足元のmodelの表示（「Grok 4.7 Fast (high)」）が、もう頼まれた向きなら、一覧を引かない。
+  const shown = grokFooterModelName(captureScreen(name, AGENT_TUI_READY_LINES));
+  if (shown !== null && / Fast$/.test(shown) === target) return target;
   const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
   if (!bin) throw new FastModeError("FAST_MODE_UNCONFIRMED", `Grok の CLI が見つからず、fastの対応を確かめられません。${untouched}`);
   let catalog = await grokModelChoices(bin, meta.cwd ?? process.cwd());
@@ -5509,7 +5553,8 @@ async function switchGrokFast(name: string, meta: AgentMetadata, target: boolean
 /** 起動の後、入力待ちになった席をfastへ切り替える。出来なかった訳は返りへ入れ、起動は続ける。 */
 async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastModeFailure | null> {
   try {
-    await switchAgentFast(name, meta, true);
+    // 対応は、起動の前（planLaunchFast）に一覧で確かめてある。
+    await switchAgentFast(name, meta, true, true);
     return null;
   } catch (error) {
     const failure = fastModeFailure(error);
@@ -6778,11 +6823,19 @@ export async function openAgentWithInitialPrompt(
   const launch = (): Promise<[string, string]> => {
     if (kind === "grok") {
       const configPath = grokUserConfigPath(realGrokHome());
-      return launchKeepingUserDefaults(configPath, restoreGrokDefaults(configPath), grokTuiReady, () => openAgent(kind, openOptions));
+      // Grokは起動完了の直後に書く（入力待ちと読める頃には書き終えている）。
+      return launchKeepingUserDefaults(configPath, {
+        restore: restoreGrokDefaults(configPath), written: grokDefaultsWritten, mustWrite: () => false, ready: grokTuiReady,
+      }, () => openAgent(kind, openOptions));
     }
     if (kind === "cursor" && openOptions.model) {
       const configPath = cursorUserConfigPath(realCursorHome());
-      return launchKeepingUserDefaults(configPath, restoreCursorDefaults(configPath), cursorTuiReady, () => openAgent(kind, openOptions));
+      // Cursorは、既定のmodelを設定に持つ端末（selectedModel の項目がある）で、起動の --model を既定へ書く。書くのは、入力待ちになった後の事がある。
+      return launchKeepingUserDefaults(configPath, {
+        restore: restoreCursorDefaults(configPath), written: cursorDefaultsWritten,
+        mustWrite: (before) => { const config = parseJsonObject(before); return config !== null && "selectedModel" in config; },
+        ready: cursorTuiReady,
+      }, () => openAgent(kind, openOptions));
     }
     return Promise.resolve().then(() => openAgent(kind, openOptions));
   };

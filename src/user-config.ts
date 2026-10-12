@@ -59,7 +59,13 @@ function writeInPlace(file: string, body: Buffer | string): void {
   try { mode = fs.statSync(file).mode & 0o777; } catch { /* 無ければ0600で作る */ }
   const temp = `${file}.aiterm-restore-${process.pid}`;
   fs.writeFileSync(temp, body, { mode });
-  fs.renameSync(temp, file);
+  try {
+    fs.renameSync(temp, file);
+  } catch (error) {
+    // Windowsでは、ほかのprocessがfileを開いている間、置き換えに失敗する事がある。途中のfileを残さず、呼び手に次の回で試させる。
+    try { fs.unlinkSync(temp); } catch { /* 残っても中身は前の値 */ }
+    throw error;
+  }
 }
 
 /**

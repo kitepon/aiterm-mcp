@@ -113,15 +113,24 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
   });
 }
 
+/** そのpidのprocessが今あるか。OSへ直接聞き、processを起こさない。権限が無くて触れないprocessも「ある」と読む。 */
+function pidExists(pid: number): boolean {
+  if (pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+}
+
 /**
  * 指定したpidの開始時刻だけを引く。readRuntimeProcessesと同じ開始時刻を返し、存在しないpidは結果に含めない。
  * process表にpidはあるが開始時刻を読めない時は、started_identityをnullで返す（pidが無いのとは区別する）。
  * 全processのargvを読む一覧取得は、processの多い端末で重い（定期実行から呼ばない）。
  */
 export function readProcessIdentities(pids: number[]): { pid: number; started_identity: string | null }[] {
-  const wanted = [...new Set(pids)];
+  if (pids.some(pid => !Number.isSafeInteger(pid) || pid < 0)) throw new AitermError("process照会のpidが不正です", 2);
+  // 居ないpidは、OSへ直接聞いて先に除く。全部居なければ、processを起こさない。
+  // macOSのpsは、範囲の外のpidが1つ混ざると、居るprocessの分も出さずに誤りで終わる。
+  const wanted = [...new Set(pids)].filter(pidExists);
   if (wanted.length === 0) return [];
-  if (wanted.some(pid => !Number.isSafeInteger(pid) || pid < 0)) throw new AitermError("process照会のpidが不正です", 2);
   if (!isWin) {
     const result = spawnSync(POSIX_PS, [...POSIX_IDENTITY_ARGS, wanted.join(",")], {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000,
@@ -138,11 +147,25 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
   }
   // CommandLineの読めないprocess（別の権限のserviceなど）も返す。pidが使い回された先を「別のprocess」と確かめるのに要る。
   // 開始時刻を読めない行も、pidがprocess表にある印として返す。
+  // WMI（Win32_Process）は使わない。絞っても1回に0.1〜0.3秒かかり、WMIの側のprocess（wmiprvse）のCPUを使う
+  // （process 1300個のWindowsで測った 2026-10-12。ADR 0112）。.NETのprocessの読み（OpenProcessとGetProcessTimes）は1個1.5ミリ秒。
+  // 開始時刻は同じ値になる（WMIはマイクロ秒で切り捨てた値を返し、どちらも1ミリ秒で切り捨てて使う。888個のprocessで食い違いは0）。
+  // 権限が無くて読めないprocessだけ、WMIへ聞き直す。
   const script = [
     ...WINDOWS_PROBE_HEADER,
-    `$rows=@(Get-CimInstance Win32_Process -Filter "${wanted.map(pid => `ProcessId=${pid}`).join(" OR ")}" | ForEach-Object {`,
-    "[ordered]@{ pid=[int]$_.ProcessId; started_identity=$(if ($null -ne $_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null }) }",
-    "})",
+    "$rows=@()",
+    `foreach ($id in @(${wanted.join(",")})) {`,
+    "  try { $p=[Diagnostics.Process]::GetProcessById($id) } catch [ArgumentException] { continue }",
+    "  $started=$null",
+    "  try { $started=$p.StartTime.ToUniversalTime().ToString('o') }",
+    "  catch [InvalidOperationException] { continue }",
+    "  catch {",
+    "    $w=Get-CimInstance Win32_Process -Filter \"ProcessId=$id\" -Property CreationDate",
+    "    if ($null -eq $w) { continue }",
+    "    if ($null -ne $w.CreationDate) { $started=$w.CreationDate.ToUniversalTime().ToString('o') }",
+    "  }",
+    "  $rows += [ordered]@{ pid=[int]$id; started_identity=$started }",
+    "}",
     "ConvertTo-Json -Compress -InputObject $rows",
   ].join("\n");
   const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {

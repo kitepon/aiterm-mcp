@@ -86,6 +86,8 @@ export interface ParentDeliveryDependencies {
   // そのpidのprocessが今あるか。OSへ直接聞き、processを起動しない。
   exists: (pid: number) => boolean;
   now: () => number;
+  // 壁時計（ms）。持ち主の「生きている印」（fileの時刻）と比べる。
+  wall: () => number;
 }
 
 // 開始時刻の照会はprocessの起動を伴い、processの多い端末では1回が重い（macOSのpsは-pでも全processを歩く）。
@@ -94,6 +96,19 @@ export interface ParentDeliveryDependencies {
 const OWNER_IDENTITY_RECHECK_MS = 60_000;
 // owner.jsonの無い保存場所を、作っている途中の持ち主として扱う時間。
 const OWNER_SETUP_GRACE_MS = 60_000;
+// 持ち主が自分の保存場所へ付ける「生きている印」（ADR 0112）。中身は無く、最後に書いた時刻（mtime）だけを使う。
+// 印が新しい持ち主は、OSへ聞かずに生きていると読む。pidを使い回した別のprocessは、この印を書かない。
+// 印の無い持ち主（0.58.3までの版）と、印が古い持ち主だけ、今までどおり開始時刻で照合する。
+// 名前は.jsonで終わらせない（回収は、保存場所の.jsonを配送の記録として引き取る）。
+const OWNER_HEARTBEAT_FILE = "alive";
+const OWNER_HEARTBEAT_MS = 15_000;
+// 持ち主のprocessが同期の処理で塞がる間（最長で十数秒）も印を新しいと読めるよう、書く間隔の4倍にする。
+const OWNER_HEARTBEAT_FRESH_MS = 60_000;
+
+function ownerHeartbeatAt(directory: string): number | null {
+  try { return fs.statSync(path.join(directory, OWNER_HEARTBEAT_FILE)).mtimeMs; }
+  catch { return null; }
+}
 
 function processExists(pid: number): boolean {
   // 0以下はprocess groupを指す。持ち主のpidにはならない。
@@ -153,11 +168,12 @@ export class ParentDeliveryManager {
   private readonly verifiedOwners = new Map<string, { pid: number; started_identity: string; at: number; alive: boolean }>();
   private serviceError: Error | null = null;
   private closing = false;
+  private lastHeartbeat = Number.NEGATIVE_INFINITY;
 
   constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
     this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
       verify: verifyParent, processes: readProcessIdentities, exists: processExists,
-      now: () => performance.now(), ...options.dependencies };
+      now: () => performance.now(), wall: () => Date.now(), ...options.dependencies };
     const stateRoot = ensureStateRoot();
     // 別端末の子の記録はremote-で始まる保存場所へ分け、boundary.remoteを知らない旧版のreaderへ渡さない。
     const prefix = options.remote ? "remote-" : "";
@@ -410,14 +426,36 @@ export class ParentDeliveryManager {
     return this.recovering;
   }
 
+  /** 自分の保存場所の「生きている印」を新しくする。書けない回は次の回へ回す（印が古くなれば、相手は開始時刻で照合する）。 */
+  private heartbeat(): void {
+    const wall = this.deps.wall();
+    if (this.closing || Math.abs(wall - this.lastHeartbeat) < OWNER_HEARTBEAT_MS) return;
+    const file = path.join(this.ownerDir, OWNER_HEARTBEAT_FILE);
+    try {
+      const at = new Date(wall);
+      try { fs.utimesSync(file, at, at); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        fs.writeFileSync(file, "", { mode: 0o600 });
+        fs.utimesSync(file, at, at);
+      }
+      this.lastHeartbeat = wall;
+    } catch { /* 次の回 */ }
+  }
+
   private async recoverOrphans(): Promise<void> {
+    this.heartbeat();
     // 生存を確かめる相手は、closeしていない他の持ち主だけ。居なければOSへ問い合わせない。
-    // この処理は5秒おきに全MCP processで回る。全processの一覧を取ると、processの多い端末で負荷になる。
+    // この処理は5秒おきに全MCP processで回る。processを起こして確かめると、MCP processの数の掛け算で端末を重くする
+    // （Windowsで、23個のMCP processがPowerShellを毎秒4回起こしていた。2026-10-12）。
     const directories = fs.readdirSync(this.active, { withFileTypes: true })
       .filter((directory) => directory.isDirectory() && path.join(this.active, directory.name) !== this.ownerDir);
     const now = this.deps.now();
+    const wall = this.deps.wall();
     const fate = new Map<string, OwnerFate>();
     const unverified: { name: string; pid: number; started_identity: string }[] = [];
+    // 前の照合を覚えている持ち主。誰かを照合する回に、まとめて照合し直す。
+    const remembered: { name: string; pid: number; started_identity: string }[] = [];
     for (const directory of directories) {
       let owner: Partial<Owner>;
       try { owner = JSON.parse(fs.readFileSync(path.join(this.active, directory.name, "owner.json"), "utf8")); }
@@ -425,12 +463,18 @@ export class ParentDeliveryManager {
       if (owner?.closed !== false || !Number.isSafeInteger(owner.pid) || typeof owner.started_identity !== "string") continue;
       const pid = owner.pid as number;
       if (!this.deps.exists(pid)) { fate.set(directory.name, "gone"); continue; }
+      const beat = ownerHeartbeatAt(path.join(this.active, directory.name));
+      if (beat !== null && Math.abs(wall - beat) < OWNER_HEARTBEAT_FRESH_MS) { fate.set(directory.name, "alive"); continue; }
       const verified = this.verifiedOwners.get(directory.name);
       if (verified && verified.pid === pid && verified.started_identity === owner.started_identity
-        && now - verified.at < OWNER_IDENTITY_RECHECK_MS) fate.set(directory.name, verified.alive ? "alive" : "unverified");
-      else unverified.push({ name: directory.name, pid, started_identity: owner.started_identity });
+        && now - verified.at < OWNER_IDENTITY_RECHECK_MS) {
+        fate.set(directory.name, verified.alive ? "alive" : "unverified");
+        remembered.push({ name: directory.name, pid, started_identity: owner.started_identity });
+      } else unverified.push({ name: directory.name, pid, started_identity: owner.started_identity });
     }
     if (unverified.length > 0) {
+      // 覚えた時刻が持ち主ごとにずれると、1分の間に何度もprocessを起こす。照合する回は、全員を1回で照合し直して時刻を揃える。
+      unverified.push(...remembered);
       const processes = this.deps.processes([...new Set(unverified.map((entry) => entry.pid))]);
       for (const entry of unverified) {
         const row = processes.find((candidate) => candidate.pid === entry.pid);

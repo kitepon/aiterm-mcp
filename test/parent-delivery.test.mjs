@@ -169,7 +169,7 @@ test("Claudeの記録は旧版の保存場所へ混ぜず、Codexと同じ子の
     assert.equal(codex.status('shared-child').length,1);
     await assert.rejects(codex.request(${JSON.stringify(parent())}).before_send(b), /PARENT_RESULT_PENDING/);
     const codexActive=path.join(ensureStateRoot(),'parent-deliveries','active');
-    for(const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive,owner)),['owner.json']);
+    for(const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive,owner)).sort(),['alive','owner.json']);
     await claude.close(); await codex.close();
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
@@ -202,7 +202,7 @@ test("Cursorの記録は専用の保存場所へ分け、子の予約はCodexと
     const cursorActive = path.join(ensureStateRoot(), 'cursor-parent-deliveries', 'active');
     assert.ok(fs.readdirSync(cursorActive).some(name => fs.readdirSync(path.join(cursorActive, name)).some(file => file.endsWith('.json') && file !== 'owner.json')));
     const codexActive = path.join(ensureStateRoot(), 'parent-deliveries', 'active');
-    for (const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive, owner)), ['owner.json']);
+    for (const owner of fs.readdirSync(codexActive)) assert.deepEqual(fs.readdirSync(path.join(codexActive, owner)).sort(), ['alive', 'owner.json']);
     await cursor.close(); await codex.close();
   `;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
@@ -506,6 +506,88 @@ test("回収処理は、開始時刻を読めない持ち主を60秒に1回だ�
   clock += 5_000; await next.recover();
   assert.equal(queried(), 2);
   assert.equal(fs.existsSync(unknown), true);
+});
+
+// 生きている印（ADR 0112）。2026-10-12、Windowsの端末で、23個のMCP processが互いの開始時刻を確かめるために
+// PowerShellを毎秒4回起こしていた。印が新しい持ち主は、OSへ聞かずに生きていると読む。
+const beat = (dir, at) => { const file = path.join(dir, "alive"); fs.writeFileSync(file, ""); fs.utimesSync(file, new Date(at), new Date(at)); };
+
+test("回収処理は、生きている印が新しい持ち主を、OSへ問い合わせずに生きていると読む。印が古くなったら開始時刻で照合する", async (t) => {
+  const calls = [];
+  let clock = 0, wall = Date.parse("2026-10-12T01:00:00Z");
+  const alive = [{ pid: process.pid, started_identity: "fixture-parent" }, { pid: 424242, started_identity: "owner-start" }];
+  const h = setup(t, { exists: () => true, now: () => clock, wall: () => wall,
+    processes: (pids) => { calls.push(pids); return alive.filter(row => pids.includes(row.pid)); } });
+  const manager = h.create();
+  await manager.request(parent()).before_send(boundary());
+  const [stored] = records(h.root);
+  await manager.close();
+  const other = plantOwner(h.root, "424242-beating", { pid: 424242, started_identity: "owner-start", closed: false, removal_safe: true });
+  const moved = path.join(other, path.basename(stored.file));
+  fs.renameSync(stored.file, moved);
+  beat(other, wall);
+  const next = h.create();
+  const queried = () => calls.filter(pids => pids.includes(424242)).length;
+  // 持ち主が15秒おきに印を新しくしている間は、何分たっても問い合わせない。
+  for (let i = 0; i < 60; i++) {
+    clock += 5_000; wall += 5_000;
+    if (i % 3 === 0) beat(other, wall);
+    await next.recover();
+  }
+  assert.equal(queried(), 0);
+  assert.equal(fs.existsSync(moved), true, "生きている持ち主の記録は引き取らない");
+  // 印が止まった（持ち主が終わり、同じpidを別のprocessが使っている）。60秒たったら開始時刻で照合し、記録を引き取る。
+  alive[1].started_identity = "reused-pid";
+  // 最後の印は10秒前。あと45秒（印から55秒）までは新しい。
+  for (let i = 0; i < 9; i++) { clock += 5_000; wall += 5_000; await next.recover(); }
+  assert.equal(queried(), 0, "印が新しい間（60秒）は問い合わせない");
+  clock += 10_000; wall += 10_000; await next.recover();
+  assert.equal(queried(), 1);
+  assert.equal(fs.existsSync(moved), false);
+  assert.equal(next.status("child").length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(other, "owner.json"), "utf8")).closed_reason, "pid_reused");
+});
+
+test("回収処理は、印の無い持ち主（前の版）を、覚えた時刻がずれていても1回にまとめて照合する", async (t) => {
+  const calls = [];
+  let clock = 0, wall = Date.parse("2026-10-12T01:00:00Z");
+  const alive = [{ pid: process.pid, started_identity: "fixture-parent" }, { pid: 424242, started_identity: "a" }, { pid: 434343, started_identity: "b" }];
+  const h = setup(t, { exists: () => true, now: () => clock, wall: () => wall,
+    processes: (pids) => { calls.push([...pids].sort((x, y) => x - y)); return alive.filter(row => pids.includes(row.pid)); } });
+  plantOwner(h.root, "424242-old-a", { pid: 424242, started_identity: "a", closed: false, removal_safe: true });
+  const manager = h.create(); await manager.recover();
+  const others = () => calls.filter(pids => !pids.includes(process.pid));
+  assert.deepEqual(others(), [[424242]]);
+  // 20秒後に、もう1つの持ち主が現れる。
+  clock += 20_000; wall += 20_000;
+  plantOwner(h.root, "434343-old-b", { pid: 434343, started_identity: "b", closed: false, removal_safe: true });
+  await manager.recover();
+  // 新しい持ち主を照合する回に、覚えている持ち主も照合し直して、時刻を揃える。
+  assert.deepEqual(others(), [[424242], [424242, 434343]]);
+  // この後は、2つを同じ回に照合する（60秒に1回。160秒で2回）。ずれたままだと、1分に2回ずつ起こす。
+  for (let i = 0; i < 32; i++) { clock += 5_000; wall += 5_000; await manager.recover(); }
+  assert.deepEqual(others(), [[424242], [424242, 434343], [424242, 434343], [424242, 434343]]);
+});
+
+test("持ち主は、自分の保存場所へ生きている印を付け、15秒ごとに新しくする。閉じた後は付けない", async (t) => {
+  let clock = 0, wall = Date.parse("2026-10-12T01:00:00Z");
+  const h = setup(t, { now: () => clock, wall: () => wall });
+  const manager = h.create(); await manager.recover();
+  const [own] = fs.readdirSync(path.join(h.root, "active"));
+  const file = path.join(h.root, "active", own, "alive");
+  const at = () => Math.round(fs.statSync(file).mtimeMs);
+  assert.equal(at(), wall);
+  const first = wall;
+  clock += 10_000; wall += 10_000; await manager.recover();
+  assert.equal(at(), first, "15秒たつまでは書き直さない");
+  clock += 5_000; wall += 5_000; await manager.recover();
+  assert.equal(at(), wall);
+  // 配送の記録として引き取られない名前。
+  assert.equal(file.endsWith(".json"), false);
+  const second = wall;
+  await manager.close();
+  clock += 60_000; wall += 60_000; await manager.recover();
+  assert.equal(fs.existsSync(file) ? at() : second, second);
 });
 
 test("回収処理は、自分で閉じた持ち主の保存場所を、記録を引き取った後に消す", async (t) => {

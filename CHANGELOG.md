@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- AitermのMCP processが、互いの生き死にを確かめるためにprocessを起こし続け、端末を重くしていた件を直す（ADR 0112）。
+  親への配送の回収は、MCP process 1個につき2本、5秒おきに回り、ほかの持ち主の開始時刻を60秒おきに照合していた
+  （WindowsはPowerShell 7とWMI、ほかは`ps`）。照合の時刻が持ち主ごとにずれるので、回数がMCP processの数の掛け算で増えていた。
+  Windowsの端末（process 1312個、AitermのMCP process 23個）で、Aitermだけで20秒に78回のPowerShellが起き、
+  WMIの側のprocessがCPUを中央2.8コア使っていた。
+  - 持ち主は、自分の保存場所へ「生きている印」（`active/<持ち主>/alive`の時刻）を15秒おきに付ける。
+    印が60秒以内の持ち主は、OSへ聞かずに生きていると読む。pidを使い回した別のprocessは、この印を書かない。
+  - 印の無い持ち主（0.58.3までの版）と、印が古い持ち主だけ、今までどおり開始時刻で照合する。照合する回は全員をまとめ、1本が1分に1回まで。
+  - Windowsで1個のprocessの開始時刻を読む時は、WMIを使わず、.NETのprocessの読みを使う（1個1.5ミリ秒。値は今までと同じ）。
+  - Windowsの実物で、MCP processを6個・150秒動かした時のPowerShellの起動は、0.58.3が80回、この版は0回。
+  - `owner.json`の形、保存場所の名前、配送の記録と返りは変わらない。前の版のMCP processが残っている間、その分の照合は続く。
+- 共通部品`aiterm-steer-delivery`を0.4.5へ上げる。AitermのClaude Codeの親への配送で、受信hookが走るたびに端末の全processの一覧を
+  取っていたのが、確かめるprocessだけを読む形になる。
+
 ## [0.58.3] - 2026-10-12
 
 ### 修正

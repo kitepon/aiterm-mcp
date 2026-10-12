@@ -28,6 +28,8 @@ on:
         type: string
 
 permissions:
+  # classifyが、同じcommitの全テストの成功を読む（scripts/product-ci-plan.mjs）。
+  actions: read
   contents: read
 
 jobs:
@@ -40,6 +42,7 @@ jobs:
       environments: ${{ steps.changes.outputs.environments }}
       test_scope: ${{ steps.changes.outputs.test_scope }}
       test_files: ${{ steps.changes.outputs.test_files }}
+      prior_full: ${{ steps.changes.outputs.prior_full }}
     steps:
       - name: checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -54,6 +57,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           DISPATCH_BASE: ${{ inputs.comparison_base }}
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/product-ci-plan.mjs plan
       - name: documentation dependency install
         if: steps.changes.outputs.product_change == 'false' && inputs.dependency-command != ''
@@ -71,7 +75,8 @@ jobs:
 
   full:
     needs: classify
-    if: needs.classify.outputs.product_change == 'true'
+    # 選んだ環境が全部、同じcommitの全テストでもう通っている時は、環境が空になる。空のmatrixは起こさない。
+    if: needs.classify.outputs.product_change == 'true' && needs.classify.outputs.environments != '[]'
     env:
       PRODUCT_CI_TEST_SCOPE: ${{ needs.classify.outputs.test_scope }}
       PRODUCT_CI_TEST_FILES: ${{ needs.classify.outputs.test_files }}
@@ -129,4 +134,6 @@ jobs:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           FULL_RESULT: ${{ needs.full.result }}
           PRODUCT_CHANGE: ${{ needs.classify.outputs.product_change }}
+          ENVIRONMENTS: ${{ needs.classify.outputs.environments }}
+          PRIOR_FULL: ${{ needs.classify.outputs.prior_full }}
         run: node scripts/product-ci-plan.mjs verify

@@ -26,6 +26,8 @@ on:
         required: true
 
 permissions:
+  # product-full-ci.ymlのclassifyが、同じcommitの全テストの成功を読む。
+  actions: read
   contents: read
 
 jobs:

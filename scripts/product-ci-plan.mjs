@@ -69,18 +69,121 @@ export function classifyPaths(paths) {
   });
 }
 
-export function verifyResults({ classifyResult, fullResult, productChange }) {
+export function verifyResults({ classifyResult, fullResult, productChange, environments, priorFull }) {
   if (classifyResult !== 'success') {
     throw new Error(`変更分類jobが成功していません: ${classifyResult || '結果なし'}`);
   }
   if (productChange === 'true' && fullResult === 'success') return;
   if (productChange === 'false' && fullResult === 'skipped') return;
+  // 選んだ環境が全部、同じcommitの全テストでもう通っている時だけ、製品の変更でもfullのskipを受ける。
+  if (productChange === 'true' && fullResult === 'skipped' && everyEnvironmentVerified(environments, priorFull)) return;
   if (productChange !== 'true' && productChange !== 'false') {
     throw new Error(`変更分類の出力が不正です: ${productChange || '出力なし'}`);
   }
   throw new Error(
     `選択計画と実行結果が一致しません: product_change=${productChange}, full=${fullResult || '結果なし'}`,
   );
+}
+
+function everyEnvironmentVerified(environments, priorFull) {
+  let remaining;
+  let verified;
+  try {
+    remaining = JSON.parse(environments ?? '');
+    verified = JSON.parse(priorFull ?? '');
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(remaining) || remaining.length !== 0) return false;
+  if (verified === null || typeof verified !== 'object' || Array.isArray(verified)) return false;
+  const entries = Object.entries(verified);
+  return entries.length > 0
+    && entries.every(([environment, run]) => ALL_ENVIRONMENTS.includes(environment) && Number.isSafeInteger(run) && run > 0);
+}
+
+// 手動実行と定期実行は、選んだ環境で必ず全テストを回す（createPlan）。push・pull requestは試験を絞る事があるので数えない。
+const FULL_TEST_EVENTS = Object.freeze(['workflow_dispatch', 'schedule']);
+
+// 同じcommitの全テストがもう通っている環境と、その実行の番号を返す。
+// 枝で全テストを通してからmainへ早送りすると、mainのpushは同じcommitになる。同じ試験を同じcommitでもう一度流さない。
+// 環境ごとのjobの結果で数える（ほかの環境が落ちた実行でも、通った環境は通っている）。
+export function priorFullEnvironments({ runs, jobsByRun, headSha, workflowId, currentRunId }) {
+  const verified = new Map();
+  for (const run of runs) {
+    if (run.id === currentRunId || run.head_sha !== headSha || run.workflow_id !== workflowId) continue;
+    if (!FULL_TEST_EVENTS.includes(run.event)) continue;
+    for (const job of jobsByRun.get(run.id) ?? []) {
+      // 呼ばれる側のworkflow（product-full-ci.yml）のjob `full` の、環境ごとの名前。「full / full (windows-native)」。
+      const environment = /(?:^|\/ )full \(([^()]+)\)$/u.exec(job.name ?? '')?.[1];
+      if (!ALL_ENVIRONMENTS.includes(environment)) continue;
+      if (job.status !== 'completed' || job.conclusion !== 'success') continue;
+      if (!verified.has(environment)) verified.set(environment, run.id);
+    }
+  }
+  return verified;
+}
+
+const PRIOR_FULL_RUN_LIMIT = 10;
+
+// GitHubへ聞けない・答えが読めない時は、何も通っていない物として扱う（試験を流す側へ倒す）。訳はCIの記録へ出す。
+async function lookupPriorFull(environment, fetchImpl = fetch) {
+  const none = (note) => ({ verified: new Map(), note });
+  const repository = environment.GITHUB_REPOSITORY;
+  const currentRunId = Number(environment.GITHUB_RUN_ID);
+  if (!repository || !Number.isSafeInteger(currentRunId) || currentRunId <= 0) {
+    return none('GitHub Actionsの実行ではないので、同じcommitの成功は調べない');
+  }
+  const headSha = resolveCommit(environment.GITHUB_SHA);
+  const api = (environment.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/u, '');
+  const headers = {
+    accept: 'application/vnd.github+json',
+    'x-github-api-version': '2022-11-28',
+    'user-agent': 'aiterm-product-ci-plan',
+  };
+  if (environment.GITHUB_TOKEN) headers.authorization = `Bearer ${environment.GITHUB_TOKEN}`;
+  const get = async (pathname) => {
+    const response = await fetchImpl(`${api}/repos/${repository}${pathname}`, {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${pathname}`);
+    return response.json();
+  };
+  try {
+    const current = await get(`/actions/runs/${currentRunId}`);
+    const workflowId = current.workflow_id;
+    if (!Number.isSafeInteger(workflowId)) throw new Error('今の実行のworkflow_idが読めない');
+    const listed = await get(`/actions/workflows/${workflowId}/runs?head_sha=${headSha}&per_page=100`);
+    const runs = (Array.isArray(listed.workflow_runs) ? listed.workflow_runs : [])
+      .filter((run) => run.id !== currentRunId && run.head_sha === headSha && FULL_TEST_EVENTS.includes(run.event))
+      .slice(0, PRIOR_FULL_RUN_LIMIT);
+    const jobsByRun = new Map();
+    for (const run of runs) {
+      const jobs = await get(`/actions/runs/${run.id}/jobs?filter=latest&per_page=100`);
+      jobsByRun.set(run.id, Array.isArray(jobs.jobs) ? jobs.jobs : []);
+    }
+    return {
+      verified: priorFullEnvironments({ runs, jobsByRun, headSha, workflowId, currentRunId }),
+      note: `同じcommitの全テストの実行を${runs.length}件調べた`,
+    };
+  } catch (error) {
+    return none(`同じcommitの成功を確かめられないので、試験を流す（${error.message}）`);
+  }
+}
+
+// pushの計画から、同じcommitの全テストでもう通っている環境を外す。
+async function withoutVerifiedEnvironments(plan, environment) {
+  if (environment.EVENT_NAME !== 'push' || !plan.productChange) return { ...plan, priorFull: {}, priorFullNote: '' };
+  const { verified, note } = await lookupPriorFull(environment);
+  const priorFull = Object.fromEntries(
+    plan.environments.filter((name) => verified.has(name)).map((name) => [name, verified.get(name)]),
+  );
+  return {
+    ...plan,
+    environments: plan.environments.filter((name) => !verified.has(name)),
+    priorFull,
+    priorFullNote: note,
+  };
 }
 
 export function selectTestFiles(changedPaths, root = process.cwd()) {
@@ -285,19 +388,23 @@ function writeGithubOutputs(plan, outputPath) {
     `environments=${JSON.stringify(plan.environments)}`,
     `test_scope=${plan.testScope}`,
     `test_files=${JSON.stringify(plan.testFiles)}`,
+    `prior_full=${JSON.stringify(plan.priorFull)}`,
     '',
   ].join('\n'), 'utf8');
 }
 
-function main() {
+async function main() {
   const mode = process.argv[2];
   if (mode === 'plan') {
-    const plan = createPlan(process.env);
+    const plan = await withoutVerifiedEnvironments(createPlan(process.env), process.env);
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUTがありません');
     writeGithubOutputs(plan, process.env.GITHUB_OUTPUT);
+    const verified = Object.entries(plan.priorFull).map(([name, run]) => `${name}=run ${run}`);
     process.stdout.write(
-      `CI plan: ${plan.reason}; environments=${plan.environments.join(',')}; tests=${plan.testScope}`
-      + `${plan.testFiles.length > 0 ? `:${plan.testFiles.join(',')}` : ''}\n`,
+      `CI plan: ${plan.reason}; environments=${plan.environments.join(',') || 'なし'}; tests=${plan.testScope}`
+      + `${plan.testFiles.length > 0 ? `:${plan.testFiles.join(',')}` : ''}\n`
+      + `${plan.priorFullNote ? `CI plan: ${plan.priorFullNote}\n` : ''}`
+      + `${verified.length > 0 ? `CI plan: 同じcommitの全テストが成功済みの環境は流さない: ${verified.join(', ')}\n` : ''}`,
     );
     return;
   }
@@ -306,6 +413,8 @@ function main() {
       classifyResult: process.env.CLASSIFY_RESULT,
       fullResult: process.env.FULL_RESULT,
       productChange: process.env.PRODUCT_CHANGE,
+      environments: process.env.ENVIRONMENTS,
+      priorFull: process.env.PRIOR_FULL,
     });
     process.stdout.write('CI result: 選択計画と実行結果が一致しました\n');
     return;
@@ -315,7 +424,7 @@ function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    main();
+    await main();
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 2;

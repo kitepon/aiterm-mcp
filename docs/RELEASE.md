@@ -11,6 +11,9 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 - 版番号だけの変更はJSONの実差分で識別し、Linuxでbuildと配布metadata・pack・文書確認を行う。依存や実行設定の変更は省略しない。
   文書だけなら文書検査、実装と文書の混在なら関連試験と文書検査を行う。
 - 週1回の定期実行（月曜 03:00 JST）と手動実行は、指定された環境で全テストを回す。定期実行の対象は3環境である。
+- pushは、同じcommitの全テスト（手動実行か定期実行）がもう通っている環境を流さない。枝で手動実行を通してからmainへ早送りすると、
+  mainのpushは変更分類と関門だけで終わる。通っている環境が一部の時は、残りの環境だけを流す。GitHubへ聞けない時は、選んだ環境を全部流す。
+  同じcommitのpush・pull requestの成功は、試験を絞っている事があるので数えない（ADR 0115）。
 - tag push: 所有確認と、tagged commitが`origin/main`の祖先であることの確認だけを行い、npmへprovenance付きで
   publishする。同じcommitのmain CIの結果は待たない。
 
@@ -19,6 +22,8 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 1. 変更に直結するfocused testを手元で通す。full regressionは手元で回さず、CIに任せる。
    個別試験も`node --import ./test/seat-env.mjs --test ...`で起動する。稼働中の席の保存場所を試験へ継承しない。
 2. `CHANGELOG.md`の`## [Unreleased]`へ内容を書き、mainへcommitしてpushする。
+   3環境の全テストを先に通しておく時は、枝をpushして手動実行（`gh workflow run ci.yml --ref <枝> -f environment=all -f comparison_base=<前の公開commit>`）を
+   1回流し、通ったcommitをそのままmainへ早送りする。Windowsの全テストは1回で済む。
 3. 一回で公開する。
 
    ```bash

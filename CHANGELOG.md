@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codexの席は、`-c service_tier=default`を付けて起こす。今までは何も渡さず、利用者のconfigの`service_tier`と、modelの既定の段で流れていた。
 - Claude Codeの席ごとの設定（Aitermが`--settings`で渡すfile）へ`fastMode: false`が入る。
 - `agent_configure`は、何も指定しない時の文が「model、reasoning_effort、fast のいずれかを指定してください」になる。
+- CI: pushは、同じcommitの全テスト（手動実行か定期実行）がもう通っている環境を流さない（ADR 0115）。枝で3環境の全テストを通してから
+  mainへ早送りすると、同じcommitで同じ試験がもう一度（Windowsは12分）走っていた。製品の動きは変わらない。
 
 ### 修正
 

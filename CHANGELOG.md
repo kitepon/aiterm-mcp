@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.3] - 2026-10-12
+
 ### 修正
 
 - `agent_configure`が、Claude Codeの席のmodel／effortを替える時に、端末の`~/.claude/settings.json`の既定を書き換えていた件を直す（ADR 0111）。
@@ -2522,7 +2524,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.3...HEAD
+[0.58.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.2...v0.58.3
 [0.58.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.1...v0.58.2
 [0.58.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.57.4...v0.58.0

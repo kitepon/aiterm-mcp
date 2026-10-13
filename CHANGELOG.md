@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     起動で`FAST_MODE_UNAVAILABLE`・`FAST_MODE_UNCONFIRMED`になった時は、起動を断らずに通常の速度で起こし、返りの`fast_error`に訳を入れる。
   - Claude Codeをファストへ入れる所は、usage creditsが要るので本物では確かめていない（使えない時の断りまでを本物で、入る所は実物の作りを写した模擬で確かめた）。
 
+- 席の環境へ、席の会話ID（`AITERM_AGENT_VENDOR_SESSION_ID`）を入れる（ADR 0118）。起動の時点で会話IDが決まるClaude CodeとGrokの席だけ。
+  起動の印（`AITERM_AGENT_LAUNCH_ID`）は席が起こした子にも継がれるので、hookなどが「席そのものの会話か」を見分ける時に、自分の会話IDと比べる。
+
 ### 変更
 
 - Codexの席は、`-c service_tier=default`を付けて起こす。今までは何も渡さず、利用者のconfigの`service_tier`と、modelの既定の段で流れていた。

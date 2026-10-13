@@ -6466,6 +6466,14 @@ function buildAgentCmd(
   return buildGrokAgentCmd(kind, bin, model, effort, prompt, meta);
 }
 
+/**
+ * 席の会話ID（`--session-id`で起こすClaude CodeとGrokだけ、起動の時点で決まっている）。席のprocessが起こした子にも起動の印
+ * （AITERM_AGENT_LAUNCH_ID）は継がれるので、hookなどが「席そのものの会話か」を見分ける時は、この値を自分の会話IDと比べる（ADR 0118）。
+ */
+function agentVendorSessionEnv(meta: AgentMetadata): [string, string][] {
+  return meta.vendor_session_id ? [["AITERM_AGENT_VENDOR_SESSION_ID", meta.vendor_session_id]] : [];
+}
+
 /** Cursor用のagent環境変数（名前と値）。Windowsでは引用規則の違うPowerShell paneへ渡す。 */
 function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string[] = []): [string, string][] {
   const inherited = envVars.flatMap((name): [string, string][] => {
@@ -6478,6 +6486,7 @@ function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string
     ["AITERM_SESSION_ID", sid],
     ["AITERM_AGENT_SESSION_ID", sid],
     ["AITERM_AGENT_LAUNCH_ID", meta.launch_id],
+    ...agentVendorSessionEnv(meta),
     ["AITERM_AGENT_ROLE", meta.agent_role ?? "subagent"],
     ["AITERM_AGENT_PARENT_SESSION_ID", meta.parent_session_id ?? "host-root"],
     ["AITERM_AGENT_DEPTH", String(meta.delegation_depth ?? 1)],
@@ -6500,6 +6509,7 @@ function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string
       `AITERM_SESSION_ID=${shq(sid)}`,
       `AITERM_AGENT_SESSION_ID=${shq(sid)}`,
       `AITERM_AGENT_LAUNCH_ID=${shq(meta.launch_id)}`,
+      ...agentVendorSessionEnv(meta).map(([name, value]) => `${name}=${shq(value)}`),
       `AITERM_AGENT_ROLE=${shq(meta.agent_role ?? "subagent")}`,
       `AITERM_AGENT_PARENT_SESSION_ID=${shq(meta.parent_session_id ?? "host-root")}`,
       `AITERM_AGENT_DEPTH=${shq(String(meta.delegation_depth ?? 1))}`,

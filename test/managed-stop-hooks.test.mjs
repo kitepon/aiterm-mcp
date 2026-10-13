@@ -177,6 +177,65 @@ test("claude-stop-hook: secure markerのoperation_idをresultとeventへ同一�
   }
 });
 
+// 席の印は、席のprocessが起こした子や、Claude Codeの裏の常駐を通じて、席と関係の無い会話にも継がれる（ADR 0119）。
+function seatFiles(agents, session, launchId) {
+  const base = path.join(agents, `${session}.${launchId}`);
+  return { meta: `${base}.agent.json`, result: `${base}.claude-result.json`, events: `${base}.events.jsonl`, marker: `${base}.claude-operation.json` };
+}
+function claudeSeatWithRunningTurn(prefix, vendorSessionId) {
+  const state = makeHookState(prefix);
+  const session = "seatown";
+  const launchId = "99990000aaaabbbbccccddddeeeeffff";
+  const files = seatFiles(state.agents, session, launchId);
+  if (vendorSessionId) fs.writeFileSync(files.meta, JSON.stringify({ kind: "claude", aiterm_session: session, launch_id: launchId, vendor_session_id: vendorSessionId }) + "\n", { mode: 0o600 });
+  fs.writeFileSync(files.result, JSON.stringify({ schema: "aiterm.claude-turn-result.v2", text: "席の前の番の答え" }) + "\n", { mode: 0o600 });
+  fs.writeFileSync(files.marker, JSON.stringify({ schema: "aiterm.claude-operation-marker.v1", operation_id: null }) + "\n", { mode: 0o600 });
+  const env = { AITERM_AGENT_KIND: "claude", AITERM_SESSION_ID: session, AITERM_AGENT_LAUNCH_ID: launchId };
+  return { ...state, files, env };
+}
+const stopOf = (sessionId, message) => ({ session_id: sessionId, hook_event_name: "Stop", last_assistant_message: message });
+
+test("claude-stop-hook: 席の印を継いだ別の会話のStopは、席の答え・event・番の印に触らない", { skip: undefined }, () => {
+  const seat = claudeSeatWithRunningTurn("aiterm-claude-foreign-", "11111111-1111-4111-8111-111111111111");
+  try {
+    const before = fs.readFileSync(seat.files.result, "utf8");
+    const r = spawnClaudeHook(seat.tmp, seat.env, stopOf("22222222-2222-4222-8222-222222222222", "裏の会話の答え"));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, "");
+    assert.equal(fs.readFileSync(seat.files.result, "utf8"), before, "席の答えを上書きしない");
+    assert.equal(fs.existsSync(seat.files.events), false, "席のeventへ足さない");
+    assert.equal(fs.existsSync(seat.files.marker), true, "席の番の印を消さない");
+  } finally { fs.rmSync(seat.tmp, { recursive: true, force: true }); }
+});
+
+test("claude-stop-hook: 席の記録が無い時は、環境の会話IDと違う会話のStopに触らせない", { skip: undefined }, () => {
+  const seat = claudeSeatWithRunningTurn("aiterm-claude-foreign-env-", null);
+  try {
+    const before = fs.readFileSync(seat.files.result, "utf8");
+    const r = spawnClaudeHook(seat.tmp, { ...seat.env, AITERM_AGENT_VENDOR_SESSION_ID: "11111111-1111-4111-8111-111111111111" },
+      stopOf("22222222-2222-4222-8222-222222222222", "裏の会話の答え"));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.readFileSync(seat.files.result, "utf8"), before);
+    assert.equal(fs.existsSync(seat.files.events), false);
+    assert.equal(fs.existsSync(seat.files.marker), true);
+  } finally { fs.rmSync(seat.tmp, { recursive: true, force: true }); }
+});
+
+test("claude-stop-hook: 席の会話のStopは今までどおり書く。席の記録の会話IDは、環境の値より先に見る", { skip: undefined }, () => {
+  // 席の記録は新しい会話ID、環境は起動時の古い会話ID（席の会話を後から結び直した形）。
+  const seat = claudeSeatWithRunningTurn("aiterm-claude-own-", "33333333-3333-4333-8333-333333333333");
+  try {
+    const r = spawnClaudeHook(seat.tmp, { ...seat.env, AITERM_AGENT_VENDOR_SESSION_ID: "11111111-1111-4111-8111-111111111111" },
+      stopOf("33333333-3333-4333-8333-333333333333", "席の番の答え"));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, "");
+    assert.equal(JSON.parse(fs.readFileSync(seat.files.result, "utf8")).text, "席の番の答え");
+    const event = JSON.parse(fs.readFileSync(seat.files.events, "utf8").trim());
+    assert.equal(event.vendor_session_id, "33333333-3333-4333-8333-333333333333");
+    assert.equal(fs.existsSync(seat.files.marker), false, "席の番の印は消費する");
+  } finally { fs.rmSync(seat.tmp, { recursive: true, force: true }); }
+});
+
 test("claude-stop-hook: malformed operation markerを帰属なし完了へ降格しない", { skip: undefined }, () => {
   const { tmp, agents } = makeHookState("aiterm-claude-bad-operation-");
   const session = "claudebadoperation";

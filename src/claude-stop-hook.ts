@@ -146,6 +146,21 @@ function consumeOperationMarker(file: string, marker: OperationMarker): void {
   fs.unlinkSync(file);
 }
 
+/**
+ * 席の会話ID。席の記録（Aitermが書く `…agent.json`）を先に読み、無い・読めない時だけ、起動時に環境へ入れた値を見る。
+ * 記録を先にするのは、席の会話を後から結び直した時に、環境の値は起動時のまま残るため。
+ * どちらも無い時は null（今までどおり、印だけで席の物と数える）。
+ */
+function seatVendorSessionId(agents: string, session: string, launchId: string): string | null {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(agents, `${session}.${launchId}.agent.json`), "utf8")) as Record<string, unknown>;
+    if (typeof meta.vendor_session_id === "string" && meta.vendor_session_id) return meta.vendor_session_id;
+  } catch {
+    // 席の記録が無い・読めない。
+  }
+  return process.env.AITERM_AGENT_VENDOR_SESSION_ID || null;
+}
+
 async function main(): Promise<void> {
   if (!hasAitermEnv()) noop();
   const kind = process.env.AITERM_AGENT_KIND;
@@ -165,11 +180,16 @@ async function main(): Promise<void> {
   if (typeof payload.session_id !== "string" || !payload.session_id) fail("Claude session_id がありません");
   if (typeof payload.last_assistant_message !== "string") fail("last_assistant_message がありません");
 
+  // 席の印（環境変数）は、席のprocessが起こした子や、Claude Codeの裏の常駐を通じて、席と関係の無い会話にも継がれる。
+  // 席の会話と違う会話のStopは、席の記録（答え・event・番の印）に触らない（ADR 0119）。
+  const agents = agentsDir();
+  const seatConversation = seatVendorSessionId(agents, session, launchId);
+  if (seatConversation !== null && seatConversation !== payload.session_id) noop();
+
   const text = payload.last_assistant_message;
   const resultBytes = Buffer.byteLength(text, "utf8");
   if (resultBytes > MAX_RESULT_BYTES) fail(`assistant result が${MAX_RESULT_BYTES} bytesを超えています`);
   const resultDigest = createHash("sha256").update(text, "utf8").digest("hex");
-  const agents = agentsDir();
   const resultFile = path.join(agents, `${session}.${launchId}.claude-result.json`);
   const eventFile = path.join(agents, `${session}.${launchId}.events.jsonl`);
   const operationFile = path.join(agents, `${session}.${launchId}.claude-operation.json`);

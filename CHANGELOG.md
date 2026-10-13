@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- Claude CodeのStopのhookが、席の印を継いだ別の会話（席が起こした子や、裏の会話）の番の終わりで、席の答えのfileを上書きし、席の番の印を
+  消していた件を直す（ADR 0119）。席の会話と違う会話のStopでは、席の記録に触らない。席の会話IDは、席の記録を先に、無ければ環境の値で見る。
+
 ## [0.59.1] - 2026-10-13
 
 ### 修正

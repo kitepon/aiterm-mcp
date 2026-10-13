@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codexの完了待ちが、長く続いた番で「Codex transcript のturn増分が大きすぎます」と誤りで止まっていた件を直す。**
   待ち始めの位置から16MiBを超えて書いた番で起きた（2026-10-13の夜の番は、開始の後ろが約8.4MBまで行った）。会話の記録を4MiBずつ読み、
   番の大きさには上限を置かない。改行が来ないまま16MiBを超えた1行だけ、持たずに読み飛ばす。
+- 片付け済み（archived）などで断られたCodexへの配送を、会話を戻した後に同じ配送IDで渡し直せなかった件を直す
+  （`aiterm-parent-delivery codex submit`が`PARENT_DELIVERY_DUPLICATE`で断っていた）。共通部品`aiterm-steer-delivery`を`^0.4.7`へ上げる。
 
 ## [0.59.1] - 2026-10-13
 

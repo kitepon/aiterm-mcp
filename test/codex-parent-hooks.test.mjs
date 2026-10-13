@@ -2,6 +2,7 @@ import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as fs from 'node:fs';
+import {spawn} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -45,6 +46,20 @@ test('同時に二つのhookが動いても一つだけが回答を出力する'
   await Promise.all([1,2].map(()=>runCodexResultHook(f.event,async value=>{outputs.push(value);},f.options)));
   assert.equal(outputs.filter(value=>value.hookSpecificOutput).length,1);
   assert.equal(f.claim().state,'emitted');
+});
+
+test('偽の受け口: 並んで動いても、書き換えの途中のキューを読まない',async t=>{
+  // 上の試験は、hookの数だけ偽の受け口を起こして同じfileを見せる。偽物がその場で書くと、空や途中のJSONを読んだ側が異常終了して、
+  // 製品はCODEX_RECEIVER_TRANSPORT_FAILEDを返す（2026-10-14、macOSのCI）。
+  const f=setup(t); writeHookJson(f.queue,Array.from({length:40},(_,i)=>({id:'queue-'+i,clientUserMessageId:'foreign-'+i,input:[{type:'text',text:'x'.repeat(200)}]})));
+  const run=method=>new Promise(resolve=>{
+    const child=spawn(process.execPath,[fixture,f.queue],{stdio:['pipe','pipe','pipe']}); let answered=0; let stderr='';
+    child.stdin.on('error',()=>{}); child.stdout.on('data',data=>{answered+=String(data).split('\n').length-1;}); child.stderr.on('data',data=>{stderr+=data;});
+    child.on('close',code=>resolve({code,answered,stderr}));
+    for(let id=0;id<500;id++) child.stdin.write(JSON.stringify({id,method,params:{queuedSubmissionId:'無いid',limit:100}})+'\n');
+    child.stdin.end();
+  });
+  assert.deepEqual(await Promise.all([run('thread/queue/delete'),run('thread/queue/list')]),Array(2).fill({code:0,answered:500,stderr:''}));
 });
 
 test('本文が書き換えられていたらキューから削除しない',async t=>{

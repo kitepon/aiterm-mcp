@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CIの入口と`npm test`は、この確かめ（`test/seat-env.test.mjs`）を先に流し、落ちたらほかの試験を起こさない。CIの入口は、
     端末の本体（tmux・psmux・pwsh）が見えない時と、選んだ試験の名前が空や不正の時に、組む前に落ちる。
   - 混んだ端末で上限に当たった待ち（席が起きるのを待つ所）を延ばした。
+- 試験: Codexのhookの試験の偽の受け口（`test/fixtures/codex-hook-queue.mjs`）が、キューのfileをその場で書いていた。同時に動くhookの数だけ
+  偽物が起きて同じfileを見るので、空にしてから書き終えるまでの間に読んだ偽物が異常終了し、「同時に二つのhookが動いても…」が
+  `CODEX_RECEIVER_TRANSPORT_FAILED`で落ちる事があった（macOSのCI）。一時fileからの置き換えにした。製品の動きは変わらない。
 
 ### 修正
 

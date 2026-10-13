@@ -1,3 +1,4 @@
+import "../test/seat-env.mjs"; // 最初のimportに置く（ADR 0121）。gitを、動かした利用者の設定とhookで呼ばない。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";

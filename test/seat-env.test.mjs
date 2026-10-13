@@ -55,13 +55,50 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
 });
 
 // 試験fileは、入口（--import）を通らずに流される事がある。引数が空の`node --test`は、その場所から下の試験fileを全部拾う（ADR 0087の追記）。
-test('試験fileは、最初のimportで前処理を読む', () => {
-  const directory = fileURLToPath(new URL('.', import.meta.url));
-  const missing = readdirSync(directory).filter(name => name.endsWith('.test.mjs')).filter((name) => {
-    const first = readFileSync(join(directory, name), 'utf8').split('\n').find(line => line.startsWith('import '));
-    return !/^import ['"]\.\/seat-env\.mjs['"];/.test(first ?? '');
+// 走者が既定で拾うのは、名前が試験の形のfile（*.test.mjs など）と、`test`という名前のフォルダの下のfile全部。
+// `test/`の共通の準備（*-support.mjs）と`scripts/`の試験も拾われるので、同じに最初のimportで前処理を読む。
+// 読まないfileは、ここに名前と訳を書いた物だけ。
+const WITHOUT_PRELOAD = {
+  'test/seat-env.mjs': '前処理そのもの',
+  'test/fixtures/codex-hook-queue.mjs': '試験が引数と標準入力を渡して起こす補助。単独では何もしない',
+  'test/fixtures/codex-parent-receiver.mjs': '試験が引数と標準入力を渡して起こす補助。単独では何もしない',
+  'test/fixtures/windows-codex-msix.mjs': '試験が引数を渡して起こす補助。引数が無いと、何もする前に落ちる',
+  'scripts/experiments/codex-queue-hook.test.mjs': '実物のCodexの試し。AITERM_TEST_CODEX_BINARYを渡した時だけ動く',
+  'scripts/experiments/codex-stdio-relay.test.mjs': '実物のCodexの試し。AITERM_TEST_CODEX_BINARYを渡した時だけ動く',
+};
+test('走者が拾うfileは、最初のimportで前処理を読む', () => {
+  const tree = fileURLToPath(new URL('..', import.meta.url));
+  const picked = [];
+  const visit = (directory, underTest) => {
+    for (const entry of readdirSync(join(tree, directory), { withFileTypes: true })) {
+      const file = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') visit(file, underTest || entry.name === 'test');
+      } else if (/\.[cm]?js$/.test(entry.name)) {
+        const stem = entry.name.replace(/\.[cm]?js$/, '');
+        if (underTest || /(?:\.test|-test|_test)$/.test(stem) || stem.startsWith('test-') || stem === 'test') picked.push(file);
+      }
+    }
+  };
+  visit('test', true);
+  visit('scripts', false);
+  const without = picked.filter((file) => {
+    const first = readFileSync(join(tree, file), 'utf8').split('\n').find(line => line.startsWith('import '));
+    return !(file.startsWith('test/') ? /^import ['"]\.\/seat-env\.mjs['"];/ : /^import ['"]\.\.\/test\/seat-env\.mjs['"];/).test(first ?? '');
   });
-  assert.deepEqual(missing, []);
+  assert.deepEqual(without.sort(), Object.keys(WITHOUT_PRELOAD).sort());
+});
+
+// 前処理を読まない実物のCodexの試しは、実行ファイルを渡されなければ、1本も動かない（端末に入っているCodexを探しに行かない）。
+test('実物のCodexの試しは、実行ファイルを渡されなければ全部飛ぶ', () => {
+  const tree = fileURLToPath(new URL('..', import.meta.url));
+  const { NODE_TEST_CONTEXT: _context, AITERM_TEST_CODEX_BINARY: _binary, ...env } = process.env;
+  const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap',
+    ...Object.keys(WITHOUT_PRELOAD).filter(file => file.startsWith('scripts/experiments/'))], { cwd: tree, encoding: 'utf8', timeout: 60000, env });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /^# pass 0$/m);
+  assert.match(result.stdout, /^# fail 0$/m);
+  assert.match(result.stdout, /^# skipped [1-9]\d*$/m);
 });
 
 test('入口を通らずに前処理を最初のimportで読んだprocessも、席のstateと系譜を引き継がない', () => {
@@ -177,7 +214,8 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
       XDG_DATA_HOME: join(owner, '.local', 'share'), XDG_CACHE_HOME: join(owner, '.cache'), npm_config_userconfig: join(owner, '.npmrc'),
       npm_config_cache: join(owner, '.npm'), AITERM_STATE_BASE: join(owner, 'state'), TMUX_TMPDIR: owner, THROUGHLINE_BIN: join(owner, 'throughline'),
       DOCKER_CONFIG: join(owner, '.docker'), KUBECONFIG: join(owner, '.kube', 'config'), GOOGLE_APPLICATION_CREDENTIALS: join(owner, 'gcp.json'),
-      SSH_AUTH_SOCK: join(owner, 'agent.sock'),
+      SSH_AUTH_SOCK: join(owner, 'agent.sock'), GIT_TEMPLATE_DIR: join(owner, 'git-template'), GIT_SSH_COMMAND: join(owner, 'ssh'),
+      GIT_ASKPASS: join(owner, 'askpass'), GIT_AUTHOR_NAME: `${mark}-author`, GIT_COMMITTER_NAME: `${mark}-committer`, GIT_DIR: join(owner, 'git-dir'),
       // 席と系譜
       AITERM_SESSION_ID: mark, AITERM_AGENT_SESSION_ID: mark, AITERM_AGENT_ROLE: mark, AITERM_AGENT_LINEAGE: `host-root>claude:${mark}`,
       AITERM_AGENT_LAUNCH_ID: mark, TMUX: `/${mark}/socket,1,0`, TMUX_PANE: mark, BELLTEAM_ROOT: owner, BELLTEAM_HOME: owner,
@@ -235,6 +273,47 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
     }
   });
 }
+
+// `scripts/verify-release-commit.test.mjs`は、gitでrepositoryを作り、commitし、手元のremoteへpushする。
+// 親が、偽のgitの設定（利用者の設定のfileと環境の両方でhookの置き場、repositoryのひな形のhook、名前）を持っていても、
+// 入口を通らずに流されたこの試験は、それを使わない。hookは、走ると目印のfileへ名前を書く。本物の設定は使わない。
+test('gitを呼ぶ試験は、入口を通らずに流されても、親のgitの設定とhookを使わない', {
+  skip: spawnSync('git', ['--version']).status === 0 ? false : 'git 未インストール',
+}, () => {
+  const tree = fileURLToPath(new URL('..', import.meta.url));
+  const root = mkdtempSync(join(tmpdir(), 'seat-git-'));
+  const owner = join(root, 'owner-production');
+  const ran = join(root, 'ran');
+  const hook = name => `#!/bin/sh\necho ${name} >> '${ran.replace(/\\/g, '/')}'\n`;
+  const slash = file => file.replace(/\\/g, '/');
+  for (const directory of [join(owner, 'hooks'), join(owner, 'template', 'hooks')]) {
+    mkdirSync(directory, { recursive: true });
+    for (const name of ['pre-commit', 'commit-msg', 'post-commit', 'pre-push']) writeFileSync(join(directory, name), hook(name), { mode: 0o755 });
+  }
+  writeFileSync(join(owner, '.gitconfig'), `[core]\n\thooksPath = ${slash(join(owner, 'hooks'))}\n[init]\n\ttemplateDir = ${slash(join(owner, 'template'))}\n`
+    + '[user]\n\tname = owner-name\n\temail = owner@example.invalid\n');
+  const { NODE_TEST_CONTEXT: _context, ...inherited } = process.env;
+  const env = { ...inherited, HOME: owner, USERPROFILE: owner, GIT_CONFIG_GLOBAL: join(owner, '.gitconfig'), GIT_TEMPLATE_DIR: join(owner, 'template'),
+    GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: slash(join(owner, 'hooks')),
+    GIT_AUTHOR_NAME: 'owner-author', GIT_COMMITTER_NAME: 'owner-committer' };
+  try {
+    // 前提の確かめ: この偽の設定は、前処理を通らないgitには効く（hookが走る）。
+    const plain = join(root, 'plain');
+    mkdirSync(plain);
+    const git = (...args) => spawnSync('git', args, { cwd: plain, encoding: 'utf8', timeout: 30000, env });
+    assert.equal(git('init').status, 0);
+    const committed = git('commit', '--allow-empty', '-m', 'owner hook check');
+    assert.equal(committed.status, 0, committed.stderr);
+    assert.match(readFileSync(ran, 'utf8'), /pre-commit/, '偽のhookが効いていない（確かめにならない）');
+    rmSync(ran);
+
+    const result = spawnSync(process.execPath, ['--test', 'scripts/verify-release-commit.test.mjs'], { cwd: tree, encoding: 'utf8', timeout: 120000, env });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(existsSync(ran), false, `親のhookが走った: ${existsSync(ran) ? readFileSync(ran, 'utf8') : ''}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 // 一般の試験は、端末に入っている本物のharnessを起こさない。親は、harnessが入っている端末に見立てた偽物を、製品が探す3つの場所
 // （名指しの変数・homeの決まった場所・PATH）の全部に持っている。偽物は、起きると目印のfileへ1行書く。

@@ -1,6 +1,7 @@
 // runtime-error-storeの試験（runtime-error-store*.test.mjs）が共有する準備。試験は入れない。
 // 1つだった試験fileを2つに分けたのは、fileの中の試験が1本ずつ順に走るため（Windowsでは保存のたびに権限の設定を確かめるので、
 // この1 fileで236秒かかっていた）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）。test/の下のfileは、よその走者に単独でも拾われる。
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";

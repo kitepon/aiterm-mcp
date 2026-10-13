@@ -2,6 +2,7 @@
 // 偽のCLI・一時のHOME・後片付けを、読み込んだ試験のprocessごとに1回ずつ用意する。
 // 1つだった試験fileを分けたのは、file の中の試験が1本ずつ順に走るため（Windowsで687秒、ほかの全fileが終わった後も8分ほど
 // この1 fileを待っていた）。分けた file は並んで走る。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）。test/の下のfileは、よその走者に単独でも拾われる。
 import { after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

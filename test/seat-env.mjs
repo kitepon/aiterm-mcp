@@ -1,6 +1,6 @@
 // npm testとCIの入口。試験processごとに、親の席から保存場所と系譜を引き継がない。
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,6 +21,18 @@ for (const key of ['TEMP', 'TMP', 'XDG_RUNTIME_DIR']) process.env[key] = root;
 // 既定socketはTEMPで隔離し、TMPDIRは個別試験が指定する時だけ使う。
 if (process.platform === 'win32') delete process.env.TMPDIR;
 else process.env.TMPDIR = root;
+
+// 試験は、動かす利用者のhomeを読まない・書かない。CIのrunnerの利用者が替わっても、homeに何が入っていても、同じ結果にする。
+// 席のbashは~/.bashrcを読んで~/.bash_historyへ打った命令を書き、製品は~/.config/aiterm-mcpと~/.claude/settings.jsonを読む。
+// POSIXは、HOMEと、HOMEから決まる置き場（XDG）を、この試験processの置き場へ向ける。自分のHOMEを立てる試験は、それが勝つ。
+// Windowsは変えない。psmux・PowerShell・npmはUSERPROFILEとLOCALAPPDATAを見ていて、差し替えるとPowerShellが起動のたびに
+// cacheを作り直して遅くなる。
+if (process.platform !== 'win32') {
+  const home = join(root, 'home');
+  mkdirSync(home, { mode: 0o700 });
+  process.env.HOME = home;
+  for (const key of ['XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME']) delete process.env[key];
+}
 
 // 作った置き場は、このprocessの終わりに消す（ADR 0104）。tmuxはserverが終わってもsocketのfileを残すので、
 // fileの有無ではなく、つながるかで生死を見る。生きたserverが残っている時は、試験が閉じ忘れた席の手掛かりとして置き場を残す。
@@ -61,7 +73,8 @@ process.on('exit', () => {
         return;
       }
     }
-    rmSync(root, { recursive: true, force: true });
+    // Windowsでは、止めたばかりの端末の本体が記録のfileをまだ開いている事がある。少し待って消し直す。
+    rmSync(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 150 });
   } catch {
     // 消せない置き場（Windowsで開かれたままのfileなど）は残す。試験の結果は変えない。
   }

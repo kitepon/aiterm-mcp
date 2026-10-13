@@ -50,6 +50,37 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
   }
 });
 
+// CIのrunnerの利用者が替わっても、homeに何が入っていても、同じ結果にする（ADR 0121）。
+test('試験入口は、動かす利用者のhomeの代わりに、置き場の中の空のhomeを渡す', {
+  skip: process.platform === 'win32' ? 'Windowsは利用者フォルダを差し替えない' : false,
+}, () => {
+  const root = mkdtempSync(join(tmpdir(), 'seat-home-'));
+  const owner = join(root, 'owner-home');
+  mkdirSync(join(owner, '.config'), { recursive: true });
+  try {
+    const result = spawnSync(process.execPath, ['--import', new URL('./seat-env.mjs', import.meta.url).href,
+      '--input-type=module', '-e', `
+        import { readdirSync } from 'node:fs';
+        import { homedir } from 'node:os';
+        console.log(JSON.stringify({ home: process.env.HOME, os: homedir(), temp: process.env.TEMP,
+          entries: readdirSync(process.env.HOME),
+          xdg: ['XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'].map(key => process.env[key] ?? null) }));
+      `], { encoding: 'utf8', timeout: 10000, env: {
+      ...process.env, HOME: owner, XDG_CONFIG_HOME: join(owner, '.config'), XDG_STATE_HOME: join(owner, 'state'),
+      XDG_DATA_HOME: join(owner, 'data'), XDG_CACHE_HOME: join(owner, 'cache'),
+    } });
+    assert.equal(result.status, 0, result.stderr);
+    const data = JSON.parse(result.stdout);
+    assert.equal(data.home, join(data.temp, 'home'));
+    assert.equal(data.os, data.home, 'OSのhomeの問い合わせも同じ場所を返す');
+    assert.deepEqual(data.entries, []);
+    assert.deepEqual(data.xdg, Array(4).fill(null));
+    assert.equal(existsSync(data.home), false, '置き場ごと、processの終わりに消える');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // 前処理つきのprocessが、自分の置き場にsocketを開くprocessを1つ起こす。
 // leave='live'ならそのprocessを残して終わり、'dead'なら強制終了してsocketのfileだけを残して終わる。
 function runWithSocket(leave) {

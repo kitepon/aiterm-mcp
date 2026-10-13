@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,6 +10,13 @@ import { TelemetryOwnedError } from "../dist/errors.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
 
 const parent = { thread_id: "11111111-2222-4333-8444-555555555551", codex_home: path.join(os.tmpdir(), "親のCodex") };
+
+// SSH共有ソケットの領域は、state rootごとに/tmpの直下へ作られる（remote.tsのcontrolPath）。この試験processの分は終わりに消す。
+after(() => {
+  if (process.platform === "win32") return;
+  const control = sshInvocation({ host: "127.0.0.1" }, "true").args.find((arg) => arg.startsWith("ControlPath="));
+  fs.rmSync(path.dirname(control.slice("ControlPath=".length)), { recursive: true, force: true });
+});
 
 test("接続先はoptionとして解釈される形と改行入りのsshオプションを受け付けない", () => {
   assert.equal(remoteInputSchema.safeParse({ host: "rabbit" }).success, true);

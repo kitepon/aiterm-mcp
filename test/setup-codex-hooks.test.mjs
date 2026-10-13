@@ -8,6 +8,10 @@ import {readCodexHookConfig} from '../dist/codex-hook-state.js';
 import {spawnSync} from 'node:child_process';
 import {resolveWindowsPowerShell7} from '../dist/windows-powershell.js';
 
+// 解除の後片付け（外したhookの承認の記録を消す）は、端末に入っている公式Codexを起こす。試験の端末のcodexを起こさないよう、
+// 無い実行ファイルを指す。後片付けが出来なくても解除は進む作りで、ここではその道を通る。実物のcodexでの確かめはensure-codex-parent-steer.test.mjs。
+process.env.CODEX_BIN=join(tmpdir(),'aiterm-no-codex','codex');
+
 test('WindowsのhookコマンドはPowerShellから標準入出力と引用符を保って実行できる',{skip:process.platform!=='win32'},t=>{
   const root=fs.mkdtempSync(join(tmpdir(),"aiterm hook ' 日本語 "));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));

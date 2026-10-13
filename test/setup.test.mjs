@@ -11,9 +11,10 @@ import { deliveryProviderFile, writeDeliveryProvider } from '../dist/setup-integ
 
 const registration = { command: 'node', args: ['index.js'] };
 const steer = async () => ({ status: 'disabled' });
+// steerを差し替える試験は、codex_steerも渡す。渡さないと、runSetupが利用者の本物の設定（~/.config/aiterm-mcp/codex-parent-hooks）を読んで決める。
 test('依存準備・実動作・登録の順で完了を判定する', async () => {
   const events = [];
-  const result = await runSetup({ steer, provider: () => {}, registration: () => { assert.deepEqual(events, ['prepare']); return registration; }, prepare: () => events.push('prepare'), verify: async () => events.push('verify'), configure: () => { events.push('configure'); return { claude: { status: 'ready' }, codex: { status: 'not_detected' } }; }, progress: () => {} });
+  const result = await runSetup({ steer, codex_steer: 'status', provider: () => {}, registration: () => { assert.deepEqual(events, ['prepare']); return registration; }, prepare: () => events.push('prepare'), verify: async () => events.push('verify'), configure: () => { events.push('configure'); return { claude: { status: 'ready' }, codex: { status: 'not_detected' } }; }, progress: () => {} });
   assert.equal(result.status, 'ready');
   assert.equal(result.backend.status, 'ready');
   assert.deepEqual(events, ['prepare', 'verify', 'configure']);
@@ -45,7 +46,7 @@ test('Steerの有効化は製品導入の後に行い、再起動待ちをready�
 
 test('導入が済んだら、配送を頼む入口の場所を残す。残せなければ成功にしない', async () => {
   const events = [];
-  const base = { registration: () => registration, prepare: () => {}, verify: async () => {}, progress: () => {},
+  const base = { registration: () => registration, prepare: () => {}, verify: async () => {}, progress: () => {}, codex_steer: 'status',
     configure: () => { events.push('configure'); return { codex: { status: 'ready' } }; }, steer: async () => { events.push('steer'); return { status: 'disabled' }; } };
   const seen = [];
   const result = await runSetup({ ...base, provider: (home, value) => { events.push('provider'); seen.push([home, value]); } });

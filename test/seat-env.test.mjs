@@ -243,7 +243,7 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
         places: { codex: realCodexHome(), grok: realGrokHome(), claude: claudeConfigDir(), state: runtimeStateBase(), xdg: process.env.XDG_CONFIG_HOME,
           gh: process.env.GH_CONFIG_DIR, npmrc: process.env.npm_config_userconfig, npmCache: process.env.npm_config_cache },
         git: { version: git('--version'), global: git('config', '--global', '--list'), helper: git('config', '--get-all', 'credential.helper'),
-          name: git('config', '--get', 'user.name') },
+          name: git('config', '--get', 'user.name'), hooks: git('config', '--get', 'core.hooksPath'), template: git('config', '--get', 'init.templateDir') },
       }));
     `;
     try {
@@ -266,6 +266,8 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
         assert.equal(data.git.name, '');
         assert.equal(data.git.helper.split(/\r?\n/).slice(0, -1).at(-1), '', '認証の補助は、最後に空で上書きされている');
         assert.ok(!data.git.helper.includes('owner-helper'));
+        // hookの置き場とひな形は、端末全体の設定に何が書かれていても、試験の置き場の中の空の場所。
+        for (const place of [data.git.hooks, data.git.template]) assert.ok(place.trim().startsWith(data.temp.replace(/\\/g, '/')), `gitの場所が試験の置き場の外: ${place}`);
       }
       assert.deepEqual(snapshot(), before);
     } finally {
@@ -277,7 +279,7 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
 // `scripts/verify-release-commit.test.mjs`は、gitでrepositoryを作り、commitし、手元のremoteへpushする。
 // 親が、偽のgitの設定（利用者の設定のfileと環境の両方でhookの置き場、repositoryのひな形のhook、名前）を持っていても、
 // 入口を通らずに流されたこの試験は、それを使わない。hookは、走ると目印のfileへ名前を書く。本物の設定は使わない。
-test('gitを呼ぶ試験は、入口を通らずに流されても、親のgitの設定とhookを使わない', {
+test('gitを呼ぶ試験は、入口を通らずに流されても、親と端末全体のgitの設定のhookを使わない', {
   skip: spawnSync('git', ['--version']).status === 0 ? false : 'git 未インストール',
 }, () => {
   const tree = fileURLToPath(new URL('..', import.meta.url));
@@ -310,6 +312,31 @@ test('gitを呼ぶ試験は、入口を通らずに流されても、親のgit�
     const result = spawnSync(process.execPath, ['--test', 'scripts/verify-release-commit.test.mjs'], { cwd: tree, encoding: 'utf8', timeout: 120000, env });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(existsSync(ran), false, `親のhookが走った: ${existsSync(ran) ? readFileSync(ran, 'utf8') : ''}`);
+
+    // 端末全体の設定（/etc/gitconfigに当たるfile）にhookの置き場とひな形が書かれている端末に見立てる。前処理は端末全体の設定を外さないが、
+    // この2つは試験専用の空の場所で上書きするので、前処理を通ったprocessのgitは、そのhookを走らせない。
+    // GIT_CONFIG_SYSTEMは、親から継ぐと前処理が外す。子が前処理の後で立てて、端末全体の設定のfileを差し替える。
+    const probe = `
+      import ${JSON.stringify(new URL('./seat-env.mjs', import.meta.url).href)};
+      import { spawnSync } from 'node:child_process';
+      import { mkdirSync } from 'node:fs';
+      import { join } from 'node:path';
+      process.env.GIT_CONFIG_SYSTEM = process.env.AITERM_TEST_SYSTEM_GITCONFIG;
+      const work = join(process.env.TEMP, 'system-hooks');
+      mkdirSync(work);
+      const git = (...args) => spawnSync('git', args, { cwd: work, encoding: 'utf8', timeout: 30000 });
+      const steps = [git('init'), git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'x')];
+      console.log(JSON.stringify({ status: steps.map(step => step.status), stderr: steps.map(step => step.stderr),
+        system: git('config', '--system', '--get', 'core.hooksPath').stdout.trim(), effective: git('config', '--get', 'core.hooksPath').stdout.trim() }));
+    `;
+    const system = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 60000,
+      env: { ...inherited, AITERM_TEST_SYSTEM_GITCONFIG: join(owner, '.gitconfig') } });
+    assert.equal(system.status, 0, system.stderr);
+    const seen = JSON.parse(system.stdout);
+    assert.deepEqual(seen.status, [0, 0], seen.stderr.join('\n'));
+    assert.equal(seen.system, slash(join(owner, 'hooks')), '端末全体の設定に見立てたfileが読まれていない（確かめにならない）');
+    assert.notEqual(seen.effective, seen.system);
+    assert.equal(existsSync(ran), false, `端末全体の設定のhookが走った: ${existsSync(ran) ? readFileSync(ran, 'utf8') : ''}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -55,12 +55,16 @@ BellTeamの席で、別の製品の試験の走者へ空の引数が渡り、`no
    gitは認証の補助を使わず（`GIT_CONFIG_COUNT`で`credential.helper`を空で上書き）、端末へ問い合わせない。
    利用者のgitの設定を読まないと、そこに書かれた`safe.directory`も消えるので、この作業ツリーだけを信頼する場所として同じ口で渡す
    （試験はこの作業ツリーで`git ls-files`などを呼ぶ）。親の`GIT_`で始まる変数（hookの置き場、ひな形、名前、sshの命令など）は、2で外れる。
+   端末全体のgitの設定（`/etc/gitconfig`、Git for Windowsの同梱の設定）は外さない。そこにhookの置き場（`core.hooksPath`）やrepositoryのひな形
+   （`init.templateDir`）が書かれていても使わないよう、この2つは同じ口で、試験の置き場の中の空のフォルダを名指しする（環境からの設定は端末全体の設定に勝つ）。
    外すだけでは足りない。Windowsでは、本物のharnessとnpmが`USERPROFILE`を、ghが`APPDATA`を見るので、名指しが無いと利用者の本物の置き場へ戻る。
 4. 前処理は、走者の子（`NODE_TEST_CONTEXT`）が流すfileがこの作業ツリーの外に在る時、そのfileを読み込む前に終了コード1で止める。
    入口から起こした走者が空の引数でよその試験fileを拾っても、よその試験は動かない。
 5. CIの入口（`scripts/run-product-ci-tests.mjs`）は、選んだ試験の名前が、空・試験fileの形でない・無いfileの時、組む前に落ちる。
 6. CIの入口と`npm test`は、ほかの試験より先に`test/seat-env.test.mjs`だけを流す。落ちたら、ほかの試験は起こさない。
    前処理が効いていない端末で、全部の試験が利用者の置き場に触るのを防ぐ。
+   CIの入口は、端末全体のgitの設定に`core.hooksPath`と`init.templateDir`が書かれているかを、値を出さずに記録へ1行ずつ出す
+   （`git system core.hooksPath: set`／`unset`）。書かれていても前処理が上書きするが、runnerごとの前提を後から記録で確かめられるようにする。
 7. 一般の試験は、端末に入っている本物のharnessを起こさない。製品は、実行ファイルを、名指しの変数（`CLAUDE_BIN`・`CODEX_BIN`・`GROK_BIN`・
    `CURSOR_AGENT_BIN`）→ 決まった場所（homeの下）→ `PATH`の順で探す。前処理は、4つの変数を、起きたら断って終わる偽物（置き場の中）へ向け、
    同じ名前の偽物を`PATH`の先頭にも置く。偽物は呼ばれた事を置き場の記録へ書き、前処理は、記録が在ればprocessの終わりに知らせて失敗にする。
@@ -76,7 +80,9 @@ BellTeamの席で、別の製品の試験の走者へ空の引数が渡り、`no
   `scripts/experiments/`の2つ（実物のCodexの試し。`AITERM_TEST_CODEX_BINARY`を渡した時だけ動き、渡されなければ全部飛ぶ。
   動く時も、一時のhomeと模擬のmodelを使う）。
 - 端末全体のgitの設定（`/etc/gitconfig`、Git for Windowsの同梱の設定）は読む。Windowsでは改行の扱いなどが入っていて、外すと試験の結果が変わる。
-  そこにhookの置き場やひな形が書かれている端末では、試験のgitがそれを使う。認証の補助だけは打ち消している。
+  打ち消しているのは、認証の補助、hookの置き場、repositoryのひな形の3つ。ほかの項目（別の設定fileの取り込み、URLの書き換え、署名の設定など）が
+  書かれている端末では、試験のgitがそれを使う。
+- hookの置き場を名指しするので、試験が作ったrepositoryの中のhook（`.git/hooks`）も走らない。hookを使う試験は、今は無い。
 - `npm test -- <引数>`の引数は、走者が受け取る前には確かめない。空の引数で走者がよその試験fileを拾った時は、4が止める。
 - Windowsの利用者フォルダの変数（`USERPROFILE`・`LOCALAPPDATA`・`APPDATA`）は差し替えない（ADR 0121）。psmux・PowerShell・npmの本体が見ている。
   psmuxは利用者フォルダの`.psmux`へ端末の控えを書く。WindowsのCursorの実行ファイルは`LOCALAPPDATA`の決まった場所を`PATH`より先に見るので、
@@ -93,6 +99,9 @@ BellTeamの席で、別の製品の試験の走者へ空の引数が渡り、`no
 - 親が、偽のgitの設定（利用者の設定のfileと環境の両方でhookの置き場、repositoryのひな形のhook、名前）を持っている。hookは、走ると目印を書く。
   前処理を通らないgitではhookが走る事を先に確かめた上で、`scripts/verify-release-commit.test.mjs`を入口を通さずに流す。
   試験は通り、hookは1つも走らない。この試験fileの最初のimportを抜くと「親のhookが走った: pre-commit」で落ちる。
+  同じ試験で、端末全体の設定に見立てたfile（前処理を通った後のprocessが`GIT_CONFIG_SYSTEM`で差し替える）にhookの置き場とひな形を書き、
+  gitでrepositoryを作ってcommitする。hookは走らない。前処理から2つの名指しを抜くと「端末全体の設定のhookが走った」で落ちる。
+  受け入れの試験は、前処理を通ったprocessの`core.hooksPath`と`init.templateDir`が試験の置き場の中である事も見る。
 - 親が偽の置き場（親の席の記録と、試験の席と同じ名前の記録を置いた物）を`AITERM_STATE_BASE`で指し、系譜とtmuxも渡した環境から、
   入口を通さないprocessが席を登録し、閉じ、`killAll`を呼ぶ。偽の置き場の記録は、名前も中身も更新時刻も変わらない。
   試験の席の登録は、process自身の置き場に書かれて消える。子の最初のimportを抜くと「親の置き場へ書かれた」で落ちる。

@@ -76,18 +76,25 @@ Object.assign(process.env, {
   // gitは、利用者の設定を読まず、認証の補助（端末全体の設定に入っている物も）を使わず、端末へ問い合わせない。
   // 利用者の設定を読まないと、そこに書かれた「この場所を信頼する」（safe.directory）も消える。試験はこの作業ツリーでgitを呼ぶので
   // （文書の一覧、CIの組み立て）、この作業ツリーだけを信頼する場所として渡す。
+  // 端末全体の設定（/etc/gitconfig、Git for Windowsの同梱の設定）は外さない（Windowsでは改行の扱いなどが入っている）。そこにhookの置き場や
+  // repositoryのひな形が書かれていても使わないよう、この2つは試験の置き場の中の空のフォルダを名指しする（環境からの設定は、端末全体の設定に勝つ）。
   GIT_CONFIG_GLOBAL: join(root, 'gitconfig'),
-  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_COUNT: '4',
   GIT_CONFIG_KEY_0: 'credential.helper',
   GIT_CONFIG_VALUE_0: '',
   GIT_CONFIG_KEY_1: 'safe.directory',
   GIT_CONFIG_VALUE_1: fileURLToPath(new URL('..', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, ''),
+  GIT_CONFIG_KEY_2: 'core.hooksPath',
+  GIT_CONFIG_VALUE_2: join(root, 'git-hooks').replace(/\\/g, '/'),
+  GIT_CONFIG_KEY_3: 'init.templateDir',
+  GIT_CONFIG_VALUE_3: join(root, 'git-template').replace(/\\/g, '/'),
   GIT_TERMINAL_PROMPT: '0',
   // npmは、利用者の.npmrc（registryの鍵が入る）とcacheを使わない。
   npm_config_userconfig: join(root, 'npmrc'),
   npm_config_cache: join(root, 'npm-cache'),
 });
 writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
+for (const directory of ['git-hooks', 'git-template']) mkdirSync(join(root, directory));
 
 // 一般の試験は、端末に入っている本物のharness（Claude Code・Codex・Grok・Cursor）を起こさない（ADR 0087の追記）。
 // 製品は、名指しの変数（CLAUDE_BINほか）→ 決まった場所（homeの下。WindowsのCursorはLOCALAPPDATAの下）→ PATH の順で実行ファイルを探す。

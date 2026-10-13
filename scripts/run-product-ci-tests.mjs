@@ -28,6 +28,15 @@ function requireTerminalBackend() {
   }
 }
 
+// 端末全体のgitの設定に、hookの置き場とrepositoryのひな形が書かれているかを、値を出さずに記録へ残す（ADR 0087の追記）。
+// 書かれていても、試験の前処理が試験専用の空の場所で上書きする。runnerごとの前提を、後から記録で確かめられるようにする。
+function reportSystemGitHooks() {
+  for (const key of ['core.hooksPath', 'init.templateDir']) {
+    const result = spawnSync('git', ['config', '--system', '--get', key], { encoding: 'utf8', windowsHide: true });
+    console.log(`git system ${key}: ${result.error ? 'unknown' : result.status === 0 ? 'set' : result.status === 1 ? 'unset' : `unknown (exit ${result.status})`}`);
+  }
+}
+
 const scope = process.env.PRODUCT_CI_TEST_SCOPE;
 // 組んだ後、ほかの試験より先に、前処理の確かめ（test/seat-env.test.mjs）を流す。試験が、動かした利用者の置き場・ログイン・鍵を
 // 継がない事を、そのrunnerで確かめてから先へ進む。落ちた時は、ほかの試験を1つも起こさない（ADR 0087の追記）。
@@ -38,6 +47,7 @@ const build = () => {
 };
 if (scope === 'all') {
   requireTerminalBackend();
+  reportSystemGitHooks();
   build();
   const files = [
     'scripts/verify-release-commit.test.mjs',
@@ -56,6 +66,7 @@ if (scope === 'all') {
     throw new Error('PRODUCT_CI_TEST_FILES が不正です');
   }
   requireTerminalBackend();
+  reportSystemGitHooks();
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
 } else {

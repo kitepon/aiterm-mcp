@@ -49,6 +49,8 @@ Linuxで流し、homeで開かれたfileと呼ばれた実行ファイルを記�
 
 ## 及ばない所
 
+- 計った時の環境は、`CODEX_HOME`・`GROK_HOME`が本物の置き場を指す席だった。目印を置いたのは`HOME`だけなので、名指しされた置き場の読み書きは数えていない。
+  名指しの変数は、ADR 0087の追記（2026-10-13）で前処理が外す。
 - `ssh`はpasswdのhomeを見るので、`HOME`を差し替えても利用者の`~/.ssh/config`を読む（`remote.test.mjs`が`ssh -O check`を2回呼ぶ。つなぎには行かない）。
 - Windowsでは、psmuxが利用者フォルダの`.psmux`へ端末の控えを書き、npmが利用者のcacheへ書く。
 - 計ったのはLinuxだけ。在るfileを開いた事しか記録できない。

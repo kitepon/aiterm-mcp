@@ -1,13 +1,35 @@
 // npm testとCIの入口。試験processごとに、親の席から保存場所と系譜を引き継がない。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// この前処理を通す試験fileは、この作業ツリーの物だけ。引数が空の`node --test`は、file systemの根から試験fileを拾って流す
+// （2026-10-13にBellTeamの席で起きた。ADR 0087の追記）。入口から起こした走者がそうなった時、よその試験fileは動かさずに落とす。
+// 見るのは走者の子（NODE_TEST_CONTEXT）が流すfile（argv[1]）。`-e`で起こした補助のprocessには無い。
+if (process.env.NODE_TEST_CONTEXT && process.argv[1]) {
+  const real = (file) => {
+    try { return realpathSync.native(file); } catch { return file; }
+  };
+  const inside = relative(real(fileURLToPath(new URL('..', import.meta.url))), real(process.argv[1]));
+  if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
+    process.stderr.write(`seat-env: この作業ツリーの外の試験fileは流しません: ${process.argv[1]}\n`);
+    process.exit(1);
+  }
+}
 
 for (const key of Object.keys(process.env)) {
   if (key === 'AITERM_STATE_BASE' || key === 'AITERM_SESSION_ID' || key.startsWith('AITERM_AGENT_')) {
     delete process.env[key];
   }
+}
+// 席や開発機は、harnessと道具の置き場を環境で名指ししている事がある（BellTeamの席はCODEX_HOME・GROK_HOME・GH_CONFIG_DIR・GIT_CONFIG_GLOBAL）。
+// 製品もharnessも、これらをHOMEより先に見るので、下でHOMEを差し替えても本物の置き場を読み書きする。外して、HOMEから決めさせる。
+for (const key of ['CODEX_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR', 'CURSOR_HOME', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL']) delete process.env[key];
+// 動かした席やrunnerの鍵と、席を置いている製品（BellTeam）の環境は、試験にも、試験が起こすprocessにも渡さない。
+for (const key of Object.keys(process.env)) {
+  if (/^BELLTEAM_|^CLAUDE_CODE_MESSAGING_|_(?:TOKEN|KEY|SECRET|PASSWORD)$/.test(key)) delete process.env[key];
 }
 delete process.env.TMUX;
 delete process.env.TMUX_PANE;

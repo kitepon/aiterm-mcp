@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', windowsHide: true });
@@ -46,7 +46,10 @@ if (scope === 'all') {
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
 } else if (scope === 'selected') {
   const files = JSON.parse(process.env.PRODUCT_CI_TEST_FILES ?? '[]');
-  if (!Array.isArray(files) || files.length === 0 || files.some((file) => typeof file !== 'string')) {
+  // 空の名前、試験fileでない名前、無いfileを`node --test`へ渡さない。空の引数は、file systemの根から試験fileを拾わせる。
+  const isTestFile = (file) => typeof file === 'string' && /^(?:test|scripts)\/(?:[\w-]+\/)*[\w.-]+\.test\.mjs$/.test(file)
+    && statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  if (!Array.isArray(files) || files.length === 0 || !files.every(isTestFile)) {
     throw new Error('PRODUCT_CI_TEST_FILES が不正です');
   }
   requireTerminalBackend();

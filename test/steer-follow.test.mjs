@@ -444,10 +444,44 @@ test("席の今の番: 番の頭から待つと、番が16MiBより多く書い�
   assert.equal(done.at, at(9));
 });
 
-test("席の今の番: Codexでない席と、会話がまだ結び付いていない席は、分からない", () => {
+// 起こしたばかりのCodexの席は、最初の送信の時に記録がまだ無く、2つめの送信まで会話のIDが席の登録に入らない（実物 2026-10-13）。
+// 子の結果が2つめの番を始める席は、この形のまま動いている。
+test("席の今の番: 会話がまだ結び付いていない席も、この起動の印を持つ記録から読む。席の登録は書き換えない", () => {
+  follow.__testResetSeatTurns();
+  const seat = codexSeat();
+  const unbound = { ...seat.meta, vendor_session_id: null };
+  const registration = fs.readFileSync(agentMetadataPath(unbound.aiterm_session, unbound.launch_id), "utf8");
+  assert.deepEqual(follow.codexSeatTurn(unbound), { state: "idle" });
+  const offset = fs.statSync(seat.file).size;
+  seat.append(started("turn-a", 0));
+  assert.deepEqual(follow.codexSeatTurn(unbound), { state: "running", turn_id: "turn-a", started_at: at(0), event_cursor: offset,
+    interim_from: interimFromToken({ event_cursor: offset, unit: "byte", boundary: offset }) });
+  assert.equal(unbound.vendor_session_id, null);
+  assert.equal(fs.readFileSync(agentMetadataPath(unbound.aiterm_session, unbound.launch_id), "utf8"), registration);
+  // 送信の道が会話を結び付けた後も、同じ番を返す。
+  assert.equal(follow.codexSeatTurn(seat.meta).turn_id, "turn-a");
+  // ほかの起動の記録（印が違う）は、この席の物として読まない。
+  const other = codexSeat([started("turn-x", 0)]);
+  fs.rmSync(seat.file);
+  follow.__testResetSeatTurns();
+  assert.equal(follow.codexSeatTurn({ ...unbound, codex_home: other.meta.codex_home }), null);
+});
+
+test("席の今の番: 結び付く前の席で記録が見つからない間は、探し直しの間を空ける", () => {
   follow.__testResetSeatTurns();
   const seat = codexSeat([started("turn-a", 0)]);
-  assert.equal(follow.codexSeatTurn({ ...seat.meta, vendor_session_id: null }), null);
+  const unbound = { ...seat.meta, vendor_session_id: null };
+  const body = fs.readFileSync(seat.file);
+  fs.rmSync(seat.file);
+  assert.equal(follow.codexSeatTurn(unbound, 1_000), null, "記録がまだ無い");
+  fs.writeFileSync(seat.file, body);
+  assert.equal(follow.codexSeatTurn(unbound, 5_999), null, "間を空けている間は探さない");
+  assert.equal(follow.codexSeatTurn(unbound, 6_000).turn_id, "turn-a");
+});
+
+test("席の今の番: Codexでない席と、記録が無い席は、分からない", () => {
+  follow.__testResetSeatTurns();
+  const seat = codexSeat([started("turn-a", 0)]);
   assert.equal(follow.codexSeatTurn({ ...seat.meta, kind: "claude" }), null);
   assert.equal(follow.codexSeatTurn({ ...seat.meta, vendor_session_id: "01a13576-0000-7000-8000-000000000000" }), null, "記録が無い");
 });

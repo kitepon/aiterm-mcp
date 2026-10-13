@@ -511,6 +511,10 @@ const CODEX_SEAT_TRACKS_MAX = 512;
 // 記録が増えていない席で、今の会話の記録を探し直す間隔。探し直しは会話の置き場を一覧するので、聞かれるたびにはやらない。
 // 席の中で会話を移した後（/new など。ADR 0105）、次の送信が席を結び付け直すまでの間も、新しい会話の番を読むためにある。
 const CODEX_SEAT_RESOLVE_MS = 60_000;
+// 会話がまだ結び付いていない席（起こしてから、2つめの送信までの間）で、記録が見つからなかった時に、次に探すまでの間。
+// 結び付く前の席は、会話の置き場の一覧と、起動より後に書かれた記録の頭から、この起動の印を探す。聞かれるたびにはやらない。
+const CODEX_SEAT_UNBOUND_RETRY_MS = 5_000;
+const codexSeatUnresolved = new Map<string, { key: string; retryAt: number }>();
 
 function codexTurnMark(line: string, offset: number): CodexTurnMark | undefined {
   if (!line.includes("task_started") && !line.includes("task_complete") && !line.includes("turn_aborted")) return undefined;
@@ -529,12 +533,15 @@ function codexSeatTranscript(meta: AgentMetadata): string | null {
 /**
  * Codexの席の、記録の上の今の番。番の開始の印（task_started）が最後の境界なら動いている。
  * 動いている番のevent_cursorとinterim_fromは、開始の印の行の頭（そこから待てば、その番の終わりで返り、番の頭からの合間の言葉を読める）。
- * 記録がまだ無い・結び付いていない・末尾を書いている途中の席はnull（分からない）。
+ * 記録がまだ無い・末尾を書いている途中の席はnull（分からない）。
+ * 会話を結び付ける前の席（vendor_session_idがまだ無い）も、この起動の印を持つ記録から読む。席の登録は書き換えない。
+ * 起こしたばかりの席は、最初の送信の時に記録がまだ無く、2つめの送信まで結び付かない。子の結果が2つめの番を始める席は、この形になる
+ * （実物 2026-10-13: 最初の番の間も、終わった後も、会話のIDは席の登録に入っていなかった）。
  * harnessが落ちた席は、終わりの印が書かれないので、動いていると読んだままになる（呼び手は、席が閉じた事を待ちのclosedで知る）。
  */
 export function codexSeatTurn(meta: AgentMetadata, now: number = performance.now()): SeatTurn | null {
-  if (meta.kind !== "codex" || !meta.vendor_session_id) return null;
-  const key = `${meta.launch_id}:${meta.vendor_session_id}`;
+  if (meta.kind !== "codex") return null;
+  const key = `${meta.launch_id}:${meta.vendor_session_id ?? ""}`;
   const id = meta.aiterm_session;
   let track = codexSeatTracks.get(id);
   if (track && track.key === key && safeStatSize(track.file) === track.offset && now - track.resolvedAt >= CODEX_SEAT_RESOLVE_MS) {
@@ -543,11 +550,20 @@ export function codexSeatTurn(meta: AgentMetadata, now: number = performance.now
     if (current && current !== track.file) track = undefined;
   }
   if (!track || track.key !== key || !fs.existsSync(track.file)) {
+    const unresolved = codexSeatUnresolved.get(id);
+    if (unresolved && unresolved.key === key && now < unresolved.retryAt) return null;
     const file = codexSeatTranscript(meta);
     if (!file) {
       codexSeatTracks.delete(id);
+      if (meta.vendor_session_id) codexSeatUnresolved.delete(id);
+      else {
+        codexSeatUnresolved.delete(id);
+        if (codexSeatUnresolved.size >= CODEX_SEAT_TRACKS_MAX) codexSeatUnresolved.delete(codexSeatUnresolved.keys().next().value as string);
+        codexSeatUnresolved.set(id, { key, retryAt: now + CODEX_SEAT_UNBOUND_RETRY_MS });
+      }
       return null;
     }
+    codexSeatUnresolved.delete(id);
     track = { key, file, offset: -1, last: null, resolvedAt: now };
     codexSeatTracks.delete(id);
     if (codexSeatTracks.size >= CODEX_SEAT_TRACKS_MAX) codexSeatTracks.delete(codexSeatTracks.keys().next().value as string);
@@ -597,4 +613,5 @@ export function codexSeatTurn(meta: AgentMetadata, now: number = performance.now
 /** 試験用: 席ごとの読み位置の覚えを捨てる。 */
 export function __testResetSeatTurns(): void {
   codexSeatTracks.clear();
+  codexSeatUnresolved.clear();
 }

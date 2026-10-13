@@ -245,6 +245,19 @@ function codexLaunchVerdictMemoFor(launchId: string): Map<string, boolean> {
   return memo;
 }
 
+// 起動ごとの、「この起動の会話ではない」と決まったrollout。古いrollout、Codex CLIのroot会話でない物、最初のturnまでにこの起動の印が無い物。
+const codexLaunchOthers = new Map<string, Set<string>>();
+
+function codexLaunchOthersFor(launchId: string): Set<string> {
+  let others = codexLaunchOthers.get(launchId);
+  if (!others) {
+    if (codexLaunchOthers.size >= CODEX_LAUNCH_VERDICT_MEMO_MAX) codexLaunchOthers.delete(codexLaunchOthers.keys().next().value as string);
+    others = new Set();
+    codexLaunchOthers.set(launchId, others);
+  }
+  return others;
+}
+
 /** 結び付けた会話（vendor_session_id）のroot rollout。会話の切り替えは追わない。完了の読み位置（cursor）はこのfileの位置。 */
 export function codexBoundTranscript(meta: AgentMetadata): string | null {
   if (meta.kind !== "codex" || !meta.codex_home || !meta.vendor_session_id) return null;
@@ -300,7 +313,15 @@ export function codexRootTranscript(meta: AgentMetadata): string | null {
     return bound ? codexSwitchedTranscript(meta, bound) ?? bound : null;
   }
   if (meta.hook_route === "shared_codex_home") {
-    const matches = listCodexTranscripts(meta.codex_home).filter((file) => codexTranscriptMatchesLaunch(file, meta));
+    // まだ会話を結び付けていない席（起こしてから、2つめの送信までの間）。この起動の印を持つrolloutを探す。
+    // 「この起動の物でない」と決まったrolloutは、後から変わらないので覚えて読み直さない（席の今の番は、結び付く前の席も見回りで聞かれる。ADR 0122）。
+    const others = codexLaunchOthersFor(meta.launch_id);
+    const matches = listCodexTranscripts(meta.codex_home).filter((file) => {
+      if (others.has(file)) return false;
+      const { verdict } = codexLaunchVerdict(file, meta);
+      if (verdict === "other") others.add(file);
+      return verdict === "match";
+    });
     if (matches.length > 1) {
       throw new AitermError("共有CODEX_HOMEに同じlaunch markerのroot rolloutが複数あります。sessionを閉じて起動し直してください。", 2);
     }

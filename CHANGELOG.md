@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 試験: `test/core-agent.test.mjs`を、話題の切れ目で5つのfileへ分けた（共通の準備は`test/core-agent-support.mjs`）。試験の中身と本数は同じ。
   fileの中の試験は1本ずつ順に走るので、この1 fileがWindowsで687秒かかり、全体の試験（720秒）の長さを決めていた。分けたfileは並んで走る。
   同じ訳で、`test/runtime-error-store.test.mjs`（Windowsで236秒）も2つに分けた（共通の準備は`test/runtime-error-store-support.mjs`）。
+- 試験: 試験は、動かした利用者・席・runnerの置き場と鍵に触らない（ADR 0121、ADR 0087の追記）。製品の動きは変わらない。
+  - 試験の前処理（`test/seat-env.mjs`）が、試験へ渡す環境を要る物だけにし、homeとharness・gh・git・npmの置き場を、試験ごとの空の置き場の中に向ける。
+    試験fileは最初のimportで前処理を読むので、入口（`npm test`）を通らずに流されても同じに効く。
+  - 一般の試験は、端末に入っている本物のClaude Code・Codex・Grok・Cursorを起こさない。実物で確かめる試験は、`AITERM_TEST_`で始まる変数で
+    実行ファイルを渡した時だけ動く。
+  - CIの入口と`npm test`は、この確かめ（`test/seat-env.test.mjs`）を先に流し、落ちたらほかの試験を起こさない。CIの入口は、
+    端末の本体（tmux・psmux・pwsh）が見えない時と、選んだ試験の名前が空や不正の時に、組む前に落ちる。
+  - 混んだ端末で上限に当たった待ち（席が起きるのを待つ所）を延ばした。
 
 ### 修正
 

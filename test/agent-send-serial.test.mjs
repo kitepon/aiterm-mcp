@@ -1,5 +1,6 @@
 // 同じagent sessionへの送信が重なった時の扱い（ADR 0088）。
 // 後の1通は、前の1通が終わってから振り分け直す。偽の席と隔離socketで確かめる（core-agent.test.mjsと同じ方式）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";

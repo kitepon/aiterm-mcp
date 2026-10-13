@@ -1,3 +1,4 @@
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';

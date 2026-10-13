@@ -1,4 +1,5 @@
 // core-agentの試験のうち、起動した席の認証・共有の設定・片付け。準備は core-agent-support.mjs。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

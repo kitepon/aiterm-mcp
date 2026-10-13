@@ -3,6 +3,7 @@
 // 会話終了のhook（SessionEnd）を走らせない。
 // 鍵と待ちの順番は差し替えで確かめる。席を閉じる道へのつなぎは、鍵を受けて自分で終わる偽の席で確かめる
 // （POSIXでは既定で使わない道なので、試験用の口で入れる。Windowsの実物は端末の実機試験で確かめる）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

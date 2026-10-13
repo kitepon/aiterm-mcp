@@ -2,6 +2,7 @@
 // Codex 0.160.1は、新しい会話を別のrolloutへ書く。古いrolloutには何も書かない。新しいrolloutは、最初のturnで出来る。
 // 今までは最初の会話のrolloutを見続けて、その後のturnの完了を拾えなかった（完了待ちが時間切れ）。
 // 別の起動の会話・派生した会話・app-serverの会話を拾わない事を、手で書いた記録で確かめる。tmuxは使わない。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

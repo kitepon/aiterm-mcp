@@ -1,5 +1,6 @@
 // 新しい端末の環境は、その端末を開いた process の環境で決まる。先に tmux server を起こした別の
 // 呼び出し元の値が入らないことを、呼び出し元ごとに別 process を立てて確かめる。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

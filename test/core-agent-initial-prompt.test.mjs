@@ -1,4 +1,5 @@
 // core-agentの試験のうち、起動時prompt・portable fork・動いている席への差し込み。準備は core-agent-support.mjs。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

@@ -2,6 +2,7 @@
 // openSession は `cat >> '<path>'` を tmux 内部の /bin/sh に渡すため、パスにクオートが無いと
 // 空白でリダイレクト先が割れ、ログが書かれず read が timeout する（Windows %TEMP% や mac/Linux の
 // 空白入りホームで現実に起きる）。SOCKDIR は core の import 時に確定するので TMPDIR は import 前に設定する。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

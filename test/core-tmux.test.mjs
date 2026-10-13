@@ -1,6 +1,7 @@
 // tmux 実機を使う統合テスト: 内容を評価しない送信 / サニタイズ / sendKey / listSessions / mark+完了検出。
 // 本番ソケット(claude.sock)を汚さぬよう TMPDIR を一時ディレクトリへ向け、専用ソケットで隔離する。
 // 実行させない送信確認は enter:false で打鍵だけ行い、C-u で消す。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";

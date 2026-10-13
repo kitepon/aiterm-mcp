@@ -1,3 +1,4 @@
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import { test, after } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";

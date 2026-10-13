@@ -1,6 +1,7 @@
 // 席の環境へ、席の会話ID（AITERM_AGENT_VENDOR_SESSION_ID）を入れる（ADR 0118）。
 // 起動の印（AITERM_AGENT_LAUNCH_ID）は席のprocessが起こした子にも継がれるので、席そのものの会話かは、この値で見分ける。
 // 偽の席が、自分の環境と引数をfileへ書く（agent-preface.test.mjsと同じ隔離socket方式）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

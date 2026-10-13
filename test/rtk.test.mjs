@@ -5,6 +5,7 @@
 //   rtk が内部で足す -I で grep 自身の並びが変わるため、利用者が打った grep の出力そのものを期待値にする。
 // - git/filters: Python プロトタイプ(=同一アルゴリズム)で生成した期待値を固定。
 // - classify ルーティング / truncate コードポイント境界 / reduce フォールバックを検証。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

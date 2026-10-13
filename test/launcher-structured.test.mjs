@@ -1,3 +1,4 @@
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";

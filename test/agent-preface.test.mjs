@@ -1,6 +1,7 @@
 // pty_sendのpreface（本文の前に置く1行、ADR 0099）。
 // Claude Codeの席へは、前置きを貼り付けの印なしで入れ、空行と本文を1回の貼り付けで入れる。ほかの席へは、1つにつないで貼る。
 // 偽の席が受けた生のbyteを記録して確かめる（agent-send-serial.test.mjsと同じ隔離socket方式）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

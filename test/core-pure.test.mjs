@@ -1,4 +1,5 @@
 // core.ts の純粋関数（tmux 非依存）の回帰テスト: stripControl / reduceOutput。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as core from "../dist/core.js";

@@ -1,5 +1,6 @@
 // 公式Codexの通常stdio起動で、queueとhookによる同一ターン配送を検証する。
 // 実credentialや利用中の設定は使わず、一時HOMEとローカルのモデル応答だけを使う。
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';

@@ -3,6 +3,7 @@
 // 原因と対処を含む明確な AitermError(code2) を投げることを固定する。
 // AITERM_TMUX=<存在しないパス> で tmux の有無に関係なく失敗経路を強制するため、CI/全OSで決定的に走る。
 // core.ts は tmuxBin をモジュール内にキャッシュするので、環境を変えて確かめるには子プロセスで隔離する。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

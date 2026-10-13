@@ -1,6 +1,7 @@
 // 利用枠に当たったClaude Codeが入力欄の代わりに出す選ぶ画面（/rate-limit-options）へ、文を打たない（ADR 0117）。
 // 選ぶ画面は貼り付けを捨ててEnterで選択中の行を選ぶので、そのまま送ると文は会話へ入らない（実被弾 2026-10-13）。
 // 画面の読みは実物の画面で、送る前の扱いは偽の席が受けた生のbyteで確かめる（agent-preface.test.mjsと同じ隔離socket方式）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

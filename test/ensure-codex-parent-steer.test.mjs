@@ -1,5 +1,6 @@
 // aiterm-setupを通らない導入（コンテナの起動時）のための、Codexの親配送hookの登録の入口（ADR 0098）。
 // 公式Codexの実行ファイルを一時HOMEで起こし、登録・承認・読戻しを確かめる。実credentialや利用中の設定は使わない。
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';

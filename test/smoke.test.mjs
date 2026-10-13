@@ -1,5 +1,6 @@
 // smoke: 実際に `node dist/index.js` を起動し、initialize + tools/list を stdin にパイプ。
 // 検証: stdout は改行区切り JSON-RPC のみ（診断混入なし）／18 ツールが公開されている。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";

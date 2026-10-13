@@ -1,6 +1,7 @@
 // aiterm-parent-delivery（ほかの製品がAitermの親配送へ回答を頼む入口、ADR 0098）。
 // 命令を別processとして起こし、返りの形と、公式Codexでの同じ番・止まっている会話への配送を確かめる。
 // 公式Codexの試験は、実credentialや利用中の設定を使わず、一時HOMEとローカルのモデル応答だけを使う（codex-parent-hooks-official.test.mjsと同じ方式）。
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';

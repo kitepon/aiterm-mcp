@@ -3,6 +3,7 @@
 // 今までは新しいturnとして返し、同じ1つの回答が2回の完了として届いていた。
 // 止まっている席を動いていると読むと、文は新しいturnになるのに差し込みとして返り、その完了を誰も待たない。
 // 読み違えない方の条件（この起動の記録・最後の境界がturnの開始・画面が動いている）を、偽の席と手で書いた記録で確かめる。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

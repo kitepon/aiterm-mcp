@@ -1,9 +1,11 @@
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保存場所を優先する', () => {
   const root = mkdtempSync(join(tmpdir(), 'seat-fixture-'));
@@ -45,6 +47,42 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(data.socketTmpdir, process.platform === 'win32' ? null : data.initial);
     assert.equal(data.individual, individual);
     assert.equal(readFileSync(registration, 'utf8'), 'keep owner registration\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// 試験fileは、入口（--import）を通らずに流される事がある。引数が空の`node --test`は、その場所から下の試験fileを全部拾う（ADR 0087の追記）。
+test('試験fileは、最初のimportで前処理を読む', () => {
+  const directory = fileURLToPath(new URL('.', import.meta.url));
+  const missing = readdirSync(directory).filter(name => name.endsWith('.test.mjs')).filter((name) => {
+    const first = readFileSync(join(directory, name), 'utf8').split('\n').find(line => line.startsWith('import '));
+    return !/^import ['"]\.\/seat-env\.mjs['"];/.test(first ?? '');
+  });
+  assert.deepEqual(missing, []);
+});
+
+test('入口を通らずに前処理を最初のimportで読んだprocessも、席のstateと系譜を引き継がない', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seat-direct-'));
+  const inherited = join(root, 'owner-state');
+  mkdirSync(inherited);
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+        import ${JSON.stringify(new URL('./seat-env.mjs', import.meta.url).href)};
+        import { runtimeStateBase } from ${JSON.stringify(new URL('../dist/state-root.js', import.meta.url).href)};
+        console.log(JSON.stringify({ base: runtimeStateBase(), temp: process.env.TEMP,
+          environment: ['AITERM_STATE_BASE', 'AITERM_SESSION_ID', 'AITERM_AGENT_SESSION_ID', 'AITERM_AGENT_LINEAGE', 'TMUX']
+            .map(key => process.env[key] ?? null) }));
+      `], { encoding: 'utf8', timeout: 10000, env: {
+      ...process.env, AITERM_STATE_BASE: inherited, AITERM_SESSION_ID: 'owner', AITERM_AGENT_SESSION_ID: 'owner',
+      AITERM_AGENT_LINEAGE: 'host-root>claude:owner', TMUX: '/owner/socket,1,0',
+    } });
+    assert.equal(result.status, 0, result.stderr);
+    const data = JSON.parse(result.stdout);
+    assert.equal(data.base, data.temp);
+    assert.notEqual(data.base, inherited);
+    assert.deepEqual(data.environment, Array(5).fill(null));
+    assert.deepEqual(readdirSync(inherited), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

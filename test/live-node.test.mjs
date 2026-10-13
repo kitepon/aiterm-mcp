@@ -1,5 +1,6 @@
 // 2026-10-12、MacでHomebrewがNodeを26.10.0_1から26.11.1へ上げ、前の版の場所が消えた。上がる前から動いていたMCP process 19個は、
 // 自分が起きた版つきの場所（process.execPath）でNodeを起こそうとして、黙って失敗していた（不具合の記録、呼び手へ渡す待ち受けの起動先）。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";

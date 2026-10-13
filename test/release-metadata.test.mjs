@@ -1,3 +1,4 @@
+import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { access, readdir, readFile } from 'node:fs/promises';

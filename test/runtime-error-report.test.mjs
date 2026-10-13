@@ -1,5 +1,6 @@
 // BugHubの製品報告の契約（宛先・署名・本文・受領の条件）を、契約の試験値で固定する。
 // 通信と保存は扱わない。形と署名だけを確かめる純粋関数の試験。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

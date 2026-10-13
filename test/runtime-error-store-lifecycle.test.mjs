@@ -1,4 +1,5 @@
 // runtime-error-storeの試験のうち、解決・再開・保持、保存の守り、CLI、記録する層。準備は runtime-error-store-support.mjs。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

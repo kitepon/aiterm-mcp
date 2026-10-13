@@ -1,5 +1,6 @@
 // readOutput のデータ経路（full / line_range / lines / offset / raw / rtk reducer）を tmux 非依存で検証。
 // readOutput の読取経路は .log/.offset/.lastcmd を読むだけで tmux を呼ばないため、ファイルを捏造して決定的に試せる。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

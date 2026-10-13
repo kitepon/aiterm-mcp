@@ -1,4 +1,5 @@
 // core-agentの試験のうち、送信と完了の対応づけ（dispatch／observe、Claudeのoperation）。準備は core-agent-support.mjs。
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

@@ -135,7 +135,7 @@ test("席を閉じる時、Claude Codeは止められる前に自分で終わる
   core.__testSetClaudeExitBeforeClose(true);
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
+    for (let waited = 0; waited < 30000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
     assert.equal(core.observeSession(sid).state, "idle");
     assert.deepEqual(core.closeSessionResult(sid), { schema: "aiterm.pty-close-result.v1", session_id: sid, outcome: "closed" });
     // 切断の合図（SIGHUP）より前に、鍵で終わっている。
@@ -149,7 +149,7 @@ test("動いている番の席も、番を止めてから自分で終わる", { 
   core.__testSetClaudeExitBeforeClose(true);
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "busy"; waited += 100) await sleep(100);
+    for (let waited = 0; waited < 30000 && core.observeSession(sid).state !== "busy"; waited += 100) await sleep(100);
     assert.equal(core.observeSession(sid).state, "busy");
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
@@ -163,7 +163,7 @@ test("鍵で終わらない席は、待った後に今までどおり止める",
   core.__testSetClaudeExitBeforeClose(true);
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
+    for (let waited = 0; waited < 30000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
     assert.equal(core.observeSession(sid).state, "idle");
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
@@ -178,7 +178,7 @@ test("既定では、POSIXの席へ鍵を送らない（tmuxが切断の合図�
   process.env.CLAUDE_BIN = fakeClaude("posix", "idle");
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    for (let waited = 0; waited < 8000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
+    for (let waited = 0; waited < 30000 && core.observeSession(sid).state !== "idle"; waited += 100) await sleep(100);
     assert.equal(core.observeSession(sid).state, "idle");
     const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");

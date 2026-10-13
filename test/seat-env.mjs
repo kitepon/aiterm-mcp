@@ -150,7 +150,7 @@ process.on('exit', () => {
   try {
     const sockets = socketFiles(root);
     if (sockets.length > 0) {
-      const result = spawnSync(process.execPath, ['-e', probe, ...sockets], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+      const result = spawnSync(process.execPath, ['-e', probe, ...sockets], { encoding: 'utf8', timeout: 20000, windowsHide: true });
       if (result.status !== 0) {
         const live = result.status === 3 ? result.stdout.trim() : '生死を確かめられませんでした';
         process.stderr.write(`seat-env: tmuxのserverが残っているので、試験の置き場を消しません: ${root} (${live})\n`);

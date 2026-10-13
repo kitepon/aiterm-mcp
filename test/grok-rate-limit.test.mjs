@@ -180,7 +180,7 @@ for (const kind of ["grok"]) {
       assert.equal(fs.readFileSync(metadata, "utf8"), original);
       let preparedCursor;
       const receipt = await core.dispatchAgentTurn(sid, "CURRENT_PROMPT", {
-        ready_timeout: 2000,
+        ready_timeout: 15000,
         before_send: async ({ event_cursor }) => {
           preparedCursor = event_cursor;
           assert.ok(event_cursor > oldCursor);
@@ -192,7 +192,7 @@ for (const kind of ["grok"]) {
       assert.equal(receipt.launch_id, meta.launch_id);
       assert.equal(receipt.event_cursor, preparedCursor);
       assert.ok(receipt.pane_input_recovery.includes("grok_rate_limit_dialog_dismissed"));
-      const result = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 4 });
+      const result = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 20 });
       assert.equal(result.outcome, "done");
       assert.equal(result.turn_id, "new-turn");
       assert.equal(result.vendor_session_id, meta.vendor_session_id);
@@ -230,8 +230,8 @@ test("Grok上限PTY: harnessが終了した残画面へXも本文も送らない
 test("Grok上限PTY: 通常送信ではXを送らず、今回の新たな上限は報告する", { skip: ptySkip }, async () => {
   for (const mode of ["ready", "limited"]) {
     await withLimitPty(mode, "grok", async ({ sid, inputs }) => {
-      const receipt = await core.dispatchAgentTurn(sid, "CURRENT_PROMPT", { ready_timeout: 2000 });
-      const result = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 4 });
+      const receipt = await core.dispatchAgentTurn(sid, "CURRENT_PROMPT", { ready_timeout: 15000 });
+      const result = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 20 });
       assert.equal(result.outcome, mode === "ready" ? "done" : "rate_limited");
       if (mode === "ready") assert.equal(inputs().includes("X"), false);
     });

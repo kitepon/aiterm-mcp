@@ -188,6 +188,7 @@ import {
   claudeTuiReady,
   claudePaneObservation,
   claudeUsageLimit,
+  claudeLiveSelectMenu,
   claudeModelPicker,
   claudeModelPickerRow,
   claudeModelSwitchConfirm,
@@ -6136,6 +6137,41 @@ async function codexTurnRunningBehindIdleScreen(name: string, meta: AgentMetadat
   } catch { return false; /* 読めない時は、動いていると数えない */ }
 }
 
+const CLAUDE_SELECT_MENU_SETTLE_MS = 250;
+const CLAUDE_SELECT_MENU_CLOSE_TIMEOUT_MS = 3000;
+
+/**
+ * Claudeの席へ打つ前に、入力欄の代わりに選ぶ画面が出ていないかを見る。
+ * 選ぶ画面は貼り付けを捨ててEnterだけを読むので、そのまま送ると文は会話へ入らず、選択中の行が選ばれる
+ * （実被弾 2026-10-13: 利用枠に当たった直後の3席で、指揮官氏の文が消えた）。打鍵の前置きは、数字や「j」が選択の操作になる。
+ * 利用枠の選ぶ画面はEscで閉じてから送る（Escは何も選ばない。枠が解けていれば文は普通に入り、解けていなければ番がAPIエラーで返る）。
+ * 見覚えの無い選ぶ画面は、何も打たずに断る。戻り値は行った回復。
+ */
+async function clearClaudeSelectMenuBeforeInput(name: string): Promise<string[]> {
+  if (!claudeLiveSelectMenu(captureScreen(name, 0))) return [];
+  // 描き直しの途中の1枚で打たない。少し置いた2枚目にも同じ画面がある時だけ、開いていると数える。
+  await sleep(CLAUDE_SELECT_MENU_SETTLE_MS);
+  const menu = claudeLiveSelectMenu(captureScreen(name, 0));
+  if (!menu) return [];
+  if (menu.kind !== "rate_limit_options") {
+    throw new AitermError(
+      `CLAUDE_SELECT_MENU_OPEN vendor=claude session=${name}\n` +
+        `Claude Codeの選ぶ画面が開いています（見出し: ${menu.heading ?? "不明"}）。打った文字は選択の操作として読まれるため、文字列は送信していません。` +
+        "pty_read(screen:true) で画面を確かめてください。", 2,
+    );
+  }
+  sendMenuChoice(name, "Escape");
+  for (const deadline = performance.now() + CLAUDE_SELECT_MENU_CLOSE_TIMEOUT_MS; performance.now() < deadline;) {
+    await sleep(100);
+    if (!claudeLiveSelectMenu(captureScreen(name, 0))) return ["claude_rate_limit_menu_closed"];
+  }
+  throw new AitermError(
+    `CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED vendor=claude session=${name}\n` +
+      "利用枠の上限の選ぶ画面（/rate-limit-options）をEscで閉じられませんでした。文字列は送信していません。" +
+      "pty_read(screen:true) で画面を確かめてください。", 2,
+  );
+}
+
 /**
  * agent sessionへの唯一の送信口。呼び出し側は子の状態を知らないまま呼び、Aitermがこの時点の画面で振り分ける。
  * 実行中なら現在のturnへ差し込み（steer）、そうでなければ新しいturnとしてdispatchする。
@@ -6162,6 +6198,7 @@ async function sendAgentMessageInLock(
   const meta = loadAgentMetadata(name);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
+  if (meta.kind === "claude") paneInputRecovery.push(...await clearClaudeSelectMenuBeforeInput(name));
   const screen = captureScreen(name, AGENT_TUI_READY_LINES);
   let running = isAgentTuiBusy(meta.kind, screen);
   // Claudeのtool処理中は画面のbusy表示が消えることがある。Stopまで保持するturnの印を正とし、

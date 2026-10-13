@@ -497,6 +497,44 @@ export function claudeUsageLimit(screen: string): { message: string } | null {
   return null;
 }
 
+// 利用枠に当たったClaude Code（2.1.296）は、番をAPIエラーで終えたあと自分で `/rate-limit-options` を開き、入力欄の代わりに
+// 選ぶ画面を出す（BellTeamコンテナの実画面 2026-10-13。枠に当たっていない時に手で開くと、2の行が無い3行になる）。
+//   ❯ /rate-limit-options
+//   ────────
+//     What do you want to do?
+//
+//     ❯ 1. Stop and wait for limit to reset
+//       2. Wait here, then continue automatically at Oct 16, 8am
+//       3. Switch to usage credits
+//       4. Upgrade your plan
+//
+//     Enter to confirm · Esc to cancel
+// この画面は貼り付けを捨て、Enterで選択中の行を選ぶ。打鍵の数字はEnter無しでその番を選び、「j」「k」は選択を動かす（実物で確かめた）。
+// 開いている間は入力欄も足元の行も描かれないので、画面の最後の行が案内である事を、今開いている印にする。
+// 会話欄に残った同じ文や引用の下には、入力欄と足元の行が描かれる。
+export interface ClaudeSelectMenu { kind: "rate_limit_options" | "unknown"; heading: string | null }
+const CLAUDE_SELECT_MENU_FOOT_RE = /^\s*Enter to confirm · Esc to cancel\s*$/u;
+const CLAUDE_SELECT_MENU_ROW_RE = /^\s*(?:❯\s*)?\d+\.\s+\S/u;
+export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  let foot = lines.length - 1;
+  while (foot >= 0 && lines[foot].trim() === "") foot--;
+  if (foot < 0 || !CLAUDE_SELECT_MENU_FOOT_RE.test(lines[foot])) return null;
+  // 案内から上へ、選ぶ行と空行を飛ばした最初の行が見出し。選ぶ行が1つも無い物は選ぶ画面と数えない。
+  let rows = 0;
+  let head = foot - 1;
+  for (; head >= 0; head--) {
+    if (lines[head].trim() === "") continue;
+    if (!CLAUDE_SELECT_MENU_ROW_RE.test(lines[head])) break;
+    rows++;
+  }
+  if (rows === 0) return null;
+  const heading = head >= 0 ? lines[head].trim() : null;
+  const rateLimit = heading === "What do you want to do?"
+    && lines.slice(head + 1, foot).some((line) => /\bStop and wait for limit to reset\b/u.test(line));
+  return { kind: rateLimit ? "rate_limit_options" : "unknown", heading };
+}
+
 // `/model` を引数なしで開いた選ぶ画面（2.1.293・2.1.296の実画面 2026-10-12）。Enterは選んだ値を端末の
 // ~/.claude/settings.json へ新しい会話の既定として保存し、sはこの会話だけに使う。
 //   Select model

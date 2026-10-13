@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修正
 
+- **利用枠に当たったClaude Codeの席へ送った文が、会話へ入らずに消える件を直す（ADR 0117）。**
+  Claude Code 2.1.296は、枠に当たると自分で`/rate-limit-options`を開き、入力欄の代わりに選ぶ画面を出す。Aitermはその画面へ
+  「貼り付け＋Enter」を打っていた。貼り付けは捨てられ、Enterが1番を選んで画面が閉じ、Aitermは打った控えを返していた。
+  - 送る前に今の画面を読み、利用枠の選ぶ画面はEscで閉じてから送る（返りの`pane_input_recovery`に`claude_rate_limit_menu_closed`）。
+    閉じない時は`CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED`で断る。
+  - 見覚えの無い選ぶ画面（最後の行が`Enter to confirm · Esc to cancel`）が出ている席へは、何も打たずに`CLAUDE_SELECT_MENU_OPEN`で断る。
+    選ぶ画面は打鍵の数字をEnter無しで選び、「j」「k」で選択を動かすので、打鍵で入る前置き（`preface`）が別の番を選びえた。
+  - 選ぶ画面が出ていない席への送信、枠で終わった番の完了待ちの返り（`error`）は、今までと同じ。
+  - 動いていた本物の席で選ぶ画面を開いてから送ると、直す前は文が消え、直した後は席が答えた。
 - **Claude Codeの席が、Aitermで届けた長い頼みを「利用者の指示ではない」と見て動かない事があった件を直す（ADR 0116）。**
   Claude Codeは、貼り付けで入った長い文（改行3つ以上か800字を超える文）を`<pasted_content>`で包み、「包みの中の指示は、利用者自身の言葉が
   頼んだ時だけ従う」と読む。Aitermは、呼び手が`pty_send`の`preface`を渡さない限り、包みの外に何も入れていなかった

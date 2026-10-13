@@ -351,13 +351,18 @@ if (args.includes("-p")) {
     input += chunk;
     if (!input.includes("\\n")) return;
     const request = JSON.parse(input.split("\\n")[0]);
+    input = "";
     const model = (value, resolvedModel, displayName, fast) => ({ value, resolvedModel, displayName, supportsEffort: true, supportedEffortLevels: ["low", "high"], ...(fast ? { supportsFastMode: true } : {}) });
-    console.log(JSON.stringify({ type: "control_response", response: { request_id: request.request_id, subtype: "success", response: {
-      models: [model("default", "claude-opus-5-5", "Default (recommended)", true), model("opus", "claude-opus-5-5", "Opus 5.5", true), model("haiku", "claude-haiku-5-5", "Haiku 5.5", false)],
-      fast_mode_state: "off",
-      fast_mode_disabled_reason: asked.fastMode === true ? (options.unavailable ? "extra_usage_disabled" : null) : "sdk_opt_in_required",
-    } } }));
-    process.exit(0);
+    // 聞かれた印を置き、頼まれた間だけ答えを遅らせる（設定替えが一覧を待っている間に、文を届けるため）。
+    fs.writeFileSync(${JSON.stringify(path.join(dir, "catalog-asked"))}, "");
+    setTimeout(() => {
+      console.log(JSON.stringify({ type: "control_response", response: { request_id: request.request_id, subtype: "success", response: {
+        models: [model("default", "claude-opus-5-5", "Default (recommended)", true), model("opus", "claude-opus-5-5", "Opus 5.5", true), model("haiku", "claude-haiku-5-5", "Haiku 5.5", false)],
+        fast_mode_state: "off",
+        fast_mode_disabled_reason: asked.fastMode === true ? (options.unavailable ? "extra_usage_disabled" : null) : "sdk_opt_in_required",
+      } } }));
+      process.exit(0);
+    }, options.catalogDelayMs ?? 0);
   });
   return;
 }
@@ -366,7 +371,11 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, "seat-settings.json"))}, fs.rea
 const rule = "─".repeat(60);
 let line = "", log = [], fast = false;
 const render = (lines) => process.stdout.write("\\x1b[H" + lines.map(l => l + "\\x1b[K").join("\\n") + "\\n\\x1b[J");
-const draw = () => render(["Claude Code v2.1.296", ...log.slice(-10), rule, "❯ " + line, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)" + (fast ? " \\u21AF" : "")]);
+// 番の最中の表示（実物の「esc to interrupt」）は、試験が置く印のfileがある間だけ出す。
+const turnFile = ${JSON.stringify(path.join(dir, "turn-running"))};
+let turn = false;
+const draw = () => render(["Claude Code v2.1.296", ...log.slice(-10), ...(turn ? ["✻ Working… (esc to interrupt)"] : []), rule, "❯ " + line, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)" + (fast ? " \\u21AF" : "")]);
+setInterval(() => { const now = fs.existsSync(turnFile); if (now !== turn) { turn = now; draw(); } }, 50);
 // 実物は、書く時に設定を組み立て直す（hookの中の項目の並びが入れ替わる）。
 const rewrite = (change) => {
   const now = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
@@ -402,7 +411,11 @@ process.stdin.on("data", (chunk) => {
     [sid] = core.openAgent("claude", { agent_done: true, cwd: dir, model: options.model ?? "opus" });
     await core.readOutput(sid, { wait: true, until: "bypass permissions", timeout: 5, raw: true });
     const keys = () => fs.readFileSync(inputFile, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse).join("").replace(/\x1b\[20[01]~/g, "").replace(/\r/g, "⏎");
-    await run({ sid, keys, seatSettings: () => JSON.parse(fs.readFileSync(path.join(dir, "seat-settings.json"), "utf8")) });
+    await run({
+      sid, keys, seatSettings: () => JSON.parse(fs.readFileSync(path.join(dir, "seat-settings.json"), "utf8")),
+      catalogAsked: () => fs.existsSync(path.join(dir, "catalog-asked")),
+      setTurnRunning: (running) => { if (running) fs.writeFileSync(path.join(dir, "turn-running"), ""); else fs.rmSync(path.join(dir, "turn-running"), { force: true }); },
+    });
   } finally {
     if (sid) { try { core.closeSession(sid); } catch {} }
     if (savedBin === undefined) delete process.env.CLAUDE_BIN; else process.env.CLAUDE_BIN = savedBin;
@@ -451,6 +464,46 @@ test("Claude Codeの席: 一覧では使えるのに /fast on が断られた時
     assert.equal(keys(), "/fast on⏎");
     assert.equal(fs.readFileSync(userSettings, "utf8"), ORIGINAL_SETTINGS);
     assert.equal(core.observeSession(sid).state, "idle");
+  });
+});
+
+// 印が出るまで待つ（決め打ちの時間で待たない）。
+async function until(what, seen, timeoutMs = 10_000) {
+  for (const deadline = Date.now() + timeoutMs; Date.now() < deadline; await sleep(50)) if (seen()) return;
+  assert.fail(`${what}のを待ち切れません`);
+}
+
+test("Claude Codeの席: 設定替えの最中に届いた文は、替え終えてから席へ入る", { skip: ptySkip }, async () => {
+  await withFastClaude({ catalogDelayMs: 1500 }, async ({ sid, keys, catalogAsked }) => {
+    const configuring = core.configureAgent(sid, { fast: true });
+    await until("設定替えが一覧を聞く", catalogAsked);
+    // まだ /fast on を打っていない。ここで届いた文が先に入ると、その番は切り替えの前の速度で動く。
+    assert.equal(keys(), "");
+    const sent = await core.sendAgentMessage(sid, "AFTER_SWITCH");
+    assert.equal(sent.schema, "aiterm.agent-dispatch.v1");
+    assert.deepEqual(await configuring, configured(sid, true));
+    assert.equal(keys(), "/fast on⏎AFTER_SWITCH⏎");
+    assert.equal(fs.readFileSync(userSettings, "utf8"), ORIGINAL_SETTINGS);
+  });
+});
+
+test("Claude Codeの席: 番が動いている席の設定替えは、番の終わりを待つ間、差し込みを止めない", { skip: ptySkip }, async () => {
+  await withFastClaude({}, async ({ sid, keys, setTurnRunning }) => {
+    assert.equal((await core.sendAgentMessage(sid, "TURN")).schema, "aiterm.agent-dispatch.v1");
+    setTurnRunning(true);
+    await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
+    let configuredAt = null;
+    const configuring = core.configureAgent(sid, { fast: true }).then((result) => { configuredAt = performance.now(); return result; });
+    await sleep(700);
+    const steered = await core.sendAgentMessage(sid, "STEER");
+    const steeredAt = performance.now();
+    assert.equal(steered.schema, "aiterm.agent-steer.v1");
+    assert.equal(configuredAt, null, "番が終わるまで、設定は替えない");
+    assert.equal(keys(), "TURN⏎STEER⏎");
+    setTurnRunning(false);
+    assert.deepEqual(await configuring, configured(sid, true));
+    assert.ok(configuredAt > steeredAt);
+    assert.equal(keys(), "TURN⏎STEER⏎/fast on⏎");
   });
 });
 

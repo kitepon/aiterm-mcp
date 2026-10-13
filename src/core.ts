@@ -2676,17 +2676,21 @@ function reapDeadAgentSendLock(name: string, replacedToken: string | null = null
   return "done";
 }
 
+// 順番が来なかった時の断りの末尾。同じ行列に並ぶ設定替え（ADR 0120）は、何も変えていない事を書く。
+const AGENT_SEND_UNSENT = "文字列は送信していません。少し後で再度 pty_send してください。";
+const AGENT_CONFIGURE_UNCHANGED = "設定は変えていません。少し後で再度 agent_configure してください。";
+
 // BellTeamのため: 先頭の「AGENT_SEND_BUSY: agent session '<名前>' は」と、文中の「文字列は送信していません。」で
 // 未送信の断りを見分けている（2026-10-05）。この2か所を変える時は、変える前に知らせる。
-function agentSendBusyError(name: string, pid: number | null, waitMs: number): AitermError {
+function agentSendBusyError(name: string, pid: number | null, waitMs: number, untouched = AGENT_SEND_UNSENT): AitermError {
   return new AitermError(
     `AGENT_SEND_BUSY: agent session '${name}' は${pid != null ? `別プロセス（pid ${pid}）` : "先に受け付けた送信"}の処理中です。` +
-      `${waitMs}ms待っても順番が来ませんでした。文字列は送信していません。少し後で再度 pty_send してください。`,
+      `${waitMs}ms待っても順番が来ませんでした。${untouched}`,
     2,
   );
 }
 
-async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number): Promise<() => void> {
+async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number, untouched = AGENT_SEND_UNSENT): Promise<() => void> {
   const p = agentSendLockPath(name);
   let checkedOwner: string | null = null;
   let checkedOwnerReplaced = false;
@@ -2723,12 +2727,12 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
         2,
       );
     }
-    if (performance.now() >= deadline) throw agentSendBusyError(name, dead ? null : probe.pid, waitMs);
+    if (performance.now() >= deadline) throw agentSendBusyError(name, dead ? null : probe.pid, waitMs, untouched);
     await sleep(AGENT_SEND_LOCK_POLL_MS);
   }
 }
 
-async function withAgentSendLock<T>(name: string, run: () => Promise<T>): Promise<T> {
+async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT): Promise<T> {
   const waitMs = agentSendLockWaitMs;
   const deadline = performance.now() + waitMs;
   const previous = agentSendQueues.get(name) ?? Promise.resolve();
@@ -2751,8 +2755,8 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>): Promis
       }),
     ]);
     clearTimeout(timer);
-    if (!myTurn) throw agentSendBusyError(name, null, waitMs);
-    const release = await acquireAgentSendFileLock(name, deadline, waitMs);
+    if (!myTurn) throw agentSendBusyError(name, null, waitMs, untouched);
+    const release = await acquireAgentSendFileLock(name, deadline, waitMs, untouched);
     agentSendHeld.add(name);
     try {
       return await run();
@@ -5603,12 +5607,32 @@ export async function configureAgent(
   if ((model && /[\r\n]/.test(model)) || (effort && /[\r\n]/.test(effort))) {
     throw new AitermError("model／reasoning_effort に改行を含められません", 2);
   }
-  const meta = loadAgentMetadata(name);
-  if (fast === false && modelIsFastVariant(meta.kind, model)) {
+  if (fast === false && modelIsFastVariant(loadAgentMetadata(name).kind, model)) {
     throw new FastModeError("FAST_MODE_MODEL_CONFLICT",
       `model=${model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。設定は変えていません。`);
   }
+  // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
+  // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
+  const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
+  for (;;) {
+    const result = await withAgentSendLock(name, () => configureAgentInLock(name, model, effort, fast), AGENT_CONFIGURE_UNCHANGED);
+    if (result) return result;
+    if (performance.now() >= deadline) throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
+    await sleep(AGENT_TUI_READY_POLL_MS);
+  }
+}
+
+/** 返りの null は、席の画面が番の最中を示していて、何も打っていない時。 */
+async function configureAgentInLock(
+  name: string,
+  model: string | null,
+  effort: string | null,
+  fast: boolean | null,
+): Promise<AgentConfigureResult | null> {
+  // 席の控えは、行列の順番が来てから読む（前の送信が書いた分を、古い控えで上書きしない）。
+  const meta = loadAgentMetadata(name);
   bindCompletedInitialPrompt(meta);
+  if (isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))) return null;
   const { ready, codexRateLimitModelSwitch } = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
     name, meta, AGENT_TUI_READY_TIMEOUT_MS,
   );

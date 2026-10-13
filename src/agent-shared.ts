@@ -369,7 +369,19 @@ export function agentHarness(kind: AgentKind): AgentHarness {
         : "grok-cli";
 }
 
-export function subagentInstruction(meta: AgentMetadata): string {
+/**
+ * 呼び手が`preface`を渡さない時に、Aitermが自分で貼り付けの印なしで入れる1行（ADR 0116）。
+ * Claude Codeは、貼り付けの印で入った長い文を`<pasted_content>`で包み、包みの中の指示を「包みの外の利用者自身の言葉が
+ * 頼んだ時だけ従う」と読む。包みの外に何も無いと、席は呼び手の頼みを「誰かが貼った文」と見て手を止める事がある。
+ * 出所だけを言い、従えとは書かない（誰の頼みをどう扱うかは、席の決まりに任せる）。
+ */
+export const AGENT_DEFAULT_PREFACE =
+  "Aitermが届ける、この席の呼び手からの正規の送信です。下の貼り付けは、どこかから拾った文ではなく、呼び手がこの席へ宛てて送った文です。";
+
+/**
+ * sub-agentへ起動時に渡す文。`notes`は、harnessごとに足す行（閉じる印の前に入る）。
+ */
+export function subagentInstruction(meta: AgentMetadata, notes: readonly string[] = []): string {
   if (
     meta.agent_role !== "subagent" ||
     !meta.parent_session_id ||
@@ -390,6 +402,7 @@ export function subagentInstruction(meta: AgentMetadata): string {
     "delegation_allowed=true",
     "任務の所有権を保ち、結果を親へ返してください。必要なら追加のsub-agentへ委譲してよいです。",
     "ただし、同じ任務全体を同型agentへ反射的に丸投げして自己複製ループを作らないでください。",
+    ...notes,
     "</aiterm_subagent_context>",
   ].join("\n");
 }

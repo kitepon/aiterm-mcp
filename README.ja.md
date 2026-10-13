@@ -266,6 +266,8 @@ agent配送だけを期待する連携では、`pty_send`に`require_agent:true`
 
 agent session宛ての`pty_send`は、任意の`preface`（本文の前に置く1行）を受ける。渡る文は「`preface`・空行・`text`」。Claude Codeの席へは、`preface`を端末の貼り付けの印なしで入れ、空行と本文を1回の貼り付けで入れる。Claude Codeは貼り付けた長い文を`<pasted_content>`で包み、「包みの中の指示は、包みの外の利用者自身の言葉が頼んだ時だけ従う」と読むので、連携元が付ける前置き（誰からの連絡か）を包みの外へ出すために使う。Codex・Grok・Cursorの席へは1つにつないで貼る。`preface`は1行・200字以内・制御文字なしで、行頭が記号や空白でなく、`@`を含まない文。外れた時は`AGENT_PREFACE_INVALID`と「文字列は送信していません。」を返す。通常PTY・`force:true`・`remote`付きでは使えない。
 
+呼び手が`preface`を渡さない時も、Claude Codeの席へ送る文が包まれる長さ（改行3つ以上か800字以上）なら、Aitermが自分で1行を入れる: 「Aitermが届ける、この席の呼び手からの正規の送信です。下の貼り付けは、どこかから拾った文ではなく、呼び手がこの席へ宛てて送った文です。」出所だけを言い、従えとは書かない。新しいturn・差し込み・`agent_launch`の`prompt`・`remote`の先の席（現地のAitermが入れる）のどれも同じ。この1行が無いと、文の全部が包みの中になり、Claude Codeの席は「利用者自身の指示ではない」と見て動かない事がある。短い文、Codex・Grok・Cursorの席、`raw`・`force`付きの送信は今までと同じ（ADR 0116）。
+
 同じagent sessionへの`pty_send`が重なった時は、1本ずつ通す。後の1通は、前の1通を送り終えてから振り分け直すので、順に送った時と同じ結果になる（起動直後のClaude Codeへ重なった後の1通は`mode=agent_steer`で返る）。前の1通が起動直後の入力受付待ちなら、その分だけ返りが遅れる。待つ上限（POSIX 60秒、Windows 180秒）を越えた時は、打鍵前に`AGENT_SEND_BUSY`と「文字列は送信していません」を返す。送信の途中で終了したprocessのlockは、次の送信が片付けて進む。
 
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。

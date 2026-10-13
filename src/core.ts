@@ -44,6 +44,7 @@ import {
   sessionEnvironmentLaunch,
 } from "./tmux-runtime.js";
 import {
+  AGENT_DEFAULT_PREFACE,
   sleep,
   currentUid,
   runtimeStateBase,
@@ -1056,12 +1057,32 @@ export function assertAgentPreface(preface: string): string {
   return preface;
 }
 
+// Claude Codeが、貼り付けの印で入った文を`<pasted_content>`で包む境目。2.1.296の実物の席で測った:
+// 改行が3つ以上（4行以上）か、800字を超える文は包む。3行まで・800字以内は包まない。
+const CLAUDE_PASTE_WRAP_NEWLINES = 3;
+const CLAUDE_PASTE_WRAP_CHARS = 800;
+
+/** Claude Codeが、この文を貼り付けとして包むか。境目ちょうど（800字）は包む側に倒す（前置きが余分に付くだけで済む）。 */
+export function claudeWrapsPaste(text: string): boolean {
+  return text.length >= CLAUDE_PASTE_WRAP_CHARS || (text.match(/\n/gu)?.length ?? 0) >= CLAUDE_PASTE_WRAP_NEWLINES;
+}
+
+export { AGENT_DEFAULT_PREFACE };
+
 /**
  * 前置きつきの送信文を、harnessごとの形へ分ける。Claude Codeは前置きを印なしで入れ、空行と本文を貼る。
  * Codex・Grok・Cursorは貼り付けを包まないので、前置き・空行・本文を1つにつないで貼る（渡る文は前置きなしの時と同じ並び）。
+ * `preface`が無い時、Claude Codeが包む長さの文には、Aitermの既定の1行を前置きにする（`defaultForWrapped`がtrueの時だけ）。
  */
-function splitAgentPreface(kind: AgentKind, preface: string | null | undefined, text: string): { typedPreface?: string; body: string } {
-  if (preface == null) return { body: text };
+function splitAgentPreface(
+  kind: AgentKind, preface: string | null | undefined, text: string, o: { defaultForWrapped?: boolean } = {},
+): { typedPreface?: string; body: string } {
+  if (preface == null) {
+    if (o.defaultForWrapped && kind === "claude" && claudeWrapsPaste(text)) {
+      return { typedPreface: AGENT_DEFAULT_PREFACE, body: `\n\n${text}` };
+    }
+    return { body: text };
+  }
   assertAgentPreface(preface);
   return kind === "claude" ? { typedPreface: preface, body: `\n\n${text}` } : { body: `${preface}\n\n${text}` };
 }
@@ -4296,7 +4317,9 @@ export interface InitialAgentPromptOpts {
 }
 
 async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
-  send(name, text, {
+  // 起動時の文にも、包みになる長さなら出所の1行を包みの外へ出す（ADR 0116）。
+  const prefaced = kind === undefined ? { body: text } : splitAgentPreface(kind, null, text, { defaultForWrapped: true });
+  send(name, prefaced.body, {
     enter: false,
     force: true,
     raw: false,
@@ -4304,6 +4327,7 @@ async function sendAgentPromptText(name: string, text: string, kind?: AgentKind)
     rtk: false,
     preserveAgentOperation: true,
     bracketedPaste: true,
+    typedPreface: prefaced.typedPreface,
   });
   if (kind === "cursor") {
     const visible = await waitCursorPromptVisible(name, text);
@@ -5981,7 +6005,8 @@ async function dispatchAgentTurnInLock(
   const startOffset = agentCompletionCursor(meta);
   // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。
   // その1回だけlaunch contextを加え、以後はbind済みconversationへ通常textだけを送る。
-  const prefaced = splitAgentPreface(meta.kind, o.preface, text);
+  // 画面の確かめを飛ばす送信（force）と、加工なしの送信（raw）には、既定の前置きを打たない（打った文は入力欄がそのまま読む）。
+  const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.force && !o.raw });
   const dispatchText = meta.kind === "cursor" && !meta.vendor_session_id
     ? `${subagentInstruction(meta)}\n\n${prefaced.body}`
     : prefaced.body;
@@ -6188,7 +6213,7 @@ async function steerRunningTurn(
     harness: agentHarness(meta.kind),
     pane_input_recovery: o.pane_input_recovery,
   };
-  const prefaced = splitAgentPreface(meta.kind, o.preface, text);
+  const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.raw });
   text = prefaced.body;
   prepareSendText(text, { raw: o.raw });
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。

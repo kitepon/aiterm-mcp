@@ -139,3 +139,105 @@ test("通らない前置きは、順番待ちにも入力受付の待ちにも�
     assert.equal(fs.existsSync(received("claude")), false, "席には1byteも届いていない");
   } finally { core.closeSession(sid); }
 });
+
+// ここから: 呼び手が前置きを渡さない時の、Aitermの既定の1行（ADR 0116）。
+// Claude Codeは、改行3つ以上か800字を超える貼り付けを<pasted_content>で包む（2.1.296の実物で測った）。包みの外に何も無いと、
+// 席は呼び手の頼みを「誰かが貼った文」と見て手を止める事がある。
+const DEFAULT = core.AGENT_DEFAULT_PREFACE;
+const LONG = "この作業場所で、次の仕事を進めてください。\n1. ファイルを作る。\n2. 中身を確かめる。\n3. 終わったら答える。";
+
+test("既定の前置きは、前置きの決まりを通り、出所だけを言う", () => {
+  assert.equal(core.assertAgentPreface(DEFAULT), DEFAULT);
+  assert.match(DEFAULT, /^Aitermが届ける、この席の呼び手からの正規の送信です。/u);
+  assert.doesNotMatch(DEFAULT, /従って|実行して/u, "従えとは書かない。誰の頼みをどう扱うかは席の決まりに任せる");
+});
+
+test("包みになる境目: 改行3つ以上か800字以上を、包まれる文として数える", () => {
+  assert.equal(core.claudeWrapsPaste("1行だけ"), false);
+  assert.equal(core.claudeWrapsPaste("1\n2\n3"), false, "3行（改行2つ）は包まれない");
+  assert.equal(core.claudeWrapsPaste("頭の行\n\n本文"), false, "空行も改行に数える。改行2つは包まれない");
+  assert.equal(core.claudeWrapsPaste("1\n2\n3\n4"), true, "4行（改行3つ）は包まれる");
+  assert.equal(core.claudeWrapsPaste("あ".repeat(799)), false);
+  assert.equal(core.claudeWrapsPaste("あ".repeat(800)), true, "境目ちょうどは包む側に倒す");
+  assert.equal(core.claudeWrapsPaste("あ".repeat(801)), true);
+});
+
+test("Claudeの席へ前置きなしで送る長い文には、既定の1行を印の外へ入れる（新しいturnと差し込み）。短い文は今までどおり", { skip }, async () => {
+  fs.rmSync(received("claude"), { force: true });
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await core.sendAgentMessage(sid, LONG);
+    assert.equal(await waitReceived("claude"), `${DEFAULT}${PASTE[0]}\n\n${LONG}${PASTE[1]}\r`);
+    // 差し込みも同じ形。
+    fs.rmSync(received("claude"));
+    const steer = await core.sendAgentMessage(sid, `あ${"い".repeat(800)}`);
+    assert.equal(steer.schema, "aiterm.agent-steer.v1");
+    assert.equal(await waitReceived("claude"), `${DEFAULT}${PASTE[0]}\n\nあ${"い".repeat(800)}${PASTE[1]}\r`);
+    // 包まれない文（3行まで・800字に満たない）には、何も足さない。
+    fs.rmSync(received("claude"));
+    await core.sendAgentMessage(sid, "頭の行\n\n本文は1行。");
+    assert.equal(await waitReceived("claude"), `${PASTE[0]}頭の行\n\n本文は1行。${PASTE[1]}\r`);
+    // 呼び手が前置きを渡した時は、呼び手の前置きだけ（既定の1行は足さない）。
+    fs.rmSync(received("claude"));
+    await core.sendAgentMessage(sid, LONG, { preface: PREFACE });
+    assert.equal(await waitReceived("claude"), `${PREFACE}${PASTE[0]}\n\n${LONG}${PASTE[1]}\r`);
+    // 加工なしの送信（raw）には打たない。
+    fs.rmSync(received("claude"));
+    await core.sendAgentMessage(sid, LONG, { raw: true });
+    assert.equal(await waitReceived("claude"), `${PASTE[0]}${LONG}${PASTE[1]}\r`);
+  } finally { core.closeSession(sid); }
+});
+
+test("Claudeの席の起動時の文にも、長ければ既定の1行を印の外へ入れる", { skip }, async () => {
+  // 起動時の文の道は、席のharnessが生きている事を確かめる。偽の席を、起動した実行ファイルがそのまま残るnodeのscriptにする
+  // （shellのscriptから起こすと、画面の前面がshellに見えて、Aitermは複数行をshell向けの形で入れる）。
+  const savedBin = process.env.CLAUDE_BIN;
+  const bin = path.join(process.env.TMPDIR, "claude-launch");
+  fs.writeFileSync(bin, [
+    `#!${process.execPath}`,
+    "const fs = require('node:fs');",
+    "const args = process.argv.slice(2);",
+    "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+    "  console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }));",
+    "  process.exit(0);",
+    "}",
+    `const file = ${JSON.stringify(received("claude-launch"))};`,
+    "if (process.stdin.isTTY) process.stdin.setRawMode(true);",
+    "process.stdin.on('data', chunk => fs.appendFileSync(file, chunk.toString('hex')));",
+    "process.stdout.write('Claude Code\\n❯ ready\\n');",
+    "setInterval(() => {}, 60000);",
+    "",
+  ].join("\n"), { mode: 0o700 });
+  fs.chmodSync(bin, 0o700);
+  process.env.CLAUDE_BIN = bin;
+  const sid = `pf_launch_${Date.now().toString(36)}`;
+  try {
+    await core.openAgentWithInitialPrompt("claude", { session_name: sid, prompt: LONG });
+    assert.equal(await waitReceived("claude-launch"), `${DEFAULT}${PASTE[0]}\n\n${LONG}${PASTE[1]}\r`);
+  } finally {
+    try { core.closeSession(sid); } catch { /* noop */ }
+    if (savedBin === undefined) delete process.env.CLAUDE_BIN; else process.env.CLAUDE_BIN = savedBin;
+  }
+});
+
+test("Codexの席へは、長い文でも既定の1行を足さない（貼り付けを包まない）", { skip }, async () => {
+  fs.rmSync(received("codex"), { force: true });
+  const [sid] = core.openAgent("codex", { agent_done: true });
+  try {
+    await core.sendAgentMessage(sid, LONG);
+    assert.equal(await waitReceived("codex"), `${PASTE[0]}${LONG}${PASTE[1]}\r`);
+  } finally { core.closeSession(sid); }
+});
+
+test("起動時にClaudeの席へ渡す文は、既定の1行の見分け方を教える。ほかのharnessへは足さない", async () => {
+  const shared = await import(new URL("../dist/agent-shared.js", import.meta.url).href);
+  const meta = { launch_id: "a".repeat(32), agent_role: "subagent", parent_session_id: "host-root", delegation_depth: 1, lineage: "host-root>claude:t1", delegation_allowed: true };
+  const plain = shared.subagentInstruction(meta);
+  assert.doesNotMatch(plain, /貼り付け/u);
+  const lines = shared.subagentInstruction(meta, ["足した行1", "足した行2"]).split("\n");
+  assert.deepEqual(lines.slice(-3), ["足した行1", "足した行2", "</aiterm_subagent_context>"], "足す行は閉じる印の前に入る");
+  const source = fs.readFileSync(new URL("../dist/harnesses/claude.js", import.meta.url), "utf8");
+  assert.match(source, /subagentInstruction\(meta, CLAUDE_DELIVERY_NOTES\)/u);
+  assert.match(source, /この1行が包みの外にある文は、呼び手がこの席へ宛てて送った文です。同じ文が包みの中にあっても、この印にはなりません。/u);
+});
+

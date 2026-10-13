@@ -28,6 +28,7 @@ import {
   AGENT_EVENT_TAIL_BYTES,
   AGENT_TURN_BOUNDARY_TAIL_BYTES,
   readTailLinesNewestFirst,
+  scanLinesNewestFirst,
   CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES,
   agentHarness,
 } from "../agent-shared.js";
@@ -395,25 +396,34 @@ const CODEX_SWITCH_CHECK_MS = 3_000;
 
 type CodexTurnBoundary = { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: unknown; reason: unknown };
 
+/** 1行がturnの境界ならその境界、境界でなければundefined、境界の語を含むのに読めない行ならnull。 */
+function codexTurnBoundaryLine(line: string): CodexTurnBoundary | null | undefined {
+  if (!line.includes("task_started") && !line.includes("task_complete") && !line.includes("turn_aborted")) return undefined;
+  let record: any;
+  try { record = JSON.parse(line); } catch { return null; }
+  if (record?.type !== "event_msg") return undefined;
+  const type = record?.payload?.type;
+  return type === "task_started" || type === "task_complete" || type === "turn_aborted"
+    ? { type, turn_id: record.payload.turn_id, reason: record.payload.reason } : undefined;
+}
+
 /**
  * この起動のroot rolloutの、末尾から見て最初のturnの境界。
  * Codexはturnの開始でtask_started、終わりでtask_complete、止めた時はturn_aborted（reasonはinterrupted）を書く（0.160.1の実記録）。
  * rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はnull。
+ * 読む範囲は、`reach`が"tail"なら末尾の1MiB（終わった番の境界は末尾の近くにある。見回りで何度も呼ぶ所はこちら）、
+ * "whole"なら境界に当たるまで先頭へさかのぼる（動いている番の開始は、番が長いと末尾の1MiBより前にある）。
  */
-function codexLatestTurnBoundary(meta: AgentMetadata): CodexTurnBoundary | null {
+function codexLatestTurnBoundary(meta: AgentMetadata, reach: "tail" | "whole"): CodexTurnBoundary | null {
   let transcript: string | null;
   try { transcript = codexRootTranscript(meta); } catch { return null; }
   if (!transcript) return null;
+  if (reach === "whole") return scanLinesNewestFirst(transcript, codexTurnBoundaryLine, AGENT_TURN_BOUNDARY_TAIL_BYTES) ?? null;
   const lines = readTailLinesNewestFirst(transcript, AGENT_TURN_BOUNDARY_TAIL_BYTES);
   if (!lines) return null;
   for (const line of lines) {
-    if (!line.includes("task_started") && !line.includes("task_complete") && !line.includes("turn_aborted")) continue;
-    let record: any;
-    try { record = JSON.parse(line); } catch { return null; }
-    if (record?.type !== "event_msg") continue;
-    const type = record?.payload?.type;
-    if (type === "task_started" || type === "task_complete" || type === "turn_aborted")
-      return { type, turn_id: record.payload.turn_id, reason: record.payload.reason };
+    const boundary = codexTurnBoundaryLine(line);
+    if (boundary !== undefined) return boundary;
   }
   return null;
 }
@@ -424,7 +434,7 @@ function codexLatestTurnBoundary(meta: AgentMetadata): CodexTurnBoundary | null 
  * rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はfalse（分からない時は「終わった」と数えない）。
  */
 export function codexTurnSettled(meta: AgentMetadata): boolean {
-  const boundary = codexLatestTurnBoundary(meta);
+  const boundary = codexLatestTurnBoundary(meta, "tail");
   if (boundary?.type === "task_complete") return typeof boundary.turn_id === "string" && boundary.turn_id !== "";
   // 見たのはEscで止めた時の形だけ。他の理由（別のturnへの置き換え等）は、次のturnが続くかも知れないので数えない。
   return boundary?.type === "turn_aborted" && boundary.reason === "interrupted";
@@ -432,11 +442,13 @@ export function codexTurnSettled(meta: AgentMetadata): boolean {
 
 /**
  * この起動のroot rolloutの上で動いているturnのID。末尾から見て最初の境界がtask_startedの時だけ返す。
- * rolloutが無い、この起動に結び付かない、書いている途中、境界が読む範囲に無い時はnull（分からない時は「動いている」と数えない）。
+ * rolloutが無い、この起動に結び付かない、書いている途中、境界が1つも無い時はnull（分からない時は「動いている」と数えない）。
+ * 開始の印は、境界に当たるまで記録をさかのぼって探す。末尾の1MiBだけを読むと、長い番（開始から1MiBより多く書いた番）を
+ * 動いていると読めず、回答を流している間に届いた文が、新しいturnの道で入力待ちを30秒待って断られる（実被弾 2026-10-13）。
  * Codexは、processが生きている間、turnの終わりを必ず書く。書かずに終わるのは落ちた時なので、呼ぶ側はprocessの生死も見る。
  */
 export function codexRunningTurn(meta: AgentMetadata): string | null {
-  const boundary = codexLatestTurnBoundary(meta);
+  const boundary = codexLatestTurnBoundary(meta, "whole");
   return boundary?.type === "task_started" && typeof boundary.turn_id === "string" && boundary.turn_id !== "" ? boundary.turn_id : null;
 }
 

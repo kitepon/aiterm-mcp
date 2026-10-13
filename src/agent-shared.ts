@@ -123,6 +123,38 @@ export function readTailLinesNewestFirst(file: string, maxBytes: number): string
   return lines.filter(line => line.trim() !== "").reverse();
 }
 
+/**
+ * 記録を末尾から先頭へさかのぼり、行を新しい順に`visit`へ渡す。`visit`がundefined以外を返したら、そこで止めてその値を返す。
+ * 先頭まで読んで何も返らなければundefined。書いている途中の行（改行で終わっていない末尾）がある時と、読めなかった時はnull。
+ * 1回に読むのは`chunkBytes`ずつ。行が読む範囲に収まらない時は、収まるまで範囲を広げる（行の途中では切らない）。
+ */
+export function scanLinesNewestFirst<T>(file: string, visit: (line: string) => T | undefined, chunkBytes: number): T | undefined | null {
+  let end = safeStatSize(file);
+  for (let tail = true; end > 0; tail = false) {
+    let span = chunkBytes;
+    let start = Math.max(0, end - span);
+    let chunk = readFileRange(file, start, end);
+    // 範囲の先頭で切れた行は、次の回で読む。改行が範囲の最後の1つだけなら、その行は範囲に収まっていない。
+    let cut = start === 0 ? 0 : chunk.indexOf(0x0a) + 1;
+    while (chunk.length === end - start && start > 0 && (cut === 0 || cut === chunk.length)) {
+      span *= 2;
+      start = Math.max(0, end - span);
+      chunk = readFileRange(file, start, end);
+      cut = start === 0 ? 0 : chunk.indexOf(0x0a) + 1;
+    }
+    if (chunk.length !== end - start) return null;
+    if (tail && chunk[chunk.length - 1] !== 0x0a) return null;
+    const lines = chunk.subarray(cut).toString("utf8").split("\n");
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (lines[index].trim() === "") continue;
+      const found = visit(lines[index]);
+      if (found !== undefined) return found;
+    }
+    end = start + cut;
+  }
+  return undefined;
+}
+
 export function readFileRange(p: string, from: number, to: number): Buffer {
   const len = Math.max(0, to - from);
   if (len === 0) return Buffer.alloc(0);
@@ -208,6 +240,7 @@ export function pollGate(intervalMs: number, now: () => number = () => performan
 export const AGENT_EVENT_MAX_BYTES = 1024 * 1024;
 export const AGENT_EVENT_TAIL_BYTES = 64 * 1024;
 // turnの境界（開始・終わり）を、harnessの記録の末尾から探す時に読む大きさ。終わった席では境界は末尾の近くにある。
+// 動いている番の開始は、番が長いとこれより前になる。開始を探す所は、この大きさずつさかのぼる（scanLinesNewestFirst）。
 export const AGENT_TURN_BOUNDARY_TAIL_BYTES = 1024 * 1024;
 export const CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES = 16 * 1024 * 1024;
 export const GROK_TRANSCRIPT_INCREMENT_MAX_BYTES = 16 * 1024 * 1024;

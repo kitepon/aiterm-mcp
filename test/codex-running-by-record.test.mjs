@@ -133,6 +133,43 @@ test("記録の読み: 最後の境界がturnの開始の時だけ、動いて�
   assert.equal(codexRunningTurn(meta), null);
 });
 
+// 実被弾 2026-10-13: 20分続いた番（開始の印から1.1MB先まで書かれていた）で、回答を流している間に届いた文が4通、30秒待って断られた。
+// 開始の印を記録の末尾1MiBの中でしか探しておらず、長い番では「動いている」と読めなかった。
+test("記録の読み: 番の開始から1MiBより多く書かれた後も、動いているturnのIDを返す", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "running-codex-long-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const dir = path.join(home, "sessions", "2026", "10", "13");
+  fs.mkdirSync(dir, { recursive: true });
+  const meta = { kind: "codex", codex_home: home, hook_route: "shared_codex_home", launch_id: "launch-long",
+    created_at: new Date(Date.now() - 60_000).toISOString(), vendor_session_id: null };
+  const file = path.join(dir, "rollout-2026-10-13T00-00-00-sess-long.jsonl");
+  const head = [
+    JSON.stringify({ type: "session_meta", payload: { id: "sess-long", originator: "codex-tui", source: "cli" } }),
+    JSON.stringify({ type: "response_item", payload: { type: "message", role: "developer", content: [{ type: "input_text", text: "AITERM_AGENT_LAUNCH_ID=launch-long" }] } }),
+  ];
+  const write = (lines) => fs.writeFileSync(file, lines.join("\n") + "\n");
+  // 道具の出力の行。境界の語（task_started）を本文に含む行と、日本語（複数byteの字）の行を混ぜる。
+  const output = (n, bytes) => JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: `call-${n}`,
+    output: `${n} task_started の話。` + "あ".repeat(Math.ceil(bytes / 3)) } });
+  const many = Array.from({ length: 40 }, (_, n) => output(n, 60_000));   // 約2.4MB
+  write([...head, START, ...many]);
+  assert.ok(fs.statSync(file).size > 2 * 1024 * 1024);
+  assert.equal(codexRunningTurn(meta), "turn-1", "開始の印が末尾1MiBより前にあっても、動いていると読む");
+  assert.equal(codexTurnSettled(meta), false);
+  write([...head, START, DONE, event("task_started", { turn_id: "turn-2" }), ...many]);
+  assert.equal(codexRunningTurn(meta), "turn-2", "さかのぼって最初に当たる境界（一番新しい境界）を読む");
+  // 1行が読む単位（1MiB）より長い時も、行の途中で切らずに読む。
+  write([...head, START, output(0, 1_500_000), output(1, 2_500_000), output(2, 100)]);
+  assert.equal(codexRunningTurn(meta), "turn-1");
+  write([...head, START, ...many, DONE]);
+  assert.equal(codexRunningTurn(meta), null, "長い番が終わった後は、動いていない");
+  assert.equal(codexTurnSettled(meta), true);
+  write([...head, ...many]);
+  assert.equal(codexRunningTurn(meta), null, "先頭まで読んでも境界が無い");
+  fs.writeFileSync(file, [...head, START, ...many].join("\n") + '\n{"type":"event_msg","payload":{"type":"task_complete","turn_');
+  assert.equal(codexRunningTurn(meta), null, "末尾を書いている途中は、長い番でも分からないと読む");
+});
+
 test("回答を流している席（画面は入力待ち、記録はturnの途中、画面が動いている）への文は、差し込みで返す", { skip }, async () => {
   const { sid, launchId } = await openSeat("stream", "stream");
   try {
@@ -141,6 +178,20 @@ test("回答を流している席（画面は入力待ち、記録はturnの途�
     assert.equal(receipt.schema, "aiterm.agent-steer.v1");
     for (let waited = 0; waited < 4000 && !arrived("stream", "流れている間に届いた文。"); waited += 50) await sleep(50);
     assert.ok(arrived("stream", "流れている間に届いた文。"), "文は席へ届いている");
+  } finally { core.closeSession(sid); }
+});
+
+test("回答を流している席への文は、番の開始から1MiBより多く書かれた後でも、差し込みで返す", { skip }, async () => {
+  const { sid, launchId } = await openSeat("longstream", "stream");
+  try {
+    const filler = JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call", output: "x".repeat(50_000) } });
+    rollout(launchId, [START, ...Array.from({ length: 30 }, () => filler)]);   // 開始の印の後ろに約1.5MB
+    const started = Date.now();
+    const receipt = await core.sendAgentMessage(sid, "長い番の合間に届いた文。");
+    assert.equal(receipt.schema, "aiterm.agent-steer.v1");
+    assert.ok(Date.now() - started < 10_000, "入力待ちを30秒待たない");
+    for (let waited = 0; waited < 4000 && !arrived("longstream", "長い番の合間に届いた文。"); waited += 50) await sleep(50);
+    assert.ok(arrived("longstream", "長い番の合間に届いた文。"), "文は席へ届いている");
   } finally { core.closeSession(sid); }
 });
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.1] - 2026-10-13
+
 ### 修正
 
 - **長く続いているCodexの番へ、回答を流している間に届いた文が、30秒待って断られていた。**（ADR 0101 の直し）
@@ -2627,7 +2629,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.1...HEAD
+[0.59.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.4...v0.59.0
 [0.58.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.3...v0.58.4
 [0.58.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.2...v0.58.3

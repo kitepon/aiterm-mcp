@@ -453,6 +453,76 @@ test('CIの入口は、空の名前や試験fileでない名前を、組む前�
   }
 });
 
+// CIの入口は、端末全体のgitの設定にhookの置き場・ひな形が在るかを確かめられない時（gitが起きない、異常終了する）、何も起こさずに落ちる。
+// 入口の写しを、一時の場所へ置いて流す。組む・前提の確かめ・試験の代わりに「起きた」と書くだけのfileを並べてあり、
+// 入口が先へ進むと目印のfileに名前が残る（本物のdistは消させない）。
+test('CIの入口は、端末全体のgitの設定を確かめられない時、組む前に落ちる。値は記録へ出さない', () => {
+  const tree = fileURLToPath(new URL('..', import.meta.url));
+  const root = mkdtempSync(join(tmpdir(), 'seat-ci-'));
+  const launched = join(root, 'launched');
+  const work = join(root, 'work');
+  const module = name => `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(launched)}, ${JSON.stringify(`${name}\n`)});\n`;
+  for (const [file, body] of [
+    ['scripts/run-product-ci-tests.mjs', readFileSync(join(tree, 'scripts', 'run-product-ci-tests.mjs'), 'utf8')],
+    ['scripts/clean-build.mjs', module('clean-build')],
+    // 拡張子の無いfileは、CommonJSとして読まれる。
+    ['node_modules/typescript/bin/tsc', `require('node:fs').appendFileSync(${JSON.stringify(launched)}, 'tsc\\n');\n`],
+    ['test/seat-env.mjs', ''],
+    ['test/seat-env.test.mjs', module('test')],
+  ]) {
+    mkdirSync(dirname(join(work, file)), { recursive: true });
+    writeFileSync(join(work, file), body);
+  }
+  const { NODE_TEST_CONTEXT: _context, ...inherited } = process.env;
+  const entry = (scope, env) => spawnSync(process.execPath, ['scripts/run-product-ci-tests.mjs'], { cwd: work, encoding: 'utf8', timeout: 60000,
+    env: { ...inherited, ...env, PRODUCT_CI_TEST_SCOPE: scope, PRODUCT_CI_TEST_FILES: '["test/seat-env.test.mjs"]' } });
+  const started = () => (existsSync(launched) ? readFileSync(launched, 'utf8').trim().split('\n') : []);
+  // gitの代わりに置く偽物（POSIX）。Windowsは、shellを通さない起動が.exeしか見つけないので、偽物を置く場面は流さない。
+  // 偽物はPATHの先頭へ足す。端末の本体（tmux）は見えたままなので、入口がgitの確かめで止まらなければ、組む所まで進む。
+  const fakeGit = (name, body) => {
+    const directory = join(root, name);
+    mkdirSync(directory);
+    writeFileSync(join(directory, 'git'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return `${directory}:${process.env.PATH}`;
+  };
+  const empty = join(root, 'no-git');
+  mkdirSync(empty);
+  try {
+    // 前提の確かめ: 本物のgitでは、入口は先へ進み、並べたfileが起きる（この置き方で、起きた事が分かる）。
+    const usual = entry('metadata', {});
+    assert.deepEqual(started().slice(0, 3), ['clean-build', 'tsc', 'test'], usual.stdout + usual.stderr);
+    assert.match(usual.stdout, /^git system core\.hooksPath: (?:set|unset)$/m);
+    assert.match(usual.stdout, /^git system init\.templateDir: (?:set|unset)$/m);
+    rmSync(launched);
+
+    const cases = [['gitが見つからない', { PATH: empty }, /unknown \(ENOENT\)/]];
+    if (process.platform !== 'win32') {
+      cases.push(['gitが異常終了する', { PATH: fakeGit('broken-git', 'echo "fatal: bad config" >&2; exit 128') }, /unknown \(exit 128\)/]);
+      cases.push(['gitが信号で止まる', { PATH: fakeGit('killed-git', 'kill -9 $$') }, /unknown \(signal SIGKILL\)/]);
+    }
+    for (const [label, env, reason] of cases) {
+      for (const scope of ['all', 'selected', 'metadata']) {
+        const result = entry(scope, env);
+        assert.notEqual(result.status, 0, `${label}・${scope}: 落ちていない`);
+        assert.match(result.stdout, reason, `${label}・${scope}`);
+        assert.match(result.stderr, /端末全体のgitの設定（core\.hooksPath）の有無を確かめられません/, `${label}・${scope}`);
+        assert.deepEqual(started(), [], `${label}・${scope}: 落ちる前に先へ進んだ`);
+        assert.doesNotMatch(result.stdout, /tmux|psmux/, `${label}・${scope}: 落ちる前に先へ進んだ`);
+      }
+    }
+    // 設定が在る時（終了コード0）は「set」とだけ出し、gitが返した値は記録へ出さない。
+    if (process.platform !== 'win32') {
+      const result = entry('metadata', { PATH: fakeGit('set-git', 'echo /owner-production/secret-hooks; exit 0') });
+      assert.match(result.stdout, /^git system core\.hooksPath: set$/m);
+      assert.match(result.stdout, /^git system init\.templateDir: set$/m);
+      assert.doesNotMatch(result.stdout + result.stderr, /secret-hooks/);
+      assert.deepEqual(started().slice(0, 1), ['clean-build'], '有無が分かった時は先へ進む');
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // CIのrunnerの利用者が替わっても、homeに何が入っていても、同じ結果にする（ADR 0121）。
 test('試験入口は、動かす利用者のhomeの代わりに、置き場の中の空のhomeを渡す', {
   skip: process.platform === 'win32' ? 'Windowsは利用者フォルダを差し替えない' : false,

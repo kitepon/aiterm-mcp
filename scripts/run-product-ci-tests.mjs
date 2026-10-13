@@ -30,10 +30,19 @@ function requireTerminalBackend() {
 
 // 端末全体のgitの設定に、hookの置き場とrepositoryのひな形が書かれているかを、値を出さずに記録へ残す（ADR 0087の追記）。
 // 書かれていても、試験の前処理が試験専用の空の場所で上書きする。runnerごとの前提を、後から記録で確かめられるようにする。
-function reportSystemGitHooks() {
+// 有無を確かめられない時（gitが起きない、0と1のほかで終わる、信号で止まる）は、組む前に落とす。試験を起こす3つの範囲の全部で、
+// ほかの何よりも先に呼ぶ。gitの出力（設定の値や場所）は記録へ出さない。
+function requireKnownSystemGitHooks() {
   for (const key of ['core.hooksPath', 'init.templateDir']) {
     const result = spawnSync('git', ['config', '--system', '--get', key], { encoding: 'utf8', windowsHide: true });
-    console.log(`git system ${key}: ${result.error ? 'unknown' : result.status === 0 ? 'set' : result.status === 1 ? 'unset' : `unknown (exit ${result.status})`}`);
+    const state = result.error || result.signal ? null : result.status === 0 ? 'set' : result.status === 1 ? 'unset' : null;
+    if (state === null) {
+      const reason = result.error ? (result.error.code ?? 'spawn error') : result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
+      console.log(`git system ${key}: unknown (${reason})`);
+      throw new Error(`端末全体のgitの設定（${key}）の有無を確かめられません: ${reason}。`
+        + 'gitがrunnerのPATHから見え、`git config --system --get`が動くようにしてください');
+    }
+    console.log(`git system ${key}: ${state}`);
   }
 }
 
@@ -45,9 +54,10 @@ const build = () => {
   run(process.execPath, ['node_modules/typescript/bin/tsc']);
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/seat-env.test.mjs']);
 };
+if (!['all', 'metadata', 'selected'].includes(scope)) throw new Error(`PRODUCT_CI_TEST_SCOPE が不正です: ${scope || '未指定'}`);
+requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
-  reportSystemGitHooks();
   build();
   const files = [
     'scripts/verify-release-commit.test.mjs',
@@ -66,9 +76,6 @@ if (scope === 'all') {
     throw new Error('PRODUCT_CI_TEST_FILES が不正です');
   }
   requireTerminalBackend();
-  reportSystemGitHooks();
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
-} else {
-  throw new Error(`PRODUCT_CI_TEST_SCOPE が不正です: ${scope || '未指定'}`);
 }

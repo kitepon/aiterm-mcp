@@ -34,6 +34,32 @@ export const INTERIM_CALLER = "BellTeam";
 export const INTERIM_AFTER_META_KEY = "aiterm/interim_after";
 /** 結果の_metaで返すキー。 */
 export const INTERIM_RESULT_META_KEY = "aiterm/interim_words";
+/**
+ * 読み始める位置。差し込みの返りと「席の今の番」が渡す文字列（中身は呼び手に読ませない）。
+ * 指定した時は、最後のdispatchの境界ではなく、その位置より後の言葉を返す（ADR 0122）。
+ */
+export const INTERIM_FROM_META_KEY = "aiterm/interim_from";
+
+/**
+ * 合間の言葉を読み始める位置。event_cursorは、その位置を渡した返り（差し込み・席の今の番）の完了の位置で、結果へそのまま写す。
+ * unitが"byte"ならboundaryは記録のbyte位置、"user"なら記録中のuser発話の数（Grok）。
+ */
+export interface InterimFrom {
+  event_cursor: number;
+  unit: "byte" | "user";
+  boundary: number;
+}
+
+export function interimFromToken(from: InterimFrom): string {
+  return `v1:${from.event_cursor}:${from.unit === "byte" ? "b" : "u"}:${from.boundary}`;
+}
+
+export function parseInterimFrom(token: unknown): InterimFrom | null {
+  if (typeof token !== "string") return null;
+  const match = /^v1:(\d{1,15}):([bu]):(\d{1,15})$/.exec(token);
+  if (!match) return null;
+  return { event_cursor: Number(match[1]), unit: match[2] === "b" ? "byte" : "user", boundary: Number(match[3]) };
+}
 
 export interface InterimWord {
   /** turn内で1から数える順番。同じturnでは読み直しても変わらない。 */
@@ -76,13 +102,24 @@ export function agentInterimBoundaryPath(name: string, launchId: string): string
   return path.join(agentsDir(), `${name}.${launchId}.interim.json`);
 }
 
-/** 要求の_metaがBellTeamの印を持つ時だけ、前回のseqを返す。それ以外はnull（何も足さない）。 */
-export function interimRequestFromMeta(meta: unknown): { after: number } | null {
-  if (!meta || typeof meta !== "object") return null;
+/** 要求の_metaがBellTeamの印を持つか。 */
+export function interimCallerFromMeta(meta: unknown): boolean {
+  return !!meta && typeof meta === "object" && (meta as Record<string, unknown>)[INTERIM_CALLER_META_KEY] === INTERIM_CALLER;
+}
+
+/**
+ * 要求の_metaがBellTeamの印を持つ時だけ、前回のseqを返す。それ以外はnull（何も足さない）。
+ * 読み始める位置（aiterm/interim_from）が付いていれば、fromに入れる。付いているのに読めない時はfromがnullでfrom_invalidがtrue
+ * （最後のdispatchの言葉を黙って返すと、呼び手は別の番の言葉を出してしまう）。
+ */
+export function interimRequestFromMeta(meta: unknown): { after: number; from?: InterimFrom | null; from_invalid?: true } | null {
+  if (!interimCallerFromMeta(meta)) return null;
   const record = meta as Record<string, unknown>;
-  if (record[INTERIM_CALLER_META_KEY] !== INTERIM_CALLER) return null;
-  const after = record[INTERIM_AFTER_META_KEY];
-  return { after: typeof after === "number" && Number.isSafeInteger(after) && after > 0 ? after : 0 };
+  const raw = record[INTERIM_AFTER_META_KEY];
+  const after = typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
+  if (record[INTERIM_FROM_META_KEY] === undefined) return { after };
+  const from = parseInterimFrom(record[INTERIM_FROM_META_KEY]);
+  return from ? { after, from } : { after, from: null, from_invalid: true };
 }
 
 function parse(line: string): any {
@@ -274,8 +311,50 @@ function readInterimBoundary(meta: AgentMetadata): InterimBoundary | null {
   return value as InterimBoundary;
 }
 
-/** 現在（または直前）のturnで書かれた合間の言葉のうち、seqがafterより後のもの。 */
-export function readInterimWords(meta: AgentMetadata, after: number): InterimWordsResult {
+/**
+ * 今の時点の読み始めの位置。差し込みを打つ直前に取る（その差し込みより後に書かれた言葉だけを読むため）。
+ * Claude・Codex・Cursorは記録のbyte位置、Grokは記録中のuser発話の数（「今すぐ送る」で入った文は、次のuser発話になる）。
+ * Cursorは、番が動いている間は記録を足すだけなので、byte位置が動かない（末尾の行を書き換えるのは、次の番の開始の時）。
+ */
+export function interimFromNow(meta: AgentMetadata, eventCursor: number): InterimFrom {
+  if (meta.kind === "grok") return { event_cursor: eventCursor, unit: "user", boundary: grokUserCount(readLines(grokChatHistory(meta))) };
+  let file: string | null = null;
+  try {
+    file = meta.kind === "claude" ? claudeSessionTranscriptPath(meta)
+      : meta.kind === "codex" ? (meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta))
+      : cursorTranscript(meta);
+  } catch { /* 記録を決められない時は、頭から */ }
+  return { event_cursor: eventCursor, unit: "byte", boundary: file ? safeStatSize(file) : 0 };
+}
+
+/** 渡された位置より後に書かれた合間の言葉。位置の単位がharnessと合わない時は、言葉なし。 */
+function interimWordsFrom(meta: AgentMetadata, from: InterimFrom): Found[] {
+  if (meta.kind === "grok") return from.unit === "user" ? grokInterimWords(readLines(grokChatHistory(meta)), from.boundary) : [];
+  if (from.unit !== "byte") return [];
+  if (meta.kind === "claude") return claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), from.boundary));
+  if (meta.kind === "codex") return codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), from.boundary));
+  // 位置より後の行だけを渡すので、user発話の数では絞らない。
+  return cursorInterimWords(readLines(cursorTranscript(meta), from.boundary), -1);
+}
+
+/**
+ * 現在（または直前）のturnで書かれた合間の言葉のうち、seqがafterより後のもの。
+ * fromを渡した時は、最後のdispatchの境界ではなく、その位置より後の言葉（seqはその位置から1で数える）。
+ */
+export function readInterimWords(meta: AgentMetadata, after: number, from: InterimFrom | null = null): InterimWordsResult {
+  if (from) {
+    const words = interimWordsFrom(meta, from).map((word, index) => ({ seq: index + 1, ...word }));
+    return {
+      schema: "aiterm.interim-words.v1",
+      session_id: meta.aiterm_session,
+      launch_id: meta.launch_id,
+      harness: agentHarness(meta.kind),
+      event_cursor: from.event_cursor,
+      operation_id: null,
+      last_seq: words.length,
+      words: words.filter((word) => word.seq > after),
+    };
+  }
   const recorded = readInterimBoundary(meta);
   // dispatchの記録が無ければ、起動時promptのturnだけを記録の先頭から読む。promptなしで起動してまだ送っていない時は無い。
   const launchTurn = !recorded && meta.initial_prompt !== "none";

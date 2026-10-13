@@ -317,7 +317,8 @@ export class ParentDeliveryManager {
     if (job.record.state !== "waiting") return;
     job.capture = (async () => {
       if (completion.launch_id !== job.record.boundary.launch_id) throw new AitermError("PARENT_DELIVERY_LAUNCH_CHANGED: 子のlaunchが置換されました", 2);
-      if (completion.outcome === "running" || completion.outcome === "timeout") throw new AitermError("PARENT_DELIVERY_NOT_COMPLETED: 子の完了を確認できません", 2);
+      // not_takenは差し込みを追う待ちだけが返す。親配送の待ちは差し込みを追わないので、来ない。
+      if (completion.outcome === "running" || completion.outcome === "timeout" || completion.outcome === "not_taken") throw new AitermError("PARENT_DELIVERY_NOT_COMPLETED: 子の完了を確認できません", 2);
       const record = job.record;
       record.child_outcome = completion.outcome;
       record.child_turn_id = completion.turn_id;

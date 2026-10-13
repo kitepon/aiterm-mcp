@@ -25,7 +25,8 @@ import { claudeParentFromRequest, discardClaudeHookRequest } from "./claude-pare
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
 import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
-import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words.js";
+import { INTERIM_RESULT_META_KEY, interimCallerFromMeta, interimRequestFromMeta } from "./interim-words.js";
+import { SEAT_TURNS_RESULT_META_KEY, STEER_RESULT_META_KEY } from "./steer-follow.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -390,8 +391,11 @@ registerRemoteAwareTool(
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
         delivery = await deliveryForRequest(extra);
-        const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface });
+        // BellTeamのため（ADR 0122）: 差し込みになった時、その文を取った番の終わりを待つ手がかりを返す。印の無い呼び手には何も足さない。
+        const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface,
+          follow: interimCallerFromMeta(extra._meta) });
         if (receipt.schema === "aiterm.agent-steer.v1") {
+          const follow = receipt.follow ?? null;
           return {
             content: [
               {
@@ -405,14 +409,15 @@ registerRemoteAwareTool(
               schema: "aiterm.pty-send-result.v1" as const,
               mode: "agent_steer" as const,
               session_id: receipt.session_id,
-              event_cursor: null,
-              wait_process: null,
+              event_cursor: follow ? follow.event_cursor : null,
+              wait_process: follow ? core.agentWaitProcess(receipt.session_id, follow.event_cursor, {}, follow.steer_id) : null,
               launch_id: receipt.launch_id,
               vendor: receipt.vendor,
               harness: receipt.harness,
               submit_residue: null,
               pane_input_recovery: receipt.pane_input_recovery,
             },
+            ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, interim_from: follow.interim_from } } } : {}),
           };
         }
         const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor);
@@ -666,15 +671,26 @@ registerRemoteAwareTool(
       })),
     },
   },
-  async ({ env_keys }) => {
+  async ({ env_keys }, extra) => {
     try {
       const result = core.listSessionsResult(env_keys);
-      return { ...ok(core.listSessions(result)), structuredContent: { ...result } };
+      return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...seatTurnsMeta(result.sessions, extra._meta) };
     } catch (e) {
       return fail(e);
     }
   },
 );
+
+// BellTeamのため（ADR 0122）: 要求の_metaに aiterm/caller="BellTeam" がある時だけ、結果の_metaへ席の今の番を載せる。
+// 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
+function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): { _meta?: Record<string, unknown> } {
+  if (!interimCallerFromMeta(requestMeta)) return {};
+  try {
+    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id)) } };
+  } catch (e) {
+    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };
+  }
+}
 
 const nativeProcessIdentitySchema = z.object({
   pid: z.number().int(), process_group_id: z.number().int().nullable(),
@@ -720,7 +736,9 @@ function interimWordsMeta(sessionId: string, requestMeta: unknown): { _meta?: Re
   const request = interimRequestFromMeta(requestMeta);
   if (!request) return {};
   try {
-    const words = core.readSessionInterimWords(sessionId, request.after);
+    // 読み始める位置が付いているのに読めない時は、最後のdispatchの言葉を返さない（呼び手が別の番の言葉を出してしまう）。
+    if (request.from_invalid) throw new Error("INTERIM_FROM_INVALID: aiterm/interim_from の値を読めません");
+    const words = core.readSessionInterimWords(sessionId, request.after, request.from ?? null);
     return words ? { _meta: { [INTERIM_RESULT_META_KEY]: words } } : {};
   } catch (e) {
     return { _meta: { [INTERIM_RESULT_META_KEY]: { schema: "aiterm.interim-words.v1", error: e instanceof Error ? e.message : String(e) } } };

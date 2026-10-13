@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 追加
+
+- BellTeamが、差し込んだ文を取った番の終わりと、自分で始めていない番を追える口（ADR 0122）。要求の`_meta["aiterm/caller"]`が`BellTeam`の時だけ足す。
+  ツールの説明・引数・`structuredContent`の形と、印の無い呼び手への返りは変えない。答えの本文は運ばず、位置だけを返す。
+  - `pty_send`の差し込み（`mode: "agent_steer"`）の返りに、`event_cursor`（打つ直前の完了の位置）と`wait_process`
+    （`aiterm-wait --session <席> --cursor <N> --steer <steer_id>`）。結果の`_meta["aiterm/steer"]`に`{ schema: "aiterm.steer-ref.v1", steer_id, interim_from }`。
+  - `aiterm-wait --steer <steer_id>`は、その文を取った番の終わりで返る。結果に`steer: { placement, taken_at }`を足す。
+    `placement`は`same_turn`（動いていた番が取り込んだ）・`next_turn`（番の後で、その文が新しい番を始めた）・`unknown`（記録の中で見分けられず、打った後の
+    最初の番の終わりで返した）。文が会話の記録に入っていない時は`outcome: "not_taken"`で、終了コードは8。
+  - `pty_observe`の要求の`_meta["aiterm/interim_from"]`に、上か下が返した値を渡すと、その位置より後の合間の言葉を返す（`seq`は1から）。
+  - `pty_list`の結果の`_meta["aiterm/seat_turns"]`に、席の今の番。`{ schema: "aiterm.seat-turns.v1", seats: [{ session_id, launch_id, harness, turn }] }`で、
+    `turn`は`{ state: "running", turn_id, started_at, event_cursor, wait_process, interim_from }`・`{ state: "idle" }`・`null`（分からない）。
+    Codexの席だけで、会話の記録から読む（画面は読まない）。動いている番の位置は番の頭で、そこから待てばその番の終わりで返る。
+  - 文の見分けは、打つ直前に控えた文の頭と、harnessの会話の記録の突き合わせ。CodexとClaude Codeで見分ける。GrokとCursorの差し込みは必ず今の番へ入るので、
+    打った後の最初の完了を`same_turn`で返す。別端末の席（`remote`）への送信は、まだこの手がかりを返さない。
+
 ### 変更
 
 - 試験: `test/core-agent.test.mjs`を、話題の切れ目で5つのfileへ分けた（共通の準備は`test/core-agent-support.mjs`）。試験の中身と本数は同じ。
@@ -24,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 番が動いている席への設定替えは、行列を持たずに番の終わりを待つ。その間の差し込みは今までどおり通る。
   - 順番が来なかった時（POSIXは60秒、Windowsは180秒）、設定替えは`AGENT_SEND_BUSY`と「設定は変えていません。」で断る。
     送信の断りの文は変えていない。
+- **Codexの完了待ちが、長く続いた番で「Codex transcript のturn増分が大きすぎます」と誤りで止まっていた件を直す。**
+  待ち始めの位置から16MiBを超えて書いた番で起きた（2026-10-13の夜の番は、開始の後ろが約8.4MBまで行った）。会話の記録を4MiBずつ読み、
+  番の大きさには上限を置かない。改行が来ないまま16MiBを超えた1行だけ、持たずに読み飛ばす。
 
 ## [0.59.1] - 2026-10-13
 

@@ -751,10 +751,53 @@ test("sendAgentMessage: 実行中のCodexへは現在ターンへ差し込む", 
       assert.equal(receipt.schema, "aiterm.agent-steer.v1");
       assert.equal(receipt.vendor, "codex");
       assert.equal(receipt.harness, "codex-cli");
+      assert.equal("follow" in receipt, false, "頼まれていない差し込みには、追う手がかりを足さない");
+      assert.equal(fs.existsSync(path.join(agentStateDir(), `${sid}.${readAgentMeta(sid).launch_id}.steers.jsonl`)), false);
       const out = await core.readOutput(sid, { wait: true, until: "STEER_BODY", timeout: 5, raw: true });
       assert.match(out, /STEER_BODY/);
     } finally {
       core.closeSession(sid);
+    }
+  });
+});
+
+// BellTeamのため（ADR 0122）。待ちが記録の中から文を見つける所は test/steer-follow.test.mjs が持つ。ここは、送信の道が控えを取って返す所。
+test("sendAgentMessage: followを頼んだ差し込みは、打つ直前の位置と控えのIDを返し、その控えで待てる", { skip: skipAgentDone }, async () => {
+  await withFakeCodexHome(async () => {
+    const [sid] = core.openAgent("codex", { agent_done: true });
+    let closed = false;
+    try {
+      core.send(sid, "printf 'OpenAI Codex\\n• Working (1s • esc to interrupt)\\n'", {
+        force: true,
+        raw: true,
+        preserveAgentOperation: true,
+      });
+      await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
+      const receipt = await core.sendAgentMessage(sid, "echo STEER_FOLLOWED", { follow: true });
+      assert.equal(receipt.schema, "aiterm.agent-steer.v1");
+      assert.match(receipt.follow.steer_id, /^[0-9a-f]{16}$/);
+      // 偽の席には記録がまだ無いので、位置は頭。
+      assert.equal(receipt.follow.event_cursor, 0);
+      assert.equal(receipt.follow.interim_from, "v1:0:b:0");
+      const ledger = path.join(agentStateDir(), `${sid}.${receipt.launch_id}.steers.jsonl`);
+      const entries = fs.readFileSync(ledger, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].steer_id, receipt.follow.steer_id);
+      assert.equal(entries[0].needle, "echoSTEER_FOLLOWED");
+      assert.deepEqual(core.agentWaitProcess(sid, receipt.follow.event_cursor, {}, receipt.follow.steer_id).args.slice(-6),
+        ["--session", sid, "--cursor", "0", "--steer", receipt.follow.steer_id]);
+      const observed = await core.observeAgentDone(sid, { steer: receipt.follow.steer_id, cursor: 0, timeout: 0 });
+      assert.equal(observed.outcome, "running");
+      assert.deepEqual(observed.steer, { placement: "unknown", taken_at: null });
+      // 控えが無いIDは、位置が渡されていれば今までの待ちで返し、無ければ断る。
+      const unknown = await core.observeAgentDone(sid, { steer: "ffffffffffffffff", cursor: 0, timeout: 0 });
+      assert.deepEqual(unknown.steer, { placement: "unknown", taken_at: null });
+      await assert.rejects(core.observeAgentDone(sid, { steer: "ffffffffffffffff", timeout: 0 }), /STEER_NOT_FOUND/);
+      core.closeSession(sid);
+      closed = true;
+      assert.equal(fs.existsSync(ledger), false, "控えは、席を閉じる時に片付ける");
+    } finally {
+      if (!closed) core.closeSession(sid);
     }
   });
 });

@@ -124,7 +124,7 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
   // agent sessionの記録だけを用意する。paneは要らない（言葉は記録から読む）。
   const prepared = spawnSync(process.execPath, ["--input-type=module", "-e", `
     const { createClaudeAgentMetadata, claudeSessionTranscriptPath } = await import(${moduleUrl("harnesses/claude.js")});
-    const { recordInterimBoundary } = await import(${moduleUrl("interim-words.js")});
+    const { recordInterimBoundary, interimFromToken } = await import(${moduleUrl("interim-words.js")});
     const fs = await import("node:fs");
     const path = await import("node:path");
     const meta = createClaudeAgentMetadata(${JSON.stringify(session)}, ${JSON.stringify(cwd)}, "none", null, null,
@@ -135,16 +135,20 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
       message: { stop_reason: stop, content: [{ type: "text", text }] } }) + "\\n";
     fs.writeFileSync(file, line("前のturnの言葉", "tool_use") + line("前の回答", "end_turn"));
     recordInterimBoundary(meta, 7, null);
-    fs.appendFileSync(file, line("一つ目", "tool_use") + line("二つ目", "tool_use") + line("回答", "end_turn"));
+    fs.appendFileSync(file, line("一つ目", "tool_use"));
+    // 差し込みの返りや席の今の番が渡す位置（ADR 0122）。ここでは「一つ目」の後ろ。
+    console.log(interimFromToken({ event_cursor: 99, unit: "byte", boundary: fs.statSync(file).size }));
+    fs.appendFileSync(file, line("二つ目", "tool_use") + line("回答", "end_turn"));
   `], { env, encoding: "utf8" });
   assert.equal(prepared.status, 0, prepared.stderr);
+  const from = prepared.stdout.trim();
 
   const client = new Client({ name: "interim-test", version: "1" });
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/index.js")], env, stderr: "pipe" }));
     const tools = await client.listTools();
     const published = JSON.stringify(tools.tools);
-    assert.ok(!/BellTeam|interim|aiterm\/caller/i.test(published), "説明にも引数にも出さない");
+    assert.ok(!/BellTeam|interim|aiterm\/caller|aiterm\/steer|seat_turns|steer_id/i.test(published), "説明にも引数にも出さない");
 
     const plain = await client.callTool({ name: "pty_observe", arguments: { session_id: session } });
     assert.equal(plain._meta, undefined);
@@ -172,6 +176,27 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
 
     const missing = await client.callTool({ name: "pty_observe", arguments: { session_id: "interim_none" }, _meta: { "aiterm/caller": "BellTeam" } });
     assert.equal(missing._meta, undefined);
+
+    // 読み始める位置を渡すと、最後のdispatchの境界ではなく、その位置より後の言葉を返す（ADR 0122）。
+    const positioned = await client.callTool({ name: "pty_observe", arguments: { session_id: session },
+      _meta: { "aiterm/caller": "BellTeam", "aiterm/interim_from": from } });
+    assert.equal(positioned._meta["aiterm/interim_words"].event_cursor, 99);
+    assert.deepEqual(positioned._meta["aiterm/interim_words"].words.map((word) => [word.seq, word.text]), [[1, "二つ目"]]);
+    const broken = await client.callTool({ name: "pty_observe", arguments: { session_id: session },
+      _meta: { "aiterm/caller": "BellTeam", "aiterm/interim_from": "v9:1:b:2" } });
+    assert.match(broken._meta["aiterm/interim_words"].error, /INTERIM_FROM_INVALID/);
+    assert.equal(broken._meta["aiterm/interim_words"].words, undefined, "読めない位置の時に、最後のdispatchの言葉を返さない");
+    const unmarked = await client.callTool({ name: "pty_observe", arguments: { session_id: session }, _meta: { "aiterm/interim_from": from } });
+    assert.equal(unmarked._meta, undefined);
+
+    // 席の今の番は、pty_listの結果の_metaに、BellTeamの印がある時だけ載る。この試験の置き場に端末の席は無い。
+    if ((process.platform === "win32" ? spawnSync("psmux", ["-V"]) : spawnSync("tmux", ["-V"])).status === 0) {
+      const listed = await client.callTool({ name: "pty_list", arguments: {} });
+      assert.equal(listed._meta, undefined);
+      const marked = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
+      assert.deepEqual(marked._meta["aiterm/seat_turns"], { schema: "aiterm.seat-turns.v1", seats: [] });
+      assert.deepEqual(marked.structuredContent.sessions, listed.structuredContent.sessions);
+    }
   } finally {
     await client.close();
     fs.rmSync(root, { recursive: true, force: true });

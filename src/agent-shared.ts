@@ -127,8 +127,9 @@ export function readTailLinesNewestFirst(file: string, maxBytes: number): string
  * 記録を末尾から先頭へさかのぼり、行を新しい順に`visit`へ渡す。`visit`がundefined以外を返したら、そこで止めてその値を返す。
  * 先頭まで読んで何も返らなければundefined。書いている途中の行（改行で終わっていない末尾）がある時と、読めなかった時はnull。
  * 1回に読むのは`chunkBytes`ずつ。行が読む範囲に収まらない時は、収まるまで範囲を広げる（行の途中では切らない）。
+ * `visit`の2つめは、その行の頭のbyte位置。
  */
-export function scanLinesNewestFirst<T>(file: string, visit: (line: string) => T | undefined, chunkBytes: number): T | undefined | null {
+export function scanLinesNewestFirst<T>(file: string, visit: (line: string, offset: number) => T | undefined, chunkBytes: number): T | undefined | null {
   let end = safeStatSize(file);
   for (let tail = true; end > 0; tail = false) {
     let span = chunkBytes;
@@ -144,11 +145,16 @@ export function scanLinesNewestFirst<T>(file: string, visit: (line: string) => T
     }
     if (chunk.length !== end - start) return null;
     if (tail && chunk[chunk.length - 1] !== 0x0a) return null;
-    const lines = chunk.subarray(cut).toString("utf8").split("\n");
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      if (lines[index].trim() === "") continue;
-      const found = visit(lines[index]);
-      if (found !== undefined) return found;
+    const body = chunk.subarray(cut);
+    for (let stop = body.length; stop > 0;) {
+      if (body[stop - 1] === 0x0a) stop -= 1;
+      const begin = stop === 0 ? 0 : body.lastIndexOf(0x0a, stop - 1) + 1;
+      const line = body.subarray(begin, stop).toString("utf8");
+      if (line.trim() !== "") {
+        const found = visit(line, start + cut + begin);
+        if (found !== undefined) return found;
+      }
+      stop = begin;
     }
     end = start + cut;
   }
@@ -363,7 +369,8 @@ export interface AgentWaitObservation {
   // error は harness 自身の記録で「turn がエラーで打ち切られた」と分かった typed な終了。
   // 完了 event（Stop hook 等）は来ないため、待ち続けると永久に running になる
   // （実被弾 2026-09-03: Claude Code の 529 Overloaded で Stop hook が走らず、待機が 70 分続いた）。
-  outcome: "done" | "running" | "timeout" | "closed" | "rate_limited" | "error";
+  // not_taken は、差し込みを追う待ち（aiterm-wait --steer）だけが返す。「打った文が、会話の記録に入っていない」（ADR 0122）。
+  outcome: "done" | "running" | "timeout" | "closed" | "rate_limited" | "error" | "not_taken";
   operation_id: string | null;
   vendor_session_id: string | null;
   turn_id: string | null;
@@ -376,6 +383,20 @@ export interface AgentWaitObservation {
   // http_connection_failed など）と、Cursor（turn_endedのerrorの頭の角括弧の名前。unavailable・resource_exhausted など）。
   // 画面に出す文（error）から切り出さずに見分けるための項目で、無ければnull。
   error_kind: string | null;
+  // 差し込みを追う待ちだけが足す。その差し込みを、どの番が取ったか（ADR 0122）。
+  steer?: AgentSteerFate;
+}
+
+/**
+ * 差し込んだ文の行き先。BellTeamのためにある（ADR 0122）。
+ * - same_turn: 動いていた番が取り込んだ。待ちは、その番の終わりで返る。
+ * - next_turn: 番の後で、その文が新しい番を始めた（入力待ちの席へ差し込みの道で入った時も同じ）。待ちは、その新しい番の終わりで返る。
+ * - unknown: 記録の中で文を見分けられなかった。待ちは、打った後の最初の番の終わりで返る。
+ */
+export interface AgentSteerFate {
+  placement: "same_turn" | "next_turn" | "unknown";
+  /** 文が番へ入った時刻（harnessの記録の時刻）。分からない時はnull。 */
+  taken_at: string | null;
 }
 
 export function writeAgentMetadata(meta: AgentMetadata): void {

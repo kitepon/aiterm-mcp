@@ -310,7 +310,7 @@ export function codexRootTranscript(meta: AgentMetadata): string | null {
 }
 
 /** rolloutの会話ID。結び付けた会話のrolloutならそのID、会話が切り替わった後のrolloutなら、その頭に書かれたID。 */
-function codexRolloutSessionId(meta: AgentMetadata, transcript: string): string | null {
+export function codexRolloutSessionId(meta: AgentMetadata, transcript: string): string | null {
   if (meta.vendor_session_id && path.basename(transcript).includes(meta.vendor_session_id)) return meta.vendor_session_id;
   return codexTranscriptSessionId(transcript) ?? codexRolloutCreation(transcript)?.id ?? meta.vendor_session_id;
 }
@@ -393,6 +393,8 @@ export function codexUsageLimit(record: any): string | null {
 
 // 完了待ちが、会話の切り替えを確かめる間隔。送った文はすぐ記録へ書かれるので、普通のturnはここへ来ない。
 const CODEX_SWITCH_CHECK_MS = 3_000;
+// 完了待ちが、記録を1回に読む大きさ。
+const CODEX_TRANSCRIPT_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 type CodexTurnBoundary = { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: unknown; reason: unknown };
 
@@ -483,7 +485,7 @@ export async function observeCodexDone(
   let transcript = anchored();
   let startOffset = requestedCursor ?? (transcript ? safeStatSize(transcript) : 0);
   let cursor = startOffset;
-  let carry = "";
+  let carry: Buffer = Buffer.alloc(0);
   let malformedEvents = 0;
   let discardLeadingFragment = false;
   let initializedBoundary = false;
@@ -517,6 +519,7 @@ export async function observeCodexDone(
   for (;;) {
     signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
+    let behind = false;
     transcript ??= anchored();
     if (transcript && meta.vendor_session_id && cursor === startOffset && performance.now() >= switchCheckAt) {
       switchCheckAt = performance.now() + CODEX_SWITCH_CHECK_MS;
@@ -534,7 +537,7 @@ export async function observeCodexDone(
         }
         transcript = current;
         startOffset = cursor;
-        carry = "";
+        carry = Buffer.alloc(0);
         initializedBoundary = false;
         discardLeadingFragment = false;
       }
@@ -551,17 +554,25 @@ export async function observeCodexDone(
       if (size < cursor) {
         throw new AitermError("Codex transcript が完了待機中に短くなりました。該当セッションを閉じて起動し直してください。", 2);
       }
-      if (size - startOffset > CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES) {
-        throw new AitermError("Codex transcript のturn増分が大きすぎます。該当セッションを閉じて起動し直してください。", 2);
-      }
       if (size > cursor) {
-        carry += readFileRange(transcript, cursor, size).toString("utf8");
-        cursor = size;
-        const parts = carry.split("\n");
-        carry = parts.pop() ?? "";
+        // 1回に読むのは決めた大きさまで。番の大きさには上限を置かない。前は、読み始めから16MiBを超えて書いた番で、待ちが誤りで止まった。
+        // 席の今の番（ADR 0122）から待つ呼び手は、長く続いた番を頭から読む。
+        const chunk = readFileRange(transcript, cursor, Math.min(size, cursor + CODEX_TRANSCRIPT_READ_CHUNK_BYTES));
+        cursor += chunk.length;
+        behind = chunk.length > 0 && cursor < size;
+        const joined = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+        const last = joined.lastIndexOf(0x0a);
+        const parts = last < 0 ? [] : joined.subarray(0, last).toString("utf8").split("\n");
+        carry = last < 0 ? joined : joined.subarray(last + 1);
         if (discardLeadingFragment && parts.length > 0) {
           parts.shift();
           discardLeadingFragment = false;
+        }
+        // 改行が来ないまま上限を超えた行は、番の境界の行ではない。持たずに、その行の終わりまで読み飛ばす。
+        if (carry.length > CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES) {
+          carry = Buffer.alloc(0);
+          discardLeadingFragment = true;
+          malformedEvents++;
         }
         const harnessSessionId = meta.vendor_session_id ? codexRolloutSessionId(meta, transcript) : codexTranscriptSessionId(transcript);
         for (const line of parts) {
@@ -593,6 +604,8 @@ export async function observeCodexDone(
         }
       }
     }
+    // まだ読んでいない分が在る間は、待たずに読み進める（一度だけ見る照会も、今在る分は全部読んでから答える）。
+    if (behind) continue;
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);
   }

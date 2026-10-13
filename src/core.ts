@@ -236,8 +236,10 @@ import {
   CURSOR_COMPOSER_CONTENT_MARKER_RE,
   validateCursorModelEffort,
 } from "./harnesses/cursor.js";
-import { readInterimWords, recordInterimBoundary } from "./interim-words.js";
-import type { InterimWordsResult } from "./interim-words.js";
+import { interimFromNow, readInterimWords, recordInterimBoundary } from "./interim-words.js";
+import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
+import { codexSeatTurn, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
+import type { SeatTurn } from "./steer-follow.js";
 import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
 export { tmuxSpawnEnv } from "./tmux-runtime.js";
@@ -575,6 +577,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-approval.json") ||
           f.endsWith(".claude-dispatch") ||
           f.endsWith(".interim.json") ||
+          f.endsWith(".steers.jsonl") ||
           f.endsWith(".auth.json")
         ) fs.unlinkSync(p);
         else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home")) {
@@ -3375,12 +3378,44 @@ export interface AgentTranscriptResult {
   answer_empty: boolean;
 }
 
-/** BellTeamのため: agent sessionの現在（または直前）のturnの合間の言葉。agent sessionでなければnull。 */
-export function readSessionInterimWords(name: string, after: number): InterimWordsResult | null {
+/**
+ * BellTeamのため: agent sessionの現在（または直前）のturnの合間の言葉。agent sessionでなければnull。
+ * fromを渡した時は、その位置（差し込みの返りか、席の今の番が渡した位置）より後の言葉（ADR 0122）。
+ */
+export function readSessionInterimWords(name: string, after: number, from: InterimFrom | null = null): InterimWordsResult | null {
   assertSessionName(name);
   const dir = existingAgentsDir();
   if (!dir || !fs.readdirSync(dir).some((f) => f.startsWith(`${name}.`) && f.endsWith(".agent.json"))) return null;
-  return readInterimWords(loadAgentMetadata(name), after);
+  return readInterimWords(loadAgentMetadata(name), after, from);
+}
+
+export interface SeatTurnsResult {
+  schema: "aiterm.seat-turns.v1";
+  seats: Array<{
+    session_id: string;
+    launch_id: string;
+    harness: AgentHarness;
+    /** 記録の上の今の番。まずCodexだけ。ほかのharnessと、記録から決められない席はnull。 */
+    turn: (Extract<SeatTurn, { state: "running" }> & { wait_process: AgentWaitProcess }) | Extract<SeatTurn, { state: "idle" }> | null;
+  }>;
+}
+
+/**
+ * BellTeamのため（ADR 0122）: agent sessionの、記録の上の今の番。画面は読まない。
+ * BellTeamは、自分の送信で始めていない番（Aitermの子の結果が始めた番など）を、ここで見つけて追う。
+ * 動いている番のwait_processは、その番の終わりで返る。
+ */
+export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
+  const seats: SeatTurnsResult["seats"] = [];
+  for (const name of sessionIds) {
+    const meta = tryLoadAgentMetadata(name);
+    if (!meta) continue;
+    let turn: SeatTurn | null = null;
+    try { turn = codexSeatTurn(meta); } catch { /* 読めない席は、分からないまま返す */ }
+    seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
+      turn: turn?.state === "running" ? { ...turn, wait_process: agentWaitProcess(name, turn.event_cursor) } : turn });
+  }
+  return { schema: "aiterm.seat-turns.v1", seats };
 }
 
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */
@@ -3563,6 +3598,7 @@ export function agentWaitProcess(
   session: string,
   cursor: number,
   runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform } = {},
+  steer: string | null = null,
 ): AgentWaitProcess {
   const executable = runtime.executable ?? liveNodeExecutable();
   const args = [
@@ -3571,6 +3607,8 @@ export function agentWaitProcess(
     session,
     "--cursor",
     String(cursor),
+    // 差し込みを取った番の終わりを待つ（ADR 0122）。
+    ...(steer ? ["--steer", steer] : []),
   ];
   return {
     executable,
@@ -3654,9 +3692,10 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
 // 外部waiterプロセス用の純リーダー観測。lock・PTY・metadata書込・dispatch状態には一切触れない。
 // Codex/Cursor/Grokは各harnessのtranscript、Claudeはevent fileを増分走査し、vendor_session_idのbind永続化を
 // 行わない（waiterは観測者であって所有者でない）。
+// steerを渡した時は、その差し込み（pty_sendの返りのsteer_id）を取った番の終わりを待つ（ADR 0122。steer-follow.ts）。
 export async function observeAgentDone(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; signal?: AbortSignal } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
 ): Promise<AgentWaitObservation> {
   const meta = loadAgentMetadata(name);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
@@ -3667,6 +3706,22 @@ export async function observeAgentDone(
     throw new AitermError("cursor は0以上の整数完了境界で指定してください", 2);
   }
   const timeout = o.timeout ?? DEFAULT_AGENT_DONE_TIMEOUT;
+  if (o.steer != null) {
+    if (operationId) throw new AitermError("steer は operation_id と併用できません", 2);
+    const plain = (cursor: number, timeoutSeconds: number): Promise<AgentWaitObservation> =>
+      observeAgentDone(name, { timeout: timeoutSeconds, cursor, signal: o.signal });
+    const entry = readSteerEntry(meta, o.steer);
+    if (!entry) {
+      // 控えが無い（古くて消えた）。位置が渡されていれば、今までの待ち（その位置より後の最初の完了）で返す。
+      if (o.cursor == null) throw new AitermError("STEER_NOT_FOUND: この席に、その差し込みの控えがありません。", 2);
+      return { ...await plain(o.cursor, timeout), steer: { placement: "unknown", taken_at: null } };
+    }
+    return observeSteerDone(meta, entry, timeout, {
+      signal: o.signal, plain,
+      parseDone: line => parseAgentDoneEvent(line, meta).event,
+      rateLimit: () => detectAgentRateLimit(meta.kind, name),
+    });
+  }
   if (meta.kind === "codex" && meta.completion_route === "codex_transcript") {
     return observeCodexDone(meta, timeout, o.cursor, o.signal);
   }
@@ -6100,6 +6155,8 @@ export interface AgentSteerReceipt {
   harness: AgentHarness;
   // 打鍵前に行った pane 入力の回復（"fg" / "fg_stopped" / "stty_raw"）。何もしなければ空配列。
   pane_input_recovery: string[];
+  // BellTeamのため（ADR 0122）: この差し込みを追う手がかり。頼まれた時（follow）だけ付く。控えを取れなかった時はnull。
+  follow?: { steer_id: string; event_cursor: number; interim_from: string } | null;
 }
 
 export type AgentSendReceipt = AgentDispatchReceipt | AgentSteerReceipt;
@@ -6205,7 +6262,7 @@ async function clearClaudeSelectMenuBeforeInput(name: string): Promise<string[]>
 export async function sendAgentMessage(
   name: string,
   text: string,
-  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null } = {},
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean } = {},
 ): Promise<AgentSendReceipt> {
   assertSessionName(name);
   loadAgentMetadata(name);
@@ -6217,7 +6274,7 @@ export async function sendAgentMessage(
 async function sendAgentMessageInLock(
   name: string,
   text: string,
-  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null },
+  o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
@@ -6247,7 +6304,7 @@ async function sendAgentMessageInLock(
     );
   }
   if (running) {
-    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface });
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow });
   }
   return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface });
 }
@@ -6260,23 +6317,40 @@ async function sendAgentMessageInLock(
  * - Grok: 待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（trigger=send_now）で閉じ、
  *   新turnが作業を継ぐ。完了判定はこの継ぎ目を完了と数えない（grokCompletionEvent）。
  */
+/**
+ * 差し込みを打つ直前の位置と、文の頭を控える（ADR 0122）。控えられなくても差し込みは止めない。
+ * 完了の位置は、そこから今までの待ちを始めると「打った後の最初の完了」で返る位置。Cursorの位置はuser発話の数で、
+ * 差し込みが新しいuser発話として書かれない時も今の番の終わりで返るよう、今の番の手前を指す。
+ */
+function recordSteerPosition(meta: AgentMetadata, body: string): AgentSteerReceipt["follow"] {
+  try {
+    const completion = agentCompletionCursor(meta);
+    const cursor = meta.kind === "cursor" ? Math.max(0, completion - 1) : completion;
+    const entry = recordSteer(meta, interimFromNow(meta, cursor), body);
+    return entry ? { steer_id: entry.steer_id, event_cursor: entry.event_cursor, interim_from: entry.interim_from } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function steerRunningTurn(
   name: string,
   meta: AgentMetadata,
   text: string,
-  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null },
+  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null; follow?: boolean },
 ): Promise<AgentSteerReceipt> {
-  const receipt = {
+  const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.raw });
+  text = prefaced.body;
+  prepareSendText(text, { raw: o.raw });
+  const receipt: AgentSteerReceipt = {
     schema: "aiterm.agent-steer.v1" as const,
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
     harness: agentHarness(meta.kind),
     pane_input_recovery: o.pane_input_recovery,
+    ...(o.follow ? { follow: recordSteerPosition(meta, text) } : {}),
   };
-  const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.raw });
-  text = prefaced.body;
-  prepareSendText(text, { raw: o.raw });
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   const preserveAgentOperation = meta.kind === "claude";
   send(name, text, {

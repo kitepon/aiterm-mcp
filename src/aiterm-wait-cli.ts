@@ -2,7 +2,8 @@
 // aiterm-wait — agent turn 完了eventの純リーダー観測CLI。
 // 完了/timeout/close を1行のJSON receiptで返してexitする。lock・PTY・dispatch状態には一切触れない。
 // 親AIホストのバックグラウンドタスクとして起動し、exitを「観測終了の通知」として使う。
-// exit≠完了: exit code は outcome を映す（0=done / 5=running=未完了 / 3=timeout=未完了 / 4=closed / 6=rate_limited=harness利用上限 / 7=error=turnがエラー終了 / 1=waiter自身のエラー）。
+// exit≠完了: exit code は outcome を映す（0=done / 5=running=未完了 / 3=timeout=未完了 / 4=closed / 6=rate_limited=harness利用上限 / 7=error=turnがエラー終了 / 8=not_taken=差し込んだ文が会話に入っていない / 1=waiter自身のエラー）。
+// --steer は、差し込みの返り（BellTeamだけに返す。ADR 0122）のwait_processが付ける。その差し込みを取った番の終わりを待つ。
 // --timeout 0 は待たずに一度だけ観測する照会で、未完了は running（timeout と混同させない）。
 // receipt の outcome が正で、done 以外は未完了。timeout の既定は core の DEFAULT_AGENT_DONE_TIMEOUT（600秒）。
 import { fileURLToPath } from "node:url";
@@ -14,10 +15,12 @@ interface WaitCommand {
   operationId: string | null;
   timeout: number;
   cursor: number | null;
+  steer: string | null;
 }
 
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
+const STEER_RE = /^[0-9a-f]{16}$/;
 const USAGE =
   "usage: aiterm-wait --session <name> [--cursor <event_cursor>] [--operation sha256:<64hex>] [--timeout <sec>]" +
   "（--timeout 0 は待たずに一度だけ観測する照会で、未完了は outcome=running / exit 5）";
@@ -27,9 +30,10 @@ export function parseArgs(argv: string[]): WaitCommand {
   let operationId: string | null = null;
   let timeout: number | null = null;
   let cursor: number | null = null;
+  let steer: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor") {
+    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer") {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} に値がありません。${USAGE}`);
       i++;
@@ -45,6 +49,10 @@ export function parseArgs(argv: string[]): WaitCommand {
         if (cursor !== null) throw new Error(`--cursor が重複しています。${USAGE}`);
         if (!/^\d+$/.test(v)) throw new Error(`--cursor は0以上の整数完了境界だけを受理します。${USAGE}`);
         cursor = Number(v);
+      } else if (a === "--steer") {
+        if (steer !== null) throw new Error(`--steer が重複しています。${USAGE}`);
+        if (!STEER_RE.test(v)) throw new Error(`--steer が不正です。${USAGE}`);
+        steer = v;
       } else {
         if (timeout !== null) throw new Error(`--timeout が重複しています。${USAGE}`);
         if (!/^\d+$/.test(v)) throw new Error(`--timeout は0以上の整数秒だけを受理します。${USAGE}`);
@@ -56,7 +64,8 @@ export function parseArgs(argv: string[]): WaitCommand {
     }
   }
   if (session === null) throw new Error(`--session は必須です。${USAGE}`);
-  return { session, operationId, timeout: timeout ?? 600, cursor };
+  if (steer !== null && operationId !== null) throw new Error(`--steer は --operation と併用できません。${USAGE}`);
+  return { session, operationId, timeout: timeout ?? 600, cursor, steer };
 }
 
 function emit(value: unknown): void {
@@ -73,6 +82,7 @@ const OUTCOME_EXIT_CODES: Record<AgentWaitObservation["outcome"], number> = {
   closed: 4,
   rate_limited: 6,
   error: 7,
+  not_taken: 8,
 };
 
 export async function main(argv: string[]): Promise<void> {
@@ -83,6 +93,7 @@ export async function main(argv: string[]): Promise<void> {
       operation_id: cmd.operationId,
       timeout: cmd.timeout,
       cursor: cmd.cursor,
+      steer: cmd.steer,
     });
   } catch (e) {
     // Grok は利用上限に達すると auth 正本を自壊させることがあり（2026-08-22 実測）、

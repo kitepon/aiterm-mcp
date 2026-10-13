@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-13
+
 ### 追加
 
 - BellTeamが、差し込んだ文を取った番の終わりと、自分で始めていない番を追える口（ADR 0122）。要求の`_meta["aiterm/caller"]`が`BellTeam`の時だけ足す。
@@ -2679,7 +2681,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.0...HEAD
+[0.60.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.1...v0.60.0
 [0.59.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.4...v0.59.0
 [0.58.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.58.3...v0.58.4

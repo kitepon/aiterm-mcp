@@ -68,7 +68,7 @@
     "test:docs": "node --import ./test/seat-env.mjs --test test/repository-contract.test.mjs",
     "prepublishOnly": "npm run verify:release-commit && npm run build",
     "start": "node dist/index.js",
-    "test": "npm run build && node --import ./test/seat-env.mjs --test scripts/verify-release-commit.test.mjs test/*.test.mjs"
+    "test": "npm run build && node --import ./test/seat-env.mjs --test test/seat-env.test.mjs && node --import ./test/seat-env.mjs --test scripts/verify-release-commit.test.mjs test/*.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

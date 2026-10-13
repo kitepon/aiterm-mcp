@@ -29,9 +29,12 @@ function requireTerminalBackend() {
 }
 
 const scope = process.env.PRODUCT_CI_TEST_SCOPE;
+// 組んだ後、ほかの試験より先に、前処理の確かめ（test/seat-env.test.mjs）を流す。試験が、動かした利用者の置き場・ログイン・鍵を
+// 継がない事を、そのrunnerで確かめてから先へ進む。落ちた時は、ほかの試験を1つも起こさない（ADR 0087の追記）。
 const build = () => {
   run(process.execPath, ['scripts/clean-build.mjs']);
   run(process.execPath, ['node_modules/typescript/bin/tsc']);
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/seat-env.test.mjs']);
 };
 if (scope === 'all') {
   requireTerminalBackend();

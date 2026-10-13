@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, statSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const hasTmux = spawnSync(process.platform === 'win32' ? 'psmux' : 'tmux', ['-V']).status === 0;
@@ -29,15 +29,15 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
           'TMUX', 'TMUX_PANE'].map(key => [key, process.env[key] ?? null]));
         const temporary = ['TEMP', 'TMP', 'XDG_RUNTIME_DIR'].map(key => process.env[key]);
         const socketTmpdir = process.env.TMPDIR ?? null;
-        process.env.TMPDIR = process.env.INDIVIDUAL_TEST_STATE;
-        process.env.XDG_RUNTIME_DIR = process.env.INDIVIDUAL_TEST_STATE;
+        process.env.TMPDIR = process.env.AITERM_TEST_INDIVIDUAL_STATE;
+        process.env.XDG_RUNTIME_DIR = process.env.AITERM_TEST_INDIVIDUAL_STATE;
         console.log(JSON.stringify({ initial, exists: existsSync(initial), environment, temporary, socketTmpdir,
           individual: runtimeStateBase() }));
       `], { encoding: 'utf8', timeout: 10000, env: {
       ...process.env, AITERM_STATE_BASE: inherited, AITERM_AGENT_ROLE: 'subagent',
       AITERM_AGENT_SESSION_ID: 'owner', AITERM_AGENT_DEPTH: '1', AITERM_AGENT_LINEAGE: 'host-root>claude:owner',
       AITERM_AGENT_DELEGATION_ALLOWED: 'true', AITERM_SESSION_ID: 'owner',
-      TMUX: '/owner/socket,1,0', TMUX_PANE: '%0', INDIVIDUAL_TEST_STATE: individual,
+      TMUX: '/owner/socket,1,0', TMUX_PANE: '%0', AITERM_TEST_INDIVIDUAL_STATE: individual,
     } });
     assert.equal(result.status, 0, result.stderr);
     const data = JSON.parse(result.stdout);
@@ -138,31 +138,113 @@ test('席の置き場を指す環境から入口なしで席を登録して片�
   }
 });
 
-test('試験入口は、席が名指しするharnessと道具の置き場と、鍵を外す', () => {
-  const named = ['CODEX_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR', 'CURSOR_HOME', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'BELLTEAM_ROOT',
-    'BELLTEAM_BUGHUB_KEY', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'TYPESAFE_API_KEY', 'SEAT_FIXTURE_SECRET', 'SEAT_FIXTURE_PASSWORD'];
-  const kept = ['AITERM_TEST_CODEX_BINARY', 'SEAT_FIXTURE_KEYBOARD'];
-  const result = spawnSync(process.execPath, ['--import', new URL('./seat-env.mjs', import.meta.url).href,
-    '--input-type=module', '-e', `
-      console.log(JSON.stringify(Object.fromEntries(${JSON.stringify([...named, ...kept])}.map(key => [key, process.env[key] ?? null]))));
-    `], { encoding: 'utf8', timeout: 10000, env: {
-    ...process.env, ...Object.fromEntries([...named, ...kept].map(key => [key, `owner-${key}`])),
-  } });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), {
-    ...Object.fromEntries(named.map(key => [key, null])), ...Object.fromEntries(kept.map(key => [key, `owner-${key}`])),
+// BellTeamのSEC-012の受け入れの確かめ。親が、本番に見立てた偽の置き場（ログイン・設定・席の記録を置いた物）を、homeと名指しの変数の両方で指し、
+// 形の違う名前の鍵を持っている。前処理を通ったprocessでは、(1) 親の値が1つも残らない、(2) 製品が決めるharnessと状態の置き場が全部、試験の置き場の中、
+// (3) gitが親の設定と認証の補助を見ない、(4) 親の置き場の中身が変わらない。本物のログインや席の記録は使わない。
+// USERPROFILEだけは残る（Windowsの利用者フォルダは差し替えない）。残っても、製品が決める置き場はそこへ行かない事を見る。
+for (const [label, preload] of [['入口（--import）', true], ['最初のimportだけ', false]]) {
+  test(`親の本番相当の置き場と鍵を、試験のprocessへ渡さない: ${label}`, () => {
+    const mark = 'owner-production';
+    const root = mkdtempSync(join(tmpdir(), 'seat-prod-'));
+    const owner = join(root, mark);
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const files = {
+      '.codex/auth.json': '{"tokens":"owner"}\n',
+      '.codex/config.toml': 'model = "owner"\n',
+      '.grok/auth.json': '{"key":"owner"}\n',
+      '.claude/.credentials.json': '{"claudeAiOauth":"owner"}\n',
+      '.claude/settings.json': '{"hooks":{}}\n',
+      '.cursor/cli-config.json': '{"auth":"owner"}\n',
+      '.config/gh/hosts.yml': 'github.com:\n  oauth_token: owner\n',
+      '.config/aiterm-mcp/runtime-error-reporting.json': '{"enabled":true}\n',
+      '.gitconfig': '[credential]\n\thelper = owner-helper\n[user]\n\tname = owner-name\n',
+      '.npmrc': '//registry.npmjs.org/:_authToken=owner\n',
+      [`state/aiterm-mcp-${uid}/agents/bot-owner.0123456789abcdef0123456789abcdef.agent.json`]: '{"kind":"claude"}\n',
+    };
+    for (const [name, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(owner, name)), { recursive: true });
+      writeFileSync(join(owner, name), body);
+    }
+    const listed = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
+      ? listed(join(directory, entry.name)) : [join(directory, entry.name)]);
+    const snapshot = () => listed(owner).sort().map(file => [file, readFileSync(file, 'utf8'), statSync(file).mtimeMs]);
+    const before = snapshot();
+    const inherited = {
+      // 置き場
+      HOME: owner, USERPROFILE: owner, CODEX_HOME: join(owner, '.codex'), GROK_HOME: join(owner, '.grok'), GROK_AUTH_PATH: join(owner, '.grok', 'auth.json'),
+      CLAUDE_CONFIG_DIR: join(owner, '.claude'), CURSOR_HOME: join(owner, '.cursor'), GH_CONFIG_DIR: join(owner, '.config', 'gh'),
+      GIT_CONFIG_GLOBAL: join(owner, '.gitconfig'), XDG_CONFIG_HOME: join(owner, '.config'), XDG_STATE_HOME: join(owner, '.local', 'state'),
+      XDG_DATA_HOME: join(owner, '.local', 'share'), XDG_CACHE_HOME: join(owner, '.cache'), npm_config_userconfig: join(owner, '.npmrc'),
+      npm_config_cache: join(owner, '.npm'), AITERM_STATE_BASE: join(owner, 'state'), TMUX_TMPDIR: owner, THROUGHLINE_BIN: join(owner, 'throughline'),
+      DOCKER_CONFIG: join(owner, '.docker'), KUBECONFIG: join(owner, '.kube', 'config'), GOOGLE_APPLICATION_CREDENTIALS: join(owner, 'gcp.json'),
+      SSH_AUTH_SOCK: join(owner, 'agent.sock'),
+      // 席と系譜
+      AITERM_SESSION_ID: mark, AITERM_AGENT_SESSION_ID: mark, AITERM_AGENT_ROLE: mark, AITERM_AGENT_LINEAGE: `host-root>claude:${mark}`,
+      AITERM_AGENT_LAUNCH_ID: mark, TMUX: `/${mark}/socket,1,0`, TMUX_PANE: mark, BELLTEAM_ROOT: owner, BELLTEAM_HOME: owner,
+      CLAUDE_CODE_MESSAGING_SOCKET: join(owner, 'cc.sock'), CLAUDE_CODE_SESSION_ID: mark,
+      // 鍵（形の違う名前を混ぜる。残す接頭辞の付いた名前も入れる）
+      ...Object.fromEntries(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY', 'CODEX_API_KEY', 'TYPESAFE_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN',
+        'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AZURE_CLIENT_SECRET', 'OP_SESSION_owner',
+        'OP_SERVICE_ACCOUNT_TOKEN', 'CLOUDFLARE_API_TOKEN', 'DATABASE_URL', 'PGPASSWORD', 'BELLTEAM_BUGHUB_KEY', 'CLAUDE_CODE_MESSAGING_TOKEN',
+        'CLAUDE_CODE_OAUTH_TOKEN', 'SEAT_FIXTURE_CREDENTIALS', 'SEAT_FIXTURE_CREDENTIAL', 'SEAT_FIXTURE_AUTH', 'GITHUB_APP_PRIVATE_KEY',
+        'RUNNER_REGISTRATION_TOKEN', 'AITERM_TEST_OWNER_SECRET', 'NODE_FIXTURE_PASSWD'].map(key => [key, `${mark}-${key}`])),
+    };
+    const moduleUrl = file => JSON.stringify(new URL(file, import.meta.url).href);
+    const report = `
+      const os = await import('node:os');
+      const { spawnSync } = await import('node:child_process');
+      const { realCodexHome } = await import(${moduleUrl('../dist/harnesses/codex.js')});
+      const { realGrokHome } = await import(${moduleUrl('../dist/harnesses/grok.js')});
+      const { claudeConfigDir } = await import(${moduleUrl('../dist/harnesses/claude.js')});
+      const { runtimeStateBase } = await import(${moduleUrl('../dist/state-root.js')});
+      const git = (...args) => { const result = spawnSync('git', args, { encoding: 'utf8' }); return result.error ? null : result.stdout; };
+      console.log(JSON.stringify({
+        leaked: Object.entries(process.env).filter(([, value]) => value.includes(${JSON.stringify(mark)})).map(([key]) => key).sort(),
+        kept: process.env.AITERM_TEST_CODEX_BINARY ?? null,
+        temp: process.env.TEMP, home: process.env.HOME, osHome: os.homedir(),
+        places: { codex: realCodexHome(), grok: realGrokHome(), claude: claudeConfigDir(), state: runtimeStateBase(), xdg: process.env.XDG_CONFIG_HOME,
+          gh: process.env.GH_CONFIG_DIR, npmrc: process.env.npm_config_userconfig, npmCache: process.env.npm_config_cache },
+        git: { version: git('--version'), global: git('config', '--global', '--list'), helper: git('config', '--get-all', 'credential.helper'),
+          name: git('config', '--get', 'user.name') },
+      }));
+    `;
+    try {
+      const result = spawnSync(process.execPath, preload
+        ? ['--import', new URL('./seat-env.mjs', import.meta.url).href, '--input-type=module', '-e', report]
+        : ['--input-type=module', '-e', `import ${moduleUrl('./seat-env.mjs')};\n${report}`],
+      { encoding: 'utf8', timeout: 30000, env: { ...process.env, ...inherited, AITERM_TEST_CODEX_BINARY: 'kept-for-real-harness-tests' } });
+      assert.equal(result.status, 0, result.stderr);
+      const data = JSON.parse(result.stdout);
+      assert.deepEqual(data.leaked, ['USERPROFILE']);
+      assert.equal(data.kept, 'kept-for-real-harness-tests', '利用者が意図して渡す実物の試験の口（AITERM_TEST_）は残る');
+      assert.equal(data.home, join(data.temp, 'home'));
+      if (process.platform !== 'win32') assert.equal(data.osHome, data.home);
+      for (const [name, place] of Object.entries(data.places)) {
+        assert.ok(place.startsWith(data.temp), `${name} が試験の置き場の外: ${place}`);
+        assert.ok(!place.includes(mark), `${name} が親の置き場: ${place}`);
+      }
+      if (data.git.version !== null) {
+        assert.equal(data.git.global, '', '利用者のgitの設定を読まない');
+        assert.equal(data.git.name, '');
+        assert.equal(data.git.helper.split(/\r?\n/).slice(0, -1).at(-1), '', '認証の補助は、最後に空で上書きされている');
+        assert.ok(!data.git.helper.includes('owner-helper'));
+      }
+      assert.deepEqual(snapshot(), before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
-});
+}
 
 // 引数が空の`node --test`は、file systemの根から試験fileを拾う。入口から起こした走者がよその試験fileを拾っても、動かさない。
 test('走者の子は、この作業ツリーの外の試験fileを流さない', () => {
   const root = mkdtempSync(join(tmpdir(), 'seat-foreign-'));
   const mark = join(root, 'ran');
   const foreign = join(root, 'foreign.test.mjs');
-  writeFileSync(foreign, `import { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.SEAT_FOREIGN_MARK, 'ran');\n`);
+  writeFileSync(foreign, `import { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.AITERM_TEST_FOREIGN_MARK, 'ran');\n`);
   // この試験も走者の子なので、走者の子の印を継いでいる。印を外して、新しい走者として起こす。
   const { NODE_TEST_CONTEXT: _context, ...environment } = process.env;
-  const env = { ...environment, SEAT_FOREIGN_MARK: mark };
+  const env = { ...environment, AITERM_TEST_FOREIGN_MARK: mark };
   try {
     // 前処理が無ければ、このfileは動く（下で「動かなかった」と言うための確かめ）。
     assert.equal(spawnSync(process.execPath, ['--test', foreign], { encoding: 'utf8', timeout: 30000, env }).status, 0);
@@ -213,7 +295,7 @@ test('試験入口は、動かす利用者のhomeの代わりに、置き場の�
     assert.equal(data.home, join(data.temp, 'home'));
     assert.equal(data.os, data.home, 'OSのhomeの問い合わせも同じ場所を返す');
     assert.deepEqual(data.entries, []);
-    assert.deepEqual(data.xdg, Array(4).fill(null));
+    assert.deepEqual(data.xdg, [join(data.home, '.config'), join(data.home, '.local', 'state'), join(data.home, '.local', 'share'), join(data.home, '.cache')]);
     assert.equal(existsSync(data.home), false, '置き場ごと、processの終わりに消える');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -235,7 +317,7 @@ function runWithSocket(leave) {
         require('node:net').createServer().listen(process.argv[1], () => fs.writeSync(1, 'ready'));
       \`, file], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
       await once(listener.stdout, 'data');
-      if (process.env.SEAT_ENV_LEAVE === 'dead') {
+      if (process.env.AITERM_TEST_SEAT_LEAVE === 'dead') {
         listener.kill('SIGKILL');
         await once(listener, 'exit');
       } else {
@@ -243,7 +325,7 @@ function runWithSocket(leave) {
         listener.unref();
       }
       console.log(JSON.stringify({ root: process.env.TMPDIR, file, listener: listener.pid }));
-    `], { encoding: 'utf8', timeout: 20000, env: { ...process.env, SEAT_ENV_LEAVE: leave } });
+    `], { encoding: 'utf8', timeout: 20000, env: { ...process.env, AITERM_TEST_SEAT_LEAVE: leave } });
   assert.equal(result.status, 0, result.stderr);
   return { ...JSON.parse(result.stdout), stderr: result.stderr };
 }

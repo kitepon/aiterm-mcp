@@ -223,6 +223,7 @@ import {
   realCursorHome,
   buildCursorAgentCmd,
   cursorAgentArgv,
+  cursorPwshArgv,
   cursorPwshLaunchLine,
   cursorPromptWithLineage,
   createCursorAgentMetadata,
@@ -6874,7 +6875,7 @@ export function openAgent(
     let full: string;
     if (paneShell === "pwsh" && meta) {
       full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
-        cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast));
+        cursorPwshArgv(cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast), () => resolveWinPaneShell("bash")));
     } else {
       const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
       const envPrefix = agentEnvPrefix(meta, sid, envVars);

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- WindowsでCursorの実行ファイル（`CURSOR_AGENT_BIN`、または既定の`~/.local/bin/cursor-agent`）がshebangのscriptの時、席のpaneの中で起きなかった。
+  WindowsのCursorの席はPowerShell 7のpaneから起こすが、PowerShellは`.exe`・`.com`・`.cmd`・`.bat`・`.ps1`でないfileを自分のconsoleで走らせない。
+  「実行できませんでした」で空のPowerShellのまま席が残るか、拡張子の関連付けでpaneの外の別の窓（Git Bash）に開いて、`pty_close`で席を閉じてもprocessが残った
+  （WindowsのCIが、偽のCursorの`bash.exe`を1回ごとに1つ残していた）。scriptは、control command（`status`・`models`）と同じGit Bashを、paneの中で挟んで走らせる。
+  公式の`cursor-agent.exe`・`cursor-agent.cmd`の起こし方は変えていない（本物の席は、閉じた後にprocessが残らない事をfoxで見た）。
+
 ## [0.60.0] - 2026-10-13
 
 ### 追加

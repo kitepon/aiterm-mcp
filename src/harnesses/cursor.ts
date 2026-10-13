@@ -616,6 +616,17 @@ export function cursorPwshLaunchLine(cwd: string | null, env: [string, string][]
   return parts.join("; ");
 }
 
+/**
+ * PowerShell 7のpaneで走らせるargv。PowerShellが自分のconsoleで走らせるのは .exe・.com・.cmd・.bat・.ps1 だけで、
+ * それ以外（受入が許すshebangのscript。拡張子なしも含む）を `&` で呼ぶと、拡張子の関連付けでpaneの外の別の窓に開く
+ * （fox実測 2026-10-14: `.sh` は `git-bash.exe` の窓で起き、席を閉じてもprocessが残った）。
+ * scriptは、control commandと同じGit Bashをpaneの中で挟んで走らせる。
+ */
+export function cursorPwshArgv(argv: string[], scriptShell: () => string): string[] {
+  if (/\.(?:exe|com|cmd|bat|ps1)$/i.test(argv[0])) return argv;
+  return [scriptShell(), argv[0].replace(/\\/g, "/"), ...argv.slice(1)];
+}
+
 export function cursorPromptWithLineage(meta: AgentMetadata, prompt: string): string {
   return `${subagentInstruction(meta)}\n\n${prompt}`;
 }

@@ -10,6 +10,7 @@ import {
   bindCursorTranscriptSession,
   buildCursorAgentCmd,
   cursorAgentArgv,
+  cursorPwshArgv,
   cursorPwshLaunchLine,
   cursorPromptWithLineage,
   createCursorAgentMetadata,
@@ -104,6 +105,27 @@ test("Cursor adapter: WindowsのPowerShell pane用の起動行は値をPowerShel
   assert.match(line, /; & 'C:\\Users\\kite_\\AppData\\Local\\cursor-agent\\cursor-agent\.cmd' '--model' 'gpt-5\.6-sol' '--force' '--approve-mcps' '--trust' '/);
   assert.match(line, /it''s 初手'$/);
   assert.throws(() => cursorPwshLaunchLine(null, [["BAD NAME", "x"]], argv), /環境変数名が不正/);
+});
+
+test("Cursor adapter: WindowsのPowerShell paneは、shebangのscriptをGit Bashを挟んでpaneの中で走らせる", () => {
+  const bash = "C:\\Program Files\\Git\\bin\\bash.exe";
+  let asked = 0;
+  const shell = () => { asked += 1; return bash; };
+  // PowerShellが自分のconsoleで走らせる物は、そのまま渡す（Git Bashを探しもしない）。
+  for (const bin of ["C:\\a\\cursor-agent.exe", "C:\\a\\cursor-agent.CMD", "C:\\a\\cursor-agent.bat", "C:\\a\\cursor-agent.com", "C:\\a\\cursor-agent.ps1"]) {
+    assert.deepEqual(cursorPwshArgv([bin, "--model", "auto"], shell), [bin, "--model", "auto"]);
+  }
+  assert.equal(asked, 0);
+  // それ以外を `&` で呼ぶと、拡張子の関連付けでpaneの外に開く。拡張子なしも同じ。
+  for (const bin of ["C:\\Users\\kite_\\AppData\\Local\\Temp\\fake-cursor-agent.sh", "C:\\Users\\kite_\\.local\\bin\\cursor-agent"]) {
+    assert.deepEqual(cursorPwshArgv([bin, "--model", "auto", "--trust"], shell),
+      [bash, bin.replaceAll("\\", "/"), "--model", "auto", "--trust"]);
+  }
+  assert.equal(asked, 2);
+  assert.equal(
+    cursorPwshLaunchLine(null, [], cursorPwshArgv(["C:\\t\\fake-cursor-agent.sh", "--trust"], shell)),
+    "& 'C:\\Program Files\\Git\\bin\\bash.exe' 'C:/t/fake-cursor-agent.sh' '--trust'",
+  );
 });
 
 test("Cursor adapter: model parameter画面で標準effortの移動量を決める", () => {

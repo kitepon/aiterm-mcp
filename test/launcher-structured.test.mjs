@@ -204,9 +204,13 @@ test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振�
       write_scope: "read-only",
       write_scope_enforcement: "enforced_read_only",
     });
+    // 偽物はpaneの中で起きて、席を閉じると居なくなる。WindowsのPowerShellのpaneは、scriptを拡張子の関連付けで
+    // paneの外に開いていて、CIが1回ごとにbash.exeを1つ残していた（2026-10-14）。
+    await waitUntil(() => processesRunning(fakeCursor).length > 0, "偽のCursorがpaneで起きない");
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "pty_close", arguments: { session_id: sessionId } } })}\n`);
     const closed = await waitForResponse(child, () => responseFor(stdout, 3), () => stdout, () => stderr);
     assert.equal(closed.result.structuredContent.outcome, "closed");
+    await waitUntil(() => processesRunning(fakeCursor).length === 0, "席を閉じた後に偽のCursorのprocessが残っている");
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "agent_launch", arguments: { harness: "claude-code", write_scope: "read-only" } } })}\n`);
     const unsupported = await waitForResponse(child, () => responseFor(stdout, 4), () => stdout, () => stderr);
     assert.equal(unsupported.result.isError, true);
@@ -214,6 +218,10 @@ test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振�
   } finally {
     child.kill();
     await onceExit(child);
+    // 確かめが落ちた時も、runnerの端末に偽物を残さない。
+    for (const pid of processesRunning(fakeCursor)) {
+      try { process.kill(pid); } catch { /* もう居ない */ }
+    }
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -352,6 +360,33 @@ function waitForResponse(child, current, stdout, stderr) {
     child.once("error", reject);
     finish();
   });
+}
+
+// command lineに、その試験の一時フォルダの中のfileを含むprocessのpid。fileは mkdtemp の下に置いた物を渡す。
+function processesRunning(file) {
+  if (process.platform === "win32") {
+    // pathの区切りは起こし方で変わる（\\ と /）。一時フォルダの名前（英数字と - だけ）とfileの名前で見る。
+    const pattern = `*${path.basename(path.dirname(file))}*${path.basename(file)}*`;
+    const listed = spawnSync(
+      path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      ["-NoProfile", "-NonInteractive", "-Command",
+        `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '${pattern}' } | ForEach-Object { $_.ProcessId }`],
+      { encoding: "utf8", timeout: 60_000, windowsHide: true },
+    );
+    assert.equal(listed.status, 0, `processの一覧を取れない: ${listed.error?.message ?? listed.stderr}`);
+    return listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^\d+$/.test(line)).map(Number);
+  }
+  const listed = spawnSync("ps", ["-axww", "-o", "pid=,command="], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(listed.status, 0, `processの一覧を取れない: ${listed.error?.message ?? listed.stderr}`);
+  return listed.stdout.split("\n").filter((line) => line.includes(file)).map((line) => Number(line.trim().split(/\s+/)[0]));
+}
+
+async function waitUntil(done, message, timeoutMs = 60_000) {
+  for (const until = Date.now() + timeoutMs; ;) {
+    if (done()) return;
+    if (Date.now() >= until) assert.fail(message);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
 }
 
 function onceExit(child) {

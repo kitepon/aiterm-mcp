@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const binary = process.env.AITERM_TEST_CODEX_BINARY ?? '/Applications/ChatGPT.app/Contents/Resources/codex';
+// 実物のCodexを起こすので、利用者が実行ファイルを渡した時だけ動く。よその走者に拾われても、端末に入っているCodexを起こさない（ADR 0087の追記の7）。
+const binary = process.env.AITERM_TEST_CODEX_BINARY;
 const python = process.env.AITERM_TEST_PYTHON ?? '/usr/bin/python3';
 
 class Rpc {
@@ -62,7 +63,9 @@ function responseEvents(number, item) {
 
 for (const mode of ['delivery', 'active-disconnect']) test(mode === 'delivery'
   ? '公式署名版で中継・接続分離・Steer・終了後再開・終了処理を確認する'
-  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', { timeout: 45_000 }, async t => {
+  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', {
+  skip: binary ? false : '公式Codexの実行ファイル（AITERM_TEST_CODEX_BINARY）が必要', timeout: 45_000,
+}, async t => {
   const root = await mkdtemp('/tmp/aiterm-relay-test-');
   const home = join(root, 'home');
   const sockets = join(root, 's');

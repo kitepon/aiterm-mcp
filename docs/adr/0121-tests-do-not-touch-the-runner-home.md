@@ -32,14 +32,15 @@ Linuxで流し、homeで開かれたfileと呼ばれた実行ファイルを記�
 
 ## 決めた事
 
-1. 試験の前処理（`test/seat-env.mjs`）は、POSIXで、`HOME`を試験processの置き場の中の空のhomeへ向け、
-   `XDG_CONFIG_HOME`・`XDG_STATE_HOME`・`XDG_DATA_HOME`・`XDG_CACHE_HOME`を外す。自分の`HOME`を立てる試験は、それが勝つ。
+1. 試験の前処理（`test/seat-env.mjs`）は、`HOME`を試験processの置き場の中の空のhomeへ向ける。自分の`HOME`を立てる試験は、それが勝つ。
    homeは置き場の中にあるので、processの終わりに一緒に消える（ADR 0104）。
-2. Windowsは、利用者フォルダの変数を差し替えない。psmux・PowerShell・npmが`USERPROFILE`と`LOCALAPPDATA`を見ていて、差し替えると
-   PowerShellが起動のたびにcacheを作り直して遅くなる。全OSで効く直しは3と4で入れる。
+   初めはPOSIXだけで向け、XDGの4つは外していた。今は全OSで向け、XDGとharness・道具の置き場を、その中に名指しする（ADR 0087の追記の3）。
+2. Windowsは、利用者フォルダの変数（`USERPROFILE`・`LOCALAPPDATA`・`APPDATA`）を差し替えない。psmux・PowerShell・npmの本体が見ていて、差し替えると
+   PowerShellが起動のたびにcacheを作り直して遅くなる。`HOME`を見ない物（本物のharness、gh、npmの設定）は、名指しで試験の置き場へ向ける（同じ追記の3）。
 3. `steer`を差し替えて`runSetup`を呼ぶ試験は、`codex_steer`も渡す。
 4. `setup-codex-hooks.test.mjs`は、端末に入っているcodexを起こさない（`CODEX_BIN`で無い実行ファイルを指す）。後片付けが出来なくても解除は進む作りで、
    この試験はその道を通る。実物のcodexでの確かめは、`AITERM_TEST_CODEX_BINARY`を渡す試験が持つ。
+   今は、前処理が4つのharnessの全部について、端末に入っている本物を起こさないようにしている（ADR 0087の追記の7）。
 5. `remote.test.mjs`は、自分の試験processの分のSSH共有ソケットの領域を、終わりに消す。
 6. 前処理が置き場を消す時、消せなければ少し待ってやり直す（4回まで）。Windowsで、止めたばかりの端末の本体が記録のfileを
    まだ開いている時の残りを減らす。
@@ -50,13 +51,13 @@ Linuxで流し、homeで開かれたfileと呼ばれた実行ファイルを記�
 ## 及ばない所
 
 - 計った時の環境は、`CODEX_HOME`・`GROK_HOME`が本物の置き場を指す席だった。目印を置いたのは`HOME`だけなので、名指しされた置き場の読み書きは数えていない。
-  名指しの変数は、ADR 0087の追記（2026-10-13）で前処理が外す。
+  名指しの置き場は、ADR 0087の追記（2026-10-13）で、前処理が試験の置き場の中へ向ける。
 - `ssh`はpasswdのhomeを見るので、`HOME`を差し替えても利用者の`~/.ssh/config`を読む（`remote.test.mjs`が`ssh -O check`を2回呼ぶ。つなぎには行かない）。
 - Windowsでは、psmuxが利用者フォルダの`.psmux`へ端末の控えを書き、npmが利用者のcacheへ書く。
 - 計ったのはLinuxだけ。在るfileを開いた事しか記録できない。
 
 ## 確かめ
 
-- `test/seat-env.test.mjs`: 前処理つきのprocessでは、`HOME`とOSのhomeの問い合わせが置き場の中の空のhomeを返し、XDGの4つが外れている。直す前の前処理では落ちる。
+- `test/seat-env.test.mjs`: 前処理つきのprocessでは、`HOME`とOSのhomeの問い合わせ（POSIX）が置き場の中の空のhomeを返し、XDGの4つがその中を指す。直す前の前処理では落ちる。
 - 手元（Linux）で、目印のfile 25個を置いたhomeから、CIの入口で全部の試験を流し、home で開かれたfileが0、呼ばれた実物のcodexが0である事。
 - tmuxの無いPATHでCIの入口を呼ぶと、組む前に終了コード1で止まる。

@@ -16,11 +16,12 @@ Node.js、Python 3、公式Codex CLIを用意してrepository直下から実行�
 
 ```sh
 npm ci --prefix scripts/experiments
-node --test scripts/experiments/codex-stdio-relay.test.mjs
+AITERM_TEST_CODEX_BINARY=/Applications/ChatGPT.app/Contents/Resources/codex \
+  node --test scripts/experiments/codex-stdio-relay.test.mjs
 ```
 
-既定の公式CLIはmacOS Desktop同梱版。別の公式配布物を検証する場合は
-`AITERM_TEST_CODEX_BINARY`、Pythonのパスには `AITERM_TEST_PYTHON` を指定する。
+公式CLIの実行ファイルは `AITERM_TEST_CODEX_BINARY` で渡す（上はmacOS Desktop同梱版）。渡さなければ試験は飛ぶ。
+端末に入っているCodexを、既定では起こさない。Pythonのパスには `AITERM_TEST_PYTHON` を指定する。
 一時HOME・CODEX_HOMEとローカル模擬モデルを使い、利用者の認証情報は使わない。
 `AITERM_RELAY_TEST_RECEIPT` を指定すると、配送試験の非秘密receiptを指定pathへ保存する。
 

@@ -236,6 +236,82 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
   });
 }
 
+// 一般の試験は、端末に入っている本物のharnessを起こさない。親は、harnessが入っている端末に見立てた偽物を、製品が探す3つの場所
+// （名指しの変数・homeの決まった場所・PATH）の全部に持っている。偽物は、起きると目印のfileへ1行書く。
+// 前処理を通ったprocessでは、(1) 製品の探し方が4つとも試験の置き場の中の「断る偽物」を返す、(2) 名指しの変数を外して探しても同じ、
+// (3) 返った物を起こしても、親の偽物は1つも起きない、(4) 起こした事が、processの終わりに失敗として出る。
+for (const [label, preload] of [['入口（--import）', true], ['最初のimportだけ', false]]) {
+  test(`端末に入っているharnessを、試験のprocessは起こさない: ${label}`, () => {
+    const windows = process.platform === 'win32';
+    const root = mkdtempSync(join(tmpdir(), 'seat-harness-'));
+    const owner = join(root, 'owner-production');
+    const ran = join(root, 'ran');
+    const installed = (file) => {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, file.endsWith('.cmd') ? `@echo off\r\n>>"${ran}" echo ran\r\n` : `#!/bin/sh\necho ran >> '${ran.replace(/\\/g, '/')}'\n`, { mode: 0o755 });
+      return file;
+    };
+    const names = ['claude', 'codex', 'grok', 'cursor-agent'];
+    for (const name of names) installed(join(owner, 'bin', windows ? `${name}.cmd` : name));
+    for (const place of [['.local', 'bin', 'claude'], ['.local', 'bin', 'codex'], ['.local', 'bin', 'cursor-agent'], ['.grok', 'bin', 'grok']]) installed(join(owner, ...place));
+    const variables = ['CLAUDE_BIN', 'CODEX_BIN', 'GROK_BIN', 'CURSOR_AGENT_BIN'];
+    const inherited = {
+      HOME: owner, USERPROFILE: owner, PATH: [join(owner, 'bin'), process.env.PATH].join(windows ? ';' : ':'),
+      ...Object.fromEntries(variables.map((variable, index) => [variable, installed(join(owner, 'named', names[index]))])),
+    };
+    const moduleUrl = file => JSON.stringify(new URL(file, import.meta.url).href);
+    // 返った実行ファイルが、子の置き場の中の「断る偽物」かは、子の中で確かめる（置き場は子の終わりに消える。Windowsのpathは書き方が1つでない）。
+    const report = `
+      const { spawnSync } = await import('node:child_process');
+      const { realpathSync } = await import('node:fs');
+      const { basename, dirname, join } = await import('node:path');
+      const { resolveAgentBin, resolveWinPaneShell } = await import(${moduleUrl('../dist/agent-resolver.js')});
+      const kinds = ['claude', 'codex', 'grok', 'cursor'];
+      const real = (file) => { try { return realpathSync.native(file); } catch { return null; } };
+      const refusers = real(join(process.env.TEMP, 'no-harness'));
+      const resolve = (kind) => { try { return resolveAgentBin(kind); } catch (error) { return 'error: ' + error.message; } };
+      const place = (file) => file === null || file.startsWith('error: ') ? file
+        : (refusers !== null && real(dirname(file)) === refusers ? 'refuser:' : 'outside:' + dirname(file) + ':') + basename(file);
+      const named = kinds.map(resolve);
+      // 拡張子の無いscriptは、Windowsでは席のshell（Git Bash）が動かす。
+      const started = process.env.AITERM_TEST_START_HARNESS !== '1' ? [] : named.map(bin => (process.platform === 'win32'
+        ? spawnSync(resolveWinPaneShell('bash'), [bin, '--version'], { encoding: 'utf8', timeout: 20000 })
+        : spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 20000 })).status);
+      for (const variable of ${JSON.stringify(variables)}) delete process.env[variable];
+      console.log(JSON.stringify({ named: named.map(place), started, searched: kinds.map(resolve).map(place) }));
+    `;
+    const run = start => spawnSync(process.execPath, preload
+      ? ['--import', new URL('./seat-env.mjs', import.meta.url).href, '--input-type=module', '-e', report]
+      : ['--input-type=module', '-e', `import ${moduleUrl('./seat-env.mjs')};\n${report}`],
+    { encoding: 'utf8', timeout: 60000, env: { ...process.env, ...inherited, AITERM_TEST_START_HARNESS: start ? '1' : '0' } });
+    try {
+      const resolved = run(false);
+      assert.equal(resolved.status, 0, resolved.stderr);
+      assert.doesNotMatch(resolved.stderr, /偽物を立てずに/, '探しただけでは、失敗にならない');
+      const data = JSON.parse(resolved.stdout);
+      assert.deepEqual(data.named, names.map(name => `refuser:${name}`));
+      // Windowsで変数を外すと、Codexは.cmdから本体を探して断り（起きない）、Cursorは利用者フォルダ（LOCALAPPDATA。差し替えない）の決まった場所を先に見る。
+      // Cursorのこの道は、前処理では塞げない。変数を外す試験が、LOCALAPPDATAを自分で立てる。
+      if (windows) {
+        assert.equal(data.searched[0], 'refuser:claude.cmd');
+        assert.match(data.searched[1], /^error: .*codex\.exeを解決できません/);
+        assert.equal(data.searched[2], 'refuser:grok.cmd');
+      } else {
+        assert.deepEqual(data.searched, data.named);
+      }
+
+      const started = run(true);
+      assert.equal(started.status, 1, '断った事が、processの失敗として出る');
+      assert.deepEqual(JSON.parse(started.stdout).started, [97, 97, 97, 97]);
+      assert.match(started.stderr, /偽物を立てずにharnessを起こそうとしました/);
+      for (const name of names) assert.match(started.stderr, new RegExp(`^  ${name} --version$`, 'm'));
+      assert.equal(existsSync(ran), false, `親の偽物が起きた: ${existsSync(ran) ? readFileSync(ran, 'utf8') : ''}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 // 引数が空の`node --test`は、file systemの根から試験fileを拾う。入口から起こした走者がよその試験fileを拾っても、動かさない。
 test('走者の子は、この作業ツリーの外の試験fileを流さない', () => {
   const root = mkdtempSync(join(tmpdir(), 'seat-foreign-'));

@@ -1,8 +1,8 @@
 // npm testとCIの入口。試験processごとに、親の席から保存場所・系譜・harnessと道具の置き場・鍵を引き継がない。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { delimiter, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // この前処理を通す試験fileは、この作業ツリーの物だけ。引数が空の`node --test`は、file systemの根から試験fileを拾って流す
@@ -85,6 +85,30 @@ Object.assign(process.env, {
 });
 writeFileSync(process.env.GIT_CONFIG_GLOBAL, '');
 
+// 一般の試験は、端末に入っている本物のharness（Claude Code・Codex・Grok・Cursor）を起こさない（ADR 0087の追記）。
+// 製品は、名指しの変数（CLAUDE_BINほか）→ 決まった場所（homeの下。WindowsのCursorはLOCALAPPDATAの下）→ PATH の順で実行ファイルを探す。
+// 開発機とrunnerにはharnessが入っているので、偽物を立て忘れた試験は、本物を起こす。4つの変数を、起きたら断って終わる偽物へ向け、
+// 同じ名前の偽物をPATHの先頭にも置く（変数を外して探し方を確かめる試験と、環境を自分で組む試験のため）。
+// 偽物を使う試験は、今までどおり自分で変数を立てる。実物のharnessで確かめる試験は、利用者が AITERM_TEST_ で始まる変数で実行ファイルを渡した時だけ動く。
+// 偽物は、呼ばれた事を置き場の記録へ1行書く。記録が在れば、processの終わりに知らせて失敗にする（下のexitの所）。
+const refusals = join(root, 'no-harness.log');
+const refusers = join(root, 'no-harness');
+mkdirSync(refusers);
+// 記録の場所は、偽物の中へ絶対pathで書く（Git Bashは`/`区切りのWindowsのpathを読める）。
+const quoted = `'${(process.platform === 'win32' ? refusals.replace(/\\/g, '/') : refusals).replace(/'/g, `'\\''`)}'`;
+for (const [variable, name] of [['CLAUDE_BIN', 'claude'], ['CODEX_BIN', 'codex'], ['GROK_BIN', 'grok'], ['CURSOR_AGENT_BIN', 'cursor-agent']]) {
+  // 変数が指すのは、席のshell（WindowsはGit Bash）が動かすscript。製品は、Windowsでも拡張子の無いscriptを受け取る。
+  process.env[variable] = join(refusers, name);
+  writeFileSync(process.env[variable],
+    `#!/bin/sh\necho "${name} $*" >> ${quoted}\necho "seat-env: refused to start ${name} from a test" >&2\nexit 97\n`, { mode: 0o755 });
+  // WindowsのPATHの探し方は、拡張子つき（.exe・.cmd）を先に選ぶ。本物の.exeより先に見つかるよう、.cmdの偽物も置く。
+  if (process.platform === 'win32') {
+    writeFileSync(join(refusers, `${name}.cmd`),
+      `@echo off\r\n>>"${refusals}" echo ${name} %*\r\necho seat-env: refused to start ${name} from a test 1>&2\r\nexit /b 97\r\n`);
+  }
+}
+process.env.PATH = [refusers, process.env.PATH].filter(Boolean).join(delimiter);
+
 // 作った置き場は、このprocessの終わりに消す（ADR 0104）。tmuxはserverが終わってもsocketのfileを残すので、
 // fileの有無ではなく、つながるかで生死を見る。生きたserverが残っている時は、試験が閉じ忘れた席の手掛かりとして置き場を残す。
 function socketFiles(directory, found = []) {
@@ -114,6 +138,15 @@ const probe = `
 `;
 
 process.on('exit', () => {
+  try {
+    if (existsSync(refusals)) {
+      const lines = readFileSync(refusals, 'utf8').trim().split(/\r?\n/);
+      process.stderr.write(`seat-env: 偽物を立てずにharnessを起こそうとしました（本物は起こしていません）:\n${lines.map(line => `  ${line}`).join('\n')}\n`);
+      if (!process.exitCode) process.exitCode = 1;
+    }
+  } catch {
+    // 記録を読めない時は、試験の結果を変えない。
+  }
   try {
     const sockets = socketFiles(root);
     if (sockets.length > 0) {

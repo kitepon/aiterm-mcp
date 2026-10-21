@@ -1,4 +1,5 @@
 import './seat-env.mjs'; // 最初のimportに置く（ADR 0121）
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { access, readdir, readFile } from 'node:fs/promises';
@@ -90,7 +91,7 @@ test('final CI is owned locally, selects affected environments, and rejects fals
 
   assert.match(ci, /uses: \.\/\.github\/workflows\/product-full-ci\.yml/);
   assert.doesNotMatch(ci, /uses:\s*kitepon\/dotagents\/\.github\/workflows\//);
-  assert.match(ci, /dependency-command: npm ci/);
+  assert.match(ci, /dependency-command: npm run ci:dependencies/);
   assert.match(
     ci,
     /documentation-command: npm run test:docs/,
@@ -168,3 +169,18 @@ test('MCPB staging はbuild済みdistの全ランタイム.jsを再帰的に同�
 async function readJson(url) {
   return JSON.parse(await readFile(url, 'utf8'));
 }
+
+test('prepared Steer release archive matches the consumer version and npm lock integrity', async () => {
+  const [pkg, lock, source, bytes] = await Promise.all([
+    readJson(new URL('../package.json', import.meta.url)), readJson(new URL('../package-lock.json', import.meta.url)),
+    readJson(new URL('../scripts/fixtures/steer-release-source.json', import.meta.url)),
+    readFile(new URL('../scripts/fixtures/aiterm-steer-delivery-0.5.0.tgz', import.meta.url)),
+  ]);
+  const integrity = 'sha512-' + createHash('sha512').update(bytes).digest('base64');
+  assert.match(source.commit, /^[0-9a-f]{40}$/);
+  assert.equal(pkg.dependencies['aiterm-steer-delivery'], '^' + source.version);
+  assert.equal(lock.packages[''].dependencies['aiterm-steer-delivery'], pkg.dependencies['aiterm-steer-delivery']);
+  assert.equal(lock.packages['node_modules/aiterm-steer-delivery'].version, source.version);
+  assert.equal(lock.packages['node_modules/aiterm-steer-delivery'].integrity, integrity);
+  assert.equal(source.integrity, integrity);
+});

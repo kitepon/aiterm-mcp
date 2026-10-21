@@ -17,6 +17,15 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 - tag push: 所有確認と、tagged commitが`origin/main`の祖先であることの確認だけを行い、npmへprovenance付きで
   publishする。同じcommitのmain CIの結果は待たない。
 
+## Producerとconsumerを公開前に揃える時
+
+Steerの未公開release sourceは` scripts/fixtures/steer-release-source.json `の固定commitと通常npm tgzで指定する。
+事前CIの`npm run ci:dependencies`は、そのarchiveをcheckout専用cacheへ入れてから、書換えない通常lockfileへ
+`npm ci`する。製品sourceの依存は通常の`^0.5.0`、lockのresolvedはregistry URLのまま。
+これは固定producer/consumer sourceの検証であり、registry公開やprovenance成功の証拠ではない。
+公開はSteerを先に行い、registry tarball integrityがlockに一致することを確認してからAitermへ進む。
+違えばlock更新後のgateを取り直す。公開済みartifactへ黙って差し替えない。
+
 ## Release手順
 
 1. 変更に直結するfocused testを手元で通す。full regressionは手元で回さず、CIに任せる。
@@ -33,7 +42,8 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
    scriptはversion同期（`package.json`、`package-lock.json`、`server.json`、`mcpb/manifest.json`、`README.md`と`README.ja.md`の現行公開版）、
    CHANGELOG見出しと比較link、metadata検査、release commit、main push、`v<version>` tag push、
    MCPB build、GitHub Release作成までを行う。tag pushがnpm publish、Release作成がOfficial MCP Registry登録を起動する。
-   scriptはその完了を待たない。
+   scriptはその完了を待たない。レビュー済みの準備枝で既に同versionへ同期済みなら、metadata検査を行って
+   同期・release commitの重複を省く。main/clean/origin一致とtag未作成の条件は同じ。
 
 4. 後で確認する: `npm view aiterm-mcp@<version> version`、Official Registryの`io.github.kitepon/aiterm-mcp`。
 

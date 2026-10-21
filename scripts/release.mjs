@@ -38,9 +38,13 @@ if (run("git", ["rev-parse", "HEAD"]) !== run("git", ["rev-parse", "origin/main"
 
 const pkg = readJson("package.json");
 const previous = pkg.version;
-if (previous === version) fail(`package.jsonは既に${version}です。`);
+const prepared = previous === version;
 if (run("git", ["tag", "--list", `v${version}`]) !== "") fail(`tag v${version}は既に存在します。`);
 
+// A reviewed release-preparation branch may already contain synchronized metadata.
+// Otherwise retain the normal version bump and release-note generation.
+let nextChangelog = readText("CHANGELOG.md");
+if (!prepared) {
 // CHANGELOG: Unreleasedの本文を新versionへ移す。
 const changelog = readText("CHANGELOG.md");
 const unreleased = changelog.match(/^## \[Unreleased\]\n\n([\s\S]*?)(?=^## \[)/mu);
@@ -48,7 +52,7 @@ if (!unreleased) fail("CHANGELOG.mdに## [Unreleased]がありません。");
 if (unreleased[1].trim() === "") fail("CHANGELOG.mdのUnreleasedが空です。release内容を先に書いてください。");
 const date = new Date().toISOString().slice(0, 10);
 const repo = "https://github.com/kitepon/aiterm-mcp";
-let nextChangelog = changelog.replace(
+nextChangelog = changelog.replace(
   /^## \[Unreleased\]\n\n/mu,
   `## [Unreleased]\n\n## [${version}] - ${date}\n\n`,
 );
@@ -81,6 +85,8 @@ for (const readme of ["README.md", "README.ja.md"]) {
   writeText(readme, text.replace(marker, `v${version}`));
 }
 
+}
+
 // clean cloneでも配布物を検査できるよう、検査前に現行metadataからbuildする。
 run(process.execPath, [npmCli, "run", "build"], { stdio: "inherit" });
 run(process.execPath, ["--import", "./test/seat-env.mjs", "--test", "test/release-metadata.test.mjs", "test/repository-contract.test.mjs"], { stdio: "inherit" });
@@ -88,9 +94,11 @@ run(process.execPath, ["--import", "./test/seat-env.mjs", "--test", "test/releas
 const files = [
   "CHANGELOG.md", "package.json", "package-lock.json", "server.json", "mcpb/manifest.json", "README.md", "README.ja.md",
 ];
+if (!prepared) {
 run("git", ["add", "--", ...files]);
 run("git", ["commit", "--quiet", "-m", `${version}を公開する`, "--", ...files]);
 run("git", ["push", "origin", "main"], { stdio: "inherit" });
+}
 run("git", ["tag", `v${version}`]);
 run("git", ["push", "origin", `v${version}`], { stdio: "inherit" });
 

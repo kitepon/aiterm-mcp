@@ -347,6 +347,9 @@ export class ParentDeliveryManager {
       }
       record.state = "ready";
       this.save(job);
+      this.releaseClaim(job); // answer is durable; execution metadata may await its original receipt
+      try { await this.execution?.recordChildCompletion?.(record.delivery_id); }
+      catch { /* retain genuine answer; the execution graph stays unconfirmed */ }
       // 次の依頼へ進める時点は本文保存まで。親の受付を待たせない。
       job.delivery = this.deliver(job).catch((error) => this.reportServiceError(error));
     })();
@@ -373,7 +376,8 @@ export class ParentDeliveryManager {
       job.record.state = "submitted";
     } catch (error) {
       const known = error instanceof CodexDeliveryError || error instanceof ClaudeDeliveryError || error instanceof CursorDeliveryError;
-      job.record.state = known && !error.outcome_unknown ? "failed" : "unknown";
+      const executionUnknown = this.execution?.outcomeUnknown?.(error);
+      job.record.state = executionUnknown === false || (executionUnknown == null && known && !error.outcome_unknown) ? "failed" : "unknown";
       job.record.error = error instanceof Error ? error.message : String(error);
     }
     this.finish(job);

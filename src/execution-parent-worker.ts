@@ -22,8 +22,8 @@ export interface ParentWorkerRuntime {
   observeParentProcess(session: string): unknown;
   observeSessionGeneration(session: string): unknown;
 }
-type NativeProvider = { withDeliveryEffect?: unknown; DELIVERY_ADMISSION_CONTRACT?: unknown };
-const localRuntime: ParentWorkerRuntime = {
+export type ParentAdmissionProvider = { withDeliveryEffect?: unknown; DELIVERY_ADMISSION_CONTRACT?: unknown };
+export const localParentWorkerRuntime: ParentWorkerRuntime = {
   scope: () => ({ state_root: stateRoot(), multiplexer: isWin ? { kind: "namespace", key: WIN_NS } : { kind: "socket", key: SOCK } }),
   actor: () => readProcessIdentities([process.pid])[0] ?? null,
   observeParentProcess: observeExecutionParentProcess, observeSessionGeneration,
@@ -38,15 +38,14 @@ function scope(input: ExecutionWorkerScope): ExecutionWorkerScope {
   executionStoreDirectory(input.state_root, input.multiplexer);
   return { state_root: path.resolve(input.state_root), multiplexer: { ...input.multiplexer } };
 }
-export function createExecutionParentWorker(input: {
+export function createExecutionParentEnvironment(input: {
   profile: installedSteer.ProductProfile; expectedScope: ExecutionWorkerScope;
-  provider?: NativeProvider;
+  provider?: ParentAdmissionProvider;
   // Product-owned native observations. Tests inject a complete synthetic
   // runtime; absent fields never fall back individually into a live runtime.
   runtime?: ParentWorkerRuntime;
-  codexHome?: string | null;
 }) {
-  const provider = (input.provider ?? installedSteer) as NativeProvider;
+  const provider = (input.provider ?? installedSteer) as ParentAdmissionProvider;
   const assertContract = () => {
     const contract = provider.DELIVERY_ADMISSION_CONTRACT as Record<string, unknown> | undefined;
     if (typeof provider.withDeliveryEffect !== "function" || contract?.schema !== "steer.delivery-admission.v1"
@@ -54,7 +53,7 @@ export function createExecutionParentWorker(input: {
       || contract.multi_delivery_emit !== true) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   };
   assertContract();
-  const originalRuntime = input.runtime ?? localRuntime, expected = scope(structuredClone(input.expectedScope));
+  const originalRuntime = input.runtime ?? localParentWorkerRuntime, expected = scope(structuredClone(input.expectedScope));
   const profile = Object.assign({}, input.profile);
   const runtime = originalRuntime;
   if (typeof runtime.scope !== "function" || typeof runtime.actor !== "function"
@@ -73,6 +72,13 @@ export function createExecutionParentWorker(input: {
     || !Number.isFinite(Date.parse(observed.started_identity))) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const actor = { pid: observed.pid, started_identity: observed.started_identity };
   const store = new FileExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer));
+  return { runtime, profile, actor, store, scope: expected, assertScope };
+}
+export function createExecutionParentWorker(input: {
+  profile: installedSteer.ProductProfile; expectedScope: ExecutionWorkerScope;
+  provider?: ParentAdmissionProvider; runtime?: ParentWorkerRuntime; codexHome?: string | null;
+}) {
+  const { runtime, profile, actor, store, scope: expected, assertScope } = createExecutionParentEnvironment(input);
   const sourceEvidence = createParentSourceEvidence({ decode: () => null, // a native worker cannot fabricate new MCP provenance
     observeParentProcess: session => { assertScope(); return runtime.observeParentProcess(session); } });
   const endpoint = createNativeParentEndpointEvidence({ actor, sourceEvidence, codexHome: input.codexHome,

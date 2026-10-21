@@ -559,6 +559,26 @@ native contextの無いCodex opener/wake、Cursor背景stdout・複数scope/chan
 unsupportedを維持する。独立したqueue alias証拠、終了fence/self-turn、旧actor/放棄lockの復旧も未了。
 現在のhook/file相関は同一OS利用者内のlocal correlationであり、暗号認証ではない。
 
+`createExecutionParentProducer`は同じscope環境factoryを使い、MCPのnative actorと既存requestのactorが
+一致する場合だけqueue producerになる。source envは既存source/scopeの8名だけを固定し、SDK metadataは
+実native decoderへ渡す。runtimeの部分注入から実OSへ個別fallbackしない。
+Claude queueは実PreToolUse request.jsonのowner/tool/session、closed/agent_id無し、同じdelivery.jsonを要求する。
+before_sendのcompanion bind時はnative delivery.jsonを次工程で作るが、既存の別IDは上書きを認めない。
+実queue時にはnative bindingが必須。Codex/Cursorの現在producer endpoint証拠は未実装でunsupportedを維持する。
+
+ParentDeliveryManagerが子の回答を保存した後、元request/正確なcanonical receiptでserviceのfinishを再観測する。
+保存した本文やwaiterの成功だけからcompleted/fence closedにしない。欠測してもgenuineな保存済み回答は保持して届ける。
+本文保存時点で旧child claimを解放し、実行metadataの応答待ちで次の依頼を妨げない。
+元dispatchのreceiptがまだpreparing/issuedなら、metadataだけをbounded preflightで待つ。
+停止/未送信はBUSY待ちより先に判定し、queue/native slotを取らず取消す。入力の再送やgraph TTLではない。
+
+未発行の既存parent returnも、その子のinvocation fenceに含む。局所doneはcompletedとして残すが、
+結合済みparent deliveryが未解決ならtarget_fence=unknownを維持しbranchを退役させない。
+queueのacceptedも実完了ではない。確認済みnot_sentまたは後続の実完了/閉鎖が揃い、native fenceを再観測して
+初めて退役できる。終了済みbranchを同名や後のjobから復活させる処理は加えない。
+独立したprovider packageのDeliveryAdmissionErrorも、その実providerのconstructorで確かめてcertaintyを扱う。
+同名fieldを付けた汎用RPC例外は未確認のままとし、not_startedへ丸めない。
+
 ## 結果と残実装
 
 ```ts

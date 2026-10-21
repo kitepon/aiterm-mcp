@@ -10,6 +10,8 @@ native親配送は、要求時に固定したSDK metadata・検証済みsource�
 別processのhookは同じscopeと既存delivery bindingを照合し、callback欠測時に旧配送へfallbackしない。
 processごとのrequired profile factoryは隔離実装中であり、static profileや稼働hookへは未接続。
 scope一致やhook返却だけで全参加者の被覆・native turn alias・終了fenceを証明したことにはしない。
+Claudeのproducerは実PreToolUse owner/tool/sessionと配送bindingを作用直前にも確認する隔離factoryを持つ。
+既存parent returnが未解決なら局所doneのfenceを閉じず、元dispatch receiptの遅着は入力を再送せずmetadataだけを待つ。
 
 ## 目的と所有
 

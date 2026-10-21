@@ -14,10 +14,11 @@ const request = session => ({ kind: 'delivery', delivery_id: 'existing-' + sessi
 const until = async check => { const end = performance.now() + 1000; while (!check()) {
   assert.ok(performance.now() < end); await new Promise(resolve => setTimeout(resolve, 2));
 } };
-function fixture(t, failFirst = false, capture) {
+function fixture(t, failFirst = false, capture, tracking) {
   const root = mkdtempSync(join(tmpdir(), 'execution-manager-')), binds = [], submits = [], completions = new Map();
   const execution = {
     ...(capture ? { captureEndpointEvidence: capture } : {}),
+    ...(tracking ? { recordChildCompletion: tracking } : {}),
     async bind(id, request, child, endpoint, evidence) {
       if (failFirst) { failFirst = false; throw Object.assign(Error('synthetic binding unavailable'), { code: 'EXECUTION_UNCONFIRMED' }); }
       binds.push({ id, request, child, endpoint, ...(evidence === undefined ? {} : { evidence }) });
@@ -78,4 +79,35 @@ test('manager captures and detaches native evidence at request time rather than 
   original.native_tool_id = 'late-tool'; original.request.delivery_id = 'late-ref';
   await delivery.before_send(boundary('bot-b'));
   assert.deepEqual(f.binds[0].evidence, { native_tool_id: 'existing-native-tool', request: request('bot-b') });
+});
+test('execution uses the actual provider error class to distinguish a refusal from missing RPC outcome', () => {
+  class ProviderError extends Error { constructor(outcome_unknown) { super('synthetic vendor error'); this.outcome_unknown = outcome_unknown; } }
+  const execution = createParentManagerExecution({ parent: {}, native: {}, profile: {}, provider: {
+    withDeliveryEffect() {}, SteerDeliveryError: ProviderError,
+    DELIVERY_ADMISSION_CONTRACT: { schema: 'steer.delivery-admission.v1', native_context: true,
+      cursor_profile_parameter: true, multi_delivery_emit: true, serialized_required: true },
+    submitCodexParentAnswer() {}, submitClaudeParentAnswer() {}, submitCursorParentAnswer() {},
+  } });
+  assert.equal(execution.outcomeUnknown(new ProviderError(false)), false);
+  assert.equal(execution.outcomeUnknown(new ProviderError(true)), true);
+  assert.equal(execution.outcomeUnknown(Object.assign(Error('RPC reject'), { outcome_unknown: false })), null);
+});
+test('missing execution completion proof preserves the real saved answer and keeps normal delivery', async t => {
+  let observed = 0;
+  const f = fixture(t, false, undefined, async () => { observed++; throw Error('synthetic native done proof unavailable'); });
+  const delivery = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
+  await delivery.before_send(boundary('bot-b')); f.finish('bot-b');
+  await until(() => f.manager.status('bot-b')[0]?.state === 'submitted');
+  assert.equal(observed, 1); assert.equal(f.submits.length, 1); assert.match(f.submits[0].text, /synthetic answer/);
+});
+test('durable answer releases its old child claim while execution metadata waits for the original receipt', async t => {
+  const entered = { done: false }; let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, false, undefined, async () => { entered.done = true; await pending; });
+  const one = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
+  await one.before_send(boundary('bot-b')); f.finish('bot-b'); await until(() => entered.done);
+  const two = withExecutionRequest({ ...request('bot-b'), delivery_id: 'new-existing-request' }, () => f.manager.request(parent));
+  try { await two.before_send(boundary('bot-b')); }
+  finally { release(); }
+  assert.notEqual(two.result().delivery_id, one.result().delivery_id);
 });

@@ -21,14 +21,18 @@ const pause = () => { let resolve; const promise = new Promise(done => { resolve
 const code = expected => error => error.code === expected;
 const ref = { schema: 'aiterm.execution-ref.v1', request: originalRequest };
 const stop = roots => ({ schema: 'aiterm.cascade-stop-request.v1', roots });
-async function fixture(accepted = true) {
+async function fixture(accepted = true, nativeDone = false) {
   const directory = mkdtempSync(join(tmpdir(), 'execution-parent-')), store = new FileExecutionStore(directory);
   const live = new Map([A, B].map(value => [value.session_id, value]));
   let endpointMatches = true;
   const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
     exists: live.has(session_id), launch_id: live.get(session_id)?.launch_id ?? null });
   const runtime = createExecutionRuntime({ sourceEnvironment: { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
-    observeSession: observe, observeSessionSync: observe, async observeDone() { throw Error('unused synthetic wait'); },
+    observeSession: observe, observeSessionSync: observe, async observeDone(session_id) {
+      if (!nativeDone) throw Error('unused synthetic wait');
+      return { schema: 'aiterm.agent-wait-result.v1', session_id, launch_id: B.launch_id,
+        outcome: 'done', operation_id: null, turn_id: 'synthetic-native-turn' };
+    }, invocationFence: async () => 'closed',
     async guardedClose(expected) { assert.deepEqual(live.get(expected.session_id), expected); live.delete(expected.session_id); } });
   const service = new ExecutionService(store, runtime, 500);
   const bindings = { store, service, observeSessionGeneration: observe,
@@ -160,4 +164,80 @@ test('an asynchronous endpoint proof is not a synchronous true even when it reso
       .bind(id, originalRequest, point(B, 17), endpoint), code('EXECUTION_UNSUPPORTED'));
   }
   await assert.rejects(f.adapter.lookup(id), code('EXECUTION_NOT_FOUND'));
+});
+test('a child done cannot retire the original branch while its already bound parent return is still unissued', async () => {
+  const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
+  const finished = await f.service.execute({ action: 'finish', request: originalRequest,
+    evidence: { kind: 'completion', target: point(B, 17) } });
+  assert.equal(finished.relation.completion, 'completed');
+  assert.equal(finished.relation.target_fence, 'unknown');
+  assert.equal(finished.relation.lifecycle, 'tracking');
+  let effects = 0;
+  const queued = await f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; });
+  assert.equal(queued.isError, undefined); assert.equal(effects, 1);
+});
+test('parent queue acceptance is not a completion fence, but confirmed unissued cancellation can settle the companion', async () => {
+  for (const accepted of [true, false]) {
+    const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
+    const finish = () => f.service.execute({ action: 'finish', request: originalRequest,
+      evidence: { kind: 'completion', target: point(B, 17) } });
+    assert.equal((await finish()).relation.target_fence, 'unknown');
+    const queued = await f.adapter.submit(id, endpoint, async (_, __, issue) => {
+      if (accepted) issue(); return { queued_submission_id: null };
+    });
+    assert.equal(!!queued.isError, !accepted);
+    const after = await finish();
+    assert.equal(after.relation.target_fence, accepted ? 'unknown' : 'closed');
+    assert.equal(after.relation.lifecycle, accepted ? 'tracking' : 'retired');
+  }
+});
+test('stop after local child done still reaches that child and cancels an unissued bound parent return', async () => {
+  const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
+  await f.service.execute({ action: 'finish', request: originalRequest, evidence: { kind: 'completion', target: point(B, 17) } });
+  const result = await f.service.stop(stop([A]));
+  assert.deepEqual(new Set(result.targets.map(value => value.launch.session_id)), new Set([A.session_id, B.session_id]));
+  let effects = 0;
+  await assert.rejects(f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; }));
+  assert.equal(effects, 0);
+});
+test('the manager completion callback reobserves the canonical receipt and cannot substitute captured answer success for native done', async () => {
+  for (const nativeDone of [true, false]) {
+    const f = await fixture(true, nativeDone), beforeSend = point(B, 17);
+    beforeSend.boundary.operation_id = 'sha256:' + '1'.repeat(64);
+    await f.adapter.bind(id, originalRequest, beforeSend, endpoint);
+    if (nativeDone) {
+      const completed = await f.adapter.recordChildCompletion(id);
+      assert.deepEqual(completed.relation.target, point(B, 17));
+      assert.equal(completed.relation.completion, 'completed');
+      assert.equal(completed.relation.target_fence, 'unknown');
+    } else {
+      await assert.rejects(f.adapter.recordChildCompletion(id), code('EXECUTION_UNCONFIRMED'));
+      assert.equal((await f.service.execute({ action: 'status', request: originalRequest })).relation.completion, 'open');
+    }
+  }
+});
+test('parent return preflight waits only for the original dispatch receipt and never resends child or queue', async () => {
+  const f = await fixture(false); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
+  const entered = pause(), release = pause(); let childEffects = 0, queueEffects = 0;
+  const dispatch = f.service.invokeDeferred(ref, 'send', async issue => {
+    entered.resolve(); await release.promise; issue(); childEffects++;
+    return { value: null, target: point(B, 17) };
+  });
+  await entered.promise;
+  const queue = f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); queueEffects++; return { queued_submission_id: null }; });
+  await new Promise(resolve => setTimeout(resolve, 2)); assert.equal(queueEffects, 0);
+  release.resolve(); await dispatch; assert.equal((await queue).isError, undefined);
+  assert.equal(childEffects, 1); assert.equal(queueEffects, 1);
+});
+test('source stop cancels original-receipt preflight before any parent queue native slot is taken', async () => {
+  const f = await fixture(false); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
+  const entered = pause(), release = pause(); let queueEffects = 0;
+  const dispatch = f.service.invokeDeferred(ref, 'send', async issue => {
+    entered.resolve(); await release.promise; issue(); return { value: null, target: point(B, 17) };
+  }).catch(error => error);
+  await entered.promise;
+  const queue = f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); queueEffects++; return { queued_submission_id: null }; }).catch(error => error);
+  await new Promise(resolve => setTimeout(resolve, 2)); await f.service.stop(stop([B]));
+  assert.equal((await queue).code, 'EXECUTION_STOPPING'); assert.equal(queueEffects, 0);
+  release.resolve(); assert.equal((await dispatch).effect, 'not_started'); assert.ok(f.live.has(A.session_id));
 });

@@ -26,8 +26,9 @@ export interface ExecutionParentBindings {
   // Prove the actual vendor endpoint belongs to this same managed parent
   // launch (native vendor session/home correlation). Generation alone cannot
   // authorize a different thread/hook endpoint. Missing proof is unsupported.
-  verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown): boolean;
+  verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown, binding: Readonly<Binding>, phase: "bind" | "queue"): boolean;
   sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
+  preparationTimeoutMs?: number;
 }
 /** Construct once for the same state/socket scope as the serving service. Each
  * submit/emit/wake process must look up this binding; no latest-seat fallback.
@@ -45,10 +46,11 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
     if (!serialized) throw new ExecutionError("EXECUTION_INVALID");
     return createHash("sha256").update(serialized).digest("hex");
   };
-  const verifyEndpoint = (parent: ExecutionPoint, endpoint: unknown, evidence?: unknown, initial = false): void => {
-    if (bindings.sourceEvidence) bindings.sourceEvidence.verify(parent, endpoint, evidence, initial);
+  const verifyEndpoint = (binding: Binding, endpoint: unknown, initial = false): void => {
+    const parent = binding.parent;
+    if (bindings.sourceEvidence) bindings.sourceEvidence.verify(parent, endpoint, binding.source_evidence, initial);
     if (!bindings.verifyParentEndpoint) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    requireParentEndpointEvidence(bindings.verifyParentEndpoint(parent, endpoint));
+    requireParentEndpointEvidence(bindings.verifyParentEndpoint(parent, endpoint, binding, initial ? "bind" : "queue"));
   };
   const observe = async (point: ExecutionPoint): Promise<void> => {
     const value = await bindings.observeSessionGeneration(point.launch.session_id) as Record<string, unknown> | null;
@@ -74,6 +76,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
         && record.reservation.target.expected_launch_id !== binding.child.launch.launch_id))
       throw new ExecutionError("EXECUTION_STALE_GENERATION");
     if (!accepted) return null;
+    if (record.operations.send === "preparing" || record.operations.send === "issued") throw new ExecutionError("EXECUTION_BUSY");
     const target = record.relation.target;
     // before_send is the canonical dispatch boundary, not a later native turn
     // guessed from seat_turns. Its operation may be stronger than the public
@@ -86,8 +89,32 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
       throw new ExecutionError("EXECUTION_UNCONFIRMED");
     return target;
   };
+  const waitForReceipt = async <T>(read: () => Promise<T>): Promise<T> => {
+    const timeout = bindings.preparationTimeoutMs ?? 2000;
+    if (!Number.isFinite(timeout) || timeout < 0) throw new ExecutionError("EXECUTION_INVALID");
+    const deadline = performance.now() + timeout;
+    for (;;) {
+      try { return await read(); }
+      catch (error) {
+        if (!(error instanceof ExecutionError) || error.code !== "EXECUTION_BUSY" || performance.now() >= deadline) throw error;
+        // Metadata-only preflight. No queue/input is registered or issued;
+        // source stop/unsent is checked before BUSY and cancels this wait.
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+  };
   return {
     captureEndpointEvidence(endpoint: unknown) { return bindings.sourceEvidence?.capture(endpoint); },
+    async recordChildCompletion(idInput: string) {
+      const id = deliveryId.parse(idInput);
+      const completed = await waitForReceipt(() => bindings.store.transaction(state => {
+        const binding = read(state, id);
+        return { request: binding.request, target: original(state, binding, true)! };
+      }, { readOnly: true }));
+      // Reobserve the exact canonical dispatch receipt, not before_send's
+      // stronger operation or the captured answer/waiter's deletion alone.
+      return bindings.service.execute({ action: "finish", request: completed.request, evidence: { kind: "completion", target: completed.target } });
+    },
     /** Called from the real request-local parent manager before_send callback,
      * after its existing delivery ID exists. Fix parent from the already
      * verified dispatch record; never vendor thread ID or current Bot name.
@@ -108,7 +135,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
           ...(source_evidence ? { source_evidence } : {}) };
         original(state, proposed, false);
         await observe(parent); await observe(child);
-        verifyEndpoint(parent, endpoint, source_evidence, true);
+        verifyEndpoint(proposed, endpoint, true);
         const previous = state.parent_deliveries.find(value => value.delivery_id === id);
         if (previous && !same(previous, proposed)) throw new ExecutionError("EXECUTION_CONFLICT");
         if (!previous) state.parent_deliveries.push(proposed);
@@ -125,16 +152,16 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
       submit: (binding: Binding, endpoint: unknown, effect: () => void) => Promise<QueueReceipt>) {
       const id = deliveryId.parse(idInput);
       const endpoint = structuredClone(endpointInput), endpoint_digest = digest(endpoint);
-      const binding = await bindings.store.transaction(async state => {
+      const binding = await waitForReceipt(() => bindings.store.transaction(async state => {
         const value = read(state, id);
         if (value.endpoint_digest !== endpoint_digest) throw new ExecutionError("EXECUTION_CONFLICT");
         const canonicalChild = original(state, value, true)!;
         await observe(value.parent); await observe(value.child);
-        verifyEndpoint(value.parent, endpoint, value.source_evidence);
+        verifyEndpoint(value, endpoint);
         // Bind the exact immutable receipt point. The before_send operation is
         // corroborating alias evidence, never a different lifetime graph key.
         return { ...value, child: canonicalChild };
-      }, { readOnly: true });
+      }, { readOnly: true }));
       const request = { kind: "delivery", delivery_id: id, target_session_id: binding.parent.launch.session_id } as const;
       await bindings.service.execute({ action: "register", source_session_id: binding.child.launch.session_id,
         reservation: { schema: "aiterm.execution-reservation.v1", request,
@@ -150,7 +177,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
         const effect = AsyncResource.bind(() => {
           beforeExecutionEffect(binding.parent.launch.session_id, () => {
             if (issued) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
-            verifyEndpoint(binding.parent, endpoint, binding.source_evidence);
+            verifyEndpoint(binding, endpoint);
           });
           issued = true;
         });

@@ -32,6 +32,22 @@ const openParentEffect = (state: ExecutionState, request: ExecutionRequest): boo
   && state.parent_effects.some(effect => effect.delivery_id === request.delivery_id && effect.state !== "accepted"
     && state.parent_deliveries.some(binding => binding.delivery_id === effect.delivery_id
       && binding.parent.launch.session_id === request.target_session_id));
+// Local child done cannot close the whole invocation's admission fence while
+// the existing before_send companion can still issue its parent return. Read
+// only existing refs/phases; queue acceptance and an elapsed time are not done.
+const pendingParentReturn = (state: ExecutionState, request: ExecutionRequest): boolean =>
+  state.parent_deliveries.some(binding => {
+    if (!same(binding.request, request)) return false;
+    if (state.parent_effects.some(effect => effect.delivery_id === binding.delivery_id && effect.state !== "accepted")) return true;
+    const returning = state.records.find(record => record.reservation.request.kind === "delivery"
+      && record.reservation.request.delivery_id === binding.delivery_id
+      && record.reservation.request.target_session_id === binding.parent.launch.session_id);
+    if (!returning || !same(returning.relation.source?.launch, binding.child.launch)) return true;
+    if (returning.relation.phase === "unsent" && returning.operations.send === "not_sent") return false;
+    return !same(returning.relation.target?.launch, binding.parent.launch)
+      || returning.relation.target_fence !== "closed"
+      || !["completed", "interrupted"].includes(returning.relation.completion);
+  });
 function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord {
   const record = state.records.find(value => same(value.reservation.request, request));
   if (!record) throw new ExecutionError("EXECUTION_NOT_FOUND");
@@ -387,7 +403,7 @@ export class ExecutionService {
           const observed = await this.runtime.completion(target);
           if (observed.state === "unknown") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
           record.relation.completion = observed.state;
-          record.relation.target_fence = observed.fence;
+          record.relation.target_fence = observed.fence === "closed" && pendingParentReturn(state, args.request) ? "unknown" : observed.fence;
         } else {
           if (!same(target.launch, args.evidence.target)) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
           if (record.relation.completion === "interrupted" && record.relation.target_fence === "closed") return view(state, record);

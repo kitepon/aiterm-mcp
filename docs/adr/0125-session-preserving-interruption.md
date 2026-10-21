@@ -13,6 +13,7 @@ AIへの停止依頼や意味判断を使わず、効かなくてもclose/kill�
 明示native entryの正規agent_stopは `{session_id}` または `{session_ids:[...]}` を受ける。
 返りは `{session_id?,status:'sent'|'partial'|'failed'|'idle',targets:[{session_id,status:'sent'|'failed'|'idle',error?}]}`。
 記録済み未完了graphのatomic-rename snapshotをwriter lock無しで一度読み、leaf→rootで通常の中断キーを送る。
+native MCPの参加者登録も通常要求の初回へ遅延し、cold起動の停止前にenroll/checkpointを要求しない。
 循環・重複root・共有先はsessionごと1回、外向きの既知関係だけ。完了済branchは再利用しない。
 rootは現在launch、子は記録済み期待launchを照合する。graph読取不能でも明示rootへの送信を実行してpartialを返す。
 

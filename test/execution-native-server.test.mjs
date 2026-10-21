@@ -124,3 +124,16 @@ test('native same-server immediate control sends before held graph lock without 
     source:{launch:null,boundary:null},target:{session_id:A.session_id,expected_launch_id:A.launch_id}}}});
   assert.equal(registered.isError,undefined);assert.equal(registered.structuredContent.operations.send,'not_issued');
 });
+
+test('cold native constructor and immediate stop do not enroll or wait on an existing writer lock', async t => {
+  const f=fixture(t), keys=[];
+  f.options.immediateStop={currentLaunchId:()=>A.launch_id,sendKey:session_id=>{keys.push(session_id);return {session_id,outcome:'accepted'};}};
+  const p=f.create();
+  assert.equal(existsSync(join(p.store.directory,'relations.json')),false,'constructor writes no graph checkpoint');
+  mkdirSync(join(p.store.directory,'transaction.lock'),{recursive:true});
+  const client=new Client({name:'cold-stop-owner',version:'test'}),[a,b]=InMemoryTransport.createLinkedPair();
+  await p.server.connect(b);await client.connect(a);t.after(()=>client.close());
+  const result=await client.callTool({name:'agent_stop',arguments:{session_id:A.session_id}});
+  assert.equal(result.structuredContent.status,'sent');assert.deepEqual(keys,[A.session_id]);
+  assert.equal(existsSync(join(p.store.directory,'relations.json')),false,'stop does not enroll/write graph');
+});

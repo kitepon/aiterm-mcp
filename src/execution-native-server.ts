@@ -57,9 +57,9 @@ export function createNativeExecutionServer(input: {
   // Both native and fake compositions supply every I/O dependency explicitly.
   // An injected runtime never inherits individual native functions.
   const participant = input.runtime
-    ? createExecutionParticipant({ profile, expectedScope, provider, runtime,
+    ? createExecutionParticipant({ profile, expectedScope, provider, runtime, deferEnrollment: !input.runtime || !!input.immediateStop,
       parentDependencies: input.parentDependencies, claudeRuntime: input.claudeRuntime })
-    : createExecutionParticipant({ profile, expectedScope, provider, runtime,
+    : createExecutionParticipant({ profile, expectedScope, provider, runtime, deferEnrollment: !input.runtime || !!input.immediateStop,
       parentDependencies: nativeParentDependencies(provider, profile), claudeRuntime: { running: nativeProcessRunning } });
   registerExecutionTools(participant.server, participant.service, { interruptCurrentRun: true,
     // The stop button uses this direct path, not the old v2 proof controller.

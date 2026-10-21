@@ -47,6 +47,7 @@ function scope(input: ExecutionWorkerScope): ExecutionWorkerScope {
 }
 export function createExecutionParentEnvironment(input: {
   profile: installedSteer.ProductProfile; expectedScope: ExecutionWorkerScope;
+  deferEnrollment?: boolean;
   provider?: ParentAdmissionProvider;
   // Product-owned native observations. Tests inject a complete synthetic
   // runtime; absent fields never fall back individually into a live runtime.
@@ -81,11 +82,12 @@ export function createExecutionParentEnvironment(input: {
       throw new ExecutionError("EXECUTION_UNSUPPORTED");
   };
   assertScope();
-  const store = new ParticipantExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer), actor, assertScope);
+  const store = new ParticipantExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer), actor, assertScope, input.deferEnrollment === true);
   return { runtime, profile, actor, store, scope: expected, assertScope };
 }
 export function createExecutionParentWorker(input: {
   profile: installedSteer.ProductProfile; expectedScope: ExecutionWorkerScope;
+  deferEnrollment?: boolean;
   provider?: ParentAdmissionProvider; runtime?: ParentWorkerRuntime; codexHome?: string | null;
 }) {
   const { runtime, profile, actor, store, scope: expected, assertScope } = createExecutionParentEnvironment(input);

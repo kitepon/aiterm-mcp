@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in native MCP entry with `agent_stop({session_id})` / `{session_ids}`. It sends each harness's normal cancel key to recorded descendants before their callers, once per session, preserving conversations. Results report key delivery (`sent`, `partial`, `failed`, `idle`), not native completion proof. Stop does not wait for metadata checkpoints, in-flight requests, or interruption journals and does not permanently block the next input.
+- Native parent-hook setup preserves the same command, scope, provider and mode across MCP/Claude/Cursor/Codex registrations. Requires the matching Steer candidate with native admission and hook-argument support. Normal `dist/index.js` remains unchanged; this optional entry is not automatically installed into existing seats.
+
 ## [0.60.1] - 2026-10-13
 
 ### 修正

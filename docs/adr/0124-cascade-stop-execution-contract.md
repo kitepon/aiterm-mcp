@@ -244,6 +244,27 @@ runtime.coverageは全実入口が対応している場合だけcomplete。graph
 現行index/coreへの接続は未了。4 CLIの世代ヘッダー実受信、source/finishの証拠adapter、直接launch/sendと全変更口の
 共通受付・scope対応を受入するまでは、稼働版の完全連鎖停止として使えない。
 
+### 既存observe/waitの証拠adapter
+
+`execution-runtime.ts`の`createExecutionRuntime`は、既存`pty_observe`/`observeAgentDone`の構造化契約を検証する。
+schema、session、launchを照合し、不整合や取得例外をunknownへ残す。exists=falseなのにlaunchを持つ返りも消失証拠にしない。
+保存境界のcursor/operation/steerをそのままtimeout=0で再観測し、native turn/operationが既知ならその一致も必要。
+steerのplacementがunknown/取得不能、rate_limited、timeout/running/not_taken、generic tool/RPC errorは完了にしない。
+coreの型付きoutcome=errorはharnessが記録したturn終了解釈であり、generic RPC errorとは分けて局所終了にできる。
+typed closedでも後観測の期待席消失を要求する。終了の読み取り中に同名launchが替わればunknown。
+
+sourceはruntime/Bridge transport側のsourceContext resolverを明示注入する。wire claimや最新jobをそのまま証拠にしない。
+resolverが無ければcaller proof無し。source境界nullでもtransportのlaunchと現在世代を照合できれば採用できる。
+明示したsource世代が既にabsent/置換なら新規登録をstaleで拒否し、単なるunknown sourceに格下げして実行しない。
+明示source世代のcaller proofが足りない登録は保持できるが、未検証のままinvokeしない。
+旧資料等のgeneration無し関係を、これで新たに検証済みに昇格させることもない。
+
+終了fence証拠resolverが無ければunknown、coverage resolverが無ければincomplete。
+guardedCloseが無ければEXECUTION_UNSUPPORTEDで作用前に拒否し、名前だけのcloseへのfallbackは無い。
+evidence resolverはserviceの短いtransaction内で呼ぶので同じstoreへ再入しない。
+guardedCloseはtransaction外で呼び、既に発行したslotを使って期待世代を実作用時にも守る必要がある。
+既存core関数へのmount/共通受付、runtime/transport resolverと実fence証拠は依然として残実装。
+
 ## rootの現在境界と到達範囲
 
 stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。

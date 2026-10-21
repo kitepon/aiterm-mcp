@@ -89,6 +89,15 @@ test('target generation replacement after reservation rejects before body invoca
   await assert.rejects(f.send(record), code('EXECUTION_STALE_GENERATION'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
 });
+test('an explicit source generation that is gone cannot start new work as an unknown source', async () => {
+  const f = fixture(); f.live.delete(A.session_id);
+  await assert.rejects(f.register('old-source-ab'), code('EXECUTION_STALE_GENERATION'));
+  f.live.set(A.session_id, A);
+  f.runtime.sourceEvidence = async () => ({ runtime_launch: A, caller_bound: false, invocation_boundary: null });
+  const record = await f.register('unbound-generation-ab');
+  await assert.rejects(f.send(record), code('EXECUTION_UNCONFIRMED'));
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
+});
 test('launch-only effect remains a relation when its subsequent prompt is confirmed unsent', async () => {
   const f = fixture();
   f.live.delete(B.session_id);

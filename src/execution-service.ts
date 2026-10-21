@@ -122,6 +122,12 @@ export class ExecutionService {
       }
       const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args));
       if (source.status === "stale") throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      if (args.reservation.source.launch && source.status !== "verified") {
+        const currentSource = await this.runtime.observe(args.reservation.source.launch.session_id);
+        if (currentSource.state === "absent" || (currentSource.state === "present" && currentSource.launch
+          && !same(currentSource.launch, args.reservation.source.launch)))
+          throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      }
       sourceAdmission(state, source.point, args.source_session_id);
       const target = args.reservation.target;
       if (state.slots.some(slot => slot.session_id === target.session_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
@@ -161,6 +167,8 @@ export class ExecutionService {
       if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "not_issued")
         throw new ExecutionError("EXECUTION_CONFLICT", record.operations[stage] === "not_sent" ? "not_started" : "possible");
       sourceAdmission(state, relation.source, record.source_session_id);
+      if (record.reservation.source.launch && !relation.source)
+        throw new ExecutionError("EXECUTION_UNCONFIRMED");
       // A previously verified runtime can have ended since reservation. Null
       // source boundaries remain valid generation edges, not semantic failures.
       if (relation.source) {

@@ -32,6 +32,9 @@ export const executionStateSchema = z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
     stage: z.enum(["launch", "send", "close", "configure", "parent_dequeue", "parent_emit", "parent_wake"]),
     state: z.enum(["issued", "unknown"]), request: executionRequestSchema.nullable(),
+    // Native ID returned by this request's actual new-session command.
+    created_native_id: z.string().regex(/^\$\d+$/).optional(),
+    created_server: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict().optional(),
     // Trusted transport snapshot for a non-delivery close/configure call.
     // Never filled from a latest job or inferred from the target's name.
     source: executionLaunchSchema.nullable().optional(),

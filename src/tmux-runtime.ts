@@ -8,7 +8,8 @@ import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AitermError, ptyDependencyError } from "./errors.js";
-import { guardTmuxExecution, beforeExecutionEffect } from "./execution-effect.js";
+import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
+import { ExecutionError } from "./execution-wire.js";
 
 // Windows ネイティブには tmux が無いため、tmux CLI 互換の native psmux を叩く
 // （POSIX = Linux/WSL2/macOS は従来どおり tmux を直接叩く。WSL 橋は e3f5fc8 で全廃）。
@@ -530,8 +531,16 @@ export function tmuxNewSession(
   launch: { args: string[]; shell: string },
   registered: string[] = [],
 ): { code: number; stdout: string; stderr: string } {
+  const guarded = hasExecutionCreationScope();
+  // Windows per-session server creation needs a separate native-owner proof.
+  // The legacy public launcher is unchanged; guarded creation cannot assume
+  // POSIX's existing shared-server identity or bootstrap a missing server.
+  if (guarded) { if (isWin) throw new ExecutionError("EXECUTION_UNSUPPORTED"); prepareExecutionCreation(); }
+  const printNative = guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
   if (isWin) {
-    return runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
+    const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
+    if (guarded && (result.code === 0 || result.stdout)) captureExecutionCreatedNative(result.stdout);
+    return result;
   }
   const env = sessionCallerEnvironment();
   const wildcard = tmuxHasSessionEnvironmentFlags();
@@ -541,14 +550,21 @@ export function tmuxNewSession(
     for (const key of tmuxEnvironmentNames("-g") ?? []) others.add(key);
     const r = runTmux(observe, undefined, [
       "set-option", "-g", "update-environment", updateEnvironmentPatterns(Object.keys(env), [...others], wildcard).join(" "), ";",
-      "new-session", "-d", "-s", name, ...launch.args, launch.shell, ";",
-      "set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";",
+      "new-session", "-d", "-s", name, ...printNative, ...launch.args, launch.shell, ";",
+      ...(guarded ? [] : ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";"]),
       "set-option", "-gu", "update-environment",
     ], env);
+    // Bind only the ID printed by this exact create command. Target-specific
+    // setup runs later through that native ID, never a fresh same-name lookup.
+    if (guarded && (r.code === 0 || r.stdout)) captureExecutionCreatedNative(r.stdout);
     if (r.code !== 0) {
       // 途中の命令が失敗すると、後続の命令は実行されない。差し替えた設定を戻す。
       runTmux(false, undefined, ["set-option", "-gu", "update-environment"]);
       return r;
+    }
+    if (guarded) {
+      const registeredResult = runTmux(observe, undefined, ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" ")]);
+      if (registeredResult.code !== 0) return registeredResult;
     }
     // 共通環境の名前が、どれも session 側で上書きか消去になっていることを確かめる。別の呼び出し元が同時に
     // server を起こした時は、消す対象を取り違えている。
@@ -557,7 +573,7 @@ export function tmuxNewSession(
     const uncovered = shared?.filter(key => !own.has(key));
     if (uncovered?.length === 0) return r;
     runTmux(false, undefined, ["kill-session", "-t", `=${name}`]);
-    if (!uncovered || attempt >= 2) {
+    if (guarded || !uncovered || attempt >= 2) {
       return { code: 1, stdout: "", stderr: "共通環境の変数をsessionから外せなかったため、sessionを破棄しました" };
     }
     for (const key of uncovered) others.add(key);

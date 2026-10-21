@@ -10,6 +10,7 @@ import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, e
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
 import { withExecutionEffectScope } from "./execution-effect.js";
+import type { ExecutionNativeServer } from "./execution-close.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
@@ -18,6 +19,7 @@ export interface ExecutionRuntime {
   // Generation-only synchronous read at the first native effect. Its absence
   // makes deferred native admission unsupported, never an async fallback.
   observeSync?(sessionId: string): Observation;
+  nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer };
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -83,6 +85,65 @@ function retireSettledBranches(state: ExecutionState): void {
 export class ExecutionService {
   constructor(private readonly store: ExecutionStore, private readonly runtime: ExecutionRuntime,
     private readonly drainTimeoutMs = 2000) {}
+
+  /** Internal receipt callbacks for the serving launch frame. No tool args,
+   * new identifiers, native effects or name-based generation inference.
+   */
+  prepareCreation(metaInput: unknown): ExecutionNativeServer {
+    const { request } = executionRefMetaSchema.parse(metaInput);
+    if (!this.store.transactionSync || !this.runtime.nativeSessionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return this.store.transactionSync(state => {
+      const record = find(state, request);
+      if (record.operations.launch !== "preparing" || record.relation.lifecycle === "retired") throw new ExecutionError("EXECUTION_CONFLICT");
+      const native = this.runtime.nativeSessionSync!(record.reservation.target.session_id);
+      if (native.state !== "absent" || !native.server) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return native.server;
+    }, { readOnly: true });
+  }
+  verifyCreationServer(metaInput: unknown, expected: ExecutionNativeServer): void {
+    const { request } = executionRefMetaSchema.parse(metaInput);
+    if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    this.store.transactionSync(state => {
+      const record = find(state, request), native = this.runtime.nativeSessionSync?.(record.reservation.target.session_id);
+      if (!native?.server || !same(native.server, expected)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    }, { readOnly: true });
+  }
+  captureCreatedNative(metaInput: unknown, session: string, nativeId: string, expectedServer: ExecutionNativeServer, receiptPid: number): void {
+    const { request } = executionRefMetaSchema.parse(metaInput);
+    if (!/^\$\d+$/.test(nativeId) || !this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED", "possible");
+    this.store.transactionSync(state => {
+      const record = find(state, request), slot = state.slots.find(value => same(value.request, request) && value.stage === "launch");
+      if (!slot || slot.state !== "issued" || record.operations.launch !== "issued" || slot.session_id !== session
+        || record.reservation.target.expected_launch_id !== null || record.relation.lifecycle === "retired"
+        || expectedServer.pid !== receiptPid
+        || (slot.created_native_id && slot.created_native_id !== nativeId)
+        || (slot.created_server && !same(slot.created_server, expectedServer))) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+      // Preserve this genuine native receipt even if a stop is already fencing
+      // its caller. Binding metadata does not authorize another native action.
+      slot.created_native_id = nativeId;
+      slot.created_server = expectedServer;
+    });
+  }
+
+  bindCreatedLaunch(metaInput: unknown, input: ExecutionLaunch): void {
+    const { request } = executionRefMetaSchema.parse(metaInput), launch = executionLaunchSchema.parse(input);
+    if (!this.store.transactionSync || !this.runtime.observeSync || !this.runtime.nativeSessionSync)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED", "possible");
+    this.store.transactionSync(state => {
+      const record = find(state, request), slot = state.slots.find(value => same(value.request, request) && value.stage === "launch");
+      if (!slot || slot.state !== "issued" || record.operations.launch !== "issued" || slot.session_id !== launch.session_id
+        || !slot.created_native_id || record.relation.lifecycle === "retired"
+        || (record.relation.target && !same(record.relation.target.launch, launch))
+        || (slot.expected_launch_id !== null && slot.expected_launch_id !== launch.launch_id))
+        throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+      const native = this.runtime.nativeSessionSync!(launch.session_id), current = this.runtime.observeSync!(launch.session_id);
+      if (native.state !== "present" || native.native_id !== slot.created_native_id || !same(native.server, slot.created_server)
+        || current.state !== "present" || !same(current.launch, launch)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      slot.expected_launch_id = launch.launch_id;
+      record.relation.target = { launch, boundary: null };
+      if (stopped(state, record.relation.source?.launch) && !stopped(state, launch)) state.stopping.push(launch);
+    });
+  }
 
   /** Wrap only the actual synchronous expected-close primitive supplied to
    * runtime.close. It may act only while stop owns this exact issued close slot.
@@ -292,6 +353,16 @@ export class ExecutionService {
           }
           const current = this.runtime.observeSync!(slot.session_id);
           if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
+          if (slot.created_native_id) {
+            const native = this.runtime.nativeSessionSync?.(slot.session_id);
+            if (!native || native.state !== "present" || native.native_id !== slot.created_native_id
+              || !slot.created_server || !same(native.server, slot.created_server))
+              throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            if (slot.expected_launch_id === null) {
+              if (current.state !== "present" || current.launch !== null) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+              return; // bound physical shell, before core publishes its managed launch
+            }
+          }
           // A fresh launch's expected ID starts null. Until the core adapter
           // binds the exact created generation, do not infer ownership from a
           // new same-name observation merely because this RPC created a slot.

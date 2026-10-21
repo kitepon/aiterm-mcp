@@ -4,7 +4,8 @@ import { executionLaunchSchema, type ExecutionLaunch } from "./execution-contrac
 import { ExecutionError } from "./execution-wire.js";
 
 export type ExecutionNativeSession = { session_id: string; native_id: string };
-export type ExecutionNativeSessions = { state: "known"; sessions: ExecutionNativeSession[] } | { state: "unknown" };
+export type ExecutionNativeServer = { pid: number; started_identity: string };
+export type ExecutionNativeSessions = { state: "known"; sessions: ExecutionNativeSession[]; server?: ExecutionNativeServer | null } | { state: "unknown" };
 export interface ExecutionCloseBindings {
   sessions(): ExecutionNativeSessions;
   launch(session: string): ExecutionLaunch | null;

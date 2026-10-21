@@ -606,8 +606,35 @@ RPCの最初の作用をissuedにした後も、後続のnative commandは同じ
 世代と停止を再確認する。readiness待ち等の間にstop・世代交代・slot欠測が入れば後続作用は拒否する。
 先行作用は消さず、RPC全体はpossible/unknownとして保持し、再発行しない。
 launchのexpected IDがnullのまま新たな同名席を観測しただけでは、その席を作った世代だと認めない。
-coreから実作成世代をこのslotへ束縛するadapterは未了であり、それまで後続作用はunsupportedで拒否する。
-公開mountの前提にはこのadapterと全変更口の被覆を含み、合成の単一作用launch成功で省略しない。
+以下の限定adapterが供給されない経路では後続作用をunsupportedで拒否する。公開mountの前提には
+全native作成/世代読取/閉鎖adapterと全変更口の被覆を含み、合成の単一作用launch成功で省略しない。
+
+### 作成したnative sessionとmanaged launchの段階結合
+
+`runDeferredBoundExecution`のlaunch frameだけが内部creation callbacksを供給する。モデル引数/公開registerに
+native IDや作成世代を選ぶ欄を増やさない。既存POSIX serverのPID+started_identityを作成前に固定する。
+`core.observeExecutionNativeCreationScope`は同scopeの完全なnative session一覧とnative process identityを
+前後に読み、server PID混在/PID再利用/欠測/一覧交代をunknownとする。時刻の近さで対応付けない。
+
+guarded new-sessionは`-P -F`でその作成自身のsession ID/name/server PIDを受け取る。後から同名を列挙した値を
+作成receiptへしない。先行するglobal環境設定とglobal復元は同じcommand queueに置き、session向けの設定は
+receipt捕捉後に分離する。issued slotへcreated_native_id/created_serverを保持し、その後の対象付き変更/読取を
+捕捉済みnative IDへ固定する。server owner/物理IDを各作用直前に再照合する。環境検証失敗時の再createは行わない。
+
+coreのmetadata constructorは既存managed launch IDを内部生成する。その直前にも物理shell受付を確認し、
+公開されたmetadata/current generationと元native ID/serverを照合してslot.expected_launch_idとrelation.targetへ結ぶ。
+launch再結合/別要求への転用は拒否する。結合receiptはsource停止後も保持し、到達したlaunchにも停止印を引き継ぐが、
+入力を解禁しない。先行作用後の欠測/交代はpossible/unknownと元slotを保持し、再送や同名cleanupを行わない。
+
+この隔離実装は**既存POSIX server・固定名managed launch**に限る。serverが無くownerを取れない起動や、
+Windows固有のserver作成は作用前unsupported。古いmanaged metadataが残り物理shellと世代を結べない場合も未確認。
+既定legacy launcherは変更せず、private producer factoryの追加observerにも注入runtimeからOSへの個別fallbackを作らない。
+RPC終了後の実世代読取/閉鎖へのnative結合、auto-name/通常PTY/auth、全参加者/全変更口と復旧は別工程で未了。
+同じnative IDがserver再起動で再利用され得るので、ID単独の一致を受入条件にしない。
+
+一次資料は[tmux 3.3a manual source](https://raw.githubusercontent.com/tmux/tmux/3.3a/tmux.1)と
+[psmux 3.3.8 flag reference](https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md)。
+flagが存在してもcreator/serverの証拠は別に必要。新規取得分はrag/ingest.py経由でrag/sources/backendsとmanifestへ保存した。
 
 ## 結果と残実装
 

@@ -13,6 +13,20 @@ const input = { action: 'register', source_session_id: A.session_id,
   reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point,
     target: { session_id: 'bot-b', expected_launch_id: null } } };
 const unknown = { state: 'unknown', fence: 'unknown' };
+test('native session ownership requires a complete well-formed unique scoped listing, independently of managed metadata', () => {
+  let listing = { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }] };
+  const runtime = createExecutionRuntime({ observeSession: () => null, observeDone: async () => null,
+    observeNativeSessionsSync: () => listing });
+  assert.deepEqual(runtime.nativeSessionSync(A.session_id), { state: 'present', native_id: '$7' });
+  assert.deepEqual(runtime.nativeSessionSync('other'), { state: 'absent' });
+  for (const value of [null, { state: 'unknown' }, { state: 'known', sessions: [{ session_id: A.session_id, native_id: '7' }] },
+    { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }, { session_id: 'other', native_id: '$7' }] },
+    { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }, { session_id: A.session_id, native_id: '$8' }] },
+    Promise.resolve({ state: 'known', sessions: [] })]) {
+    listing = value; assert.deepEqual(runtime.nativeSessionSync(A.session_id), { state: 'unknown' });
+  }
+  assert.equal(createExecutionRuntime({ observeSession: () => null, observeDone: async () => null }).nativeSessionSync, undefined);
+});
 function fixture() {
   const reads = [];
   const observed = { schema: 'aiterm.pty-observe-result.v1', session_id: A.session_id, exists: true, launch_id: A.launch_id };

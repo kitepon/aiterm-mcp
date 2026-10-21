@@ -9,7 +9,7 @@ import { currentExecutionRequest } from '../dist/execution-context.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
-import { guardTmuxExecution } from '../dist/execution-effect.js';
+import { guardTmuxExecution, prepareExecutionCreation, captureExecutionCreatedNative, bindExecutionCreatedLaunch } from '../dist/execution-effect.js';
 import { EXECUTION_REQUEST_META_KEY as REQUEST, EXECUTION_SOURCE_META_KEY as SOURCE,
   EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -37,6 +37,9 @@ function fixture(options = {}) {
     schema: 'aiterm.pty-observe-result.v1', session_id, exists: !!value, launch_id: value?.launch_id ?? null }; };
   const runtime = createExecutionRuntime({ sourceEnvironment: env,
     observeSession: observe, observeSessionSync: observe,
+    ...(options.nativeCreation ? { observeNativeSessionsSync: () => ({ state: 'known',
+      server: { pid: 4711, started_identity: 'synthetic-native-server' },
+      sessions: [...live.values()].map(value => ({ session_id: value.session_id, native_id: value.session_id === B.session_id ? '$9' : '$10' })) }) } : {}),
     async observeDone() { throw new Error('no native done fixture'); },
     async guardedClose(launch) { assert.deepEqual(live.get(launch.session_id), launch); live.delete(launch.session_id); },
   });
@@ -169,10 +172,12 @@ test('tracked steer keeps its real native reference while untracked steer has no
   }
 });
 test('direct empty launch observes the actual new generation without manufacturing a dispatch cursor', async () => {
-  const f = fixture(); f.live.delete(B.session_id);
+  const f = fixture({ nativeCreation: true }); f.live.delete(B.session_id); f.live.delete(D.session_id);
   const result = await f.dispatcher.dispatch('agent_launch', { session_name: B.session_id }, { requestId: 4 }, async () => {
+    prepareExecutionCreation();
     guardTmuxExecution(['new-session', '-s', B.session_id]);
     f.live.set(B.session_id, B);
+    captureExecutionCreatedNative('$9\t' + B.session_id + '\t4711\n'); bindExecutionCreatedLaunch(B);
     return { content: [], structuredContent: { schema: 'aiterm.agent-launch-result.v1', session_id: B.session_id, event_cursor: null } };
   });
   assert.deepEqual(result._meta[BINDING].target, point(B));

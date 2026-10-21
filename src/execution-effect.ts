@@ -1,17 +1,24 @@
 // Native effect gate. No live state or process I/O at import. The product mount
 // supplies a request-scoped issue() backed by the shared metadata transaction.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { executionLaunchSchema } from "./execution-contract.js";
+import { executionLaunchSchema, type ExecutionLaunch } from "./execution-contract.js";
 import { ExecutionError } from "./execution-wire.js";
 
-type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError };
+export interface ExecutionCreationBindings {
+  prepare(): void;
+  verifyServer(): void;
+  native(session: string, nativeId: string, serverPid: number): void;
+  launch(launch: ExecutionLaunch): void;
+}
+type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
+  creation?: ExecutionCreationBindings; creationPrepared?: boolean; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
 
 export function requireExecutionEffectScope(value: boolean): void { required = value; }
-export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T): T {
+export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T, creation?: ExecutionCreationBindings): T {
   const target = executionLaunchSchema.shape.session_id.parse(session);
-  const scope: EffectScope = { session: target, issue, nativeTargets: new Set(), didIssue: false };
+  const scope: EffectScope = { session: target, issue, nativeTargets: new Set(), didIssue: false, ...(creation ? { creation: { ...creation } } : {}) };
   return scopes.run(scope, () => {
     let result: T;
     try { result = body(); } catch (error) { throw scope.failure ?? error; }
@@ -28,10 +35,52 @@ function refuse(scope: EffectScope, code: "EXECUTION_CONFLICT" | "EXECUTION_UNSU
 }
 function issueEffect(scope: EffectScope): void {
   if (scope.failure) throw scope.failure;
-  try { scope.issue(); scope.didIssue = true; }
+  try { if (scope.creationPrepared && !scope.createdNative) scope.creation!.verifyServer(); scope.issue(); scope.didIssue = true; }
   catch (error) {
     scope.failure = error instanceof ExecutionError ? new ExecutionError(error.code, scope.didIssue ? "possible" : error.effect)
       : new ExecutionError("EXECUTION_UNCONFIRMED", scope.didIssue ? "possible" : "not_started");
+    throw scope.failure;
+  }
+}
+export function hasExecutionCreationScope(): boolean { return !!scopes.getStore()?.creation; }
+export function prepareExecutionCreation(): void {
+  const scope = scopes.getStore();
+  if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (scope.failure) throw scope.failure;
+  if (!scope.creation || scope.creationPrepared || scope.didIssue) refuse(scope, "EXECUTION_UNSUPPORTED");
+  try { scope.creation.prepare(); scope.creationPrepared = true; }
+  catch (error) {
+    scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "not_started");
+    throw scope.failure;
+  }
+}
+// This receipt comes directly from new-session -P -F, never from a later
+// same-name list/display lookup. It contains no argv, environment or payload.
+export function captureExecutionCreatedNative(receipt: string): void {
+  const scope = scopes.getStore();
+  if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
+  if (scope.failure) throw scope.failure;
+  if (!scope.creation || !scope.creationPrepared || !scope.didIssue) refuse(scope, "EXECUTION_UNSUPPORTED");
+  const parsed = /^(\$\d+)\t([A-Za-z0-9_-]{1,64})\t([1-9][0-9]*)\r?\n?$/.exec(receipt);
+  if (!parsed || parsed[2] !== scope.session || (scope.createdNative && scope.createdNative !== parsed[1]))
+    refuse(scope, "EXECUTION_CONFLICT");
+  try { scope.creation.native(scope.session, parsed[1], Number(parsed[3])); }
+  catch (error) {
+    scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "possible");
+    throw scope.failure;
+  }
+  scope.createdNative = parsed[1]; scope.nativeTargets.add(parsed[1]);
+}
+export function bindExecutionCreatedLaunch(input: ExecutionLaunch): void {
+  const scope = scopes.getStore();
+  if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
+  if (scope.failure) throw scope.failure;
+  if (!scope.creation || !scope.createdNative) refuse(scope, "EXECUTION_UNSUPPORTED");
+  const launch = executionLaunchSchema.parse(input);
+  if (launch.session_id !== scope.session) refuse(scope, "EXECUTION_CONFLICT");
+  try { scope.creation.launch(launch); }
+  catch (error) {
+    scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "possible");
     throw scope.failure;
   }
 }
@@ -78,16 +127,19 @@ export function guardTmuxExecution(input: string[]): string[] {
     const targetedOption = command === "set-option" && args.slice(start + 1, end).includes("-t");
     if (command === "new-session" || targetCommands.has(command) || targetedOption) {
       if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (command === "new-session" && scope.creation && !scope.creationPrepared) refuse(scope, "EXECUTION_UNSUPPORTED");
       const flag = command === "new-session" ? "-s" : "-t";
       const at = args.findIndex((value, i) => i > start && i < end && value === flag);
       if (at < 0 || at + 1 >= end) refuse(scope, "EXECUTION_UNSUPPORTED");
       const raw = args[at + 1];
-      if (/^\$\d+$/.test(raw)) {
-        if (command === "new-session" || !scope.nativeTargets.has(raw)) refuse(scope, "EXECUTION_CONFLICT");
+      if (command === "new-session" && scope.createdNative) refuse(scope, "EXECUTION_CONFLICT");
+      const native = /^(\$\d+)(:(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
+      if (native) {
+        if (command === "new-session" || !scope.nativeTargets.has(native[1])) refuse(scope, "EXECUTION_CONFLICT");
       } else {
         const parsed = /^=?([A-Za-z0-9_-]{1,64})(:(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
         if (!parsed || parsed[1] !== scope.session) refuse(scope, "EXECUTION_CONFLICT");
-        if (command !== "new-session") args[at + 1] = `=${scope.session}${parsed[2] ?? ":"}`;
+        if (command !== "new-session") args[at + 1] = `${scope.createdNative ?? "=" + scope.session}${parsed[2] ?? ":"}`;
       }
       effects = true;
     } else if (command === "load-buffer" || command === "delete-buffer" || command === "save-buffer" || command === "set-option") {
@@ -100,6 +152,12 @@ export function guardTmuxExecution(input: string[]): string[] {
       // No kill-server / run-shell / unknown command fallback through the gate.
       if (scope) refuse(scope, "EXECUTION_UNSUPPORTED");
       throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    } else if (scope?.createdNative) {
+      const at = args.findIndex((value, i) => i > start && i < end && value === "-t");
+      if (at >= 0 && at + 1 < end) {
+        const target = /^=?([A-Za-z0-9_-]{1,64})(:(?:\d+(?:\.\d+)?)?)?$/.exec(args[at + 1]);
+        if (target?.[1] === scope.session) args[at + 1] = `${scope.createdNative}${target[2] ?? ":"}`;
+      }
     }
     start = end + 1;
   }

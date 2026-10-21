@@ -47,6 +47,9 @@ const waitSchema = z.object({
 export interface ExecutionRuntimeBindings {
   observeSession(session: string): unknown | Promise<unknown>;
   observeSessionSync?(session: string): unknown;
+  // Complete native session listing from this exact product/multiplexer scope.
+  // Unknown/malformed or duplicated IDs must not prove absence or ownership.
+  observeNativeSessionsSync?(): unknown;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
   // For a direct stdio transport only. Read once at factory construction, never
   // reinterpret an env change or an incoming registration as caller context.
@@ -78,6 +81,19 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
   };
   return {
     observe,
+    ...(bindings.observeNativeSessionsSync ? { nativeSessionSync: (session: string) => {
+      try {
+        const parsed = z.object({ state: z.literal("known"), server: z.object({ pid: z.number().int().positive(),
+          started_identity: z.string().min(1).max(256) }).strict().nullable().optional(), sessions: z.array(z.object({
+          session_id: executionLaunchSchema.shape.session_id, native_id: z.string().regex(/^\$\d+$/),
+        }).strict()) }).strict().parse(bindings.observeNativeSessionsSync!());
+        if (new Set(parsed.sessions.map(value => value.session_id)).size !== parsed.sessions.length
+          || new Set(parsed.sessions.map(value => value.native_id)).size !== parsed.sessions.length) return { state: "unknown" } as const;
+        const target = parsed.sessions.find(value => value.session_id === session);
+        return target ? { state: "present", native_id: target.native_id, ...(parsed.server ? { server: parsed.server } : {}) } as const
+          : { state: "absent", ...(parsed.server ? { server: parsed.server } : {}) } as const;
+      } catch { return { state: "unknown" } as const; }
+    } } : {}),
     ...(bindings.observeSessionSync ? { observeSync: (session: string) => {
       try { return parseObservation(session, bindings.observeSessionSync!(session)); }
       catch { return { state: "unknown" } as const; }

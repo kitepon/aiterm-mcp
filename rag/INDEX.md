@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **141** 件 / 更新: 2026-10-02
+- 総数: **143** 件 / 更新: 2026-10-21
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -209,7 +209,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration> (docs, 17019 chars)
   - 効きどころ: WSL2上の対象環境そのもの。bashのPS0=133;C/PS1=133;A..B注入の実コードがあり、自前でマーカーを仕込む方式の雛形になる。
 
-## バックエンド (backends) — 21件
+## バックエンド (backends) — 23件
 
 - [Detach — GNU Screen User's Manual](sources/backends/gnu-screen-detach.md) — GNU screenのdetach仕様。C-a dで端末から切離しバックグラウンド化、接続喪失時のautodetach、-rでの再接続を解説。
   - 出典: <https://www.gnu.org/software/screen/manual/html_node/Detach.html> (docs, 1578 chars)
@@ -229,6 +229,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Pexpect Overview](sources/backends/pexpect-overview.md) — pexpect概要。ssh等の対話アプリをspawn/expect/sendlineで自動化し、before/afterで状態保持、interactで人へ制御移譲できる。
   - 出典: <https://pexpect.readthedocs.io/en/stable/overview.html> (docs, 14000 chars)
   - 効きどころ: ssh→docker のネスト対話を1本のPTYへ送る発想の先行例。before/afterの状態管理とプロンプト待ちが完了検出設計の参考になる。
+- [psmux 3.3.8 exact parsed CLI flags](sources/backends/psmux-3-3-8-native-create-flags.md) — Pinned psmux command/flag reference distinguishes accepted new-session -P/-F from unsupported or ignored flags.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md> (official_flag_reference, 28003 chars)
+  - 効きどころ: Flag availability alone does not prove a stable per-session creator/server identity. Guarded Windows creation remains unsupported until that independent adapter exists.
 - [psmux features — server persistence, control mode, tmux compatibility](sources\backends\psmux-features-doc.md) — psmuxの機能詳細。session serverはSSH切断・端末クラッシュを生存、warm sessionでバックグラウンドサーバ事前起動、psmux-resurrect/continuumプラグイン、send-keys/capture-pane/pipe-paneをCI/CD自動化向けと明記、control mode -C/-CCの%begin/%end framing、-L名前空間隔離、ConPTY利用。
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/master/docs/features.md> (docs, 14446 chars)
   - 効きどころ: Aitermがtmuxに要求する能力（detached永続・send/capture/pipe-pane・socket隔離）とpsmuxの対応を突合する一次資料。
@@ -247,6 +250,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Scripting tmux — The Tao of tmux](sources/backends/tao-of-tmux-scripting.md) — tmuxのスクリプト制御解説。targets(-t)、formats(-F #{...})、send-keys、capture-pane を使った機械的操作を体系化。
   - 出典: <https://tao-of-tmux.readthedocs.io/en/latest/manuscript/10-scripting.html> (docs, 21766 chars)
   - 効きどころ: send/read を tmux コマンドへ写像する具体パターン(target解決、format での状態取得)が分かる。薄い層の実装レシピとして直接効く。
+- [tmux 3.3a native creation receipt and server/session identifiers](sources/backends/tmux-3-3a-native-create-receipt.md) — Pinned official tmux manual source: new-session -P/-F and native server/session identifiers.
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/3.3a/tmux.1> (official_man_source, 168477 chars)
+  - 効きどころ: Guarded creation must capture the actual command receipt and retain native server ownership instead of inferring a created generation from a same-name observation.
 - [tmux-continuum README](sources/backends/tmux-continuum-readme.md) — tmux環境を15分間隔で自動保存し、tmuxサーバ起動時に自動復元するプラグイン(resurrect依存)。復元はサーバ起動時のみ。
   - 出典: <https://raw.githubusercontent.com/tmux-plugins/tmux-continuum/master/README.md> (github_readme, 3524 chars)
   - 効きどころ: エージェントが何もしなくてもバックグラウンドでスナップショットが取られ、サーバ再起動で自動復帰する経路の根拠。無人運用の永続性設計に直結。

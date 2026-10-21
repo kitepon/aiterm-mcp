@@ -16,13 +16,13 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, hasExecutionCreationScope } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -1923,16 +1923,42 @@ export function closeSessionResult(name: string): PtyCloseResult {
  * slot across every serving mutation path. No graceful idle wait, name-only
  * kill, cleanup of a replacement's metadata, or retry. Not publicly mounted.
  */
+export function observeExecutionNativeSessions(): ExecutionNativeSessions {
+  const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
+  if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
+  // A generic connection/list failure cannot prove absence.
+  if (/^no server running on /i.test(result.stderr.trim())) return { state: "known", sessions: [] };
+  return { state: "unknown" };
+}
+
+/** Existing POSIX server owner plus complete session listing. No screen,
+ * cached generation, new process, server bootstrap or native mutation.
+ */
+export function observeExecutionNativeCreationScope(): ExecutionNativeSessions {
+  if (isWin) return { state: "unknown" };
+  try {
+    const read = () => tmux("list-sessions", "-F", "#{pid}\t#{session_id}\t#{session_name}");
+    const first = read();
+    if (first.code !== 0) return /^no server running on /i.test(first.stderr.trim())
+      ? { state: "known", sessions: [], server: null } : { state: "unknown" };
+    const rows = first.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => line.split("\t"));
+    if (!rows.length) return { state: "known", sessions: [], server: null };
+    const pid = Number(rows[0][0]);
+    if (!Number.isSafeInteger(pid) || pid < 1 || rows.some(row => row.length !== 3 || row[0] !== String(pid))) return { state: "unknown" };
+    const parsed = parseExecutionNativeSessions(rows.map(row => `${row[1]}\t${row[2]}`).join("\n"));
+    if (parsed.state !== "known") return parsed;
+    const before = readProcessIdentities([pid]), afterListing = read(), after = readProcessIdentities([pid]);
+    if (before.length !== 1 || before[0].pid !== pid || !before[0].started_identity || after.length !== 1
+      || after[0].pid !== pid || after[0].started_identity !== before[0].started_identity
+      || afterListing.code !== 0 || afterListing.stdout !== first.stdout) return { state: "unknown" };
+    return { ...parsed, server: { pid, started_identity: before[0].started_identity } };
+  } catch { return { state: "unknown" }; }
+}
+
+/** Own the shared issued close slot before calling this primitive. */
 export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
   closeExpectedExecution(expected, {
-    sessions(): ExecutionNativeSessions {
-      const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
-      if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
-      // A generic connection/list failure cannot prove absence. The known
-      // no-server receipt is the one normal nonzero empty-server outcome.
-      if (/^no server running on /i.test(result.stderr.trim())) return { state: "known", sessions: [] };
-      return { state: "unknown" };
-    },
+    sessions: observeExecutionNativeSessions,
     launch(name) {
       const meta = tryLoadAgentMetadata(name);
       return meta ? { session_id: meta.aiterm_session, launch_id: meta.launch_id } : null;
@@ -6908,6 +6934,7 @@ export function openAgent(
   let launchNote = "";
   try {
     const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
+    if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
     const meta = agentDone
       ? kind === "claude"
         ? createClaudeAgentMetadata(
@@ -6927,10 +6954,18 @@ export function openAgent(
           : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
       : null;
     if (meta) {
+      // Metadata constructors publish their internally generated launch ID.
+      // Bind it immediately, before a later write or command can continue.
+      agentMetadataNegativeCache.delete(sid);
+      if (hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
       meta.agent_executable = bin;
       // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
       meta.fast = opts.fast_state === true;
       meta.model = opts.base_model !== undefined ? opts.base_model : model;
+      // The new physical shell is already pinned by its actual create receipt.
+      // Validate it before publishing metadata, then bind this internally
+      // generated managed launch. Model arguments cannot select this ID.
+      if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
       writeAgentMetadata(meta);
       agentMetadataNegativeCache.delete(sid);
     }

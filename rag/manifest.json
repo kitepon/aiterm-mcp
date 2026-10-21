@@ -576,6 +576,24 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "psmux-3-3-8-native-create-flags",
+      "topic": "backends",
+      "title": "psmux 3.3.8 exact parsed CLI flags",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md",
+      "source_type": "official_flag_reference",
+      "path": "sources/backends/psmux-3-3-8-native-create-flags.md",
+      "tags": [
+        "psmux",
+        "new-session",
+        "native-identity",
+        "cascade-stop"
+      ],
+      "summary": "Pinned psmux command/flag reference distinguishes accepted new-session -P/-F from unsupported or ignored flags.",
+      "relevance": "Flag availability alone does not prove a stable per-session creator/server identity. Guarded Windows creation remains unsupported until that independent adapter exists.",
+      "chars": 28003,
+      "fetched": "2026-10-21"
+    },
+    {
       "slug": "psmux-features-doc",
       "topic": "backends",
       "title": "psmux features — server persistence, control mode, tmux compatibility",
@@ -695,6 +713,24 @@
       "relevance": "send/read を tmux コマンドへ写像する具体パターン(target解決、format での状態取得)が分かる。薄い層の実装レシピとして直接効く。",
       "chars": 21766,
       "fetched": "2026-06-01"
+    },
+    {
+      "slug": "tmux-3-3a-native-create-receipt",
+      "topic": "backends",
+      "title": "tmux 3.3a native creation receipt and server/session identifiers",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/3.3a/tmux.1",
+      "source_type": "official_man_source",
+      "path": "sources/backends/tmux-3-3a-native-create-receipt.md",
+      "tags": [
+        "tmux",
+        "new-session",
+        "native-identity",
+        "cascade-stop"
+      ],
+      "summary": "Pinned official tmux manual source: new-session -P/-F and native server/session identifiers.",
+      "relevance": "Guarded creation must capture the actual command receipt and retain native server ownership instead of inferring a created generation from a same-name observation.",
+      "chars": 168477,
+      "fetched": "2026-10-21"
     },
     {
       "slug": "tmux-continuum-readme",
@@ -2742,5 +2778,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-10-02"
+  "updated": "2026-10-21"
 }

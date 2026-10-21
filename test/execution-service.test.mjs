@@ -68,6 +68,36 @@ function fixture() {
   return { directory, store, live, closes, runtime, service, registration, register, status, send, finish };
 }
 
+test('each later native effect rechecks stop and generations while retaining the original issued receipt uncertainty', async () => {
+  for (const change of ['source-stop', 'target-stop', 'source-replaced', 'target-replaced', 'unknown-slot']) {
+    const f = fixture(), record = await f.register('continued-' + change); let effects = 0;
+    await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+      issue(); effects++;
+      if (change === 'source-stop' || change === 'target-stop')
+        await f.store.transaction(state => { state.stopping.push(change === 'source-stop' ? A : B); });
+      if (change === 'source-replaced') f.live.set(A.session_id, launch('a', 'e'));
+      if (change === 'target-replaced') f.live.set(B.session_id, launch('b', 'e'));
+      if (change === 'unknown-slot') await f.store.transaction(state => { state.slots[0].state = 'unknown'; });
+      issue(); effects++; return { value: 'must not accept a late native command', target: point(B) };
+    }, B.session_id), error => error instanceof ExecutionError && error.effect === 'possible');
+    assert.equal(effects, 1);
+    const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+    assert.equal(state.records[0].operations.send, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
+    await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async () => {
+      assert.fail('an uncertain multi-effect command must not replay');
+    }, B.session_id));
+  }
+});
+test('a new launch needs its exact native generation binding before a later command may address the created seat', async () => {
+  const f = fixture(); f.live.delete(B.session_id);
+  const record = await f.register('unbound-launch-continuation', A, B, null); let effects = 0;
+  await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'launch', async issue => {
+    issue(); effects++; f.live.set(B.session_id, B);
+    issue(); effects++; return { value: null, target: point(B, null) };
+  }, B.session_id), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'possible');
+  assert.equal(effects, 1);
+});
+
 test('register is idempotent and changed content conflicts without issuing anything', async () => {
   const f = fixture(), input = f.registration('ab');
   assert.deepEqual(await f.service.execute(input), await f.service.execute(input));

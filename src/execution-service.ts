@@ -270,7 +270,36 @@ export class ExecutionService {
     let issued = !deferred, finished = false;
     const issue = (): void => {
       if (finished) throw new ExecutionError("EXECUTION_CONFLICT");
-      if (issued) return;
+      if (issued) {
+        if (!deferred) return;
+        // An RPC can issue several native commands with an async readiness
+        // wait between them. Owning its slot is not permission to ignore a
+        // stop, uncertain slot or generation replacement after the first one.
+        this.store.transactionSync!(state => {
+          const record = find(state, request), relation = record.relation;
+          const slot = state.slots.find(value => same(value.request, request) && value.stage === stage);
+          if (!slot || slot.state !== "issued" || record.operations[stage] !== "issued"
+            || relation.lifecycle === "retired") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (stopped(state, relation.source?.launch)) throw new ExecutionError("EXECUTION_STOPPING");
+          if (!relation.source && record.source_session_id && state.stopping.some(value => value.session_id === record.source_session_id))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (state.slots.some(value => value !== slot && value.session_id === (relation.source?.launch.session_id ?? record.source_session_id)))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (relation.source) {
+            const source = this.runtime.observeSync!(relation.source.launch.session_id);
+            if (source.state === "unknown" || (source.state === "present" && !source.launch)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            if (source.state !== "present" || !same(source.launch, relation.source.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+          }
+          const current = this.runtime.observeSync!(slot.session_id);
+          if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
+          // A fresh launch's expected ID starts null. Until the core adapter
+          // binds the exact created generation, do not infer ownership from a
+          // new same-name observation merely because this RPC created a slot.
+          if (slot.expected_launch_id === null && current.state === "present") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          this.expectTarget(current, slot.expected_launch_id, slot.session_id);
+        }, { readOnly: true });
+        return;
+      }
       this.store.transactionSync!(state => {
         const record = find(state, request), relation = record.relation;
         if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "preparing")

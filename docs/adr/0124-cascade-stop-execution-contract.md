@@ -602,6 +602,13 @@ POSIXの`ensureAgentOwnsPaneInput`によるstty raw/-echoはtmux gateを通ら�
 から共通受付のsource/target世代・stoppingを確認する。foreground child toolの端末は変更しない。
 unmounted既定の回復は維持する。これは全core変更口の被覆完了を示さず、coverageはincompleteのまま。
 
+RPCの最初の作用をissuedにした後も、後続のnative commandは同じslotのissued状態、source/targetの
+世代と停止を再確認する。readiness待ち等の間にstop・世代交代・slot欠測が入れば後続作用は拒否する。
+先行作用は消さず、RPC全体はpossible/unknownとして保持し、再発行しない。
+launchのexpected IDがnullのまま新たな同名席を観測しただけでは、その席を作った世代だと認めない。
+coreから実作成世代をこのslotへ束縛するadapterは未了であり、それまで後続作用はunsupportedで拒否する。
+公開mountの前提にはこのadapterと全変更口の被覆を含み、合成の単一作用launch成功で省略しない。
+
 ## 結果と残実装
 
 ```ts

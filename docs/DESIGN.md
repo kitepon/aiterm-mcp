@@ -16,6 +16,8 @@ native emit直前に照合したhook参照は既存deliveryへ保存する。Cod
 受取executionの完了と同一視せず、canonical cursorを作らない。受取番の対応と終了fenceの証拠は別に必要。
 POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通す。ttyは正確なsession selectorで読み、
 実stty直前にも同じdeviceを確認する。停止や世代/tty交代後に古いdeviceへ回復を発行しない。
+一つのRPCが複数のnative作用を発行するときも、各回に同じissued slotとsource/target世代・停止を再確認する。
+新launchの作成世代をcoreからまだ束縛できない間は、出現した同名席への後続作用を未確認で拒否する。
 
 ## 目的と所有
 

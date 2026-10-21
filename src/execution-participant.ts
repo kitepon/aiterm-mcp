@@ -15,7 +15,7 @@ const functions = ["scope", "actor", "observeParentProcess", "observeSessionGene
 
 function snapshotRuntime(input: ParentProducerRuntime): ParentProducerRuntime {
   for (const name of functions) if (typeof input[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const optional = ["observeNativeSessions", "closeExpectedSession"] as const;
+  const optional = ["observeNativeSessions", "closeExpectedSession", "observeActors"] as const;
   for (const name of optional) if (input[name] !== undefined && typeof input[name] !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   // Capture function references before construction; later replacement of an
@@ -73,5 +73,6 @@ export function createExecutionParticipant(input: ProducerOptions & { parentDepe
       initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope });
     return { dispatcher, parentExecution: producer.execution, parentDependencies, parentStateRoot: producer.scope.state_root };
   } });
+  producer.store.enroll(["mcp"]);
   return { ...producer, server, dispatcher, relation_coverage: "incomplete" as const };
 }

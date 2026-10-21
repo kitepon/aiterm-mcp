@@ -423,14 +423,15 @@ export class ExecutionService {
     } catch (error) {
       finished = true;
       if (!issued) {
-        await unissued();
+        try { await unissued(); } catch { /* keep preparing if metadata admission itself became unavailable */ }
         // No native effect crossed this operation's gate, even if a preflight
         // read/RPC failed. A duplicate invocation failed before owning preparing.
         throw error instanceof ExecutionError ? new ExecutionError(error.code, "not_started")
           : new ExecutionError("EXECUTION_UNCONFIRMED", "not_started");
       }
       const certain = !deferred && error instanceof ExecutionError && error.effect === "not_started";
-      await this.store.transaction(state => {
+      let committed = false;
+      try { await this.store.transaction(state => {
         const record = find(state, request);
         record.operations[stage] = certain ? "not_sent" : "unknown";
         if (certain) {
@@ -443,8 +444,8 @@ export class ExecutionService {
           const slot = state.slots.find(value => same(value.request, request));
           if (slot) slot.state = "unknown";
         }
-      });
-      throw certain ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      }); committed = true; } catch { /* durable issued state remains; do not leak a pre-effect cleanup refusal */ }
+      throw certain && committed ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     }
     // Parsed above after issuance; null is supported only for an unissued noop.
     const targetPoint = outcome.target!;
@@ -477,14 +478,14 @@ export class ExecutionService {
     }).catch(async () => {
       // The side effect already returned, but its result could not be safely
       // bound/committed. Absence/replacement is not permission to replay it.
-      await this.store.transaction(state => {
+      try { await this.store.transaction(state => {
         const record = find(state, request);
         record.operations[stage] = "unknown";
         record.relation.phase = "submitted_unknown";
         record.relation.completion = "unknown";
         const slot = state.slots.find(value => same(value.request, request));
         if (slot) slot.state = "unknown";
-      });
+      }); } catch { /* the original issued slot still blocks replay after reconstruction */ }
       throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     });
     return { value: outcome.value, record };
@@ -552,8 +553,10 @@ export class ExecutionService {
       state.slots.push({ session_id: expected.session_id, expected_launch_id: expected.launch_id,
         stage, state: "issued", request: null, ...(source ? { source } : {}) });
     });
+    let observed = false;
     try {
       const value = await body();
+      observed = true;
       const current = await this.runtime.observe(expected.session_id);
       if (stage === "close" ? current.state !== "absent" : current.state !== "present" || !same(current.launch, expected))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
@@ -563,61 +566,71 @@ export class ExecutionService {
       });
       return value;
     } catch (error) {
-      const certain = error instanceof ExecutionError && error.effect === "not_started";
-      await this.store.transaction(state => {
+      const certain = !observed && error instanceof ExecutionError && error.effect === "not_started";
+      let committed = false;
+      try { await this.store.transaction(state => {
         const slot = state.slots.find(value => value.session_id === expected.session_id && value.stage === stage);
         if (certain) state.slots = state.slots.filter(value => value !== slot);
         else if (slot) slot.state = "unknown";
-      });
-      throw certain ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      }); committed = true; } catch { /* retain the durable issued slot if cleanup cannot be admitted */ }
+      throw certain && committed ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     }
   }
 
   async stop(input: unknown): Promise<z.infer<typeof cascadeStopResultSchema>> {
     const { roots } = cascadeStopRequestSchema.parse(input);
-    const reached = new Map(roots.map(launch => [key(launch), launch]));
-    const deadline = performance.now() + this.drainTimeoutMs;
-    // Fence first, then drain accepted operations without waiting for idle.
-    for (;;) {
-      const pending = await this.store.transaction(state => {
+    let admitted = false;
+    try {
+      const reached = new Map(roots.map(launch => [key(launch), launch]));
+      const deadline = performance.now() + this.drainTimeoutMs;
+      // Fence first, then drain accepted operations without waiting for idle.
+      for (;;) {
+        const pending = await this.store.transaction(state => {
+          const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
+          for (const target of plan.targets) reached.set(key(target), target);
+          for (const launch of reached.values()) if (!stopped(state, launch)) state.stopping.push(launch);
+          for (const record of state.records) if (record.relation.phase === "reserved"
+            && (stopped(state, record.relation.source?.launch)
+              || (record.reservation.target.expected_launch_id && [...reached.values()].some(value =>
+                value.session_id === record.reservation.target.session_id && value.launch_id === record.reservation.target.expected_launch_id)))) {
+            record.relation.phase = "unsent";
+            record.operations.send = "not_sent";
+          }
+          retireSettledBranches(state);
+          return state.slots.filter(slot => [...reached.values()].some(value => value.session_id === slot.session_id)
+            || stopped(state, slot.source)
+            || slot.sources?.some(source => stopped(state, source))
+            || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)));
+        });
+        admitted = true;
+        if (!pending.some(slot => slot.state === "issued") || performance.now() >= deadline) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      const outcomes: z.infer<typeof cascadeStopResultSchema>["targets"] = [];
+      for (const launch of reached.values()) outcomes.push(await this.closeExpected(launch));
+      return await this.store.transaction(async state => {
         const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
-        for (const target of plan.targets) reached.set(key(target), target);
-        for (const launch of reached.values()) if (!stopped(state, launch)) state.stopping.push(launch);
-        for (const record of state.records) if (record.relation.phase === "reserved"
-          && (stopped(state, record.relation.source?.launch)
-            || (record.reservation.target.expected_launch_id && [...reached.values()].some(value =>
-              value.session_id === record.reservation.target.session_id && value.launch_id === record.reservation.target.expected_launch_id)))) {
-          record.relation.phase = "unsent";
-          record.operations.send = "not_sent";
-        }
-        retireSettledBranches(state);
-        return state.slots.filter(slot => [...reached.values()].some(value => value.session_id === slot.session_id)
+        const unresolved: z.infer<typeof cascadeStopResultSchema>["unresolved"] = plan.gaps.map(gap => ({ request: gap.request, reason: gap.reason }));
+        for (const slot of state.slots) if ([...reached.values()].some(value => value.session_id === slot.session_id)
           || stopped(state, slot.source)
-          || slot.sources?.some(source => stopped(state, source))
-          || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)));
+          || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)))
+          unresolved.push({ request: slot.request, reason: "issued_operation_unconfirmed" });
+        for (const target of plan.targets) if (!reached.has(key(target)))
+          unresolved.push({ request: null, reason: "late_target_unconfirmed" });
+        const coverage = await this.runtime.coverage(roots);
+        if (coverage !== "complete") unresolved.push({ request: null, reason: "relation_coverage_incomplete" });
+        const allClosed = outcomes.every(value => value.outcome === "closed" || value.outcome === "already_closed");
+        const anyClosed = outcomes.some(value => value.outcome === "closed" || value.outcome === "already_closed");
+        return cascadeStopResultSchema.parse({ schema: "aiterm.cascade-stop-result.v1", roots,
+          status: allClosed && !unresolved.length ? "stopped" : anyClosed ? "partial" : "unconfirmed",
+          relation_coverage: coverage === "complete" && !unresolved.length ? "complete" : "incomplete", unresolved, targets: outcomes });
       });
-      if (!pending.some(slot => slot.state === "issued") || performance.now() >= deadline) break;
-      await new Promise(resolve => setTimeout(resolve, 10));
+    } catch (error) {
+      // Once stop admission was committed it may already have drained/closed
+      // targets. A later metadata refusal cannot turn that into not_started.
+      if (admitted) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      throw error;
     }
-    const outcomes: z.infer<typeof cascadeStopResultSchema>["targets"] = [];
-    for (const launch of reached.values()) outcomes.push(await this.closeExpected(launch));
-    return this.store.transaction(async state => {
-      const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
-      const unresolved: z.infer<typeof cascadeStopResultSchema>["unresolved"] = plan.gaps.map(gap => ({ request: gap.request, reason: gap.reason }));
-      for (const slot of state.slots) if ([...reached.values()].some(value => value.session_id === slot.session_id)
-        || stopped(state, slot.source)
-        || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)))
-        unresolved.push({ request: slot.request, reason: "issued_operation_unconfirmed" });
-      for (const target of plan.targets) if (!reached.has(key(target)))
-        unresolved.push({ request: null, reason: "late_target_unconfirmed" });
-      const coverage = await this.runtime.coverage(roots);
-      if (coverage !== "complete") unresolved.push({ request: null, reason: "relation_coverage_incomplete" });
-      const allClosed = outcomes.every(value => value.outcome === "closed" || value.outcome === "already_closed");
-      const anyClosed = outcomes.some(value => value.outcome === "closed" || value.outcome === "already_closed");
-      return cascadeStopResultSchema.parse({ schema: "aiterm.cascade-stop-result.v1", roots,
-        status: allClosed && !unresolved.length ? "stopped" : anyClosed ? "partial" : "unconfirmed",
-        relation_coverage: coverage === "complete" && !unresolved.length ? "complete" : "incomplete", unresolved, targets: outcomes });
-    });
   }
 
   private async closeExpected(launch: ExecutionLaunch): Promise<z.infer<typeof cascadeStopResultSchema>["targets"][number]> {
@@ -632,27 +645,29 @@ export class ExecutionService {
       return "close" as const;
     });
     if (permission !== "close") return result(permission === "absent" ? "already_closed" : permission, `expected_launch_${permission}`);
+    let observed = false;
     try {
       await this.runtime.close(launch); // one invocation, never retry on reject
-      const observed = await this.runtime.observe(launch.session_id);
-      if (observed.state !== "absent") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      observed = true;
+      const current = await this.runtime.observe(launch.session_id);
+      if (current.state !== "absent") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       await this.store.transaction(state => {
         state.slots = state.slots.filter(slot => !(slot.session_id === launch.session_id && slot.stage === "close"));
         this.interruptRelations(state, launch);
       });
       return result("closed", "expected_launch_absence_confirmed");
     } catch (error) {
-      if (error instanceof ExecutionError && error.effect === "not_started") {
-        await this.store.transaction(state => {
+      if (!observed && error instanceof ExecutionError && error.effect === "not_started") {
+        try { await this.store.transaction(state => {
           state.slots = state.slots.filter(slot => !(slot.session_id === launch.session_id && slot.stage === "close"));
-        });
+        }); } catch { return result("unknown", "close_metadata_unconfirmed"); }
         return result(error.code === "EXECUTION_UNSUPPORTED" ? "unsupported"
           : error.code === "EXECUTION_STALE_GENERATION" ? "replaced" : "unknown", error.code);
       }
-      await this.store.transaction(state => {
+      try { await this.store.transaction(state => {
         const slot = state.slots.find(value => value.session_id === launch.session_id && value.stage === "close");
         if (slot) slot.state = "unknown";
-      });
+      }); } catch { /* issued close slot still blocks repetition */ }
       return result("unknown", "close_outcome_unconfirmed");
     }
   }

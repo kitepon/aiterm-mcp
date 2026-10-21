@@ -88,8 +88,10 @@ export function createExecutionParentProducer(input: {
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime });
   const worker = { profile: Object.freeze(Object.assign({}, profile, { delivery_admission: createSteerExecutionAdmission(null, native) })),
     store, native, scope: structuredClone(scope), relation_coverage: "incomplete" as const };
+  store.enroll(["parent_producer", "parent_worker"]);
   requireExecutionEffectScope(true);
   return { execution, parent, native, service, store, scope: structuredClone(scope), worker,
+    inventory: () => store.inventory(typeof runtime.observeActors === "function" ? pids => { assertScope(); return runtime.observeActors!(pids); } : undefined),
     startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe }),
     relation_coverage: "incomplete" as const };
 }

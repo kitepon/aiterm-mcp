@@ -729,6 +729,30 @@ coreのmanaged metadata constructor/hook生成・native stampの保存、およ�
 metadataだけの準備と新launchの実発行を混同しない。既定mainはframe無しのlegacy挙動を維持する。
 設定復元・残る親配送metadata・全参加者inventoryやnative終了証拠まで完了したとはしない。
 
+### private参加者の宣言と欠測inventory
+
+private producer/同process worker/stdio MCP、および別process workerのfactoryは、同じstate/socket scopeへ
+実観測した既存PIDとstarted_identity、接続した役割だけを宣言する。新しい参加者IDや配送queueは作らない。
+同じPIDの開始identityが交代しても旧宣言・要求・結果不明slotを上書きせず、別のnative identityとして保持する。
+private storeの各transactionは同じlock内で自分の宣言と必要な役割を照合し、欠測時はunsupported。
+使用時の自動登録・役割補完はせず、明示的なfactory再構築も旧issued/unknown slotを消さない。
+
+inventoryは既存MCP request、未解決parent delivery/source、native emit/wake/dequeueのactor参照を読むだけで、
+要求・delivery・native actorを別IDへ付け替えない。bounded native identity読取が欠ける/不正/非同期ならunavailable、
+同じPIDの開始identityが違えばreplacedとする。未登録と役割欠測を別に示し、観測値をenv claimから補完しない。
+受付済みparent effectも元要求/returnの退役前やcompanion欠測では保持し、両branchの確定退役後は参照から外す。
+新しい同名仕事から古いbranchを復活させない。registryの行をBot名の停止graphとして走査しない。
+
+このinventoryは共有lock内のread-only処理で、修復・終了fence・retirementや作用を発行しない。
+全行がnative PID/startに一致しても、launch/source/turn証拠・未登録processの発見・全変更口のmandatory接続は未証明。
+`participant_discovery=unproven`、`native_fence=unknown`、`relation_coverage=incomplete`を維持する。
+有効な記録済みcall edgeをinventoryや意味/混在判定で除外しない。公開wireと通常mainには追加しない。
+
+private state.v1のparticipants欄は旧記録の欠測を空配列として読む。新欄を読めない旧strict readerは拒否するため、
+これは隔離storeだけの実装であり、稼働stateの相互運用/移行を受入済みとはしない。
+native作用後に宣言やmetadata受付が失われた場合、cleanupの未発行エラーを外へ上書きせずpossibleを返す。
+真の成功receiptは保持し、commit不能なら既存issued slotを残して再構築後の再発行を抑止する。
+
 ## 結果と残実装
 
 ```ts

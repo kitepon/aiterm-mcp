@@ -13,6 +13,7 @@ import { ExecutionService } from '../dist/execution-service.js';
 import { executionStoreDirectory } from '../dist/execution-store.js';
 import { readAcceptedParentHookReference } from '../dist/execution-parent-alias.js';
 import { createParentNativeAdmission } from '../dist/execution-parent-native.js';
+import { FileExecutionStore } from '../dist/execution-store.js';
 
 const A = { session_id: 'bot-a', launch_id: 'a'.repeat(32) }, B = { session_id: 'bot-b', launch_id: 'b'.repeat(32) };
 const point = (launch, cursor = null) => ({ launch: { ...launch }, boundary: cursor === null ? null
@@ -95,6 +96,19 @@ test('scope and participant capability are rechecked at the actual native bounda
     assert.equal(result.error.effect, 'not_started'); assert.equal(result.error.code, 'EXECUTION_UNSUPPORTED'); assert.equal(effects, 0);
     assert.equal((await worker.store.transaction(state => state.parent_effects, { readOnly: true })).length, 0);
   }
+});
+test('a native worker missing its registered role cannot issue after preflight, and read-only inventory does not restore it', async t => {
+  const f = fixture(t); f.options.runtime.observeActors = pids => pids.map(pid => ({ pid,
+    started_identity: pid === hook.pid ? hook.started_identity : mcp.started_identity }));
+  const worker = createExecutionParentWorker(f.options); await seed(f, worker);
+  const raw = new FileExecutionStore(worker.store.directory); let effects = 0;
+  const result = await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => {
+    raw.transactionSync(state => { state.participants[0].roles = ['mcp']; }); issue(); effects++;
+  }, f.effect.native_context);
+  assert.equal(result.error.code, 'EXECUTION_UNSUPPORTED'); assert.equal(result.error.effect, 'not_started'); assert.equal(effects, 0);
+  assert.deepEqual(raw.transactionSync(state => state.parent_effects, { readOnly: true }), []);
+  assert.deepEqual(worker.inventory().participants.find(row => row.actor.pid === mcp.pid).missing, ['unregistered_actor']);
+  assert.deepEqual(raw.transactionSync(state => state.participants[0].roles, { readOnly: true }), ['mcp']);
 });
 test('accepted hook alias supplements the original graph target without a fabricated cursor, source turn or raw metadata', async t => {
   const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);

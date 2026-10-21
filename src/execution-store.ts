@@ -10,10 +10,17 @@ import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
 import { parentHookReferenceSchema } from "./execution-parent-alias.js";
 import { writeJson0600 } from "./agent-shared.js";
+import { executionParticipantSchema } from "./execution-inventory.js";
 
 export const executionStateSchema = z.object({
   schema: z.literal("aiterm.execution-state.v1"),
   records: z.array(executionRecordSchema), stopping: z.array(executionLaunchSchema),
+  // Native process declarations only; they do not establish launch/source,
+  // all-process discovery, mandatory entrypoint coverage or termination.
+  participants: z.array(executionParticipantSchema).default([]).superRefine((rows, context) => {
+    if (new Set(rows.map(row => JSON.stringify([row.actor.pid, row.actor.started_identity]))).size !== rows.length)
+      context.addIssue({ code: "custom", message: "participant process identities must be unique" });
+  }),
   // Companion references for the existing parent-delivery ID, never payloads
   // or a second delivery queue. The parent generation is fixed before_send.
   parent_deliveries: z.array(z.object({
@@ -48,7 +55,7 @@ export interface ExecutionStore {
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
 }
 export function emptyExecutionState(): ExecutionState {
-  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [] };
+  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [], participants: [] };
 }
 
 /** Use the product's existing stateRoot and resolved multiplexer identity.

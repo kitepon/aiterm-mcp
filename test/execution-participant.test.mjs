@@ -102,6 +102,56 @@ test('one detached startup environment feeds real producer/service and dispatche
   assert.equal(p.relation_coverage, 'incomplete'); assert.equal(p.worker.relation_coverage, 'incomplete');
   assert.equal(p.worker.store, p.store); assert.equal(p.worker.native, p.native);
 });
+test('private composition enrolls only its observed actor and missing bounded native reads remain unknown', async t => {
+  const f = fixture(t), p = f.create();
+  let inventory = p.inventory();
+  assert.equal(inventory.participants[0].native_identity, 'unavailable');
+  assert.deepEqual(inventory.participants[0].declared_roles, ['parent_producer', 'parent_worker', 'mcp']);
+  assert.deepEqual(inventory.participants[0].actor, f.actor);
+  assert.equal(JSON.stringify(await p.store.transaction(state => state.participants, { readOnly: true })).includes(A.launch_id), false);
+  // Neither the fixed environment nor a declaration gives the inventory a
+  // native observation when that complete injected runtime did not supply one.
+  assert.equal(inventory.relation_coverage, 'incomplete'); assert.equal(inventory.native_fence, 'unknown');
+  const g = fixture(t); g.options.runtime.observeActors = pids => pids.map(pid => ({ pid, started_identity: g.actor.started_identity }));
+  const q = g.create(); await g.send(q);
+  inventory = q.inventory(); assert.deepEqual(inventory.participants[0].missing, []);
+  assert.equal(inventory.participants[0].references[0].request.process_pid, process.pid);
+  assert.equal(inventory.relation_coverage, 'incomplete'); assert.equal(inventory.participant_discovery, 'unproven');
+});
+test('actual participant refuses registration removed between dispatch preflight and native command, without enrolling on use', async t => {
+  const f = fixture(t), p = f.create(), raw = new FileExecutionStore(p.store.directory);
+  const result = await f.send(p, 'registration-removed', () => raw.transactionSync(state => { state.participants = []; }));
+  assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
+  assert.equal(result._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.equal(f.effects(), 0);
+  assert.deepEqual(raw.transactionSync(state => state.slots, { readOnly: true }), []);
+  assert.equal(p.inventory().participants[0].missing.includes('unregistered_actor'), true);
+  assert.deepEqual(raw.transactionSync(state => state.participants, { readOnly: true }), []);
+});
+test('lost participant declaration after native issuance preserves the issued slot and reconstruction cannot replay it', async t => {
+  const f = fixture(t), p = f.create(), raw = new FileExecutionStore(p.store.directory); let effects = 0;
+  const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id, key: 'x' }, { requestId: 'issued-registration-loss' }, async () => {
+    guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); effects++;
+    raw.transactionSync(state => { state.participants = []; }); return accepted();
+  });
+  assert.equal(result.isError, undefined); assert.equal(result._meta[ERROR].effect, 'possible');
+  assert.equal(result.structuredContent.session_id, B.session_id); // preserve the genuine successful native receipt
+  assert.equal(raw.transactionSync(state => state.slots, { readOnly: true })[0].state, 'issued');
+  const rebuilt = f.create(), blocked = await f.send(rebuilt, 'later-request');
+  assert.equal(blocked.isError, true); assert.equal(effects, 1); assert.equal(f.effects(), 0);
+  assert.equal(raw.transactionSync(state => state.slots, { readOnly: true })[0].state, 'issued');
+  assert.equal(rebuilt.inventory().native_fence, 'unknown');
+});
+test('stop whose native close completed before registration loss remains possible and retains the issued close slot', async t => {
+  const f = fixture(t); let raw;
+  const closes = enableClose(f, () => {}, () => raw.transactionSync(state => { state.participants = []; }));
+  const p = f.create(); raw = new FileExecutionStore(p.store.directory);
+  await assert.rejects(p.service.stop(stop([B])), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'possible');
+  assert.deepEqual(closes, [B]); assert.equal(f.live.has(B.session_id), false);
+  const slot = raw.transactionSync(state => state.slots, { readOnly: true })[0];
+  assert.equal(slot.stage, 'close'); assert.equal(slot.state, 'issued');
+  const rebuilt = f.create();
+  assert.equal((await f.send(rebuilt, 'after-uncertain-stop')).isError, true); assert.deepEqual(closes, [B]);
+});
 test('a time-varying env supplier cannot split dispatcher source from service source', async t => {
   const f = fixture(t); let calls = 0;
   f.options.runtime.sourceEnvironment = () => ++calls === 1 ? f.env
@@ -134,7 +184,7 @@ test('actual scope or native actor drift during preflight refuses before a synth
   }
 });
 test('old provider, partial runtime/dependencies and a different serving PID are rejected without native fallback', t => {
-  for (const change of ['provider', 'partial-provider', 'runtime', 'deps', 'claude-runtime', 'actor', 'native']) {
+  for (const change of ['provider', 'partial-provider', 'runtime', 'deps', 'claude-runtime', 'actor', 'native', 'inventory']) {
     const f = fixture(t);
     if (change === 'provider') f.options.provider = undefined;
     if (change === 'partial-provider') delete f.options.provider.submitClaudeParentAnswer;
@@ -143,6 +193,7 @@ test('old provider, partial runtime/dependencies and a different serving PID are
     if (change === 'claude-runtime') f.options.claudeRuntime = {};
     if (change === 'actor') f.actor.pid++;
     if (change === 'native') f.options.runtime.observeNativeSessions = {};
+    if (change === 'inventory') f.options.runtime.observeActors = {};
     assert.throws(f.create, code('EXECUTION_UNSUPPORTED'));
   }
 });

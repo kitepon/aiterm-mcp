@@ -43,6 +43,11 @@ core入口の再確認と、managed metadata/hook生成・設定model保存は�
 準備callbackは短い共有metadata lock内で動き、execution graphはread-onlyのまま、preparingをissuedへ変えない。
 native作用やawaitをcallbackへ入れず、停止・世代/actor/scope交代・RPC終了後の遅着を拒否する。
 これらの明示接続以外の設定復元や親配送metadata経路はまだ未了であり、既定mainへの有効化条件を満たさない。
+private factoryは同scopeの共有stateへ既存PID/開始identityと役割を宣言し、各受付の同じlock内で欠測を拒否する。
+MCP/parent-effectの既存参照とnative identityを読むinventoryはread-onlyで、役割やenvから世代・終了を補完しない。
+開始identity交代や未登録actorを示しても旧slotを消さず、parent受付だけで参照を退役させない。
+全行のidentity一致でも参加者の全発見/native終了fence/全経路の接続を証明せず、coverage incompleteを維持する。
+作用後のmetadata受付欠測では成功receiptとpossibleを保ち、issued slotを再構築や消失観測で再実行可能へ変えない。
 
 ## 目的と所有
 

@@ -6,7 +6,8 @@ import { stateRoot } from "./agent-shared.js";
 import { isWin, SOCK, WIN_NS } from "./tmux-runtime.js";
 import { readProcessIdentities } from "./process-runtime.js";
 import { observeExecutionParentProcess, observeExecutionSessionGeneration } from "./core.js";
-import { FileExecutionStore, executionStoreDirectory } from "./execution-store.js";
+import { executionStoreDirectory } from "./execution-store.js";
+import { ParticipantExecutionStore } from "./execution-participant-store.js";
 import { createParentSourceEvidence } from "./execution-parent-source.js";
 import { createNativeParentEndpointEvidence } from "./execution-parent-endpoint.js";
 import { createParentNativeAdmission } from "./execution-parent-native.js";
@@ -21,6 +22,9 @@ export interface ExecutionWorkerScope {
 export interface ParentWorkerRuntime {
   scope(): ExecutionWorkerScope;
   actor(): { pid: number; started_identity: string | null } | null;
+  // Bounded native process identity read for existing inventory references.
+  // Its absence in an injected runtime is unknown, never a local OS fallback.
+  observeActors?(pids: number[]): unknown;
   observeParentProcess(session: string): unknown;
   observeSessionGeneration(session: string): unknown;
 }
@@ -28,6 +32,7 @@ export type ParentAdmissionProvider = { withDeliveryEffect?: unknown; DELIVERY_A
 export const localParentWorkerRuntime: ParentWorkerRuntime = {
   scope: () => ({ state_root: stateRoot(), multiplexer: isWin ? { kind: "namespace", key: WIN_NS } : { kind: "socket", key: SOCK } }),
   actor: () => readProcessIdentities([process.pid])[0] ?? null,
+  observeActors: readProcessIdentities,
   observeParentProcess: observeExecutionParentProcess, observeSessionGeneration: observeExecutionSessionGeneration,
 };
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -59,7 +64,8 @@ export function createExecutionParentEnvironment(input: {
   const profile = Object.assign({}, input.profile);
   const runtime = originalRuntime;
   if (typeof runtime.scope !== "function" || typeof runtime.actor !== "function"
-    || typeof runtime.observeParentProcess !== "function" || typeof runtime.observeSessionGeneration !== "function")
+    || typeof runtime.observeParentProcess !== "function" || typeof runtime.observeSessionGeneration !== "function"
+    || (runtime.observeActors !== undefined && typeof runtime.observeActors !== "function"))
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const observed = runtime.actor();
   if (!observed || !Number.isSafeInteger(observed.pid) || observed.pid < 1 || !observed.started_identity
@@ -75,7 +81,7 @@ export function createExecutionParentEnvironment(input: {
       throw new ExecutionError("EXECUTION_UNSUPPORTED");
   };
   assertScope();
-  const store = new FileExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer));
+  const store = new ParticipantExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer), actor, assertScope);
   return { runtime, profile, actor, store, scope: expected, assertScope };
 }
 export function createExecutionParentWorker(input: {
@@ -92,9 +98,11 @@ export function createExecutionParentWorker(input: {
     observeSessionGenerationSync: session => { assertScope(); return runtime.observeSessionGeneration(session); },
     verifyParentEndpoint: endpoint });
   const admission = createSteerExecutionAdmission(null, native);
+  store.enroll(["parent_worker"]);
   requireExecutionEffectScope(true);
   // Queue producer is a different role. A missing original MCP/service binding
   // is unsupported, never routed through a new reservation or legacy producer.
   return { profile: Object.assign(profile, { delivery_admission: admission }), store, scope: structuredClone(expected),
+    inventory: () => store.inventory(typeof runtime.observeActors === "function" ? pids => { assertScope(); return runtime.observeActors!(pids); } : undefined),
     native, relation_coverage: "incomplete" as const };
 }

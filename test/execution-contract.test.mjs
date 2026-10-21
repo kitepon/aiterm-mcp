@@ -13,7 +13,7 @@ const point = (launch, cursor = 1) => ({ launch, boundary: cursor === null ? nul
 const request = (id, target = B) => ({ kind: 'delivery', delivery_id: id, target_session_id: target.session_id });
 const edge = (id, source, target, options = {}) => ({ request: request(id, target),
   source_session_id: source.session_id, source: point(source), target: point(target),
-  phase: 'invoked', completion: 'open', lifecycle: 'tracking', ...options });
+  phase: 'invoked', completion: 'open', target_fence: 'closed', lifecycle: 'tracking', ...options });
 const targets = plan => plan.targets.map(value => value.session_id);
 const evidence = () => ({ runtime_launch: A, caller_bound: true, invocation_boundary: boundary(1) });
 
@@ -73,6 +73,13 @@ test('a child finishing before its parent does not expire the running parent', (
 test('all-terminal cycles do not keep one another alive', () => {
   const relations = [edge('ab', A, B, { completion: 'completed' }), edge('ba', B, A, { completion: 'completed' })];
   assert.deepEqual(targets(planCascadeStop([A], relations)), ['bot-a']);
+});
+test('local done cannot expire a branch until its issued invocation fence is confirmed', () => {
+  const relation = edge('ab', A, B, { completion: 'completed', target_fence: 'unknown' });
+  const result = planCascadeStop([A], [relation]);
+  assert.deepEqual(targets(result), ['bot-a', 'bot-b']);
+  assert.equal(result.gaps[0].reason, 'invocation_fence_unconfirmed');
+  assert.equal(executionRelationSchema.safeParse({ ...relation, lifecycle: 'retired' }).success, false);
 });
 test('pending reservation retains its connector but is cancelled before target invocation', () => {
   const pending = edge('bc', B, C, { phase: 'reserved', target: null });

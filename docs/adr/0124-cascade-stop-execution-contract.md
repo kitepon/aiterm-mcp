@@ -6,8 +6,9 @@
 その後の「昔に呼んだ先まで止めると最後は全員」という相談に対し、本稿は未完了関係の寿命で範囲を絞る案。
 経過時間の閾値や欠測の切捨ては未裁定であり、本稿から既定値を作らない。
 
-`src/execution-contract.ts`は未接続schema/純粋snapshot計画、同名testは隔離fixture。
-実際のsource検証、関係保存、finish検証、受付排他、閉鎖executor、MCP公開口はまだ実装していない。
+`src/execution-*.ts`にローカルwire v1、共有metadata、発行済み操作/停止fence、終了証拠の再観測を要求する
+サービスと注入可能なMCP登録口を実装。fakeで接続検証する段階で、現行`index.ts`の18 toolsには未登録。
+実runtimeのsource/終了解釈adapter、全変更口の共通受付、期待世代の閉鎖実装、復旧の受入はまだ残る。
 
 ## 所有境界
 
@@ -112,7 +113,109 @@ source native turnが取れないことを、世代まで取れた実配送の�
    退役済みIDは必要最小のtombstoneで遅着/重複を拒否し、実行graphからは外す。全履歴本文や無期限Bot名graphを作らない。
 
 純粋fixtureの`planCascadeStop`は、runtimeが証拠照合したsnapshotを入力にした計画だけである。
-`completion`や`retired`を外部claimから信じる実装ではない。fence/drain/退役の永続処理は未実装。
+サービスは`completion`と`target_fence`を分け、doneでも発行済み呼出の締切/応答確定が未確認なら接続を保持する。
+`finish`は外部claimをそのまま信じず、注入されたruntime adapterへ対応境界の再観測を要求する。
+実際の4 CLIに対するfence証拠の取得は未了。source境界nullはedge採用可、寿命のfenceをclosedと捏造する理由にはしない。
+
+## ローカルwire v1（実装固定、隔離接続用）
+
+正本schemaは`execution-wire.ts`の`EXECUTION_TOOL_CONTRACT`。MCPへ載せる関数は`registerExecutionTools`、
+fake/Bridge直接接続に使えるhandlerは`createExecutionToolHandlers`。実サービスは`ExecutionService`。
+runtimeをfakeに置き換えた同一handlerでMCP初期化→tools/list→register/status/finish/stopまで検証する。
+schema文字列は要求/結果の既存v1を使う。本段階でこのwireは固定するが、稼働版にtoolが追加された意味ではない。
+
+```ts
+// tool: agent_execution
+{ action: "register", source_session_id: string | null,
+  reservation: { schema: "aiterm.execution-reservation.v1", request: RequestRef,
+    source: SourceClaim, target: { session_id: string; expected_launch_id: string | null } } }
+{ action: "status", request: RequestRef }
+{ action: "finish", request: RequestRef,
+  evidence: { kind: "not_sent" }
+    | { kind: "completion"; target: Point }
+    | { kind: "interrupted"; target: LaunchRef } }
+```
+
+registerのsource_session_idはHTTP受信時の席のhint。既知source.launchがあれば同じsessionに限る。
+unknown sourceをBot名で現在launchへ昇格させない。停止中/変更結果不明の同名sourceの呼出も、世代未確認のまま通さない。
+target expected_launch_id=nullは新規起動前だけ。既存席にnullを渡すと世代不一致。
+statusは既存RequestRefだけで引ける。同じregisterは同じ記録、内容を変えた同じ参照はconflictで送信しない。
+
+launch/sendの要求_metaと返却_metaはキーを分ける。既存steer/interim等の_metaを上書きしない。
+
+```ts
+// agent_launch / pty_send の要求_meta（同じreservationの既存参照）
+_meta["aiterm/execution"] = { schema: "aiterm.execution-ref.v1", request: RequestRef };
+// 成功/照会の結果_meta
+_meta["aiterm/execution_binding"] = {
+  schema: "aiterm.execution-binding.v1", request: RequestRef,
+  source: { status: "verified" | "unknown" | "stale", reason: string,
+    point: Point | null, boundary_status: "matched" | "missing" | "mismatch" },
+  target: Point | null, phase: "reserved" | "invoked" | "submitted_unknown" | "unsent"
+};
+```
+
+成功structuredContentは`aiterm.execution-record.v1`。reservation、source_session_id、source照合結果、
+relation（source/target、phase、completion、target_fence、lifecycle）、operations、stoppingを返す。
+operationsはlaunch/send別にnot_issued/issued/accepted/not_sent/unknown。本文/画像/path/再送payloadは含めない。
+初手promptを実行したlaunchは同じ参照のsendもacceptedとする。空launchだけが後続pty_sendへ進める。
+同じ参照のsendを二度呼んで実際に再送することはない。状態照会が新しい起動/送信へ化けることもない。
+
+finish completionはbindingのPointを渡す。サーバーが同じ保存境界から再観測し、
+done/当該中断と、その実行の発行済み関係fenceを別に記録する。
+not_sentでも既に空launchが成功していれば、その実launch edgeは消さず保持する。
+interruptedは期待launchの消失と未決変更が無いことを再観測する。RPC reject後の単なる消失はこれに当たらない。
+確定済みの同じ終了証拠は冪等。doneでもtarget_fence=unknownならlifecycle=trackingであり退役完了ではない。
+
+### 型付きエラーとreceiptを失わない返り
+
+```ts
+_meta["aiterm/execution_error"] = {
+  schema: "aiterm.execution-error.v1", code: ExecutionErrorCode,
+  effect: "not_started" | "possible", follow_up: "none" | "status_only"
+};
+```
+
+| code | 意味 |
+| --- | --- |
+| EXECUTION_INVALID | wire/参照形式不正 |
+| EXECUTION_NOT_FOUND | 既存参照の登録無し |
+| EXECUTION_CONFLICT | 同じ参照の内容変更、再発行、終了境界不一致 |
+| EXECUTION_STOPPING | 確定した停止fenceを越える未発行呼出 |
+| EXECUTION_STALE_GENERATION | 期待source/target世代の不一致 |
+| EXECUTION_UNCONFIRMED | 発行/結果/境界/存在の確定不足、slot保留 |
+| EXECUTION_BUSY | 共有metadata transaction lockを取得できない |
+| EXECUTION_STATE_UNAVAILABLE | metadata破損/保存/読取り等の確定不足 |
+| EXECUTION_UNSUPPORTED | adapterまたはscope未対応 |
+
+tool handler内の拒否はisError=true、本文はcode、上記_metaを返す。MCP自身のschema/transport拒否は既存MCP契約。
+effectは当該経路に作用が無いと確認できた場合だけnot_started。発行済み/結果不明をpossibleから下げない。
+follow_up=status_onlyは既存参照の照会だけで、自動retry許可ではない。通信rejectをtoolの明示拒否へ変換しない。
+未知例外の本文/pathをwireへ出さない。
+
+**作用成功後の関係結合失敗:** `runBoundExecution`は成功した元のstructured receiptと既存_metaを保持し、
+execution_error（possible）を追加する。元が成功ならそれをisErrorへ変えて捨てさせない。
+Bridgeは受理済みturnの完了観測を続けつつ関係を未確認として扱い、同じsendを再実行しない。
+statusでoperations=unknownが残り、観測上消失しても同名slotを新launch/send/configureへ解禁しない。
+
+### 共有state・停止サービスの実装範囲
+
+`FileExecutionStore`はAiterm state scope内に注入するdirectoryのmetadataだけを所有する。
+短いmkdir lockと原子的置換で、既存参照のrecords、期待launchのstopping、発行済み/結果不明slotsを共有する。
+作用前にissuedを保存、作用はtransaction外で一回だけ実行、返りを同じ参照へ結合する。
+作用中はstate lockを握らず、別MCP実体からの停止受付/照会ができる。
+再構築したserviceでもunknown slotは消えない。time-based lock奪取や破損時の空graph再作成はしない。
+放棄lockの診断/安全な復旧、state lifecycleの運用受入は未了で、本番導入条件に残る。
+
+`stop`はroot/到達先をfenceしてからidleを待たず発行済み操作だけbounded drainし、期待launchごとにclose一回と後観測を要求する。
+未発行reservationはunsentにする。drainが時間切れなら未確認を返し、遅れてboundしたtargetにもstoppingを立てる。
+`changeSession`は既存close/configureの発行/結果不明を同じslotへ結ぶadapter。restartはcloseと新launchを別受付にする。
+close/configure中のsourceからの新規呼出も、未確認のまま先へ通さない。
+runtime.closeは同じ受付規律の中で期待launchを再照合して作用する必要があり、単なる名前だけのcloseへ置き換えない。
+runtime.coverageは全実入口が対応している場合だけcomplete。graphが空という理由でcompleteを返してはならない。
+
+現行index/coreへの接続は未了。4 CLIの世代ヘッダー実受信、source/finishの証拠adapter、直接launch/sendと全変更口の
+共通受付・scope対応を受入するまでは、稼働版の完全連鎖停止として使えない。
 
 ## rootの現在境界と到達範囲
 
@@ -170,6 +273,6 @@ schemaだけで全対象網羅を証明できない。registry/executorが計画
 現行`pty_close`のreceipt単独は全process終了を証明しない。切り離したOS子/外部副作用の取消は保証しない。
 remoteは既存権限と両端契約が無ければunsupported/未確認。新しいSSH権限を開発承認から作らない。
 
-残工程は、runtime世代/境界adapter、関係保存とfinish証拠照合、process間の受付fence/drainと退役、
-直接launch/sendおよびBridge_meta接続、期待世代を守る閉鎖executor、fake MCP受入の順。
+残工程は、runtime世代/境界と終了fenceの証拠adapter、共有state/復旧の運用受入、直接launch/sendおよびBridge_meta接続、
+全変更口の共通受付、期待世代を守る実閉鎖adapter、Bridge統合と製品のfake受入。
 既知のfixtureが通っても実装/実席受入/公開/配布の完了ではない。

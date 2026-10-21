@@ -3,8 +3,9 @@
 ## 開発中: 連鎖停止
 
 実行関係のsource/target世代、Bridgeの既存参照、未完了関係の寿命と混在先も含む停止計画は
-[ADR 0124の契約案](adr/0124-cascade-stop-execution-contract.md)で設計中。
-`execution-contract.ts`は隔離枝の未接続schema/純粋snapshot計画であり、現行公開toolの停止契約は変更していない。
+[ADR 0124の契約案](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0124-cascade-stop-execution-contract.md)で設計中。
+`execution-*.ts`は隔離枝のwire、snapshot計画、共有metadata、受付/停止サービスと注入可能なMCP口。
+fake MCPで検証中であり、runtime証拠adapterと全変更口への接続は未了。現行公開toolの停止契約は変更していない。
 
 ## 目的と所有
 

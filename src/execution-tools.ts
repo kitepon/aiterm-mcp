@@ -1,0 +1,89 @@
+// Injectable MCP surface for fake/integration acceptance. index.ts must mount
+// it only after supplying the runtime evidence and mutation-path adapters.
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { executionReservationSchema, executionRequestSchema, cascadeStopRequestSchema, cascadeStopResultObjectSchema,
+  type ExecutionPoint } from "./execution-contract.js";
+import { executionFinishSchema, executionRecordSchema, executionBindingSchema,
+  executionRefFromMeta, executionErrorResult, ExecutionError,
+  EXECUTION_BINDING_META_KEY, EXECUTION_ERROR_META_KEY,
+  type ExecutionRecord } from "./execution-wire.js";
+import { ExecutionService } from "./execution-service.js";
+
+type ToolResult = {
+  content: { type: "text"; text: string }[];
+  structuredContent?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+  isError?: boolean;
+};
+export function executionBindingMeta(record: ExecutionRecord): Record<string, unknown> {
+  return { [EXECUTION_BINDING_META_KEY]: executionBindingSchema.parse({
+    schema: "aiterm.execution-binding.v1", request: record.reservation.request,
+    source: record.source, target: record.relation.target, phase: record.relation.phase,
+  }) };
+}
+
+export function createExecutionToolHandlers(service: ExecutionService): {
+  agent_execution(input: unknown): Promise<ToolResult>;
+  agent_stop(input: unknown): Promise<ToolResult>;
+} {
+  return {
+    async agent_execution(input) {
+      try {
+        const result = await service.execute(input);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result,
+          _meta: executionBindingMeta(result) };
+      } catch (error) { return executionErrorResult(error); }
+    },
+    async agent_stop(input) {
+      try {
+        const result = await service.stop(input);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return executionErrorResult(error); }
+    },
+  };
+}
+
+export function registerExecutionTools(server: McpServer, service: ExecutionService): void {
+  const handlers = createExecutionToolHandlers(service);
+  server.registerTool("agent_execution", {
+    description: "既存の実配送/実行参照を送信前に登録、照会、対応終了証拠で更新する。本文や再送queueは保存しない。",
+    // MCP accepts a raw object shape; the handler enforces the stricter action
+    // union, including required fields and forbidden fields for each action.
+    inputSchema: { action: z.enum(["register", "status", "finish"]),
+      reservation: executionReservationSchema.optional(), source_session_id: z.string().nullable().optional(),
+      request: executionRequestSchema.optional(), evidence: executionFinishSchema.shape.evidence.optional(),
+      remote: z.never().optional() },
+    outputSchema: executionRecordSchema.shape,
+  }, async args => handlers.agent_execution(args));
+  server.registerTool("agent_stop", {
+    description: "期待launchを持つrootから未完了の実呼出を辿り、混在先も停止する。部分未確認と対象別結果を返す。",
+    inputSchema: { ...cascadeStopRequestSchema.shape, remote: z.never().optional() },
+    outputSchema: cascadeStopResultObjectSchema.shape,
+  }, async args => handlers.agent_stop(args));
+}
+
+/** Wrapper for the registered launch/send path. A successful action receipt
+ * survives failure to bind the metadata after the action. The caller must keep
+ * observing the accepted action and use status only for the uncertain relation;
+ * it must not resend just because execution_error is present.
+ */
+export async function runBoundExecution(service: ExecutionService, meta: unknown, stage: "launch" | "send",
+  body: () => Promise<{ result: ToolResult; target: ExecutionPoint }>): Promise<ToolResult> {
+  let observed: ToolResult | undefined;
+  try {
+    const ref = executionRefFromMeta(meta);
+    if (!ref) throw new ExecutionError("EXECUTION_INVALID");
+    const result = await service.invoke(ref, stage, async () => {
+      const action = await body();
+      observed = action.result;
+      return { value: action.result, target: action.target };
+    });
+    return { ...result.value, _meta: { ...result.value._meta, ...executionBindingMeta(result.record) } };
+  } catch (error) {
+    const failure = executionErrorResult(error);
+    if (observed) return { ...observed, _meta: { ...observed._meta,
+      [EXECUTION_ERROR_META_KEY]: failure._meta[EXECUTION_ERROR_META_KEY] } };
+    return failure;
+  }
+}

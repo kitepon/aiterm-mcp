@@ -1,5 +1,5 @@
-// Proposed contract and pure planning fixtures only. Not connected to MCP,
-// runtime evidence, relation storage, admission locks or a close executor.
+// Contract and pure snapshot planning for the injectable execution service.
+// Production MCP/core runtime evidence and mutation adapters are not mounted.
 import { z } from "zod";
 
 const sessionId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
@@ -87,12 +87,14 @@ export const executionReservationSchema = z.object({
 // Runtime-owned snapshot, NOT a public register/finish request. Completion must
 // be backed by the exact request/launch/boundary, not queue acceptance, a generic
 // delivery status, an aborted waiter, a timeout, or an idle snapshot alone.
+export const executionPhaseSchema = z.enum(["reserved", "invoked", "submitted_unknown", "unsent"]);
 export const executionRelationSchema = z.object({
   request: executionRequestSchema,
   source_session_id: sessionId.nullable(), // hint for reporting an unbound source only
   source: executionPointSchema.nullable(), target: executionPointSchema.nullable(),
-  phase: z.enum(["reserved", "invoked", "submitted_unknown", "unsent"]),
+  phase: executionPhaseSchema,
   completion: z.enum(["open", "completed", "interrupted", "unknown"]),
+  target_fence: z.enum(["open", "closed", "unknown"]),
   // Set only after source/target completion fences and descendant draining.
   // A retired edge is never revived by unrelated work on the same seat.
   lifecycle: z.enum(["tracking", "retired"]),
@@ -107,14 +109,14 @@ export const executionRelationSchema = z.object({
     || (value.completion === "interrupted" && !value.target))
     context.addIssue({ code: "custom", message: "completion requires a bound run; generation-wide interruption requires a bound launch" });
   if (value.lifecycle === "retired" && value.phase !== "unsent"
-    && value.completion !== "completed" && value.completion !== "interrupted")
+    && (value.target_fence !== "closed" || (value.completion !== "completed" && value.completion !== "interrupted")))
     context.addIssue({ code: "custom", message: "retirement requires terminal execution or confirmed unsent" });
 });
 export type ExecutionRelation = z.infer<typeof executionRelationSchema>;
 export interface CascadePlanGap {
   request: ExecutionRequest;
   reason: "source_generation_missing" | "target_generation_missing" | "run_boundary_missing"
-    | "completion_missing" | "invocation_outcome_unknown" | "descendant_binding_missing";
+    | "completion_missing" | "invocation_outcome_unknown" | "descendant_binding_missing" | "invocation_fence_unconfirmed";
 }
 export interface CascadePlan {
   targets: ExecutionLaunch[];
@@ -136,7 +138,7 @@ export function planCascadeStop(rootInput: unknown, relationInput: unknown): Cas
   for (let i = 0; i < relations.length; i++) {
     const edge = relations[i];
     if (edge.lifecycle !== "retired" && edge.phase !== "unsent"
-      && (edge.phase === "reserved" || edge.completion === "open" || edge.completion === "unknown"))
+      && (edge.phase === "reserved" || edge.completion === "open" || edge.completion === "unknown" || edge.target_fence !== "closed"))
       active.add(i);
   }
   // Least fixed point: all-terminal cycles expire. Completed parents remain
@@ -190,6 +192,8 @@ export function planCascadeStop(rootInput: unknown, relationInput: unknown): Cas
       queue.push(edge.target.launch);
       if (!edge.source.boundary || !edge.target.boundary) gap(edge, "run_boundary_missing");
       if (edge.completion === "unknown") gap(edge, "completion_missing");
+      if ((edge.completion === "completed" || edge.completion === "interrupted") && edge.target_fence !== "closed")
+        gap(edge, "invocation_fence_unconfirmed");
       if (edge.phase === "submitted_unknown") gap(edge, "invocation_outcome_unknown");
       if (uncertainRetention.has(i)) gap(edge, "descendant_binding_missing");
     }
@@ -200,7 +204,7 @@ export function planCascadeStop(rootInput: unknown, relationInput: unknown): Cas
 export const cascadeStopRequestSchema = z.object({
   schema: z.literal("aiterm.cascade-stop-request.v1"), roots: z.array(executionLaunchSchema).min(1),
 }).strict();
-export const cascadeStopResultSchema = z.object({
+export const cascadeStopResultObjectSchema = z.object({
   schema: z.literal("aiterm.cascade-stop-result.v1"), roots: z.array(executionLaunchSchema).min(1),
   status: z.enum(["stopped", "partial", "unconfirmed"]), relation_coverage: z.enum(["complete", "incomplete"]),
   unresolved: z.array(z.object({ request: executionRequestSchema.nullable(), reason: referenceId }).strict()),
@@ -209,7 +213,8 @@ export const cascadeStopResultSchema = z.object({
     outcome: z.enum(["closed", "already_closed", "unknown", "unsupported", "replaced"]),
     reason: referenceId,
   }).strict()),
-}).strict().superRefine((value, context) => {
+}).strict();
+export const cascadeStopResultSchema = cascadeStopResultObjectSchema.superRefine((value, context) => {
   if (value.status !== "stopped") return;
   const closed = value.targets.filter(target => target.outcome === "closed" || target.outcome === "already_closed");
   if (value.relation_coverage !== "complete" || value.unresolved.length || closed.length !== value.targets.length

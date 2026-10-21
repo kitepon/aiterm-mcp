@@ -5,7 +5,7 @@ import * as installedSteer from "aiterm-steer-delivery";
 import { stateRoot } from "./agent-shared.js";
 import { isWin, SOCK, WIN_NS } from "./tmux-runtime.js";
 import { readProcessIdentities } from "./process-runtime.js";
-import { observeExecutionParentProcess, observeSessionGeneration } from "./core.js";
+import { observeExecutionParentProcess, observeExecutionSessionGeneration } from "./core.js";
 import { FileExecutionStore, executionStoreDirectory } from "./execution-store.js";
 import { createParentSourceEvidence } from "./execution-parent-source.js";
 import { createNativeParentEndpointEvidence } from "./execution-parent-endpoint.js";
@@ -27,7 +27,7 @@ export type ParentAdmissionProvider = { withDeliveryEffect?: unknown; DELIVERY_A
 export const localParentWorkerRuntime: ParentWorkerRuntime = {
   scope: () => ({ state_root: stateRoot(), multiplexer: isWin ? { kind: "namespace", key: WIN_NS } : { kind: "socket", key: SOCK } }),
   actor: () => readProcessIdentities([process.pid])[0] ?? null,
-  observeParentProcess: observeExecutionParentProcess, observeSessionGeneration,
+  observeParentProcess: observeExecutionParentProcess, observeSessionGeneration: observeExecutionSessionGeneration,
 };
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 function scope(input: ExecutionWorkerScope): ExecutionWorkerScope {

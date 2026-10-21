@@ -622,15 +622,35 @@ receipt捕捉後に分離する。issued slotへcreated_native_id/created_server
 捕捉済みnative IDへ固定する。server owner/物理IDを各作用直前に再照合する。環境検証失敗時の再createは行わない。
 
 coreのmetadata constructorは既存managed launch IDを内部生成する。その直前にも物理shell受付を確認し、
-公開されたmetadata/current generationと元native ID/serverを照合してslot.expected_launch_idとrelation.targetへ結ぶ。
+保存されたmetadata/current generationと元native ID/serverを照合してslot.expected_launch_idとrelation.targetへ結ぶ。
 launch再結合/別要求への転用は拒否する。結合receiptはsource停止後も保持し、到達したlaunchにも停止印を引き継ぐが、
 入力を解禁しない。先行作用後の欠測/交代はpossible/unknownと元slotを保持し、再送や同名cleanupを行わない。
 
 この隔離実装は**既存POSIX server・固定名managed launch**に限る。serverが無くownerを取れない起動や、
 Windows固有のserver作成は作用前unsupported。古いmanaged metadataが残り物理shellと世代を結べない場合も未確認。
 既定legacy launcherは変更せず、private producer factoryの追加observerにも注入runtimeからOSへの個別fallbackを作らない。
-RPC終了後の実世代読取/閉鎖へのnative結合、auto-name/通常PTY/auth、全参加者/全変更口と復旧は別工程で未了。
+auto-name/通常PTY/auth、全参加者/全変更口と復旧は別工程で未了。
 同じnative IDがserver再起動で再利用され得るので、ID単独の一致を受入条件にしない。
+
+### RPC終了後のnative作成証拠と期待close
+
+coreは要求scopeの作成receipt/native server proofだけから、managed metadataへ
+`execution_native={schema:"aiterm.execution-native.v1",native_id,server:{pid,started_identity}}`を保存する。
+モデル引数から受けず、後の同名一覧から自動補完しない。metadata loaderは厳格検証し、各vendorの
+既存更新でもこの項目を保持する。RPCのslotを解放しても作成証拠は残る。
+
+private `observeExecutionSessionGeneration`は完全native一覧/ownerとmetadataを前後照合する。
+物理消失はabsent、同名席が存在してもstamp欠測/破損、native ID/owner/世代交代があればpresentかつ
+generation未確認を返す。古いmetadataにあるlaunchをそのまま現在世代へ昇格させない。
+private parent worker/producerの既定generation observerもこちらを使い、注入runtimeの欠測へfallbackしない。
+legacy公開のobserve契約は維持する。未登録の既存席はこのprivate runtimeでは未確認であり、自動登録/再起動しない。
+
+`core.closeExpectedAgentSession`はこの作成証拠を各snapshot/launch照合でも確認し、共有slotに結合した
+実native IDへ一回だけkillする。stamp欠測はunsupported、確認済み別launchはstaleとして作用前拒否する。
+同名replacementのmetadataをcleanupしない。実閉鎖確認後に同じ名前で新世代を作れても、旧branchは退役のまま。
+source停止/世代欠測等のExecutionErrorはvendor起動失敗のtelemetryへ分類しない。
+これらはPOSIX/fakeでの限定受入。server bootstrap/Windows/全core・MCP admissionとcoverage、実受取番/fence、復旧と
+安全mountが未了なので、実runtime全体/本番/公開配布の完了を示さない。
 
 一次資料は[tmux 3.3a manual source](https://raw.githubusercontent.com/tmux/tmux/3.3a/tmux.1)と
 [psmux 3.3.8 flag reference](https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md)。

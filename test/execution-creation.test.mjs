@@ -3,13 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
+import { agentMetadataPath } from '../dist/agent-shared.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
 import { withExecutionEffectScope, guardTmuxExecution, captureExecutionCreatedNative,
   bindExecutionCreatedLaunch, prepareExecutionCreation } from '../dist/execution-effect.js';
@@ -28,6 +29,7 @@ const core = await import('../dist/core.js');
 test.after(() => { Object.assign(childProcess, originals); process.kill = originalKill; syncBuiltinESMExports(); });
 test.afterEach(() => { runner = null; });
 const A = { session_id: 'bot-source', launch_id: 'a'.repeat(32) };
+const syntheticServer = { pid: 4711, started_identity: 'synthetic-native-server' };
 const posix = { skip: process.platform === 'win32' ? 'POSIX native command fixture' : false };
 let serial = 0;
 function fixture(t, scenario = 'accepted') {
@@ -39,7 +41,7 @@ function fixture(t, scenario = 'accepted') {
   if (scenario === 'no-server') native.clear();
   if (scenario === 'mixed-server') native.set('bot-other', { id: '$69', name: 'bot-other' });
   const effects = [], queries = [], errors = [];
-  let source = { ...A }, creates = 0, service, serverStarted = 'Wed Oct 21 09:00:00 2026', probes = 0;
+  let source = { ...A }, creates = 0, requests = 0, service, serverStarted = 'Wed Oct 21 09:00:00 2026', probes = 0;
   const ok = stdout => ({ status: 0, stdout: stdout ?? '', stderr: '' });
   const command = args => {
     queries.push(args[0]);
@@ -61,15 +63,15 @@ function fixture(t, scenario = 'accepted') {
     }
     if (args[0] === 'new-session') {
       assert.ok(args.includes('-P')); assert.equal(args[args.indexOf('-F') + 1], '#{session_id}\t#{session_name}\t#{pid}');
-      creates++; native.set(name, { id: '$71', name }); effects.push('create');
+      creates++; const createdId = '$' + (70 + creates); native.set(name, { id: createdId, name }); effects.push('create');
       if (scenario === 'replaced') native.set(name, { id: '$72', name });
       if (scenario === 'server-restarted') serverStarted = 'Wed Oct 21 09:01:00 2026';
-      return { ...ok(scenario === 'malformed' ? 'unrelated output' : '$71\t' + name + '\t' + (scenario === 'receipt-server-mismatch' ? '4712' : '4711') + '\n'),
+      return { ...ok(scenario === 'malformed' ? 'unrelated output' : createdId + '\t' + name + '\t' + (scenario === 'receipt-server-mismatch' ? '4712' : '4711') + '\n'),
         status: scenario === 'failed-after-create' ? 1 : 0 };
     }
     if (['set-option', 'pipe-pane', 'set-environment', 'paste-buffer', 'send-keys', 'kill-session'].includes(args[0])) {
       if (target) {
-        assert.match(target, /^\$71(?::[\d.]*)?$/, 'post-create effects must address only the receipt native ID');
+        assert.match(target, new RegExp('^\\$' + (70 + creates) + '(?::[\\d.]*)?$'), 'post-create effects must address only the receipt native ID');
         assert.ok(find(target), 'the captured physical session must still exist');
         effects.push(args[0]);
         if (args[0] === 'kill-session') native.delete(name);
@@ -104,23 +106,27 @@ function fixture(t, scenario = 'accepted') {
     }
   };
   const observe = session => session === A.session_id ? { schema: 'aiterm.pty-observe-result.v1', session_id: session,
-    exists: !!source, launch_id: source?.launch_id ?? null } : core.observeSessionGeneration(session);
+    exists: !!source, launch_id: source?.launch_id ?? null } : core.observeExecutionSessionGeneration(session);
   const runtime = createExecutionRuntime({ sourceEnvironment: { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
     observeSession: observe, observeSessionSync: observe,
     ...(scenario === 'missing-reader' ? {} : { observeNativeSessionsSync: core.observeExecutionNativeCreationScope }),
     async observeDone() { assert.fail('no native completion fixture'); },
     async guardedClose(expected) {
       if (expected.session_id === A.session_id) source = null;
-      else { assert.equal(expected.session_id, name); native.delete(name); }
+      else {
+        assert.equal(expected.session_id, name);
+        service.withExpectedCloseEffect(expected, () => core.closeExpectedAgentSession(expected));
+      }
     } });
   service = new ExecutionService(store, runtime, 5);
   const dispatcher = createExecutionDispatcher({ service,
     sourceEnvironment: { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
     nativeIdentity: { pid: 1234, started_identity: 'synthetic-serving-process' }, initializedClientName: () => 'codex',
     observeSessionGeneration: observe });
-  return { name, store, service, native, effects, queries, errors, creates: () => creates,
+  return { name, store, service, runtime, native, effects, queries, errors, creates: () => creates,
+    restartServer: () => { serverStarted = 'Wed Oct 21 09:02:00 2026'; },
     async launch() {
-      return dispatcher.dispatch('agent_launch', { session_name: name }, { requestId: 41 }, async () => {
+      return dispatcher.dispatch('agent_launch', { session_name: name }, { requestId: 41 + requests++ }, async () => {
         let session;
         try { [session] = core.openAgent('codex', { session_name: name, agent_done: true }); }
         catch (error) { errors.push(String(error.stack)); throw error; }
@@ -138,7 +144,7 @@ test('only an exact new-session receipt binds native ownership, and every later 
     assert.deepEqual(guardTmuxExecution(['send-keys', '-t', 'bot-new:3.2', 'Enter']), ['send-keys', '-t', '$9:3.2', 'Enter']);
     assert.deepEqual(guardTmuxExecution(['has-session', '-t', '=bot-new:']), ['has-session', '-t', '$9:']);
     bindExecutionCreatedLaunch(launch);
-  }, { prepare() {}, verifyServer() {}, native: (...args) => received.push(args), launch: value => received.push(value) });
+  }, { prepare: () => syntheticServer, verifyServer() {}, native: (...args) => received.push(args), launch: value => received.push(value) });
   assert.deepEqual(received, [['bot-new', '$9', 4711], launch]);
 });
 test('malformed, other-seat and changed native receipts poison the frame instead of enabling another create', () => {
@@ -149,7 +155,7 @@ test('malformed, other-seat and changed native receipts poison the frame instead
       guardTmuxExecution(['new-session', '-d', '-s', 'bot-new']);
       try { captureExecutionCreatedNative(receipt); } catch { /* no swallowed success */ }
       assert.throws(() => guardTmuxExecution(['send-keys', '-t', 'bot-new', 'Enter']));
-    }, { prepare() {}, verifyServer() {}, native: () => { captured++; }, launch() {} }));
+    }, { prepare: () => syntheticServer, verifyServer() {}, native: () => { captured++; }, launch() {} }));
     assert.equal(captured, 0);
   }
   for (const change of ['receipt', 'create']) {
@@ -159,7 +165,7 @@ test('malformed, other-seat and changed native receipts poison the frame instead
       guardTmuxExecution(['new-session', '-d', '-s', 'bot-new']); captureExecutionCreatedNative('$9\tbot-new\t4711\n');
       if (change === 'receipt') captureExecutionCreatedNative('$10\tbot-new\t4711\n');
       else guardTmuxExecution(['new-session', '-d', '-s', 'bot-new']);
-    }, { prepare() {}, verifyServer() {}, native: () => { captured++; }, launch() {} }));
+    }, { prepare: () => syntheticServer, verifyServer() {}, native: () => { captured++; }, launch() {} }));
     assert.equal(captured, 1, 'the original native receipt is never rebound or retried');
   }
 });
@@ -188,8 +194,53 @@ test('missing native server ownership is rejected before any create or persisten
     assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
     assert.equal(f.creates(), 0); assert.deepEqual(f.effects, []);
     const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
-    assert.deepEqual(state.slots, []); assert.equal(state.records[0].operations.launch, 'not_sent');
+    assert.deepEqual(state.slots, []); assert.ok(state.records.length <= 1);
+    assert.ok(state.records.every(record => record.operations.launch === 'not_sent'));
   }
+});
+test('native creation provenance survives RPC completion and a reconstructed service uses the actual guarded close primitive', posix, async t => {
+  const f = fixture(t), accepted = await f.launch(); assert.equal(accepted.isError, undefined);
+  const launch = { session_id: f.name, launch_id: accepted.structuredContent.launch_id };
+  const file = agentMetadataPath(f.name, launch.launch_id), saved = JSON.parse(readFileSync(file));
+  assert.deepEqual(saved.execution_native, { schema: 'aiterm.execution-native.v1', native_id: '$71',
+    server: { pid: 4711, started_identity: 'Wed Oct 21 09:00:00 2026' } });
+  const reconstructed = new ExecutionService(f.store, f.runtime, 5);
+  const result = await reconstructed.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
+  assert.equal(result.status, 'partial', 'native closure does not manufacture complete relation coverage');
+  assert.equal(result.targets[0].outcome, 'closed'); assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
+  assert.equal(f.native.has(f.name), false); assert.equal(f.native.has(A.session_id), true);
+});
+test('old metadata cannot prove a same-name replacement, restarted server, missing stamp or malformed native stamp', posix, async t => {
+  for (const change of ['native-id', 'server', 'missing', 'malformed']) {
+    const f = fixture(t), accepted = await f.launch(); assert.equal(accepted.isError, undefined);
+    const launch = { session_id: f.name, launch_id: accepted.structuredContent.launch_id };
+    const file = agentMetadataPath(f.name, launch.launch_id), saved = JSON.parse(readFileSync(file));
+    if (change === 'native-id') f.native.set(f.name, { id: '$72', name: f.name });
+    if (change === 'server') f.restartServer();
+    if (change === 'missing') { delete saved.execution_native; writeFileSync(file, JSON.stringify(saved)); }
+    if (change === 'malformed') { saved.execution_native.server.started_identity = ''; writeFileSync(file, JSON.stringify(saved)); }
+    const beforeRead = readFileSync(file);
+    assert.deepEqual(core.observeExecutionSessionGeneration(f.name), { schema: 'aiterm.pty-observe-result.v1',
+      session_id: f.name, exists: true, launch_id: null });
+    const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
+    assert.equal(stopped.targets[0].outcome, 'unknown');
+    assert.equal(f.effects.includes('kill-session'), false); assert.ok(f.native.has(f.name));
+    assert.deepEqual(readFileSync(file), beforeRead, 'observation does not enroll or repair stale metadata');
+  }
+});
+test('a stopped generation stays retired when actual core creates new work under the same name and a different native ID', posix, async t => {
+  const f = fixture(t), first = await f.launch(); assert.equal(first.isError, undefined);
+  const old = { session_id: f.name, launch_id: first.structuredContent.launch_id };
+  assert.equal((await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] })).targets[0].outcome, 'closed');
+  const second = await f.launch(); assert.equal(second.isError, undefined, JSON.stringify({ result: second, errors: f.errors }));
+  const replacement = { session_id: f.name, launch_id: second.structuredContent.launch_id };
+  assert.notEqual(replacement.launch_id, old.launch_id); assert.equal(f.native.get(f.name).id, '$72'); assert.equal(f.creates(), 2);
+  const staleStop = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] });
+  assert.equal(staleStop.targets[0].outcome, 'replaced'); assert.ok(f.native.has(f.name));
+  assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
+  const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.records[0].relation.lifecycle, 'retired');
+  assert.equal(state.records[1].relation.lifecycle, 'tracking'); assert.deepEqual(state.records[1].relation.target.launch, replacement);
 });
 test('guarded environment verification failure closes only the captured native ID without replaying new-session', posix, async t => {
   const f = fixture(t, 'environment-gap'), result = await f.launch();

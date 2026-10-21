@@ -3,15 +3,16 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { executionLaunchSchema, type ExecutionLaunch } from "./execution-contract.js";
 import { ExecutionError } from "./execution-wire.js";
+import type { ExecutionNativeServer, ExecutionNativeBinding } from "./execution-close.js";
 
 export interface ExecutionCreationBindings {
-  prepare(): void;
+  prepare(): ExecutionNativeServer;
   verifyServer(): void;
   native(session: string, nativeId: string, serverPid: number): void;
   launch(launch: ExecutionLaunch): void;
 }
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
-  creation?: ExecutionCreationBindings; creationPrepared?: boolean; createdNative?: string };
+  creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
 
@@ -48,11 +49,26 @@ export function prepareExecutionCreation(): void {
   if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (scope.failure) throw scope.failure;
   if (!scope.creation || scope.creationPrepared || scope.didIssue) refuse(scope, "EXECUTION_UNSUPPORTED");
-  try { scope.creation.prepare(); scope.creationPrepared = true; }
+  try {
+    const server = scope.creation.prepare();
+    if (!Number.isSafeInteger(server?.pid) || server.pid < 1 || typeof server.started_identity !== "string" || !server.started_identity)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    scope.creationServer = { ...server }; scope.creationPrepared = true;
+  }
   catch (error) {
     scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "not_started");
     throw scope.failure;
   }
+}
+/** Private core metadata stamp, derived only from this frame's actual create
+ * receipt and pre-existing native server proof. Not a tool input or lookup.
+ */
+export function executionCreatedNativeBinding(session: string): ExecutionNativeBinding {
+  const scope = scopes.getStore();
+  if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (scope.failure) throw scope.failure;
+  if (scope.session !== session || !scope.createdNative || !scope.creationServer) refuse(scope, "EXECUTION_UNSUPPORTED");
+  return { schema: "aiterm.execution-native.v1", native_id: scope.createdNative, server: { ...scope.creationServer } };
 }
 // This receipt comes directly from new-session -P -F, never from a later
 // same-name list/display lookup. It contains no argv, environment or payload.

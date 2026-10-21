@@ -14,9 +14,9 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
-import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
+import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, hasExecutionCreationScope } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -1671,6 +1671,28 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
     launch_id: exists ? tryLoadAgentMetadata(name)?.launch_id ?? null : null };
 }
 
+/** Private guarded-runtime read. Legacy metadata without an original native
+ * creator stamp remains a present but unverified generation, never enrolled
+ * from a current same-name PID or cached vendor session.
+ */
+export function observeExecutionSessionGeneration(name: string): Pick<SessionObservation, "schema" | "session_id" | "exists" | "launch_id"> {
+  assertSessionName(name);
+  const result = (exists: boolean, launch_id: string | null) => ({ schema: "aiterm.pty-observe-result.v1" as const,
+    session_id: name, exists, launch_id });
+  const before = observeExecutionNativeCreationScope();
+  if (before.state !== "known") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+  const native = before.sessions.find(value => value.session_id === name);
+  if (!native) return result(false, null);
+  const meta = tryLoadAgentMetadata(name), proof = meta?.execution_native;
+  if (!meta || !proof || !before.server || proof.native_id !== native.native_id
+    || !isDeepStrictEqual(proof.server, before.server)) return result(true, null);
+  const after = observeExecutionNativeCreationScope(), last = tryLoadAgentMetadata(name);
+  if (after.state !== "known" || !isDeepStrictEqual(after.server, proof.server)
+    || after.sessions.find(value => value.session_id === name)?.native_id !== proof.native_id
+    || last?.launch_id !== meta.launch_id || !isDeepStrictEqual(last.execution_native, proof)) return result(true, null);
+  return result(true, meta.launch_id);
+}
+
 /** Private source-provenance snapshot. It deliberately omits screen, argv,
  * environment and cached vendor_session_id. No public tool is added. The
  * consumer proves its native serving MCP process descends from this unique
@@ -1957,11 +1979,18 @@ export function observeExecutionNativeCreationScope(): ExecutionNativeSessions {
 
 /** Own the shared issued close slot before calling this primitive. */
 export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
+  const initial = observeExecutionSessionGeneration(expected.session_id);
+  if (initial.exists && initial.launch_id === null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (initial.exists && initial.launch_id !== expected.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   closeExpectedExecution(expected, {
-    sessions: observeExecutionNativeSessions,
+    sessions() {
+      const current = observeExecutionSessionGeneration(expected.session_id);
+      if (current.exists && current.launch_id !== expected.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      return observeExecutionNativeCreationScope();
+    },
     launch(name) {
-      const meta = tryLoadAgentMetadata(name);
-      return meta ? { session_id: meta.aiterm_session, launch_id: meta.launch_id } : null;
+      const current = observeExecutionSessionGeneration(name);
+      return current.exists && current.launch_id ? { session_id: name, launch_id: current.launch_id } : null;
     },
     kill(nativeId) {
       bindExecutionNativeTarget(expected.session_id, nativeId);
@@ -2973,7 +3002,12 @@ function loadAgentMetadata(name: string): AgentMetadata {
   const deliveryFields = m.initial_prompt_delivery === undefined ? {} : {
     initial_prompt_delivery: m.initial_prompt_delivery, initial_prompt_cursor: m.initial_prompt_cursor,
   };
-  const executableFields = m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable };
+  const parsedNative = m.execution_native === undefined ? null : executionNativeBindingSchema.safeParse(m.execution_native);
+  if (parsedNative && !parsedNative.success) throw new AitermError("agent native bindingが不正です", 2);
+  const executableFields = {
+    ...(m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable }),
+    ...(parsedNative?.success ? { execution_native: parsedNative.data } : {}),
+  };
   // 席のファストの状態と、起動・設定替えで渡したmodel（ADR 0114）。この項目より前の版が書いた控えには無い。
   const fastFields = {
     ...(typeof m.fast === "boolean" ? { fast: m.fast as boolean } : {}),
@@ -6955,9 +6989,8 @@ export function openAgent(
       : null;
     if (meta) {
       // Metadata constructors publish their internally generated launch ID.
-      // Bind it immediately, before a later write or command can continue.
-      agentMetadataNegativeCache.delete(sid);
-      if (hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
+      // Stamp its exact native creator before binding and any later input.
+      if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
       meta.agent_executable = bin;
       // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
       meta.fast = opts.fast_state === true;
@@ -6965,9 +6998,9 @@ export function openAgent(
       // The new physical shell is already pinned by its actual create receipt.
       // Validate it before publishing metadata, then bind this internally
       // generated managed launch. Model arguments cannot select this ID.
-      if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
       writeAgentMetadata(meta);
       agentMetadataNegativeCache.delete(sid);
+      if (hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
     }
     launchNote = buildAgentLaunchNote(kind, model, effort, meta);
     let full: string;
@@ -6990,7 +7023,7 @@ export function openAgent(
       preserveAgentOperation: meta?.kind === "claude",
     });
   } catch (e) {
-    const failure = telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
+    const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
     // 起動コマンドを投入できなかった session は空のまま残る＝残骸を作らない。片付けてから元エラーを伝える。
     try {
       closeSessionInternal(sid, false);

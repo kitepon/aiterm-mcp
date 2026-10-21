@@ -63,6 +63,10 @@ export interface AgentMetadata {
   initial_prompt_delivery?: InitialPromptDelivery;
   initial_prompt_cursor?: number | null;
   agent_executable?: string;
+  // Private guarded-launch provenance. Missing on legacy launches; never
+  // infer it from a same-name native observation or a later PID snapshot.
+  execution_native?: { schema: "aiterm.execution-native.v1"; native_id: string;
+    server: { pid: number; started_identity: string } };
   launch_operation_id?: string | null;
   launch_request_digest?: string | null;
   hook_route: "shared_claude_settings" | "shared_codex_home" | "shared_grok_home" | "shared_cursor_home";

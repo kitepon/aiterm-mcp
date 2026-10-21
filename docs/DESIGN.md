@@ -19,6 +19,8 @@ POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通�
 一つのRPCが複数のnative作用を発行するときも、各回に同じissued slotとsource/target世代・停止を再確認する。
 新launchは、既存POSIX serverのnative owner、new-session自身のnative ID receipt、core内部で生成したlaunch世代を
 同じ要求slotへ段階結合する。物理shell準備はnative IDへ固定し、未結合の同名世代を採用しない。
+作成時のnative ID/server ownerをmanaged metadataへ保存し、private runtimeの世代読取と期待closeでも再照合する。
+古いmetadataの欠測を現観測で補わず、既存席の自動登録は行わない。
 証拠の無い新server起動、Windows固有のserver作成、auto-name/通常PTY/auth等はまだunsupported。
 
 ## 目的と所有

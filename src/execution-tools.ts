@@ -126,7 +126,7 @@ async function runExecutionReceipt(service: ExecutionService, meta: unknown, sta
       ? await service.invokeDeferred(ref, stage, async issue => {
         let expectedServer: ExecutionNativeServer | undefined;
         const action = await withExecutionEffectScope(targetSessionId!, issue, run, stage === "launch" ? {
-          prepare: () => { expectedServer = service.prepareCreation(ref); },
+          prepare: () => { expectedServer = service.prepareCreation(ref); return expectedServer; },
           verifyServer: () => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED"); service.verifyCreationServer(ref, expectedServer); },
           native: (session, nativeId, serverPid) => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             service.captureCreatedNative(ref, session, nativeId, expectedServer, serverPid); },

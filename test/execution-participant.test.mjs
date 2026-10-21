@@ -532,3 +532,16 @@ test('an initially invalid Claude hook owner cannot be repaired after target loo
   assert.equal(result.isError, true); assert.equal(targetReads, 0); assert.equal(effects, 0);
   assert.equal(result._meta[ERROR].effect, 'not_started');
 });
+
+
+test('participant snapshots its optional native origin observer and does not inherit later callback replacements', t => {
+  const f = fixture(t), pids = [];
+  f.options.runtime.observeOriginOwner = pid => { pids.push(pid); return { state: 'unknown', pid }; };
+  const participant = f.create();
+  f.options.runtime.observeOriginOwner = () => assert.fail('must use the original participant runtime callback');
+  assert.deepEqual(participant.execution.observeOriginOwner(812), { state: 'unknown', pid: 812 });
+  assert.deepEqual(pids, [812]);
+  f.actor.started_identity = '2026-10-21T11:01:00Z';
+  assert.throws(() => participant.execution.observeOriginOwner(812), code('EXECUTION_UNSUPPORTED'));
+  assert.deepEqual(pids, [812]);
+});

@@ -628,11 +628,56 @@ export class ParentDeliveryManager {
         missing.push("graph_diagnosis_unavailable");
       }
     }
+    // Native status is a bounded diagnostic of THIS saved origin, never a
+    // cleanup permit. Keep it separate from the storage owner after recovery.
+    let originState: "unproven" | "unknown" | "matched" | "replaced" | "absent" = recordedOrigin ? "unknown" : "unproven";
+    let observations = 0, absentObservations = 0;
+    if (recordedOrigin) {
+      const unchanged = () => {
+        try {
+          return JSON.stringify(recordSchema.parse(JSON.parse(fs.readFileSync(path.join(this.claims, `${key}.json`), "utf8")))) === JSON.stringify(claim)
+            && JSON.stringify(readRecord(files[0].file)) === JSON.stringify(record);
+        } catch { return false; }
+      };
+      if (!unchanged()) missing.push("origin_owner_reference_changed");
+      else if (typeof this.execution?.observeOriginOwner !== "function") missing.push("origin_owner_observer_unavailable");
+      else {
+        const observe = this.execution.observeOriginOwner.bind(this.execution);
+        const sample = () => {
+          observations++;
+          try {
+            const value = observe(recordedOrigin.pid);
+            if (value && typeof (value as { then?: unknown }).then === "function") {
+              void Promise.resolve(value).catch(() => undefined); return null;
+            }
+            const parsed = z.discriminatedUnion("state", [
+              z.object({ state: z.literal("present"), actor: executionActorSchema }).strict(),
+              z.object({ state: z.literal("absent"), pid: executionActorSchema.shape.pid }).strict(),
+              z.object({ state: z.literal("unknown"), pid: executionActorSchema.shape.pid }).strict(),
+            ]).safeParse(value);
+            if (!parsed.success) return null;
+            const row = parsed.data;
+            if ((row.state === "present" ? row.actor.pid : row.pid) !== recordedOrigin.pid) return null;
+            if (row.state === "unknown") return null;
+            if (row.state === "absent") absentObservations++;
+            return row;
+          } catch { return null; }
+        };
+        const first = sample(), second = sample();
+        if (first && second && JSON.stringify(first) === JSON.stringify(second)) {
+          if (first.state === "absent") originState = "absent";
+          else originState = first.actor.started_identity === recordedOrigin.started_identity ? "matched" : "replaced";
+        }
+        if (!unchanged()) { originState = "unknown"; missing.push("origin_owner_reference_changed"); }
+      }
+      if (originState === "unknown") missing.push("origin_owner_native_unconfirmed");
+    }
     return { delivery_id: claim.delivery_id, request: structuredClone(claim.execution?.request ?? null),
       claim: "present" as const, owner_record: matched ? "matched" as const : "unconfirmed" as const,
       record_state: record?.state ?? null, storage_owner: storageOwner,
       original_storage_owner: recordedOrigin ? "recorded" as const : "unproven" as const,
       recorded_origin_owner: structuredClone(recordedOrigin),
+      origin_owner_native: { state: originState, observations, absent_observations: absentObservations },
       original_request_actor: requestActor, storage_owner_matches_request_actor: ownerMatchesActor,
       graph, graph_error: graphError, missing, clearance: "retained" as const, retry: "none" as const };
   }

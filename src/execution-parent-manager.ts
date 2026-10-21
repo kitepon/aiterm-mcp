@@ -19,6 +19,8 @@ const selectedParentSchema = z.union([claudeParentSchema, cursorParentSchema,
   .refine(value => { const root = "hook_root" in value ? value.hook_root : value.codex_home;
     return path.isAbsolute(root) && !/[\r\n\0]/.test(root); });
 export interface ParentManagerExecution {
+  // Explicit read only. Missing injected observer never falls back to a local PID probe.
+  observeOriginOwner?(pid: number): unknown;
   parentFromIngress?(): Parent | null;
   captureEndpointEvidence?(endpoint: unknown): unknown;
   bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
@@ -40,6 +42,7 @@ export function createParentManagerExecution(input: {
   claudeRuntime?: Parameters<typeof installedSteer.submitClaudeParentAnswer>[4];
   verifyCompanion?(id: string, endpoint: unknown, evidence: unknown): unknown;
   parentFromIngress?(): unknown | null;
+  observeOriginOwner?(pid: number): unknown;
 }): ParentManagerExecution {
   const provider: SteerProvider = input.provider ?? installedSteer;
   const contract = provider.DELIVERY_ADMISSION_CONTRACT as Record<string, unknown> | undefined;
@@ -48,8 +51,10 @@ export function createParentManagerExecution(input: {
     || contract.multi_delivery_emit !== true) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const bindClaude = provider.bindClaudeParentDelivery, prepareCursor = provider.prepareCursorDelivery;
   const verifyCompanion = input.verifyCompanion, parentFromIngress = input.parentFromIngress;
+  const observeOriginOwner = input.observeOriginOwner;
   const profile = Object.assign({}, input.profile, { delivery_admission: createSteerExecutionAdmission(input.parent, input.native) });
   return {
+    ...(observeOriginOwner ? { observeOriginOwner } : {}),
     parentFromIngress() {
       if (typeof parentFromIngress !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
       const selected = parentFromIngress();

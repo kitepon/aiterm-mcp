@@ -21,7 +21,7 @@ async function fixture(t, options = {}) {
   const proof = { schema: 'aiterm.parent-source.v1', request, source: { launch: { session_id: 'bot-a', launch_id: 'a'.repeat(32) }, boundary: null },
     client_name: 'synthetic-native-client', mcp_process: { ...requestActor },
     harness_process: { pid: 201, started_identity: '2026-10-21T20:59:59Z' }, endpoint: { vendor: 'codex', thread_id: parent.thread_id } };
-  const execution = { captureEndpointEvidence: () => proof,
+  const execution = { observeOriginOwner: options.observeOriginOwner, captureEndpointEvidence: () => proof,
     async bind() { binds++; }, async submit() { assert.fail('no owner test queue'); } };
   const dependencies = { processes(pids) {
     probes++; if (probes > 1) assert.equal(preparing, true, 'owner recapture only inside original synchronous preparation');
@@ -155,4 +155,108 @@ test('stop while the old child preparation waits prevents origin probing and all
   await assert.rejects(pending, error => error.code === 'EXECUTION_STOPPING');
   assert.equal(f.delivery().result(), null); assert.deepEqual(f.counts(), { probes: 1, binds: 0, watches: 0 });
   assert.equal(f.records().length, 0); assert.equal(fs.readdirSync(join(f.root, 'claims')).length, 0);
+});
+
+
+test('saved origin native reads are bounded, reference-specific and do not change metadata or release a live owner claim', async t => {
+  const pids = [], f = await fixture(t, { observeOriginOwner(pid) { pids.push(pid); return { state: 'present', actor: { ...owner } }; } });
+  await f.run(); const files = [f.records()[0], join(f.root, 'claims', boundary.session_id + '.json')];
+  const before = files.map(file => fs.readFileSync(file, 'utf8'));
+  const result = await f.manager.diagnoseClaim(boundary.session_id);
+  assert.deepEqual(result.origin_owner_native, { state: 'matched', observations: 2, absent_observations: 0 });
+  assert.deepEqual(pids, [owner.pid, owner.pid]); assert.equal(f.counts().probes, 2, 'diagnosis must not recapture manager owner');
+  assert.deepEqual(files.map(file => fs.readFileSync(file, 'utf8')), before);
+  assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none');
+  result.recorded_origin_owner.pid++;
+  assert.deepEqual(JSON.parse(fs.readFileSync(files[0])).execution.origin_owner, owner);
+});
+
+test('same PID with two consistent different starts is replaced without adopting the replacement owner', async t => {
+  const replacement = { ...owner, started_identity: '2026-10-21T21:07:00Z' };
+  const f = await fixture(t, { observeOriginOwner: () => ({ state: 'present', actor: replacement }) }); await f.run();
+  const result = await f.manager.diagnoseClaim(boundary.session_id);
+  assert.deepEqual(result.origin_owner_native, { state: 'replaced', observations: 2, absent_observations: 0 });
+  assert.deepEqual(result.recorded_origin_owner, owner); assert.equal(result.clearance, 'retained');
+  assert.deepEqual(replacement, { ...owner, started_identity: '2026-10-21T21:07:00Z' });
+});
+
+test('original native absence requires two independent absent reads and never proves CLI completion or clears a claim', async t => {
+  let reads = 0;
+  const f = await fixture(t, { observeOriginOwner(pid) { reads++; return { state: 'absent', pid }; } }); await f.run();
+  const claimFile = join(f.root, 'claims', boundary.session_id + '.json'), before = fs.readFileSync(claimFile, 'utf8');
+  const result = await f.manager.diagnoseClaim(boundary.session_id);
+  assert.deepEqual(result.origin_owner_native, { state: 'absent', observations: 2, absent_observations: 2 });
+  assert.equal(reads, 2); assert.equal(result.graph, null); assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none');
+  assert.equal(fs.readFileSync(claimFile, 'utf8'), before); assert.equal(f.counts().watches, 1, 'original job is not finished or resubmitted');
+});
+
+test('a single absence or native identity transition cannot become confirmed original-owner absence or liveness', async t => {
+  for (const sequence of [
+    [{ state: 'absent', pid: owner.pid }, { state: 'present', actor: owner }],
+    [{ state: 'present', actor: owner }, { state: 'absent', pid: owner.pid }],
+    [{ state: 'absent', pid: owner.pid }, { state: 'unknown', pid: owner.pid }],
+    [{ state: 'present', actor: owner }, { state: 'present', actor: { ...owner, started_identity: '2026-10-21T21:08:00Z' } }],
+  ]) {
+    let reads = 0; const f = await fixture(t, { observeOriginOwner: () => sequence[reads++] }); await f.run();
+    const result = await f.manager.diagnoseClaim(boundary.session_id);
+    assert.equal(result.origin_owner_native.state, 'unknown'); assert.equal(reads, 2);
+    assert.ok(result.missing.includes('origin_owner_native_unconfirmed')); assert.equal(result.clearance, 'retained');
+  }
+});
+
+test('unknown, invalid, mismatched, thrown and asynchronous native observations stay unknown without a fallback or replay', async t => {
+  for (const observe of [() => ({ state: 'unknown', pid: owner.pid }), () => null,
+    () => ({ state: 'absent', pid: owner.pid + 1 }), () => ({ state: 'present', actor: { ...owner, pid: owner.pid + 1 } }),
+    () => ({ state: 'present', actor: { ...owner, started_identity: null } }), () => [],
+    () => ({ state: 'absent', pid: owner.pid, extra: true }),
+    () => { throw Error('synthetic EPERM or unavailable native probe'); },
+    () => Promise.resolve({ state: 'absent', pid: owner.pid }), () => Promise.reject(Error('synthetic delayed probe'))]) {
+    const f = await fixture(t, { observeOriginOwner: observe }); await f.run();
+    const result = await f.manager.diagnoseClaim(boundary.session_id);
+    assert.equal(result.origin_owner_native.state, 'unknown'); assert.equal(result.origin_owner_native.observations, 2);
+    assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none'); assert.equal(f.counts().probes, 2);
+  }
+});
+
+test('missing origin and ambiguous owner records cannot be supplemented or probed using the current process', async t => {
+  for (const mode of ['legacy', 'mismatch']) {
+    const f = await fixture(t, { observeOriginOwner: () => assert.fail('unproven original owner must not trigger native probe') }); await f.run();
+    const file = f.records()[0], claimFile = join(f.root, 'claims', boundary.session_id + '.json');
+    const record = JSON.parse(fs.readFileSync(file));
+    if (mode === 'legacy') delete record.execution.origin_owner;
+    else { record.execution.request.request_id++; record.execution.source_evidence.request.request_id++; }
+    if (mode === 'legacy') fs.writeFileSync(claimFile, JSON.stringify(record));
+    fs.writeFileSync(file, JSON.stringify(record));
+    const result = await f.manager.diagnoseClaim(boundary.session_id);
+    assert.deepEqual(result.origin_owner_native, { state: 'unproven', observations: 0, absent_observations: 0 });
+    assert.equal(result.recorded_origin_owner, null); assert.equal(f.counts().probes, 2); assert.equal(result.clearance, 'retained');
+  }
+});
+
+test('missing runtime observer leaves saved origin recorded but native status unknown without a default OS probe', async t => {
+  const f = await fixture(t); await f.run(); const result = await f.manager.diagnoseClaim(boundary.session_id);
+  assert.equal(result.original_storage_owner, 'recorded');
+  assert.deepEqual(result.origin_owner_native, { state: 'unknown', observations: 0, absent_observations: 0 });
+  assert.ok(result.missing.includes('origin_owner_observer_unavailable')); assert.equal(f.counts().probes, 2);
+});
+
+test('metadata replacement while graph diagnosis waits suppresses all subsequent original-owner native probes', async t => {
+  const f = await fixture(t, { observeOriginOwner: () => assert.fail('changed metadata is not native evidence') }); await f.run();
+  const entered = deferred(), resume = deferred(); f.execution.diagnoseClaim = async () => { entered.resolve(); await resume.promise; return null; };
+  const pending = f.manager.diagnoseClaim(boundary.session_id); await entered.promise;
+  const file = f.records()[0], before = fs.readFileSync(file, 'utf8'), record = JSON.parse(before); record.state = 'unknown';
+  fs.writeFileSync(file, JSON.stringify(record)); resume.resolve(); const result = await pending;
+  assert.equal(result.origin_owner_native.state, 'unknown'); assert.equal(result.origin_owner_native.observations, 0);
+  assert.ok(result.missing.includes('origin_owner_reference_changed')); assert.equal(result.clearance, 'retained');
+  fs.writeFileSync(file, before);
+});
+
+test('metadata loss during a synchronous native read overrides two apparent matching observations without recreating the claim', async t => {
+  let f, reads = 0; f = await fixture(t, { observeOriginOwner: () => {
+    if (++reads === 2) fs.unlinkSync(join(f.root, 'claims', boundary.session_id + '.json'));
+    return { state: 'present', actor: { ...owner } };
+  } }); await f.run(); const result = await f.manager.diagnoseClaim(boundary.session_id);
+  assert.equal(result.origin_owner_native.state, 'unknown'); assert.equal(reads, 2);
+  assert.ok(result.missing.includes('origin_owner_reference_changed'));
+  assert.equal(fs.existsSync(join(f.root, 'claims', boundary.session_id + '.json')), false); assert.equal(result.clearance, 'retained');
 });

@@ -590,3 +590,21 @@ diagnoseClaimは対応するclaim/owner recordへ保存されている元owner�
 保存記録であり、現在のnative生存/終了fenceや署名認証を証明しない。移動後の保管ownerや現在callerと混同せず、
 stamp欠測の旧recordはunprovenを維持する。clearance retained/retry none、native endpoint未観測/fence unknownの
 条件を変更しない。旧private binaryのstrict readerと混在移行、実4CLI、明示清算・公開mountは未受入である。
+
+### 保存元ownerの現在native状態は非解除診断
+
+private diagnoseClaimは、claimと同一の元owner recordに保存されたorigin_ownerだけを照会する。
+producer runtimeの明示observeOriginOwnerを入口で固定し、同scope/current callerを再照合した上で、既存
+observeExecutionActor（PID存在と開始identity、ESRCHのみ不在、他エラー不明）へ結ぶ。注入runtimeの
+observer欠測は個別にdefault OSへfallbackせずunknown。旧stamp欠測・record不一致ではnative照会自体を行わない。
+legacy回収用existsのfalseや空process配列はこの不在証拠へ流用しない。
+
+返りorigin_owner_nativeはstate=matched/replaced/absent/unknown/unprovenと観測数だけ。
+保存PIDへの独立同期読取を2回行い、同じ完全identityが2回ならmatchedまたはreplaced、同PIDの厳格な不在が
+2回ならabsent。それ以外の遷移/別PID/不正値/例外/非同期/欠測はunknown。時刻閾値や待機・自動再試行はない。
+graph await後とnative読取後に元claim/recordを再照合し、欠測・変更があればunknown、後付け参照を採用しない。
+保存されたrecorded_origin_ownerと現在状態は分離し、replacementを元ownerへ書換えない。
+
+この診断は読み取りだけ。native MCP producerの不在であって、CLI/親hook/旧要求の終了fence、元入力未受理、
+中断/同会話維持、全participantの証明ではない。明示not_sent記録や局所doneとの組合せでもclaim解除・slot清算・
+再送を許可しない。clearance=retained/retry=noneを維持し、公開wire/meta/toolsと通常未注入legacyは変えない。

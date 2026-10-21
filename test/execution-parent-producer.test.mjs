@@ -163,3 +163,22 @@ test('post-bind companion revalidates the original frozen source/owner and uses 
     assert.equal(writes, 0); assert.deepEqual(JSON.parse(readFileSync(join(f.directory, 'delivery.json'))), other);
   }, { ...ingress, native_parent });
 });
+
+
+test('private original-owner observer captures the injected callback and rejects a replaced scope before native diagnosis', t => {
+  const f = fixture(t); const pids = [];
+  f.options.runtime.observeOriginOwner = pid => { pids.push(pid); return { state: 'absent', pid }; };
+  const producer = createExecutionParentProducer(f.options);
+  f.options.runtime.observeOriginOwner = () => assert.fail('later runtime replacement must not alter the captured original-owner observer');
+  assert.deepEqual(producer.execution.observeOriginOwner(417), { state: 'absent', pid: 417 });
+  assert.deepEqual(pids, [417]);
+  f.actualScope.multiplexer.key += '-replaced';
+  assert.throws(() => producer.execution.observeOriginOwner(417), code('EXECUTION_UNSUPPORTED'));
+  assert.deepEqual(pids, [417], 'no native read after scope loss');
+});
+
+test('injected producer with no native origin observer stays unsupported instead of calling the default process observer', t => {
+  const f = fixture(t); assert.equal(f.producer.execution.observeOriginOwner, undefined);
+  f.options.runtime.observeOriginOwner = 'not a callback';
+  assert.throws(() => createExecutionParentProducer(f.options), code('EXECUTION_UNSUPPORTED'));
+});

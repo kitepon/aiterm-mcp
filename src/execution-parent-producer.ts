@@ -21,8 +21,10 @@ import { ExecutionError } from "./execution-wire.js";
 import { parentHookReference } from "./execution-parent-alias.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
 import { requireExecutionEffectScope } from "./execution-effect.js";
+import { observeExecutionActor } from "./process-runtime.js";
 
 export interface ParentProducerRuntime extends ParentWorkerRuntime {
+  observeOriginOwner?(pid: number): unknown;
   sourceEnvironment(): Readonly<Record<string, string | undefined>>;
   decodeParent(client: string, meta: unknown): unknown | null;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
@@ -36,6 +38,7 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
 }
 const localProducerRuntime: ParentProducerRuntime = {
   ...localParentWorkerRuntime,
+  observeOriginOwner: observeExecutionActor,
   sourceEnvironment: () => Object.fromEntries([...EXECUTION_SOURCE_ENV_NAMES, ...EXECUTION_SCOPE_ENV_NAMES].map(name => [name, process.env[name]])),
   decodeParent: (client, meta) => codexParentFromRequest(client, meta)
     ?? claudeParentFromRequest(client, meta, path.join(stateRoot(), "claude-parent-hooks"))
@@ -49,11 +52,12 @@ export function createExecutionParentProducer(input: {
   runtime?: ParentProducerRuntime; claudeRuntime?: Parameters<typeof steer.submitClaudeParentAnswer>[4];
 }) {
   const runtime = input.runtime ?? localProducerRuntime;
-  for (const name of ["observeInterruptionSync", "selectInterruptionSync", "interruptKeySync"] as const)
+  for (const name of ["observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner"] as const)
     if (runtime[name] !== undefined && typeof runtime[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const interruption = runtime.observeInterruptionSync?.bind(runtime);
   const selectInterruption = runtime.selectInterruptionSync?.bind(runtime), interruptKey = runtime.interruptKeySync?.bind(runtime);
   const observeActors = runtime.observeActors?.bind(runtime);
+  const observeOriginOwner = runtime.observeOriginOwner?.bind(runtime);
   if (typeof runtime.sourceEnvironment !== "function" || typeof runtime.decodeParent !== "function" || typeof runtime.observeDone !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = createExecutionParentEnvironment({ ...input, runtime });
@@ -100,6 +104,7 @@ export function createExecutionParentProducer(input: {
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
       claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(scope.state_root, "cursor-parent-hooks") }) });
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime,
+    ...(observeOriginOwner ? { observeOriginOwner: (pid: number) => { assertScope(); return observeOriginOwner(pid); } } : {}),
     parentFromIngress: () => {
       assertScope();
       const endpoint = sourceEvidence.endpointFromIngress();

@@ -62,6 +62,8 @@ const WITHOUT_PRELOAD = {
   'test/seat-env.mjs': '前処理そのもの',
   'test/fixtures/codex-hook-queue.mjs': '試験が引数と標準入力を渡して起こす補助。単独では何もしない',
   'test/fixtures/codex-parent-receiver.mjs': '試験が引数と標準入力を渡して起こす補助。単独では何もしない',
+  'test/fixtures/execution-block-native.mjs': 'seat-env後だけ明示preloadする副作用専用fixture。native/process/networkを禁止し、製品作用を始めない',
+  'test/fixtures/execution-process-worker.mjs': '引数とIPCのある合成workerのみ。引数が無ければ作用前に拒否し、渡された隔離scope以外を参照しない',
   'test/fixtures/windows-codex-msix.mjs': '試験が引数を渡して起こす補助。引数が無いと、何もする前に落ちる',
   'scripts/experiments/codex-queue-hook.test.mjs': '実物のCodexの試し。AITERM_TEST_CODEX_BINARYを渡した時だけ動く',
   'scripts/experiments/codex-stdio-relay.test.mjs': '実物のCodexの試し。AITERM_TEST_CODEX_BINARYを渡した時だけ動く',

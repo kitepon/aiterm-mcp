@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as steer from '../../aiterm-steer-cascade/dist/index.js';
+import * as steer from 'aiterm-steer-delivery';
 import { configureNativeExecutionHooks } from '../dist/execution-native-setup.js';
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'native-setup-')); t.after(() => rmSync(home, { recursive: true, force: true }));

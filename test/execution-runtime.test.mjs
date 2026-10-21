@@ -13,6 +13,11 @@ const input = { action: 'register', source_session_id: A.session_id,
   reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point,
     target: { session_id: 'bot-b', expected_launch_id: null } } };
 const unknown = { state: 'unknown', fence: 'unknown' };
+test('a fence response cannot complete an old generation after replacement during its observation', async () => {
+  const f = fixture();
+  f.bindings.invocationFence = async () => { f.observed.launch_id = 'e'.repeat(32); return 'closed'; };
+  assert.deepEqual(await createExecutionRuntime(f.bindings).completion(structuredClone(point)), unknown);
+});
 test('native session ownership requires a complete well-formed unique scoped listing, independently of managed metadata', () => {
   let listing = { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }] };
   const runtime = createExecutionRuntime({ observeSession: () => null, observeDone: async () => null,

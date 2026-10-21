@@ -2,7 +2,8 @@
 // aliases lacking current independent native proof remain unsupported.
 import path from "node:path";
 import type * as steer from "aiterm-steer-delivery";
-import { observeAgentDone, observeExecutionNativeCreationScope } from "./core.js";
+import { observeAgentDone, observeExecutionNativeCreationScope, closeExpectedAgentSession } from "./core.js";
+import type { ExecutionLaunch } from "./execution-contract.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 import { cursorParentFromRequest } from "./cursor-parent-receiver.js";
@@ -25,6 +26,9 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
   decodeParent(client: string, meta: unknown): unknown | null;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
   observeNativeSessions?(): unknown;
+  // Synchronous product primitive only. An injected runtime with no primitive
+  // remains unsupported; it must not call the default core by individual fallback.
+  closeExpectedSession?(expected: ExecutionLaunch): void;
 }
 const localProducerRuntime: ParentProducerRuntime = {
   ...localParentWorkerRuntime,
@@ -34,6 +38,7 @@ const localProducerRuntime: ParentProducerRuntime = {
     ?? cursorParentFromRequest(client, { hookRoot: path.join(stateRoot(), "cursor-parent-hooks") }),
   observeDone: observeAgentDone,
   observeNativeSessions: observeExecutionNativeCreationScope,
+  closeExpectedSession: closeExpectedAgentSession,
 };
 export function createExecutionParentProducer(input: {
   profile: steer.ProductProfile; expectedScope: ExecutionWorkerScope; provider?: SteerProvider;
@@ -58,13 +63,21 @@ export function createExecutionParentProducer(input: {
   const observe = (session: string) => { assertScope(); return runtime.observeSessionGeneration(session); };
   const sourceEvidence = createParentSourceEvidence({ decode: (client, meta) => { assertScope(); return runtime.decodeParent(client, meta); },
     observeParentProcess: session => { assertScope(); return runtime.observeParentProcess(session); } });
+  let service!: ExecutionService;
   const executionRuntime = createExecutionRuntime({ sourceEnvironment,
     observeSession: observe, observeSessionSync: observe,
     ...(typeof runtime.observeNativeSessions === "function" ? { observeNativeSessionsSync: () => {
       assertScope(); return runtime.observeNativeSessions!();
     } } : {}),
-    observeDone: (session, options) => { assertScope(); return runtime.observeDone(session, options); } });
-  const service = new ExecutionService(store, executionRuntime);
+    observeDone: (session, options) => { assertScope(); return runtime.observeDone(session, options); },
+    guardedClose: async expected => {
+      if (typeof runtime.closeExpectedSession !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      assertScope();
+      // Await even a malformed injected async implementation so a refusal
+      // from its expired synchronous frame remains an observed result.
+      await service.withExpectedCloseEffect(expected, () => runtime.closeExpectedSession!(expected));
+    } });
+  service = new ExecutionService(store, executionRuntime);
   const parent = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe,
     verifyParentEndpoint: createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") }) });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence, observeSessionGenerationSync: observe,

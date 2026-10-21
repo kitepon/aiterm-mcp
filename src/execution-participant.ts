@@ -15,11 +15,12 @@ const functions = ["scope", "actor", "observeParentProcess", "observeSessionGene
 
 function snapshotRuntime(input: ParentProducerRuntime): ParentProducerRuntime {
   for (const name of functions) if (typeof input[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  if (input.observeNativeSessions !== undefined && typeof input.observeNativeSessions !== "function")
+  const optional = ["observeNativeSessions", "closeExpectedSession"] as const;
+  for (const name of optional) if (input[name] !== undefined && typeof input[name] !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   // Capture function references before construction; later replacement of an
   // ingress options object must not replace an observer or the env supplier.
-  return Object.fromEntries([...functions, ...(input.observeNativeSessions ? ["observeNativeSessions" as const] : [])]
+  return Object.fromEntries([...functions, ...optional.filter(name => input[name] !== undefined)]
     .map(name => [name, input[name]!.bind(input)])) as unknown as ParentProducerRuntime;
 }
 

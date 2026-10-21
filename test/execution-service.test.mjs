@@ -260,6 +260,19 @@ test('expected-close native admission requires the persisted stop slot and permi
   assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
   assert.equal(nativeEffects, 1);
 });
+test('expected-close gate rejects generation replacement at the native issuance boundary', async () => {
+  const f = fixture(), replacement = { ...A, launch_id: 'e'.repeat(32) }; let effects = 0;
+  f.runtime.close = async expected => f.service.withExpectedCloseEffect(expected, () => {
+    // Simulate a replacement after the primitive's last preflight observation.
+    f.live.set(A.session_id, replacement);
+    bindExecutionNativeTarget(expected.session_id, '$7');
+    guardTmuxExecution(['kill-session', '-t', '$7']); effects++;
+    f.live.delete(A.session_id);
+  });
+  const result = await f.service.stop(stop([A]));
+  assert.equal(effects, 0); assert.deepEqual(f.live.get(A.session_id), replacement);
+  assert.equal(result.targets[0].outcome, 'replaced');
+});
 test('an existing native MCP request reference covers an empty launch without inventing a turn cursor', async () => {
   const f = fixture(); f.live.delete(B.session_id);
   const args = f.registration('ignored', A, B, null);

@@ -29,6 +29,10 @@ source環境の既存8名は一度だけ読み、必要な値だけを固定し�
 呼出側のprovider/profile/runtime methodの差替えは構築済みparticipantへ混入させず、現在のscope/actorの変化は作用前に拒否する。
 親managerの保存先とownerも同じscope/actorへ照合する。別processのhookはactorを流用せず、自分のworker factoryで接続する。
 注入runtimeへ欠けたparent依存を既定OS処理で補わず、完全なfake依存を要求する。このfactoryも通常mainには未注入。
+同producer serviceの停止closeは、既存のissued close slotを持つ間だけ同期の期待世代primitiveへ渡す。
+実killの直前にもruntimeの同期世代読取を通し、scope/actor/期待launchの交代を拒否する。
+注入runtimeのclose欠測をcore既定処理で補わず、作用後の応答欠測は消失観測があってもunknown slotを保持する。
+完了の照会点は固定し、終了fenceの非同期応答後にも現在世代を確認する。実受取番/終了fenceの証拠adapterは未了。
 
 ## 目的と所有
 

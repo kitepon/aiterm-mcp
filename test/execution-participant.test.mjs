@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { setImmediate as tick } from 'node:timers/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { guardTmuxExecution } from '../dist/execution-effect.js';
+import { guardTmuxExecution, bindExecutionNativeTarget } from '../dist/execution-effect.js';
+import { closeExpectedExecution } from '../dist/execution-close.js';
 import { currentExecutionIngress } from '../dist/execution-context.js';
 import { EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
 
@@ -42,8 +43,9 @@ function fixture(t) {
     AITERM_STATE_BASE: root, TMPDIR: root, XDG_RUNTIME_DIR: root, TEMP: root, TMP: root,
     PRIVATE_UNREQUESTED_VALUE: 'not copied' };
   let sourceReads = 0, effects = 0;
-  const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id, exists: true,
-    launch_id: session_id === A.session_id ? A.launch_id : session_id === D.session_id ? D.launch_id : B.launch_id });
+  const live = new Map([A, B, D].map(launch => [launch.session_id, { ...launch }]));
+  const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id, exists: live.has(session_id),
+    launch_id: live.get(session_id)?.launch_id ?? null });
   const provider = { withDeliveryEffect() {}, DELIVERY_ADMISSION_CONTRACT: { schema: 'steer.delivery-admission.v1', native_context: true,
     cursor_profile_parameter: true, serialized_required: true, multi_delivery_emit: true },
     submitCodexParentAnswer() { assert.fail('no native queue fixture'); },
@@ -63,8 +65,23 @@ function fixture(t) {
     { session_id: B.session_id, key: 'x' }, { requestId }, async () => {
       beforeIssue(); guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); effects++; return accepted();
     });
-  return { root, actor, env, scope, options, create, send, reads: () => sourceReads, effects: () => effects };
+  return { root, actor, env, scope, live, options, create, send, reads: () => sourceReads, effects: () => effects };
 }
+function enableClose(f, beforeEffect = () => {}, afterEffect = () => {}) {
+  const effects = [], native = new Map([A, B, D].map((launch, i) => [launch.session_id, '$' + (i + 1)]));
+  f.options.runtime.closeExpectedSession = expected => closeExpectedExecution(expected, {
+    sessions: () => ({ state: 'known', sessions: [...f.live.keys()].map(session_id => ({ session_id, native_id: native.get(session_id) })) }),
+    launch: name => f.live.get(name) ?? null,
+    kill: nativeId => {
+      beforeEffect(expected);
+      bindExecutionNativeTarget(expected.session_id, nativeId);
+      guardTmuxExecution(['kill-session', '-t', nativeId]);
+      effects.push({ ...expected }); f.live.delete(expected.session_id); afterEffect(expected); return { code: 0 };
+    },
+  });
+  return effects;
+}
+const stop = roots => ({ schema: 'aiterm.cascade-stop-request.v1', roots });
 async function connect(t, participant, name = 'synthetic-native-client') {
   const client = new Client({ name, version: 'synthetic' }), [a, b] = InMemoryTransport.createLinkedPair();
   await participant.server.connect(b); await client.connect(a);
@@ -182,4 +199,67 @@ test('real SDK tools/call reaches the actual core key through the composed parti
   const result = await client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   assert.equal(result.isError, undefined); assert.equal(keys, 1); assert.equal(f.reads(), 1);
   assert.deepEqual(result._meta[BINDING].source.point, point(A)); assert.deepEqual(result._meta[BINDING].target.launch, B);
+});
+test('composed stop closes each reached expected launch once and keeps an unrelated generation alive', async t => {
+  const f = fixture(t), effects = enableClose(f), p = f.create(); await f.send(p);
+  const result = await p.service.stop(stop([A]));
+  assert.deepEqual(effects, [A, B]); assert.deepEqual(f.live.get(D.session_id), D);
+  assert.equal(result.status, 'partial'); assert.equal(result.relation_coverage, 'incomplete');
+  assert.ok(result.unresolved.some(value => value.reason === 'relation_coverage_incomplete'));
+  assert.ok(result.targets.every(value => value.outcome === 'closed'));
+  await p.service.stop(stop([A])); assert.equal(effects.length, 2);
+});
+test('an injected participant without close primitive stays unsupported without a default core fallback', async t => {
+  const f = fixture(t), p = f.create();
+  const result = await p.service.stop(stop([B]));
+  assert.equal(result.targets[0].outcome, 'unsupported'); assert.deepEqual(f.live.get(B.session_id), B);
+  assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), []);
+});
+test('scope, actor and generation drift after close preflight cannot cross the actual native issuance gate', async t => {
+  for (const change of ['scope', 'actor', 'generation']) {
+    const f = fixture(t), replacement = { ...B, launch_id: 'e'.repeat(32) };
+    const effects = enableClose(f, () => {
+      if (change === 'scope') f.scope.multiplexer.key = join(f.root, 'changed.sock');
+      if (change === 'actor') f.actor.started_identity = '2026-10-21T11:02:00Z';
+      if (change === 'generation') f.live.set(B.session_id, replacement);
+    });
+    const p = f.create(), result = await p.service.stop(stop([B]));
+    assert.equal(effects.length, 0); assert.ok(f.live.has(B.session_id));
+    assert.equal(result.targets[0].outcome, change === 'generation' ? 'replaced' : 'unknown');
+  }
+});
+test('lost close receipt after an effect remains unknown across reconstruction despite observed absence and is never retried', async t => {
+  const f = fixture(t), effects = enableClose(f, undefined, () => { throw Error('synthetic lost native receipt'); });
+  const p = f.create(), result = await p.service.stop(stop([B]));
+  assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].outcome, 'unknown');
+  assert.equal(effects.length, 1); assert.equal(f.live.has(B.session_id), false);
+  const rebuilt = f.create(), repeated = await rebuilt.service.stop(stop([B]));
+  assert.equal(repeated.targets[0].outcome, 'unknown'); assert.equal(effects.length, 1);
+  const slots = await rebuilt.store.transaction(state => state.slots, { readOnly: true });
+  assert.equal(slots[0].state, 'unknown'); assert.equal(slots[0].expected_launch_id, B.launch_id);
+});
+test('an injected async close cannot issue a late native effect outside its synchronous close frame', async t => {
+  const f = fixture(t); let effects = 0;
+  f.options.runtime.closeExpectedSession = async expected => {
+    await tick(); bindExecutionNativeTarget(expected.session_id, '$2');
+    guardTmuxExecution(['kill-session', '-t', '$2']); effects++; f.live.delete(expected.session_id);
+  };
+  const p = f.create(), result = await p.service.stop(stop([B]));
+  assert.equal(result.targets[0].outcome, 'unknown'); assert.equal(effects, 0); assert.ok(f.live.has(B.session_id));
+});
+test('local native done cannot retire a composed branch without an invocation fence or complete participant evidence', async t => {
+  const f = fixture(t), effects = enableClose(f);
+  f.options.runtime.observeDone = async session_id => ({ schema: 'aiterm.agent-wait-result.v1', session_id,
+    launch_id: B.launch_id, outcome: 'done', operation_id: null, turn_id: 'synthetic-native-turn' });
+  const p = f.create(), receipt = await p.dispatcher.dispatch('pty_send', { session_id: B.session_id, text: 'synthetic' }, { requestId: 77 }, async () => {
+    guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']);
+    return { ...accepted(), structuredContent: { ...accepted().structuredContent, mode: 'agent_dispatch', event_cursor: 17 } };
+  });
+  const binding = receipt._meta[BINDING];
+  const finished = await p.service.execute({ action: 'finish', request: binding.request,
+    evidence: { kind: 'completion', target: binding.target } });
+  assert.equal(finished.relation.completion, 'completed'); assert.equal(finished.relation.target_fence, 'unknown');
+  assert.equal(finished.relation.lifecycle, 'tracking');
+  const stopped = await p.service.stop(stop([A]));
+  assert.deepEqual(effects, [A, B]); assert.equal(stopped.status, 'partial');
 });

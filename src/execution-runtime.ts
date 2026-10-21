@@ -113,6 +113,9 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
     },
     async completion(point) {
       const unknown = { state: "unknown", fence: "unknown" } as const;
+      const fixed = executionPointSchema.safeParse(point);
+      if (!fixed.success) return unknown;
+      point = fixed.data;
       if (!point.boundary) return unknown;
       const before = await observe(point.launch.session_id);
       if (before.state !== "present" || !same(before.launch, point.launch)) return unknown;
@@ -137,7 +140,10 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
         // core's typed error means the harness recorded a terminal turn error;
         // generic MCP/RPC errors do not satisfy waitSchema and cannot get here.
         if (result.outcome !== "done" && result.outcome !== "error") return unknown;
-        const fence = await bindings.invocationFence?.(point).catch(() => "unknown" as const) ?? "unknown";
+        const evidence = await bindings.invocationFence?.(structuredClone(point)).catch(() => "unknown" as const) ?? "unknown";
+        const final = await observe(point.launch.session_id);
+        if (final.state !== "present" || !same(final.launch, point.launch)) return unknown;
+        const fence = evidence === "closed" ? "closed" : "unknown";
         return { state: "completed", fence };
       } catch { return unknown; }
     },

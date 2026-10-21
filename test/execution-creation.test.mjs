@@ -10,7 +10,9 @@ import { FileExecutionStore } from '../dist/execution-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
-import { agentMetadataPath } from '../dist/agent-shared.js';
+import { agentMetadataPath, stateRoot } from '../dist/agent-shared.js';
+import { SOCK } from '../dist/tmux-runtime.js';
+import { createExecutionParticipant } from '../dist/execution-participant.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
 import { withExecutionEffectScope, guardTmuxExecution, captureExecutionCreatedNative,
   bindExecutionCreatedLaunch, prepareExecutionCreation } from '../dist/execution-effect.js';
@@ -37,7 +39,8 @@ function fixture(t, scenario = 'accepted') {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   process.env.CODEX_BIN = process.execPath; // exists, but is never executed
   process.env.AITERM_TMUX = 'tmux';
-  const store = new FileExecutionStore(directory), native = new Map([[A.session_id, { id: '$70', name: A.session_id }]]);
+  let store = new FileExecutionStore(directory);
+  const native = new Map([[A.session_id, { id: '$70', name: A.session_id }]]);
   if (scenario === 'no-server') native.clear();
   if (scenario === 'mixed-server') native.set('bot-other', { id: '$69', name: 'bot-other' });
   const effects = [], queries = [], errors = [];
@@ -119,10 +122,29 @@ function fixture(t, scenario = 'accepted') {
       }
     } });
   service = new ExecutionService(store, runtime, 5);
-  const dispatcher = createExecutionDispatcher({ service,
+  let dispatcher = createExecutionDispatcher({ service,
     sourceEnvironment: { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
     nativeIdentity: { pid: 1234, started_identity: 'synthetic-serving-process' }, initializedClientName: () => 'codex',
     observeSessionGeneration: observe });
+  if (scenario === 'participant') {
+    const actor = { pid: process.pid, started_identity: '2026-10-21T12:00:00Z' };
+    const scope = { state_root: stateRoot(), multiplexer: { kind: 'socket', key: SOCK } };
+    const unsupported = () => assert.fail('no native parent fixture');
+    const participant = createExecutionParticipant({ expectedScope: scope,
+      profile: { id: 'synthetic-native-close', state_root: () => scope.state_root },
+      provider: { withDeliveryEffect() {}, DELIVERY_ADMISSION_CONTRACT: { schema: 'steer.delivery-admission.v1', native_context: true,
+        cursor_profile_parameter: true, serialized_required: true, multi_delivery_emit: true },
+        submitClaudeParentAnswer: unsupported, submitCodexParentAnswer: unsupported, submitCursorParentAnswer: unsupported },
+      runtime: { scope: () => structuredClone(scope), actor: () => ({ ...actor }),
+        observeParentProcess: unsupported, decodeParent: () => null,
+        sourceEnvironment: () => ({ AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id }),
+        observeSessionGeneration: observe, observeNativeSessions: core.observeExecutionNativeCreationScope,
+        closeExpectedSession: core.closeExpectedAgentSession, observeDone: unsupported },
+      parentDependencies: { processes: () => [{ ...actor }], exists: () => true, now: () => 0, wall: () => 0,
+        observe: unsupported, answer: unsupported, verify: unsupported }, claudeRuntime: { running: () => true } });
+    service = participant.service; store = participant.store; dispatcher = participant.dispatcher;
+    t.after(() => participant.server.close());
+  }
   return { name, store, service, runtime, native, effects, queries, errors, creates: () => creates,
     restartServer: () => { serverStarted = 'Wed Oct 21 09:02:00 2026'; },
     async launch() {
@@ -135,6 +157,18 @@ function fixture(t, scenario = 'accepted') {
       });
     } };
 }
+test('composed participant connects actual creation metadata and core expected close through its own durable slot', posix, async t => {
+  const f = fixture(t, 'participant'), receipt = await f.launch();
+  assert.equal(receipt.isError, undefined);
+  const expected = { session_id: f.name, launch_id: receipt.structuredContent.launch_id };
+  const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
+  assert.equal(stopped.targets[0].outcome, 'closed'); assert.equal(stopped.status, 'partial');
+  assert.equal(stopped.relation_coverage, 'incomplete'); assert.equal(f.native.has(f.name), false);
+  assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
+  const again = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
+  assert.equal(again.targets[0].outcome, 'already_closed');
+  assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
+});
 test('only an exact new-session receipt binds native ownership, and every later target is rewritten to that ID', () => {
   const received = [], launch = { session_id: 'bot-new', launch_id: 'b'.repeat(32) };
   withExecutionEffectScope('bot-new', () => {}, () => {

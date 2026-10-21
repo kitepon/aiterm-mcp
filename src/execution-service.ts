@@ -159,6 +159,12 @@ export class ExecutionService {
           if (!stopped(state, expected) || !state.slots.some(slot => slot.session_id === expected.session_id
             && slot.expected_launch_id === expected.launch_id && slot.stage === "close" && slot.state === "issued" && slot.request === null))
             throw new ExecutionError("EXECUTION_UNCONFIRMED", "not_started");
+          if (!this.runtime.observeSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          const current = this.runtime.observeSync(expected.session_id);
+          if (current.state === "unknown" || (current.state === "present" && !current.launch))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (current.state !== "present" || !same(current.launch, expected))
+            throw new ExecutionError("EXECUTION_STALE_GENERATION");
         }, { readOnly: true });
         issued = true;
       }, body);

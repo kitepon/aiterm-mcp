@@ -686,6 +686,19 @@ MCP actorをserializeして流用しない。
 この組立ては隔離constructorまでであり、default factory/native観測の実受入や静的profile/通常stdioへのmountではない。
 全core直接入口・全参加process inventory・実終了fence/復旧が未了のためcoverage incompleteを維持する。
 
+同producer serviceのguarded closeは`withExpectedCloseEffect`で、その期待世代の停止印・発行済みclose slotを
+照合してから同期の`closeExpectedSession`へ渡す。default primitiveは既存POSIXの厳格なcore closeであり、
+注入runtimeでこの欄が無い場合はunsupported。個別のcore/OS fallbackを行わない。
+native kill直前のgateでも同期generation observerを呼び、scope/actor/期待launchを再照合する。
+preflight後の同名replacementを許さず、作用後の応答欠測を消失観測やservice再構築で成功へ変えない。
+そのunknown slotは後続の同名作用を抑止し、closeを自動再発行しない。
+期待closeのframeは同期primitive用であり、注入callbackが非同期に遅らせた作用は失効frameで拒否する。
+返されたPromise自体はawaitし、遅着拒否を観測不能なPromiseへ捨てない。
+
+完了adapterは元のpointを固定し、終了fence callbackにもそのコピーを渡す。fence応答後の世代再照合が欠測/交代なら
+完了を未確認とし、旧branchを退役させない。単なるnative doneではfence unknownを維持する。
+これはfenceの世代検証であり、native受取番alias・全参加者のmandatory受付・実終了fence証拠そのものの実装ではない。
+
 ## 結果と残実装
 
 ```ts

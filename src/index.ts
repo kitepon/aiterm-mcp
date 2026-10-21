@@ -18,6 +18,11 @@ import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
 import { createRequire } from "node:module";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { ExecutionError, executionErrorResult } from "./execution-wire.js";
+import type { createExecutionDispatcher } from "./execution-dispatch.js";
+import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
@@ -34,16 +39,51 @@ import { SEAT_TURNS_RESULT_META_KEY, STEER_RESULT_META_KEY } from "./steer-follo
 // 除去済み＝どちらの静的構文も 18〜22 全域を満たせないため（実行時 require が唯一全域で動く）。
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
+export interface AitermServerExecution {
+  dispatcher: ReturnType<typeof createExecutionDispatcher>;
+  parentExecution: ParentManagerExecution;
+  parentDependencies?: ConstructorParameters<typeof ParentDeliveryManager>[0] extends infer T
+    ? T extends { dependencies?: infer D } ? D : never : never;
+  parentRoot?: string;
+}
+
+/** Constructor for isolated transport acceptance. main never supplies the
+ * private execution factory until runtime/participant coverage is complete.
+ * Importing this module neither connects stdio nor runs diagnostics/reporters.
+ */
+export function createAitermServer(options: { execution?: (server: McpServer) => AitermServerExecution } = {}): McpServer {
 const server = new McpServer({ name: "aiterm", version: pkg.version });
+const supplied = options.execution?.(server);
+if (options.execution && (!supplied || typeof supplied.dispatcher?.dispatch !== "function"
+  || typeof supplied.parentExecution?.bind !== "function" || typeof supplied.parentExecution?.submit !== "function"
+  || typeof supplied.parentExecution?.captureEndpointEvidence !== "function")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+const execution = supplied ? { ...supplied, parentExecution: { ...supplied.parentExecution },
+  dispatcher: { dispatch: supplied.dispatcher.dispatch.bind(supplied.dispatcher) } } : null;
 // 誤りの返りでは、Claude Code親は受け口のPostToolUse hookを走らせず、配送を結ばなかった呼び出しの置き場が残る。
 // 返す前にここで消す（ADR 0096）。McpServerは入力の検査の失敗やhandlerの例外も誤りの返りへ変えるので、
 // toolごとのhandlerではなくtools/callの返りを見る。McpServerがそのhandlerを置くのは最初のtool登録の時で、その前に包む。
 const setRequestHandler = server.server.setRequestHandler.bind(server.server) as (schema: unknown, handler: unknown) => void;
 server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown, extra: { _meta?: unknown }) => unknown) =>
   setRequestHandler(schema, schema !== CallToolRequestSchema ? handler : async (request: unknown, extra: { _meta?: unknown }) => {
-    const result = await handler(request, extra) as { isError?: boolean } | undefined;
+    let result: { isError?: boolean } | undefined;
+    let cleanupExtra = extra;
+    if (execution) {
+      const fixed = structuredClone(request) as { params?: { name?: unknown; arguments?: unknown; task?: unknown; _meta?: unknown } };
+      const fixedExtra = { ...extra, _meta: extra._meta === undefined ? undefined : structuredClone(extra._meta) };
+      cleanupExtra = fixedExtra;
+      if (!fixed.params || typeof fixed.params.name !== "string") result = await handler(fixed, fixedExtra) as typeof result;
+      else if (fixed.params.task !== undefined) result = executionErrorResult(new ExecutionError("EXECUTION_UNSUPPORTED"));
+      else result = await execution.dispatcher.dispatch(fixed.params.name,
+        (fixed.params.arguments ?? {}) as Record<string, unknown>, fixedExtra, async (args, context) => {
+          cleanupExtra = context;
+          return await handler({ ...fixed, params: { ...fixed.params, arguments: args, _meta: context._meta } }, context) as {
+            content: { type: "text"; text: string }[]; isError?: boolean;
+            structuredContent?: Record<string, unknown>; _meta?: Record<string, unknown>;
+          };
+        });
+    } else result = await handler(request, extra) as typeof result;
     // 片付けの失敗で返りを変えない。残った置き場は、後の依頼のhookが見回って消す。
-    if (result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, extra._meta); } catch { /* 見回りへ回す */ }
+    if (result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, cleanupExtra._meta); } catch { /* 見回りへ回す */ }
     return result;
   })) as typeof server.server.setRequestHandler;
 let parentDelivery: ParentDeliveryManager | null = null;
@@ -58,12 +98,14 @@ function deliveryParentKind(clientName: string | undefined): "claude" | "cursor"
 }
 
 async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): Promise<DeliveryRequest | null> {
+  if (execution && remote) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const clientName = server.server.getClientVersion()?.name;
   const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
   if (!parent) return null;
   const manager = remote
     ? (remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName), remote: true }))
-    : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName) }));
+    : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName),
+      ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies, root: execution.parentRoot } : {}) }));
   await manager.prepare(parent);
   return manager.request(parent);
 }
@@ -1323,7 +1365,6 @@ registerAgentTool(
     "model／reasoning_effortを引数で指定可。read-only sandboxとagent_configureに対応。",
 );
 
-async function main(): Promise<void> {
   // 親ホストを initialize の clientInfo.name から確定させ、receipt の完了待ちコマンドを
   // そのホストの実際の起動形で名指しする（実測: claude-code は initialize → notifications/initialized
   // → tools/list の順で送るため、どの tool 呼び出しより先に確定する）。取れない時は汎用文へ落ちるだけ。
@@ -1331,21 +1372,31 @@ async function main(): Promise<void> {
     const name = server.server.getClientVersion()?.name;
     core.setParentClient(name ?? null);
     if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
-      parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name) });
-      remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
+      parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name),
+        ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies, root: execution.parentRoot } : {}) });
+      if (!execution) remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
     }
   };
   server.server.onclose = () => {
     void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
     void remoteParentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
   };
+  return server;
+}
+
+async function main(): Promise<void> {
+  const server = createAitermServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // 受け口がまだ受け取っていない実行時エラーがあれば、別processで送る（明示して有効にした端末だけ。既定では何も起動しない）。
   triggerRuntimeErrorReport();
 }
 
-main().catch((e) => {
+// Canonicalize argv as npm's bin entry may be a symlink. A library import must
+// never connect a real transport or start the opt-in runtime error reporter.
+let entry = false;
+try { entry = !!process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { /* imported */ }
+if (entry) main().catch((e) => {
   console.error("aiterm-mcp fatal:", e);
   process.exit(1);
 });

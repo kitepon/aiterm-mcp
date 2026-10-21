@@ -22,6 +22,8 @@ POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通�
 作成時のnative ID/server ownerをmanaged metadataへ保存し、private runtimeの世代読取と期待closeでも再照合する。
 古いmetadataの欠測を現観測で補わず、既存席の自動登録は行わない。
 証拠の無い新server起動、Windows固有のserver作成、auto-name/通常PTY/auth等はまだunsupported。
+実18 toolsのhandlerを作るconstructorは、private dispatcher/親execution callbackを明示注入して隔離SDKで検証できる。
+通常のstdio mainは注入せず、全参加process/全core作用口・native fenceが揃うまで公開有効化しない。
 
 ## 目的と所有
 

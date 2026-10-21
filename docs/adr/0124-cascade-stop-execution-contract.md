@@ -375,6 +375,18 @@ indexの全handlerへのframe供給、direct request ID/native process identity�
 auto-name、普通PTY/authのmanaged launch無しの世代、remote source-only admission、parent queue/hookのscopeは未接続。
 この状態では一般PTYをunsupportedへ変える一括有効化やpublic mountを行わない。coverageはincompleteを維持する。
 
+隔離constructor接続として`createAitermServer({execution: server => ...})`を追加した。`index.ts`が実際に
+登録する同じ18 toolsのtools/callを、SDKの既存handlerの前でdispatcherへ渡す。引数/metadataを要求時に
+detachし、SDK extraのsignal/通知関数を保持する。既存handlerは固定された引数/extraを読み、親managerも
+そのwithExecutionRequestにあるnative ingress/sourceを受ける。不完全なprivate dispatcher/親callbackは
+constructorでunsupportedとし、remote親やlegacy配送へfallbackしない。未対応task背景実行も作用前拒否する。
+
+constructorはstdio接続/終了/diagnostics/reporterを起動しない。mainの直接実行は従来どおり18 toolsを起こし、
+private execution factoryを**渡さない**。bin symlinkはcanonical pathで直接実行と判定する。native/networkを全て
+拒否するpreloadで隔離stdio子processのinitialize/tools/listを確認し、vendor CLI/PTYを起動しない。
+これは全handlerへのframe供給の隔離接続であり、全core直接入口/全参加processのmandatory scopeや
+稼働mount/coverage completeの証拠ではない。新しい公開execution toolsもここでは登録しない。
+
 `createExecutionDispatcher`は、名前が固定されたmanaged targetについて、実SDKの`extra.requestId`と
 serving processの既存pid/started_identityを内部mcp参照へ結ぶ隔離adapter。
 既存handlerはdispatcherが固定したargs/extraを使い、最初のnative作用で共有slotを発行する。

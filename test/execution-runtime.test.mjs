@@ -54,6 +54,15 @@ test('only an exact observe schema/session can report absence or a known generat
   f.observed.exists = false; f.observed.launch_id = null;
   assert.deepEqual(await runtime.observe(A.session_id), { state: 'absent' });
 });
+test('synchronous generation admission validates the same schema and never awaits a callback', () => {
+  const f = fixture();
+  assert.equal(createExecutionRuntime(f.bindings).observeSync, undefined);
+  const runtime = createExecutionRuntime({ ...f.bindings, observeSessionSync: () => f.observed });
+  assert.deepEqual(runtime.observeSync(A.session_id), { state: 'present', launch: A });
+  f.observed.session_id = 'other';
+  assert.deepEqual(runtime.observeSync(A.session_id), { state: 'unknown' });
+  assert.deepEqual(createExecutionRuntime({ ...f.bindings, observeSessionSync: () => Promise.resolve(f.observed) }).observeSync(A.session_id), { state: 'unknown' });
+});
 test('wire claims alone do not become runtime caller evidence', async () => {
   const f = fixture(), runtime = createExecutionRuntime(f.bindings);
   assert.notEqual(assessExecutionSource(point, await runtime.sourceEvidence(input)).status, 'verified');

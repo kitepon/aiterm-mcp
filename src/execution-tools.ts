@@ -2,15 +2,16 @@
 // it only after supplying the runtime evidence and mutation-path adapters.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { executionReservationSchema, executionRequestSchema, cascadeStopRequestSchema, cascadeStopResultObjectSchema,
+import { executionReservationSchema, executionRequestSchema, executionPointSchema, cascadeStopRequestSchema, cascadeStopResultObjectSchema,
   type ExecutionPoint } from "./execution-contract.js";
-import { executionFinishSchema, executionRecordSchema, executionBindingSchema,
+import { executionActionSchema, executionFinishSchema, executionRecordSchema, executionBindingSchema,
   executionRootsRequestSchema, executionRootsResultObjectSchema,
   executionRefFromMeta, executionErrorResult, ExecutionError,
   EXECUTION_BINDING_META_KEY, EXECUTION_ERROR_META_KEY,
   EXECUTION_SOURCE_META_KEY, type ExecutionTransportSource,
   type ExecutionRecord } from "./execution-wire.js";
 import { ExecutionService } from "./execution-service.js";
+import { withExecutionEffectScope } from "./execution-effect.js";
 
 type ToolResult = {
   content: { type: "text"; text: string }[];
@@ -37,11 +38,16 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
   return {
     async agent_execution(input, extra = {}) {
       try {
+        const args = executionActionSchema.parse(input);
+        // Native RPC refs belong to the serving dispatcher. A model/tool
+        // argument must not select another operation type to hide a real call.
+        if (args.action === "register" && args.reservation.request.kind === "mcp")
+          throw new ExecutionError("EXECUTION_UNSUPPORTED");
         if (!options.sourceContext && extra._meta && typeof extra._meta === "object"
           && EXECUTION_SOURCE_META_KEY in extra._meta) throw new ExecutionError("EXECUTION_UNSUPPORTED");
         // Capture and detach before entering the shared-store transaction.
         const context = options.sourceContext?.(extra);
-        const result = await service.execute(input, context === undefined ? undefined : structuredClone(context));
+        const result = await service.execute(args, context === undefined ? undefined : structuredClone(context));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result,
           _meta: executionBindingMeta(result) };
       } catch (error) { return executionErrorResult(error); }
@@ -92,15 +98,41 @@ export function registerExecutionTools(server: McpServer, service: ExecutionServ
  */
 export async function runBoundExecution(service: ExecutionService, meta: unknown, stage: "launch" | "send",
   body: () => Promise<{ result: ToolResult; target: ExecutionPoint }>, targetSessionId?: string): Promise<ToolResult> {
+  return runExecutionReceipt(service, meta, stage, body, targetSessionId, false);
+}
+
+/** The native tmux/psmux gate is installed for this body. Preflight and idle
+ * waits remain preparing; the first native effect commits the shared slot.
+ */
+export async function runDeferredBoundExecution(service: ExecutionService, meta: unknown, stage: "launch" | "send",
+  targetSessionId: string, body: () => Promise<{ result: ToolResult; target: ExecutionPoint | null }>): Promise<ToolResult> {
+  return runExecutionReceipt(service, meta, stage, body, targetSessionId, true);
+}
+
+async function runExecutionReceipt(service: ExecutionService, meta: unknown, stage: "launch" | "send",
+  body: () => Promise<{ result: ToolResult; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
+  deferred: boolean): Promise<ToolResult> {
   let observed: ToolResult | undefined;
   try {
     const ref = executionRefFromMeta(meta);
     if (!ref) throw new ExecutionError("EXECUTION_INVALID");
-    const result = await service.invoke(ref, stage, async () => {
+    const run = async () => {
       const action = await body();
-      observed = action.result;
+      if (!deferred) observed = action.result;
       return { value: action.result, target: action.target };
-    }, targetSessionId);
+    };
+    const result = deferred
+      ? await service.invokeDeferred(ref, stage, async issue => {
+        const action = await withExecutionEffectScope(targetSessionId!, issue, run);
+        // A swallowed native refusal poisons the frame. Only a cleanly returned
+        // frame has a genuine successful action receipt to preserve on binding.
+        observed = action.value;
+        return action;
+      }, targetSessionId!)
+      : await service.invoke(ref, stage, async () => {
+        const action = await run();
+        return { value: action.value, target: executionPointSchema.parse(action.target) };
+      }, targetSessionId);
     return { ...result.value, _meta: { ...result.value._meta, ...executionBindingMeta(result.record) } };
   } catch (error) {
     const failure = executionErrorResult(error);

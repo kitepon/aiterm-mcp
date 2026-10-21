@@ -21,6 +21,10 @@ const runtime = {
     const launch = readLive()[session];
     return launch ? { state: 'present', launch } : { state: 'absent' };
   },
+  observeSync(session) {
+    const launch = readLive()[session];
+    return launch ? { state: 'present', launch } : { state: 'absent' };
+  },
   async completion() { return { state: 'completed', fence: 'closed' }; },
   async close(expected) {
     const live = readLive();
@@ -47,6 +51,12 @@ process.on('message', async message => {
       await gate(id);
       return { value: 'synthetic receipt', target: message.target };
     });
+    else if (message.action === 'invokeDeferred') value = await service.invokeDeferred(message.ref, message.stage ?? 'send', async issue => {
+      if (!message.issueBeforeGate) await gate(id);
+      issue(); process.send({ event: 'native-effect', id });
+      if (message.issueBeforeGate) await gate(id);
+      return { value: 'synthetic receipt', target: message.target };
+    }, message.target.launch.session_id);
     else if (message.action === 'change') value = await service.changeSession(message.expected, 'configure', async () => {
       await gate(id);
       if (message.reject) throw new Error('synthetic lost response');

@@ -33,8 +33,23 @@ export const executionRequestSchema = z.discriminatedUnion("kind", [
     event: z.enum(["session.message", "session.reply"]), seq: z.number().int().nonnegative(),
     target_session_id: sessionId }).strict(),
   z.object({ kind: z.literal("aiterm"), launch: executionLaunchSchema, boundary: executionBoundarySchema }).strict(),
+  // Existing JSON-RPC call identity, scoped by the serving process's native
+  // identity. No new job/delivery ID is allocated for direct stdio operations.
+  z.object({ kind: z.literal("mcp"), process_pid: z.number().int().positive(),
+    process_started_identity: referenceId,
+    request_id: z.union([referenceId, z.number().int().safe()]),
+    tool: z.enum(["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_open", "pty_send", "pty_key", "pty_close",
+      "agent_configure", "agent_auth.start", "agent_auth.status", "agent_auth.cancel", "agent_approval.respond",
+      "claude_approval.respond", "claude_turn.issue"]), target_session_id: sessionId }).strict(),
 ]);
 export type ExecutionRequest = z.infer<typeof executionRequestSchema>;
+
+// Mechanical operation type, never an interpretation of the message contents.
+// Mutation admission still fences/drains non-work operations; they do not
+// become an AI invocation edge merely because they touched another seat.
+export function executionRequestStartsWork(request: ExecutionRequest): boolean {
+  return request.kind !== "mcp" || ["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_send", "claude_turn.issue"].includes(request.tool);
+}
 
 export const executionSourceClaimSchema = z.object({
   launch: executionLaunchSchema.nullable(),
@@ -135,6 +150,7 @@ function relationActivity(relations: ExecutionRelation[]): { active: Set<number>
   const uncertainRetention = new Set<number>();
   for (let i = 0; i < relations.length; i++) {
     const edge = relations[i];
+    if (!executionRequestStartsWork(edge.request)) continue;
     if (edge.lifecycle !== "retired" && edge.phase !== "unsent"
       && (edge.phase === "reserved" || edge.completion === "open" || edge.completion === "unknown" || edge.target_fence !== "closed"))
       active.add(i);
@@ -146,7 +162,7 @@ function relationActivity(relations: ExecutionRelation[]): { active: Set<number>
     changed = false;
     for (let i = 0; i < relations.length; i++) {
       const edge = relations[i];
-      if (active.has(i) || edge.lifecycle === "retired" || edge.phase === "unsent" || !edge.target) continue;
+      if (!executionRequestStartsWork(edge.request) || active.has(i) || edge.lifecycle === "retired" || edge.phase === "unsent" || !edge.target) continue;
       for (const j of active) {
         const child = relations[j];
         // A known unbound child candidate cannot silently prove the ancestor's

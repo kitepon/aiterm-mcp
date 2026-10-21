@@ -122,3 +122,28 @@ test('a different process cannot cross an issued configuration or erase its unkn
   assert.equal(two.events.filter(event => event.event === 'close').length, 0);
   assert.equal(state(two).slots[0].state, 'unknown');
 });
+test('a different MCP process cancels preparing work without waiting for its preflight or sending later', async t => {
+  const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
+  const record = (await one.call('execute', { input: register('preparing-ab') }).result).value;
+  const send = one.call('invokeDeferred', { ref: ref(record), target: point(B) });
+  await until(() => one.events.some(event => event.event === 'entered' && event.id === send.id));
+  const result = (await two.call('stop', { input: stop([A]) }).result).value;
+  assert.equal(result.status, 'stopped');
+  assert.deepEqual(two.events.filter(event => event.event === 'close').map(event => event.launch.session_id), [A.session_id]);
+  one.release(send.id);
+  assert.equal((await send.result).error.effect, 'not_started');
+  assert.equal(one.events.filter(event => event.event === 'native-effect').length, 0);
+});
+test('a different MCP process drains work that crossed its synchronous native gate', async t => {
+  const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
+  const record = (await one.call('execute', { input: register('issued-ab') }).result).value;
+  const send = one.call('invokeDeferred', { ref: ref(record), target: point(B), issueBeforeGate: true });
+  await until(() => one.events.some(event => event.event === 'entered' && event.id === send.id));
+  assert.equal(state(one).records[0].operations.send, 'issued');
+  const stopping = two.call('stop', { input: stop([A]) });
+  await until(() => state(one).stopping.some(value => value.launch_id === A.launch_id));
+  assert.equal(two.events.filter(event => event.event === 'close').length, 0);
+  one.release(send.id); assert.equal((await send.result).value.value, 'synthetic receipt');
+  assert.equal((await stopping.result).value.status, 'stopped');
+  assert.equal(one.events.filter(event => event.event === 'native-effect').length, 1);
+});

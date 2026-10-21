@@ -9,11 +9,15 @@ import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, e
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
+import { withExecutionEffectScope } from "./execution-effect.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
   sourceEvidence(input: ExecutionRegister, context?: ExecutionTransportSource): Promise<ExecutionSourceEvidence>;
   observe(sessionId: string): Promise<Observation>;
+  // Generation-only synchronous read at the first native effect. Its absence
+  // makes deferred native admission unsupported, never an async fallback.
+  observeSync?(sessionId: string): Observation;
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -57,6 +61,26 @@ function retireSettledBranches(state: ExecutionState): void {
 export class ExecutionService {
   constructor(private readonly store: ExecutionStore, private readonly runtime: ExecutionRuntime,
     private readonly drainTimeoutMs = 2000) {}
+
+  /** Wrap only the actual synchronous expected-close primitive supplied to
+   * runtime.close. It may act only while stop owns this exact issued close slot.
+   */
+  withExpectedCloseEffect<T>(input: ExecutionLaunch, body: () => T): T {
+    const expected = executionLaunchSchema.parse(input);
+    let finished = false, issued = false;
+    try {
+      return withExecutionEffectScope(expected.session_id, () => {
+        if (finished || issued) throw new ExecutionError("EXECUTION_CONFLICT", issued ? "possible" : "not_started");
+        if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+        this.store.transactionSync(state => {
+          if (!stopped(state, expected) || !state.slots.some(slot => slot.session_id === expected.session_id
+            && slot.expected_launch_id === expected.launch_id && slot.stage === "close" && slot.state === "issued" && slot.request === null))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED", "not_started");
+        }, { readOnly: true });
+        issued = true;
+      }, body);
+    } finally { finished = true; }
+  }
 
   async execute(input: unknown, context?: ExecutionTransportSource): Promise<ExecutionRecord> {
     const args = executionActionSchema.parse(input);
@@ -163,7 +187,23 @@ export class ExecutionService {
    */
   async invoke<T>(metaInput: unknown, stage: "launch" | "send",
     body: () => Promise<{ value: T; target: ExecutionPoint }>, targetSessionId?: string): Promise<{ value: T; record: ExecutionRecord }> {
+    return this.invokeInternal(metaInput, stage, () => body(), targetSessionId, false);
+  }
+
+  /** Preflight/idle waits are unissued. The serving native adapter must call
+   * issue() immediately before its first actual effect, on the same stack.
+   * Synchronous metadata admission persists issuance before any native action.
+   */
+  async invokeDeferred<T>(metaInput: unknown, stage: "launch" | "send",
+    body: (issue: () => void) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string): Promise<{ value: T; record: ExecutionRecord }> {
+    return this.invokeInternal(metaInput, stage, body, targetSessionId, true);
+  }
+
+  private async invokeInternal<T>(metaInput: unknown, stage: "launch" | "send",
+    body: (issue: () => void) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
+    deferred: boolean): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
+    if (deferred && (!this.store.transactionSync || !this.runtime.observeSync)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     await this.store.transaction(async state => {
       const record = find(state, request);
       const relation = record.relation;
@@ -177,6 +217,10 @@ export class ExecutionService {
       sourceAdmission(state, relation.source, record.source_session_id);
       if (record.reservation.source.launch && !relation.source)
         throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      if (deferred) {
+        record.operations[stage] = "preparing";
+        return; // no native effect or target slot yet; stop can cancel this
+      }
       // A previously verified runtime can have ended since reservation. Null
       // source boundaries remain valid generation edges, not semantic failures.
       if (relation.source) {
@@ -199,12 +243,59 @@ export class ExecutionService {
       if (current.state === "present" && current.launch && !relation.target) relation.target = { launch: current.launch, boundary: null };
       state.slots.push({ session_id: target.session_id, expected_launch_id: expected, stage, state: "issued", request });
     });
-    let outcome: { value: T; target: ExecutionPoint };
+    let issued = !deferred, finished = false;
+    const issue = (): void => {
+      if (finished) throw new ExecutionError("EXECUTION_CONFLICT");
+      if (issued) return;
+      this.store.transactionSync!(state => {
+        const record = find(state, request), relation = record.relation;
+        if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "preparing")
+          throw new ExecutionError("EXECUTION_CONFLICT", "not_started");
+        sourceAdmission(state, relation.source, record.source_session_id);
+        if (relation.source) {
+          const source = this.runtime.observeSync!(relation.source.launch.session_id);
+          if (source.state === "unknown" || (source.state === "present" && !source.launch)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (source.state !== "present" || !same(source.launch, relation.source.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+        }
+        const target = record.reservation.target;
+        if (state.slots.some(slot => slot.session_id === target.session_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        const expected = relation.target?.launch.launch_id ?? target.expected_launch_id;
+        const current = this.runtime.observeSync!(target.session_id);
+        this.expectTarget(current, expected, target.session_id);
+        if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
+        if ((stage === "launch" && current.state !== "absent") || (stage === "send" && current.state !== "present"))
+          throw new ExecutionError("EXECUTION_CONFLICT");
+        record.operations[stage] = "issued";
+        relation.phase = "submitted_unknown";
+        if (current.state === "present" && current.launch && !relation.target) relation.target = { launch: current.launch, boundary: null };
+        state.slots.push({ session_id: target.session_id, expected_launch_id: expected, stage, state: "issued", request });
+      });
+      issued = true;
+    };
+    const unissued = async (): Promise<ExecutionRecord> => this.store.transaction(state => {
+      const record = find(state, request);
+      if (!["preparing", "not_sent"].includes(record.operations[stage])) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+      record.operations[stage] = "not_sent";
+      record.relation.phase = record.operations.launch === "accepted" ? "invoked" : "unsent";
+      retireSettledBranches(state);
+      return view(state, record);
+    });
+    let outcome: { value: T; target: ExecutionPoint | null };
     try {
-      outcome = await body();
+      outcome = await body(issue);
+      finished = true;
+      if (!issued) return { value: outcome.value, record: await unissued() };
       outcome.target = executionPointSchema.parse(outcome.target);
     } catch (error) {
-      const certain = error instanceof ExecutionError && error.effect === "not_started";
+      finished = true;
+      if (!issued) {
+        await unissued();
+        // No native effect crossed this operation's gate, even if a preflight
+        // read/RPC failed. A duplicate invocation failed before owning preparing.
+        throw error instanceof ExecutionError ? new ExecutionError(error.code, "not_started")
+          : new ExecutionError("EXECUTION_UNCONFIRMED", "not_started");
+      }
+      const certain = !deferred && error instanceof ExecutionError && error.effect === "not_started";
       await this.store.transaction(state => {
         const record = find(state, request);
         record.operations[stage] = certain ? "not_sent" : "unknown";
@@ -221,28 +312,33 @@ export class ExecutionService {
       });
       throw certain ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     }
+    // Parsed above after issuance; null is supported only for an unissued noop.
+    const targetPoint = outcome.target!;
     const record = await this.store.transaction(async state => {
       const record = find(state, request);
       const slot = state.slots.find(value => same(value.request, request));
       if (!slot || slot.stage !== stage || record.operations[stage] !== "issued")
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       const expected = slot.expected_launch_id;
-      if (outcome.target.launch.session_id !== slot.session_id
-        || (expected !== null && outcome.target.launch.launch_id !== expected))
+      if (targetPoint.launch.session_id !== slot.session_id
+        || (expected !== null && targetPoint.launch.launch_id !== expected))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       const current = await this.runtime.observe(slot.session_id);
-      if (current.state !== "present" || !same(current.launch, outcome.target.launch))
+      const closing = request.kind === "mcp" && request.tool === "pty_close";
+      if (closing ? current.state !== "absent" : current.state !== "present" || !same(current.launch, targetPoint.launch))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       record.operations[stage] = "accepted";
       // A launch with an initial prompt already performed this reference's
       // send. Only an empty launch may be followed by a separate pty_send.
-      if (stage === "launch" && outcome.target.boundary) record.operations.send = "accepted";
-      record.relation.target = outcome.target;
+      if (stage === "launch" && targetPoint.boundary) record.operations.send = "accepted";
+      record.relation.target = targetPoint;
       record.relation.phase = "invoked";
-      record.relation.completion = "open";
-      if (stopped(state, record.relation.source?.launch) && !stopped(state, outcome.target.launch))
-        state.stopping.push(outcome.target.launch);
+      record.relation.completion = closing ? "interrupted" : "open";
+      if (closing) record.relation.target_fence = "closed";
+      if (stopped(state, record.relation.source?.launch) && !stopped(state, targetPoint.launch))
+        state.stopping.push(targetPoint.launch);
       state.slots = state.slots.filter(value => !same(value.request, request));
+      if (closing) this.interruptRelations(state, targetPoint.launch);
       return view(state, record);
     }).catch(async () => {
       // The side effect already returned, but its result could not be safely

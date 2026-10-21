@@ -9,7 +9,9 @@ import { FileExecutionStore } from '../dist/execution-store.js';
 import { planCascadeStop } from '../dist/execution-contract.js';
 import { ExecutionError, executionErrorResult, executionRefFromMeta,
   EXECUTION_REQUEST_META_KEY, EXECUTION_ERROR_META_KEY, EXECUTION_BINDING_META_KEY } from '../dist/execution-wire.js';
-import { runBoundExecution, registerExecutionTools } from '../dist/execution-tools.js';
+import { runBoundExecution, runDeferredBoundExecution, registerExecutionTools } from '../dist/execution-tools.js';
+import { beforeExecutionEffect, guardTmuxExecution, bindExecutionNativeTarget } from '../dist/execution-effect.js';
+import { closeExpectedExecution } from '../dist/execution-close.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -51,6 +53,7 @@ function fixture() {
     },
     async coverage() { return 'complete'; },
   };
+  runtime.observeSync = session => live.has(session) ? { state: 'present', launch: live.get(session) } : { state: 'absent' };
   const service = new ExecutionService(store, runtime, 500);
   const registration = (id, source = A, target = B, expected = target.launch_id) => ({ action: 'register',
     source_session_id: source.session_id,
@@ -82,6 +85,176 @@ test('source boundary null adopts a generation edge and each reference sends onl
     replayed = true; return { value: null, target: point(B) };
   }), code('EXECUTION_CONFLICT'));
   assert.equal(replayed, false);
+});
+test('deferred preflight is cancelled without waiting for idle or issuing an effect', async () => {
+  const f = fixture(), record = await f.register('deferred'), entered = deferred(), ready = deferred();
+  let effects = 0;
+  const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    entered.resolve(); await ready.promise; issue(); effects++;
+    return { value: 'receipt', target: point(B) };
+  }, B.session_id);
+  await entered.promise;
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'preparing');
+  assert.equal((await f.store.transaction(state => state.slots, { readOnly: true })).length, 0);
+  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.deepEqual(f.closes, [A]);
+  ready.resolve();
+  await assert.rejects(running, error => error.effect === 'not_started');
+  assert.equal(effects, 0);
+});
+test('a duplicate deferred invocation cannot cancel the first preparing owner', async () => {
+  const f = fixture(), record = await f.register('preparing-owner'), entered = deferred(), ready = deferred();
+  const original = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    entered.resolve(); await ready.promise; issue(); return { value: 'first', target: point(B) };
+  }, B.session_id);
+  await entered.promise;
+  let duplicates = 0;
+  await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async () => {
+    duplicates++; return { value: 'bad', target: null };
+  }, B.session_id), code('EXECUTION_CONFLICT'));
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'preparing');
+  ready.resolve(); assert.equal((await original).value, 'first');
+  assert.equal(duplicates, 0);
+});
+test('the first deferred native effect persists issuance and stop drains only the issued work', async () => {
+  const f = fixture(), record = await f.register('first-effect'), entered = deferred(), reply = deferred();
+  const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    issue(); issue(); // multiple primitive commands remain one issued operation
+    const state = f.store.transactionSync(state => state, { readOnly: true });
+    assert.equal(state.records[0].operations.send, 'issued');
+    assert.equal(state.slots.length, 1);
+    entered.resolve(); await reply.promise;
+    return { value: 'accepted', target: point(B) };
+  }, B.session_id);
+  await entered.promise;
+  const stopping = f.service.stop(stop([A]));
+  await until(async () => (await f.status(record.reservation.request)).stopping);
+  assert.equal(f.closes.length, 0);
+  reply.resolve(); assert.equal((await running).value, 'accepted');
+  assert.equal((await stopping).status, 'stopped');
+  assert.deepEqual(f.closes, [A, B]);
+});
+test('a target replaced during deferred preflight is rejected before its first native effect', async () => {
+  const f = fixture(), record = await f.register('deferred-replaced'); let effects = 0;
+  await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    f.live.set(B.session_id, launch('b', 'e')); issue(); effects++;
+    return { value: 'bad', target: point(B) };
+  }, B.session_id), code('EXECUTION_STALE_GENERATION'));
+  assert.equal(effects, 0);
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
+});
+test('synchronous effect admission refuses an async lock owner without blocking its event loop', async () => {
+  const f = fixture(), record = await f.register('sync-busy'), tried = deferred();
+  const beforeIssue = deferred(), proceed = deferred();
+  const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    beforeIssue.resolve(); await proceed.promise;
+    try { issue(); } finally { tried.resolve(); }
+    return { value: 'bad', target: point(B) };
+  }, B.session_id);
+  await beforeIssue.promise;
+  const held = deferred(), unlock = deferred();
+  const holding = f.store.transaction(async () => { held.resolve(); await unlock.promise; });
+  await held.promise; proceed.resolve();
+  await tried.promise; // resolves while the async owner still holds its lock
+  unlock.resolve(); await holding;
+  await assert.rejects(running, code('EXECUTION_BUSY'));
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
+});
+test('once the native gate was crossed even a later typed refusal remains possible and is not replayed', async () => {
+  const f = fixture(), record = await f.register('deferred-failure');
+  await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    issue(); f.live.delete(B.session_id); throw new ExecutionError('EXECUTION_STALE_GENERATION', 'not_started');
+  }, B.session_id), code('EXECUTION_UNCONFIRMED'));
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
+  assert.equal((await f.store.transaction(state => state.slots)).length, 1);
+});
+test('unissued noop and escaped old callbacks never gain permission to act later', async () => {
+  const f = fixture(), record = await f.register('noop'); let escaped;
+  const result = await f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    escaped = issue; return { value: 'already configured', target: null };
+  }, B.session_id);
+  assert.equal(result.value, 'already configured');
+  assert.equal(result.record.relation.phase, 'unsent');
+  assert.throws(() => escaped(), code('EXECUTION_CONFLICT'));
+  assert.equal((await f.store.transaction(state => state.slots)).length, 0);
+});
+test('missing synchronous observation refuses deferred execution rather than falling back to issued-before-idle', async () => {
+  const f = fixture(), record = await f.register('no-sync'); delete f.runtime.observeSync;
+  let calls = 0;
+  await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async () => {
+    calls++; return { value: 'bad', target: null };
+  }, B.session_id), code('EXECUTION_UNSUPPORTED'));
+  assert.equal(calls, 0);
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
+});
+test('the deferred MCP wrapper scopes native admission and retains its successful receipt after binding failure', async () => {
+  const f = fixture(), record = await f.register('deferred-wrapper');
+  const receipt = { content: [{ type: 'text', text: 'accepted once' }], structuredContent: { event_cursor: 5 } };
+  const result = await runDeferredBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', B.session_id,
+    async () => {
+      beforeExecutionEffect(B.session_id);
+      f.live.set(B.session_id, launch('b', 'e'));
+      return { result: receipt, target: point(B) };
+    });
+  assert.deepEqual(result.structuredContent, receipt.structuredContent);
+  assert.equal(result.isError, undefined);
+  assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'possible');
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
+});
+test('a swallowed native gate refusal cannot fabricate an accepted MCP receipt', async () => {
+  const f = fixture(), record = await f.register('swallowed-refusal');
+  const result = await runDeferredBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', B.session_id,
+    async () => {
+      try { beforeExecutionEffect(C.session_id); } catch { /* legacy handler catches a native error */ }
+      return { result: { content: [], structuredContent: { status: 'fake accepted' } }, target: point(B) };
+    });
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent, undefined);
+  assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'not_started');
+  assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
+});
+test('expected-close native admission requires the persisted stop slot and permits one captured native target', async () => {
+  const f = fixture(); let nativeEffects = 0;
+  const primitive = expected => f.service.withExpectedCloseEffect(expected, () => closeExpectedExecution(expected, {
+    sessions: () => ({ state: 'known', sessions: f.live.has(expected.session_id) ? [{ session_id: expected.session_id, native_id: '$7' }] : [] }),
+    launch: name => f.live.get(name) ?? null,
+    kill: nativeId => {
+      bindExecutionNativeTarget(expected.session_id, nativeId);
+      assert.deepEqual(guardTmuxExecution(['kill-session', '-t', nativeId]), ['kill-session', '-t', '$7']);
+      nativeEffects++; f.live.delete(expected.session_id); return { code: 0 };
+    },
+  }));
+  assert.throws(() => primitive(A), code('EXECUTION_UNCONFIRMED'));
+  assert.equal(nativeEffects, 0);
+  f.runtime.close = async expected => { primitive(expected); };
+  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.equal(nativeEffects, 1);
+});
+test('an existing native MCP request reference covers an empty launch without inventing a turn cursor', async () => {
+  const f = fixture(); f.live.delete(B.session_id);
+  const args = f.registration('ignored', A, B, null);
+  args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-native-start',
+    request_id: 41, tool: 'agent_launch', target_session_id: B.session_id };
+  const record = await f.service.execute(args);
+  const result = await f.service.invokeDeferred(ref(record.reservation.request), 'launch', async issue => {
+    issue(); f.live.set(B.session_id, B); return { value: 'launched empty', target: point(B, null) };
+  }, B.session_id);
+  assert.equal(result.record.relation.target.boundary, null);
+  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.deepEqual(f.closes, [A, B]);
+});
+test('deferred normal close binds only confirmed absence and interrupts the same-generation incoming edge', async () => {
+  const f = fixture(); await f.send(await f.register('original-ab'));
+  const args = f.registration('ignored');
+  args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-native-start', request_id: 42,
+    tool: 'pty_close', target_session_id: B.session_id };
+  const record = await f.service.execute(args);
+  const closed = await f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    issue(); f.live.delete(B.session_id); return { value: 'closed', target: point(B, null) };
+  }, B.session_id);
+  assert.equal(closed.record.relation.completion, 'interrupted');
+  assert.equal((await f.status(request('original-ab'))).relation.completion, 'interrupted');
+  assert.equal((await f.store.transaction(state => state.slots)).length, 0);
 });
 test('target generation replacement after reservation rejects before body invocation', async () => {
   const f = fixture(), record = await f.register('ab');

@@ -80,6 +80,15 @@ test('direct CLI transport cannot replace its environment source with host metad
   const raw = createExecutionToolHandlers(f.service);
   assert.equal((await raw.agent_execution(input('unconfigured'), { _meta: meta(point(A)) }))._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNSUPPORTED');
 });
+test('native RPC admission references cannot be registered through model-controlled tool arguments', async () => {
+  const f = fixture();
+  const args = input('forged-native');
+  args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-start', request_id: 1,
+    tool: 'agent_configure', target_session_id: B.session_id };
+  const result = await f.handlers.agent_execution(args, { _meta: meta(point(A)) });
+  assert.equal(result._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNSUPPORTED');
+  await assert.rejects(f.service.execute({ action: 'status', request: args.reservation.request }), value => value.code === 'EXECUTION_NOT_FOUND');
+});
 test('the actual in-memory MCP handler receives host metadata outside the register arguments', async t => {
   const f = fixture(), server = new McpServer({ name: 'synthetic-aiterm', version: '0.0.0' });
   registerExecutionTools(server, f.service, { sourceContext: extra => executionHostSourceFromMeta(extra._meta, server.server.getClientVersion()?.name) });

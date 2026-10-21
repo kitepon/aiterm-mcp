@@ -332,6 +332,49 @@ dispatch receiptのbefore_send位置と同じとは限らない。native turnの
 
 ### 共通受付へ渡す実引数と実閉鎖adapter
 
+実作用を持つhandler用に`runDeferredBoundExecution(service, meta, stage, actualTargetSessionId, body)`を追加した。
+`invokeDeferred`は、同じ既存RequestRefを`operations.launch/send=preparing`として保存してからpreflightを開始する。
+この間のrelation phaseはreservedで、target slotはまだ発行しない。重複呼出はpreparingの持ち主を上書きしない。
+停止は準備中の予約を取り消して進み、idle待ちや前提照会の終了を待たない。
+旧callbackが後から戻っても最初のnative effectで拒否する。
+
+`FileExecutionStore.transactionSync`は同じmetadata lockへ待ち無しで入る。
+asyncの持ち主が居ればBUSYを作用前に返すため、同じNodeのevent loopを止めてlock解放を待たない。
+`ExecutionRuntime.observeSync`を明示提供し、同じschema/session/launchでsource/targetを再検証する。
+`core.observeSessionGeneration`は既存一覧とmanaged metadataだけを同期で読み、OS process/画面の活動採取を省く。
+sync store/observerが無ければdeferred口はUNSUPPORTEDで、従来の発行時点へfallbackしない。
+
+native側の`execution-effect` scopeは、最初の作用直前にissueを同期commitする。
+tmux/psmuxのnew-session/send-keys/paste-buffer/respawn-pane/kill-session、buffer/環境/pipeの変更と
+Windowsの直接payload workerを同じ入口へ繋いだ。tmuxのcommand queue全件の対象を先に照合し、
+セッション名の作用先を完全一致の`=name:`へ揃える。window/pane指定は保持する。
+未知native command、global killや対象違いは拒否する。捕捉済みnative IDは期待世代close primitiveだけがbindする。
+scope内で拒否をcatchしてもframeをpoisonし、別の作用へのfallbackや偽成功receiptへ変えない。
+最初の作用前の失敗はnot_started、発行印を越えた後の失敗はpossibleとしてslotを残す。
+正規の作用成功receiptだけは、後の結合失敗でも保持する。
+
+`withExpectedCloseEffect(expected, body)`は停止印とその期待世代のissued close slotを照合し、
+その一回のnative killへscopeを供給する。通常closeのdeferred受付は、同じ期待世代の消失を後観測し、
+対応incoming relationをinterruptedへ更新する。
+
+直接stdioの参照には、既存native processのpid/started_identityと既存JSON-RPC request ID、実tool/action、
+実target_session_idを`RequestRef.kind=mcp`へ保存できる。新しい仕事IDは採番しない。
+この参照はserving dispatcherが内部生成する。公開register handlerからのmcp参照登録はUNSUPPORTEDとし、
+モデル引数でcontrol操作の名札を選びAI呼出をgraphから隠す形にはしない。
+同じprocessが扱うstdio接続の既存request IDを想定し、HTTP経路はBridgeの既存delivery/room/call参照を使う。
+launch/send/issueは実呼出edge、configure/auth/key/close等は変更受付として機械的に扱う。
+後者は停止fence/drainの対象になるが、他AIへの仕事依頼edgeを新たに作らない。
+empty launchは実launch参照とboundary=nullを保存でき、cursor=0等を捏造しない。
+
+preparingはrecord.operationsの追加状態。既存register/status/finish/stopの引数・基本結果・meta keyは維持する。
+Bridge側のstatusはaccepted/not_sentの確定以外で未確認を解かないことを確認した。
+既存の即時注入fixture用`runBoundExecution`も残すが、実preflight/idle待ちを持つ製品handlerにはdeferred口を用いる。
+
+これらは隔離実装のnative admission経路であり、現在はrequireExecutionEffectScopeを製品全体へ有効化していない。
+indexの全handlerへのframe供給、direct request ID/native process identityの実取得と参照生成、
+auto-name、普通PTY/authのmanaged launch無しの世代、remote source-only admission、parent queue/hookのscopeは未接続。
+この状態では一般PTYをunsupportedへ変える一括有効化やpublic mountを行わない。coverageはincompleteを維持する。
+
 具体的なlaunch/send handlerは`runBoundExecution(..., body, actualTargetSessionId)`の最後の引数へ
 実際に発行するimmutableな対象引数を渡す。serviceは予約と一致しない対象を作用/slot発行前に拒否する。
 返却receiptの対象違いだけを作用後に検出する形へしない。省略形は既存の注入adapter互換用であり、

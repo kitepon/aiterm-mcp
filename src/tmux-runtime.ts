@@ -8,6 +8,7 @@ import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AitermError, ptyDependencyError } from "./errors.js";
+import { guardTmuxExecution, beforeExecutionEffect } from "./execution-effect.js";
 
 // Windows ネイティブには tmux が無いため、tmux CLI 互換の native psmux を叩く
 // （POSIX = Linux/WSL2/macOS は従来どおり tmux を直接叩く。WSL 橋は e3f5fc8 で全廃）。
@@ -268,6 +269,7 @@ function runTmux(
   args: string[],
   session?: NodeJS.ProcessEnv,
 ): { code: number; stdout: string; stderr: string } {
+  args = guardTmuxExecution(args);
   // maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）や多セッションの list-sessions で
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。
   // Windows は tmux CLI 互換の native psmux を -L namespace 隔離で叩く（WSL 非依存）。
@@ -416,6 +418,7 @@ export function sendPsmuxPayload(
 ): { code: number; stdout: string; stderr: string } {
   if (!isWin) return { code: 1, stdout: "", stderr: "psmux direct send is Windows-only" };
   ensureWinPsmux(observe);
+  beforeExecutionEffect(sessionName);
   const worker = fileURLToPath(new URL("./psmux-send-worker.js", import.meta.url));
   const body = bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text;
   const result = spawnSync(process.execPath, [worker, `${WIN_NS}__${sessionName}`], {

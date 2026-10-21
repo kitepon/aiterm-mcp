@@ -24,6 +24,7 @@ export const executionStateSchema = z.object({
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 export interface ExecutionStore {
   transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
+  transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
 }
 export function emptyExecutionState(): ExecutionState {
   return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [] };
@@ -42,6 +43,32 @@ export function executionStoreDirectory(stateRoot: string, multiplexer: { kind: 
 
 export class FileExecutionStore implements ExecutionStore {
   constructor(readonly directory: string, private readonly lockTimeoutMs = 2000) {}
+  private read(): ExecutionState {
+    try { return executionStateSchema.parse(JSON.parse(fs.readFileSync(path.join(this.directory, "relations.json"), "utf8"))); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
+      return emptyExecutionState();
+    }
+  }
+  /** Native effect admission cannot await while a synchronous core call is on
+   * the stack. Use the same short metadata lock, but never block the JS thread
+   * waiting for an async owner: contention is an explicit pre-effect refusal.
+   * The callback is metadata-only; it must not issue a native effect itself.
+   */
+  transactionSync<T>(body: (state: ExecutionState) => T, options: { readOnly?: boolean } = {}): T {
+    fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    const lock = path.join(this.directory, "transaction.lock");
+    try { fs.mkdirSync(lock, { mode: 0o700 }); }
+    catch (error) {
+      throw new ExecutionError((error as NodeJS.ErrnoException).code === "EEXIST" ? "EXECUTION_BUSY" : "EXECUTION_STATE_UNAVAILABLE", "not_started");
+    }
+    try {
+      const state = this.read(), result = body(state);
+      if (result && typeof (result as { then?: unknown }).then === "function") throw new ExecutionError("EXECUTION_INVALID");
+      if (!options.readOnly) writeJson0600(path.join(this.directory, "relations.json"), executionStateSchema.parse(state));
+      return structuredClone(result);
+    } finally { try { fs.rmdirSync(lock); } catch { /* fail closed */ } }
+  }
   async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const lock = path.join(this.directory, "transaction.lock");
@@ -57,12 +84,7 @@ export class FileExecutionStore implements ExecutionStore {
       }
     }
     try {
-      let state: ExecutionState;
-      try { state = executionStateSchema.parse(JSON.parse(fs.readFileSync(statePath, "utf8"))); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
-        state = emptyExecutionState();
-      }
+      const state = this.read();
       // A callback exception commits nothing. Mutations must be prepared inside
       // this short transaction, and side effects must run after it commits.
       const result = await body(state);

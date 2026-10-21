@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
+import { bindExecutionNativeTarget } from "./execution-effect.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
@@ -1651,6 +1652,17 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   return result;
 }
 
+/** Internal generation admission read: same strict session listing/managed
+ * metadata as observeSession, without screen or OS-process activity sampling.
+ * No public tool is added. Call synchronously immediately before an effect.
+ */
+export function observeSessionGeneration(name: string): Pick<SessionObservation, "schema" | "session_id" | "exists" | "launch_id"> {
+  assertSessionName(name);
+  const exists = listSessionsResult().sessions.some(session => session.session_id === name);
+  return { schema: "aiterm.pty-observe-result.v1", session_id: name, exists,
+    launch_id: exists ? tryLoadAgentMetadata(name)?.launch_id ?? null : null };
+}
+
 export function listSessionsResult(envKeys: string[] = []): {
   schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
 } {
@@ -1901,7 +1913,10 @@ export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
       const meta = tryLoadAgentMetadata(name);
       return meta ? { session_id: meta.aiterm_session, launch_id: meta.launch_id } : null;
     },
-    kill(nativeId) { return tmux("kill-session", "-t", nativeId); },
+    kill(nativeId) {
+      bindExecutionNativeTarget(expected.session_id, nativeId);
+      return tmux("kill-session", "-t", nativeId);
+    },
   });
 }
 

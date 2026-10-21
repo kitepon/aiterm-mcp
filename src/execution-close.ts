@@ -56,7 +56,12 @@ export function closeExpectedExecution(input: ExecutionLaunch, bindings: Executi
     throw new ExecutionError(last ? "EXECUTION_STALE_GENERATION" : "EXECUTION_UNCONFIRMED", "not_started");
   try {
     if (bindings.kill(target.native_id).code !== 0) throw new Error("native close unconfirmed");
-  } catch { throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible"); }
+  } catch (error) {
+    // The single native primitive's gate can refuse before dispatch. No
+    // earlier native effect exists inside this kill callback to hide here.
+    if (error instanceof ExecutionError && error.effect === "not_started") throw error;
+    throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+  }
   const after = snapshot();
   if (after.state !== "known" || after.sessions.some(value => value.native_id === target.native_id))
     throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");

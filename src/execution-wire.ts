@@ -70,8 +70,8 @@ export const executionRecordSchema = z.object({
   source_session_id: z.string().nullable(), source: executionSourceResultSchema,
   relation: executionRelationSchema,
   operations: z.object({
-    launch: z.enum(["not_issued", "issued", "accepted", "not_sent", "unknown"]),
-    send: z.enum(["not_issued", "issued", "accepted", "not_sent", "unknown"]),
+    launch: z.enum(["not_issued", "preparing", "issued", "accepted", "not_sent", "unknown"]),
+    send: z.enum(["not_issued", "preparing", "issued", "accepted", "not_sent", "unknown"]),
   }).strict(),
   stopping: z.boolean(),
 }).strict();

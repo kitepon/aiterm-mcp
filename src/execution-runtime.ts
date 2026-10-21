@@ -46,6 +46,7 @@ const waitSchema = z.object({
 });
 export interface ExecutionRuntimeBindings {
   observeSession(session: string): unknown | Promise<unknown>;
+  observeSessionSync?(session: string): unknown;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
   // For a direct stdio transport only. Read once at factory construction, never
   // reinterpret an env change or an incoming registration as caller context.
@@ -63,16 +64,24 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 
 export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): ExecutionRuntime {
   const environmentSource = bindings.sourceEnvironment ? executionSourceFromEnvironment(bindings.sourceEnvironment) : null;
-  const observe: ExecutionRuntime["observe"] = async session => {
+  const parseObservation = (session: string, value: unknown): Awaited<ReturnType<ExecutionRuntime["observe"]>> => {
     try {
-      const result = observeSchema.parse(await bindings.observeSession(session));
+      const result = observeSchema.parse(value);
       if (result.session_id !== session) return { state: "unknown" };
       if (!result.exists) return result.launch_id === null ? { state: "absent" } : { state: "unknown" };
       return { state: "present", launch: result.launch_id ? { session_id: session, launch_id: result.launch_id } : null };
     } catch { return { state: "unknown" }; }
   };
+  const observe: ExecutionRuntime["observe"] = async session => {
+    try { return parseObservation(session, await bindings.observeSession(session)); }
+    catch { return { state: "unknown" }; }
+  };
   return {
     observe,
+    ...(bindings.observeSessionSync ? { observeSync: (session: string) => {
+      try { return parseObservation(session, bindings.observeSessionSync!(session)); }
+      catch { return { state: "unknown" } as const; }
+    } } : {}),
     async sourceEvidence(input, transportContext) {
       let context: ExecutionPoint | null = null;
       try {

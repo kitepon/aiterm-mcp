@@ -20,6 +20,7 @@ import { createParentManagerExecution, type SteerProvider } from "./execution-pa
 import { ExecutionError } from "./execution-wire.js";
 import { parentHookReference } from "./execution-parent-alias.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
+import { requireExecutionEffectScope } from "./execution-effect.js";
 
 export interface ParentProducerRuntime extends ParentWorkerRuntime {
   sourceEnvironment(): Readonly<Record<string, string | undefined>>;
@@ -87,6 +88,7 @@ export function createExecutionParentProducer(input: {
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime });
   const worker = { profile: Object.freeze(Object.assign({}, profile, { delivery_admission: createSteerExecutionAdmission(null, native) })),
     store, native, scope: structuredClone(scope), relation_coverage: "incomplete" as const };
+  requireExecutionEffectScope(true);
   return { execution, parent, native, service, store, scope: structuredClone(scope), worker,
     startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe }),
     relation_coverage: "incomplete" as const };

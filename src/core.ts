@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -445,6 +445,7 @@ function paneTtyOf(name: string): string | null {
  * agent が tty 上に実在しない時は触らない（ready gate が入力受付不能として止める）。
  */
 export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): Promise<string[]> {
+  assertExecutionContext(name);
   if (isWin) return [];
   const tty = paneTtyOf(name);
   if (!tty) return [];
@@ -927,6 +928,7 @@ function rtkRewrite(text: string): string {
 // 明示解決する（WSL 非依存の裁定に従う）。AITERM_BASH で上書き可。
 
 export function openSession(name?: string | null, shell = "bash", envVars: string[] = []): [string, string] {
+  assertExecutionContext(name);
   shell = resolveWinPaneShell(shell);
   for (const key of envVars) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_varsの環境変数名が不正です", 2);
@@ -1110,6 +1112,7 @@ function prepareSendText(text: string, o: Pick<SendOpts, "raw">): string {
 }
 
 export function send(name: string, text: string, o: SendOpts = {}): string {
+  assertExecutionContext(name);
   assertSessionName(name);
   const enter = o.enter ?? true;
   if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い（open してください）`, 2);
@@ -1244,6 +1247,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
 }
 
 export function sendKey(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): string {
+  assertExecutionContext(name);
   assertSessionName(name);
   if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い`, 2);
   const k = KEYMAP[key.toLowerCase()] ?? key;
@@ -1914,6 +1918,7 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
 }
 
 export function closeSession(name: string): string {
+  assertExecutionContext(name);
   return closeSessionInternal(name, true);
 }
 
@@ -1931,6 +1936,7 @@ export type PtyCloseResult = {
  * already_closedとなり、close完了を文字列解析なしで確定できる。
  */
 export function closeSessionResult(name: string): PtyCloseResult {
+  assertExecutionContext(name);
   assertSessionName(name);
   const existed = sessionExists(name);
   closeSessionInternal(name, true, { letHarnessExit: true });
@@ -1979,6 +1985,7 @@ export function observeExecutionNativeCreationScope(): ExecutionNativeSessions {
 
 /** Own the shared issued close slot before calling this primitive. */
 export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
+  assertExecutionContext(expected.session_id);
   const initial = observeExecutionSessionGeneration(expected.session_id);
   if (initial.exists && initial.launch_id === null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (initial.exists && initial.launch_id !== expected.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
@@ -2000,6 +2007,7 @@ export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
 }
 
 export function killAll(): string {
+  assertExecutionContext(null);
   // agentsはAITERM_STATE_BASEを共有する別socketの席も含み得る。終了対象はこのsocketから確定する。
   const sessions = new Set<string>();
   const listed = tmux("list-sessions", "-F", "#{session_name}");
@@ -2154,6 +2162,7 @@ export function runAgentApproval(options: {
   observed_prompt_digest?: string;
 }): AgentApprovalResult {
   const { action, session_id: name, approval_choice: selected, observed_prompt_digest: expected } = options;
+  if (action === "respond") assertExecutionContext(name);
   assertSessionName(name);
   if (action === "inspect" && (selected !== undefined || expected !== undefined))
     throw new AitermError("inspectでは承認選択とdigestを指定できません", 2);
@@ -2457,6 +2466,7 @@ export function runClaudeApproval({
   approval_choice?: ClaudeApprovalDecision;
   observed_prompt_digest?: string;
 }): ClaudeApprovalResult {
+  if (action === "respond") assertExecutionContext(name);
   assertSessionName(name);
   if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い`, 2);
   const meta = loadAgentMetadata(name);
@@ -4620,6 +4630,7 @@ export async function sendInitialAgentPrompt(
   text: string,
   o: InitialAgentPromptOpts = {},
 ): Promise<InitialAgentPromptResult> {
+  assertExecutionContext(name);
   assertSessionName(name);
   loadAgentMetadata(name);
   // 起動時promptの準備中に届いたpty_sendは、起動時promptを送り終えてから振り分ける（ADR 0088）。
@@ -4946,6 +4957,7 @@ function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
 export async function authenticateAgent(kind: AgentKind, options: {
   action: "start" | "status" | "cancel"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
 }): Promise<AgentAuthResult> {
+  if (options.action !== "status" || options.session_id !== undefined) assertExecutionContext(options.session_id);
   const result = (status: AgentAuthResult["status"], session: string | null, message: string | null,
     pane?: AgentAuthPane): AgentAuthResult => ({ schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind),
       status, session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
@@ -5778,6 +5790,7 @@ export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null; fast?: boolean | null },
 ): Promise<AgentConfigureResult> {
+  assertExecutionContext(name);
   assertSessionName(name);
   const model = opts.model?.trim() || null;
   const effort = opts.reasoning_effort?.trim() || null;
@@ -6115,6 +6128,7 @@ export async function dispatchAgentTurn(
   text: string,
   o: AgentDispatchOpts = {},
 ): Promise<AgentDispatchReceipt> {
+  assertExecutionContext(name);
   assertSessionName(name);
   loadAgentMetadata(name);
   return withAgentSendLock(name, () => dispatchAgentTurnInLock(name, text, o));
@@ -6388,6 +6402,7 @@ export async function sendAgentMessage(
   text: string,
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean } = {},
 ): Promise<AgentSendReceipt> {
+  assertExecutionContext(name);
   assertSessionName(name);
   loadAgentMetadata(name);
   // 前置きは、順番待ちにも入力受付の待ちにも入る前に確かめる（外れた時に待たせない）。
@@ -6551,6 +6566,7 @@ export async function runClaudeOperation({
   text?: string | null;
   before_send?: import("./agent-shared.js").BeforeAgentSend;
 }): Promise<ClaudeOperationResult> {
+  if (action === "issue") assertExecutionContext(name);
   assertSessionName(name);
   if (action !== "issue" && action !== "recover") {
     throw new AitermError('action は "issue" または "recover" を指定してください', 2);
@@ -6828,6 +6844,7 @@ export function openAgent(
     base_model?: string | null;
   } = {},
 ): [string, string] {
+  assertExecutionContext(opts.session_name);
   const label = agentLabel(kind);
   // 前提検証は session を作る前に全部済ませる（失敗の残骸 session を作らない）。
   // model/effort → bin → cwd の順: model/effort 検証は CLI 不在の端末でも同じ結果になる（テスト可能性）。
@@ -7076,6 +7093,7 @@ export async function openAgentWithInitialPrompt(
     fast?: boolean | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
+  assertExecutionContext(opts.session_name);
   const mission = opts.prompt ?? null;
   const sourceSessionId = opts.throughline_source_session ?? null;
   const supplementFile = opts.throughline_supplement_file ?? null;

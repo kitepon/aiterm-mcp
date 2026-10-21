@@ -33,6 +33,11 @@ source環境の既存8名は一度だけ読み、必要な値だけを固定し�
 実killの直前にもruntimeの同期世代読取を通し、scope/actor/期待launchの交代を拒否する。
 注入runtimeのclose欠測をcore既定処理で補わず、作用後の応答欠測は消失観測があってもunknown slotを保持する。
 完了の照会点は固定し、終了fenceの非同期応答後にも現在世代を確認する。実受取番/終了fenceの証拠adapterは未了。
+private producer/worker factoryを構築したprocessではnative effect scopeを必須にする。
+coreの公開変更入口も、打鍵や設定・認証・lock/metadata準備に入る前に対象のrequest contextを要求する。
+この入口確認はissuedへの昇格ではない。実作用時には既存の同期受付を別に通す。
+通常stdio mainはprivate factoryを使わず既定挙動を維持する。別processの未登録参加者や非同期準備中の全metadata作用を
+この入口だけで覆ったとはしない。全参加者inventoryと各実作用の接続を確認するまでcoverage incompleteを維持する。
 
 ## 目的と所有
 

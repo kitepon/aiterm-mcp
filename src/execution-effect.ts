@@ -17,6 +17,17 @@ const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
 
 export function requireExecutionEffectScope(value: boolean): void { required = value; }
+/** Check context without marking preparation as issued. Actual native effects
+ * still go through their synchronous source/target/slot gate.
+ */
+export function assertExecutionContext(session: string | null | undefined): void {
+  const scope = scopes.getStore();
+  if (!scope && !required) return;
+  if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (scope.failure) throw scope.failure;
+  if (typeof session !== "string") refuse(scope, "EXECUTION_UNSUPPORTED");
+  if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+}
 export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T, creation?: ExecutionCreationBindings): T {
   const target = executionLaunchSchema.shape.session_id.parse(session);
   const scope: EffectScope = { session: target, issue, nativeTargets: new Set(), didIssue: false, ...(creation ? { creation: { ...creation } } : {}) };

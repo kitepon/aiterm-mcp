@@ -699,6 +699,19 @@ preflight後の同名replacementを許さず、作用後の応答欠測を消失
 完了を未確認とし、旧branchを退役させない。単なるnative doneではfence unknownを維持する。
 これはfenceの世代検証であり、native受取番alias・全参加者のmandatory受付・実終了fence証拠そのものの実装ではない。
 
+### private processのcore直接入口
+
+private producer/worker factoryの成功時に、そのprocessのnative effect scopeを必須にする。
+coreのlaunch/PTY作成、send/key/close/期待close、初手/dispatch/steer、configure、auth start/cancelとsession付きstatus、
+approval respond、Claude issue、tty回復は、最初の準備前に同じ対象のrequest contextを要求する。
+scope無しや対象違いからnative/公式認証/lock・metadata準備へ進めない。名前未確定の直接作成とglobal killも拒否する。
+inspect/recoverやsession無しauth status等のread解釈は維持する。
+
+入口のcontext確認はpreparingをissuedへ変えず、native作用直前のsource/target/slot照合を省略しない。
+process modeはserver closeでlegacyへ戻さない。通常stdio mainはこれらprivate factoryを呼ばず、公開既定は変更しない。
+この拒否はguarded process内のcore入口とnative command gateに限る。別processのstatic profile/未登録worker、
+親配送の全経路、非同期準備中の各metadata作用、全参加者inventory/native終了証拠の完成を示さない。
+
 ## 結果と残実装
 
 ```ts

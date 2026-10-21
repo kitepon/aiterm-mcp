@@ -13,6 +13,7 @@ import { createParentNativeAdmission } from "./execution-parent-native.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
 import { ExecutionError } from "./execution-wire.js";
 import { parentHookReference } from "./execution-parent-alias.js";
+import { requireExecutionEffectScope } from "./execution-effect.js";
 
 export interface ExecutionWorkerScope {
   state_root: string; multiplexer: { kind: "socket" | "namespace"; key: string };
@@ -91,6 +92,7 @@ export function createExecutionParentWorker(input: {
     observeSessionGenerationSync: session => { assertScope(); return runtime.observeSessionGeneration(session); },
     verifyParentEndpoint: endpoint });
   const admission = createSteerExecutionAdmission(null, native);
+  requireExecutionEffectScope(true);
   // Queue producer is a different role. A missing original MCP/service binding
   // is unsupported, never routed through a new reservation or legacy producer.
   return { profile: Object.assign(profile, { delivery_admission: admission }), store, scope: structuredClone(expected),

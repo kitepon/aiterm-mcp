@@ -263,3 +263,23 @@ test('local native done cannot retire a composed branch without an invocation fe
   const stopped = await p.service.stop(stop([A]));
   assert.deepEqual(effects, [A, B]); assert.equal(stopped.status, 'partial');
 });
+test('a guarded participant refuses direct unframed core mutations before native probes, auth, locks or metadata preparation', async t => {
+  const f = fixture(t); f.create();
+  const core = await import('../dist/core.js');
+  for (const operation of [
+    () => core.openSession('unframed-new'), () => core.openSession(),
+    () => core.openAgent('codex', { session_name: B.session_id }),
+    () => core.openAgentWithInitialPrompt('codex', { session_name: B.session_id }),
+    () => core.send(B.session_id, 'synthetic'), () => core.sendKey(B.session_id, 'C-c'),
+    () => core.closeSession(B.session_id), () => core.closeSessionResult(B.session_id),
+    () => core.closeExpectedAgentSession(B), () => core.killAll(),
+    () => core.sendInitialAgentPrompt(B.session_id, 'synthetic'), () => core.dispatchAgentTurn(B.session_id, 'synthetic'),
+    () => core.sendAgentMessage(B.session_id, 'synthetic'), () => core.configureAgent(B.session_id, { fast: false }),
+    ...['start', 'cancel', 'status'].map(action => () => core.authenticateAgent('codex', { action, session_id: B.session_id })),
+    () => core.authenticateAgent('codex', { action: 'start' }),
+    () => core.runAgentApproval({ action: 'respond', session_id: B.session_id }),
+    () => core.runClaudeApproval({ action: 'respond', session_id: B.session_id }),
+    () => core.runClaudeOperation({ action: 'issue', session_id: B.session_id, operation_id: 'synthetic' }),
+    () => core.ensureAgentOwnsPaneInput(B.session_id, 'codex'),
+  ]) await assert.rejects(async () => operation(), code('EXECUTION_UNSUPPORTED'));
+});

@@ -65,11 +65,17 @@ function fixture(t, kind = 'codex') {
   const ok = stdout => ({ status: 0, stdout: stdout ?? '', stderr: '' });
   run = (bin, args) => {
     if (bin === '/bin/ps') {
+      if (control.allowInput && args[0] === '-t') {
+        assert.deepEqual(args, ['-t', 'synthetic-target', '-o', 'stat=,command=']); return ok('S+ claude\n');
+      }
       if (args[0] === '-axww') {
         tableReads++; if (tableReads > 1) control.afterFirstTable?.();
         return ok(`200 1 200 S Wed Oct 21 09:00:01 2026 00:00:00 bash\n201 200 200 S ${actor.started_identity} 00:00:00 ${kind} --launch ${launch_id}\n`);
       }
       assert.deepEqual(args, ['-o', 'pid=,lstart=', '-p', '4711']); return ok('4711 ' + server.started_identity + '\n');
+    }
+    if (control.allowInput && bin === '/bin/stty') {
+      assert.deepEqual(args, [process.platform === 'linux' ? '-F' : '-f', '/dev/synthetic-target', '-a']); return ok('-icanon -echo');
     }
     assert.equal(bin, 'tmux');
     if (args.length === 1 && args[0] === '-V') return ok('tmux synthetic');
@@ -80,6 +86,7 @@ function fixture(t, kind = 'codex') {
       if (format === '#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}') return ok(`${name}\tbash\t0\t80\t24\n`);
     }
     if (command[0] === 'display-message' && format === '#{pane_pid}\t#{pane_dead}') return ok('200\t0\n');
+    if (control.allowInput && command[0] === 'display-message' && format === '#{pane_tty}') return ok('/dev/synthetic-target');
     if (command[0] === 'has-session') return { ...ok(''), status: native.present ? 0 : 1 };
     if (control.allowInput && ['load-buffer', 'set-buffer', 'paste-buffer', 'delete-buffer', 'capture-pane'].includes(command[0])) {
       control.inputCommands.push(command[0]); return ok(command[0] === 'capture-pane' ? '❯\n' : '');
@@ -638,4 +645,37 @@ test('actual core Claude before_send reaches the real dispatcher binding without
   const stop = await service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] });
   assert.equal(stop.targets[0].key_receipt, 'accepted'); assert.deepEqual(stop.targets[0].run, target);
   assert.equal(stop.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
+});
+test('real SDK claude_turn handler preserves its actual core boundary into the same private stop control without a fake input handler', posix, async t => {
+  const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-real-handler-boundary-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('generic done is not native abort'); },
+  }));
+  const parent = { captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
+  const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
+    parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
+    dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+      sourceEnvironment: {}, initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration: core.observeExecutionSessionGeneration }),
+  }) });
+  registerExecutionTools(server, service, { interruptCurrentRun: true });
+  const client = new Client({ name: 'synthetic-operator', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide); await client.connect(clientSide);
+  try {
+    const submitted = await client.callTool({ name: 'claude_turn', arguments: { action: 'issue', session_id: f.name,
+      operation_id: f.point.boundary.operation_id, text: 'synthetic input' } });
+    assert.equal(submitted.isError, undefined, JSON.stringify(submitted));
+    assert.equal(submitted.structuredContent.status, 'accepted'); assert.equal(submitted.structuredContent.event_cursor, undefined);
+    const target = submitted._meta['aiterm/execution_binding'].target;
+    assert.equal(target.boundary.operation_id, f.point.boundary.operation_id); assert.equal(target.boundary.event_cursor, 1);
+    const stopped = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] } });
+    assert.equal(stopped.isError, undefined); assert.deepEqual(stopped.structuredContent.targets[0].run, target);
+    assert.equal(stopped.structuredContent.targets[0].key_receipt, 'accepted'); assert.equal(stopped.structuredContent.targets[0].interruption, 'unconfirmed');
+    assert.equal(stopped.structuredContent.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
+    const record = await service.execute({ action: 'status', request: submitted._meta['aiterm/execution_binding'].request });
+    assert.deepEqual(record.relation.target, target); assert.equal(record.relation.lifecycle, 'tracking');
+  } finally { await client.close(); await server.close(); }
 });

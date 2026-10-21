@@ -53,6 +53,7 @@ export function createExecutionParentProducer(input: {
     if (runtime[name] !== undefined && typeof runtime[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const interruption = runtime.observeInterruptionSync?.bind(runtime);
   const selectInterruption = runtime.selectInterruptionSync?.bind(runtime), interruptKey = runtime.interruptKeySync?.bind(runtime);
+  const observeActors = runtime.observeActors?.bind(runtime);
   if (typeof runtime.sourceEnvironment !== "function" || typeof runtime.decodeParent !== "function" || typeof runtime.observeDone !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = createExecutionParentEnvironment({ ...input, runtime });
@@ -92,6 +93,7 @@ export function createExecutionParentProducer(input: {
   service = new ExecutionService(store, executionRuntime);
   const producerEndpoint = createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") });
   const parent = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe,
+    observeActors: pids => { assertScope(); return observeActors?.([...pids]); },
     verifyParentEndpoint: producerEndpoint });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence, observeSessionGenerationSync: observe,
     hookReference: parentHookReference,

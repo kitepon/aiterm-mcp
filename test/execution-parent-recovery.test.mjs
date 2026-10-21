@@ -22,7 +22,7 @@ const request = { kind: 'mcp', process_pid: actor.pid, process_started_identity:
 const until = async check => { const deadline = performance.now() + 1000; while (!check()) {
   assert.ok(performance.now() < deadline); await new Promise(done => setTimeout(done, 2));
 } };
-async function fixture(t, { accepted = true, ready = false, changeExecution } = {}) {
+async function fixture(t, { accepted = true, ready = false, changeExecution, actorObserver } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'parent-recovery-')), store = new FileExecutionStore(join(root, 'graph'));
   const live = new Map([A, B].map(launch => [launch.session_id, structuredClone(launch)]));
   const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
@@ -46,7 +46,8 @@ async function fixture(t, { accepted = true, ready = false, changeExecution } = 
     observeParentProcess: session_id => ({ schema: 'aiterm.execution-parent-process.v1', source: point(live.get(session_id) ?? A),
       harness: 'claude-code', harness_process: harness, processes: nativeRows }) });
   const verifyParentEndpoint = createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: endpoint.hook_root });
-  const adapter = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe, verifyParentEndpoint });
+  const adapter = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe, verifyParentEndpoint,
+    observeActors: pids => actorObserver ? actorObserver(pids) : nativeRows.filter(row => pids.includes(row.pid)).map(({ pid, started_identity }) => ({ pid, started_identity })) });
   const proof = { schema: 'aiterm.parent-source.v1', request, source: point(A), client_name: 'claude-code',
     mcp_process: actor, harness_process: harness, endpoint: { vendor: 'claude', session_id: session, request_id: endpoint.request_id } };
   const child = point(B, 17); child.boundary.operation_id = 'sha256:' + '1'.repeat(64);
@@ -54,7 +55,7 @@ async function fixture(t, { accepted = true, ready = false, changeExecution } = 
   writeFileSync(join(endpoint.hook_root, endpoint.request_id, 'delivery.json'), JSON.stringify({ delivery_id: id }));
   let watched = 0, submissions = 0, legacyChecks = 0;
   const execution = { captureEndpointEvidence() { assert.fail('no proof recapture'); }, bind: () => assert.fail('no recovery bind'),
-    verifyRecovery: (...args) => adapter.verifyRecovery(...args), async submit() { submissions++; return { queued_submission_id: 'synthetic-queue' }; } };
+    verifyRecovery: (...args) => adapter.verifyRecovery(...args), diagnoseClaim: (...args) => adapter.diagnoseClaim(...args), async submit() { submissions++; return { queued_submission_id: 'synthetic-queue' }; } };
   changeExecution?.(execution);
   const managerRoot = join(root, 'manager');
   const manager = new ParentDeliveryManager({ root: managerRoot, execution, dependencies: {
@@ -184,4 +185,150 @@ test('a different canonical accepted cursor or retired original branch cannot au
     f.stage(); await f.manager.recover(); assert.equal(f.diagnostic().state, 'unknown');
     assert.equal(f.diagnostic().boundary.event_cursor, 17); assert.equal(f.counts().watched, 0);
   }
+});
+
+const diagnose = f => f.adapter.diagnoseClaim(id, request, f.child, f.endpoint, f.proof);
+const enrollForDiagnosis = f => f.store.transaction(state => { state.participants.push({ actor, roles: ['mcp', 'parent_producer'] }); });
+const stageClaim = f => { f.stage(); writeFileSync(join(f.root, 'manager', 'claims', B.session_id + '.json'), JSON.stringify(f.record)); };
+
+test('claim diagnosis reads original accepted cursor and exact actor without upgrading receipt, native fence or clearance', async t => {
+  const pids = [], f = await fixture(t, { actorObserver(ids) { pids.push([...ids]); return ids.map(pid => ({ pid, started_identity: actor.started_identity })); } });
+  await enrollForDiagnosis(f);
+  const file = join(f.root, 'graph', 'relations.json'), before = readFileSync(file, 'utf8');
+  const result = await diagnose(f);
+  assert.equal(result.binding, 'matched'); assert.equal(result.original.input, 'receipt_recorded');
+  assert.deepEqual(result.original.target, point(B, 17)); assert.equal(result.original.target.boundary.turn_id, null);
+  assert.equal(result.native_endpoint, 'not_observed'); assert.equal(result.native_fence, 'unknown');
+  assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none');
+  assert.equal(result.inventory.participant_discovery, 'unproven'); assert.equal(result.inventory.relation_coverage, 'incomplete');
+  assert.equal(result.inventory.participants[0].native_identity, 'matched'); assert.deepEqual(pids, [[actor.pid]]);
+  result.original.target.boundary.event_cursor = 999;
+  assert.equal(readFileSync(file, 'utf8'), before); assert.equal(f.counts().watched, 0);
+});
+
+test('only explicit unsent/not_sent metadata distinguishes recorded non-issuance; preparing/issued/unknown and merely reserved do not', async t => {
+  for (const phase of ['not_issued', 'preparing', 'issued', 'unknown', 'not_sent']) {
+    const f = await fixture(t, { accepted: false });
+    await f.store.transaction(state => { state.records[0].operations.send = phase; if (phase === 'not_sent') state.records[0].relation.phase = 'unsent'; });
+    const result = await diagnose(f);
+    assert.equal(result.original.input, phase === 'not_sent' ? 'not_sent_recorded' : 'unconfirmed');
+    assert.equal(result.returning, null); assert.ok(result.missing.includes('return_request_unrecorded'));
+    assert.equal(result.clearance, 'retained'); assert.equal(result.native_fence, 'unknown');
+  }
+});
+
+test('lost binding never becomes inferred correspondence; matching unsent source metadata remains a diagnostic fact only', async t => {
+  const f = await fixture(t, { accepted: false });
+  await f.store.transaction(state => { state.parent_deliveries = []; state.records[0].operations.send = 'not_sent'; state.records[0].relation.phase = 'unsent'; });
+  const result = await diagnose(f);
+  assert.equal(result.binding, 'missing'); assert.equal(result.original.input, 'not_sent_recorded');
+  assert.ok(result.missing.includes('binding_missing')); assert.equal(result.clearance, 'retained');
+  assert.equal((await f.store.transaction(state => state.parent_deliveries, { readOnly: true })).length, 0);
+});
+
+test('existing mismatched source proof, request, cursor or endpoint cannot pick another latest record or actor', async t => {
+  const f = await fixture(t); await enrollForDiagnosis(f);
+  for (const args of [[id, { ...request, request_id: 92 }, f.child, f.endpoint, f.proof],
+    [id, request, point(B, 18), f.endpoint, f.proof], [id, request, f.child, { ...f.endpoint, request_id: 'toolu_changed' }, f.proof],
+    [id, request, f.child, f.endpoint, undefined]]) {
+    const result = await f.adapter.diagnoseClaim(...args);
+    assert.notEqual(result.binding, 'matched'); assert.ok(result.original === null || result.original.input === 'unconfirmed');
+    assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none');
+  }
+  await f.store.transaction(state => { state.records[0].source.point = point({ ...A, launch_id: 'e'.repeat(32) }); });
+  const inconsistent = await diagnose(f);
+  assert.equal(inconsistent.original.input, 'unconfirmed');
+  assert.ok(inconsistent.missing.includes('original_correspondence_unconfirmed'));
+});
+
+test('same-name replacement slots are excluded while exact or generation-missing slots and orphan effects remain visible', async t => {
+  const f = await fixture(t); await enrollForDiagnosis(f);
+  await f.store.transaction(state => {
+    state.slots.push({ session_id: B.session_id, expected_launch_id: B.launch_id, stage: 'send', state: 'unknown', request },
+      { session_id: B.session_id, expected_launch_id: null, stage: 'configure', state: 'unknown', request: null },
+      { session_id: B.session_id, expected_launch_id: 'e'.repeat(32), stage: 'send', state: 'issued', request: null });
+    state.parent_effects.push({ delivery_id: id, stage: 'emit', state: 'unknown', actor: { pid: 303, started_identity: '2026-10-21T20:00:03Z' } });
+  });
+  const result = await diagnose(f);
+  assert.equal(result.slots.length, 2); assert.equal(result.parent_effects.length, 1);
+  assert.equal(result.parent_effects[0].actor.pid, 303); assert.ok(result.missing.includes('related_slots_present'));
+  assert.ok(result.missing.includes('native_actor_inventory_incomplete'));
+  assert.equal(result.original.input, 'receipt_recorded'); assert.equal(result.clearance, 'retained');
+});
+
+test('source PID absent, reused or async observations stay unavailable and never imply completion or current caller substitution', async t => {
+  for (const actorObserver of [() => [], () => [{ pid: actor.pid, started_identity: '2026-10-21T20:01:00Z' }],
+    () => Promise.reject(Error('synthetic asynchronous native probe missing'))]) {
+    const f = await fixture(t, { actorObserver }); await enrollForDiagnosis(f); const result = await diagnose(f);
+    assert.notEqual(result.inventory.participants[0].native_identity, 'matched');
+    assert.ok(result.missing.includes('native_actor_inventory_incomplete')); assert.equal(result.native_fence, 'unknown');
+    assert.equal(result.clearance, 'retained'); assert.equal(result.original.input, 'receipt_recorded');
+  }
+});
+
+test('local ready/done state and source actor status do not replace the original missing receipt or create a parent return', async t => {
+  const f = await fixture(t, { accepted: false, ready: true }); await enrollForDiagnosis(f); stageClaim(f);
+  const claimFile = join(f.root, 'manager', 'claims', B.session_id + '.json'), before = readFileSync(claimFile, 'utf8');
+  const result = await f.manager.diagnoseClaim(B.session_id);
+  assert.equal(result.owner_record, 'matched'); assert.equal(result.record_state, 'ready');
+  assert.equal(result.original_storage_owner, 'unproven'); assert.equal(result.graph.original.input, 'unconfirmed');
+  assert.equal(result.graph.returning, null); assert.equal(result.clearance, 'retained');
+  assert.equal(JSON.stringify(result).includes('original saved answer'), false);
+  assert.equal(readFileSync(claimFile, 'utf8'), before); assert.equal(f.counts().submissions, 0);
+});
+
+test('diagnosis remains read-only after service failure and reports graph loss without clearing the claim or bootstrapping state', async t => {
+  const f = await fixture(t); stageClaim(f);
+  f.manager.serviceError = Error('synthetic existing checkpoint failure');
+  const claimFile = join(f.root, 'manager', 'claims', B.session_id + '.json'), before = readFileSync(claimFile, 'utf8');
+  rmSync(join(f.root, 'graph', 'relations.json'));
+  const result = await f.manager.diagnoseClaim(B.session_id);
+  assert.equal(result.graph, null); assert.equal(result.graph_error, 'EXECUTION_STATE_UNAVAILABLE');
+  assert.equal(result.clearance, 'retained'); assert.equal(readFileSync(claimFile, 'utf8'), before);
+  assert.equal(existsSync(join(f.root, 'graph', 'relations.json')), false);
+  await assert.rejects(f.manager.beforeChange(B.session_id), /synthetic existing checkpoint failure/);
+});
+
+test('missing, duplicate or mismatched owner records and adapter absence stay explicit and never use the current manager as origin', async t => {
+  for (const change of ['missing', 'mismatch', 'duplicate', 'adapter']) {
+    const f = await fixture(t, { ready: true }); stageClaim(f);
+    const oldFile = join(f.root, 'manager', 'active', 'synthetic-old-owner', id + '.json');
+    if (change === 'missing') rmSync(oldFile);
+    if (change === 'mismatch') { const record = structuredClone(f.record); record.boundary.event_cursor = 18; writeFileSync(oldFile, JSON.stringify(record)); }
+    if (change === 'duplicate') writeFileSync(join(f.root, 'manager', 'results', id + '.json'), JSON.stringify(f.record));
+    if (change === 'adapter') f.execution.diagnoseClaim = undefined;
+    const result = await f.manager.diagnoseClaim(B.session_id);
+    assert.equal(result.original_storage_owner, 'unproven'); assert.equal(result.clearance, 'retained');
+    if (change !== 'adapter') assert.equal(result.owner_record, 'unconfirmed');
+    else { assert.equal(result.graph, null); assert.ok(result.missing.includes('execution_diagnosis_unavailable')); }
+    assert.equal(JSON.stringify(result).includes('original saved answer'), false); assert.equal(f.counts().watched, 0);
+  }
+});
+
+test('parent return uses the same canonical child receipt and distinguishes accepted from explicit unsent without a fence upgrade', async t => {
+  for (const sent of [true, false]) {
+    const f = await fixture(t); let issued = 0;
+    const reply = await f.adapter.submit(id, f.endpoint, async (_binding, _endpoint, issue) => {
+      if (!sent) throw Error('synthetic pre-effect refusal'); issue(); issued++; return { queued_submission_id: 'existing-synthetic-queue-receipt' };
+    });
+    assert.equal(!!reply.isError, !sent); assert.equal(issued, sent ? 1 : 0);
+    const result = await diagnose(f);
+    assert.equal(result.returning.input, sent ? 'receipt_recorded' : 'not_sent_recorded');
+    assert.equal(result.original.input, 'receipt_recorded'); assert.deepEqual(result.original.target, point(B, 17));
+    assert.equal(result.native_fence, 'unknown'); assert.equal(result.clearance, 'retained');
+    assert.equal(result.parent_effects.length, 0);
+  }
+});
+
+test('private diagnosis rejects a path or different child before callback and probes no unrelated declared actors', async t => {
+  const observed = [], f = await fixture(t, { actorObserver(pids) { observed.push(pids); return pids.map(pid => ({ pid, started_identity: actor.started_identity })); } });
+  await enrollForDiagnosis(f);
+  await f.store.transaction(state => { state.participants.push({ actor: { pid: 909, started_identity: '2026-10-21T20:00:09Z' }, roles: ['mcp'] }); });
+  stageClaim(f);
+  for (const invalid of ['../bot-b', 'bot.b']) await assert.rejects(f.manager.diagnoseClaim(invalid));
+  writeFileSync(join(f.root, 'manager', 'claims', 'bot-c.json'), JSON.stringify(f.record));
+  await assert.rejects(f.manager.diagnoseClaim('bot-c'), error => error.code === 'EXECUTION_CONFLICT');
+  assert.equal(observed.length, 0);
+  const result = await f.manager.diagnoseClaim(B.session_id); assert.equal(result.owner_record, 'matched');
+  assert.deepEqual(observed, [[actor.pid]]); assert.equal(result.graph.inventory.participants.length, 1);
 });

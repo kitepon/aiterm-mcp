@@ -550,3 +550,26 @@ fenceを生成しない。claimのunlinkが作用後に欠測した場合は元�
 checkpoint未確認のunknown診断を新managerが引き取っても、そのことだけで元claimを外さない。
 execution adapter無しの回収でも元CHECKPOINT_UNCONFIRMED診断を上書きせず、同delivery/request/boundaryと
 claimを保持する。記録の保管移動は許すが、受付解除はこの回収の成功と別の未了清算条件である。
+
+
+### 不確実claimのprivate読取診断
+
+同じ保存済みclaimのdelivery/request/parent/子Point/source proofを元graphへ照合し、child inputとparent
+returnそれぞれの明示unsent+not_sent記録、受付receipt、発行中/作用不明を区別する。単なるreservedや
+operation=not_issued、ready本文/局所done、親return記録が無いことを未発行の確定にしない。
+強いbefore_send operationは元canonical receiptを上書きせず、turn=nullはnullのまま返す。
+
+同deliveryのparent_effect、元requestか期待launchへ関連するslot、明示interruption参照、元actorの
+既存inventoryを同じread-only transactionで読む。既知の別世代slotや無関係なactor宣言へ範囲を広げず、
+未結合/証拠不一致/欠測は不足として残す。native actorの照合は元参照のPID/startだけを使い、PID不在/
+再利用/未登録/非同期・欠測観測をnative終了やfenceにしない。既定native observerへの個別fallbackはない。
+
+managerの明示diagnoseClaimはservice error中も読むだけで、recover/登録/claim解除/返送を呼ばない。
+claimと同IDのowner recordが無い・複数・参照不一致、graph欠測、adapter無しは未確認を明示する。
+現保管場所のowner.jsonと元MCP request actorの記録上一致は分け、移動後の保管ownerを元producerの証明に
+しない。結果保存場所には元owner情報が無いので欠測のままにし、現在managerや最新job/時刻から補わない。
+本文は返さず、返却値のclearance=retained/retry=none、native endpoint未観測/fence unknownを維持する。
+
+この口はprivate manager/producer内部だけの診断で、公開MCP tools/wire/metaやBridgeの配線を追加しない。
+診断成功やOS同期ackはnative入力受理/中断/会話維持/全participant・作用口・旧binary移行の受入ではない。
+不確実claimの明示清算と安全な公開mountはなお未了である。

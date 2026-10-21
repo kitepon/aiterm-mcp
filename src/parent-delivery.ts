@@ -555,6 +555,59 @@ export class ParentDeliveryManager {
       .sort((a, b) => a.created_at.localeCompare(b.created_at)).map(receipt);
   }
 
+  /** Explicit private read, including after service failure. It never calls
+   * recover(), changes owner/claim files or grants clearance. No answer text. */
+  async diagnoseClaim(keyInput: string) {
+    const key = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).parse(keyInput);
+    const claim = recordSchema.parse(JSON.parse(fs.readFileSync(path.join(this.claims, `${key}.json`), "utf8")));
+    if (boundaryKey(claim.boundary) !== key || claim.boundary.remote) throw new ExecutionError("EXECUTION_CONFLICT");
+    const references = (record: DeliveryRecord) => JSON.stringify([record.delivery_id, record.parent, record.boundary, record.execution]);
+    const files = this.files().flatMap(file => {
+      try { const record = readRecord(file); return record.delivery_id === claim.delivery_id ? [{ file, record }] : []; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    });
+    const matched = files.length === 1 && references(files[0].record) === references(claim);
+    const record = matched ? files[0].record : null;
+    let storageOwner: { pid: number; started_identity: string; closed: boolean } | null = null;
+    if (matched && path.basename(path.dirname(path.dirname(files[0].file))) === "active") {
+      try {
+        const value = z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1), closed: z.boolean() })
+          .parse(JSON.parse(fs.readFileSync(path.join(path.dirname(files[0].file), "owner.json"), "utf8")));
+        storageOwner = value;
+      } catch { /* no current-manager owner fallback */ }
+    }
+    const missing: string[] = [];
+    if (!matched) missing.push(files.length ? "owner_record_mismatched_or_ambiguous" : "owner_record_missing");
+    if (!storageOwner) missing.push("storage_owner_unrecorded");
+    // Location after a recovery is not original producer provenance. Report
+    // the actual source actor from the saved request/proof separately.
+    missing.push("original_storage_owner_unproven");
+    const ref = claim.execution?.request;
+    const requestActor = ref?.kind === "mcp" ? { pid: ref.process_pid, started_identity: ref.process_started_identity } : null;
+    const ownerMatchesActor = storageOwner && requestActor
+      ? storageOwner.pid === requestActor.pid && storageOwner.started_identity === requestActor.started_identity : null;
+    let graph: Awaited<ReturnType<NonNullable<ParentManagerExecution["diagnoseClaim"]>>> | null = null;
+    let graphError: string | null = null;
+    if (!claim.execution || !this.execution?.diagnoseClaim) missing.push("execution_diagnosis_unavailable");
+    else {
+      const boundary = claim.boundary;
+      try {
+        graph = await this.execution.diagnoseClaim(claim.delivery_id, structuredClone(claim.execution.request), {
+          launch: { session_id: boundary.session_id, launch_id: boundary.launch_id },
+          boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null },
+        }, structuredClone(claim.parent), structuredClone(claim.execution.source_evidence));
+      } catch (error) {
+        graphError = error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED";
+        missing.push("graph_diagnosis_unavailable");
+      }
+    }
+    return { delivery_id: claim.delivery_id, request: structuredClone(claim.execution?.request ?? null),
+      claim: "present" as const, owner_record: matched ? "matched" as const : "unconfirmed" as const,
+      record_state: record?.state ?? null, storage_owner: storageOwner, original_storage_owner: "unproven" as const,
+      original_request_actor: requestActor, storage_owner_matches_request_actor: ownerMatchesActor,
+      graph, graph_error: graphError, missing, clearance: "retained" as const, retry: "none" as const };
+  }
+
   recover(): Promise<void> {
     if (this.recovering) return this.recovering;
     if (this.closing) return Promise.resolve();

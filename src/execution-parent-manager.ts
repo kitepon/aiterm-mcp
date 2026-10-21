@@ -23,6 +23,8 @@ export interface ParentManagerExecution {
   captureEndpointEvidence?(endpoint: unknown): unknown;
   bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
   verifyRecovery?(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence: unknown): Promise<true>;
+  diagnoseClaim?(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown):
+    ReturnType<ReturnType<typeof createExecutionParentAdapter>["diagnoseClaim"]>;
   // Synchronous companion metadata only, called inside the original preparation frame.
   prepareCompanion?(id: string, parent: Parent, evidence?: unknown): void;
   submit(parent: Parent, id: string, text: string): Promise<Receipt>;
@@ -69,6 +71,7 @@ export function createParentManagerExecution(input: {
     recordChildCompletion: id => input.parent.recordChildCompletion(id),
     bind: (id, request, child, endpoint, evidence) => input.parent.bind(id, request, child, endpoint, evidence),
     verifyRecovery: (id, request, child, endpoint, evidence) => input.parent.verifyRecovery(id, request, child, endpoint, evidence),
+    diagnoseClaim: (id, request, child, endpoint, evidence) => input.parent.diagnoseClaim(id, request, child, endpoint, evidence),
     prepareCompanion(id, parent, evidence) {
       if (!("kind" in parent)) return; // Codex has no companion to prepare here.
       if (typeof verifyCompanion !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");

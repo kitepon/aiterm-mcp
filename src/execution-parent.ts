@@ -12,6 +12,7 @@ import { beforeExecutionEffect } from "./execution-effect.js";
 import { EXECUTION_REQUEST_META_KEY, ExecutionError } from "./execution-wire.js";
 import { parentSourceSchema, requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
 import { interruptionBlocksParent } from "./execution-interruption.js";
+import { executionParticipantInventory } from "./execution-inventory.js";
 
 type Binding = ExecutionState["parent_deliveries"][number];
 type QueueReceipt = { queued_submission_id: string | null };
@@ -30,6 +31,7 @@ export interface ExecutionParentBindings {
   verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown, binding: Readonly<Binding>, phase: "bind" | "queue"): boolean;
   sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
   preparationTimeoutMs?: number;
+  observeActors?(pids: number[]): unknown;
 }
 /** Construct once for the same state/socket scope as the serving service. Each
  * submit/emit/wake process must look up this binding; no latest-seat fallback.
@@ -106,6 +108,88 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
   };
   return {
     captureEndpointEvidence(endpoint: unknown) { return bindings.sourceEvidence?.capture(endpoint); },
+    /** Private status only. Recorded not-sent/receipt facts never release a
+     * claim, fence a native actor or authorize replay. No latest-source lookup. */
+    async diagnoseClaim(idInput: string, requestInput: ExecutionRequest, childInput: ExecutionPoint,
+      endpointInput: unknown, evidenceInput?: unknown) {
+      const id = deliveryId.parse(idInput), request = executionRequestSchema.parse(requestInput);
+      const child = executionPointSchema.parse(childInput), endpoint_digest = digest(structuredClone(endpointInput));
+      const proof = parentSourceSchema.safeParse(evidenceInput);
+      return bindings.store.transaction(state => {
+        const original = state.records.find(row => same(row.reservation.request, request));
+        const binding = state.parent_deliveries.find(row => row.delivery_id === id);
+        const proofMatches = proof.success && same(proof.data.request, request);
+        const sourceMatches = proofMatches && original?.source.status === "verified" && same(original.source.point, proof.data.source)
+          && same(original.relation.source, proof.data.source);
+        const bindingMatches = !!binding && same(binding.request, request) && same(binding.child, child)
+          && binding.endpoint_digest === endpoint_digest && proofMatches && same(binding.source_evidence, proof.data)
+          && same(binding.parent, proof.data.source);
+        const parent = sourceMatches ? proof.data.source : null;
+        const returnRequest = parent ? { kind: "delivery", delivery_id: id, target_session_id: parent.launch.session_id } : null;
+        const returning = returnRequest ? state.records.find(row => same(row.reservation.request, returnRequest)) : undefined;
+        const effects = state.parent_effects.filter(row => row.delivery_id === id);
+        const launches = [child.launch, ...(parent ? [parent.launch] : [])];
+        const slots = state.slots.filter(slot => same(slot.request, request) || (returnRequest && same(slot.request, returnRequest))
+          || launches.some(launch => slot.session_id === launch.session_id
+            && (slot.expected_launch_id === null || slot.expected_launch_id === launch.launch_id)));
+        const interruptions = state.interruptions.filter(row => row.parent_deliveries.includes(id)
+          || row.requests.some(ref => same(ref, request) || (returnRequest && same(ref, returnRequest))));
+        const actors = new Set<string>();
+        const actorKey = (actor: { pid: number; started_identity: string }) => JSON.stringify([actor.pid, actor.started_identity]);
+        const addRequestActor = (ref: ExecutionRequest | null) => {
+          if (ref?.kind === "mcp") actors.add(actorKey({ pid: ref.process_pid, started_identity: ref.process_started_identity }));
+        };
+        addRequestActor(request); if (proofMatches) actors.add(actorKey(proof.data.mcp_process));
+        for (const effect of effects) actors.add(actorKey(effect.actor));
+        for (const slot of slots) addRequestActor(slot.request);
+        for (const row of interruptions) if (row.caller) actors.add(actorKey(row.caller));
+        const inventory = executionParticipantInventory({ ...state,
+          records: [original, returning].filter((row): row is NonNullable<typeof row> => !!row),
+          parent_deliveries: bindingMatches ? [binding!] : [], parent_effects: effects, slots, interruptions,
+          participants: state.participants.filter(row => actors.has(actorKey(row.actor))),
+        }, bindings.observeActors);
+        const targetMatches = !!original && original.reservation.target.session_id === child.launch.session_id
+          && (original.reservation.target.expected_launch_id === child.launch.launch_id
+            || same(original.relation.target?.launch, child.launch));
+        const canonical = original?.relation.target;
+        const receiptMatches = sourceMatches && bindingMatches && canonical?.boundary && child.boundary
+          && same(canonical.launch, child.launch) && canonical.boundary.event_cursor === child.boundary.event_cursor
+          && canonical.boundary.steer_id === null && (canonical.boundary.operation_id === null
+            || canonical.boundary.operation_id === child.boundary.operation_id);
+        const originalSlots = slots.filter(slot => same(slot.request, request));
+        const input = sourceMatches && targetMatches && (!binding || bindingMatches) && !originalSlots.length
+          && !["preparing", "issued", "unknown"].includes(original?.operations.launch ?? "unknown")
+          && original?.operations.send === "not_sent" && original.relation.phase === "unsent" ? "not_sent_recorded"
+          : receiptMatches && original?.operations.send === "accepted" ? "receipt_recorded" : "unconfirmed";
+        const returnSlots = returnRequest ? slots.filter(slot => same(slot.request, returnRequest)) : [];
+        const returnMatches = bindingMatches && !!returning && !!canonical && same(returning.relation.source, canonical)
+          && same(returning.reservation.target, { session_id: parent!.launch.session_id, expected_launch_id: parent!.launch.launch_id });
+        const parentInput = returnMatches && returning?.operations.send === "not_sent" && returning.relation.phase === "unsent"
+          && !returnSlots.length && !effects.length ? "not_sent_recorded"
+          : returnMatches && returning?.operations.send === "accepted" && same(returning.relation.target?.launch, parent!.launch)
+            ? "receipt_recorded" : "unconfirmed";
+        const missing: string[] = [];
+        if (!proofMatches) missing.push("original_source_proof_missing_or_mismatched");
+        if (!original) missing.push("original_request_missing");
+        else if (!sourceMatches || !targetMatches) missing.push("original_correspondence_unconfirmed");
+        if (!bindingMatches) missing.push(binding ? "binding_mismatched" : "binding_missing");
+        if (!returning) missing.push("return_request_unrecorded");
+        if (input === "unconfirmed") missing.push("child_input_unconfirmed");
+        if (parentInput === "unconfirmed") missing.push("parent_input_unconfirmed");
+        if (slots.length) missing.push("related_slots_present");
+        if (inventory.participants.some(row => row.missing.length) || !inventory.participants.length
+          || [...actors].some(key => !inventory.participants.some(row => actorKey(row.actor) === key)))
+          missing.push("native_actor_inventory_incomplete");
+        return structuredClone({ delivery_id: id, request, child, binding: bindingMatches ? "matched" : binding ? "mismatched" : "missing",
+          original: original ? { send: original.operations.send, launch: original.operations.launch, phase: original.relation.phase,
+            lifecycle: original.relation.lifecycle, target: canonical, input } : null,
+          returning: returning ? { request: returnRequest, send: returning.operations.send, phase: returning.relation.phase,
+            target: returning.relation.target, input: parentInput } : null,
+          parent_effects: effects, slots, inventory, missing,
+          native_endpoint: "not_observed" as const, native_fence: "unknown" as const,
+          clearance: "retained" as const, retry: "none" as const });
+      }, { readOnly: true });
+    },
     /** Read-only recovery admission for an existing owner record. Its saved
      * references must corroborate the graph, not reconstruct it. This does not
      * admit a native effect or establish completion/fence evidence. */

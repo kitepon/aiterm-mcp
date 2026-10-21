@@ -16,6 +16,9 @@ export const executionStateSchema = z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
     stage: z.enum(["launch", "send", "close", "configure"]),
     state: z.enum(["issued", "unknown"]), request: executionRequestSchema.nullable(),
+    // Trusted transport snapshot for a non-delivery close/configure call.
+    // Never filled from a latest job or inferred from the target's name.
+    source: executionLaunchSchema.nullable().optional(),
   }).strict()),
 }).strict();
 export type ExecutionState = z.infer<typeof executionStateSchema>;

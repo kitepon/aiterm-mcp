@@ -302,6 +302,54 @@ PTY/実CLI/実席は操作しない。これは実MCP mountや本番復旧の受
 
 ## rootの現在境界と到達範囲
 
+### Bridgeのhost source context
+
+registerの引数は変更せず、HTTP ingressで固定したsourceをhost用要求_metaへ別途渡す。
+
+```ts
+_meta["aiterm/execution_source"] = {
+  schema: "aiterm.execution-source.v1", source: Point | null
+}
+```
+
+Bridgeは本文のclaimから補完せず、固定contextを発行前にcloneする。未指定は明示null。
+`executionHostSourceFromMeta(meta, initializedClientName)`は既存client名`bellteam`についてのみこのhost相関を読む。
+他CLIは起動時のstdio envを用い、このmetaで差し替えできない。client名はtool引数から取らず、
+initialize済みtransportから得る。これは同一OS利用者や任意clientに対する暗号認証ではない。
+
+`registerExecutionTools(server, service, {sourceContext: extra =>
+executionHostSourceFromMeta(extra._meta, server.server.getClientVersion()?.name)})`でhost adapterを明示する。
+設定無しのhandlerはhost source metaをUNSUPPORTEDで拒否する。host context欠落/nullは明示unknownで、
+stdio env、register claim、最新jobへfallbackしない。handlerは要求ごとにcontextをdetachし、
+service.executeとruntime.sourceEvidenceへ内部引数で渡す。共有global context/要求間の書換えは使わない。
+claim・source_session_id・context・実runtime現在launchが一致して初めて世代を採用する。
+native境界はnullでも記録済み実呼出edgeを採用でき、寿命fenceの欠測とは分ける。
+
+既存`readSeatTurns`はCodexのnative active turnを読めるが、そのevent_cursorはtask_started行の位置。
+dispatch receiptのbefore_send位置と同じとは限らない。native turnのaliasを元receiptへ照合するadapter無しに、
+これを同じcanonical boundaryと扱わない。遅れたBridge登録へ現在turnを当てる補完もしない。
+現段階はsource境界nullを維持し、必要なalias/fence証拠が無ければbranch寿命を未確認に残す。
+
+### 共通受付へ渡す実引数と実閉鎖adapter
+
+具体的なlaunch/send handlerは`runBoundExecution(..., body, actualTargetSessionId)`の最後の引数へ
+実際に発行するimmutableな対象引数を渡す。serviceは予約と一致しない対象を作用/slot発行前に拒否する。
+返却receiptの対象違いだけを作用後に検出する形へしない。省略形は既存の注入adapter互換用であり、
+製品の具体的なhandlerの実引数照合を代替しない。
+
+close/configureの`changeSession(..., sourceLaunch)`はtransportで固定/照合した呼出元の世代を既存slotへ保持できる。
+sourceが停止済み/absent/世代交代なら作用前拒否。停止はsourceから発行済みの変更もdrainし、
+応答欠測を再構築後も未確認として保持する。設定変更だけからAI実呼出のgraph edgeを作らない。
+
+`core.closeExpectedAgentSession(expected)`は共有の発行済みclose slotを持つadapter向けの実閉鎖primitive。
+実native一覧、期待metadata、native identity再取得とmetadata再照合を同期で行い、
+捕捉した`$<session id>`だけへkillを一回発行する。同名が新世代へ替わっても名前へfallbackしない。
+一覧形式/metadata/世代が不明なら作用前拒否、kill失敗/応答欠測/後観測不足はpossible。
+idle/graceful終了を待たず、名前によるlog/metadata cleanupもしない。serving serviceはさらに対象席の後観測を行う。
+異なるmultiplexer/server再作成を含む非協調な外部操作をこのprimitive単独で排他できるわけではない。
+全製品変更口との共通受付と同じscopeのslot所有が前提であり、それが未接続の現在はpublic mountへ使用しない。
+既存の通常`pty_close`契約とそのcleanupは変更しない。
+
 stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。
 対象にするのは現在の実行と、局所完了しても未解決の下流を持つ既存branch。全て終了した過去境界は対象外。
 rootに未解決の前のbranchが残っていれば現在分と併せて辿る。この範囲を単独の最新active jobへ狭めない。

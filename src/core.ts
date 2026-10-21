@@ -14,6 +14,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
+import type { ExecutionLaunch } from "./execution-contract.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
@@ -1879,6 +1881,28 @@ export function closeSessionResult(name: string): PtyCloseResult {
     session_id: name,
     outcome: existed ? "closed" : "already_closed",
   };
+}
+
+/** Cascade-stop adapter only: caller must already own the shared issued close
+ * slot across every serving mutation path. No graceful idle wait, name-only
+ * kill, cleanup of a replacement's metadata, or retry. Not publicly mounted.
+ */
+export function closeExpectedAgentSession(expected: ExecutionLaunch): void {
+  closeExpectedExecution(expected, {
+    sessions(): ExecutionNativeSessions {
+      const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
+      if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
+      // A generic connection/list failure cannot prove absence. The known
+      // no-server receipt is the one normal nonzero empty-server outcome.
+      if (/^no server running on /i.test(result.stderr.trim())) return { state: "known", sessions: [] };
+      return { state: "unknown" };
+    },
+    launch(name) {
+      const meta = tryLoadAgentMetadata(name);
+      return meta ? { session_id: meta.aiterm_session, launch_id: meta.launch_id } : null;
+    },
+    kill(nativeId) { return tmux("kill-session", "-t", nativeId); },
+  });
 }
 
 export function killAll(): string {

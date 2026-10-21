@@ -7,6 +7,26 @@ import { executionLaunchSchema, executionBoundarySchema, executionPointSchema,
 export const EXECUTION_REQUEST_META_KEY = "aiterm/execution";
 export const EXECUTION_BINDING_META_KEY = "aiterm/execution_binding";
 export const EXECUTION_ERROR_META_KEY = "aiterm/execution_error";
+export const EXECUTION_SOURCE_META_KEY = "aiterm/execution_source";
+export const executionTransportSourceSchema = z.object({
+  schema: z.literal("aiterm.execution-source.v1"), source: executionPointSchema.nullable(),
+}).strict();
+export type ExecutionTransportSource = z.infer<typeof executionTransportSourceSchema>;
+
+/** Local host correlation, not client authentication. The product mount calls
+ * this with the initialized client name, never a tool argument. Direct CLI
+ * callers use their fixed stdio environment; they cannot override it here.
+ */
+export function executionHostSourceFromMeta(meta: unknown, clientName: string | undefined): ExecutionTransportSource | undefined {
+  const value = meta && typeof meta === "object" ? (meta as Record<string, unknown>)[EXECUTION_SOURCE_META_KEY] : undefined;
+  if (clientName !== "bellteam") {
+    if (value !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return undefined;
+  }
+  // A missing host context is explicitly unknown, never stdio-env fallback.
+  return value === undefined ? { schema: "aiterm.execution-source.v1", source: null }
+    : executionTransportSourceSchema.parse(value);
+}
 
 // The source seat hint is for reporting an unbound generation, never proof of
 // a live source. Bridge fills it at HTTP ingress, not from model tool arguments.

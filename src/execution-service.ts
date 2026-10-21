@@ -3,14 +3,16 @@
 import { z } from "zod";
 import { assessExecutionSource, planCascadeStop, unfinishedExecutionRelations, cascadeStopRequestSchema, cascadeStopResultSchema,
   executionPointSchema, type ExecutionLaunch, type ExecutionPoint, type ExecutionRequest,
+  executionLaunchSchema,
   type ExecutionSourceEvidence } from "./execution-contract.js";
 import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, executionRootsRequestSchema, executionRootsResultSchema, ExecutionError,
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
+import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
-  sourceEvidence(input: ExecutionRegister): Promise<ExecutionSourceEvidence>;
+  sourceEvidence(input: ExecutionRegister, context?: ExecutionTransportSource): Promise<ExecutionSourceEvidence>;
   observe(sessionId: string): Promise<Observation>;
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
@@ -56,9 +58,9 @@ export class ExecutionService {
   constructor(private readonly store: ExecutionStore, private readonly runtime: ExecutionRuntime,
     private readonly drainTimeoutMs = 2000) {}
 
-  async execute(input: unknown): Promise<ExecutionRecord> {
+  async execute(input: unknown, context?: ExecutionTransportSource): Promise<ExecutionRecord> {
     const args = executionActionSchema.parse(input);
-    if (args.action === "register") return this.register(args);
+    if (args.action === "register") return this.register(args, context);
     if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)), { readOnly: true });
     return this.finish(args);
   }
@@ -93,7 +95,8 @@ export class ExecutionService {
       else if (current.state === "unknown" || current.state === "present")
         unresolved.push({ request: null, reason: "current_generation_unconfirmed" });
       for (const slot of state.slots) if (slot.session_id === session_id || (slot.request &&
-        find(state, slot.request).source_session_id === session_id)) {
+        find(state, slot.request).source_session_id === session_id) || slot.source?.session_id === session_id) {
+        if (slot.source?.session_id === session_id) roots.set(key(slot.source), slot.source);
         if (slot.session_id === session_id && slot.expected_launch_id) {
           const expected = { session_id, launch_id: slot.expected_launch_id };
           roots.set(key(expected), expected);
@@ -112,7 +115,7 @@ export class ExecutionService {
     }, { readOnly: true });
   }
 
-  private async register(args: ExecutionRegister): Promise<ExecutionRecord> {
+  private async register(args: ExecutionRegister, context?: ExecutionTransportSource): Promise<ExecutionRecord> {
     return this.store.transaction(async state => {
       const previous = state.records.find(record => same(record.reservation.request, args.reservation.request));
       if (previous) {
@@ -120,7 +123,7 @@ export class ExecutionService {
           throw new ExecutionError("EXECUTION_CONFLICT", "possible");
         return view(state, previous); // idempotent lookup, never a second invocation
       }
-      const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args));
+      const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args, context));
       if (source.status === "stale") throw new ExecutionError("EXECUTION_STALE_GENERATION");
       if (args.reservation.source.launch && source.status !== "verified") {
         const currentSource = await this.runtime.observe(args.reservation.source.launch.session_id);
@@ -159,11 +162,16 @@ export class ExecutionService {
    * A second caller/status recovery never automatically invokes it again.
    */
   async invoke<T>(metaInput: unknown, stage: "launch" | "send",
-    body: () => Promise<{ value: T; target: ExecutionPoint }>): Promise<{ value: T; record: ExecutionRecord }> {
+    body: () => Promise<{ value: T; target: ExecutionPoint }>, targetSessionId?: string): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
     await this.store.transaction(async state => {
       const record = find(state, request);
       const relation = record.relation;
+      // The concrete MCP adapter must supply its actual immutable argument.
+      // Validating only the eventual receipt is too late to prevent a tool
+      // accidentally invoking another seat before binding discovers the error.
+      if (targetSessionId !== undefined && targetSessionId !== record.reservation.target.session_id)
+        throw new ExecutionError("EXECUTION_CONFLICT", "not_started");
       if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "not_issued")
         throw new ExecutionError("EXECUTION_CONFLICT", record.operations[stage] === "not_sent" ? "not_started" : "possible");
       sourceAdmission(state, relation.source, record.source_session_id);
@@ -293,13 +301,23 @@ export class ExecutionService {
    * Callers must not wrap a multi-step restart in one unobserved callback:
    * close, then a fresh launch reservation are separate admissions.
    */
-  async changeSession<T>(expected: ExecutionLaunch, stage: "close" | "configure", body: () => Promise<T>): Promise<T> {
+  async changeSession<T>(expected: ExecutionLaunch, stage: "close" | "configure", body: () => Promise<T>,
+    sourceInput?: ExecutionLaunch | null): Promise<T> {
+    const source = sourceInput ? executionLaunchSchema.parse(sourceInput) : null;
     await this.store.transaction(async state => {
+      sourceAdmission(state, source ? { launch: source, boundary: null } : null, source?.session_id ?? null);
+      if (source) {
+        const currentSource = await this.runtime.observe(source.session_id);
+        if (currentSource.state === "unknown" || (currentSource.state === "present" && !currentSource.launch))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        if (currentSource.state !== "present" || !same(currentSource.launch, source))
+          throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      }
       if (stopped(state, expected)) throw new ExecutionError("EXECUTION_STOPPING");
       if (state.slots.some(slot => slot.session_id === expected.session_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       this.expectTarget(await this.runtime.observe(expected.session_id), expected.launch_id, expected.session_id);
       state.slots.push({ session_id: expected.session_id, expected_launch_id: expected.launch_id,
-        stage, state: "issued", request: null });
+        stage, state: "issued", request: null, ...(source ? { source } : {}) });
     });
     try {
       const value = await body();
@@ -341,6 +359,7 @@ export class ExecutionService {
         }
         retireSettledBranches(state);
         return state.slots.filter(slot => [...reached.values()].some(value => value.session_id === slot.session_id)
+          || stopped(state, slot.source)
           || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)));
       });
       if (!pending.some(slot => slot.state === "issued") || performance.now() >= deadline) break;
@@ -352,6 +371,7 @@ export class ExecutionService {
       const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
       const unresolved: z.infer<typeof cascadeStopResultSchema>["unresolved"] = plan.gaps.map(gap => ({ request: gap.request, reason: gap.reason }));
       for (const slot of state.slots) if ([...reached.values()].some(value => value.session_id === slot.session_id)
+        || stopped(state, slot.source)
         || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)))
         unresolved.push({ request: slot.request, reason: "issued_operation_unconfirmed" });
       for (const target of plan.targets) if (!reached.has(key(target)))

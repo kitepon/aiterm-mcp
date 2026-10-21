@@ -89,6 +89,19 @@ test('target generation replacement after reservation rejects before body invoca
   await assert.rejects(f.send(record), code('EXECUTION_STALE_GENERATION'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
 });
+test('the concrete launch/send argument is checked before any effect or issued slot', async () => {
+  for (const stage of ['launch', 'send']) {
+    const f = fixture(), record = await f.register(`wrong-${stage}`);
+    let effects = 0;
+    const result = await runBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, stage,
+      async () => { effects++; return { result: { content: [] }, target: point(B) }; }, C.session_id);
+    assert.equal(effects, 0);
+    assert.equal(result._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_CONFLICT');
+    assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'not_started');
+    assert.equal((await f.status(record.reservation.request)).operations[stage], 'not_issued');
+    assert.equal((await f.store.transaction(state => state.slots, { readOnly: true })).length, 0);
+  }
+});
 test('an explicit source generation that is gone cannot start new work as an unknown source', async () => {
   const f = fixture(); f.live.delete(A.session_id);
   await assert.rejects(f.register('old-source-ab'), code('EXECUTION_STALE_GENERATION'));
@@ -276,6 +289,33 @@ test('new outgoing calls cannot cross an already-issued source close/configure',
   await assert.rejects(f.register('bc-during-change', B, C), code('EXECUTION_UNCONFIRMED'));
   release.resolve(); await changing;
   assert.equal((await f.register('bc-after-change', B, C)).relation.phase, 'reserved');
+});
+test('source-aware configuration drains before stopping its caller without inventing an invocation edge', async () => {
+  const f = fixture(), entered = deferred(), released = deferred();
+  const changing = f.service.changeSession(B, 'configure', async () => { entered.resolve(); await released.promise; }, A);
+  await entered.promise;
+  assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, [A]);
+  const stopping = f.service.stop(stop([A]));
+  await until(async () => (await f.store.transaction(state => state.stopping)).some(value => value.session_id === A.session_id));
+  await assert.rejects(f.service.changeSession(C, 'configure', async () => {}, A), code('EXECUTION_STOPPING'));
+  assert.equal(f.closes.length, 0);
+  released.resolve(); await changing;
+  assert.equal((await stopping).status, 'stopped');
+  assert.deepEqual(f.closes, [A]);
+  assert.equal(f.live.has(B.session_id), true);
+});
+test('a lost source-aware change remains attributable after the caller is absent and service reconstructed', async () => {
+  const f = fixture();
+  await assert.rejects(f.service.changeSession(B, 'configure', async () => { throw new Error('lost response'); }, A), code('EXECUTION_UNCONFIRMED'));
+  f.live.delete(A.session_id);
+  const restored = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
+  const roots = await restored.roots({ session_id: A.session_id });
+  assert.deepEqual(roots.roots, [A]);
+  assert.ok(roots.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
+  const result = await restored.stop(stop([A]));
+  assert.equal(result.status, 'partial');
+  assert.ok(result.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
+  await assert.rejects(restored.changeSession(B, 'configure', async () => {}), code('EXECUTION_UNCONFIRMED'));
 });
 test('MCP wrapper preserves a successful send receipt if post-effect binding is uncertain', async () => {
   const f = fixture(), record = await f.register('ab');

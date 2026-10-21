@@ -4,7 +4,7 @@
 // transaction and must use the existing issued slot. No live I/O at import.
 import { z } from "zod";
 import { executionLaunchSchema, executionPointSchema, type ExecutionPoint, type ExecutionLaunch } from "./execution-contract.js";
-import { ExecutionError, type ExecutionRegister } from "./execution-wire.js";
+import { ExecutionError, executionTransportSourceSchema, type ExecutionRegister } from "./execution-wire.js";
 import type { ExecutionRuntime } from "./execution-service.js";
 
 // Names already injected by core's agent launchers. Forward dynamically from
@@ -73,10 +73,11 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
   };
   return {
     observe,
-    async sourceEvidence(input) {
+    async sourceEvidence(input, transportContext) {
       let context: ExecutionPoint | null = null;
       try {
-        const resolved = bindings.sourceContext ? await bindings.sourceContext(input) : environmentSource;
+        const resolved = transportContext !== undefined ? executionTransportSourceSchema.parse(transportContext).source
+          : bindings.sourceContext ? await bindings.sourceContext(input) : environmentSource;
         context = resolved ? executionPointSchema.parse(resolved) : null;
       } catch { /* no runtime proof */ }
       if (!context) return { runtime_launch: null, caller_bound: false, invocation_boundary: null };

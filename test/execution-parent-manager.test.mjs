@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ParentDeliveryManager } from '../dist/parent-delivery.js';
 import { withExecutionRequest, currentExecutionRequest } from '../dist/execution-context.js';
+import { ExecutionError } from '../dist/execution-wire.js';
 import { createParentManagerExecution } from '../dist/execution-parent-manager.js';
 
 const parent = { thread_id: '00000000-0000-4000-8000-000000000001', codex_home: '/synthetic/parent-home' };
@@ -20,7 +21,7 @@ function fixture(t, failFirst = false, capture, tracking) {
     ...(capture ? { captureEndpointEvidence: capture } : {}),
     ...(tracking ? { recordChildCompletion: tracking } : {}),
     async bind(id, request, child, endpoint, evidence) {
-      if (failFirst) { failFirst = false; throw Object.assign(Error('synthetic binding unavailable'), { code: 'EXECUTION_UNCONFIRMED' }); }
+      if (failFirst) { failFirst = false; throw new ExecutionError('EXECUTION_UNCONFIRMED', 'not_started'); }
       binds.push({ id, request, child, endpoint, ...(evidence === undefined ? {} : { evidence }) });
     },
     async submit(endpoint, id, text) { submits.push({ endpoint, id, text }); return { queued_submission_id: 'native-existing-queue-id' }; },
@@ -248,4 +249,105 @@ test('factory parent selector is mandatory and synchronous, detached and fixed i
     assert.throws(() => missing.parentFromIngress(), error => error.code === 'EXECUTION_UNSUPPORTED');
   }
   assert.equal(createParentManagerExecution({ ...input, parentFromIngress: () => null }).parentFromIngress(), null);
+});
+
+test('bind possible or untyped rejection retains the original delivery diagnostic without a watcher, queue or retry', async t => {
+  const { ExecutionError } = await import('../dist/execution-wire.js');
+  for (const failure of [new ExecutionError('EXECUTION_STATE_UNAVAILABLE', 'possible'),
+    Object.assign(Error('synthetic RPC response lost'), { code: 'EXECUTION_UNCONFIRMED', effect: 'not_started' })]) {
+    const root = mkdtempSync(join(tmpdir(), 'parent-bind-uncertain-')); let attempted, watched = 0, binds = 0;
+    const manager = new ParentDeliveryManager({ root, execution: {
+      async bind(id, ref, child, endpoint) { binds++; attempted = { id, ref: structuredClone(ref), child, endpoint }; throw failure; },
+      async submit() { assert.fail('no uncertain queue'); },
+    }, dependencies: { processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true,
+      verify: async () => {}, observe: async () => { watched++; assert.fail('no uncertain watcher'); }, answer: async () => assert.fail('no answer') } });
+    t.after(async () => { await manager.close(); rmSync(root, { recursive: true, force: true }); });
+    const original = request('bot-b'), delivery = withExecutionRequest(original, () => manager.request(parent));
+    await assert.rejects(delivery.before_send(boundary('bot-b')), error => error === failure);
+    assert.equal(delivery.result()?.state, 'unknown'); assert.equal(delivery.result().delivery_id, attempted.id);
+    const saved = JSON.parse(readFileSync(join(root, 'results', attempted.id + '.json')));
+    assert.deepEqual(saved.execution.request, original); assert.deepEqual(saved.parent, parent); assert.equal(saved.boundary.event_cursor, 17);
+    assert.equal(saved.child_outcome, null); assert.equal(saved.text, null); assert.equal(saved.queued_submission_id, null);
+    assert.equal(watched, 0); assert.equal(binds, 1); assert.equal(manager.status('bot-b')[0].state, 'unknown');
+  }
+});
+
+test('uncertain owner diagnosis keeps only the original validated request/source proof and never raw metadata', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'parent-bind-proof-'));
+  const ref = { kind: 'mcp', process_pid: 22, process_started_identity: '2026-10-21T07:00:01Z', request_id: 91, tool: 'pty_send', target_session_id: 'bot-b' };
+  const proof = { schema: 'aiterm.parent-source.v1', request: ref,
+    source: { launch: { session_id: 'bot-a', launch_id: 'a'.repeat(32) }, boundary: null }, client_name: 'codex-mcp-client',
+    mcp_process: { pid: 22, started_identity: ref.process_started_identity },
+    harness_process: { pid: 20, started_identity: '2026-10-21T07:00:00Z' }, endpoint: { vendor: 'codex', thread_id: parent.thread_id } };
+  const original = structuredClone(proof);
+  const manager = new ParentDeliveryManager({ root, execution: { captureEndpointEvidence: () => proof,
+    async bind() { throw new ExecutionError('EXECUTION_STATE_UNAVAILABLE', 'possible'); }, async submit() { assert.fail('no queue'); } },
+    dependencies: { processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true,
+      verify: async () => {}, observe: async () => assert.fail('no watcher'), answer: async () => assert.fail('no answer') } });
+  t.after(async () => { await manager.close(); rmSync(root, { recursive: true, force: true }); });
+  const delivery = withExecutionRequest(ref, () => manager.request(parent), { source: proof.source, client_name: proof.client_name,
+    native_identity: proof.mcp_process, metadata: { secret_fixture_label: 'not-serialized-input' } });
+  proof.source.launch.launch_id = 'e'.repeat(32);
+  await assert.rejects(delivery.before_send(boundary('bot-b')));
+  const file = join(root, 'results', delivery.result().delivery_id + '.json'), saved = JSON.parse(readFileSync(file));
+  assert.deepEqual(saved.execution.source_evidence, original); assert.deepEqual(saved.execution.request, ref);
+  assert.equal(readFileSync(file, 'utf8').includes('not-serialized-input'), false);
+  const other = { ...ref, request_id: 92 };
+  assert.throws(() => withExecutionRequest(other, () => manager.request(parent)), error => error.code === 'EXECUTION_CONFLICT');
+});
+
+test('private reservation remains unknown while bind awaits and a typed pre-effect refusal removes it', async t => {
+  const { readdirSync } = await import('node:fs');
+  const root = mkdtempSync(join(tmpdir(), 'parent-bind-pending-')), entered = deferred(), resume = deferred(); let watched = 0;
+  const manager = new ParentDeliveryManager({ root, execution: {
+    async bind() { entered.resolve(); await resume.promise; throw new ExecutionError('EXECUTION_UNCONFIRMED', 'not_started'); },
+    async submit() { assert.fail('no queue'); },
+  }, dependencies: { processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true,
+    verify: async () => {}, observe: async () => { watched++; assert.fail('no watcher'); }, answer: async () => assert.fail('no answer') } });
+  t.after(async () => { resume.resolve(); await manager.close(); rmSync(root, { recursive: true, force: true }); });
+  const delivery = withExecutionRequest(request('bot-b'), () => manager.request(parent)), pending = delivery.before_send(boundary('bot-b'));
+  await entered.promise; assert.equal(delivery.result().state, 'unknown'); assert.equal(watched, 0);
+  const owner = readdirSync(join(root, 'active'))[0], file = join(root, 'active', owner, delivery.result().delivery_id + '.json');
+  assert.deepEqual(JSON.parse(readFileSync(file)).execution.request, request('bot-b'));
+  resume.resolve(); await assert.rejects(pending, error => error.code === 'EXECUTION_UNCONFIRMED');
+  assert.equal(delivery.result(), null); assert.equal(existsSync(file), false); assert.equal(watched, 0);
+});
+
+test('unknown preparation survives manager reconstruction and legacy recovery never watches a private record', async t => {
+  const { mkdirSync } = await import('node:fs');
+  for (const state of ['unknown', 'waiting']) {
+    const root = mkdtempSync(join(tmpdir(), 'parent-bind-recovery-'));
+    const base = { processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => false,
+      verify: async () => assert.fail('no legacy endpoint check'), observe: async () => assert.fail('no legacy watcher'),
+      answer: async () => assert.fail('no legacy answer'), submit: async () => assert.fail('no legacy queue') };
+    const first = new ParentDeliveryManager({ root, execution: { async bind() { throw Error('synthetic lost response'); },
+      async submit() { assert.fail('no queue'); } }, dependencies: base });
+    const delivery = withExecutionRequest(request('bot-b'), () => first.request(parent));
+    await assert.rejects(delivery.before_send(boundary('bot-b'))); await first.close();
+    const id = delivery.result().delivery_id, resultFile = join(root, 'results', id + '.json');
+    const record = JSON.parse(readFileSync(resultFile)); record.state = state;
+    const oldDir = join(root, 'active', 'synthetic-ended-owner'); mkdirSync(oldDir);
+    writeFileSync(join(oldDir, 'owner.json'), JSON.stringify({ pid: 44444, started_identity: 'synthetic-ended', closed: true, removal_safe: true }));
+    writeFileSync(join(oldDir, id + '.json'), JSON.stringify(record)); rmSync(resultFile);
+    const next = new ParentDeliveryManager({ root, dependencies: base });
+    t.after(async () => { await next.close(); rmSync(root, { recursive: true, force: true }); });
+    await next.recover();
+    const saved = JSON.parse(readFileSync(resultFile)); assert.equal(saved.state, 'unknown'); assert.deepEqual(saved.execution, record.execution);
+    assert.equal(saved.child_outcome, null); assert.equal(saved.queued_submission_id, null);
+  }
+});
+
+test('legacy unmounted manager keeps its original record and receipt shape without private execution references', async t => {
+  const { readdirSync } = await import('node:fs');
+  const root = mkdtempSync(join(tmpdir(), 'parent-legacy-shape-'));
+  const manager = new ParentDeliveryManager({ root, dependencies: {
+    processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true, verify: async () => {},
+    observe: async (_session, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(Error('synthetic abort')), { once: true })),
+    answer: async () => assert.fail('no answer'), submit: async () => assert.fail('no submit') } });
+  t.after(async () => { await manager.close(); rmSync(root, { recursive: true, force: true }); });
+  const delivery = manager.request(parent); await delivery.before_send(boundary('bot-b'));
+  const owner = readdirSync(join(root, 'active'))[0];
+  const record = JSON.parse(readFileSync(join(root, 'active', owner, delivery.result().delivery_id + '.json')));
+  assert.equal(record.state, 'waiting'); assert.equal(Object.hasOwn(record, 'execution'), false);
+  assert.equal(Object.hasOwn(delivery.result(), 'execution'), false);
 });

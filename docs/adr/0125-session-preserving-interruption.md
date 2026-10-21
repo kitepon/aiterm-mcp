@@ -492,3 +492,20 @@ Claudeはnative hook session/tool/ownerも同じprofile/scopeで再照合する�
 読取はnative親呼出provenanceだけであり、元入力受理/turn alias、中断/会話維持/loaded hookや終了fence
 の証明ではない。Codex/Cursorで独立current endpoint証拠が無い制限は、cloneしたendpointで解消しない。
 通常main/worker未mount、既定stop unsupported、全参加者/旧binary移行の不足は維持する。
+
+
+### parent bindの結果不明でも元owner参照を保持する
+
+private managerの既存owner recordへ、同じExecutionRequestと検証済みParentSourceだけをoptionalな
+execution参照として添える。raw SDK metadata/入力本文を加えず、新しいIDや配送queueを作らない。
+元proofとrequestが不一致なら拒否する。未検証/欠測proofを現在値で補わない。
+
+private予約はunknown/PARENT_DELIVERY_PREPARINGのまま保存し、bind応答とcompanion準備が成立してから
+同じ準備frameでwaitingへ進む。bindがcheckpoint作用後にrejectした場合も、possibleやuntyped RPC欠測は
+元ID/parent/child/request/proofを持つunknown診断として残す。共有graphの成功やnative受理へ昇格せず、
+watch/queue/input/再送を始めない。typed ExecutionErrorのnot_startedだけを既存の未結合清掃へ進める。
+
+diagnostic unknownはmanager再構築でも再送しない。execution参照を持つprivate記録を新しいlegacy
+managerが回収しても、adapter無しではunknownとして保存しwatch/返送へ進まない。旧binary readerや
+live移行の対応を宣言せず、通常未注入記録/receiptの形は維持する。owner JSONの既存atomic renameは
+hardware crash後の耐久性を証明しない。graphの欠測もowner診断からempty/成功へ復元しない。

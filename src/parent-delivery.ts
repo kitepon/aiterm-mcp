@@ -18,6 +18,8 @@ import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { currentExecutionRequest } from "./execution-context.js";
 import { ExecutionError } from "./execution-wire.js";
 import { withExecutionPreparation } from "./execution-effect.js";
+import { executionRequestSchema } from "./execution-contract.js";
+import { parentSourceSchema } from "./execution-parent-source.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -40,7 +42,13 @@ const recordSchema = z.object({
   child_turn_id: z.string().nullable(),
   error: z.string().nullable(),
   queued_submission_id: z.string().nullable(),
-}).strict();
+  // Private references for this existing delivery, never a payload/retry queue.
+  // Legacy unmounted records retain their original shape.
+  execution: z.object({ request: executionRequestSchema, source_evidence: parentSourceSchema.optional() }).strict().optional(),
+}).strict().superRefine((record, context) => {
+  if (record.execution?.source_evidence && JSON.stringify(record.execution.request) !== JSON.stringify(record.execution.source_evidence.request))
+    context.addIssue({ code: "custom", message: "parent delivery source request must match its original reference" });
+});
 
 type DeliveryRecord = z.infer<typeof recordSchema>;
 export type DeliveryBoundary = AgentTurnBoundary & { remote?: RemoteTarget };
@@ -234,6 +242,8 @@ export class ParentDeliveryManager {
     parent = structuredClone(parent);
     const request = this.execution ? currentExecutionRequest() : null;
     const evidence = structuredClone(this.execution?.captureEndpointEvidence?.(parent));
+    const source = parentSourceSchema.safeParse(evidence);
+    if (source.success && JSON.stringify(source.data.request) !== JSON.stringify(request)) throw new ExecutionError("EXECUTION_CONFLICT");
     let job: OwnedRecord | null = null;
     return {
       before_send: async (boundary) => {
@@ -247,8 +257,9 @@ export class ParentDeliveryManager {
           await this.beforeChange(key, true);
           const now = new Date().toISOString();
           const record: DeliveryRecord = { schema: "aiterm.parent-delivery.v1", delivery_id: randomUUID(),
-            created_at: now, updated_at: now, parent, boundary, state: "waiting", text: null,
-            child_outcome: null, child_turn_id: null, error: null, queued_submission_id: null };
+            created_at: now, updated_at: now, parent, boundary, state: this.execution ? "unknown" : "waiting", text: null,
+            child_outcome: null, child_turn_id: null, error: this.execution ? "PARENT_DELIVERY_PREPARING" : null, queued_submission_id: null,
+            ...(this.execution ? { execution: { request: request!, ...(source.success ? { source_evidence: source.data } : {}) } } : {}) };
           const created: OwnedRecord = { record, file: path.join(this.ownerDir, `${record.delivery_id}.json`), controller: new AbortController() };
           const reserve = () => {
             this.save(created);
@@ -272,17 +283,20 @@ export class ParentDeliveryManager {
             if (this.execution) {
               bound = true;
               withExecutionPreparation(boundary.session_id, () => this.execution!.prepareCompanion?.(record.delivery_id, parent, evidence));
+              withExecutionPreparation(boundary.session_id, () => {
+                record.state = "waiting"; record.error = null; this.save(created);
+              });
             } else {
               if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
               if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
             }
           } catch (error) {
-            if (bound) {
-              // The graph acknowledged this original delivery before companion
-              // preparation failed. Preserve its references, without a watcher,
-              // queue, native input or fabricated completion/retirement.
+            if (bound || (this.execution && !(error instanceof ExecutionError && error.effect === "not_started"))) {
+              // A lost bind/checkpoint response may already have persisted the
+              // original graph binding. Untyped RPC fields are not proof that
+              // nothing happened. Preserve references without replay or watch.
               job.record.state = "unknown";
-              job.record.error = "PARENT_DELIVERY_PREPARATION_UNCONFIRMED";
+              job.record.error = bound ? "PARENT_DELIVERY_PREPARATION_UNCONFIRMED" : "PARENT_DELIVERY_BIND_UNCONFIRMED";
               this.finish(job);
             } else {
               this.releaseClaim(job);
@@ -576,7 +590,11 @@ export class ParentDeliveryManager {
         const record = readRecord(file);
         const job: OwnedRecord = { record, file, controller: new AbortController() };
         this.jobs.set(record.delivery_id, job);
-        if (record.state === "sending") {
+        if (record.execution && !this.execution) {
+          record.state = "unknown";
+          record.error = "PARENT_EXECUTION_ADAPTER_UNAVAILABLE";
+          this.finish(job);
+        } else if (record.state === "sending") {
           record.state = "unknown";
           record.error = "PARENT_DELIVERY_INTERRUPTED: 回答送信中にMCP processが終了しました。自動再送はしていません";
           this.finish(job);

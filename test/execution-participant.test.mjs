@@ -16,6 +16,7 @@ import { FileExecutionStore } from '../dist/execution-store.js';
 import { closeExpectedExecution } from '../dist/execution-close.js';
 import { currentExecutionIngress } from '../dist/execution-context.js';
 import { EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
+import { registerExecutionTools } from '../dist/execution-tools.js';
 
 const original = { spawn: childProcess.spawn, spawnSync: childProcess.spawnSync };
 let nativeRunner;
@@ -437,4 +438,29 @@ test('an inherited preparation callback cannot write metadata after its original
   });
   assert.equal(receipt.isError, undefined); release(); const error = await later;
   assert.equal(writes, 0); assert.equal(error.code, 'EXECUTION_CONFLICT'); assert.equal(error.effect, 'not_started');
+});
+test('actual same-server private SDK stop records the composed MCP actor as key caller without inventing a source turn or native fence', async t => {
+  const f = fixture(t), run = { launch: B, boundary: { event_cursor: 17, turn_id: 'actual-owned-synthetic-turn', operation_id: null, steer_id: null } };
+  const observation = { schema: 'aiterm.native-interruption-observation.v1', run,
+    native: { schema: 'aiterm.execution-native.v1', native_id: '$2', server: { pid: 4711, started_identity: '2026-10-21T09:00:00Z' } },
+    harness: 'codex-cli', harness_process: { pid: 200, started_identity: '2026-10-21T09:00:01Z' },
+    endpoint: { session_id: 'native-conversation', record_file: { device: 1, inode: 2 } }, recorded_state: 'running',
+    native_boundary: { type: 'task_started', turn_id: run.boundary.turn_id, reason: null }, invocation_fence: 'unknown', session_preserved: 'unconfirmed' };
+  let keys = 0;
+  Object.assign(f.options.runtime, { observeInterruptionSync: () => structuredClone(observation), selectInterruptionSync: () => structuredClone(observation),
+    interruptKeySync: () => { guardTmuxExecution(['send-keys', '-t', '$2', 'Escape']); keys++;
+      return { schema: 'aiterm.pty-key-result.v1', session_id: B.session_id, key: 'Escape', outcome: 'accepted', interruption: 'unconfirmed', session_preserved: 'unconfirmed' }; } });
+  const p = f.create(); registerExecutionTools(p.server, p.service, { interruptCurrentRun: true });
+  const client = await connect(t, p, 'bellteam'), response = await client.callTool({ name: 'agent_stop', arguments: {
+    schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [B],
+  } });
+  assert.equal(response.isError, undefined); assert.equal(response.structuredContent.status, 'unconfirmed');
+  assert.equal(response.structuredContent.targets[0].key_receipt, 'accepted'); assert.equal(response.structuredContent.targets[0].session_preserved, 'unconfirmed');
+  const state = await p.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.deepEqual(state.interruptions[0].caller, f.actor); assert.notEqual(state.interruptions[0].caller.pid, observation.harness_process.pid);
+  assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(keys, 1); assert.deepEqual(f.live.get(B.session_id), B);
+  const inventory = p.inventory();
+  assert.ok(inventory.participants.some(row => row.references.some(reference => reference.kind === 'interruption')));
+  assert.equal(inventory.native_fence, 'unknown'); assert.equal(inventory.relation_coverage, 'incomplete');
+  assert.deepEqual(state.records, [], 'a stop caller is not a synthetic source invocation/job');
 });

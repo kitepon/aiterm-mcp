@@ -51,6 +51,11 @@ export class ParticipantExecutionStore extends FileExecutionStore {
     this.assertScope();
     return super.recoverAbandonedLock(expected, pid => { this.assertScope(); const value = observeOwner(pid); this.assertScope(); return value; });
   }
+  interruptionActor(): ExecutionActor {
+    this.assertScope();
+    if (!this.roles.includes("mcp")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return { ...this.actor };
+  }
   // Raw read deliberately permits diagnosis of a missing declaration. It has
   // no write/re-enrollment path and never enters another store lock.
   inventory(observeActors?: (pids: number[]) => unknown) {

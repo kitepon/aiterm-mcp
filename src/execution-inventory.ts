@@ -2,7 +2,7 @@
 // All keys below are existing process/request/delivery identities.
 import { z } from "zod";
 import type { ExecutionState } from "./execution-store.js";
-import type { ExecutionRequest } from "./execution-contract.js";
+import type { ExecutionRequest, ExecutionPoint } from "./execution-contract.js";
 
 export const executionActorSchema = z.object({
   pid: z.number().int().positive().safe(),
@@ -17,7 +17,8 @@ export type ExecutionActor = z.infer<typeof executionActorSchema>;
 export type ExecutionParticipantRole = z.infer<typeof executionParticipantRoleSchema>;
 type Reference = { kind: "mcp"; request: ExecutionRequest }
   | { kind: "parent_source"; delivery_id: string; request: ExecutionRequest }
-  | { kind: "parent_effect"; delivery_id: string; stage: "dequeue" | "emit" | "wake"; state: "issued" | "accepted" | "unknown" };
+  | { kind: "parent_effect"; delivery_id: string; stage: "dequeue" | "emit" | "wake"; state: "issued" | "accepted" | "unknown" }
+  | { kind: "interruption"; run: ExecutionPoint; phase: "preparing" | "issued" | "accepted" | "unknown" };
 type Entry = { actor: ExecutionActor; declared_roles: ExecutionParticipantRole[];
   native_identity: "matched" | "unavailable" | "replaced";
   references: Reference[]; missing: ("unregistered_actor" | "role_missing" | "native_unavailable" | "native_replaced")[] };
@@ -50,6 +51,9 @@ export function executionParticipantInventory(state: ExecutionState,
   for (const record of state.records) if (record.relation.lifecycle !== "retired" && record.relation.phase !== "unsent")
     mcp(record.reservation.request, { kind: "mcp", request: record.reservation.request });
   for (const slot of state.slots) if (slot.request) mcp(slot.request, { kind: "mcp", request: slot.request });
+  for (const row of state.interruptions) if (row.caller && ["preparing", "issued", "accepted", "unknown"].includes(row.phase))
+    add(row.caller, "mcp", { kind: "interruption", run: row.before.run,
+      phase: row.phase as "preparing" | "issued" | "accepted" | "unknown" });
   for (const binding of state.parent_deliveries) {
     const original = state.records.find(record => JSON.stringify(record.reservation.request) === JSON.stringify(binding.request));
     const returning = state.records.find(record => record.reservation.request.kind === "delivery"

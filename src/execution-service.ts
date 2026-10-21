@@ -15,6 +15,7 @@ import type { ExecutionNativeServer } from "./execution-close.js";
 import { nativeInterruptionObservationSchema, interruptionIdentity, interruptionBlocksLaunch, interruptionBlocksRequest,
   interruptionSlots, assertInterruptionSource, sameInterruptionRun } from "./execution-interruption.js";
 import { isDeepStrictEqual } from "node:util";
+import { executionActorSchema } from "./execution-inventory.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
@@ -153,12 +154,25 @@ export class ExecutionService {
   async interruptRun<T>(input: ExecutionPoint, body: () => T): Promise<T> {
     const run = executionPointSchema.parse(input);
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    const before = await this.store.transaction(state => {
+    const actorReader = this.store.interruptionActor?.bind(this.store);
+    const readCaller = () => {
+      if (!actorReader) return null; // legacy private fixture: never infer a native caller
+      const value = actorReader();
+      if (value && typeof (value as { then?: unknown }).then === "function") {
+        void Promise.resolve(value).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      }
+      const parsed = executionActorSchema.safeParse(value);
+      if (!parsed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return parsed.data;
+    };
+    const { before, caller } = await this.store.transaction(state => {
       const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
       if (!row || row.phase !== "draining") throw new ExecutionError("EXECUTION_CONFLICT");
       if (interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const caller = readCaller();
+      if (caller) row.caller = caller;
       row.phase = "preparing"; // one process claims this existing run; never an invocation ID
-      return row.before;
+      return { before: row.before, caller };
     });
     let issued = false;
     try {
@@ -166,6 +180,8 @@ export class ExecutionService {
         this.store.transactionSync!(state => {
           const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
           if (!row || row.phase !== (issued ? "issued" : "preparing") || interruptionSlots(state, run).length)
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (!isDeepStrictEqual(row.caller ?? null, caller) || !isDeepStrictEqual(readCaller(), caller))
             throw new ExecutionError("EXECUTION_UNCONFIRMED");
           const now = this.interruptObservation(run);
           if (now.recorded_state !== "running" || !isDeepStrictEqual(interruptionIdentity(now), interruptionIdentity(before)))
@@ -185,15 +201,18 @@ export class ExecutionService {
       await this.store.transaction(state => {
         const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
         const slot = state.slots.find(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run));
-        if (!row || row.phase !== "issued" || !slot || slot.state !== "issued") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        if (!row || row.phase !== "issued" || !slot || slot.state !== "issued"
+          || !isDeepStrictEqual(row.caller ?? null, caller) || !isDeepStrictEqual(readCaller(), caller)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
         row.phase = "accepted"; slot.state = "unknown"; // key known; interruption/fence still unknown
       });
       return value;
     } catch (error) {
       try { await this.store.transaction(state => {
         const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
-        if (row && (issued || row.phase === "preparing")) row.phase = issued ? "unknown" : "not_sent";
-        if (issued) for (const slot of state.slots) if (slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)) slot.state = "unknown";
+        if (row && isDeepStrictEqual(row.caller ?? null, caller)) {
+          if (issued || row.phase === "preparing") row.phase = issued ? "unknown" : "not_sent";
+          if (issued) for (const slot of state.slots) if (slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)) slot.state = "unknown";
+        }
       }); } catch { /* retain issued journal/slot; reconstruction never replays */ }
       throw issued ? new ExecutionError("EXECUTION_UNCONFIRMED", "possible") : error;
     }
@@ -210,6 +229,7 @@ export class ExecutionService {
   private settleInterruptionState(state: ExecutionState, run: ExecutionPoint) {
     const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
     if (!row || row.phase !== "accepted" || interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    if (this.store.interruptionActor && !row.caller) throw new ExecutionError("EXECUTION_UNCONFIRMED");
     this.assertInterruptionProof(run, row.before);
     if (!state.slots.some(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
     row.phase = "settled";

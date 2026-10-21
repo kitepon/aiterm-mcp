@@ -242,4 +242,22 @@ PIDが存在する、identityが違う/読めない、probe欠測/非同期、ow
 中断の成功receiptや旧finishの代用にはならない。復旧したactorは旧operationを引き継がず、
 未確認のEscや旧parent returnを再発行しない。通常main/公開MCPへ復旧toolを追加しない。
 
+### 中断を発行したMCP callerの既存native参照
+
+scoped MCP storeの`interruptionActor()`だけが、同scope/actorを再照合してキー発行processの
+既存PID/開始identityを供給する。worker roleやsource env、target harness PIDから補完しない。
+`interruptRun`はpreparingを確保する同じtransactionでcallerをjournalへ保存し、実キー作用直前と
+受付receipt保存時にも同じcallerを照合する。旧frameの遅着cleanupが別callerの記録を上書きしない。
+このcallerは停止controlの発行processであり、AIの仕事因果やsource native turnではない。
+新しいrequest/job/配送IDを作らず、controlを実行graphの仕事edgeへ追加しない。
+
+inventoryはpreparing/issued/accepted/unknownのcallerを、同じ元run/phaseのMCP参照として保持する。
+未登録やPID identity不一致/取得不能を診断するだけで、native終了fenceや全参加者被覆を証明しない。
+settled/not_sentの履歴から新しい仕事や到達集合を復活させない。
+callerが記録されていない旧journalを現在MCPや最新登録者で埋めず、scoped participantはそのjournalの
+受付解除を拒否する。旧private fixtureの動作をlive state移行受入に数えない。
+
+callerの不在やmetadata mutexの復旧だけでpreparing/issued/unknownをnot_sentへ戻さず、
+キーの再発行や自動takeoverを許さない。native作用/元run/fence欠測の明示清算は引き続き未了。
+
 実席/公式CLI試験・他席操作・本番・公開配布なし。旧closeのfake成功を中断成功へ付け替えない。

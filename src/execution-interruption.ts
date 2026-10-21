@@ -5,6 +5,7 @@ import { executionPointSchema, executionRequestSchema, planCascadeStop, type Exe
 import { executionNativeBindingSchema } from "./execution-close.js";
 import { ExecutionError } from "./execution-wire.js";
 import type { ExecutionState } from "./execution-store.js";
+import { executionActorSchema } from "./execution-inventory.js";
 import { isDeepStrictEqual as same } from "node:util";
 
 const identity = z.object({ pid: z.number().int().positive(), started_identity: z.string().refine(value => Number.isFinite(Date.parse(value))) }).strict();
@@ -28,9 +29,11 @@ export type NativeInterruptionObservation = z.infer<typeof nativeInterruptionObs
 export const executionInterruptionSchema = z.object({
   before: nativeInterruptionObservationSchema,
   phase: z.enum(["draining", "preparing", "issued", "accepted", "unknown", "not_sent", "settled"]),
+  caller: executionActorSchema.optional(),
   requests: z.array(executionRequestSchema), parent_deliveries: z.array(z.uuid()),
 }).strict().superRefine((value, context) => {
   if (value.before.recorded_state !== "running") context.addIssue({ code: "custom", message: "interruption requires its original running observation" });
+  if (value.caller && value.phase === "draining") context.addIssue({ code: "custom", message: "caller belongs to the claimed key frame, not admission alone" });
 });
 export function interruptionIdentity(value: NativeInterruptionObservation) {
   return { run: value.run, native: value.native, harness: value.harness, harness_process: value.harness_process, endpoint: value.endpoint };

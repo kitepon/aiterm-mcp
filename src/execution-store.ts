@@ -66,6 +66,9 @@ export type ExecutionState = z.infer<typeof executionStateSchema>;
 export interface ExecutionStore {
   transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
+  // Same process's native identity, supplied only by the scoped MCP store.
+  // An old journal never acquires a caller from a reconstructed/latest actor.
+  interruptionActor?(): ExecutionActor;
 }
 export function emptyExecutionState(): ExecutionState {
   return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [], participants: [], interruptions: [] };

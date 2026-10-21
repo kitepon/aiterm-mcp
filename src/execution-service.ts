@@ -778,6 +778,24 @@ export class ExecutionService {
               if (!isDeepStrictEqual(observation.run.launch, launch) || observation.recorded_state !== "running")
                 throw new ExecutionError("EXECUTION_UNSUPPORTED");
               run = observation.run;
+              // A native turn already present in an accepted canonical receipt
+              // can be re-observed at that ORIGINAL Point. Never fill a null
+              // turn, match a different turn or pick among multiple cursors.
+              // Existing operation/steer references need their own native
+              // acceptance proof; this Codex observation does not provide it.
+              const candidates = current.relations.filter(relation => relation.lifecycle !== "retired"
+                && relation.phase !== "unsent" && ["open", "unknown"].includes(relation.completion)
+                && isDeepStrictEqual(relation.target?.launch, launch)).map(relation => relation.target!);
+              const candidate = candidates[0];
+              if (candidate && candidates.every(value => isDeepStrictEqual(value, candidate))
+                && candidate.boundary?.turn_id === run.boundary?.turn_id
+                && candidate.boundary?.operation_id === null && candidate.boundary?.steer_id === null) {
+                const proof = this.interruptObservation(candidate);
+                if (proof.recorded_state !== "running"
+                  || !isDeepStrictEqual(interruptionIdentity({ ...proof, run }), interruptionIdentity(observation)))
+                  throw new ExecutionError("EXECUTION_UNCONFIRMED");
+                run = candidate;
+              }
             }
             await this.beginInterruption(run); runs.set(id, run);
           } catch {

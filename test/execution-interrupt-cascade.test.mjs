@@ -102,6 +102,57 @@ test('missing canonical native alias preserves the original turn-null receipt an
   const record = (await f.read()).records.find(record => record.reservation.request.delivery_id === request.delivery_id);
   assert.deepEqual(record.relation.target, canonical); assert.equal(record.relation.completion, 'open'); assert.equal(record.relation.lifecycle, 'tracking');
 });
+test('an already native-bound canonical turn is re-observed at its original Point instead of replacing its dispatch cursor', async t => {
+  const f = fixture(t), request = await f.edge(A, B), original = point(B);
+  f.runtime.selectInterruptionSync = launch => ({ ...structuredClone(f.observations.get(launch.session_id)),
+    run: { ...point(launch), boundary: { ...point(launch).boundary, event_cursor: 99 } } });
+  const result = await f.service.interruptCascade(input([B]));
+  assert.equal(result.status, 'confirmed'); assert.deepEqual(result.targets[0].run, original);
+  assert.deepEqual(f.keys, [B.session_id]);
+  const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
+  assert.deepEqual(record.relation.target, original); assert.equal(record.relation.completion, 'interrupted');
+});
+test('native alias re-observation refuses a different conversation/harness/native identity before admission or a key', async t => {
+  for (const change of ['conversation', 'harness', 'native']) {
+    const f = fixture(t), request = await f.edge(A, B);
+    f.runtime.selectInterruptionSync = launch => ({ ...structuredClone(f.observations.get(launch.session_id)),
+      run: { ...point(launch), boundary: { ...point(launch).boundary, event_cursor: 99 } } });
+    f.runtime.interruptionSync = run => {
+      const proof = structuredClone(f.observations.get(run.launch.session_id));
+      if (change === 'conversation') proof.endpoint.session_id = 'different-native-conversation';
+      if (change === 'harness') proof.harness_process.started_identity = '2026-10-21T07:00:02Z';
+      if (change === 'native') proof.native.native_id = '$999';
+      return proof;
+    };
+    const result = await f.service.interruptCascade(input([B]));
+    assert.equal(result.targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
+    const state = await f.read(); assert.deepEqual(state.interruptions, []);
+    assert.equal(state.records.find(value => value.reservation.request.delivery_id === request.delivery_id).relation.completion, 'open');
+  }
+});
+test('multiple canonical cursors for a native turn are not collapsed into one guessed receipt alias', async t => {
+  const f = fixture(t); await f.edge(A, B);
+  const other = point(B); other.boundary.event_cursor++;
+  const request = await f.edge(D, B, other), result = await f.service.interruptCascade(input([B]));
+  assert.equal(result.status, 'unconfirmed'); assert.ok(result.unresolved.some(value => value.reason === 'native_canonical_alias_missing'));
+  assert.deepEqual(f.keys, [B.session_id]);
+  const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
+  assert.deepEqual(record.relation.target, other); assert.equal(record.relation.completion, 'open');
+});
+test('an old native turn, operation or steer ref is not enriched from the currently selected native run', async t => {
+  for (const change of ['turn', 'operation', 'steer']) {
+    const f = fixture(t), canonical = point(B);
+    if (change === 'turn') canonical.boundary.turn_id = 'old-native-turn';
+    if (change === 'operation') canonical.boundary.operation_id = 'sha256:' + 'f'.repeat(64);
+    if (change === 'steer') canonical.boundary.steer_id = 'f'.repeat(16);
+    const request = await f.edge(A, B, canonical), observed = f.runtime.interruptionSync.bind(f.runtime);
+    f.runtime.interruptionSync = run => { assert.deepEqual(run, point(B), 'never claim old receipt as the native-selected run'); return observed(run); };
+    const result = await f.service.interruptCascade(input([B]));
+    assert.equal(result.status, 'unconfirmed'); assert.ok(result.unresolved.some(value => value.reason === 'native_canonical_alias_missing'));
+    const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
+    assert.deepEqual(record.relation.target, canonical); assert.equal(record.relation.completion, 'open');
+  }
+});
 test('native-issued RPC timeout keeps all native keys unissued and real late receipt intact', async t => {
   const f = fixture(t, 0), record = await f.register('pending-native', A, B), ready = deferred(), release = deferred();
   const pending = f.service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => {

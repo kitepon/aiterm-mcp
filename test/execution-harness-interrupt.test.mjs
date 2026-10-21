@@ -323,3 +323,36 @@ test('a current native run selector does not supply a native caller-turn alias f
   assert.deepEqual(evidence.runtime_launch, f.point.launch); assert.equal(evidence.caller_bound, true);
   assert.equal(evidence.invocation_boundary, null); assert.deepEqual(f.keys, []);
 });
+test('actual native selector/controller preserves an already native-bound receipt and leaves turn-null dispatches unresolved', posix, async t => {
+  for (const knownTurn of [true, false]) {
+    const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-canonical-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+      observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+      observeInterruptionSync: core.observeExpectedAgentRunInterruption,
+      selectInterruptionSync: core.selectExpectedAgentRunInterruption, interruptKeySync: core.interruptExpectedAgentRun,
+      async observeDone() { assert.fail('native abort is not generic completion'); },
+    });
+    const service = new ExecutionService(store, runtime), canonical = structuredClone(f.point);
+    if (!knownTurn) canonical.boundary.turn_id = null;
+    const record = await service.execute({ action: 'register', source_session_id: null,
+      reservation: { schema: 'aiterm.execution-reservation.v1', request: { kind: 'delivery', delivery_id: 'existing-native-bound-' + knownTurn,
+        target_session_id: f.name }, source: { launch: null, boundary: null },
+      target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+    await service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => ({
+      value: 'previous accepted receipt; native turn known only in the explicit fixture case', target: canonical,
+    }));
+    const result = await service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] });
+    assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].key_receipt, 'accepted'); assert.deepEqual(f.keys, ['Escape']);
+    if (knownTurn) {
+      assert.deepEqual(result.targets[0].run, canonical, 'original dispatch cursor stays intact after native re-observation');
+      assert.equal(result.unresolved.some(value => value.reason === 'native_canonical_alias_missing'), false);
+    } else {
+      assert.notDeepEqual(result.targets[0].run, canonical);
+      assert.ok(result.unresolved.some(value => value.reason === 'native_canonical_alias_missing'));
+    }
+    const saved = await service.execute({ action: 'status', request: record.reservation.request });
+    assert.deepEqual(saved.relation.target, canonical); assert.equal(saved.relation.completion, 'open');
+    assert.equal(saved.relation.lifecycle, 'tracking'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
+  }
+});

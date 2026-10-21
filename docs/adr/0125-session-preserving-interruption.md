@@ -175,7 +175,13 @@ selectorが使えてもcanonical bindingやincoming MCP caller sourceのturnを�
 
 未解決の元target Pointと選んだnative runが完全一致しない場合はnative_canonical_alias_missingとして保持する。
 null native turn、別cursor、現在turn等を元bindingへ書き戻さず、旧receipt/関係を終了扱いにしない。
-alias proofを新たに生成するadapterはこのcontrollerに含めない。
+turnが欠ける元receiptにaliasを作るadapterはこのcontrollerに含めない。
+元canonical Pointにnative turnが既に記録されており、到達launchの未完receiptが全て同じPointを参照する場合だけ、
+その**元Point**を同期native observerで再観測できる。選択時のnative server/ID、harness PID/開始identity、
+会話ID/file identityと元Pointのnative turnが一致することを必要とし、現在観測のcursorへ書き換えない。
+複数の異なるcanonical cursor、turn欠測/別turn、operation/steer参照はこの経路で補完しない。
+これは既にnative-boundなPointの再照合であり、turn=nullの通常dispatchがnative-boundになったとはしない。
+現core observerのfence unknown/維持unconfirmedも変わらず、元Pointが再照合できただけでは関係を終了させない。
 下流admission欠測/遅着target/alias欠測時は親の一時受付を解除しない。
 解除可能な全対象のproof再観測・metadata整理・最終scope snapshotを一つの共有transactionでcommitし、
 途中で親だけ再受付して新しい仕事を旧cascadeへ混入させない。別対象の観測中に先行世代が交代した場合も

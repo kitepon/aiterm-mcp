@@ -281,6 +281,25 @@ Codex/Cursorのstdio MCP継承へ上記3名と`AITERM_STATE_BASE`を追加する
 Cursorの任意値は生成元だけの有無判定でCLI固有の値を落とさないよう扱いを分ける。
 scopeの同一性が未検証ならcoverageをcompleteにしない。
 
+`createExecutionRuntime({sourceEnvironment, ...})`は明示したstdio環境を構築時に一度だけ読み、
+各register時にはそのsnapshotと現在世代を照合する。後から環境を書き換えても呼出元を差し替えない。
+Bridgeのtrusted transport resolverは`sourceContext`を別途注入し、envだけでHTTP sourceを検証した扱いにしない。
+coreの端末作成は`sessionCallerEnvironment`で名札を除く呼出元環境を端末ごとに渡すため、
+存在するTMPDIR等を起動経路が既に保持する。CLIからstdio MCPへの継承設定はそれとは別途必要。
+
+### process間で共有する保存範囲と隔離検証
+
+`executionStoreDirectory`へ既存stateRootと実際のmultiplexer識別を明示する。
+POSIXはsocket path、Windowsは既存のWIN_NSを渡す想定。kindと識別から安定した保存directoryを選び、
+同じstateRootに別socketの同名席があっても関係/停止印/slotを混ぜない。これは保存範囲のhashであり、
+新しい仕事IDや配送IDではない。import時に保存先を選んだりlive stateへfallbackしたりしない。
+実mount側での値の供給は未実装。
+
+隔離した2つのNode processへ同じFileExecutionStoreを渡し、停止印の共有、発行済み送信のdrainと
+遅れて結び付いたtargetの一度だけのclose、発行後のprocess消失を再構築後も未確認として保持すること、
+別processのconfigure発行中/応答欠測後の受付抑止を確認した。runtimeは合成file/IPCのみでcoreをimportせず、
+PTY/実CLI/実席は操作しない。これは実MCP mountや本番復旧の受入を代替しない。
+
 ## rootの現在境界と到達範囲
 
 stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。

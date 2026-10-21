@@ -47,6 +47,9 @@ const waitSchema = z.object({
 export interface ExecutionRuntimeBindings {
   observeSession(session: string): unknown | Promise<unknown>;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
+  // For a direct stdio transport only. Read once at factory construction, never
+  // reinterpret an env change or an incoming registration as caller context.
+  sourceEnvironment?: Readonly<Record<string, string | undefined>>;
   // This context is resolved by the trusted runtime/Bridge transport adapter.
   // Never implement it by selecting a latest job or blindly echoing a claim.
   sourceContext?(input: ExecutionRegister): Promise<ExecutionPoint | null>;
@@ -59,6 +62,7 @@ export interface ExecutionRuntimeBindings {
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): ExecutionRuntime {
+  const environmentSource = bindings.sourceEnvironment ? executionSourceFromEnvironment(bindings.sourceEnvironment) : null;
   const observe: ExecutionRuntime["observe"] = async session => {
     try {
       const result = observeSchema.parse(await bindings.observeSession(session));
@@ -72,7 +76,7 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
     async sourceEvidence(input) {
       let context: ExecutionPoint | null = null;
       try {
-        const resolved = await bindings.sourceContext?.(input);
+        const resolved = bindings.sourceContext ? await bindings.sourceContext(input) : environmentSource;
         context = resolved ? executionPointSchema.parse(resolved) : null;
       } catch { /* no runtime proof */ }
       if (!context) return { runtime_launch: null, caller_bound: false, invocation_boundary: null };

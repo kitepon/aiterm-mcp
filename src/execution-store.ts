@@ -3,6 +3,7 @@
 // reconciliation exists, its scope returns STATE_UNAVAILABLE/BUSY, never empty.
 import * as fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { executionLaunchSchema, executionRequestSchema } from "./execution-contract.js";
 import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
@@ -23,6 +24,17 @@ export interface ExecutionStore {
 }
 export function emptyExecutionState(): ExecutionState {
   return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [] };
+}
+
+/** Use the product's existing stateRoot and resolved multiplexer identity.
+ * The digest is a storage namespace, never an execution/delivery identifier.
+ * Supplying both explicitly keeps import inert and prevents test/live fallback.
+ */
+export function executionStoreDirectory(stateRoot: string, multiplexer: { kind: "socket" | "namespace"; key: string }): string {
+  if (!path.isAbsolute(stateRoot) || !multiplexer.key || /[\r\n\0]/.test(multiplexer.key))
+    throw new ExecutionError("EXECUTION_INVALID");
+  const scope = createHash("sha256").update(JSON.stringify([multiplexer.kind, multiplexer.key])).digest("hex");
+  return path.join(stateRoot, "execution", scope);
 }
 
 export class FileExecutionStore implements ExecutionStore {

@@ -62,6 +62,17 @@ test('wire claims alone do not become runtime caller evidence', async () => {
   assert.equal(verified.status, 'verified');
   assert.equal(verified.point.boundary, null);
 });
+test('direct runtime snapshots the stdio environment once and still checks the live generation', async () => {
+  const f = fixture();
+  const env = { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id };
+  const runtime = createExecutionRuntime({ ...f.bindings, sourceEnvironment: env });
+  env.AITERM_AGENT_LAUNCH_ID = 'd'.repeat(32);
+  assert.equal((await runtime.sourceEvidence(input)).caller_bound, true);
+  f.observed.launch_id = env.AITERM_AGENT_LAUNCH_ID;
+  assert.equal((await runtime.sourceEvidence(input)).caller_bound, false);
+  const legacy = createExecutionRuntime({ ...f.bindings, sourceEnvironment: { AITERM_SESSION_ID: A.session_id } });
+  assert.equal((await legacy.sourceEvidence(input)).caller_bound, false);
+});
 test('the saved dispatch cursor is repeated without blocking and done does not invent a fence', async () => {
   const f = fixture();
   assert.deepEqual(await createExecutionRuntime(f.bindings).completion(point), { state: 'completed', fence: 'unknown' });

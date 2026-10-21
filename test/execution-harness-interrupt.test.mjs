@@ -813,3 +813,76 @@ test('real SDK anonymous pty_send binds the v2 original cursor into the same pri
     assert.ok(stopped.structuredContent.unresolved.some(x => x.reason === 'claude_hook_version_unconfirmed'));
   } finally { await client.close(); await server.close(); }
 });
+
+function anonymousRaceService(t, f, overrides = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'claude-anonymous-stop-race-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('no native completion'); }, ...overrides,
+  }), 150);
+  const dispatcher = createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+    sourceEnvironment: {}, initializedClientName: () => 'synthetic-operator', observeSessionGeneration: core.observeExecutionSessionGeneration });
+  rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
+  const dispatch = (id, before_send, afterReceipt) => dispatcher.dispatch('pty_send', { session_id: f.name }, { requestId: id }, async () => {
+    const receipt = await core.dispatchAgentTurn(f.name, 'synthetic input', { raw: true, pane_input_recovery: [], before_send });
+    await afterReceipt?.();
+    return { content: [], structuredContent: { schema: 'aiterm.pty-send-result.v1', mode: 'agent_dispatch',
+      session_id: f.name, event_cursor: receipt.event_cursor, launch_id: receipt.launch_id } };
+  });
+  return { store, service, dispatcher, dispatch, input: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] } };
+}
+test('stop during actual anonymous before_send cancels only the old unissued request even when no native run/marker can yet be selected', posix, async t => {
+  const f = fixture(t, 'claude'), x = anonymousRaceService(t, f); let stop;
+  const result = await x.dispatch('anonymous-stop-before-capture', async () => { stop = await x.service.interruptCascade(x.input); });
+  assert.equal(stop.status, 'unconfirmed'); assert.equal(stop.targets[0].key_receipt, 'not_sent');
+  assert.equal(result.isError, true, 'old unissued input must not cross the native gate after stop');
+  assert.deepEqual(f.control.inputCommands.filter(command => command !== 'capture-pane'), []); assert.deepEqual(f.keys, []);
+  assert.throws(() => readFileSync(f.marker), { code: 'ENOENT' });
+  const state = await x.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.records[0].operations.send, 'not_sent'); assert.equal(state.records[0].relation.phase, 'unsent');
+  assert.deepEqual(state.slots, []); assert.deepEqual(state.stopping, []); assert.deepEqual(state.interruptions, []);
+  assert.ok(stop.unresolved.some(row => row.reason === 'native_current_run_unavailable'), 'cancelled input is not native idle/interruption proof');
+  const retry = await x.dispatch('anonymous-stop-before-capture'); assert.equal(retry.isError, true);
+  assert.deepEqual(f.control.inputCommands.filter(command => command !== 'capture-pane'), []);
+  const next = await x.dispatch('independent-same-launch-next-request'); assert.equal(next.isError, undefined, JSON.stringify(next));
+  assert.equal(next._meta['aiterm/execution_binding'].target.launch.launch_id, f.point.launch.launch_id); assert.deepEqual(f.keys, []);
+});
+test('actual issued anonymous input receipt arriving during stop is retained then reselected at its original Point before a single Esc', posix, async t => {
+  const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+  const f = fixture(t, 'claude'), issued = pause(), release = pause(), selected = pause(); let selections = 0;
+  const x = anonymousRaceService(t, f, { selectInterruptionSync(launch, candidates) {
+    selections++; selected.resolve(); return core.selectExpectedAgentRunInterruption(launch, candidates);
+  } });
+  const pending = x.dispatch('anonymous-issued-receipt-late', undefined, async () => { issued.resolve(); await release.promise; });
+  await issued.promise;
+  const stopping = x.service.interruptCascade(x.input); await selected.promise; release.resolve();
+  const [receipt, stop] = await Promise.all([pending, stopping]);
+  assert.equal(receipt.isError, undefined, JSON.stringify(receipt));
+  const binding = receipt._meta['aiterm/execution_binding']; assert.ok(binding.target); assert.equal(binding.target.boundary.turn_id, null);
+  assert.equal(binding.target.boundary.operation_id, null); assert.equal(binding.target.boundary.event_cursor, 1);
+  assert.equal(stop.targets[0].key_receipt, 'accepted', 'readonly selector must reconsider the newly bound real receipt');
+  assert.ok(selections >= 2); assert.deepEqual(stop.targets[0].run, binding.target); assert.deepEqual(f.keys, ['Escape']);
+  assert.equal(stop.targets[0].interruption, 'unconfirmed'); assert.equal(stop.targets[0].session_preserved, 'unconfirmed');
+  const saved = await x.service.execute({ action: 'status', request: binding.request });
+  assert.equal(saved.operations.send, 'accepted'); assert.deepEqual(saved.relation.target, binding.target); assert.equal(saved.relation.lifecycle, 'tracking');
+  await x.service.interruptCascade(x.input); assert.deepEqual(f.keys, ['Escape']);
+});
+
+test('a stop with missing anonymous canonical receipt suppresses further native effects of the issued old frame without claiming the first input was not sent', posix, async t => {
+  const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+  const f = fixture(t, 'claude'), issued = pause(), release = pause(), x = anonymousRaceService(t, f); let extraEffect = 0;
+  const pending = x.dispatcher.dispatch('pty_send', { session_id: f.name }, { requestId: 'issued-frame-followup-after-stop' }, async () => {
+    const receipt = await core.dispatchAgentTurn(f.name, 'synthetic input', { raw: true, pane_input_recovery: [] });
+    issued.resolve(); await release.promise;
+    // A second actual core action from this same old RPC must pass admission.
+    core.sendKeyResult(f.name, 'C-c'); extraEffect++;
+    return { content: [], structuredContent: { mode: 'agent_dispatch', session_id: f.name, event_cursor: receipt.event_cursor } };
+  });
+  await issued.promise; const stopped = await x.service.interruptCascade(x.input); release.resolve(); const result = await pending;
+  assert.equal(stopped.status, 'unconfirmed'); assert.equal(stopped.targets[0].key_receipt, 'not_sent'); assert.equal(result.isError, true);
+  assert.equal(result._meta['aiterm/execution_error'].effect, 'possible'); assert.equal(extraEffect, 0); assert.deepEqual(f.keys, []);
+  const state = await x.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.records[0].stopping, true); assert.equal(state.records[0].operations.send, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
+});

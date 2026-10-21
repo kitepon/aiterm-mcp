@@ -310,3 +310,40 @@ test('selector receives detached recorded Points without resolving mixed receipt
     assert.deepEqual((await f.service.execute({ action: 'status', request })).relation.target, original);
   }
 });
+
+test('source-name hints alone do not cancel another launch request, while selected old requests retain their own stop tombstone', async t => {
+  const f = fixture(t);
+  const hint = { kind: 'delivery', delivery_id: 'unknown-source-hint-only', target_session_id: D.session_id };
+  await f.service.execute({ action: 'register', source_session_id: B.session_id, reservation: {
+    schema: 'aiterm.execution-reservation.v1', request: hint, source: { launch: null, boundary: null },
+    target: { session_id: D.session_id, expected_launch_id: D.launch_id } } });
+  const selected = await f.register('known-target-B', A, B), unrelated = await f.register('independent-D-C', D, C);
+  const result = await f.service.interruptCascade(input([B]));
+  assert.equal(result.status, 'unconfirmed', 'missing source-generation evidence remains a gap');
+  const state = await f.read(), record = request => state.records.find(row => JSON.stringify(row.reservation.request) === JSON.stringify(request));
+  assert.equal(record(selected.reservation.request).stopping, true); assert.equal(record(selected.reservation.request).operations.send, 'not_sent');
+  assert.equal(record(hint).stopping, false); assert.equal(record(hint).operations.send, 'not_issued');
+  assert.equal(record(unrelated.reservation.request).stopping, false); assert.equal(record(unrelated.reservation.request).operations.send, 'not_issued');
+});
+test('a stale explicit root does not cancel a same-name reservation bound to another expected generation', async t => {
+  const f = fixture(t), replacement = { ...B, launch_id: 'e'.repeat(32) }; f.live.set(B.session_id, replacement);
+  const record = await f.register('new-generation-reservation', D, replacement);
+  const result = await f.service.interruptCascade(input([B]));
+  assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, []);
+  const saved = await f.service.execute({ action: 'status', request: record.reservation.request });
+  assert.equal(saved.operations.send, 'not_issued'); assert.equal(saved.stopping, false); assert.deepEqual((await f.read()).stopping, []);
+});
+
+test('fully completed old contacts do not acquire a new request stop mark from another current run on the same launch', async t => {
+  const f = fixture(t), request = await f.edge(A, B);
+  await f.store.transaction(state => {
+    const record = state.records.find(row => JSON.stringify(row.reservation.request) === JSON.stringify(request));
+    record.relation.completion = 'completed'; record.relation.target_fence = 'closed';
+  });
+  const before = (await f.read()).records[0], current = f.observations.get(B.session_id);
+  current.run.boundary.turn_id = 'different-current-native-turn'; current.native_boundary.turn_id = 'different-current-native-turn';
+  const result = await f.service.interruptCascade(input([B]));
+  assert.equal(result.status, 'confirmed'); assert.deepEqual(f.keys, [B.session_id]);
+  assert.deepEqual((await f.read()).records[0], { ...before, relation: { ...before.relation, lifecycle: 'retired' } },
+    'normal completed-branch retirement is allowed; no stop mark, operation or execution binding is changed');
+});

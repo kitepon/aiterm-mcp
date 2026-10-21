@@ -382,3 +382,27 @@ Stop hookとcoreは同じstrict marker decoderを使い、v1/v2を読み分け�
 agent_done/resultへnative終了証拠としてexportしない。これはfixture上のreader互換性であり、
 実harnessにロード済みのhook版・全参加者被覆の証明ではない。その欠測は明示したままとする。
 実native入力受理・abort・同会話endpoint維持・旧呼出/親return終了fenceの受入は引き続き未了。
+
+### 匿名準備と停止が競合する場合の旧request抑止
+
+現在runを選べないことと、旧requestの未発行stageを取り消せることを分ける。
+private controllerはgraphと同じ共有lockで、実source/target世代または予約時の期待target世代が
+到達launchと一致する既存recordだけに、既存の`stopping=true`を旧request用の継続した抑止として残す。
+名前だけのsource hint、別の期待世代、無関係席、完了済みで下流も無い過去の関係は採用しない。
+未完了下流のconnectorは既存branch寿命の判定を使う。新しい配信queue/ID/TTL/別graphは作らない。
+
+not_issued/preparingだけをnot_sentにし、issued/accepted/unknownや元receipt/slotは保存する。
+この旧request印は後続のnative作用と既存parent returnの受付でも確認する。
+印はsession/launchの停止成功やnative idleを意味しない。run選択がunsupportedでも既発行の部分作用を
+not_sentと偽らず、後続作用が拒否された旧issued frameはunknown/possibleと元slotを保持する。
+読取statusとgenuineな遅着receiptの保存は拒否せず、別の新依頼へ印をコピーしない。
+同じlaunchの新依頼については、別途未解決run/slot/Bridge受付抑止があればその条件を維持する。
+
+発行済みRPCのdrain中に正規receiptが結合され、既存canonical target Point集合が変化した場合だけ、
+未admit対象のread-only run選択を再照合する。初回unsupportedを固定せず、元Pointのままadmitする。
+これはnative入力/キーの再送ではない。Point集合に変化が無ければ選択を繰り返さず、キーを発行した
+既存journalがあればそちらを使う。遅着した元成功とnative中断/会話維持未確認を両方保持する。
+
+stopping fieldのwire形は既存のまま。旧binaryがこのrecord印をnative gateで使う保証は無いため、
+旧binary混在/全参加者被覆/稼働移行は未受入で、通常mainへのmountを認める条件にはしない。
+既定read-only stopにはこの取消を入れず、明示private host注入だけに限定する。

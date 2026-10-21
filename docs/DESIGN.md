@@ -10,6 +10,7 @@ Codex native turnまたは元receiptで固定したClaude managed operationへ�
 Claudeのmarker/dispatch receiptは入力予約であってnative受理/処理開始ではなく、unconfirmedのまま記録する。
 混在した未完了記録を除外条件にせず、元Point/cursorと未解決aliasを保持し、キー受付でjob終了にしない。
 通常main/稼働profileへは未mountで、中断・受付fence・同会話維持の完成扱いをしない。
+run選択前でも既存recordの停止印で旧requestの未発行stage/後続作用を抑止し、元issued/accepted/unknownは保存する。名前だけで取消対象を広げず、drain中のcanonical Point変化だけをread-only再照合する。
 coreの実before_send Pointは同じ要求frameの同期準備受付で固定し、dispatcherが元target境界へ結ぶ。
 model引数/resultのoperationや現在event file長で補完せず、成功receiptとbinding欠測を分ける。
 この参照はnative入力受理/source aliasではない。匿名Claudeはprivateなv2 markerへ同じ要求frameの元cursorを保存して既存Pointを照合する。未注入coreはv1のままで、旧markerの補完はしない。loaded hook版・native中断/会話維持/fenceは未確認。詳細はADR0125。

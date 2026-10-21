@@ -115,7 +115,8 @@ export function interruptionBlocksLaunch(state: ExecutionState, launch: Executio
   return !!launch && activeTargets(state).some(value => same(value, launch));
 }
 export function interruptionBlocksRequest(state: ExecutionState, request: ExecutionRequest): boolean {
-  return state.interruptions.some(row => row.requests.some(value => same(value, request)));
+  return state.records.some(record => record.stopping && same(record.reservation.request, request))
+    || state.interruptions.some(row => row.requests.some(value => same(value, request)));
 }
 export function assertInterruptionSource(state: ExecutionState, source: ExecutionPoint | null, hint: string | null): void {
   for (const target of activeTargets(state)) {

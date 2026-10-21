@@ -71,7 +71,7 @@ function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord
 }
 function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
   return executionRecordSchema.parse({ ...record,
-    stopping: stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch)
+    stopping: record.stopping || stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch)
       || interruptionBlocksRequest(state, record.reservation.request) });
 }
 function sourceAdmission(state: ExecutionState, point: ExecutionPoint | null, seatHint: string | null): void {
@@ -81,6 +81,31 @@ function sourceAdmission(state: ExecutionState, point: ExecutionPoint | null, se
     throw new ExecutionError("EXECUTION_UNCONFIRMED");
   if (!point && seatHint && state.stopping.some(value => value.session_id === seatHint))
     throw new ExecutionError("EXECUTION_UNCONFIRMED");
+}
+// Request-only cancellation can be proved without guessing a current native
+// run. Match recorded generations, never just a source hint or reusable name.
+function interruptionRelatedRecords(state: ExecutionState, launches: readonly ExecutionLaunch[]): ExecutionRecord[] {
+  const active = new Set(unfinishedExecutionRelations(state.records.map(record => record.relation)).map(relation => key(relation.request)));
+  return state.records.filter(record => record.relation.lifecycle !== "retired" && record.relation.phase !== "unsent"
+    && (active.has(key(record.reservation.request)) || record.relation.phase === "reserved"
+      || [record.operations.launch, record.operations.send].some(stage => ["preparing", "issued", "unknown"].includes(stage)))
+    && launches.some(launch => isDeepStrictEqual(record.relation.source?.launch, launch)
+      || isDeepStrictEqual(record.relation.target?.launch, launch)
+      || (record.reservation.target.session_id === launch.session_id
+        && record.reservation.target.expected_launch_id === launch.launch_id)));
+}
+function cancelUnissuedInterruptionActions(records: ExecutionRecord[]): void {
+  for (const record of records) {
+    // Existing per-record flag is a sticky old-request tombstone, never a
+    // launch barrier or evidence that native processing stopped. Preserve it
+    // even if native selection is unavailable or a genuine receipt is late.
+    record.stopping = true;
+    // This says only that these existing stages cannot start. Native-issued,
+    // accepted and unknown stages/receipts keep their original meaning.
+    for (const stage of ["launch", "send"] as const)
+      if (["not_issued", "preparing"].includes(record.operations[stage])) record.operations[stage] = "not_sent";
+    if (record.operations.launch === "not_sent" && record.operations.send === "not_sent") record.relation.phase = "unsent";
+  }
 }
 function retireSettledBranches(state: ExecutionState): void {
   const roots = [...new Map(state.records.flatMap(record => record.relation.source ? [record.relation.source.launch] : [])
@@ -138,22 +163,13 @@ export class ExecutionService {
       const before = this.interruptObservation(run);
       if (!interruptionKeyReference(before)) throw new ExecutionError("EXECUTION_CONFLICT");
       if (before.harness === "claude-code") this.assertManagedInterruptionPoint(state, run);
-      const related = state.records.filter(record => record.relation.lifecycle !== "retired"
-        && (isDeepStrictEqual(record.relation.source?.launch, run.launch) || isDeepStrictEqual(record.relation.target?.launch, run.launch)
-          || (record.reservation.target.session_id === run.launch.session_id && record.reservation.target.expected_launch_id === run.launch.launch_id)
-          || (!record.relation.source && record.source_session_id === run.launch.session_id)));
+      const related = interruptionRelatedRecords(state, [run.launch]);
       const requests = related.map(record => record.reservation.request);
       const parent_deliveries = state.parent_deliveries.filter(binding => isDeepStrictEqual(binding.parent.launch, run.launch)
         || isDeepStrictEqual(binding.child.launch, run.launch) || requests.some(request => isDeepStrictEqual(request, binding.request))).map(binding => binding.delivery_id);
       const row: ExecutionState["interruptions"][number] = { before, phase: "draining", requests, parent_deliveries };
       state.interruptions.push(row);
-      for (const record of related) {
-        // Accepted/unknown/native-issued receipts retain their real meaning.
-        // Cancellation only proves not_sent for still-unissued old actions.
-        for (const stage of ["launch", "send"] as const)
-          if (["not_issued", "preparing"].includes(record.operations[stage])) record.operations[stage] = "not_sent";
-        if (record.operations.launch === "not_sent" && record.operations.send === "not_sent") record.relation.phase = "unsent";
-      }
+      cancelUnissuedInterruptionActions(related);
       return row;
     });
   }
@@ -826,6 +842,7 @@ export class ExecutionService {
       const reached = new Map(roots.map(launch => [key(launch), launch]));
       const runs = new Map<string, ExecutionPoint>();
       const outcomes = new Map<string, z.infer<typeof cascadeInterruptResultSchema>["targets"][number]>();
+      const selectionInputs = new Map<string, ExecutionPoint[]>();
       const unresolved: z.infer<typeof cascadeInterruptResultSchema>["unresolved"] = [];
       const gap = (reason: string, request: ExecutionRequest | null = null) => {
         if (!unresolved.some(value => value.reason === reason && isDeepStrictEqual(value.request, request))) unresolved.push({ request, reason });
@@ -834,11 +851,23 @@ export class ExecutionService {
         slot.session_id === launch.session_id || isDeepStrictEqual(slot.source, launch)
         || slot.sources?.some(source => isDeepStrictEqual(source, launch))
         || (slot.request && isDeepStrictEqual(find(state, slot.request).relation.source?.launch, launch))));
-      const snapshot = () => this.store.transaction(state => {
+      const describe = (state: ExecutionState) => {
         const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
-        const pending = pendingNative(state, plan.targets);
-        return { plan, pending, relations: state.records.map(record => record.relation) };
-      }, { readOnly: true });
+        const needsCancellation = interruptionRelatedRecords(state, plan.targets).some(record => !record.stopping ||
+          [record.operations.launch, record.operations.send].some(stage => stage === "not_issued" || stage === "preparing"));
+        return { plan, pending: pendingNative(state, plan.targets), relations: state.records.map(record => record.relation), needsCancellation };
+      };
+      const snapshot = async () => {
+        const current = await this.store.transaction(describe, { readOnly: true });
+        if (!current.needsCancellation) return current;
+        // Recompute under the writer lock: a stage may have issued after the
+        // read-only snapshot. Never relabel it as not_sent or discard its slot.
+        return this.store.transaction(state => {
+          const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
+          cancelUnissuedInterruptionActions(interruptionRelatedRecords(state, plan.targets));
+          return describe(state);
+        });
+      };
       const deadline = performance.now() + this.drainTimeoutMs; // RPC drain bound, never graph expiry
       let drainUnconfirmed = false;
       for (;;) {
@@ -846,17 +875,21 @@ export class ExecutionService {
         let added = false;
         for (const launch of current.plan.targets) {
           const id = key(launch); reached.set(id, launch);
-          if (runs.has(id) || outcomes.has(id)) continue;
-          added = true;
+          if (runs.has(id)) continue;
+          const candidates = current.relations.filter(relation => relation.lifecycle !== "retired"
+            && relation.phase !== "unsent" && ["open", "unknown"].includes(relation.completion)
+            && isDeepStrictEqual(relation.target?.launch, launch)).map(relation => relation.target!);
+          if (outcomes.has(id) && isDeepStrictEqual(selectionInputs.get(id), candidates)) continue;
+          // Retry a read-only selection only when actual recorded references
+          // changed during drain. This never replays a native key or input.
+          selectionInputs.set(id, candidates.map(point => executionPointSchema.parse(point)));
+          outcomes.delete(id); added = true;
           try {
             const existing = await this.store.transaction(state => state.interruptions.find(row =>
               isDeepStrictEqual(row.before.run.launch, launch) && !["settled", "not_sent"].includes(row.phase)) ?? null, { readOnly: true });
             let run: ExecutionPoint;
             if (existing) run = existing.before.run;
             else {
-              const candidates = current.relations.filter(relation => relation.lifecycle !== "retired"
-                && relation.phase !== "unsent" && ["open", "unknown"].includes(relation.completion)
-                && isDeepStrictEqual(relation.target?.launch, launch)).map(relation => relation.target!);
               const candidate = candidates[0];
               const selected = this.runtime.selectInterruptionSync(executionLaunchSchema.parse(launch), candidates.map(value => executionPointSchema.parse(value)));
               if (selected && typeof (selected as { then?: unknown }).then === "function") {

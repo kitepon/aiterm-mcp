@@ -143,6 +143,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexRunningTurn,
+  codexInterruptionRecord,
   observeCodexDone,
   buildCodexAgentCmd,
   codexLaunchNote,
@@ -1298,10 +1299,15 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
   const verifyRun = (meta: AgentMetadata) => {
     if (meta.kind === "codex") {
       if (!point.boundary!.turn_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-      if (codexRunningTurn(meta) !== point.boundary!.turn_id) throw new ExecutionError("EXECUTION_CONFLICT");
+      const record = codexInterruptionRecord(meta);
+      if (!record) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (record.boundary.type !== "task_started" || record.boundary.turn_id !== point.boundary!.turn_id)
+        throw new ExecutionError("EXECUTION_CONFLICT");
+      return record;
     } else if (meta.kind === "claude") {
       if (!point.boundary!.operation_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       if (readClaudeOperationMarker(meta)?.operationId !== point.boundary!.operation_id) throw new ExecutionError("EXECUTION_CONFLICT");
+      return null;
     } else throw new ExecutionError("EXECUTION_UNSUPPORTED"); // no guessed C-c/Esc for Cursor/Grok
   };
   const current = () => {
@@ -1310,7 +1316,7 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
     if (observed.launch_id !== point.launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
     const meta = loadAgentMetadata(name);
     if (meta.launch_id !== point.launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-    verifyRun(meta);
+    const run = verifyRun(meta);
     const process = observeExecutionParentProcess(name) as { schema?: string; source?: ExecutionPoint;
       harness?: string; harness_process?: { pid: number; started_identity: string } } | null;
     const actor = process?.harness_process;
@@ -1321,8 +1327,8 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
     const after = observeExecutionSessionGeneration(name), last = loadAgentMetadata(name);
     if (!after.exists || after.launch_id !== point.launch.launch_id || last.kind !== meta.kind
       || !isDeepStrictEqual(last.execution_native, meta.execution_native)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-    verifyRun(last);
-    return { actor, native: meta.execution_native, kind: meta.kind };
+    if (!isDeepStrictEqual(verifyRun(last), run)) throw new ExecutionError("EXECUTION_CONFLICT");
+    return { actor, native: meta.execution_native, kind: meta.kind, run };
   };
   const before = current();
   bindExecutionNativeTarget(name, before.native.native_id);
@@ -1335,6 +1341,44 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
   if (result.code !== 0) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
   return { schema: "aiterm.pty-key-result.v1", session_id: name, key: "Escape", outcome: "accepted",
     interruption: "unconfirmed", session_preserved: "unconfirmed" };
+}
+
+/** Private, read-only native record/identity evidence. This is deliberately not
+ * an agent_stop result or finish proof. Even an exact native abort plus stable
+ * observed identities does not establish the old invocation/parent-return
+ * fence, or prevent a concurrent endpoint switch after these observations.
+ */
+export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
+  const point = executionPointSchema.parse(input), name = point.launch.session_id;
+  if (!point.boundary?.turn_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const snapshot = () => {
+    const generation = observeExecutionSessionGeneration(name), meta = loadAgentMetadata(name);
+    if (!generation.exists || !generation.launch_id || !meta.execution_native) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    if (generation.launch_id !== point.launch.launch_id || meta.launch_id !== point.launch.launch_id)
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    if (meta.kind !== "codex") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const process = observeExecutionParentProcess(name) as { schema?: string; source?: ExecutionPoint; harness?: string;
+      harness_process?: { pid: number; started_identity: string } } | null;
+    const actor = process?.harness_process, record = codexInterruptionRecord(meta);
+    if (process?.schema !== "aiterm.execution-parent-process.v1" || !isDeepStrictEqual(process.source?.launch, point.launch)
+      || process.harness !== "codex-cli" || !actor || !Number.isSafeInteger(actor.pid) || actor.pid < 1
+      || !Number.isFinite(Date.parse(actor.started_identity)) || !record) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const after = observeExecutionSessionGeneration(name), last = loadAgentMetadata(name);
+    if (!after.exists || after.launch_id !== point.launch.launch_id || last.kind !== meta.kind
+      || !isDeepStrictEqual(last.execution_native, meta.execution_native)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    return { native: meta.execution_native, actor, record };
+  };
+  const before = snapshot(), after = snapshot();
+  if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
+  const boundary = after.record.boundary;
+  const state = boundary.turn_id !== point.boundary.turn_id ? "other_run"
+    : boundary.type === "turn_aborted" && boundary.reason === "interrupted" ? "interrupted"
+    : boundary.type === "task_started" ? "running" : boundary.type === "task_complete" ? "completed" : "unconfirmed";
+  return { schema: "aiterm.native-interruption-observation.v1" as const, run: point,
+    native: after.native, harness: "codex-cli" as const, harness_process: after.actor,
+    endpoint: { session_id: after.record.session_id, record_file: after.record.file },
+    recorded_state: state, native_boundary: boundary,
+    invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
 }
 
 export interface ReadOpts {

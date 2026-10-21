@@ -75,6 +75,25 @@ Cursor/Grok、run境界欠測、旧metadataのnative stamp欠測はunsupported�
 
 ## 正規control入口
 
+### 元runに対応するnative記録のread-only adapter
+
+private `core.observeExpectedAgentRunInterruption(Point)` は、保存済みの元Pointをそのまま返し、
+Codex native rolloutの最後の境界を`running/interrupted/completed/other_run/unconfirmed`へ区別する。
+`turn_aborted(reason=interrupted)`かつ元turn ID一致だけを記録上のinterruptedと読み、通常完了/idleで代用しない。
+native stamp/server owner、期待launch、唯一のharness PID/開始identity、root会話IDと記録file identityを
+同じ読取りの前後で再照合する。fileのstatは読取競合の検出にだけ使い、graph寿命や時刻TTLに使わない。
+
+会話IDはnative headerとfile名、完全なdeveloper launch行から読み、cached vendor_session_idや
+mtimeで選ばない。fork、部分/破損した境界、曖昧な複数root、旧shared-home以外はunsupported。
+複数候補はcached IDで選ばず、native endpointの厳格な別adapterができるまで可用性を限定する。
+キー作用前のCodex照合にも同じ読取りを使い、同じturn IDでも会話fileが交代すれば拒否する。
+Claude/Cursor/GrokにはこのCodex記録判定を流用しない。
+
+これは**native記録/identityの観測部品**であり、公開wire・finish・stopへ未接続。
+局所のabortを観測しても、旧要求/parent-returnのfenceと同時切替を排除する受付が未実装なので
+`invocation_fence=unknown/session_preserved=unconfirmed`を保つ。stop成功や関係退役へ昇格しない。
+元Pointのturn/operation aliasを検証する責任もruntimeに残し、モデルclaimから作らない。
+
 同じserverのguarded dispatcherと正規登録した同じExecutionServiceを明示的に結ぶ。
 対象はagent_execution/agent_execution_roots/agent_stopの3名だけ。登録前・別service・任意tool名は拒否する。
 host source resolverは同じinitialized client名で固定し、BellTeamのmeta欠測をstdio envやclaimで補完しない。

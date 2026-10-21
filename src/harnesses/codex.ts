@@ -451,6 +451,75 @@ function codexLatestTurnBoundary(meta: AgentMetadata, reach: "tail" | "whole"): 
   return null;
 }
 
+/** Private interruption evidence, not a generic idle/completion observation.
+ * No cached vendor ID, latest-file selection or metadata binding is used.
+ * Multiple launch-marked root conversations are deliberately unsupported:
+ * neither their timestamps nor a cached vendor_session_id prove the live
+ * harness endpoint after /new. A later native endpoint adapter may disambiguate.
+ */
+export function codexInterruptionRecord(meta: AgentMetadata): {
+  session_id: string; file: { device: number; inode: number };
+  boundary: { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: string; reason: string | null };
+} | null {
+  if (meta.kind !== "codex" || meta.hook_route !== "shared_codex_home" || !meta.codex_home) return null;
+  try {
+    const files = listCodexTranscripts(meta.codex_home), matches: string[] = [];
+    const marker = `AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`;
+    const header = (file: string) => {
+      const lines = readFileRange(file, 0, Math.min(safeStatSize(file), 1024 * 1024)).toString("utf8").split("\n");
+      // The final split element may be incomplete. Never parse that fragment.
+      lines.pop();
+      let session: string | null = null, own = false, root = false;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let record: any;
+        try { record = JSON.parse(line); } catch { return null; }
+        if (record?.type === "session_meta") {
+          if (session !== null || record.payload?.originator !== "codex-tui" || record.payload?.source !== "cli"
+            || record.payload?.forked_from_id) return null;
+          const id = record.payload?.id;
+          if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)
+            || !path.basename(file).endsWith(`-${id}.jsonl`)) return null;
+          session = id; root = true;
+        }
+        if (record?.type === "response_item" && record.payload?.type === "message" && record.payload?.role === "developer"
+          && Array.isArray(record.payload?.content)) own ||= record.payload.content.some((item: any) =>
+            (item?.type === "input_text" || item?.type === "output_text") && typeof item.text === "string"
+            && item.text.split(/\r?\n/).includes(marker));
+        if (root && own && session) return session;
+      }
+      return null;
+    };
+    for (const file of files) {
+      const verdict = codexLaunchVerdict(file, meta);
+      if (verdict.verdict === "undecided") return null; // no guessing around partial endpoint evidence
+      if (verdict.verdict === "match" && !verdict.forked) matches.push(file);
+    }
+    if (matches.length !== 1) return null;
+    const file = matches[0], before = fs.statSync(file), session = header(file);
+    if (!session || !before.isFile()) return null;
+    const boundary = scanLinesNewestFirst(file, codexTurnBoundaryLine, AGENT_TURN_BOUNDARY_TAIL_BYTES);
+    const after = fs.statSync(file);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+      || !boundary || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
+      || (boundary.type === "turn_aborted" && typeof boundary.reason !== "string")) return null;
+    // Re-resolve the candidate set, without the ordinary launch-verdict cache.
+    const last = listCodexTranscripts(meta.codex_home);
+    if (JSON.stringify(last) !== JSON.stringify(files)) return null;
+    for (const candidate of last) {
+      const verdict = codexLaunchVerdict(candidate, meta);
+      if (verdict.verdict === "undecided" || (verdict.verdict === "match" && !verdict.forked && candidate !== file)) return null;
+    }
+    const final = fs.statSync(file);
+    if (after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size
+      || after.mtimeMs !== final.mtimeMs || after.ctimeMs !== final.ctimeMs) return null;
+    return { session_id: session, file: { device: before.dev, inode: before.ino },
+      boundary: { type: boundary.type, turn_id: boundary.turn_id,
+        reason: typeof boundary.reason === "string" ? boundary.reason : null } };
+  } catch { return null; }
+}
+
 /**
  * この起動のroot rolloutで、最後のturnが終わっていて、次のturnが始まっていないか。
  * 末尾から見て最初の境界が、task_completeか、止めた時のturn_abortedの時だけtrue。

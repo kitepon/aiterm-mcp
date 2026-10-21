@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
@@ -79,7 +79,7 @@ function fixture(t, kind = 'codex') {
   const point = { launch: { session_id: name, launch_id }, boundary: { event_cursor: 0, operation_id: kind === 'claude' ? operation : null,
     turn_id: kind === 'codex' ? 'native-current-turn' : null, steer_id: null } };
   const apply = (input = point, issue = () => {}) => withExecutionEffectScope(name, issue, () => core.interruptExpectedAgentRun(input));
-  return { name, point, metadata, marker, meta, actor, server, native, keys, control, writeTurn, apply };
+  return { name, point, metadata, marker, meta, actor, server, native, keys, control, writeTurn, apply, transcript, head };
 }
 const posix = { skip: process.platform === 'win32' ? 'POSIX native-identity fixture' : false };
 test('actual Codex and Claude core primitives send one expected-native Esc and leave metadata/correlation untouched, without confirming interruption', posix, t => {
@@ -152,4 +152,74 @@ test('Cursor/Grok stay unsupported, unknown native stamp and missing frame are r
   const f = fixture(t); requireExecutionEffectScope(true);
   assert.throws(() => core.interruptExpectedAgentRun(f.point), error => error.code === 'EXECUTION_UNSUPPORTED');
   f.control.failKey = true; assert.throws(() => f.apply(), error => error.effect === 'possible'); assert.deepEqual(f.keys, ['Escape']);
+});
+test('read-only exact Codex abort evidence retains the original point and native conversation/harness, without implying a stop fence', posix, t => {
+  const f = fixture(t), metadata = readFileSync(f.metadata, 'utf8');
+  const before = core.observeExpectedAgentRunInterruption(f.point);
+  assert.equal(before.recorded_state, 'running'); assert.deepEqual(f.keys, []);
+  f.apply(); f.writeTurn('turn_aborted');
+  const after = core.observeExpectedAgentRunInterruption(f.point);
+  assert.equal(after.recorded_state, 'interrupted'); assert.deepEqual(after.run, f.point);
+  assert.deepEqual(after.native, before.native); assert.deepEqual(after.harness_process, before.harness_process);
+  assert.deepEqual(after.endpoint, before.endpoint); assert.equal(after.native_boundary.reason, 'interrupted');
+  assert.equal(after.invocation_fence, 'unknown'); assert.equal(after.session_preserved, 'unconfirmed');
+  assert.equal(readFileSync(f.metadata, 'utf8'), metadata); assert.deepEqual(f.keys, ['Escape']);
+});
+test('normal completion, another turn and cancellation for another reason never become the expected run interruption', posix, t => {
+  for (const change of ['completed', 'other-abort', 'other-start', 'reason']) {
+    const f = fixture(t);
+    f.writeTurn(change === 'completed' ? 'task_complete' : change === 'other-start' ? 'task_started' : 'turn_aborted',
+      change.startsWith('other-') ? 'another-native-turn' : 'native-current-turn');
+    if (change === 'reason') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8').replace('"reason":"interrupted"', '"reason":"superseded"'));
+    const result = core.observeExpectedAgentRunInterruption(f.point);
+    assert.equal(result.recorded_state, change === 'completed' ? 'completed' : change.startsWith('other-') ? 'other_run' : 'unconfirmed');
+    assert.equal(result.session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, []);
+  }
+});
+test('strict record reading refuses partial, corrupt, missing turn and unbound metadata without a key or metadata repair', posix, t => {
+  for (const change of ['partial', 'corrupt', 'turn', 'legacy', 'marker-prefix', 'header-mismatch']) {
+    const f = fixture(t);
+    if (change === 'partial') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8') + '{');
+    if (change === 'corrupt') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8') + '{"type":"event_msg","payload":{"type":"turn_aborted"}\n');
+    if (change === 'turn') f.writeTurn('turn_aborted', '');
+    if (change === 'legacy') { f.meta.hook_route = undefined; writeFileSync(f.metadata, JSON.stringify(f.meta)); }
+    if (change === 'marker-prefix') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8').replace('AITERM_AGENT_LAUNCH_ID=' + f.point.launch.launch_id, 'AITERM_AGENT_LAUNCH_ID=' + f.point.launch.launch_id + 'f'));
+    if (change === 'header-mismatch') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8').replace('"id":"00000000-0000-4000-8000-000000000002"', '"id":"00000000-0000-4000-8000-000000000003"'));
+    const metadata = readFileSync(f.metadata, 'utf8');
+    assert.throws(() => core.observeExpectedAgentRunInterruption(f.point), undefined, change);
+    assert.throws(() => f.apply(), undefined, change); assert.deepEqual(f.keys, []);
+    assert.equal(readFileSync(f.metadata, 'utf8'), metadata);
+  }
+});
+test('cached conversation IDs and latest mtime cannot disambiguate multiple native root endpoints', posix, t => {
+  const f = fixture(t);
+  f.meta.vendor_session_id = '00000000-0000-4000-8000-000000000002'; writeFileSync(f.metadata, JSON.stringify(f.meta));
+  const other = f.transcript.replace('000000000002.jsonl', '000000000003.jsonl');
+  copyFileSync(f.transcript, other);
+  writeFileSync(other, readFileSync(other, 'utf8').replace('"id":"00000000-0000-4000-8000-000000000002"', '"id":"00000000-0000-4000-8000-000000000003"'));
+  assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, []);
+});
+test('forked transcripts and arbitrary cached vendor IDs cannot supply native interruption evidence', posix, t => {
+  const f = fixture(t);
+  f.meta.vendor_session_id = 'cached-unrelated-id'; writeFileSync(f.metadata, JSON.stringify(f.meta));
+  // The actual native header wins over the cached value, without rewriting it.
+  assert.equal(core.observeExpectedAgentRunInterruption(f.point).endpoint.session_id, '00000000-0000-4000-8000-000000000002');
+  writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8').replace('"source":"cli"', '"source":"cli","forked_from_id":"another-root"'));
+  assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, []);
+});
+test('read-only observation rechecks native generation, actor and run while collecting evidence, and refuses Claude/Cursor/Grok', posix, t => {
+  for (const change of ['generation', 'native', 'run', 'actor']) {
+    const f = fixture(t); let n = 0;
+    f.control.afterFirstTable = () => {
+      n++;
+      if (change === 'generation') { f.meta.launch_id = 'f'.repeat(32); writeFileSync(f.metadata, JSON.stringify(f.meta)); }
+      if (change === 'native') f.native.id = '$10';
+      if (change === 'run' && n === 1) f.writeTurn('turn_aborted');
+      if (change === 'actor') f.actor.started_identity = n % 2 ? 'Wed Oct 21 09:00:03 2026' : 'Wed Oct 21 09:00:04 2026';
+    };
+    assert.throws(() => core.observeExpectedAgentRunInterruption(f.point), undefined, change); assert.deepEqual(f.keys, []);
+  }
+  for (const kind of ['claude', 'cursor', 'grok']) {
+    const f = fixture(t, kind); assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.deepEqual(f.keys, []);
+  }
 });

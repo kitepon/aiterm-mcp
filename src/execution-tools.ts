@@ -30,6 +30,10 @@ export function executionBindingMeta(record: ExecutionRecord): Record<string, un
 export interface ExecutionToolOptions {
   // Installed by the serving host adapter, not supplied as tool arguments.
   sourceContext?(extra: { _meta?: unknown }): ExecutionTransportSource | undefined;
+  // Explicit private host composition only. The default registration stays
+  // read-only; neither wire args nor native callback presence enable keys.
+  // A capable controller still reports missing abort/preservation/fence proof.
+  interruptCurrentRun?: boolean;
 }
 // Private same-server handshake. A guarded dispatcher must recognize the
 // exact bound service before these three controls become callable. Ordinary
@@ -49,6 +53,9 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
   agent_stop(input: unknown): Promise<ToolResult>;
   agent_execution_roots(input: unknown): Promise<ToolResult>;
 } {
+  if (options.interruptCurrentRun !== undefined && typeof options.interruptCurrentRun !== "boolean")
+    throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const interruptCurrentRun = options.interruptCurrentRun === true;
   return {
     async agent_execution(input, extra = {}) {
       try {
@@ -68,7 +75,7 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
     },
     async agent_stop(input) {
       try {
-        const result = await service.stop(input);
+        const result = await (interruptCurrentRun ? service.interruptCascade(input) : service.stop(input));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return executionErrorResult(error); }
     },

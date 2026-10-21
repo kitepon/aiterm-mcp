@@ -13,6 +13,10 @@ import { FileExecutionStore } from '../dist/execution-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
+import { registerExecutionTools } from '../dist/execution-tools.js';
+import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 // Every native/server/harness identity and command result is synthetic. No
 // tmux/ps, CLI, live session or process signal can reach the host.
@@ -23,6 +27,7 @@ childProcess.spawn = () => assert.fail('no native child');
 process.kill = (pid, signal) => { assert.equal(pid, 4711); assert.equal(signal, 0); return true; };
 syncBuiltinESMExports();
 const core = await import('../dist/core.js');
+const { createAitermServer } = await import('../dist/index.js');
 test.after(() => { Object.assign(childProcess, saved); process.kill = savedKill; syncBuiltinESMExports(); });
 test.afterEach(() => { run = null; requireExecutionEffectScope(false); });
 let serial = 0;
@@ -354,5 +359,40 @@ test('actual native selector/controller preserves an already native-bound receip
     const saved = await service.execute({ action: 'status', request: record.reservation.request });
     assert.deepEqual(saved.relation.target, canonical); assert.equal(saved.relation.completion, 'open');
     assert.equal(saved.relation.lifecycle, 'tracking'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
+  }
+});
+test('same-server SDK control reaches the native controller only with fixed explicit host injection, without closing or confirming from key acceptance', posix, async t => {
+  for (const enabled of [false, true]) {
+    const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-sdk-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+      observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+      observeInterruptionSync: core.observeExpectedAgentRunInterruption,
+      selectInterruptionSync: core.selectExpectedAgentRunInterruption, interruptKeySync: core.interruptExpectedAgentRun,
+      async observeDone() { assert.fail('no generic completion proof'); }, async guardedClose() { assert.fail('never close'); },
+    }), service = new ExecutionService(store, runtime);
+    const parent = { captureEndpointEvidence() { assert.fail('no parent endpoint'); },
+      async bind() { assert.fail('no parent bind'); }, async submit() { assert.fail('no parent submit'); } };
+    const server = createAitermServer({ execution: server => ({ parentExecution: parent,
+      parentStateRoot: join(directory, 'parent'), parentDependencies: { processes: () => [], exists: () => true,
+        async verify() {}, async observe() { assert.fail('no parent waiter'); }, async answer() { assert.fail('no parent answer'); } },
+      dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+        sourceEnvironment: {}, initializedClientName: () => server.server.getClientVersion()?.name,
+        observeSessionGeneration: core.observeExecutionSessionGeneration }),
+    }) });
+    const options = { interruptCurrentRun: enabled }; registerExecutionTools(server, service, options);
+    options.interruptCurrentRun = !enabled; // later mutable host object cannot change this registration
+    const client = new Client({ name: 'bellteam', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide); await client.connect(clientSide);
+    try {
+      const response = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2',
+        mode: 'interrupt', roots: [f.point.launch] } });
+      assert.equal(response.isError, undefined); const result = response.structuredContent;
+      assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
+      assert.equal(result.targets[0].key_receipt, enabled ? 'accepted' : 'not_sent');
+      assert.deepEqual(f.keys, enabled ? ['Escape'] : []); assert.equal(f.native.present, true);
+      const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+      assert.deepEqual(state.stopping, []); assert.equal(state.interruptions.length, enabled ? 1 : 0);
+    } finally { await client.close(); await server.close(); }
   }
 });

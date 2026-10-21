@@ -30,7 +30,7 @@ interruptedにはそのrunの中断証拠、session_preserved=confirmedには前
 already_idleはキーを送らない局所状態であり、下流や未確認の呼出を終了扱いにしない。
 キー受付だけ、run欠測、世代交代、native中断/会話維持の欠測は未確認のまま返す。
 
-現隔離実装はread-only planと全対象unsupported/not_sentだけ。キー・停止印・slot・close/killを発行せず、
+既定の隔離controlはread-only planと全対象unsupported/not_sentだけ。キー・停止印・slot・close/killを発行せず、
 旧guardedCloseを呼ばない。Bridgeが接続できても中断が実装/受入済みにはならない。
 
 旧finishのkind=interruptedは期待launchの閉鎖を確認する管理用の意味であり、新中断へ流用しない。
@@ -71,7 +71,7 @@ public Claude pty_keyのguardを緩める引数はBridgeへ出さない。
 
 返りは上のキー受付receiptだけで、interruption/session_preservedはunconfirmedのまま。
 Cursor/Grok、run境界欠測、旧metadataのnative stamp欠測はunsupported。native送信失敗はpossibleで再発行しない。
-この部品はagent_stop/通常mainへ未接続。serviceのnative slot内でのfake受付も、処理の中断完了、native終了fence、
+この部品は既定agent_stop/通常mainへ未接続。serviceのnative slot内でのfake受付も、処理の中断完了、native終了fence、
 会話endpoint維持、古いparent return抑止や同じlaunchの次依頼再開の受入を示さない。
 
 ## 隔離したnative部品
@@ -189,9 +189,28 @@ turnが欠ける元receiptにaliasを作るadapterはこのcontrollerに含め�
 
 private runtimeは既存observeInterruptionSyncに加え、selectInterruptionSync(expectedLaunch)と
 interruptKeySync(Point)を明示注入する。function参照と引数は固定/cloneし、participant/producerは各呼出しのscope/actorを再照合する。
-local default runtimeはこれらを持たず、通常main/公開agent_stopには接続しない。
+local default runtimeはこれらを持たず、通常main/既定agent_stopには接続しない。
 明示的に注入したprivate controller exportが利用できることと、MCP公開stopが受入済みであることを区別する。
 現在runの選択に証拠が無い、idle/別harness/旧世代の場合はunsupported/not_sentで、既存キーの推測やcloseで補わない。
+
+欠測のある下流は親の解除を止め、受付できていない祖先から到達される対象の解除も保留する。
+absentなrootから記録済み子孫へキー作用を行えても、旧祖先の呼出fenceまで証明したことにしない。
+一方、独立した明示rootのnative中断/維持/fenceを確認できれば、その対象結果をpartialへ残せる。
+未完graphの同一snapshotで全対象の解除条件を決め、先に退役した枝によって後の判定条件を変えない。
+source/target世代や未確認の発行結果が欠けるbranchは、局所abortだけで解除しない。
+
+### 正規controlへの明示private注入
+
+`registerExecutionTools(server, service, { interruptCurrentRun: true })` を隔離host compositionにだけ用意する。
+同じserver/serviceの既存registrarを通し、同じagent_stop v2 handlerからprivate controllerへ接続する。
+tool引数やruntime callbackの存在だけでは有効にならず、登録時のbooleanを固定する。
+既定false/未指定、native部品欠測は従来のread-only unsupported/not_sentを維持する。
+通常stdio main、static profile、稼働supervisorへの登録/設定は変えない。
+
+このhost注入はnative中断/会話維持/fenceの完成宣言ではない。実coreを注入してEsc受付が返っても、
+実native observerの維持unconfirmed/fence unknownはそのままv2へ返し、confirmed/finishへ丸めない。
+MCP入力からこの注入を要求する追加引数は受け付けず、close/killや旧v1 stopへfallbackしない。
+隔離の実SDK/constructor/dispatcher/handler/service/coreを通すための接続で、本番mount受入は別工程。
 
 同じserverのguarded dispatcherと正規登録した同じExecutionServiceを明示的に結ぶ。
 対象はagent_execution/agent_execution_roots/agent_stopの3名だけ。登録前・別service・任意tool名は拒否する。

@@ -10,6 +10,7 @@ import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { guardTmuxExecution } from '../dist/execution-effect.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
+import { createExecutionToolHandlers } from '../dist/execution-tools.js';
 const launch = name => ({ session_id: 'bot-' + name, launch_id: name.repeat(32) });
 const A = launch('a'), B = launch('b'), C = launch('c'), D = launch('d');
 const point = launch => ({ launch, boundary: { event_cursor: 17, turn_id: 'native-' + launch.session_id,
@@ -87,11 +88,61 @@ test('key acceptance alone holds interruption/session unconfirmed and never retr
   assert.equal(result.targets[0].session_preserved, 'unconfirmed');
   await f.service.interruptCascade(input([A])); assert.deepEqual(f.keys, [A.session_id]);
 });
+test('private control injection without native capabilities stays read-only, and a wire argument cannot enable the host-only mode', async t => {
+  const f = fixture(t), noSelector = new ExecutionService(f.store, { ...f.runtime, selectInterruptionSync: undefined });
+  const result = await createExecutionToolHandlers(noSelector, { interruptCurrentRun: true }).agent_stop(input([A]));
+  assert.equal(result.structuredContent.targets[0].interruption, 'unsupported');
+  assert.deepEqual(f.keys, []); assert.deepEqual((await f.read()).interruptions, []);
+  const attempted = await createExecutionToolHandlers(f.service).agent_stop({ ...input([A]), interruptCurrentRun: true });
+  assert.equal(attempted.isError, true); assert.deepEqual(f.keys, []); assert.deepEqual((await f.read()).interruptions, []);
+  assert.throws(() => createExecutionToolHandlers(f.service, { interruptCurrentRun: 'true' }), error => error.code === 'EXECUTION_UNSUPPORTED');
+});
 test('unsupported child admission holds parent release and does not close or guess a key for that child', async t => {
   const f = fixture(t); await f.edge(A, B); f.observations.delete(B.session_id);
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, [A.session_id]);
   assert.equal(result.targets.find(target => target.launch.session_id === B.session_id).interruption, 'unsupported');
+  assert.equal((await f.read()).interruptions[0].phase, 'accepted');
+});
+test('an unsupported branch holds its ancestors while an independent explicit root keeps its confirmed result', async t => {
+  const f = fixture(t); await f.edge(A, B); f.observations.delete(B.session_id);
+  const result = await f.service.interruptCascade(input([A, D]));
+  assert.equal(result.status, 'partial'); assert.equal(result.relation_coverage, 'incomplete');
+  assert.equal(result.targets.find(value => value.launch.session_id === A.session_id).interruption, 'unconfirmed');
+  assert.equal(result.targets.find(value => value.launch.session_id === B.session_id).interruption, 'unsupported');
+  assert.equal(result.targets.find(value => value.launch.session_id === D.session_id).interruption, 'interrupted');
+  const state = await f.read();
+  assert.equal(state.interruptions.find(row => row.before.run.launch.session_id === A.session_id).phase, 'accepted');
+  assert.equal(state.interruptions.find(row => row.before.run.launch.session_id === D.session_id).phase, 'settled');
+});
+test('an absent root still reaches its recorded child but does not prove the old ancestor invocation fence', async t => {
+  const f = fixture(t); await f.edge(A, B); f.live.delete(A.session_id); f.observations.delete(A.session_id);
+  const result = await f.service.interruptCascade(input([A]));
+  assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, [B.session_id]);
+  assert.equal(result.targets.find(value => value.launch.session_id === A.session_id).interruption, 'unsupported');
+  assert.equal(result.targets.find(value => value.launch.session_id === B.session_id).interruption, 'unconfirmed');
+  assert.equal((await f.read()).interruptions[0].phase, 'accepted');
+  assert.deepEqual((await f.read()).stopping, []); assert.ok(f.live.has(B.session_id));
+});
+test('a missing native alias stays local to its branch instead of discarding an independent root proof', async t => {
+  const f = fixture(t), canonical = point(B); canonical.boundary.turn_id = null;
+  const request = await f.edge(A, B, canonical), result = await f.service.interruptCascade(input([A, D]));
+  assert.equal(result.status, 'partial');
+  assert.equal(result.targets.find(value => value.launch.session_id === D.session_id).interruption, 'interrupted');
+  assert.ok(result.targets.filter(value => value.launch.session_id !== D.session_id).every(value => value.interruption === 'unconfirmed'));
+  const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
+  assert.equal(record.relation.completion, 'open'); assert.deepEqual(record.relation.target, canonical);
+});
+test('a missing target generation cannot be hidden by a local root abort proof', async t => {
+  const f = fixture(t), record = await f.register('lost-target-binding', A, B);
+  await f.store.transaction(state => {
+    const value = state.records.find(value => value.reservation.request.delivery_id === record.reservation.request.delivery_id);
+    value.relation.phase = 'submitted_unknown'; value.relation.completion = 'unknown'; value.relation.target = null;
+    value.operations.send = 'unknown';
+  });
+  const result = await f.service.interruptCascade(input([A]));
+  assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, [A.session_id]);
+  assert.ok(result.unresolved.some(value => value.reason === 'target_generation_missing'));
   assert.equal((await f.read()).interruptions[0].phase, 'accepted');
 });
 test('missing canonical native alias preserves the original turn-null receipt and never confirms/retires it', async t => {

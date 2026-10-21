@@ -826,22 +826,38 @@ export class ExecutionService {
       const coverage = await this.runtime.coverage(roots);
       const final = await this.store.transaction(state => {
         const last = { plan: planCascadeStop([...reached.values()], state.records.map(record => record.relation)),
-          relations: state.records.map(record => record.relation) };
+          relations: structuredClone(state.records.map(record => record.relation)) };
         for (const slot of pendingNative(state, last.plan.targets)) { drainUnconfirmed = true; gap("native_issuance_unconfirmed", slot.request); }
-        let late = false, aliasMissing = false;
+        const aliasMissing = new Set<string>();
         for (const launch of last.plan.targets) if (!reached.has(key(launch))) {
-          late = true; reached.set(key(launch), launch); gap("late_target_unconfirmed");
+          reached.set(key(launch), launch); gap("late_target_unconfirmed");
           outcomes.set(key(launch), { launch, run: null, key: null, key_receipt: "not_sent", interruption: "unconfirmed",
             session_preserved: "unconfirmed", reason: "late_target_unconfirmed" });
         }
         for (const relation of last.relations) if (relation.lifecycle !== "retired" && relation.phase !== "unsent"
           && ["open", "unknown"].includes(relation.completion) && relation.target && reached.has(key(relation.target.launch))) {
           const run = runs.get(key(relation.target.launch));
-          if (run && !isDeepStrictEqual(relation.target, run)) { aliasMissing = true; gap("native_canonical_alias_missing", relation.request); }
+          if (run && !isDeepStrictEqual(relation.target, run)) { aliasMissing.add(key(relation.target.launch)); gap("native_canonical_alias_missing", relation.request); }
         }
         // Missing downstream admission must not be hidden by releasing a parent.
-        // Cycles can settle locally only after every reached run was admitted.
-        if (!drainUnconfirmed && !late && !aliasMissing && runs.size === reached.size) for (const [id, run] of runs) {
+        // Independent roots retain per-target results. A reached ancestor
+        // without admission may still call its descendants: keep those barriers
+        // until an actual ancestor/fence adapter can exclude that old source.
+        // Use this single pre-release graph snapshot for every decision: settling
+        // an earlier target must not change which later target may be released.
+        const unadmittedBranches = [...reached.values()].filter(launch => !runs.has(key(launch)))
+          .map(launch => planCascadeStop([launch], last.relations));
+        for (const [id, run] of runs) {
+          const branch = planCascadeStop([run.launch], last.relations);
+          if (unadmittedBranches.some(value => value.targets.some(launch => isDeepStrictEqual(launch, run.launch)))) {
+            const outcome = outcomes.get(id);
+            if (outcome) outcome.reason = "ancestor_admission_unconfirmed";
+            gap("ancestor_admission_unconfirmed"); continue;
+          }
+          if (branch.targets.some(launch => !runs.has(key(launch)) || aliasMissing.has(key(launch)))
+            || pendingNative(state, branch.targets).length
+            || branch.gaps.some(value => ["source_generation_missing", "target_generation_missing",
+              "descendant_binding_missing", "invocation_outcome_unknown"].includes(value.reason))) continue;
           try {
             this.settleInterruptionState(state, run);
             outcomes.set(id, { launch: run.launch, run, key: "Escape", key_receipt: "accepted", interruption: "interrupted",

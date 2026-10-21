@@ -1,7 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createExecutionRuntime } from '../dist/execution-runtime.js';
+import { createExecutionRuntime, executionSourceFromEnvironment } from '../dist/execution-runtime.js';
 import { assessExecutionSource } from '../dist/execution-contract.js';
 import { ExecutionError } from '../dist/execution-wire.js';
 
@@ -22,6 +22,26 @@ function fixture() {
     observeDone: async (session, options) => { reads.push({ session, options }); return done; } };
   return { observed, done, bindings, reads };
 }
+test('stdio source uses the launching CLI generation and rejects conflicting aliases without inference', async () => {
+  const env = { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id };
+  assert.deepEqual(executionSourceFromEnvironment(env), { launch: A, boundary: null });
+  assert.deepEqual(executionSourceFromEnvironment({ ...env, AITERM_SESSION_ID: undefined }), { launch: A, boundary: null });
+  assert.deepEqual(executionSourceFromEnvironment({ ...env, AITERM_AGENT_SESSION_ID: undefined }), { launch: A, boundary: null });
+  for (const partial of [
+    { AITERM_AGENT_LAUNCH_ID: undefined }, { AITERM_SESSION_ID: 'other' },
+    { AITERM_SESSION_ID: '' }, { AITERM_AGENT_SESSION_ID: '${env:AITERM_AGENT_SESSION_ID}' },
+    { AITERM_AGENT_LAUNCH_ID: 'bad' },
+  ]) assert.equal(executionSourceFromEnvironment({ ...env, ...partial }), null);
+  assert.equal(executionSourceFromEnvironment({ BELLTEAM_BOT_ID: A.session_id,
+    AITERM_AGENT_LINEAGE: `host-root>codex:${A.session_id}` }), null);
+  const snapshot = executionSourceFromEnvironment(env);
+  env.AITERM_AGENT_LAUNCH_ID = 'd'.repeat(32);
+  const f = fixture();
+  f.bindings.sourceContext = async () => snapshot;
+  f.observed.launch_id = env.AITERM_AGENT_LAUNCH_ID;
+  const evidence = await createExecutionRuntime(f.bindings).sourceEvidence(input);
+  assert.equal(evidence.caller_bound, false);
+});
 test('only an exact observe schema/session can report absence or a known generation', async () => {
   for (const value of [{ exists: false }, { schema: 'aiterm.pty-observe-result.v1', session_id: 'other', exists: false, launch_id: null },
     { schema: 'aiterm.pty-observe-result.v1', session_id: A.session_id, exists: false, launch_id: 'bad' },

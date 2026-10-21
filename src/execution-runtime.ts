@@ -7,6 +7,32 @@ import { executionLaunchSchema, executionPointSchema, type ExecutionPoint, type 
 import { ExecutionError, type ExecutionRegister } from "./execution-wire.js";
 import type { ExecutionRuntime } from "./execution-service.js";
 
+// Names already injected by core's agent launchers. Forward dynamically from
+// the calling CLI into its stdio MCP, never from a supervisor's latest job.
+export const EXECUTION_SOURCE_ENV_NAMES = [
+  "AITERM_SESSION_ID", "AITERM_AGENT_SESSION_ID", "AITERM_AGENT_LAUNCH_ID",
+] as const;
+// State and multiplexer selection are independent of caller identity. Preserve
+// present values; do not manufacture empty values or unresolved ${env:...}.
+export const EXECUTION_SCOPE_ENV_NAMES = [
+  "AITERM_STATE_BASE", "TMPDIR", "XDG_RUNTIME_DIR", "TEMP", "TMP",
+] as const;
+
+/** Snapshot at transport startup; current runtime generation still must match.
+ * This is local transport context, not authentication against hostile clients.
+ * Native turn/tool identity is unavailable here and must remain null.
+ */
+export function executionSourceFromEnvironment(env: Readonly<Record<string, string | undefined>>): ExecutionPoint | null {
+  const primary = env.AITERM_SESSION_ID, alias = env.AITERM_AGENT_SESSION_ID;
+  if (primary !== undefined && !executionLaunchSchema.shape.session_id.safeParse(primary).success) return null;
+  if (alias !== undefined && !executionLaunchSchema.shape.session_id.safeParse(alias).success) return null;
+  if (primary !== undefined && alias !== undefined && primary !== alias) return null;
+  const launch = executionLaunchSchema.safeParse({
+    session_id: primary ?? alias, launch_id: env.AITERM_AGENT_LAUNCH_ID,
+  });
+  return launch.success ? { launch: launch.data, boundary: null } : null;
+}
+
 const observeSchema = z.object({
   schema: z.literal("aiterm.pty-observe-result.v1"), session_id: executionLaunchSchema.shape.session_id,
   exists: z.boolean(), launch_id: executionLaunchSchema.shape.launch_id.nullable(),

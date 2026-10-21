@@ -265,6 +265,22 @@ evidence resolverはserviceの短いtransaction内で呼ぶので同じstoreへ�
 guardedCloseはtransaction外で呼び、既に発行したslotを使って期待世代を実作用時にも守る必要がある。
 既存core関数へのmount/共通受付、runtime/transport resolverと実fence証拠は依然として残実装。
 
+### stdio呼出元の既存環境名
+
+`executionSourceFromEnvironment`は、CLI起動時の`AITERM_SESSION_ID`、その既存別名
+`AITERM_AGENT_SESSION_ID`、`AITERM_AGENT_LAUNCH_ID`をtransport起動時にsnapshotする。
+席IDは片方でもよいが、両方があれば一致が必要。欠落、不正値、未展開の変数参照、別名不一致はnull。
+Bot IDやlineage、最新jobから補わない。native turn/tool境界はnullを維持し、
+採用には既存observeによる現在世代の照合が別途必要。環境値はローカルtransportの相関であり、
+敵対的な同一利用者や任意のHTTP clientを認証する仕組みではない。
+
+Codex/Cursorのstdio MCP継承へ上記3名と`AITERM_STATE_BASE`を追加する。
+識別子はsupervisorに無い場合もCLI起動時に付くため、supervisorの環境の有無で除外しない。
+`TMPDIR`、`XDG_RUNTIME_DIR`、Windowsの`TEMP`/`TMP`は存在する値を保持する。
+これらはstate/socket選択でありsource証拠ではない。未定義を空文字や未展開の`${env:...}`に置換しない。
+Cursorの任意値は生成元だけの有無判定でCLI固有の値を落とさないよう扱いを分ける。
+scopeの同一性が未検証ならcoverageをcompleteにしない。
+
 ## rootの現在境界と到達範囲
 
 stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。

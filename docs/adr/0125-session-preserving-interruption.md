@@ -527,3 +527,22 @@ managerはcallback欠測/証拠無し/拒否/true以外の返却をunknownへ保
 この読取はgraphを登録/修復/finishせず、receiptのturn=nullや強いbefore_send operationをcanonical aliasへ
 昇格しない。ready本文や局所doneをnative終了fenceにしない。読取後の作用は既存の作用直前gateをなお要し、
 全参加者・旧binary移行・同会話維持・実CLI受入・公開mountを証明しない。owner JSONのhardware耐久性も未受入。
+
+
+### private owner checkpointと移動の応答欠測
+
+private managerのowner/record保存は既存execution checkpointのfile fsync→rename→ancestor directory
+fsyncを使用する。既存claimのlink/unlinkとrecordの所有者間・結果へのrenameでもdirectoryの同期応答を
+要求する。private finishはrecord保存と結果移動の同期後に同じdeliveryのclaimを外す。legacy未注入の
+record保存・finish順序は維持する。新queue/実行ID/本文保存方式や外部wireを加えない。
+
+private record/claim checkpointや移動応答が欠ければunknown/service unavailableとし、bind/watch/入力・
+queueを進めない。元path/claim/graphを巻き戻したり同じlink/rename/native作用を繰り返したりしない。
+rename後欠測は元inodeと一致する移動先だけを診断参照として追い、成功receiptにしない。同一の元recordを
+確認できた場合だけunknown診断を一度保存し、その保存自体が失敗しても成功にしない。元recordが無ければ
+新規に作って元proofの代用にしない。新受付とtimer回収はservice errorを越えて再開しない。
+
+ready checkpointの失敗でも元のgenuine本文/outcome/turn/requestを保持し、局所doneからfinishやnative
+fenceを生成しない。claimのunlinkが作用後に欠測した場合は元記録と未確認を保持し、claimを再作成しない。
+元proof/actorの回収条件と旧binary/live移行の不足は変わらない。これはOSがfile/directory同期を応答した
+条件であり、hardware crash/電源断や実4CLIの耐久・中断・会話維持を受入済みにしない。

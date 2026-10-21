@@ -7,6 +7,29 @@ import { ExecutionError } from "./execution-wire.js";
 
 export const executionCheckpoint = "file_and_directory_sync.v1" as const;
 
+/** Existing metadata directory entries only; no native effect or recovery. */
+export function syncExecutionDirectories(...directories: string[]): void {
+  if (process.platform === "win32") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const synced = new Set<string>();
+  for (const input of directories) {
+    let directory = path.resolve(input);
+    for (;;) {
+      if (synced.has(directory)) break;
+      let descriptor: number | undefined;
+      try {
+        descriptor = fs.openSync(directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor); descriptor = undefined;
+      } catch { throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible"); }
+      finally { if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch { /* no native receipt */ } } }
+      synced.add(directory);
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+  }
+}
+
 /** A native operation must not run if any checkpoint step fails, including a
  * directory flush after rename. The renamed state may then already be visible:
  * do not roll it back, erase an issued slot or replay the native operation.
@@ -24,15 +47,7 @@ export function writeExecutionCheckpoint(file: string, value: unknown): void {
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor); descriptor = undefined;
     fs.renameSync(temporary, file); renamed = true;
-    let directory = path.dirname(path.resolve(file));
-    for (;;) {
-      descriptor = fs.openSync(directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
-      fs.fsyncSync(descriptor);
-      fs.closeSync(descriptor); descriptor = undefined;
-      const parent = path.dirname(directory);
-      if (parent === directory) break;
-      directory = parent;
-    }
+    syncExecutionDirectories(path.dirname(file));
   } catch {
     throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
   } finally {

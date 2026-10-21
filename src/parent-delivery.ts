@@ -20,6 +20,7 @@ import { ExecutionError } from "./execution-wire.js";
 import { withExecutionPreparation } from "./execution-effect.js";
 import { executionRequestSchema } from "./execution-contract.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
+import { writeExecutionCheckpoint, syncExecutionDirectories } from "./execution-checkpoint.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -59,7 +60,7 @@ export function deliveryKey(sessionId: string, remote?: RemoteTarget): string {
 }
 const boundaryKey = (boundary: DeliveryRecord["boundary"]) => deliveryKey(boundary.session_id, boundary.remote);
 export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
-type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void> };
+type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void>; checkpointUnknown?: boolean };
 type Owner = {
   pid: number; started_identity: string; closed: boolean;
   // 他の持ち主の保存場所が消えても読める版の印。この印の無い生きた持ち主が居る間は、保存場所を消さない。
@@ -214,7 +215,8 @@ export class ParentDeliveryManager {
     fs.mkdirSync(this.ownerDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this.results, { recursive: true, mode: 0o700 });
     fs.mkdirSync(this.claims, { recursive: true, mode: 0o700 });
-    writeJson0600(path.join(this.ownerDir, "owner.json"), this.owner);
+    if (this.execution) writeExecutionCheckpoint(path.join(this.ownerDir, "owner.json"), this.owner);
+    else writeJson0600(path.join(this.ownerDir, "owner.json"), this.owner);
     // MCPの再接続と旧process終了の順序が前後しても、終了したownerの記録を回収する。
     this.timer = setInterval(() => { void this.recover().catch((error) => this.reportServiceError(error)); }, 5_000);
     this.timer.unref();
@@ -261,22 +263,35 @@ export class ParentDeliveryManager {
             child_outcome: null, child_turn_id: null, error: this.execution ? "PARENT_DELIVERY_PREPARING" : null, queued_submission_id: null,
             ...(this.execution ? { execution: { request: request!, ...(source.success ? { source_evidence: source.data } : {}) } } : {}) };
           const created: OwnedRecord = { record, file: path.join(this.ownerDir, `${record.delivery_id}.json`), controller: new AbortController() };
+          let reservationStarted = false;
           const reserve = () => {
+            reservationStarted = true;
             this.save(created);
             // Same-filesystem hard link claims this child atomically.
             try { fs.linkSync(created.file, path.join(this.claims, `${key}.json`)); }
             catch (error) {
+              if (this.execution) {
+                if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+                  const claim = recordSchema.parse(JSON.parse(fs.readFileSync(path.join(this.claims, `${key}.json`), "utf8")));
+                  if (claim.delivery_id !== created.record.delivery_id) throw new ExecutionError("EXECUTION_BUSY");
+                }
+                this.checkpointFailure(created);
+              }
               fs.unlinkSync(created.file);
               if ((error as NodeJS.ErrnoException).code === "EEXIST")
                 throw new AitermError("PARENT_RESULT_PENDING: 同じ子の回答保存を別の依頼が所有しています", 2);
               throw error;
             }
+            if (this.execution) {
+              try { syncExecutionDirectories(this.claims); }
+              catch { this.checkpointFailure(created); }
+            }
           };
-          if (this.execution) withExecutionPreparation(boundary.session_id, reserve);
-          else reserve();
+          if (!this.execution) reserve();
           job = created;
           let bound = false;
           try {
+            if (this.execution) withExecutionPreparation(boundary.session_id, reserve);
             if (this.execution) await this.execution.bind(record.delivery_id, request!, { launch: {
               session_id: boundary.session_id, launch_id: boundary.launch_id,
             }, boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null } }, parent, evidence);
@@ -291,6 +306,8 @@ export class ParentDeliveryManager {
               if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
             }
           } catch (error) {
+            if (!reservationStarted) { job = null; throw error; }
+            if (job.checkpointUnknown) throw error; // original paths/claim/graph remain diagnostic only
             if (bound || (this.execution && !(error instanceof ExecutionError && error.effect === "not_started"))) {
               // A lost bind/checkpoint response may already have persisted the
               // original graph binding. Untyped RPC fields are not proof that
@@ -301,6 +318,10 @@ export class ParentDeliveryManager {
             } else {
               this.releaseClaim(job);
               fs.unlinkSync(job.file);
+              if (this.execution) {
+                try { syncExecutionDirectories(path.dirname(job.file)); }
+                catch { this.checkpointFailure(job); }
+              }
               job = null;
             }
             throw error;
@@ -326,14 +347,57 @@ export class ParentDeliveryManager {
 
   private save(job: OwnedRecord): void {
     job.record.updated_at = new Date().toISOString();
-    writeJson0600(job.file, job.record);
+    if (this.execution || job.record.execution) {
+      try { writeExecutionCheckpoint(job.file, job.record); }
+      catch { this.checkpointFailure(job); }
+    } else writeJson0600(job.file, job.record);
+  }
+
+  private checkpointFailure(job: OwnedRecord): never {
+    job.checkpointUnknown = true;
+    job.record.state = "unknown";
+    job.record.error = "PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED";
+    const error = new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
+    this.reportServiceError(error);
+    // Preserve a visible original record if possible. This is one diagnostic
+    // write, not a replay of rename/link/unlink or a native operation. Failure
+    // to persist it remains unavailable; never invent a missing owner file.
+    try {
+      const saved = readRecord(job.file);
+      if (saved.delivery_id === job.record.delivery_id && JSON.stringify([saved.execution, saved.parent, saved.boundary])
+        === JSON.stringify([job.record.execution, job.record.parent, job.record.boundary]))
+        writeExecutionCheckpoint(job.file, job.record);
+    } catch { /* preserve every visible path and the original uncertain state */ }
+    throw error;
+  }
+
+  private moveRecord(job: OwnedRecord, destination: string): void {
+    if (job.file === destination) return;
+    const original = job.file;
+    if (!(this.execution || job.record.execution)) { fs.renameSync(original, destination); job.file = destination; return; }
+    const identity = fs.lstatSync(original, { bigint: true });
+    try {
+      fs.renameSync(original, destination);
+      job.file = destination;
+      syncExecutionDirectories(path.dirname(original), path.dirname(destination));
+    } catch {
+      // A syscall wrapper may lose its response after acting. Track only the
+      // same inode at the destination; no retry or same-name substitution.
+      try {
+        const moved = fs.lstatSync(destination, { bigint: true });
+        if (moved.dev === identity.dev && moved.ino === identity.ino) job.file = destination;
+      } catch { /* the original path remains the diagnosis reference */ }
+      this.checkpointFailure(job);
+    }
   }
 
   private finish(job: OwnedRecord): void {
-    this.releaseClaim(job);
+    const privateRecord = Boolean(this.execution || job.record.execution);
+    if (!privateRecord) this.releaseClaim(job);
     this.save(job);
     const destination = path.join(this.results, `${job.record.delivery_id}.json`);
-    if (job.file !== destination) { fs.renameSync(job.file, destination); job.file = destination; }
+    this.moveRecord(job, destination);
+    if (privateRecord) this.releaseClaim(job);
     this.jobs.delete(job.record.delivery_id);
   }
 
@@ -342,8 +406,16 @@ export class ParentDeliveryManager {
     try {
       const claim = JSON.parse(fs.readFileSync(file, "utf8"));
       // 回収済みrecordを復旧している間に始まった、次の依頼の予約は触らない。
-      if (claim.delivery_id === job.record.delivery_id) fs.unlinkSync(file);
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (claim.delivery_id === job.record.delivery_id) {
+        fs.unlinkSync(file);
+        if (this.execution || job.record.execution) syncExecutionDirectories(this.claims);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        if (this.execution || job.record.execution) this.checkpointFailure(job);
+        throw error;
+      }
+    }
   }
 
   private watch(job: OwnedRecord): void {
@@ -403,6 +475,12 @@ export class ParentDeliveryManager {
   }
 
   private async deliver(job: OwnedRecord): Promise<void> {
+    if (this.execution && this.serviceError) {
+      job.record.state = "unknown";
+      job.record.error = "PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED";
+      this.save(job);
+      throw this.serviceError;
+    }
     this.releaseClaim(job);
     job.record.state = "sending";
     this.save(job);
@@ -421,6 +499,7 @@ export class ParentDeliveryManager {
 
   /** 次の入力・closeより先に、既に完了した前の本文を確保する。keyは`deliveryKey`（この端末の子はsession名）。 */
   async beforeChange(key: string, requireCaptured = false): Promise<void> {
+    if (this.serviceError) throw this.serviceError;
     for (const job of this.jobs.values()) {
       if (boundaryKey(job.record.boundary) !== key || job.record.state !== "waiting") continue;
       const boundary = job.record.boundary;
@@ -477,6 +556,7 @@ export class ParentDeliveryManager {
   recover(): Promise<void> {
     if (this.recovering) return this.recovering;
     if (this.closing) return Promise.resolve();
+    if (this.serviceError) return Promise.reject(this.serviceError);
     this.recovering = this.recoverOrphans().finally(() => { this.recovering = null; });
     return this.recovering;
   }
@@ -585,10 +665,13 @@ export class ParentDeliveryManager {
         const oldFile = path.join(oldDir, name);
         const file = path.join(this.ownerDir, name);
         // 元のpathが消えるrenameを使うため、同じ旧recordを二つのprocessで回収できない。
-        try { fs.renameSync(oldFile, file); }
+        let record: DeliveryRecord;
+        try { record = readRecord(oldFile); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
-        const record = readRecord(file);
-        const job: OwnedRecord = { record, file, controller: new AbortController() };
+        const job: OwnedRecord = { record, file: oldFile, controller: new AbortController() };
+        try { this.moveRecord(job, file); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+        record = job.record = readRecord(job.file);
         if (record.execution && !this.execution) {
           record.state = "unknown";
           record.error = "PARENT_EXECUTION_ADAPTER_UNAVAILABLE";
@@ -668,6 +751,7 @@ export class ParentDeliveryManager {
     await Promise.all(jobs.map((job) => job.task));
     await Promise.all(jobs.map((job) => job.delivery));
     this.owner.closed = true;
-    writeJson0600(path.join(this.ownerDir, "owner.json"), this.owner);
+    if (this.execution) writeExecutionCheckpoint(path.join(this.ownerDir, "owner.json"), this.owner);
+    else writeJson0600(path.join(this.ownerDir, "owner.json"), this.owner);
   }
 }

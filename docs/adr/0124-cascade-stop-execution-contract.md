@@ -371,8 +371,9 @@ Bridge側のstatusはaccepted/not_sentの確定以外で未確認を解かない
 既存の即時注入fixture用`runBoundExecution`も残すが、実preflight/idle待ちを持つ製品handlerにはdeferred口を用いる。
 
 これらは隔離実装のnative admission経路であり、現在はrequireExecutionEffectScopeを製品全体へ有効化していない。
-indexの全handlerへのframe供給、direct request ID/native process identityの実取得と参照生成、
-auto-name、普通PTY/authのmanaged launch無しの世代、remote source-only admission、parent queue/hookのscopeは未接続。
+indexでの実native process identity取得/実default factory供給、auto-name、普通PTY/authのmanaged launch無しの世代、
+remote source-only admission、全参加processでのparent queue/hookのmandatory scopeは稼働未接続。
+全handlerへのframe供給は以下の隔離constructor接続で検証し、通常のstdio mainには有効化しない。
 この状態では一般PTYをunsupportedへ変える一括有効化やpublic mountを行わない。coverageはincompleteを維持する。
 
 隔離constructor接続として`createAitermServer({execution: server => ...})`を追加した。`index.ts`が実際に

@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,7 +45,7 @@ async function fixture() {
     alias(value) { aliasValid = value; }, closeCascade: () => service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [B] }),
     state: () => store.transaction(state => structuredClone(state), { readOnly: true }) };
 }
-test('emit and wake join the same accepted delivery without submitting it again or completing its execution', async () => {
+test('emit and wake join the same accepted delivery without submitting it again or completing its execution', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let effects = 0;
   for (const stage of ['emit', 'wake']) {
     const result = await f.native.run(id, stage, endpoint, async (fixed, issue) => {
@@ -57,7 +59,7 @@ test('emit and wake join the same accepted delivery without submitting it again 
   const duplicate = await f.native.run(id, 'emit', endpoint, async (_, issue) => { issue(); effects++; });
   assert.equal(duplicate.error.code, 'EXECUTION_CONFLICT'); assert.equal(effects, 2);
 });
-test('stop can finish while an emit is only preparing; its late callback cannot restart the parent', async () => {
+test('stop can finish while an emit is only preparing; its late callback cannot restart the parent', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), entered = pause(), release = pause(); let effects = 0;
   const pending = f.native.run(id, 'emit', endpoint, async (_, issue) => {
     entered.resolve(); await release.promise; issue(); effects++; return 'emitted';
@@ -66,7 +68,7 @@ test('stop can finish while an emit is only preparing; its late callback cannot 
   assert.deepEqual(result.targets.map(value => value.launch.session_id), [B.session_id, A.session_id]);
   release.resolve(); assert.equal((await pending).error.effect, 'not_started'); assert.equal(effects, 0);
 });
-test('stop drains an issued emit phase and finish cannot retire the relation while its native slot is open', async () => {
+test('stop drains an issued emit phase and finish cannot retire the relation while its native slot is open', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), entered = pause(), release = pause(); let effects = 0;
   const pending = f.native.run(id, 'emit', endpoint, async (_, issue) => {
     issue(); effects++; entered.resolve(); await release.promise; return 'emitted';
@@ -77,7 +79,7 @@ test('stop drains an issued emit phase and finish cannot retire the relation whi
   release.resolve(); assert.equal((await pending).value, 'emitted');
   assert.deepEqual((await stopped).targets.map(value => value.outcome), ['closed', 'closed']); assert.equal(effects, 1);
 });
-test('a lost issued native receipt survives reconstruction, is never retried and blocks expected close', async () => {
+test('a lost issued native receipt survives reconstruction, is never retried and blocks expected close', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let effects = 0;
   const failed = await f.native.run(id, 'wake', endpoint, async (_, issue) => { issue(); effects++; throw Error('synthetic lost native response'); });
   assert.equal(failed.error.effect, 'possible');
@@ -87,7 +89,7 @@ test('a lost issued native receipt survives reconstruction, is never retried and
   assert.equal(stopped.status, 'partial'); assert.equal(stopped.targets.find(value => value.launch.session_id === A.session_id).outcome, 'unknown');
   const state = await f.state(); assert.equal(state.parent_effects[0].state, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
 });
-test('missing native proof or an endpoint replacement before emission refuses before any effect', async () => {
+test('missing native proof or an endpoint replacement before emission refuses before any effect', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let effects = 0;
   const missing = await createParentNativeAdmission({ store: f.store, actor: null }).run(id, 'emit', endpoint, async (_, issue) => { issue(); effects++; });
   assert.equal(missing.error.code, 'EXECUTION_UNSUPPORTED');
@@ -96,13 +98,13 @@ test('missing native proof or an endpoint replacement before emission refuses be
   });
   assert.equal(changed.error.code, 'EXECUTION_STALE_GENERATION'); assert.equal(changed.value, undefined); assert.equal(effects, 0);
 });
-test('an accepted queued delivery may finish its native phase after the child naturally closes, without inventing a new source', async () => {
+test('an accepted queued delivery may finish its native phase after the child naturally closes, without inventing a new source', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); f.live.delete(B.session_id); let effects = 0;
   const result = await f.native.run(id, 'emit', endpoint, async (_, issue) => { issue(); effects++; return 'emitted'; });
   assert.equal(result.error, undefined); assert.equal(effects, 1);
   const state = await f.state(); assert.equal(state.records.length, 2); assert.deepEqual(state.records[1].relation.source.launch, B);
 });
-test('a genuine native receipt is retained when its post-effect generation proof is lost', async () => {
+test('a genuine native receipt is retained when its post-effect generation proof is lost', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let effects = 0;
   const result = await f.native.run(id, 'emit', endpoint, async (_, issue) => {
     issue(); effects++; f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) }); return 'genuine-native-accepted';
@@ -110,13 +112,13 @@ test('a genuine native receipt is retained when its post-effect generation proof
   assert.equal(result.value, 'genuine-native-accepted'); assert.equal(result.error.effect, 'possible'); assert.equal(effects, 1);
   assert.equal((await f.state()).slots[0].expected_launch_id, A.launch_id);
 });
-test('escaped phase callbacks are bound to a finished frame and cannot act in another turn', async () => {
+test('escaped phase callbacks are bound to a finished frame and cannot act in another turn', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let escaped, effects = 0;
   const result = await f.native.run(id, 'emit', endpoint, async (_, issue) => { escaped = issue; return 'not-issued'; });
   assert.equal(result.error.effect, 'not_started');
   assert.throws(() => { escaped(); effects++; }); assert.equal(effects, 0);
 });
-test('one hook output joins multiple existing deliveries and keeps every child fence without a new batch ID', async () => {
+test('one hook output joins multiple existing deliveries and keeps every child fence without a new batch ID', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), C = { session_id: 'bot-c', launch_id: 'c'.repeat(32) };
   const second = '00000000-0000-4000-8000-000000000002';
   const next = { kind: 'delivery', delivery_id: 'original-ac', target_session_id: C.session_id };
@@ -142,7 +144,7 @@ test('one hook output joins multiple existing deliveries and keeps every child f
   assert.equal((await native).value, 'one-output'); assert.equal(effects, 1);
   assert.equal((await stopping).targets.every(value => value.outcome === 'closed'), true);
 });
-test('receiver preflight waits for the issued queue receipt without holding a native slot or retrying input', async () => {
+test('receiver preflight waits for the issued queue receipt without holding a native slot or retrying input', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), second = '00000000-0000-4000-8000-000000000002';
   await f.parent.bind(second, request, point(B, 17), endpoint);
   const entered = pause(), release = pause(); let queued = 0, emitted = 0;
@@ -156,7 +158,7 @@ test('receiver preflight waits for the issued queue receipt without holding a na
   release.resolve(); assert.equal((await queue).isError, undefined);
   assert.equal((await emitting).value, 'emitted'); assert.equal(queued, 1); assert.equal(emitted, 1);
 });
-test('native hook context is fixed at ingress and must match the actual endpoint resolver rather than only the parent name', async () => {
+test('native hook context is fixed at ingress and must match the actual endpoint resolver rather than only the parent name', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), context = { conversation_id: 'native-conversation' }, entered = pause(), release = pause();
   const native = createParentNativeAdmission({ ...f.bindings,
     verifyParentEndpoint: (_, __, ctx) => ctx?.conversation_id === 'native-conversation' });
@@ -167,7 +169,7 @@ test('native hook context is fixed at ingress and must match the actual endpoint
   await entered.promise; context.conversation_id = 'later-conversation'; release.resolve();
   assert.equal((await running).value, 'emitted'); assert.equal(effects, 1);
 });
-test('each delivery in one native output needs its own evidence both at preflight and the actual issue boundary', async () => {
+test('each delivery in one native output needs its own evidence both at preflight and the actual issue boundary', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), second = '00000000-0000-4000-8000-000000000002';
   await f.parent.bind(second, request, point(B, 17), endpoint);
   await f.parent.submit(second, endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'second-queue' }; });
@@ -183,7 +185,7 @@ test('each delivery in one native output needs its own evidence both at prefligh
   assert.equal(later.error.effect, 'not_started'); assert.equal(effects, 0);
   assert.equal((await f.state()).parent_effects.length, 0);
 });
-test('pending/rejected endpoint verification promises cannot authorize a native output', async () => {
+test('pending/rejected endpoint verification promises cannot authorize a native output', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); let effects = 0;
   for (const verifyParentEndpoint of [async () => true, async () => { throw Error('missing native proof'); }]) {
     const result = await createParentNativeAdmission({ ...f.bindings, verifyParentEndpoint })

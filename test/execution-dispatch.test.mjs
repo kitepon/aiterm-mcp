@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,7 +64,7 @@ function fixture(options = {}) {
     async records() { return store.transaction(state => structuredClone(state.records), { readOnly: true }); },
   };
 }
-test('direct stdio uses existing native process/request identity and binds the genuine dispatch receipt', async () => {
+test('direct stdio uses existing native process/request identity and binds the genuine dispatch receipt', { skip: posixCheckpoint }, async () => {
   const f = fixture(), input = { session_id: B.session_id, text: 'synthetic' };
   const result = await f.dispatcher.dispatch('pty_send', input, { requestId: 42 }, async (args, extra) => {
     assert.notEqual(args, input);
@@ -86,7 +88,7 @@ test('direct stdio uses existing native process/request identity and binds the g
   assert.equal(errorCode(duplicate), 'EXECUTION_CONFLICT');
   assert.equal(f.effects(), 1);
 });
-test('actual request-local before_send reference preserves a managed operation absent from the structured receipt', async () => {
+test('actual request-local before_send reference preserves a managed operation absent from the structured receipt', { skip: posixCheckpoint }, async () => {
   const f = fixture(), boundary = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
   const result = await f.dispatcher.dispatch('claude_turn', { action: 'issue', session_id: B.session_id, operation_id: boundary.boundary.operation_id },
     { requestId: 401 }, async () => {
@@ -97,14 +99,14 @@ test('actual request-local before_send reference preserves a managed operation a
   assert.equal(result.isError, undefined); assert.deepEqual(result._meta[BINDING].target, boundary); assert.equal(f.effects(), 1);
   assert.deepEqual((await f.records())[0].relation.target, boundary);
 });
-test('model args and a receipt operation field do not replace missing actual core before_send provenance', async () => {
+test('model args and a receipt operation field do not replace missing actual core before_send provenance', { skip: posixCheckpoint }, async () => {
   const f = fixture(), operation = 'sha256:' + '7'.repeat(64);
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id, operation_id: operation }, { requestId: 402 }, async () => {
     f.effect(); const result = accepted(); result.structuredContent.operation_id = operation; return result;
   });
   assert.equal(result.isError, undefined); assert.equal(result._meta[BINDING].target.boundary.operation_id, null);
 });
-test('before_send snapshots are detached and cannot be borrowed by a later request or another target', async () => {
+test('before_send snapshots are detached and cannot be borrowed by a later request or another target', { skip: posixCheckpoint }, async () => {
   const f = fixture(), original = { launch: B, boundary: { event_cursor: 17, operation_id: null, turn_id: null, steer_id: null } };
   const value = structuredClone(original); let late;
   const first = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 403 }, async () => {
@@ -121,7 +123,7 @@ test('before_send snapshots are detached and cannot be borrowed by a later reque
   });
   assert.equal(second._meta[BINDING].target.boundary.event_cursor, 18); assert.equal(f.effects(), 2);
 });
-test('conflicting before_send references poison a frame before native input and cannot silently select a latest boundary', async () => {
+test('conflicting before_send references poison a frame before native input and cannot silently select a latest boundary', { skip: posixCheckpoint }, async () => {
   for (const other of ['cursor', 'target']) {
     const f = fixture(), first = { launch: B, boundary: { event_cursor: 17, operation_id: null, turn_id: null, steer_id: null } };
     const second = structuredClone(first); if (other === 'cursor') second.boundary.event_cursor++; else second.launch = D;
@@ -132,7 +134,7 @@ test('conflicting before_send references poison a frame before native input and 
     assert.equal(result.isError, true); assert.equal(f.effects(), 0);
   }
 });
-test('contradictory receipt and captured boundary retain the genuine accepted result with unknown binding and never resend', async () => {
+test('contradictory receipt and captured boundary retain the genuine accepted result with unknown binding and never resend', { skip: posixCheckpoint }, async () => {
   for (const change of ['cursor', 'operation', 'launch']) {
     const f = fixture(), before = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
     const action = () => f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 406 }, async () => {
@@ -147,7 +149,7 @@ test('contradictory receipt and captured boundary retain the genuine accepted re
     assert.equal((await action()).isError, true); assert.equal(f.effects(), 1);
   }
 });
-test('reading a captured pre-send reference after the native action does not re-admit its ended source or discard the genuine receipt', async () => {
+test('reading a captured pre-send reference after the native action does not re-admit its ended source or discard the genuine receipt', { skip: posixCheckpoint }, async () => {
   const f = fixture(), target = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 407 }, async () => {
     captureExecutionSendBoundary(target); f.effect();
@@ -158,7 +160,7 @@ test('reading a captured pre-send reference after the native action does not re-
   assert.deepEqual(result._meta[BINDING].target, target); assert.equal(f.effects(), 1);
   assert.deepEqual((await f.records())[0].relation.source, { launch: A, boundary: null });
 });
-test('source environment, native identity and ingress arguments are detached before async lookup', async () => {
+test('source environment, native identity and ingress arguments are detached before async lookup', { skip: posixCheckpoint }, async () => {
   const environment = { ...env }, nativeIdentity = { pid: 12345, started_identity: 'original-start' };
   const f = fixture({ environment, bindings: { nativeIdentity } });
   environment.AITERM_AGENT_LAUNCH_ID = D.launch_id;
@@ -173,7 +175,7 @@ test('source environment, native identity and ingress arguments are detached bef
   assert.equal(binding.request.process_started_identity, 'original-start');
   assert.deepEqual(binding.source.point, point(A));
 });
-test('preparing work is canceled without idle wait and its delayed native effect is refused', async () => {
+test('preparing work is canceled without idle wait and its delayed native effect is refused', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = pause(), release = pause();
   const action = f.dispatcher.dispatch('agent_configure', { session_id: B.session_id }, { requestId: 3 }, async () => {
     entered.resolve(); await release.promise; f.effect(); return { content: [] };
@@ -186,7 +188,7 @@ test('preparing work is canceled without idle wait and its delayed native effect
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
   assert.equal(f.effects(), 0); assert.ok(f.live.has(B.session_id));
 });
-test('replacement between preflight and native effect is rejected before touching either target', async () => {
+test('replacement between preflight and native effect is rejected before touching either target', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 2 }, async () => {
     f.live.set(B.session_id, { ...B, launch_id: 'e'.repeat(32) });
@@ -195,7 +197,7 @@ test('replacement between preflight and native effect is rejected before touchin
   assert.equal(errorCode(result), 'EXECUTION_STALE_GENERATION');
   assert.equal(f.effects(), 0);
 });
-test('Bridge refs require the same fixed host source and cannot borrow another source reservation', async () => {
+test('Bridge refs require the same fixed host source and cannot borrow another source reservation', { skip: posixCheckpoint }, async () => {
   const f = fixture({ clientName: 'bellteam' });
   const request = { kind: 'delivery', delivery_id: 'existing-bridge-id', target_session_id: B.session_id };
   await f.service.execute({ action: 'register', source_session_id: A.session_id,
@@ -220,7 +222,7 @@ test('Bridge refs require the same fixed host source and cannot borrow another s
   assert.deepEqual(result._meta[BINDING].request, request);
   assert.equal(f.effects(), 1);
 });
-test('valid receipt survives missing binding evidence, and the issued slot blocks subsequent sends', async () => {
+test('valid receipt survives missing binding evidence, and the issued slot blocks subsequent sends', { skip: posixCheckpoint }, async () => {
   const f = fixture(), receipt = accepted();
   receipt.structuredContent.session_id = 'different-receipt-target';
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 8 }, async () => {
@@ -235,7 +237,7 @@ test('valid receipt survives missing binding evidence, and the issued slot block
   });
   assert.equal(errorCode(next), 'EXECUTION_UNCONFIRMED'); assert.equal(f.effects(), 1);
 });
-test('tracked steer keeps its real native reference while untracked steer has no fabricated boundary', async () => {
+test('tracked steer keeps its real native reference while untracked steer has no fabricated boundary', { skip: posixCheckpoint }, async () => {
   for (const tracked of [true, false]) {
     const f = fixture(), result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 1 }, async () => {
       f.effect(); const receipt = accepted(); receipt.structuredContent.mode = 'agent_steer';
@@ -247,7 +249,7 @@ test('tracked steer keeps its real native reference while untracked steer has no
     if (!tracked) assert.equal(result._meta[BINDING].target.boundary, null);
   }
 });
-test('direct empty launch observes the actual new generation without manufacturing a dispatch cursor', async () => {
+test('direct empty launch observes the actual new generation without manufacturing a dispatch cursor', { skip: posixCheckpoint }, async () => {
   const f = fixture({ nativeCreation: true }); f.live.delete(B.session_id); f.live.delete(D.session_id);
   const result = await f.dispatcher.dispatch('agent_launch', { session_name: B.session_id }, { requestId: 4 }, async () => {
     prepareExecutionCreation();
@@ -259,7 +261,7 @@ test('direct empty launch observes the actual new generation without manufacturi
   assert.deepEqual(result._meta[BINDING].target, point(B));
   assert.equal((await f.records())[0].operations.send, 'not_issued');
 });
-test('configure is admitted without an invocation edge, while key and approval responses reach mixed targets', async () => {
+test('configure is admitted without an invocation edge, while key and approval responses reach mixed targets', { skip: posixCheckpoint }, async () => {
   for (const tool of ['agent_configure', 'pty_key', 'agent_approval', 'claude_approval']) {
     const f = fixture();
     const result = await f.dispatcher.dispatch(tool, { session_id: B.session_id, action: 'respond' }, { requestId: 1 }, async () => {
@@ -270,7 +272,7 @@ test('configure is admitted without an invocation edge, while key and approval r
     assert.deepEqual(stopped.targets.map(value => value.launch.session_id), tool === 'agent_configure' ? [A.session_id] : [A.session_id, B.session_id]);
   }
 });
-test('only known read actions bypass mutation admission; session auth status is not a read', async () => {
+test('only known read actions bypass mutation admission; session auth status is not a read', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   for (const [name, args] of [['agent_approval', { action: 'inspect' }], ['claude_turn', { action: 'recover' }],
     ['agent_auth', { action: 'status' }], ['pty_observe', { session_id: B.session_id }]]) {
@@ -284,7 +286,7 @@ test('only known read actions bypass mutation admission; session auth status is 
   assert.equal(status.isError, undefined);
   assert.equal((await f.records())[0].reservation.request.tool, 'agent_auth.status');
 });
-test('unsupported auto-name, raw generation, remote, missing native source or forged ref never invoke handlers', async () => {
+test('unsupported auto-name, raw generation, remote, missing native source or forged ref never invoke handlers', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.set('ordinary-pty', { session_id: 'ordinary-pty', launch_id: null });
   let calls = 0;
   for (const [name, args, extra] of [['agent_launch', {}, { requestId: 1 }], ['pty_send', { session_id: 'ordinary-pty' }, { requestId: 2 }],
@@ -303,7 +305,7 @@ test('unsupported auto-name, raw generation, remote, missing native source or fo
   })), 'EXECUTION_UNSUPPORTED');
   assert.equal(calls, 0);
 });
-test('actual SDK requestId reaches the dispatcher and native admission without model-supplied identity', async t => {
+test('actual SDK requestId reaches the dispatcher and native admission without model-supplied identity', { skip: posixCheckpoint }, async t => {
   const f = fixture(), server = new McpServer({ name: 'synthetic-aiterm', version: '0.0.0' });
   server.registerTool('pty_send', { inputSchema: { session_id: z.string(), text: z.string() } }, (args, extra) =>
     f.dispatcher.dispatch('pty_send', args, extra, async (fixed, fixedExtra) => {
@@ -320,14 +322,14 @@ test('actual SDK requestId reaches the dispatcher and native admission without m
   assert.equal(Number.isSafeInteger(result._meta[BINDING].request.request_id), true);
 });
 
-test('native ingress capture is synchronous and an asynchronous callback cannot become a deferred source proof or native send', async () => {
+test('native ingress capture is synchronous and an asynchronous callback cannot become a deferred source proof or native send', { skip: posixCheckpoint }, async () => {
   const f = fixture({ bindings: { captureNativeParent: () => Promise.resolve(null) } });
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 'async-native-source' }, async () => {
     f.effect(); return accepted();
   });
   assert.equal(errorCode(result), 'EXECUTION_UNSUPPORTED'); assert.equal(f.effects(), 0); assert.deepEqual(await f.records(), []);
 });
-test('native ingress null is fixed by the private host adapter rather than model arguments or SDK meta claiming a proof', async () => {
+test('native ingress null is fixed by the private host adapter rather than model arguments or SDK meta claiming a proof', { skip: posixCheckpoint }, async () => {
   let calls = 0;
   const f = fixture({ bindings: { captureNativeParent: () => { calls++; return null; } } });
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id, native_parent: { forged: true } },
@@ -339,7 +341,7 @@ test('native ingress null is fixed by the private host adapter rather than model
 });
 
 
-test('SDK signal already cancelled refuses mutation before registration, while model cancellation fields are inert', async () => {
+test('SDK signal already cancelled refuses mutation before registration, while model cancellation fields are inert', { skip: posixCheckpoint }, async () => {
   const f = fixture(), controller = new AbortController(); controller.abort('synthetic');
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
     { requestId: 'cancelled-at-entry', signal: controller.signal }, async () => { f.effect(); return accepted(); });
@@ -349,7 +351,7 @@ test('SDK signal already cancelled refuses mutation before registration, while m
   assert.equal(next.isError, undefined); assert.equal(f.effects(), 1);
 });
 
-test('cancel during initial target observation cannot register a delayed request or affect a new request on the same launch', async () => {
+test('cancel during initial target observation cannot register a delayed request or affect a new request on the same launch', { skip: posixCheckpoint }, async () => {
   const entered = pause(), resume = pause(), controller = new AbortController(); let gated = false;
   const f = fixture({ bindings: { async observeSessionGeneration(session_id) {
     if (!gated) { gated = true; entered.resolve(); await resume.promise; }
@@ -365,7 +367,7 @@ test('cancel during initial target observation cannot register a delayed request
   assert.equal(next.isError, undefined); assert.equal(f.effects(), 1);
 });
 
-test('preparing SDK cancellation immediately fences metadata and native input without waiting for the shared store lock', async () => {
+test('preparing SDK cancellation immediately fences metadata and native input without waiting for the shared store lock', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = pause(), resume = pause(), locked = pause(), unlock = pause(), controller = new AbortController();
   const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
     { requestId: 'cancel-preparing', signal: controller.signal }, async () => {
@@ -386,7 +388,7 @@ test('preparing SDK cancellation immediately fences metadata and native input wi
   assert.deepEqual(await f.store.transaction(state => state.slots, { readOnly: true }), []);
 });
 
-test('issued cancellation keeps genuine delayed receipt, original Point and open fence without stopping another request', async () => {
+test('issued cancellation keeps genuine delayed receipt, original Point and open fence without stopping another request', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = pause(), resume = pause(), controller = new AbortController();
   const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
     { requestId: 'cancel-issued-receipt', signal: controller.signal }, async () => {
@@ -403,7 +405,7 @@ test('issued cancellation keeps genuine delayed receipt, original Point and open
   assert.equal(next.isError, undefined); assert.equal(f.effects(), 2); assert.equal((await f.records())[1].stopping, false);
 });
 
-test('cancel after native issuance rejects a later effect and preserves unknown operation/slot without replay', async () => {
+test('cancel after native issuance rejects a later effect and preserves unknown operation/slot without replay', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = pause(), resume = pause(), controller = new AbortController();
   const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
     { requestId: 'cancel-issued-followup', signal: controller.signal }, async () => {
@@ -419,7 +421,7 @@ test('cancel after native issuance rejects a later effect and preserves unknown 
 });
 
 
-test('cancellation persistence failure retains the genuine successful result with status-only uncertainty', async () => {
+test('cancellation persistence failure retains the genuine successful result with status-only uncertainty', { skip: posixCheckpoint }, async () => {
   const f = fixture(), controller = new AbortController();
   f.service.cancelRequestActions = async () => { throw new Error('synthetic unavailable metadata'); };
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
@@ -430,7 +432,7 @@ test('cancellation persistence failure retains the genuine successful result wit
   assert.equal((await f.records())[0].operations.send, 'accepted');
 });
 
-test('read-only and registered controls do not create cancelled mutation records or normal native frames', async () => {
+test('read-only and registered controls do not create cancelled mutation records or normal native frames', { skip: posixCheckpoint }, async () => {
   const f = fixture(), controller = new AbortController(); controller.abort();
   f.dispatcher.prepareControlRegistration(f.service).activate();
   for (const [name, args] of [['pty_observe', { session_id: B.session_id }], ['agent_stop', {}]]) {
@@ -440,7 +442,7 @@ test('read-only and registered controls do not create cancelled mutation records
   assert.deepEqual(await f.records(), []); assert.equal(f.effects(), 0);
 });
 
-for (const mode of ['notification', 'transport-close']) test('real SDK ' + mode + ' fences the exact original RPC and preserves its issued receipt', async t => {
+for (const mode of ['notification', 'transport-close']) test('real SDK ' + mode + ' fences the exact original RPC and preserves its issued receipt', { skip: posixCheckpoint }, async t => {
   const f = fixture(), entered = pause(), resume = pause(), aborted = pause(), finished = pause();
   const server = new McpServer({ name: 'synthetic-aiterm', version: '0.0.0' });
   let originalRequest, serverResult;
@@ -476,7 +478,7 @@ for (const mode of ['notification', 'transport-close']) test('real SDK ' + mode 
 });
 
 
-test('host cancellation is applied only after the supplied ref target and fixed source are authorized', async () => {
+test('host cancellation is applied only after the supplied ref target and fixed source are authorized', { skip: posixCheckpoint }, async () => {
   const f = fixture({ clientName: 'bellteam' }), request = { kind: 'delivery', delivery_id: 'cancel-host-existing', target_session_id: B.session_id };
   await f.service.execute({ action: 'register', source_session_id: A.session_id,
     reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point(A),
@@ -492,7 +494,7 @@ test('host cancellation is applied only after the supplied ref target and fixed 
 });
 
 
-test('cancellation raised by a synchronous native observation is rechecked before the issuance checkpoint', async () => {
+test('cancellation raised by a synchronous native observation is rechecked before the issuance checkpoint', { skip: posixCheckpoint }, async () => {
   const controller = new AbortController(); let armed = false;
   const f = fixture({ beforeObserve: () => { if (armed) { armed = false; controller.abort(); } } });
   const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },

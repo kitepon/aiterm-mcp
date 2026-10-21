@@ -2,6 +2,8 @@
 // process that issues Esc, not the target CLI, source turn or an inferred job.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,7 +39,7 @@ function fixture(t, roles = ['mcp']) {
       native_boundary: { type: 'turn_aborted', turn_id: run.boundary.turn_id, reason: 'interrupted' },
       invocation_fence: 'closed', session_preserved: 'confirmed' }); } };
 }
-test('the scoped key frame records its MCP native actor, and inventory retains this existing run without inventing a request ID', async t => {
+test('the scoped key frame records its MCP native actor, and inventory retains this existing run without inventing a request ID', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run); assert.equal('caller' in f.state().interruptions[0], false);
   await f.service.interruptRun(run, f.key); const state = f.state();
   assert.deepEqual(state.interruptions[0].caller, actor); assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(f.keys(), 1);
@@ -45,12 +47,12 @@ test('the scoped key frame records its MCP native actor, and inventory retains t
   assert.deepEqual(inventory.participants[0].references, [{ kind: 'interruption', run, phase: 'accepted' }]);
   assert.equal(inventory.native_fence, 'unknown'); assert.equal(inventory.relation_coverage, 'incomplete');
 });
-test('only an enrolled MCP role can supply the interruption caller; a worker cannot silently borrow that authority', async t => {
+test('only an enrolled MCP role can supply the interruption caller; a worker cannot silently borrow that authority', { skip: posixCheckpoint }, async t => {
   const f = fixture(t, ['parent_worker']); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, f.key), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.equal(f.keys(), 0); assert.equal(f.state().interruptions[0].phase, 'draining'); assert.equal('caller' in f.state().interruptions[0], false);
 });
-test('scope loss after claim retains the original preparing caller; another actor cannot take it over or infer key absence from disappearance', async t => {
+test('scope loss after claim retains the original preparing caller; another actor cannot take it over or infer key absence from disappearance', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, () => { f.loseScope(); return f.key(); }));
   const before = f.state().interruptions[0]; assert.equal(before.phase, 'preparing'); assert.deepEqual(before.caller, actor); assert.equal(f.keys(), 0);
@@ -62,7 +64,7 @@ test('scope loss after claim retains the original preparing caller; another acto
   const old = inventory.participants.find(row => row.actor.pid === actor.pid);
   assert.equal(old.native_identity, 'unavailable'); assert.equal(old.references[0].phase, 'preparing');
 });
-test('a changed journal caller cannot issue the old frame, and its late cleanup cannot erase the replacement reference', async t => {
+test('a changed journal caller cannot issue the old frame, and its late cleanup cannot erase the replacement reference', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, () => {
     f.raw.transactionSync(state => { state.interruptions[0].caller = other; }); return f.key();
@@ -71,7 +73,7 @@ test('a changed journal caller cannot issue the old frame, and its late cleanup 
   const missing = f.store.inventory(() => [actor, other]).participants.find(row => row.actor.pid === other.pid);
   assert.ok(missing.missing.includes('unregistered_actor'));
 });
-test('caller loss after a genuine key effect preserves the issued slot and cannot downgrade to not_sent or replay the key', async t => {
+test('caller loss after a genuine key effect preserves the issued slot and cannot downgrade to not_sent or replay the key', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, () => {
     const receipt = f.key(); f.raw.transactionSync(state => { state.interruptions[0].caller = other; }); return receipt;
@@ -79,7 +81,7 @@ test('caller loss after a genuine key effect preserves the issued slot and canno
   assert.equal(f.keys(), 1); assert.equal(f.state().interruptions[0].phase, 'issued'); assert.equal(f.state().slots[0].state, 'issued');
   await f.service.interruptCascade(input); assert.equal(f.keys(), 1); assert.deepEqual(f.state().interruptions[0].caller, other);
 });
-test('a reused PID remains a different inventory actor and never inherits the old interruption frame', async t => {
+test('a reused PID remains a different inventory actor and never inherits the old interruption frame', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, () => { f.loseScope(); return f.key(); }));
   const replacement = { ...actor, started_identity: other.started_identity }, nextStore = new ParticipantExecutionStore(f.dir, replacement, () => {});
@@ -88,14 +90,14 @@ test('a reused PID remains a different inventory actor and never inherits the ol
   assert.equal(previous.native_identity, 'replaced'); assert.equal(previous.references[0].kind, 'interruption');
   assert.deepEqual(f.state().interruptions[0].caller, actor); assert.equal(f.keys(), 0);
 });
-test('legacy callerless journals are not filled from the current MCP and cannot be settled as a native participant fence', async t => {
+test('legacy callerless journals are not filled from the current MCP and cannot be settled as a native participant fence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), legacy = new ExecutionService(f.raw, f.runtime);
   await legacy.beginInterruption(run); await legacy.interruptRun(run, f.key); f.proof();
   await assert.rejects(f.service.settleInterruption(run), error => error.code === 'EXECUTION_UNCONFIRMED');
   assert.equal('caller' in f.state().interruptions[0], false); assert.equal(f.state().interruptions[0].phase, 'accepted');
   await f.service.interruptCascade(input); assert.equal(f.keys(), 1); assert.equal('caller' in f.state().interruptions[0], false);
 });
-test('a settled native-proven frame retains its caller as history without reviving the actor run reference', async t => {
+test('a settled native-proven frame retains its caller as history without reviving the actor run reference', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run); await f.service.interruptRun(run, f.key); f.proof();
   await f.service.settleInterruption(run);
   assert.equal(f.state().interruptions[0].phase, 'settled'); assert.deepEqual(f.state().interruptions[0].caller, actor);

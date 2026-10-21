@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -87,7 +89,7 @@ test('a different request target cannot borrow tty recovery, and unmounted legac
   assert.deepEqual(await core.ensureAgentOwnsPaneInput('bot-a', 'codex'), ['stty_raw']);
   assert.equal(f.writes(), 1);
 });
-test('actual dispatcher, service and core share the durable tty admission and cancel preparing recovery without touching the target', posix, async t => {
+test('actual dispatcher, service and core share the durable tty admission and cancel preparing recovery without touching the target', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   for (const scenario of ['accepted', 'stop', 'replacement']) {
     const f = fixture(), source = { session_id: 'bot-source', launch_id: 'b'.repeat(32) },
       target = { session_id: 'bot-a', launch_id: 'a'.repeat(32) };

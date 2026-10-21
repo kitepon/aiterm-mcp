@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -70,7 +72,7 @@ function fixture() {
   return { directory, store, live, closes, runtime, service, registration, register, status, send, finish };
 }
 
-test('each later native effect rechecks stop and generations while retaining the original issued receipt uncertainty', async () => {
+test('each later native effect rechecks stop and generations while retaining the original issued receipt uncertainty', { skip: posixCheckpoint }, async () => {
   for (const change of ['source-stop', 'target-stop', 'source-replaced', 'target-replaced', 'unknown-slot']) {
     const f = fixture(), record = await f.register('continued-' + change); let effects = 0;
     await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
@@ -90,7 +92,7 @@ test('each later native effect rechecks stop and generations while retaining the
     }, B.session_id));
   }
 });
-test('a new launch needs its exact native generation binding before a later command may address the created seat', async () => {
+test('a new launch needs its exact native generation binding before a later command may address the created seat', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(B.session_id);
   const record = await f.register('unbound-launch-continuation', A, B, null); let effects = 0;
   await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'launch', async issue => {
@@ -100,14 +102,14 @@ test('a new launch needs its exact native generation binding before a later comm
   assert.equal(effects, 1);
 });
 
-test('register is idempotent and changed content conflicts without issuing anything', async () => {
+test('register is idempotent and changed content conflicts without issuing anything', { skip: posixCheckpoint }, async () => {
   const f = fixture(), input = f.registration('ab');
   assert.deepEqual(await f.service.execute(input), await f.service.execute(input));
   await assert.rejects(f.service.execute({ ...input, source_session_id: C.session_id,
     reservation: { ...input.reservation, source: { launch: C, boundary: null } } }), code('EXECUTION_CONFLICT'));
   assert.equal(f.closes.length, 0);
 });
-test('source boundary null adopts a generation edge and each reference sends only once', async () => {
+test('source boundary null adopts a generation edge and each reference sends only once', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   assert.equal(record.source.status, 'verified');
   assert.equal(record.source.boundary_status, 'missing');
@@ -118,7 +120,7 @@ test('source boundary null adopts a generation edge and each reference sends onl
   }), code('EXECUTION_CONFLICT'));
   assert.equal(replayed, false);
 });
-test('deferred preflight is cancelled without waiting for idle or issuing an effect', async () => {
+test('deferred preflight is cancelled without waiting for idle or issuing an effect', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('deferred'), entered = deferred(), ready = deferred();
   let effects = 0;
   const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
@@ -134,7 +136,7 @@ test('deferred preflight is cancelled without waiting for idle or issuing an eff
   await assert.rejects(running, error => error.effect === 'not_started');
   assert.equal(effects, 0);
 });
-test('a duplicate deferred invocation cannot cancel the first preparing owner', async () => {
+test('a duplicate deferred invocation cannot cancel the first preparing owner', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('preparing-owner'), entered = deferred(), ready = deferred();
   const original = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     entered.resolve(); await ready.promise; issue(); return { value: 'first', target: point(B) };
@@ -148,7 +150,7 @@ test('a duplicate deferred invocation cannot cancel the first preparing owner', 
   ready.resolve(); assert.equal((await original).value, 'first');
   assert.equal(duplicates, 0);
 });
-test('the first deferred native effect persists issuance and stop drains only the issued work', async () => {
+test('the first deferred native effect persists issuance and stop drains only the issued work', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('first-effect'), entered = deferred(), reply = deferred();
   const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     issue(); issue(); // multiple primitive commands remain one issued operation
@@ -166,7 +168,7 @@ test('the first deferred native effect persists issuance and stop drains only th
   assert.equal((await stopping).status, 'stopped');
   assert.deepEqual(f.closes, [A, B]);
 });
-test('a target replaced during deferred preflight is rejected before its first native effect', async () => {
+test('a target replaced during deferred preflight is rejected before its first native effect', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('deferred-replaced'); let effects = 0;
   await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     f.live.set(B.session_id, launch('b', 'e')); issue(); effects++;
@@ -175,7 +177,7 @@ test('a target replaced during deferred preflight is rejected before its first n
   assert.equal(effects, 0);
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
 });
-test('synchronous effect admission refuses an async lock owner without blocking its event loop', async () => {
+test('synchronous effect admission refuses an async lock owner without blocking its event loop', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('sync-busy'), tried = deferred();
   const beforeIssue = deferred(), proceed = deferred();
   const running = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
@@ -192,7 +194,7 @@ test('synchronous effect admission refuses an async lock owner without blocking 
   await assert.rejects(running, code('EXECUTION_BUSY'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
 });
-test('once the native gate was crossed even a later typed refusal remains possible and is not replayed', async () => {
+test('once the native gate was crossed even a later typed refusal remains possible and is not replayed', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('deferred-failure');
   await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     issue(); f.live.delete(B.session_id); throw new ExecutionError('EXECUTION_STALE_GENERATION', 'not_started');
@@ -200,7 +202,7 @@ test('once the native gate was crossed even a later typed refusal remains possib
   assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
   assert.equal((await f.store.transaction(state => state.slots)).length, 1);
 });
-test('unissued noop and escaped old callbacks never gain permission to act later', async () => {
+test('unissued noop and escaped old callbacks never gain permission to act later', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('noop'); let escaped;
   const result = await f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     escaped = issue; return { value: 'already configured', target: null };
@@ -210,7 +212,7 @@ test('unissued noop and escaped old callbacks never gain permission to act later
   assert.throws(() => escaped(), code('EXECUTION_CONFLICT'));
   assert.equal((await f.store.transaction(state => state.slots)).length, 0);
 });
-test('missing synchronous observation refuses deferred execution rather than falling back to issued-before-idle', async () => {
+test('missing synchronous observation refuses deferred execution rather than falling back to issued-before-idle', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('no-sync'); delete f.runtime.observeSync;
   let calls = 0;
   await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async () => {
@@ -219,7 +221,7 @@ test('missing synchronous observation refuses deferred execution rather than fal
   assert.equal(calls, 0);
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
 });
-test('the deferred MCP wrapper scopes native admission and retains its successful receipt after binding failure', async () => {
+test('the deferred MCP wrapper scopes native admission and retains its successful receipt after binding failure', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('deferred-wrapper');
   const receipt = { content: [{ type: 'text', text: 'accepted once' }], structuredContent: { event_cursor: 5 } };
   const result = await runDeferredBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', B.session_id,
@@ -233,7 +235,7 @@ test('the deferred MCP wrapper scopes native admission and retains its successfu
   assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'possible');
   assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
 });
-test('a swallowed native gate refusal cannot fabricate an accepted MCP receipt', async () => {
+test('a swallowed native gate refusal cannot fabricate an accepted MCP receipt', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('swallowed-refusal');
   const result = await runDeferredBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', B.session_id,
     async () => {
@@ -245,7 +247,7 @@ test('a swallowed native gate refusal cannot fabricate an accepted MCP receipt',
   assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'not_started');
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
 });
-test('expected-close native admission requires the persisted stop slot and permits one captured native target', async () => {
+test('expected-close native admission requires the persisted stop slot and permits one captured native target', { skip: posixCheckpoint }, async () => {
   const f = fixture(); let nativeEffects = 0;
   const primitive = expected => f.service.withExpectedCloseEffect(expected, () => closeExpectedExecution(expected, {
     sessions: () => ({ state: 'known', sessions: f.live.has(expected.session_id) ? [{ session_id: expected.session_id, native_id: '$7' }] : [] }),
@@ -262,7 +264,7 @@ test('expected-close native admission requires the persisted stop slot and permi
   assert.equal((await f.service.closeCascade(stop([A]))).status, 'stopped');
   assert.equal(nativeEffects, 1);
 });
-test('expected-close gate rejects generation replacement at the native issuance boundary', async () => {
+test('expected-close gate rejects generation replacement at the native issuance boundary', { skip: posixCheckpoint }, async () => {
   const f = fixture(), replacement = { ...A, launch_id: 'e'.repeat(32) }; let effects = 0;
   f.runtime.close = async expected => f.service.withExpectedCloseEffect(expected, () => {
     // Simulate a replacement after the primitive's last preflight observation.
@@ -275,7 +277,7 @@ test('expected-close gate rejects generation replacement at the native issuance 
   assert.equal(effects, 0); assert.deepEqual(f.live.get(A.session_id), replacement);
   assert.equal(result.targets[0].outcome, 'replaced');
 });
-test('an existing native MCP request reference covers an empty launch without inventing a turn cursor', async () => {
+test('an existing native MCP request reference covers an empty launch without inventing a turn cursor', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(B.session_id);
   const args = f.registration('ignored', A, B, null);
   args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-native-start',
@@ -288,7 +290,7 @@ test('an existing native MCP request reference covers an empty launch without in
   assert.equal((await f.service.closeCascade(stop([A]))).status, 'stopped');
   assert.deepEqual(f.closes, [A, B]);
 });
-test('deferred normal close binds only confirmed absence and interrupts the same-generation incoming edge', async () => {
+test('deferred normal close binds only confirmed absence and interrupts the same-generation incoming edge', { skip: posixCheckpoint }, async () => {
   const f = fixture(); await f.send(await f.register('original-ab'));
   const args = f.registration('ignored');
   args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-native-start', request_id: 42,
@@ -301,13 +303,13 @@ test('deferred normal close binds only confirmed absence and interrupts the same
   assert.equal((await f.status(request('original-ab'))).relation.completion, 'interrupted');
   assert.equal((await f.store.transaction(state => state.slots)).length, 0);
 });
-test('target generation replacement after reservation rejects before body invocation', async () => {
+test('target generation replacement after reservation rejects before body invocation', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   f.live.set(B.session_id, launch('b', 'e'));
   await assert.rejects(f.send(record), code('EXECUTION_STALE_GENERATION'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
 });
-test('the concrete launch/send argument is checked before any effect or issued slot', async () => {
+test('the concrete launch/send argument is checked before any effect or issued slot', { skip: posixCheckpoint }, async () => {
   for (const stage of ['launch', 'send']) {
     const f = fixture(), record = await f.register(`wrong-${stage}`);
     let effects = 0;
@@ -320,7 +322,7 @@ test('the concrete launch/send argument is checked before any effect or issued s
     assert.equal((await f.store.transaction(state => state.slots, { readOnly: true })).length, 0);
   }
 });
-test('an explicit source generation that is gone cannot start new work as an unknown source', async () => {
+test('an explicit source generation that is gone cannot start new work as an unknown source', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(A.session_id);
   await assert.rejects(f.register('old-source-ab'), code('EXECUTION_STALE_GENERATION'));
   f.live.set(A.session_id, A);
@@ -329,7 +331,7 @@ test('an explicit source generation that is gone cannot start new work as an unk
   await assert.rejects(f.send(record), code('EXECUTION_UNCONFIRMED'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_issued');
 });
-test('launch-only effect remains a relation when its subsequent prompt is confirmed unsent', async () => {
+test('launch-only effect remains a relation when its subsequent prompt is confirmed unsent', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   f.live.delete(B.session_id);
   const record = await f.register('launch-b', A, B, null);
@@ -340,7 +342,7 @@ test('launch-only effect remains a relation when its subsequent prompt is confir
   assert.equal(finished.relation.phase, 'invoked');
   assert.equal(finished.relation.lifecycle, 'tracking');
 });
-test('completion is reobserved and the recorded call expires without an all-native actor fence', async () => {
+test('completion is reobserved and the recorded call expires without an all-native actor fence', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const accepted = (await f.send(await f.register('ab'))).record;
   f.runtime.completion = async () => ({ state: 'unknown', fence: 'unknown' });
@@ -354,7 +356,7 @@ test('completion is reobserved and the recorded call expires without an all-nati
   f.runtime.completion = async () => ({ state: 'completed', fence: 'closed' });
   assert.equal((await f.finish(accepted)).relation.lifecycle, 'retired');
 });
-test('a completed parent is retained until its actual descendant also finishes', async () => {
+test('a completed parent is retained until its actual descendant also finishes', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const ab = (await f.send(await f.register('ab'))).record;
   const bc = (await f.send(await f.register('bc', B, C), C)).record;
@@ -362,7 +364,7 @@ test('a completed parent is retained until its actual descendant also finishes',
   await f.finish(bc);
   assert.equal((await f.status(ab.reservation.request)).relation.lifecycle, 'retired');
 });
-test('normal done with unknown native fence retains unfinished descendants then seals the old branch', async () => {
+test('normal done with unknown native fence retains unfinished descendants then seals the old branch', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.runtime.completion = async () => ({ state: 'completed', fence: 'unknown' });
   const ab = (await f.send(await f.register('old-ab'))).record;
   const bc = (await f.send(await f.register('old-bc', B, C), C)).record;
@@ -376,7 +378,7 @@ test('normal done with unknown native fence retains unfinished descendants then 
   assert.deepEqual(planCascadeStop([A], relations).targets, [A]);
   assert.deepEqual(planCascadeStop([B], relations).targets, [B, D]);
 });
-test('stop fences first, drains a delayed accepted send, and includes its target', async () => {
+test('stop fences first, drains a delayed accepted send, and includes its target', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   const started = deferred(), release = deferred();
   const sending = f.service.invoke(ref(record.reservation.request), 'send', async () => {
@@ -394,7 +396,7 @@ test('stop fences first, drains a delayed accepted send, and includes its target
   assert.equal(result.status, 'stopped');
   assert.deepEqual(f.closes, [A, B]);
 });
-test('an in-flight launch gaining its target generation after the fence is included', async () => {
+test('an in-flight launch gaining its target generation after the fence is included', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(C.session_id);
   const record = await f.register('ac', A, C, null);
   const started = deferred(), release = deferred();
@@ -409,7 +411,7 @@ test('an in-flight launch gaining its target generation after the fence is inclu
   assert.equal(result.status, 'stopped');
   assert.deepEqual(f.closes, [A, C]);
 });
-test('unissued reservations are cancelled and cannot send after root closure', async () => {
+test('unissued reservations are cancelled and cannot send after root closure', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'stopped');
@@ -417,7 +419,7 @@ test('unissued reservations are cancelled and cannot send after root closure', a
   assert.equal((await f.status(record.reservation.request)).relation.phase, 'unsent');
   await assert.rejects(f.send(record), code('EXECUTION_CONFLICT'));
 });
-test('a launch that included the prompt cannot send the same request a second time', async () => {
+test('a launch that included the prompt cannot send the same request a second time', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(B.session_id);
   const record = await f.register('launch-prompt', A, B, null);
   await f.service.invoke(ref(record.reservation.request), 'launch', async () => {
@@ -425,7 +427,7 @@ test('a launch that included the prompt cannot send the same request a second ti
   });
   await assert.rejects(f.send(record), code('EXECUTION_CONFLICT'));
 });
-test('a response that cannot be bound leaves a persistent unknown slot rather than replay permission', async () => {
+test('a response that cannot be bound leaves a persistent unknown slot rather than replay permission', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   await assert.rejects(f.service.invoke(ref(record.reservation.request), 'send', async () => {
     f.live.set(B.session_id, launch('b', 'e'));
@@ -434,7 +436,7 @@ test('a response that cannot be bound leaves a persistent unknown slot rather th
   assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
   await assert.rejects(f.register('new-b', C, launch('b', 'e')), code('EXECUTION_UNCONFIRMED'));
 });
-test('after bounded drain reports partial, a late target is still fenced at binding time', async () => {
+test('after bounded drain reports partial, a late target is still fenced at binding time', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(C.session_id);
   const shortStop = new ExecutionService(new FileExecutionStore(f.directory), f.runtime, 1);
   const record = await f.register('ac', A, C, null), started = deferred(), release = deferred();
@@ -448,7 +450,7 @@ test('after bounded drain reports partial, a late target is still fenced at bind
   release.resolve(); await launching;
   await assert.rejects(f.register('cd-after-stop', C, D), code('EXECUTION_STOPPING'));
 });
-test('close effect followed by reject remains unknown, blocks replacement and is never retried', async () => {
+test('close effect followed by reject remains unknown, blocks replacement and is never retried', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   f.runtime.close = async expected => { f.closes.push(expected); f.live.delete(expected.session_id); throw new Error('lost-response'); };
   const result = await f.service.closeCascade(stop([B]));
@@ -461,14 +463,14 @@ test('close effect followed by reject remains unknown, blocks replacement and is
   await assert.rejects(restarted.execute(f.registration('new-b', A, B, null)), code('EXECUTION_UNCONFIRMED'));
   assert.equal(f.closes.length, 1);
 });
-test('an unsupported close adapter reports unsupported without fabricating a successful close', async () => {
+test('an unsupported close adapter reports unsupported without fabricating a successful close', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.runtime.close = async () => { throw new ExecutionError('EXECUTION_UNSUPPORTED', 'not_started'); };
   const result = await f.service.closeCascade(stop([B]));
   assert.equal(result.status, 'unconfirmed');
   assert.equal(result.targets[0].outcome, 'unsupported');
   assert.equal(f.closes.length, 0);
 });
-test('a reached old launch does not close its same-name replacement, but retains known descendants', async () => {
+test('a reached old launch does not close its same-name replacement, but retains known descendants', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   await f.send(await f.register('ab'));
   await f.send(await f.register('bc', B, C), C);
@@ -479,7 +481,7 @@ test('a reached old launch does not close its same-name replacement, but retains
   assert.deepEqual(f.live.get(B.session_id), replacement);
   assert.equal(result.targets.find(value => value.launch.session_id === B.session_id).outcome, 'replaced');
 });
-test('an unbound source generation stays unresolved and is not guessed from a Bot name', async () => {
+test('an unbound source generation stays unresolved and is not guessed from a Bot name', { skip: posixCheckpoint }, async () => {
   const f = fixture(), input = f.registration('ab'); input.reservation.source.launch = null;
   const record = await f.service.execute(input);
   await f.send(record);
@@ -490,13 +492,13 @@ test('an unbound source generation stays unresolved and is not guessed from a Bo
   const later = f.registration('ac', A, C); later.reservation.source.launch = null;
   await assert.rejects(f.service.execute(later), code('EXECUTION_UNCONFIRMED'));
 });
-test('untracked coverage can never be reported as complete stopping', async () => {
+test('untracked coverage can never be reported as complete stopping', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.runtime.coverage = async () => 'incomplete';
   const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'partial');
   assert.ok(result.unresolved.some(value => value.reason === 'relation_coverage_incomplete'));
 });
-test('a rejected ordinary session change stays unknown after disappearance and blocks new launch', async () => {
+test('a rejected ordinary session change stays unknown after disappearance and blocks new launch', { skip: posixCheckpoint }, async () => {
   for (const stage of ['close', 'configure']) {
     const f = fixture();
     await assert.rejects(f.service.changeSession(B, stage, async () => {
@@ -507,7 +509,7 @@ test('a rejected ordinary session change stays unknown after disappearance and b
     assert.equal(f.closes.length, 0);
   }
 });
-test('an explicit pre-effect refusal of a session change releases only that issued slot', async () => {
+test('an explicit pre-effect refusal of a session change releases only that issued slot', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   await assert.rejects(f.service.changeSession(B, 'configure', async () => {
     throw new ExecutionError('EXECUTION_CONFLICT', 'not_started');
@@ -515,7 +517,7 @@ test('an explicit pre-effect refusal of a session change releases only that issu
   assert.equal((await f.service.closeCascade(stop([B]))).status, 'stopped');
   assert.deepEqual(f.closes, [B]);
 });
-test('new outgoing calls cannot cross an already-issued source close/configure', async () => {
+test('new outgoing calls cannot cross an already-issued source close/configure', { skip: posixCheckpoint }, async () => {
   const f = fixture(), started = deferred(), release = deferred();
   const changing = f.service.changeSession(B, 'configure', async () => { started.resolve(); await release.promise; });
   await started.promise;
@@ -523,7 +525,7 @@ test('new outgoing calls cannot cross an already-issued source close/configure',
   release.resolve(); await changing;
   assert.equal((await f.register('bc-after-change', B, C)).relation.phase, 'reserved');
 });
-test('source-aware configuration drains before stopping its caller without inventing an invocation edge', async () => {
+test('source-aware configuration drains before stopping its caller without inventing an invocation edge', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = deferred(), released = deferred();
   const changing = f.service.changeSession(B, 'configure', async () => { entered.resolve(); await released.promise; }, A);
   await entered.promise;
@@ -537,7 +539,7 @@ test('source-aware configuration drains before stopping its caller without inven
   assert.deepEqual(f.closes, [A]);
   assert.equal(f.live.has(B.session_id), true);
 });
-test('a lost source-aware change remains attributable after the caller is absent and service reconstructed', async () => {
+test('a lost source-aware change remains attributable after the caller is absent and service reconstructed', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   await assert.rejects(f.service.changeSession(B, 'configure', async () => { throw new Error('lost response'); }, A), code('EXECUTION_UNCONFIRMED'));
   f.live.delete(A.session_id);
@@ -550,7 +552,7 @@ test('a lost source-aware change remains attributable after the caller is absent
   assert.ok(result.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
   await assert.rejects(restored.changeSession(B, 'configure', async () => {}), code('EXECUTION_UNCONFIRMED'));
 });
-test('MCP wrapper preserves a successful send receipt if post-effect binding is uncertain', async () => {
+test('MCP wrapper preserves a successful send receipt if post-effect binding is uncertain', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   const receipt = { content: [{ type: 'text', text: 'accepted' }],
     structuredContent: { mode: 'agent_dispatch', session_id: B.session_id, launch_id: B.launch_id, event_cursor: 1 },
@@ -565,7 +567,7 @@ test('MCP wrapper preserves a successful send receipt if post-effect binding is 
   assert.equal(result._meta[EXECUTION_ERROR_META_KEY].effect, 'possible');
   assert.equal((await f.status(record.reservation.request)).operations.send, 'unknown');
 });
-test('MCP wrapper adds binding metadata without replacing steer or other existing metadata', async () => {
+test('MCP wrapper adds binding metadata without replacing steer or other existing metadata', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   const result = await runBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', async () => ({
     result: { content: [{ type: 'text', text: 'accepted' }], _meta: { 'aiterm/steer': { steer_id: 'existing-steer' } } }, target: point(B),
@@ -573,7 +575,7 @@ test('MCP wrapper adds binding metadata without replacing steer or other existin
   assert.equal(result._meta['aiterm/steer'].steer_id, 'existing-steer');
   assert.deepEqual(result._meta[EXECUTION_BINDING_META_KEY].request, record.reservation.request);
 });
-test('fake in-memory MCP publishes and validates register/status/finish and agent_stop wire', async () => {
+test('fake in-memory MCP publishes and validates register/status/finish and agent_stop wire', { skip: posixCheckpoint }, async () => {
   const f = fixture(), server = new McpServer({ name: 'execution-fixture', version: '0.0.0' });
   registerExecutionTools(server, f.service);
   const client = new Client({ name: 'bridge-fixture', version: '0.0.0' });
@@ -608,7 +610,7 @@ test('fake in-memory MCP publishes and validates register/status/finish and agen
     assert.deepEqual(f.closes, []);
   } finally { await client.close(); await server.close(); }
 });
-test('file corruption and an abandoned transaction lock do not become an empty successful graph', async () => {
+test('file corruption and an abandoned transaction lock do not become an empty successful graph', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   writeFileSync(join(f.directory, 'relations.json'), '{');
   await assert.rejects(f.service.closeCascade(stop([A])), code('EXECUTION_STATE_UNAVAILABLE'));
@@ -619,7 +621,7 @@ test('file corruption and an abandoned transaction lock do not become an empty s
   await assert.rejects(locked.closeCascade(stop([A])), code('EXECUTION_BUSY'));
   assert.equal(other.closes.length, 0);
 });
-test('root lookup recovers an absent source generation with unfinished descendants after service reconstruction', async () => {
+test('root lookup recovers an absent source generation with unfinished descendants after service reconstruction', { skip: posixCheckpoint }, async () => {
   const f = fixture(); await f.send(await f.register('ab')); f.live.delete(A.session_id);
   const reconstructed = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
   const result = await reconstructed.roots({ session_id: A.session_id });
@@ -630,7 +632,7 @@ test('root lookup recovers an absent source generation with unfinished descendan
   assert.equal(stopped.status, 'stopped');
   assert.deepEqual(f.closes, [B]);
 });
-test('root lookup retains locally completed connectors but excludes completed history and unrelated seats', async () => {
+test('root lookup retains locally completed connectors but excludes completed history and unrelated seats', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const ab = (await f.send(await f.register('ab'))).record;
   const bc = (await f.send(await f.register('bc', B, C), C)).record;
@@ -640,18 +642,18 @@ test('root lookup retains locally completed connectors but excludes completed hi
   await f.finish(bc);
   assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, []);
 });
-test('current replacement and a genuinely unfinished old generation are both explicit roots', async () => {
+test('current replacement and a genuinely unfinished old generation are both explicit roots', { skip: posixCheckpoint }, async () => {
   const f = fixture(); await f.send(await f.register('ab'));
   const replacement = launch('a', 'e'); f.live.set(A.session_id, replacement);
   const result = await f.service.roots({ session_id: A.session_id });
   assert.deepEqual(result.current, replacement);
   assert.deepEqual(result.roots, [A, replacement]);
 });
-test('a persisted incoming target receipt also proves the absent seat generation', async () => {
+test('a persisted incoming target receipt also proves the absent seat generation', { skip: posixCheckpoint }, async () => {
   const f = fixture(); await f.send(await f.register('da', D, A), A); f.live.delete(A.session_id);
   assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, [A]);
 });
-test('generation-missing source hints never fabricate an old root', async () => {
+test('generation-missing source hints never fabricate an old root', { skip: posixCheckpoint }, async () => {
   const f = fixture(), input = f.registration('ab'); input.reservation.source.launch = null;
   await f.send(await f.service.execute(input)); f.live.delete(A.session_id);
   const result = await f.service.roots({ session_id: A.session_id });
@@ -659,13 +661,13 @@ test('generation-missing source hints never fabricate an old root', async () => 
   assert.equal(result.relation_coverage, 'incomplete');
   assert.ok(result.unresolved.some(value => value.reason === 'source_generation_missing'));
 });
-test('absent and empty is not complete when record coverage is missing', async () => {
+test('absent and empty is not complete when record coverage is missing', { skip: posixCheckpoint }, async () => {
   const f = fixture(); f.live.delete(A.session_id); f.runtime.coverage = async () => 'incomplete';
   const result = await f.service.roots({ session_id: A.session_id });
   assert.deepEqual(result.roots, []);
   assert.equal(result.relation_coverage, 'incomplete');
 });
-test('lookup of old-generation records is read-only and does not register, stop or rewrite metadata', async () => {
+test('lookup of old-generation records is read-only and does not register, stop or rewrite metadata', { skip: posixCheckpoint }, async () => {
   const f = fixture(); await f.send(await f.register('ab')); f.live.delete(A.session_id);
   const statePath = join(f.directory, 'relations.json'), before = readFileSync(statePath, 'utf8');
   const beforeStat = statSync(statePath, { bigint: true });

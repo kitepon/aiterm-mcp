@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -93,7 +95,7 @@ async function connect(t, participant, name = 'synthetic-native-client') {
   t.after(async () => { await client.close(); await participant.server.close(); await tick(); });
   return client;
 }
-test('one detached startup environment feeds real producer/service and dispatcher without a second supplier read', async t => {
+test('one detached startup environment feeds real producer/service and dispatcher without a second supplier read', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   f.env.AITERM_SESSION_ID = D.session_id; f.env.AITERM_AGENT_LAUNCH_ID = D.launch_id;
   f.env.TMPDIR = 'changed after startup';
@@ -106,7 +108,7 @@ test('one detached startup environment feeds real producer/service and dispatche
   assert.equal(p.relation_coverage, 'incomplete'); assert.equal(p.worker.relation_coverage, 'incomplete');
   assert.equal(p.worker.store, p.store); assert.equal(p.worker.native, p.native);
 });
-test('private composition enrolls only its observed actor and missing bounded native reads remain unknown', async t => {
+test('private composition enrolls only its observed actor and missing bounded native reads remain unknown', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   let inventory = p.inventory();
   assert.equal(inventory.participants[0].native_identity, 'unavailable');
@@ -122,7 +124,7 @@ test('private composition enrolls only its observed actor and missing bounded na
   assert.equal(inventory.participants[0].references[0].request.process_pid, process.pid);
   assert.equal(inventory.relation_coverage, 'incomplete'); assert.equal(inventory.participant_discovery, 'unproven');
 });
-test('actual participant refuses registration removed between dispatch preflight and native command, without enrolling on use', async t => {
+test('actual participant refuses registration removed between dispatch preflight and native command, without enrolling on use', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(), raw = new FileExecutionStore(p.store.directory);
   const result = await f.send(p, 'registration-removed', () => raw.transactionSync(state => { state.participants = []; }));
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
@@ -131,7 +133,7 @@ test('actual participant refuses registration removed between dispatch preflight
   assert.equal(p.inventory().participants[0].missing.includes('unregistered_actor'), true);
   assert.deepEqual(raw.transactionSync(state => state.participants, { readOnly: true }), []);
 });
-test('lost participant declaration after native issuance preserves the issued slot and reconstruction cannot replay it', async t => {
+test('lost participant declaration after native issuance preserves the issued slot and reconstruction cannot replay it', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(), raw = new FileExecutionStore(p.store.directory); let effects = 0;
   const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id, key: 'x' }, { requestId: 'issued-registration-loss' }, async () => {
     guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); effects++;
@@ -145,7 +147,7 @@ test('lost participant declaration after native issuance preserves the issued sl
   assert.equal(raw.transactionSync(state => state.slots, { readOnly: true })[0].state, 'issued');
   assert.equal(rebuilt.inventory().native_fence, 'unknown');
 });
-test('stop whose native close completed before registration loss remains possible and retains the issued close slot', async t => {
+test('stop whose native close completed before registration loss remains possible and retains the issued close slot', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let raw;
   const closes = enableClose(f, () => {}, () => raw.transactionSync(state => { state.participants = []; }));
   const p = f.create(); raw = new FileExecutionStore(p.store.directory);
@@ -156,14 +158,14 @@ test('stop whose native close completed before registration loss remains possibl
   const rebuilt = f.create();
   assert.equal((await f.send(rebuilt, 'after-uncertain-stop')).isError, true); assert.deepEqual(closes, [B]);
 });
-test('a time-varying env supplier cannot split dispatcher source from service source', async t => {
+test('a time-varying env supplier cannot split dispatcher source from service source', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let calls = 0;
   f.options.runtime.sourceEnvironment = () => ++calls === 1 ? f.env
     : { AITERM_SESSION_ID: D.session_id, AITERM_AGENT_LAUNCH_ID: D.launch_id };
   const p = f.create(), result = await f.send(p);
   assert.equal(result.isError, undefined); assert.deepEqual(result._meta[BINDING].source.point, point(A)); assert.equal(calls, 1);
 });
-test('provider, profile, expected scope and runtime method replacement cannot rewrite a constructed participant', async t => {
+test('provider, profile, expected scope and runtime method replacement cannot rewrite a constructed participant', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   f.options.provider.DELIVERY_ADMISSION_CONTRACT.serialized_required = false;
   f.options.provider.submitClaudeParentAnswer = () => assert.fail('replacement provider callback');
@@ -176,7 +178,7 @@ test('provider, profile, expected scope and runtime method replacement cannot re
   assert.equal(result._meta[BINDING].request.process_pid, process.pid);
   assert.equal(result._meta[BINDING].request.process_started_identity, '2026-10-21T11:00:00Z');
 });
-test('actual scope or native actor drift during preflight refuses before a synthetic native effect', async t => {
+test('actual scope or native actor drift during preflight refuses before a synthetic native effect', { skip: posixCheckpoint }, async t => {
   for (const change of ['scope', 'actor']) {
     const f = fixture(t), p = f.create();
     const result = await f.send(p, 2, () => {
@@ -187,10 +189,10 @@ test('actual scope or native actor drift during preflight refuses before a synth
     assert.equal(result._meta[ERROR].effect, 'not_started');
   }
 });
-test('old provider, partial runtime/dependencies and a different serving PID are rejected without native fallback', t => {
+test('old provider, partial runtime/dependencies and a different serving PID are rejected without native fallback', { skip: posixCheckpoint }, t => {
   for (const change of ['provider', 'partial-provider', 'runtime', 'deps', 'claude-runtime', 'actor', 'native', 'inventory']) {
     const f = fixture(t);
-    if (change === 'provider') f.options.provider = undefined;
+    if (change === 'provider') f.options.provider = { ...f.options.provider, DELIVERY_ADMISSION_CONTRACT: undefined };
     if (change === 'partial-provider') delete f.options.provider.submitClaudeParentAnswer;
     if (change === 'runtime') delete f.options.runtime.observeDone;
     if (change === 'deps') delete f.options.parentDependencies.exists;
@@ -201,7 +203,7 @@ test('old provider, partial runtime/dependencies and a different serving PID are
     assert.throws(f.create, code('EXECUTION_UNSUPPORTED'));
   }
 });
-test('another socket cannot join the requested state, and malformed source environment never means independent operator', t => {
+test('another socket cannot join the requested state, and malformed source environment never means independent operator', { skip: posixCheckpoint }, t => {
   for (const change of ['socket', 'root', 'null-env', 'array-env', 'non-string-env']) {
     const f = fixture(t);
     if (change === 'socket') f.scope.multiplexer.key = join(f.root, 'other.sock');
@@ -212,7 +214,7 @@ test('another socket cannot join the requested state, and malformed source envir
     assert.throws(f.create, code('EXECUTION_UNSUPPORTED'));
   }
 });
-test('actual SDK exposes the unchanged 18 tools and native ingress keeps the fixed process/source context', async t => {
+test('actual SDK exposes the unchanged 18 tools and native ingress keeps the fixed process/source context', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(), client = await connect(t, p);
   assert.equal((await client.listTools()).tools.length, 18);
   let ingress;
@@ -223,7 +225,7 @@ test('actual SDK exposes the unchanged 18 tools and native ingress keeps the fix
   assert.equal(result.isError, undefined); assert.deepEqual(ingress.ingress.source, point(A));
   assert.deepEqual(ingress.ingress.native_identity, f.actor); assert.equal(ingress.ingress.client_name, 'synthetic-native-client');
 });
-test('actual initialized Claude manager uses participant state root and the same native owner without global state fallback', async t => {
+test('actual initialized Claude manager uses participant state root and the same native owner without global state fallback', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   await connect(t, p, 'claude-code'); await tick();
   const active = join(f.root, 'claude-parent-deliveries', 'active');
@@ -232,13 +234,13 @@ test('actual initialized Claude manager uses participant state root and the same
   assert.equal(owners.length, 1); assert.equal(owners[0].pid, f.actor.pid);
   assert.equal(owners[0].started_identity, f.actor.started_identity);
 });
-test('read-only MCP routes also refuse participant drift before invoking a handler', async t => {
+test('read-only MCP routes also refuse participant drift before invoking a handler', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(); f.scope.multiplexer.key = join(f.root, 'different.sock');
   const result = await p.dispatcher.dispatch('pty_list', {}, { requestId: 1 }, async () => assert.fail('scope drift reached a native read'));
   assert.equal(result._meta[ERROR].code, 'EXECUTION_UNSUPPORTED');
 });
 test('real SDK tools/call reaches the actual core key through the composed participant and original source binding',
-  { skip: process.platform === 'win32' ? 'POSIX command fixture only' : false }, async t => {
+  { ...({ skip: process.platform === 'win32' ? 'POSIX command fixture only' : false }), skip: posixCheckpoint || ({ skip: process.platform === 'win32' ? 'POSIX command fixture only' : false }).skip }, async t => {
   const f = fixture(t), p = f.create(), client = await connect(t, p); let keys = 0;
   nativeRunner = (bin, args) => {
     assert.equal(bin, 'tmux');
@@ -256,7 +258,7 @@ test('real SDK tools/call reaches the actual core key through the composed parti
   assert.equal(result.isError, undefined); assert.equal(keys, 1); assert.equal(f.reads(), 1);
   assert.deepEqual(result._meta[BINDING].source.point, point(A)); assert.deepEqual(result._meta[BINDING].target.launch, B);
 });
-test('composed stop closes each reached expected launch once and keeps an unrelated generation alive', async t => {
+test('composed stop closes each reached expected launch once and keeps an unrelated generation alive', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), effects = enableClose(f), p = f.create(); await f.send(p);
   const result = await p.service.closeCascade(stop([A]));
   assert.deepEqual(effects, [A, B]); assert.deepEqual(f.live.get(D.session_id), D);
@@ -265,13 +267,13 @@ test('composed stop closes each reached expected launch once and keeps an unrela
   assert.ok(result.targets.every(value => value.outcome === 'closed'));
   await p.service.closeCascade(stop([A])); assert.equal(effects.length, 2);
 });
-test('an injected participant without close primitive stays unsupported without a default core fallback', async t => {
+test('an injected participant without close primitive stays unsupported without a default core fallback', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   const result = await p.service.closeCascade(stop([B]));
   assert.equal(result.targets[0].outcome, 'unsupported'); assert.deepEqual(f.live.get(B.session_id), B);
   assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), []);
 });
-test('scope, actor and generation drift after close preflight cannot cross the actual native issuance gate', async t => {
+test('scope, actor and generation drift after close preflight cannot cross the actual native issuance gate', { skip: posixCheckpoint }, async t => {
   for (const change of ['scope', 'actor', 'generation']) {
     const f = fixture(t), replacement = { ...B, launch_id: 'e'.repeat(32) };
     const originalScope = structuredClone(f.scope), originalActor = structuredClone(f.actor);
@@ -295,7 +297,7 @@ test('scope, actor and generation drift after close preflight cannot cross the a
     assert.equal(effects.length, 0); assert.ok(f.live.has(B.session_id));
   }
 });
-test('lost close receipt after an effect remains unknown across reconstruction despite observed absence and is never retried', async t => {
+test('lost close receipt after an effect remains unknown across reconstruction despite observed absence and is never retried', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), effects = enableClose(f, undefined, () => { throw Error('synthetic lost native receipt'); });
   const p = f.create(), result = await p.service.closeCascade(stop([B]));
   assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].outcome, 'unknown');
@@ -305,7 +307,7 @@ test('lost close receipt after an effect remains unknown across reconstruction d
   const slots = await rebuilt.store.transaction(state => state.slots, { readOnly: true });
   assert.equal(slots[0].state, 'unknown'); assert.equal(slots[0].expected_launch_id, B.launch_id);
 });
-test('an injected async close cannot issue a late native effect outside its synchronous close frame', async t => {
+test('an injected async close cannot issue a late native effect outside its synchronous close frame', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let effects = 0;
   f.options.runtime.closeExpectedSession = async expected => {
     await tick(); bindExecutionNativeTarget(expected.session_id, '$2');
@@ -314,7 +316,7 @@ test('an injected async close cannot issue a late native effect outside its sync
   const p = f.create(), result = await p.service.closeCascade(stop([B]));
   assert.equal(result.targets[0].outcome, 'unknown'); assert.equal(effects, 0); assert.ok(f.live.has(B.session_id));
 });
-test('local native done cannot retire a composed branch without an invocation fence or complete participant evidence', async t => {
+test('local native done cannot retire a composed branch without an invocation fence or complete participant evidence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), effects = enableClose(f);
   f.options.runtime.observeDone = async session_id => ({ schema: 'aiterm.agent-wait-result.v1', session_id,
     launch_id: B.launch_id, outcome: 'done', operation_id: null, turn_id: 'synthetic-native-turn' });
@@ -330,7 +332,7 @@ test('local native done cannot retire a composed branch without an invocation fe
   const stopped = await p.service.closeCascade(stop([A]));
   assert.deepEqual(effects, [A, B]); assert.equal(stopped.status, 'partial');
 });
-test('a guarded participant refuses direct unframed core mutations before native probes, auth, locks or metadata preparation', async t => {
+test('a guarded participant refuses direct unframed core mutations before native probes, auth, locks or metadata preparation', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.create();
   const core = await import('../dist/core.js');
   for (const operation of [
@@ -351,7 +353,7 @@ test('a guarded participant refuses direct unframed core mutations before native
     () => core.ensureAgentOwnsPaneInput(B.session_id, 'codex'),
   ]) await assert.rejects(async () => operation(), code('EXECUTION_UNSUPPORTED'));
 });
-test('preparation rechecks source/target/actor/scope after an await without issuing the pending native operation', async t => {
+test('preparation rechecks source/target/actor/scope after an await without issuing the pending native operation', { skip: posixCheckpoint }, async t => {
   for (const change of ['stop', 'source', 'target', 'actor', 'scope']) {
     const f = fixture(t); enableClose(f); const p = f.create();
     let enter, release, prepared = 0;
@@ -374,7 +376,7 @@ test('preparation rechecks source/target/actor/scope after an await without issu
     assert.equal(f.effects(), 0);
   }
 });
-test('metadata preparation shares the short admission lock without changing preparing phase, native slots or graph bytes', async t => {
+test('metadata preparation shares the short admission lock without changing preparing phase, native slots or graph bytes', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(), competitor = new FileExecutionStore(p.store.directory);
   const metadata = join(f.root, 'synthetic-preparation.json');
   const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'atomic-prepare' }, async () => {
@@ -396,7 +398,7 @@ test('metadata preparation shares the short admission lock without changing prep
   });
   assert.equal(result.isError, undefined); assert.equal(readFileSync(metadata, 'utf8'), 'synthetic prepared');
 });
-test('a preparation callback cannot issue a native command or borrow a different target, even when refusal is swallowed', async t => {
+test('a preparation callback cannot issue a native command or borrow a different target, even when refusal is swallowed', { skip: posixCheckpoint }, async t => {
   for (const change of ['native', 'target']) {
     const f = fixture(t), p = f.create(); let effects = 0;
     const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'invalid-prepare-' + change }, async () => {
@@ -411,7 +413,7 @@ test('a preparation callback cannot issue a native command or borrow a different
     assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), []);
   }
 });
-test('async or failed nested preparation poisons the frame without leaving a lock or an unhandled rejection', async t => {
+test('async or failed nested preparation poisons the frame without leaving a lock or an unhandled rejection', { skip: posixCheckpoint }, async t => {
   for (const change of ['async', 'nested']) {
     const f = fixture(t), p = f.create();
     const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'failed-prepare-' + change }, async () => {
@@ -427,7 +429,7 @@ test('async or failed nested preparation poisons the frame without leaving a loc
     assert.equal(existsSync(join(p.store.directory, 'transaction.lock')), false); assert.equal(f.effects(), 0);
   }
 });
-test('an inherited preparation callback cannot write metadata after its original RPC frame has finished', async t => {
+test('an inherited preparation callback cannot write metadata after its original RPC frame has finished', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(); let release, later, writes = 0;
   const held = new Promise(done => { release = done; });
   const receipt = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'late-prepare' }, async () => {
@@ -440,7 +442,7 @@ test('an inherited preparation callback cannot write metadata after its original
   assert.equal(receipt.isError, undefined); release(); const error = await later;
   assert.equal(writes, 0); assert.equal(error.code, 'EXECUTION_CONFLICT'); assert.equal(error.effect, 'not_started');
 });
-test('actual same-server private SDK stop records the composed MCP actor as key caller without inventing a source turn or native fence', async t => {
+test('actual same-server private SDK stop records the composed MCP actor as key caller without inventing a source turn or native fence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), run = { launch: B, boundary: { event_cursor: 17, turn_id: 'actual-owned-synthetic-turn', operation_id: null, steer_id: null } };
   const observation = { schema: 'aiterm.native-interruption-observation.v1', run,
     native: { schema: 'aiterm.execution-native.v1', native_id: '$2', server: { pid: 4711, started_identity: '2026-10-21T09:00:00Z' } },
@@ -466,7 +468,7 @@ test('actual same-server private SDK stop records the composed MCP actor as key 
   assert.deepEqual(state.records, [], 'a stop caller is not a synthetic source invocation/job');
 });
 
-test('real participant freezes native hook endpoint/actor or absence before the first target await instead of adopting later provenance', async t => {
+test('real participant freezes native hook endpoint/actor or absence before the first target await instead of adopting later provenance', { skip: posixCheckpoint }, async t => {
   const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
   for (const change of ['stable', 'endpoint', 'harness', 'missing']) {
     const f = fixture(t), tool = 'toolu_ingress_fixed', hookRoot = join(f.root, 'claude-parent-hooks'), directory = join(hookRoot, tool);
@@ -506,7 +508,7 @@ test('real participant freezes native hook endpoint/actor or absence before the 
   }
 });
 
-test('an initially invalid Claude hook owner cannot be repaired after target lookup and promoted to ingress provenance', async t => {
+test('an initially invalid Claude hook owner cannot be repaired after target lookup and promoted to ingress provenance', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), tool = 'toolu_bad_initial_owner', hookRoot = join(f.root, 'claude-parent-hooks'), directory = join(hookRoot, tool);
   mkdirSync(directory, { recursive: true });
   const harness = { pid: 20, started_identity: '2026-10-21T07:00:00Z' };
@@ -534,7 +536,7 @@ test('an initially invalid Claude hook owner cannot be repaired after target loo
 });
 
 
-test('participant snapshots its optional native origin observer and does not inherit later callback replacements', t => {
+test('participant snapshots its optional native origin observer and does not inherit later callback replacements', { skip: posixCheckpoint }, t => {
   const f = fixture(t), pids = [];
   f.options.runtime.observeOriginOwner = pid => { pids.push(pid); return { state: 'unknown', pid }; };
   const participant = f.create();

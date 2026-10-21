@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -93,6 +95,7 @@ function fixture(t, scenario = 'accepted') {
     assert.fail('unexpected synthetic native command: ' + args[0]);
   };
   runner = (bin, args) => {
+    if (bin === 'launchctl') { assert.deepEqual(args, ['managername']); return ok('Aqua\n'); }
     if (bin === '/bin/ps') {
       assert.deepEqual(args, ['-o', 'pid=,lstart=', '-p', '4711']); probes++;
       if (scenario === 'owner-reused-before-create' && probes > 1) serverStarted = 'Wed Oct 21 09:01:00 2026';
@@ -159,7 +162,7 @@ function fixture(t, scenario = 'accepted') {
       });
     } };
 }
-test('composed participant connects actual creation metadata and core expected close through its own durable slot', posix, async t => {
+test('composed participant connects actual creation metadata and core expected close through its own durable slot', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t, 'participant'), receipt = await f.launch();
   assert.equal(receipt.isError, undefined);
   const expected = { session_id: f.name, launch_id: receipt.structuredContent.launch_id };
@@ -171,7 +174,7 @@ test('composed participant connects actual creation metadata and core expected c
   assert.equal(again.targets[0].outcome, 'already_closed');
   assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
 });
-test('only an exact new-session receipt binds native ownership, and every later target is rewritten to that ID', () => {
+test('only an exact new-session receipt binds native ownership, and every later target is rewritten to that ID', { skip: posixCheckpoint }, () => {
   const received = [], launch = { session_id: 'bot-new', launch_id: 'b'.repeat(32) };
   withExecutionEffectScope('bot-new', () => {}, () => {
     prepareExecutionCreation();
@@ -183,7 +186,7 @@ test('only an exact new-session receipt binds native ownership, and every later 
   }, { prepare: () => syntheticServer, verifyServer() {}, native: (...args) => received.push(args), launch: value => received.push(value) });
   assert.deepEqual(received, [['bot-new', '$9', 4711], launch]);
 });
-test('malformed, other-seat and changed native receipts poison the frame instead of enabling another create', () => {
+test('malformed, other-seat and changed native receipts poison the frame instead of enabling another create', { skip: posixCheckpoint }, () => {
   for (const receipt of ['', '$9\tother\t4711\n', '$9\tbot-new\t4711\nextra\n', '$9\tbot-new\t4711\n$10\tbot-new\t4711\n']) {
     let captured = 0;
     assert.throws(() => withExecutionEffectScope('bot-new', () => {}, () => {
@@ -205,7 +208,7 @@ test('malformed, other-seat and changed native receipts poison the frame instead
     assert.equal(captured, 1, 'the original native receipt is never rebound or retried');
   }
 });
-test('actual core create, physical shell setup, internally generated launch and launcher input share one bound request', posix, async t => {
+test('actual core create, physical shell setup, internally generated launch and launcher input share one bound request', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t), result = await f.launch();
   assert.equal(result.isError, undefined, JSON.stringify({ result, effects: f.effects, queries: f.queries, errors: f.errors }));
   assert.equal(f.creates(), 1); assert.ok(f.effects.includes('pipe-pane')); assert.ok(f.effects.includes('send-keys'));
@@ -213,7 +216,7 @@ test('actual core create, physical shell setup, internally generated launch and 
   assert.equal(state.records[0].operations.launch, 'accepted'); assert.equal(state.records[0].relation.target.launch.session_id, f.name);
   assert.match(state.records[0].relation.target.launch.launch_id, /^[a-f0-9]{32}$/); assert.deepEqual(state.slots, []);
 });
-test('receipt loss, a missing native reader or physical replacement keeps the issued slot and never configures a replacement', posix, async t => {
+test('receipt loss, a missing native reader or physical replacement keeps the issued slot and never configures a replacement', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   for (const scenario of ['malformed', 'replaced', 'failed-after-create', 'server-restarted', 'receipt-server-mismatch']) {
     const f = fixture(t, scenario), result = await f.launch();
     assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible');
@@ -224,7 +227,7 @@ test('receipt loss, a missing native reader or physical replacement keeps the is
     assert.ok(f.native.has(f.name), 'no name-based cleanup kills a same-name session');
   }
 });
-test('missing native server ownership is rejected before any create or persistent issued slot', posix, async t => {
+test('missing native server ownership is rejected before any create or persistent issued slot', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   for (const scenario of ['missing-reader', 'owner-missing', 'owner-reused-before-create', 'no-server', 'mixed-server']) {
     const f = fixture(t, scenario), result = await f.launch();
     assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
@@ -234,7 +237,7 @@ test('missing native server ownership is rejected before any create or persisten
     assert.ok(state.records.every(record => record.operations.launch === 'not_sent'));
   }
 });
-test('native creation provenance survives RPC completion and a reconstructed service uses the actual guarded close primitive', posix, async t => {
+test('native creation provenance survives RPC completion and a reconstructed service uses the actual guarded close primitive', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t), accepted = await f.launch(); assert.equal(accepted.isError, undefined);
   const launch = { session_id: f.name, launch_id: accepted.structuredContent.launch_id };
   const file = agentMetadataPath(f.name, launch.launch_id), saved = JSON.parse(readFileSync(file));
@@ -246,7 +249,7 @@ test('native creation provenance survives RPC completion and a reconstructed ser
   assert.equal(result.targets[0].outcome, 'closed'); assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
   assert.equal(f.native.has(f.name), false); assert.equal(f.native.has(A.session_id), true);
 });
-test('old metadata cannot prove a same-name replacement, restarted server, missing stamp or malformed native stamp', posix, async t => {
+test('old metadata cannot prove a same-name replacement, restarted server, missing stamp or malformed native stamp', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   for (const change of ['native-id', 'server', 'missing', 'malformed']) {
     const f = fixture(t), accepted = await f.launch(); assert.equal(accepted.isError, undefined);
     const launch = { session_id: f.name, launch_id: accepted.structuredContent.launch_id };
@@ -264,7 +267,7 @@ test('old metadata cannot prove a same-name replacement, restarted server, missi
     assert.deepEqual(readFileSync(file), beforeRead, 'observation does not enroll or repair stale metadata');
   }
 });
-test('a stopped generation stays retired when actual core creates new work under the same name and a different native ID', posix, async t => {
+test('a stopped generation stays retired when actual core creates new work under the same name and a different native ID', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t), first = await f.launch(); assert.equal(first.isError, undefined);
   const old = { session_id: f.name, launch_id: first.structuredContent.launch_id };
   assert.equal((await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] })).targets[0].outcome, 'closed');
@@ -278,14 +281,14 @@ test('a stopped generation stays retired when actual core creates new work under
   assert.equal(state.records[0].relation.lifecycle, 'retired');
   assert.equal(state.records[1].relation.lifecycle, 'tracking'); assert.deepEqual(state.records[1].relation.target.launch, replacement);
 });
-test('guarded environment verification failure closes only the captured native ID without replaying new-session', posix, async t => {
+test('guarded environment verification failure closes only the captured native ID without replaying new-session', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t, 'environment-gap'), result = await f.launch();
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible'); assert.equal(f.creates(), 1);
   assert.deepEqual(f.effects, ['create', 'set-option', 'kill-session']); assert.equal(f.native.has(f.name), false);
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.slots[0].created_native_id, '$71'); assert.equal(state.records[0].operations.launch, 'unknown');
 });
-test('replacement after managed metadata binding cannot receive launcher input or name-based cleanup', posix, async t => {
+test('replacement after managed metadata binding cannot receive launcher input or name-based cleanup', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t, 'managed-replaced'), result = await f.launch();
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible');
   assert.equal(f.creates(), 1); assert.deepEqual(f.effects, ['create', 'set-option', 'pipe-pane', 'load-buffer']);
@@ -295,7 +298,7 @@ test('replacement after managed metadata binding cannot receive launcher input o
   assert.equal(state.records[0].relation.target.launch.launch_id, state.slots[0].expected_launch_id);
   assert.equal(f.native.get(f.name).id, '$72');
 });
-test('a source stop between shell setup and metadata publication suppresses the launcher command', posix, async t => {
+test('a source stop between shell setup and metadata publication suppresses the launcher command', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t, 'source-stop'), result = await f.launch();
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible');
   assert.equal(f.creates(), 1); assert.deepEqual(f.effects, ['create', 'set-option', 'pipe-pane']);
@@ -303,7 +306,7 @@ test('a source stop between shell setup and metadata publication suppresses the 
   assert.equal(state.slots[0].created_native_id, '$71'); assert.equal(state.records[0].operations.launch, 'unknown');
   assert.equal(state.records[0].relation.target, null);
 });
-test('late genuine launch binding survives a source fence, records the reached launch and refuses further input', async t => {
+test('late genuine launch binding survives a source fence, records the reached launch and refuses further input', { skip: posixCheckpoint }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'late-creation-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), B = { session_id: 'bot-late', launch_id: 'b'.repeat(32) };
   let physical = false, generation = null, commands = 0;

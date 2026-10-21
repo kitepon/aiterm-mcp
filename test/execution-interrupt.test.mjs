@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -19,7 +21,7 @@ test.afterEach(() => { runner = null; });
 const A = { session_id: 'interrupt-a', launch_id: 'a'.repeat(32) }, B = { session_id: 'interrupt-b', launch_id: 'b'.repeat(32) };
 const point = launch => ({ launch, boundary: null });
 const stop = roots => ({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots });
-test('session-preserving stop never invokes an injected former close adapter, changes state, or turns missing interruption proof into success', async t => {
+test('session-preserving stop never invokes an injected former close adapter, changes state, or turns missing interruption proof into success', { skip: posixCheckpoint }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'interrupt-')); t.after(() => rmSync(dir, { force: true, recursive: true }));
   let closes = 0, done = 0;
   const store = new FileExecutionStore(dir), runtime = createExecutionRuntime({ sourceEnvironment: {

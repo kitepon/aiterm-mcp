@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,21 +61,21 @@ async function seed(f, worker) {
   await parent.submit(id, f.endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'existing-queue' }; });
   return parent;
 }
-test('old public provider and incomplete injected runtimes fail before any local/native fallback', t => {
+test('old public provider and incomplete injected runtimes fail before any local/native fallback', { skip: posixCheckpoint }, t => {
   const f = fixture(t); let reads = 0;
-  assert.throws(() => createExecutionParentWorker({ ...f.options, provider: undefined, runtime: {
+  assert.throws(() => createExecutionParentWorker({ ...f.options, provider: { ...f.options.provider, DELIVERY_ADMISSION_CONTRACT: undefined }, runtime: {
     ...f.options.runtime, scope() { reads++; assert.fail('public old provider must fail before scope or OS reads'); } } }), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.equal(reads, 0);
   assert.throws(() => createExecutionParentWorker({ ...f.options, runtime: {} }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
-test('scope mismatch and missing native actor cannot construct a guarded profile or borrow another store', t => {
+test('scope mismatch and missing native actor cannot construct a guarded profile or borrow another store', { skip: posixCheckpoint }, t => {
   const f = fixture(t);
   for (const expectedScope of [{ ...f.options.expectedScope, state_root: join(f.root, 'other') },
     { ...f.options.expectedScope, multiplexer: { kind: 'namespace', key: 'other-native-server' } }])
     assert.throws(() => createExecutionParentWorker({ ...f.options, expectedScope }), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.throws(() => createExecutionParentWorker({ ...f.options, runtime: { ...f.options.runtime, actor: () => null } }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
-test('process-local worker joins the same store and native delivery evidence without enabling a queue producer or complete coverage', async t => {
+test('process-local worker joins the same store and native delivery evidence without enabling a queue producer or complete coverage', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
   assert.equal(worker.store.directory, executionStoreDirectory(f.root, f.actual.multiplexer));
   assert.notEqual(worker.profile, f.options.profile); assert.equal(f.options.profile.delivery_admission, undefined);
@@ -84,7 +86,7 @@ test('process-local worker joins the same store and native delivery evidence wit
   await assert.rejects(worker.profile.delivery_admission.run({ ...f.effect, stage: 'queue' }, async () => { effects++; }), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.equal(effects, 1);
 });
-test('scope and participant capability are rechecked at the actual native boundary after preflight', async t => {
+test('scope and participant capability are rechecked at the actual native boundary after preflight', { skip: posixCheckpoint }, async t => {
   for (const change of ['scope', 'contract', 'actor']) {
     const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker); let effects = 0;
     const result = await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => {
@@ -97,7 +99,7 @@ test('scope and participant capability are rechecked at the actual native bounda
     assert.equal((await worker.store.transaction(state => state.parent_effects, { readOnly: true })).length, 0);
   }
 });
-test('a native worker missing its registered role cannot issue after preflight, and read-only inventory does not restore it', async t => {
+test('a native worker missing its registered role cannot issue after preflight, and read-only inventory does not restore it', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.options.runtime.observeActors = pids => pids.map(pid => ({ pid,
     started_identity: pid === hook.pid ? hook.started_identity : mcp.started_identity }));
   const worker = createExecutionParentWorker(f.options); await seed(f, worker);
@@ -110,7 +112,7 @@ test('a native worker missing its registered role cannot issue after preflight, 
   assert.deepEqual(worker.inventory().participants.find(row => row.actor.pid === mcp.pid).missing, ['unregistered_actor']);
   assert.deepEqual(raw.transactionSync(state => state.participants[0].roles, { readOnly: true }), ['mcp']);
 });
-test('accepted hook alias supplements the original graph target without a fabricated cursor, source turn or raw metadata', async t => {
+test('accepted hook alias supplements the original graph target without a fabricated cursor, source turn or raw metadata', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
   const ctx = { ...f.effect.native_context, private_text: 'synthetic context must not persist' };
   assert.equal((await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'emitted'; }, ctx)).value, 'emitted');
@@ -123,7 +125,7 @@ test('accepted hook alias supplements the original graph target without a fabric
   assert.equal(state.records[1].relation.completion, 'open');
   assert.equal(JSON.stringify(state).includes(ctx.private_text), false);
 });
-test('issued aliases are not eligible until the real native receipt, and lost outcomes remain ineligible after reconstruction', async t => {
+test('issued aliases are not eligible until the real native receipt, and lost outcomes remain ineligible after reconstruction', { skip: posixCheckpoint }, async t => {
   for (const lost of [false, true]) {
     const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
     let release, entered; const ready = new Promise(resolve => { entered = resolve; });
@@ -141,14 +143,14 @@ test('issued aliases are not eligible until the real native receipt, and lost ou
     } else assert.equal((await readAcceptedParentHookReference(worker.store, id)).native.turn_id, 'native-turn');
   }
 });
-test('a generic resolver cannot infer aliases from similarly named native metadata', async t => {
+test('a generic resolver cannot infer aliases from similarly named native metadata', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
   const generic = createParentNativeAdmission({ store: worker.store, actor: hook,
     observeSessionGenerationSync: f.observe, verifyParentEndpoint: () => true });
   assert.equal((await generic.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'accepted'; }, f.effect.native_context)).value, 'accepted');
   assert.equal(await readAcceptedParentHookReference(worker.store, id), null);
 });
-test('one native batch output retains separate aliases for every existing delivery without another graph ID', async t => {
+test('one native batch output retains separate aliases for every existing delivery without another graph ID', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), worker = createExecutionParentWorker(f.options), parent = await seed(f, worker);
   const second = '00000000-0000-4000-8000-000000000003', first = await parent.lookup(id);
   await parent.bind(second, request, point(B, 17), f.endpoint, first.source_evidence);
@@ -159,7 +161,7 @@ test('one native batch output retains separate aliases for every existing delive
   assert.deepEqual(await readAcceptedParentHookReference(worker.store, id), await readAcceptedParentHookReference(worker.store, second));
   assert.deepEqual((await worker.store.transaction(state => state.parent_effects, { readOnly: true })).map(value => value.delivery_id), [id, second]);
 });
-test('retired or contradictory native references never revive history or select a different session/turn', async t => {
+test('retired or contradictory native references never revive history or select a different session/turn', { skip: posixCheckpoint }, async t => {
   for (const change of ['retired', 'contradictory']) {
     const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
     await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'emitted'; }, f.effect.native_context);

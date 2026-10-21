@@ -2,6 +2,8 @@
 // below are synthetic. No product subprocess, seat, CLI or native factory.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -58,7 +60,7 @@ function fixture(t) {
   const read = () => store.transaction(state => structuredClone(state), { readOnly: true });
   return { directory, store, live, native, runtime, service, register, key, prove, read, keys: () => keys };
 }
-test('per-run admission cancels old unissued work before a delayed native action, without a permanent launch mark', async t => {
+test('per-run admission cancels old unissued work before a delayed native action, without a permanent launch mark', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), record = await f.register('old-preparing'), ready = deferred(), resume = deferred(); let actions = 0;
   const pending = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     ready.resolve(); await resume.promise; issue(); actions++; return { value: 'late', target: run };
@@ -70,7 +72,7 @@ test('per-run admission cancels old unissued work before a delayed native action
   assert.equal(state.records[0].operations.send, 'not_sent'); assert.equal(state.records[0].relation.phase, 'unsent');
   assert.equal(state.interruptions[0].phase, 'draining'); assert.deepEqual(state.slots, []);
 });
-test('issued old RPC drains its genuine receipt before one Esc; final proof reopens the same launch but not the old ref', async t => {
+test('issued old RPC drains its genuine receipt before one Esc; final proof reopens the same launch but not the old ref', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), record = await f.register('issued-before-stop'), ready = deferred(), resume = deferred();
   const pending = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
     issue(); ready.resolve(); await resume.promise; return { value: 'genuine receipt', target: run };
@@ -87,7 +89,7 @@ test('issued old RPC drains its genuine receipt before one Esc; final proof reop
   await assert.rejects(f.service.invoke(ref(record.reservation.request), 'send', async () => assert.fail('old request replay')));
   await assert.rejects(f.service.interruptRun(run, f.key)); assert.equal(f.keys(), 1);
 });
-test('interruption creates a durable native slot but no work record/edge, and a reconstructed service never repeats its key', async t => {
+test('interruption creates a durable native slot but no work record/edge, and a reconstructed service never repeats its key', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await f.service.interruptRun(run, () => {
     const value = f.key();
@@ -100,7 +102,7 @@ test('interruption creates a durable native slot but no work record/edge, and a 
   await assert.rejects(reconstructed.interruptRun(run, f.key));
   f.prove(); await reconstructed.settleInterruption(run); await f.register('new-after-reconstruction'); assert.equal(f.keys(), 1);
 });
-test('lost key reply remains unknown across reconstruction and native abort/absence cannot authorize a retry or reopening', async t => {
+test('lost key reply remains unknown across reconstruction and native abort/absence cannot authorize a retry or reopening', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await assert.rejects(f.service.interruptRun(run, () => { f.key(); throw new Error('reply lost after native action'); }), error => error.effect === 'possible');
   assert.equal((await f.read()).interruptions[0].phase, 'unknown');
@@ -109,7 +111,7 @@ test('lost key reply remains unknown across reconstruction and native abort/abse
   f.live.delete(B.session_id); await assert.rejects(other.settleInterruption(run));
   assert.equal(f.keys(), 1); assert.equal((await f.read()).slots[0].state, 'unknown');
 });
-test('missing/Promise/wrong-run native adapter is rejected before admission; no claim/idle/closed substitute', async t => {
+test('missing/Promise/wrong-run native adapter is rejected before admission; no claim/idle/closed substitute', { skip: posixCheckpoint }, async t => {
   for (const kind of ['missing', 'promise', 'wrong-run', 'idle', 'closed', 'bad-boundary']) {
     const f = fixture(t);
     if (kind === 'missing') delete f.runtime.interruptionSync;
@@ -122,7 +124,7 @@ test('missing/Promise/wrong-run native adapter is rejected before admission; no 
     assert.deepEqual((await f.read()).interruptions, []); assert.equal(f.keys(), 0);
   }
 });
-test('accepted Esc is not settle proof: completion, other turn, endpoint/harness/server/generation change and missing fence all hold admission', async t => {
+test('accepted Esc is not settle proof: completion, other turn, endpoint/harness/server/generation change and missing fence all hold admission', { skip: posixCheckpoint }, async t => {
   for (const change of ['normal-done', 'other-turn', 'endpoint', 'actor', 'server', 'generation', 'fence', 'preservation']) {
     const f = fixture(t); await f.service.beginInterruption(run); await f.service.interruptRun(run, f.key); f.prove();
     if (change === 'normal-done') { f.native.recorded_state = 'completed'; f.native.native_boundary = { type: 'task_complete', turn_id: run.boundary.turn_id, reason: null }; }
@@ -137,7 +139,7 @@ test('accepted Esc is not settle proof: completion, other turn, endpoint/harness
     assert.equal((await f.read()).interruptions[0].phase, 'accepted'); assert.equal(f.keys(), 1);
   }
 });
-test('settled old source run and missing source boundary remain blocked; new native source run and new target work can use the same launch', async t => {
+test('settled old source run and missing source boundary remain blocked; new native source run and new target work can use the same launch', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run); await f.service.interruptRun(run, f.key); f.prove(); await f.service.settleInterruption(run);
   await assert.rejects(f.register('old-source', run, C));
   await assert.rejects(f.register('old-turn-other-cursor', point(B, run.boundary.turn_id, 99), C));
@@ -149,7 +151,7 @@ test('settled old source run and missing source boundary remain blocked; new nat
   await f.register('new-source', newRun, C); await f.register('new-target', null, B);
   assert.deepEqual((await f.read()).stopping, []);
 });
-test('native identity change and store admission failure before key remain not_sent, and later retry is forbidden', async t => {
+test('native identity change and store admission failure before key remain not_sent, and later retry is forbidden', { skip: posixCheckpoint }, async t => {
   for (const change of ['identity', 'lock']) {
     const f = fixture(t); await f.service.beginInterruption(run);
     if (change === 'identity') f.native.native.native_id = '$10';
@@ -160,7 +162,7 @@ test('native identity change and store admission failure before key remain not_s
     await assert.rejects(f.service.interruptRun(run, f.key));
   }
 });
-test('metadata failure after the native key preserves the issued journal/slot and cannot become not_started', async t => {
+test('metadata failure after the native key preserves the issued journal/slot and cannot become not_started', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run); const transaction = f.store.transaction.bind(f.store);
   await assert.rejects(f.service.interruptRun(run, () => {
     const value = f.key(); f.store.transaction = async () => { throw new Error('metadata admission lost'); }; return value;
@@ -170,7 +172,7 @@ test('metadata failure after the native key preserves the issued journal/slot an
   const recovered = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
   await assert.rejects(recovered.interruptRun(run, f.key)); assert.equal(f.keys(), 1);
 });
-test('public stop stays read-only unsupported even when the private admission adapter is injected', async t => {
+test('public stop stays read-only unsupported even when the private admission adapter is injected', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), before = await f.read();
   const result = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [B] });
   assert.equal(result.targets[0].interruption, 'unsupported'); assert.equal(result.targets[0].key_receipt, 'not_sent');
@@ -201,7 +203,7 @@ async function parentFixture(t) {
     observeSessionGenerationSync: observe, verifyParentEndpoint: () => true, preparationTimeoutMs: 0 });
   return { ...f, id, endpoint, parent, binding, adapter, parentNative: native };
 }
-test('old parent queue/dequeue/emit/wake remain fenced after same-launch reopening and process reconstruction', async t => {
+test('old parent queue/dequeue/emit/wake remain fenced after same-launch reopening and process reconstruction', { skip: posixCheckpoint }, async t => {
   const f = await parentFixture(t); await f.service.beginInterruption(run); await f.service.interruptRun(run, f.key);
   f.prove(); await f.service.settleInterruption(run); await f.register('new-request-after-parent-fence');
   let native = 0;
@@ -212,7 +214,7 @@ test('old parent queue/dequeue/emit/wake remain fenced after same-launch reopeni
   }
   assert.equal(native, 0); assert.deepEqual((await f.read()).parent_effects, []);
 });
-test('issued parent native effect drains its genuine receipt before Esc; late wake remains stopped', async t => {
+test('issued parent native effect drains its genuine receipt before Esc; late wake remains stopped', { skip: posixCheckpoint }, async t => {
   const f = await parentFixture(t), issued = deferred(), resume = deferred(); let emits = 0;
   const pending = f.parentNative().run(f.id, 'emit', f.endpoint, async (_endpoint, effect) => {
     effect(); emits++; issued.resolve(); await resume.promise; return 'genuine native emit receipt';
@@ -225,14 +227,14 @@ test('issued parent native effect drains its genuine receipt before Esc; late wa
   const wake = await f.parentNative().run(f.id, 'wake', f.endpoint, async () => assert.fail('old wake'));
   assert.equal(wake.error?.code, 'EXECUTION_STOPPING'); assert.equal(emits, 1); assert.equal(f.keys(), 1);
 });
-test('request tombstones survive record deletion and prevent existing-ID reuse without a new work queue', async t => {
+test('request tombstones survive record deletion and prevent existing-ID reuse without a new work queue', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.register('old-id'); await f.service.beginInterruption(run);
   await f.service.interruptRun(run, f.key); f.prove(); await f.service.settleInterruption(run);
   await f.store.transaction(state => { state.records = []; });
   await assert.rejects(f.register('old-id'), error => error.code === 'EXECUTION_STOPPING');
   await f.register('fresh-id'); assert.equal((await f.read()).interruptions[0].requests.length, 1);
 });
-test('unfinished interruption roots survive absent native sessions and reconstruction without scanning settled history', async t => {
+test('unfinished interruption roots survive absent native sessions and reconstruction without scanning settled history', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run); f.live.delete(B.session_id);
   const reconstructed = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
   const roots = await reconstructed.roots({ session_id: B.session_id });
@@ -241,7 +243,7 @@ test('unfinished interruption roots survive absent native sessions and reconstru
   f.live.delete(B.session_id);
   assert.deepEqual((await reconstructed.roots({ session_id: B.session_id })).roots, []);
 });
-test('duplicate run journal or mismatched interrupt slot is invalid persisted state, never an empty repaired graph', async t => {
+test('duplicate run journal or mismatched interrupt slot is invalid persisted state, never an empty repaired graph', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   const state = await f.read(); state.interruptions.push(structuredClone(state.interruptions[0]));
   assert.equal(executionStateSchema.safeParse(state).success, false);
@@ -251,7 +253,7 @@ test('duplicate run journal or mismatched interrupt slot is invalid persisted st
   assert.equal(executionStateSchema.safeParse(state).success, false);
   assert.equal(readFileSync(join(f.directory, 'relations.json'), 'utf8'), corrupted);
 });
-test('late child receipt expands temporary admission through recorded edges without creating a permanent launch stop', async t => {
+test('late child receipt expands temporary admission through recorded edges without creating a permanent launch stop', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.live.delete(C.session_id);
   const record = await f.register('issued-child-launch', run, C, null), issued = deferred(), resume = deferred();
   const pending = f.service.invoke(ref(record.reservation.request), 'launch', async () => {
@@ -263,7 +265,7 @@ test('late child receipt expands temporary admission through recorded edges with
   await assert.rejects(f.register('from-late-child', point(C, 'child-turn'), A));
   assert.deepEqual((await f.read()).stopping, []); assert.equal(f.keys(), 0);
 });
-test('concurrent same-run interrupters share one durable claim and cannot overwrite the genuine accepted key as not_sent', async t => {
+test('concurrent same-run interrupters share one durable claim and cannot overwrite the genuine accepted key as not_sent', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   const other = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
   const outcomes = await Promise.allSettled([f.service.interruptRun(run, f.key), other.interruptRun(run, f.key)]);
@@ -271,7 +273,7 @@ test('concurrent same-run interrupters share one durable claim and cannot overwr
   assert.equal(outcomes.filter(value => value.status === 'rejected').length, 1);
   assert.equal(f.keys(), 1); assert.equal((await f.read()).interruptions[0].phase, 'accepted');
 });
-test('a preparing claim surviving its caller cannot be reacquired or silently released by reconstruction', async t => {
+test('a preparing claim surviving its caller cannot be reacquired or silently released by reconstruction', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.service.beginInterruption(run);
   await f.store.transaction(state => { state.interruptions[0].phase = 'preparing'; });
   const other = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);

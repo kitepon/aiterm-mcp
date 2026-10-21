@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,7 +40,7 @@ function intercept(t, overrides) {
 }
 function uncertain(error) { return error.code === 'EXECUTION_STATE_UNAVAILABLE' && error.effect === 'possible'; }
 
-test('private reservation and claim directories are flushed before binding and the waiting checkpoint precedes watching', async t => {
+test('private reservation and claim directories are flushed before binding and the waiting checkpoint precedes watching', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), events = [], paths = new Map();
   const restore = intercept(t, {
     openSync(original, file, ...args) { const fd = original(file, ...args); paths.set(fd, file); return fd; },
@@ -57,7 +59,7 @@ test('private reservation and claim directories are flushed before binding and t
   assert.ok(events.filter(event => event[0] === 'sync' && event[2] === false).length >= 2);
 });
 
-test('post-reservation rename flush failure retains the original unknown record and blocks bind/watch and later requests', async t => {
+test('post-reservation rename flush failure retains the original unknown record and blocks bind/watch and later requests', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let armed = false, injected = 0;
   const restore = intercept(t, {
     renameSync(original, from, to) { const result = original(from, to); if (to.startsWith(join(f.root, 'active')) && to.endsWith('.json') && !to.endsWith('owner.json')) armed = true; return result; },
@@ -72,7 +74,7 @@ test('post-reservation rename flush failure retains the original unknown record 
   await assert.rejects(f.manager.recover(), uncertain);
 });
 
-test('claim link acting before response loss retains both same existing references and never repeats the link or bind', async t => {
+test('claim link acting before response loss retains both same existing references and never repeats the link or bind', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let links = 0;
   const restore = intercept(t, { linkSync(original, from, to) { links++; original(from, to); throw Error('synthetic link acted before response loss'); } });
   await assert.rejects(f.delivery.before_send(boundary), uncertain); restore();
@@ -83,7 +85,7 @@ test('claim link acting before response loss retains both same existing referenc
   assert.equal(saved.state, 'unknown'); assert.equal(fs.readdirSync(join(f.root, 'results')).length, 0);
 });
 
-test('claim directory flush failure keeps the existing claim and unknown owner without cleaning or replaying', async t => {
+test('claim directory flush failure keeps the existing claim and unknown owner without cleaning or replaying', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let afterLink = false, injected = 0; const paths = new Map();
   const restore = intercept(t, {
     openSync(original, file, ...args) { const fd = original(file, ...args); paths.set(fd, file); return fd; },
@@ -95,7 +97,7 @@ test('claim directory flush failure keeps the existing claim and unknown owner w
   assert.equal(JSON.parse(fs.readFileSync(f.records()[0])).state, 'unknown'); assert.equal(f.counts().binds, 0);
 });
 
-test('finish saves and syncs the result before releasing its matching child claim', async t => {
+test('finish saves and syncs the result before releasing its matching child claim', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary);
   const events = [], paths = new Map();
   const restore = intercept(t, {
@@ -112,7 +114,7 @@ test('finish saves and syncs the result before releasing its matching child clai
   assert.equal(f.delivery.result().state, 'unknown'); assert.equal(f.counts().submits, 0);
 });
 
-test('result rename acting before response loss retains the same inode destination and claim without a second rename', async t => {
+test('result rename acting before response loss retains the same inode destination and claim without a second rename', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); let moves = 0;
   const restore = intercept(t, { renameSync(original, from, to) {
     if (dirname(to) === join(f.root, 'results') && from.endsWith('.json')) { moves++; original(from, to); throw Error('synthetic result rename response lost'); }
@@ -125,7 +127,7 @@ test('result rename acting before response loss retains the same inode destinati
   assert.equal(saved.error, 'PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED'); assert.equal(f.counts().submits, 0);
 });
 
-test('result directory flush failure keeps the unknown result and original claim and refuses further admission', async t => {
+test('result directory flush failure keeps the unknown result and original claim and refuses further admission', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); const paths = new Map(); let moved = false, failed = 0;
   const restore = intercept(t, {
     openSync(original, file, ...args) { const fd = original(file, ...args); paths.set(fd, file); return fd; },
@@ -138,7 +140,7 @@ test('result directory flush failure keeps the unknown result and original claim
   await assert.rejects(f.manager.prepare(parent), uncertain); assert.equal(f.counts().submits, 0);
 });
 
-test('ready checkpoint failure retains the genuine captured answer but cannot submit, infer completion or erase the claim', async t => {
+test('ready checkpoint failure retains the genuine captured answer but cannot submit, infer completion or erase the claim', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); let failNext = false, injected = 0;
   const restore = intercept(t, {
     renameSync(original, from, to) { const result = original(from, to);
@@ -153,7 +155,7 @@ test('ready checkpoint failure retains the genuine captured answer but cannot su
   assert.deepEqual(saved.execution.request, request); assert.equal(saved.state, 'unknown');
 });
 
-test('waiting checkpoint failure after binding keeps the old claim and references without watch or input', async t => {
+test('waiting checkpoint failure after binding keeps the old claim and references without watch or input', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let armed = false, injected = 0;
   const restore = intercept(t, {
     renameSync(original, from, to) { const result = original(from, to);
@@ -168,7 +170,7 @@ test('waiting checkpoint failure after binding keeps the old claim and reference
   assert.deepEqual(saved.execution.request, request); assert.equal(saved.boundary.event_cursor, 17);
 });
 
-test('lost recovery move acknowledgement preserves the moved unknown record before any receipt callback or watcher', async t => {
+test('lost recovery move acknowledgement preserves the moved unknown record before any receipt callback or watcher', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); await f.manager.close();
   const oldFile = f.records()[0]; let moves = 0, checks = 0, watches = 0;
   const restore = intercept(t, { renameSync(original, from, to) {
@@ -188,7 +190,7 @@ test('lost recovery move acknowledgement preserves the moved unknown record befo
   } finally { restore(); await restored.close(); }
 });
 
-test('a definite different claim is kept while only the unbound new reservation is cleaned', async t => {
+test('a definite different claim is kept while only the unbound new reservation is cleaned', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), other = { delivery_id: '00000000-0000-4000-8000-000000000002' };
   // This is an actual well-formed existing delivery, not a guessed ID or proof.
   const first = withExecutionRequest(request, () => f.manager.request(parent)); await first.before_send(boundary);
@@ -202,7 +204,7 @@ test('a definite different claim is kept while only the unbound new reservation 
   assert.equal(f.records().length, 1); assert.equal(f.counts().binds, 1);
 });
 
-test('persistent file flush failure remains unavailable without bind, a fabricated owner record or native retry', async t => {
+test('persistent file flush failure remains unavailable without bind, a fabricated owner record or native retry', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let flushes = 0;
   const restore = intercept(t, { fsyncSync() { flushes++; throw Error('synthetic persistent sync failure'); } });
   await assert.rejects(f.delivery.before_send(boundary), uncertain); restore();
@@ -213,7 +215,7 @@ test('persistent file flush failure remains unavailable without bind, a fabricat
   await assert.rejects(f.manager.recover(), uncertain);
 });
 
-test('a later genuine answer cannot queue through another checkpoint failure in the same private manager', async t => {
+test('a later genuine answer cannot queue through another checkpoint failure in the same private manager', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); let armed = false, injected = 0;
   const nextBoundary = { ...boundary, session_id: 'bot-c', launch_id: 'c'.repeat(32) };
   const second = withExecutionRequest({ ...request, delivery_id: 'another-existing-input', target_session_id: 'bot-c' }, () => f.manager.request(parent));
@@ -231,7 +233,7 @@ test('a later genuine answer cannot queue through another checkpoint failure in 
   assert.deepEqual(saved.execution.request, request);
 });
 
-test('claim unlink response loss retains its result diagnosis without reconstructing or repeating the claim', async t => {
+test('claim unlink response loss retains its result diagnosis without reconstructing or repeating the claim', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); let unlinks = 0;
   const restore = intercept(t, { unlinkSync(original, file) {
     const result = original(file); if (file === join(f.root, 'claims', 'bot-b.json')) { unlinks++; throw Error('synthetic unlink response lost'); }
@@ -244,7 +246,7 @@ test('claim unlink response loss retains its result diagnosis without reconstruc
   await assert.rejects(f.manager.recover(), uncertain); assert.equal(unlinks, 1); assert.equal(f.counts().submits, 0);
 });
 
-test('post-submit result checkpoint loss retains the genuine queue receipt and captured answer without a second submit', async t => {
+test('post-submit result checkpoint loss retains the genuine queue receipt and captured answer without a second submit', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.delivery.before_send(boundary); let moved = false, injected = 0;
   const paths = new Map();
   const restore = intercept(t, {
@@ -260,7 +262,7 @@ test('post-submit result checkpoint loss retains the genuine queue receipt and c
   assert.equal(f.counts().submits, 1);
 });
 
-test('reconstruction including a manager without execution adapter preserves the uncertain original claim and diagnosis', async t => {
+test('reconstruction including a manager without execution adapter preserves the uncertain original claim and diagnosis', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let linked = false, failed = 0; const paths = new Map();
   const restore = intercept(t, {
     openSync(original, file, ...args) { const fd = original(file, ...args); paths.set(fd, file); return fd; },

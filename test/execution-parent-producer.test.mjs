@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,7 +69,7 @@ function fixture(t, vendor = 'claude') {
     async () => ({ value: null, target: point(B, 17) }));
   return { root, directory, endpoint, snapshot, invocation, options, producer, actualScope, initialize, bind, accept };
 }
-test('same-scope producer binds real existing Claude records then accepts the original queue exactly once', async t => {
+test('same-scope producer binds real existing Claude records then accepts the original queue exactly once', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.initialize(); const proof = await f.bind();
   assert.equal(existsSync(join(f.directory, 'delivery.json')), false, 'Aiterm companion precedes the native manager binding');
   write(join(f.directory, 'delivery.json'), { delivery_id: id }); await f.accept();
@@ -77,7 +79,7 @@ test('same-scope producer binds real existing Claude records then accepts the or
   await assert.rejects(f.producer.execution.submit(f.endpoint, id, 'duplicate answer'));
   assert.equal(f.producer.relation_coverage, 'incomplete'); assert.equal(f.options.profile.delivery_admission, undefined);
 });
-test('current Claude owner, tool/session and closed record are independently required even when source generation matches', async t => {
+test('current Claude owner, tool/session and closed record are independently required even when source generation matches', { skip: posixCheckpoint }, async t => {
   for (const change of ['owner', 'session', 'tool', 'subagent', 'closed', 'scope']) {
     const f = fixture(t); await f.initialize();
     if (change === 'owner') f.invocation.parent_started_identity = 'reused-owner';
@@ -90,7 +92,7 @@ test('current Claude owner, tool/session and closed record are independently req
     await assert.rejects(f.bind()); assert.equal(existsSync(join(f.directory, 'answer.json')), false);
   }
 });
-test('delivery binding is mandatory for queue and a conflicting previous binding cannot be overwritten at before_send', async t => {
+test('delivery binding is mandatory for queue and a conflicting previous binding cannot be overwritten at before_send', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.initialize(); await f.bind(); await f.accept();
   await assert.rejects(f.producer.execution.submit(f.endpoint, id, 'missing-native-binding'), code('EXECUTION_UNCONFIRMED'));
   write(join(f.directory, 'delivery.json'), { delivery_id: '00000000-0000-4000-8000-000000000099' });
@@ -98,7 +100,7 @@ test('delivery binding is mandatory for queue and a conflicting previous binding
   await assert.rejects(f.bind(), code('EXECUTION_STALE_GENERATION'));
   assert.equal(existsSync(join(f.directory, 'answer.json')), false);
 });
-test('queue preparing cannot act after its actual native request/owner changes', async t => {
+test('queue preparing cannot act after its actual native request/owner changes', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.initialize(); await f.bind(); await f.accept();
   write(join(f.directory, 'delivery.json'), { delivery_id: id });
   const entered = pause(), release = pause(); let effects = 0;
@@ -109,19 +111,19 @@ test('queue preparing cannot act after its actual native request/owner changes',
   const result = await pending;
   assert.equal(result._meta[ERROR].effect, 'not_started'); assert.equal(effects, 0);
 });
-test('Codex/Cursor lack a current producer endpoint proof and never fall back to same-name or old submit', async t => {
+test('Codex/Cursor lack a current producer endpoint proof and never fall back to same-name or old submit', { skip: posixCheckpoint }, async t => {
   for (const vendor of ['codex', 'cursor']) {
     const f = fixture(t, vendor); await f.initialize();
     await assert.rejects(f.bind(), code('EXECUTION_UNSUPPORTED'));
     assert.equal(existsSync(join(f.directory, 'answer.json')), false);
   }
 });
-test('old provider and partial runtime refuse without live observation fallback', t => {
+test('old provider and partial runtime refuse without live observation fallback', { skip: posixCheckpoint }, t => {
   const f = fixture(t);
-  assert.throws(() => createExecutionParentProducer({ ...f.options, provider: undefined }), code('EXECUTION_UNSUPPORTED'));
+  assert.throws(() => createExecutionParentProducer({ ...f.options, provider: { ...f.options.provider, DELIVERY_ADMISSION_CONTRACT: undefined } }), code('EXECUTION_UNSUPPORTED'));
   assert.throws(() => createExecutionParentProducer({ ...f.options, runtime: { scope() { assert.fail('partial runtime must not be probed'); } } }), code('EXECUTION_UNSUPPORTED'));
 });
-test('a different serving process cannot inherit the original native request provenance for queue publication', async t => {
+test('a different serving process cannot inherit the original native request provenance for queue publication', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.initialize(); const proof = await f.bind();
   const other = createExecutionParentProducer({ ...f.options, runtime: { ...f.options.runtime,
     actor: () => ({ pid: 99, started_identity: '2026-10-21T07:00:04Z' }) } });
@@ -129,7 +131,7 @@ test('a different serving process cannot inherit the original native request pro
   assert.equal(existsSync(join(f.directory, 'answer.json')), false);
 });
 
-test('serving producer cannot decode a fresh parent later when its original ingress snapshot is missing', t => {
+test('serving producer cannot decode a fresh parent later when its original ingress snapshot is missing', { skip: posixCheckpoint }, t => {
   const f = fixture(t);
   assert.throws(() => withExecutionRequest(request, () => f.producer.execution.captureEndpointEvidence(f.endpoint), {
     source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' },
@@ -137,7 +139,7 @@ test('serving producer cannot decode a fresh parent later when its original ingr
 });
 
 
-test('post-bind companion revalidates the original frozen source/owner and uses only the selected provider', async t => {
+test('post-bind companion revalidates the original frozen source/owner and uses only the selected provider', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let writes = 0;
   // This fixture tests provenance revalidation; the provider's synchronous
   // metadata writer is synthetic, not native input/alias/finish evidence.
@@ -165,7 +167,7 @@ test('post-bind companion revalidates the original frozen source/owner and uses 
 });
 
 
-test('private original-owner observer captures the injected callback and rejects a replaced scope before native diagnosis', t => {
+test('private original-owner observer captures the injected callback and rejects a replaced scope before native diagnosis', { skip: posixCheckpoint }, t => {
   const f = fixture(t); const pids = [];
   f.options.runtime.observeOriginOwner = pid => { pids.push(pid); return { state: 'absent', pid }; };
   const producer = createExecutionParentProducer(f.options);
@@ -177,13 +179,13 @@ test('private original-owner observer captures the injected callback and rejects
   assert.deepEqual(pids, [417], 'no native read after scope loss');
 });
 
-test('injected producer with no native origin observer stays unsupported instead of calling the default process observer', t => {
+test('injected producer with no native origin observer stays unsupported instead of calling the default process observer', { skip: posixCheckpoint }, t => {
   const f = fixture(t); assert.equal(f.producer.execution.observeOriginOwner, undefined);
   f.options.runtime.observeOriginOwner = 'not a callback';
   assert.throws(() => createExecutionParentProducer(f.options), code('EXECUTION_UNSUPPORTED'));
 });
 
-test('real producer mounts its same-scope record diagnosis while an anonymous accepted child still cannot gain a native operation or completion fence', async t => {
+test('real producer mounts its same-scope record diagnosis while an anonymous accepted child still cannot gain a native operation or completion fence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.initialize(); const proof = await f.bind();
   write(join(f.directory, 'delivery.json'), { delivery_id: id }); await f.accept();
   const before = readFileSync(join(f.producer.store.directory, 'relations.json'), 'utf8');

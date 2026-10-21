@@ -1,6 +1,8 @@
 // Native entry composition, all process/runtime/key evidence injected fake.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,20 +51,20 @@ test('native stdio args require explicit opt-in, exact absolute scope and explic
   for (const bad of [[], args.slice(1), args.slice(0,-2), args.map(value => value === '/synthetic/state' ? 'relative' : value), [...args, '--unknown']])
     assert.throws(() => parseNativeExecutionArguments(bad));
 });
-test('native factory refuses missing opt-in, namespace and an old provider before native actor reads or graph creation', t => {
+test('native factory refuses missing opt-in, namespace and an old provider before native actor reads or graph creation', { skip: posixCheckpoint }, t => {
   for (const change of [f => { f.options.interruptCurrentRun = false; }, f => { f.options.expectedScope.multiplexer.kind = 'namespace'; },
     f => { delete f.options.provider.claudeParentFromRequest; }, f => { f.options.provider.DELIVERY_ADMISSION_CONTRACT = {}; }]) {
     const f = fixture(t); change(f); f.options.runtime.actor = () => assert.fail('must refuse before native actor');
     assert.throws(f.create); assert.equal(existsSync(join(f.root, 'execution')), false);
   }
 });
-test('partial injected runtime never inherits default native interruption functions', t => {
+test('partial injected runtime never inherits default native interruption functions', { skip: posixCheckpoint }, t => {
   for (const name of ['selectInterruptionSync', 'observeInterruptionSync', 'interruptKeySync']) {
     const f = fixture(t); delete f.options.runtime[name];
     f.options.runtime.actor = () => assert.fail('missing primitive must fail before native reads'); assert.throws(f.create);
   }
 });
-test('regular SDK entry lists controls and routes v2 through the shared controller/key slot while key receipt stays unconfirmed', async t => {
+test('regular SDK entry lists controls and routes v2 through the shared controller/key slot while key receipt stays unconfirmed', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(); const client = new Client({ name: 'synthetic-owner', version: 'test' });
   const [a,b] = InMemoryTransport.createLinkedPair(); await p.server.connect(b); await client.connect(a); t.after(() => client.close());
   const list = await client.listTools(); assert.equal(list.tools.length, 21);
@@ -76,7 +78,7 @@ test('regular SDK entry lists controls and routes v2 through the shared controll
   await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
   assert.equal(f.keys(), 1, 'native receipt must not be replayed');
 });
-test('scope/caller swap after factory construction rejects stop before an injected key can be sent', async t => {
+test('scope/caller swap after factory construction rejects stop before an injected key can be sent', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(); f.actor.started_identity = '2026-10-21T22:00:02Z';
   await assert.rejects(p.service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] }));
   assert.equal(f.keys(), 0);
@@ -95,7 +97,7 @@ test('MCP and hook command variants share one explicit scope/provider prefix wit
   assert.throws(() => parseNativeExecutionArguments([...prefix,'--mode','unknown']));
 });
 
-test('separate hook worker uses its own scoped actor and admission profile instead of inheriting the MCP actor', async t => {
+test('separate hook worker uses its own scoped actor and admission profile instead of inheriting the MCP actor', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), hookActor = { pid: process.pid + 1000, started_identity: '2026-10-21T22:00:03Z' };
   const worker = createNativeExecutionWorker({ interruptCurrentRun: true, expectedScope: f.options.expectedScope, provider: f.options.provider,
     runtime: { ...f.options.runtime, actor: () => ({ ...hookActor }) } });
@@ -105,7 +107,7 @@ test('separate hook worker uses its own scoped actor and admission profile inste
   f.scope.multiplexer.key += '-changed'; await assert.rejects(worker.store.transaction(() => null));
 });
 
-test('native same-server immediate control sends before held graph lock without v2 journals, permits next request', async t => {
+test('native same-server immediate control sends before held graph lock without v2 journals, permits next request', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), sends = [];
   f.options.immediateStop = { currentLaunchId: () => A.launch_id,
     sendKey: name => { sends.push(name); return {session_id:name,outcome:'accepted'}; } };
@@ -125,7 +127,7 @@ test('native same-server immediate control sends before held graph lock without 
   assert.equal(registered.isError,undefined);assert.equal(registered.structuredContent.operations.send,'not_issued');
 });
 
-test('cold native constructor and immediate stop do not enroll or wait on an existing writer lock', async t => {
+test('cold native constructor and immediate stop do not enroll or wait on an existing writer lock', { skip: posixCheckpoint }, async t => {
   const f=fixture(t), keys=[];
   f.options.immediateStop={currentLaunchId:()=>A.launch_id,sendKey:session_id=>{keys.push(session_id);return {session_id,outcome:'accepted'};}};
   const p=f.create();

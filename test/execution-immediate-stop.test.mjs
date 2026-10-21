@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,7 +43,7 @@ test('only normal transport receipt counts as sent; idle is distinct and no nati
   assert.equal(stop({session_id:'a'},[],()=>fake).result.status,'failed');
  const result=stop({session_id:'a'},[]).result;assert.deepEqual(Object.keys(result),['session_id','status','targets']);
 });
-test('snapshot reads do not wait for held writer lock or change graph bytes',t=>{
+test('snapshot reads do not wait for held writer lock or change graph bytes',{ skip: posixCheckpoint }, t=>{
  const root=mkdtempSync(join(tmpdir(),'immediate-snapshot-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
  const store=new FileExecutionStore(root);store.transactionSync(state=>{});
  const path=join(root,'relations.json'),before=readFileSync(path);mkdirSync(join(root,'transaction.lock'));

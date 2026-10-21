@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,10 +41,10 @@ function fixture(t, failFirst = false, capture, tracking) {
     completions.get(session)({ schema: 'aiterm.agent-wait-result.v1', ...boundary(session), outcome: 'done', turn_id: 'native-turn' });
   } };
 }
-test('public old steer without native callbacks is refused before any manager execution can be mounted', () => {
-  assert.throws(() => createParentManagerExecution({ profile: {}, parent: {}, native: {} }), error => error.code === 'EXECUTION_UNSUPPORTED');
+test('public old steer without native callbacks is refused before any manager execution can be mounted', { skip: posixCheckpoint }, () => {
+  assert.throws(() => createParentManagerExecution({ profile: {}, parent: {}, native: {}, provider: { DELIVERY_ADMISSION_CONTRACT: undefined } }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
-test('real manager captures the existing request and parent before_send, then uses the guarded submit exactly once', async t => {
+test('real manager captures the existing request and parent before_send, then uses the guarded submit exactly once', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), original = request('bot-b'), endpoint = { ...parent };
   const delivery = withExecutionRequest(original, () => f.manager.request(endpoint));
   original.delivery_id = 'mutated'; endpoint.thread_id = 'different-thread';
@@ -54,7 +56,7 @@ test('real manager captures the existing request and parent before_send, then us
   assert.match(f.submits[0].text, /synthetic answer$/); assert.deepEqual(f.submits[0].endpoint, parent);
   assert.equal(currentExecutionRequest(), null);
 });
-test('concurrent manager requests retain their own original refs and missing context or remote cannot fabricate one', async t => {
+test('concurrent manager requests retain their own original refs and missing context or remote cannot fabricate one', { skip: posixCheckpoint }, async t => {
   const f = fixture(t);
   const one = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
   const two = withExecutionRequest(request('bot-c'), () => f.manager.request(parent));
@@ -65,7 +67,7 @@ test('concurrent manager requests retain their own original refs and missing con
   await assert.rejects(remote.before_send({ ...boundary('bot-d'), remote: {} }), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.equal(f.binds.length, 2); assert.equal(f.submits.length, 0);
 });
-test('failed generation binding releases the existing child claim rather than leaving an untracked delivery', async t => {
+test('failed generation binding releases the existing child claim rather than leaving an untracked delivery', { skip: posixCheckpoint }, async t => {
   const f = fixture(t, true);
   const failed = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
   await assert.rejects(failed.before_send(boundary('bot-b')), error => error.code === 'EXECUTION_UNCONFIRMED');
@@ -73,7 +75,7 @@ test('failed generation binding releases the existing child claim rather than le
   const next = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
   await next.before_send(boundary('bot-b')); assert.equal(next.result().state, 'waiting');
 });
-test('manager captures and detaches native evidence at request time rather than a later registration continuation', async t => {
+test('manager captures and detaches native evidence at request time rather than a later registration continuation', { skip: posixCheckpoint }, async t => {
   const original = { native_tool_id: 'existing-native-tool', request: request('bot-b') };
   const f = fixture(t, false, () => original);
   const delivery = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
@@ -81,7 +83,7 @@ test('manager captures and detaches native evidence at request time rather than 
   await delivery.before_send(boundary('bot-b'));
   assert.deepEqual(f.binds[0].evidence, { native_tool_id: 'existing-native-tool', request: request('bot-b') });
 });
-test('execution uses the actual provider error class to distinguish a refusal from missing RPC outcome', () => {
+test('execution uses the actual provider error class to distinguish a refusal from missing RPC outcome', { skip: posixCheckpoint }, () => {
   class ProviderError extends Error { constructor(outcome_unknown) { super('synthetic vendor error'); this.outcome_unknown = outcome_unknown; } }
   const execution = createParentManagerExecution({ parent: {}, native: {}, profile: {}, provider: {
     withDeliveryEffect() {}, SteerDeliveryError: ProviderError,
@@ -93,7 +95,7 @@ test('execution uses the actual provider error class to distinguish a refusal fr
   assert.equal(execution.outcomeUnknown(new ProviderError(true)), true);
   assert.equal(execution.outcomeUnknown(Object.assign(Error('RPC reject'), { outcome_unknown: false })), null);
 });
-test('missing execution completion proof preserves the real saved answer and keeps normal delivery', async t => {
+test('missing execution completion proof preserves the real saved answer and keeps normal delivery', { skip: posixCheckpoint }, async t => {
   let observed = 0;
   const f = fixture(t, false, undefined, async () => { observed++; throw Error('synthetic native done proof unavailable'); });
   const delivery = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
@@ -101,7 +103,7 @@ test('missing execution completion proof preserves the real saved answer and kee
   await until(() => f.manager.status('bot-b')[0]?.state === 'submitted');
   assert.equal(observed, 1); assert.equal(f.submits.length, 1); assert.match(f.submits[0].text, /synthetic answer/);
 });
-test('durable answer releases its old child claim while execution metadata waits for the original receipt', async t => {
+test('durable answer releases its old child claim while execution metadata waits for the original receipt', { skip: posixCheckpoint }, async t => {
   const entered = { done: false }; let release;
   const pending = new Promise(resolve => { release = resolve; });
   const f = fixture(t, false, undefined, async () => { entered.done = true; await pending; });
@@ -113,7 +115,7 @@ test('durable answer releases its old child claim while execution metadata waits
   assert.notEqual(two.result().delivery_id, one.result().delivery_id);
 });
 
-test('cancel after execution binding refuses old Claude/Cursor companion writes and retains the bound delivery for diagnosis', async t => {
+test('cancel after execution binding refuses old Claude/Cursor companion writes and retains the bound delivery for diagnosis', { skip: posixCheckpoint }, async t => {
   const { mkdirSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
   const { stateRoot } = await import('../dist/agent-shared.js');
   const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
@@ -158,7 +160,7 @@ test('cancel after execution binding refuses old Claude/Cursor companion writes 
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
 
-test('cancel while manager waits for an old child prevents even the new reservation/claim metadata', async t => {
+test('cancel while manager waits for an old child prevents even the new reservation/claim metadata', { skip: posixCheckpoint }, async t => {
   const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
   const { ExecutionError } = await import('../dist/execution-wire.js');
   const f = fixture(t), entered = deferred(), resume = deferred(); let cancelled = false;
@@ -173,7 +175,7 @@ test('cancel while manager waits for an old child prevents even the new reservat
   assert.deepEqual(f.manager.status('bot-b'), []);
 });
 
-test('execution Claude/Cursor without a private companion adapter cannot fall back to legacy helpers', async t => {
+test('execution Claude/Cursor without a private companion adapter cannot fall back to legacy helpers', { skip: posixCheckpoint }, async t => {
   const f = fixture(t);
   for (const endpoint of [{ kind: 'claude', hook_root: '/synthetic', request_id: 'toolu_missing', session_id: parent.thread_id },
     { kind: 'cursor', hook_root: '/synthetic' }]) {
@@ -190,7 +192,7 @@ function companionProvider(overrides = {}) {
     submitCodexParentAnswer() {}, submitClaudeParentAnswer() {}, submitCursorParentAnswer() {}, ...overrides };
 }
 
-test('companion factory uses its selected profile/provider and rejects replaced owner evidence before writing', async () => {
+test('companion factory uses its selected profile/provider and rejects replaced owner evidence before writing', { skip: posixCheckpoint }, async () => {
   let verified = false, calls = 0;
   const proof = { original: true }, parent = { kind: 'claude', request_id: 'toolu_selected', session_id: '00000000-0000-4000-8000-000000000001', hook_root: '/synthetic-selected' };
   const provider = companionProvider({ bindClaudeParentDelivery(profile, endpoint, id) {
@@ -204,7 +206,7 @@ test('companion factory uses its selected profile/provider and rejects replaced 
   assert.throws(() => lost.prepareCompanion('existing-delivery', parent, proof), /owner changed/); assert.equal(calls, 1);
 });
 
-test('missing or asynchronous companion evidence cannot become a late proof and call a metadata writer', async () => {
+test('missing or asynchronous companion evidence cannot become a late proof and call a metadata writer', { skip: posixCheckpoint }, async () => {
   let calls = 0;
   const provider = companionProvider({ bindClaudeParentDelivery() { calls++; } });
   const endpoint = { kind: 'claude', request_id: 'toolu_bad', hook_root: '/synthetic', session_id: parent.thread_id };
@@ -215,7 +217,7 @@ test('missing or asynchronous companion evidence cannot become a late proof and 
   assert.equal(calls, 0);
 });
 
-test('a companion failure after a partial metadata write keeps the original bound record without a watcher or implicit retry', async t => {
+test('a companion failure after a partial metadata write keeps the original bound record without a watcher or implicit retry', { skip: posixCheckpoint }, async t => {
   const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
   const root = mkdtempSync(join(tmpdir(), 'execution-companion-partial-')), proof = { original: true };
   let binds = 0, writes = 0, watchers = 0;
@@ -238,7 +240,7 @@ test('a companion failure after a partial metadata write keeps the original boun
 });
 
 
-test('factory parent selector is mandatory and synchronous, detached and fixed independently of later option changes', () => {
+test('factory parent selector is mandatory and synchronous, detached and fixed independently of later option changes', { skip: posixCheckpoint }, () => {
   const endpoint = { kind: 'claude', request_id: 'toolu_frozen', session_id: parent.thread_id, hook_root: '/synthetic-fixed-root' };
   const input = { parent: {}, native: {}, provider: companionProvider(), profile: {}, parentFromIngress: () => endpoint };
   const execution = createParentManagerExecution(input); input.parentFromIngress = () => null;
@@ -251,7 +253,7 @@ test('factory parent selector is mandatory and synchronous, detached and fixed i
   assert.equal(createParentManagerExecution({ ...input, parentFromIngress: () => null }).parentFromIngress(), null);
 });
 
-test('bind possible or untyped rejection retains the original delivery diagnostic without a watcher, queue or retry', async t => {
+test('bind possible or untyped rejection retains the original delivery diagnostic without a watcher, queue or retry', { skip: posixCheckpoint }, async t => {
   const { ExecutionError } = await import('../dist/execution-wire.js');
   for (const failure of [new ExecutionError('EXECUTION_STATE_UNAVAILABLE', 'possible'),
     Object.assign(Error('synthetic RPC response lost'), { code: 'EXECUTION_UNCONFIRMED', effect: 'not_started' })]) {
@@ -272,7 +274,7 @@ test('bind possible or untyped rejection retains the original delivery diagnosti
   }
 });
 
-test('uncertain owner diagnosis keeps only the original validated request/source proof and never raw metadata', async t => {
+test('uncertain owner diagnosis keeps only the original validated request/source proof and never raw metadata', { skip: posixCheckpoint }, async t => {
   const root = mkdtempSync(join(tmpdir(), 'parent-bind-proof-'));
   const ref = { kind: 'mcp', process_pid: 22, process_started_identity: '2026-10-21T07:00:01Z', request_id: 91, tool: 'pty_send', target_session_id: 'bot-b' };
   const proof = { schema: 'aiterm.parent-source.v1', request: ref,
@@ -296,7 +298,7 @@ test('uncertain owner diagnosis keeps only the original validated request/source
   assert.throws(() => withExecutionRequest(other, () => manager.request(parent)), error => error.code === 'EXECUTION_CONFLICT');
 });
 
-test('private reservation remains unknown while bind awaits and a typed pre-effect refusal removes it', async t => {
+test('private reservation remains unknown while bind awaits and a typed pre-effect refusal removes it', { skip: posixCheckpoint }, async t => {
   const { readdirSync } = await import('node:fs');
   const root = mkdtempSync(join(tmpdir(), 'parent-bind-pending-')), entered = deferred(), resume = deferred(); let watched = 0;
   const manager = new ParentDeliveryManager({ root, execution: {
@@ -313,7 +315,7 @@ test('private reservation remains unknown while bind awaits and a typed pre-effe
   assert.equal(delivery.result(), null); assert.equal(existsSync(file), false); assert.equal(watched, 0);
 });
 
-test('unknown preparation survives manager reconstruction and legacy recovery never watches a private record', async t => {
+test('unknown preparation survives manager reconstruction and legacy recovery never watches a private record', { skip: posixCheckpoint }, async t => {
   const { mkdirSync } = await import('node:fs');
   for (const state of ['unknown', 'waiting']) {
     const root = mkdtempSync(join(tmpdir(), 'parent-bind-recovery-'));
@@ -337,7 +339,7 @@ test('unknown preparation survives manager reconstruction and legacy recovery ne
   }
 });
 
-test('legacy unmounted manager keeps its original record and receipt shape without private execution references', async t => {
+test('legacy unmounted manager keeps its original record and receipt shape without private execution references', { skip: posixCheckpoint }, async t => {
   const { readdirSync } = await import('node:fs');
   const root = mkdtempSync(join(tmpdir(), 'parent-legacy-shape-'));
   const manager = new ParentDeliveryManager({ root, dependencies: {

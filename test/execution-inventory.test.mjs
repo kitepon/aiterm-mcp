@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -45,7 +47,7 @@ test('even an empty or fully registered inventory cannot prove launch, fence, po
   assert.equal(full.native_fence, 'unknown'); assert.equal(full.relation_coverage, 'incomplete');
   assert.equal('source' in full.participants[0], false); assert.equal(state.records[0].relation.target_fence, 'open');
 });
-test('missing registration cannot be inferred from an active MCP request, a role declaration or a matching native PID', () => {
+test('missing registration cannot be inferred from an active MCP request, a role declaration or a matching native PID', { skip: posixCheckpoint }, () => {
   const state = emptyExecutionState(); state.records.push(record());
   const before = structuredClone(state), missing = executionParticipantInventory(state, () => [old]);
   assert.deepEqual(missing.participants[0].missing, ['unregistered_actor']);
@@ -60,7 +62,7 @@ test('retired MCP history is omitted, while an unresolved native slot still pres
   const entry = executionParticipantInventory(state, () => [old]).participants[0];
   assert.deepEqual(entry.references, [{ kind: 'mcp', request: request() }]); assert.deepEqual(entry.missing, ['unregistered_actor']);
 });
-test('same PID with a new start never inherits the old request or erases its uncertain slot, including reconstruction', async t => {
+test('same PID with a new start never inherits the old request or erases its uncertain slot, including reconstruction', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.store.enroll(['mcp']);
   await f.raw.transaction(state => { state.records.push(record()); state.slots.push({ session_id: B.session_id,
     expected_launch_id: B.launch_id, stage: 'send', state: 'unknown', request: request() }); });
@@ -73,7 +75,7 @@ test('same PID with a new start never inherits the old request or erases its unc
   assert.equal((await f.raw.transaction(state => state.participants, { readOnly: true })).length, 2);
   assert.equal((await f.raw.transaction(state => state.slots, { readOnly: true }))[0].state, 'unknown');
 });
-test('an unenrolled or removed participant cannot enter metadata admission, and inventory diagnoses without repairing it', async t => {
+test('an unenrolled or removed participant cannot enter metadata admission, and inventory diagnoses without repairing it', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); let callbacks = 0;
   assert.throws(() => f.store.transactionSync(() => { callbacks++; }), code('EXECUTION_UNSUPPORTED'));
   f.store.enroll(['mcp']); await f.raw.transaction(state => { state.records.push(record()); state.participants = []; });
@@ -83,7 +85,7 @@ test('an unenrolled or removed participant cannot enter metadata admission, and 
   assert.deepEqual(f.store.inventory(f.observe).participants[0].missing, ['unregistered_actor']);
   assert.equal(readFileSync(join(f.dir, 'relations.json'), 'utf8'), before); assert.equal(callbacks, 0);
 });
-test('deferred native issuance rechecks a removed role after preflight without auto-enrollment or an issued slot', async t => {
+test('deferred native issuance rechecks a removed role after preflight without auto-enrollment or an issued slot', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.store.enroll(['mcp']);
   const runtime = { async sourceEvidence() { return { runtime_launch: A, caller_bound: true, invocation_boundary: null }; },
     async observe(session) { return this.observeSync(session); }, observeSync(session) { return { state: 'present', launch: session === A.session_id ? A : B }; },
@@ -124,7 +126,7 @@ test('parent receipt does not retire actor references; exact finished original/r
   assert.deepEqual(later.participants.map(row => row.actor), [replacement]);
   assert.equal(later.participants[0].references.every(ref => ref.kind === 'mcp'), true);
 });
-test('native failure followed by lost metadata admission remains possible and retains the issued slot', async t => {
+test('native failure followed by lost metadata admission remains possible and retains the issued slot', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.store.enroll(['mcp']);
   const runtime = { async sourceEvidence() { return { runtime_launch: A, caller_bound: true, invocation_boundary: null }; },
     async observe(session) { return this.observeSync(session); }, observeSync(session) { return { state: 'present', launch: session === A.session_id ? A : B }; } };
@@ -135,7 +137,7 @@ test('native failure followed by lost metadata admission remains possible and re
   }, B.session_id), error => error.effect === 'possible' && error.code === 'EXECUTION_UNCONFIRMED');
   assert.equal(effects, 1); assert.equal(f.raw.transactionSync(state => state.slots, { readOnly: true })[0].state, 'issued');
 });
-test('successful close/configure followed by registration loss never becomes a pre-effect refusal or reusable slot', async t => {
+test('successful close/configure followed by registration loss never becomes a pre-effect refusal or reusable slot', { skip: posixCheckpoint }, async t => {
   for (const stage of ['close', 'configure']) {
     const f = fixture(t); f.store.enroll(['mcp']); let present = true, effects = 0;
     const runtime = { async observe() { return present ? { state: 'present', launch: B } : { state: 'absent' }; } };
@@ -154,7 +156,7 @@ test('missing/malformed/async/duplicate/unrelated native identities never pass a
     assert.equal(value.participants[0].native_identity, 'unavailable'); assert.equal(value.native_fence, 'unknown');
   }
 });
-test('old private state missing declarations reads as missing; corrupt/duplicate state fails closed without reset', t => {
+test('old private state missing declarations reads as missing; corrupt/duplicate state fails closed without reset', { skip: posixCheckpoint }, t => {
   const f = fixture(t), path = join(f.dir, 'relations.json'), previous = emptyExecutionState(); delete previous.participants;
   writeFileSync(path, JSON.stringify(previous));
   assert.deepEqual(f.raw.transactionSync(state => state.participants, { readOnly: true }), []);

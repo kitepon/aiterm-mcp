@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -88,7 +90,7 @@ async function fixture(t, environment = { AITERM_SESSION_ID: A.session_id, AITER
   return { client, server, service, store, live, effects, parentProbes: () => parentProbes,
     holdTarget() { hold = { entered: pause(), release: pause() }; return hold; } };
 }
-test('default and injected constructors expose the same 18 real tools without registering cascade controls or starting stdio', async t => {
+test('default and injected constructors expose the same 18 real tools without registering cascade controls or starting stdio', { skip: posixCheckpoint }, async t => {
   const client = await connect(t, createAitermServer());
   assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), TOOL_NAMES);
   const f = await fixture(t);
@@ -99,7 +101,7 @@ test('an incomplete private execution factory cannot fall back to a legacy paren
   for (const value of [undefined, {}, { dispatcher: { dispatch() {} } }, { dispatcher: { dispatch() {} }, parentExecution: {} }])
     assert.throws(() => createAitermServer({ execution: () => value }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
-test('same real constructor/SDK reaches exactly the registered service controls; stop v2 reports missing interruption adapter without closing', async t => {
+test('same real constructor/SDK reaches exactly the registered service controls; stop v2 reports missing interruption adapter without closing', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, {}, { controls: true, clientName: 'bellteam' }), calls = { execute: 0, roots: 0, stop: 0 };
   for (const name of Object.keys(calls)) { const action = f.service[name].bind(f.service); f.service[name] = (...args) => { calls[name]++; return action(...args); }; }
   assert.equal((await f.client.listTools()).tools.length, 21);
@@ -119,7 +121,7 @@ test('same real constructor/SDK reaches exactly the registered service controls;
   assert.equal((await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v1', roots: [A] } })).isError, true);
   assert.equal(calls.stop, 1);
 });
-test('unregistered controls, a foreign service and arbitrary registered tool names cannot bypass the original dispatcher', async t => {
+test('unregistered controls, a foreign service and arbitrary registered tool names cannot bypass the original dispatcher', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); let arbitrary = 0;
   const blocked = await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
   assert.equal(blocked._meta[ERROR].code, 'EXECUTION_UNSUPPORTED');
@@ -129,7 +131,7 @@ test('unregistered controls, a foreign service and arbitrary registered tool nam
   const other = await f.client.callTool({ name: 'unrelated_control', arguments: {} });
   assert.equal(other._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.equal(arbitrary, 0); assert.deepEqual(f.effects, []);
 });
-test('constructor control binding fixes host source from this initialized client and never falls back to stdio env or a supplied resolver', async t => {
+test('constructor control binding fixes host source from this initialized client and never falls back to stdio env or a supplied resolver', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
     { controls: true, clientName: 'bellteam', controlOptions: { sourceContext: () => ({ schema: 'aiterm.execution-source.v1', source: { launch: A, boundary: null } }) } });
   const request = { kind: 'delivery', delivery_id: 'missing-host-meta', target_session_id: B.session_id };
@@ -143,7 +145,7 @@ test('constructor control binding fixes host source from this initialized client
     _meta: { 'aiterm/execution_source': { schema: 'aiterm.execution-source.v1', source: { launch: A, boundary: null } } } });
   assert.equal(forged._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.deepEqual(g.effects, []);
 });
-test('real in-memory SDK handler sends one actual core key through the durable request frame and preserves its binding', posix, async t => {
+test('real in-memory SDK handler sends one actual core key through the durable request frame and preserves its binding', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = await fixture(t), result = await f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   assert.equal(result.isError, undefined); assert.deepEqual(f.effects, ['send-keys']);
   assert.deepEqual(result.structuredContent, { schema: 'aiterm.pty-key-result.v1', session_id: B.session_id, key: 'C-c',
@@ -154,7 +156,7 @@ test('real in-memory SDK handler sends one actual core key through the durable r
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.records[0].operations.send, 'accepted'); assert.deepEqual(state.slots, []);
 });
-test('a rejected native key has no accepted structured receipt; the real SDK frame preserves uncertainty and never retries or closes', posix, async t => {
+test('a rejected native key has no accepted structured receipt; the real SDK frame preserves uncertainty and never retries or closes', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = await fixture(t, { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id }, { keyFailure: true });
   const result = await f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'Escape' } });
   assert.equal(result.isError, true); assert.equal(result.structuredContent?.outcome, undefined);
@@ -163,7 +165,7 @@ test('a rejected native key has no accepted structured receipt; the real SDK fra
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.slots.length, 1); assert.equal(state.slots[0].state, 'unknown');
 });
-test('all mutating handler families reject a stopped source before core, vendor auth, remote or automatic naming effects', posix, async t => {
+test('all mutating handler families reject a stopped source before core, vendor auth, remote or automatic naming effects', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = await fixture(t); await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
   for (const [name, args] of [
     ['pty_open', { name: 'bot-new' }], ['pty_send', { session_id: B.session_id, text: 'synthetic' }],
@@ -185,7 +187,7 @@ test('all mutating handler families reject a stopped source before core, vendor 
   const observed = await f.client.callTool({ name: 'pty_list', arguments: {} });
   assert.equal(observed.isError, undefined); assert.equal(observed.structuredContent.sessions.length, 1);
 });
-test('the SDK request keeps its original source through an asynchronous preflight and stops without waiting for that preparation', async t => {
+test('the SDK request keeps its original source through an asynchronous preflight and stops without waiting for that preparation', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t), held = f.holdTarget();
   const call = f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   await held.entered.promise;
@@ -195,14 +197,14 @@ test('the SDK request keeps its original source through an asynchronous prefligh
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
   assert.deepEqual(f.effects, []); assert.ok(f.live.has(B.session_id));
 });
-test('the actual close handler shares admission and binds only the confirmed closed generation', posix, async t => {
+test('the actual close handler shares admission and binds only the confirmed closed generation', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = await fixture(t), result = await f.client.callTool({ name: 'pty_close', arguments: { session_id: B.session_id } });
   assert.equal(result.isError, undefined); assert.deepEqual(f.effects, ['kill-session']);
   assert.deepEqual(result._meta[BINDING].target.launch, B); assert.equal(f.live.has(B.session_id), false);
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.records[0].relation.completion, 'interrupted'); assert.equal(state.records[0].relation.target_fence, 'closed');
 });
-test('the initialized native parent uses the injected real manager and receives the frozen request source without legacy verification', async t => {
+test('the initialized native parent uses the injected real manager and receives the frozen request source without legacy verification', { skip: posixCheckpoint }, async t => {
   const captures = [], thread = '00000000-0000-4000-8000-000000000001';
   const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {
     ...parent, parentFromIngress: () => ({ thread_id: thread, codex_home: '/synthetic-frozen-parent' }), captureEndpointEvidence(endpoint) {
@@ -223,7 +225,7 @@ test('the initialized native parent uses the injected real manager and receives 
 });
 
 
-test('private explicit parent absence ignores valid current native metadata instead of redecoding a parent', async t => {
+test('private explicit parent absence ignores valid current native metadata instead of redecoding a parent', { skip: posixCheckpoint }, async t => {
   let selections = 0, captures = 0;
   const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {
     ...parent, parentFromIngress: () => { selections++; return null; }, captureEndpointEvidence() { captures++; throw Error('no late parent'); },
@@ -233,7 +235,7 @@ test('private explicit parent absence ignores valid current native metadata inst
   assert.equal(result.isError, true); assert.equal(selections, 1); assert.equal(captures, 0); assert.deepEqual(f.effects, []);
 });
 
-test('private missing or asynchronous selectors fail before a current metadata parent can be captured', async t => {
+test('private missing or asynchronous selectors fail before a current metadata parent can be captured', { skip: posixCheckpoint }, async t => {
   let captures = 0;
   for (const selection of [undefined, () => undefined, () => Promise.resolve(null)]) {
     const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {

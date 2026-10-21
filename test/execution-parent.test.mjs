@@ -2,6 +2,8 @@
 // These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,7 +50,7 @@ async function fixture(accepted = true, nativeDone = false) {
   if (accepted) await accept();
   return { directory, store, service, bindings, adapter, live, accept, setEndpointMatches(value) { endpointMatches = value; } };
 }
-test('existing delivery binds the original verified parent generation and canonical before_send child reference without payload', async () => {
+test('existing delivery binds the original verified parent generation and canonical before_send child reference without payload', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), binding = await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   assert.deepEqual(binding.parent, point(A)); assert.deepEqual(binding.child, point(B, 17));
   const reconstructed = createExecutionParentAdapter(f.bindings);
@@ -60,7 +62,7 @@ test('existing delivery binds the original verified parent generation and canoni
   assert.deepEqual(await f.adapter.bind(id, originalRequest, point(B, 17), endpoint), binding);
   await assert.rejects(f.adapter.bind(id, originalRequest, point(B, 18), endpoint), code('EXECUTION_CONFLICT'));
 });
-test('an accepted official submit uses the same existing delivery ID, records a mechanical return edge and never marks execution complete', async () => {
+test('an accepted official submit uses the same existing delivery ID, records a mechanical return edge and never marks execution complete', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   let effects = 0;
   const result = await f.adapter.submit(id, endpoint, async (binding, fixedEndpoint, issue) => {
@@ -78,21 +80,21 @@ test('an accepted official submit uses the same existing delivery ID, records a 
   const duplicate = await f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: 'duplicate' }; });
   assert.equal(duplicate.isError, true); assert.equal(effects, 1);
 });
-test('parent vendor endpoint needs its own runtime alias proof; missing resolver and other native endpoint are refused', async () => {
+test('parent vendor endpoint needs its own runtime alias proof; missing resolver and other native endpoint are refused', { skip: posixCheckpoint }, async () => {
   const f = await fixture();
   const { verifyParentEndpoint, ...withoutResolver } = f.bindings;
   await assert.rejects(createExecutionParentAdapter(withoutResolver).bind(id, originalRequest, point(B, 17), endpoint), code('EXECUTION_UNSUPPORTED'));
   await assert.rejects(f.adapter.bind(id, originalRequest, point(B, 17), { ...endpoint, thread_id: 'different-native-thread' }), code('EXECUTION_STALE_GENERATION'));
   await assert.rejects(f.adapter.lookup(id), code('EXECUTION_NOT_FOUND'));
 });
-test('before_send may bind while preparing but cannot emit before the original successful dispatch binding', async () => {
+test('before_send may bind while preparing but cannot emit before the original successful dispatch binding', { skip: posixCheckpoint }, async () => {
   const f = await fixture(false); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   let effects = 0;
   const submit = () => f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; });
   await assert.rejects(submit(), code('EXECUTION_UNCONFIRMED')); assert.equal(effects, 0);
   await f.accept(); assert.equal((await submit()).isError, undefined); assert.equal(effects, 1);
 });
-test('parent replacement, child absence and missing companion cannot select the current same-name seat', async () => {
+test('parent replacement, child absence and missing companion cannot select the current same-name seat', { skip: posixCheckpoint }, async () => {
   for (const change of ['parent', 'child', 'missing']) {
     const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
     if (change === 'parent') f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) });
@@ -103,7 +105,7 @@ test('parent replacement, child absence and missing companion cannot select the 
     assert.equal(effects, 0);
   }
 });
-test('a stopped child cancels deferred parent resumption and an old inherited request frame is not reused', async () => {
+test('a stopped child cancels deferred parent resumption and an old inherited request frame is not reused', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   const entered = pause(), release = pause(); let effects = 0;
   const pending = f.adapter.submit(id, endpoint, async (_, __, issue) => {
@@ -115,7 +117,7 @@ test('a stopped child cancels deferred parent resumption and an old inherited re
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
   assert.equal(effects, 0); assert.ok(f.live.has(A.session_id));
 });
-test('stop drains an actually issued parent return and reaches the same parent launch even when shared', async () => {
+test('stop drains an actually issued parent return and reaches the same parent launch even when shared', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   const entered = pause(), release = pause(); let effects = 0;
   const pending = f.adapter.submit(id, endpoint, async (_, __, issue) => {
@@ -130,7 +132,7 @@ test('stop drains an actually issued parent return and reaches the same parent l
   assert.deepEqual(result.targets.map(value => value.launch.session_id), [B.session_id, A.session_id]);
   assert.equal(effects, 1);
 });
-test('endpoint alias failure poisons the independent frame even if a vendor wrapper catches it', async () => {
+test('endpoint alias failure poisons the independent frame even if a vendor wrapper catches it', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   let effects = 0;
   const result = await f.adapter.submit(id, endpoint, async (_, __, issue) => {
@@ -141,7 +143,7 @@ test('endpoint alias failure poisons the independent frame even if a vendor wrap
   assert.equal(result.isError, true); assert.equal(result.structuredContent, undefined);
   assert.equal(effects, 0);
 });
-test('stronger before_send operation evidence keeps the immutable receipt boundary as the return source', async () => {
+test('stronger before_send operation evidence keeps the immutable receipt boundary as the return source', { skip: posixCheckpoint }, async () => {
   const f = await fixture(), child = point(B, 17);
   child.boundary.operation_id = 'sha256:' + '1'.repeat(64);
   await f.adapter.bind(id, originalRequest, child, endpoint);
@@ -149,7 +151,7 @@ test('stronger before_send operation evidence keeps the immutable receipt bounda
   assert.deepEqual(result._meta[BINDING].source.point, point(B, 17));
   assert.equal((await f.adapter.lookup(id)).child.boundary.operation_id, child.boundary.operation_id);
 });
-test('an escaped official callback remains bound to its finished admission frame and cannot emit later', async () => {
+test('an escaped official callback remains bound to its finished admission frame and cannot emit later', { skip: posixCheckpoint }, async () => {
   const f = await fixture(); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   let escaped, effects = 0;
   const result = await f.adapter.submit(id, endpoint, async (_, __, issue) => {
@@ -159,7 +161,7 @@ test('an escaped official callback remains bound to its finished admission frame
   assert.throws(() => { escaped(); effects++; });
   assert.equal(effects, 0);
 });
-test('an asynchronous endpoint proof is not a synchronous true even when it resolves successfully or rejects', async () => {
+test('an asynchronous endpoint proof is not a synchronous true even when it resolves successfully or rejects', { skip: posixCheckpoint }, async () => {
   const f = await fixture();
   for (const verifyParentEndpoint of [async () => true, async () => { throw Error('missing native proof'); }]) {
     await assert.rejects(createExecutionParentAdapter({ ...f.bindings, verifyParentEndpoint })
@@ -167,7 +169,7 @@ test('an asynchronous endpoint proof is not a synchronous true even when it reso
   }
   await assert.rejects(f.adapter.lookup(id), code('EXECUTION_NOT_FOUND'));
 });
-test('a child done cannot retire the original branch while its already bound parent return is still unissued', async () => {
+test('a child done cannot retire the original branch while its already bound parent return is still unissued', { skip: posixCheckpoint }, async () => {
   const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   const finished = await f.service.execute({ action: 'finish', request: originalRequest,
     evidence: { kind: 'completion', target: point(B, 17) } });
@@ -178,7 +180,7 @@ test('a child done cannot retire the original branch while its already bound par
   const queued = await f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; });
   assert.equal(queued.isError, undefined); assert.equal(effects, 1);
 });
-test('parent queue acceptance is not a completion fence, but confirmed unissued cancellation can settle the companion', async () => {
+test('parent queue acceptance is not a completion fence, but confirmed unissued cancellation can settle the companion', { skip: posixCheckpoint }, async () => {
   for (const accepted of [true, false]) {
     const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
     const finish = () => f.service.execute({ action: 'finish', request: originalRequest,
@@ -193,7 +195,7 @@ test('parent queue acceptance is not a completion fence, but confirmed unissued 
     assert.equal(after.relation.lifecycle, accepted ? 'tracking' : 'retired');
   }
 });
-test('stop after local child done still reaches that child and cancels an unissued bound parent return', async () => {
+test('stop after local child done still reaches that child and cancels an unissued bound parent return', { skip: posixCheckpoint }, async () => {
   const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   await f.service.execute({ action: 'finish', request: originalRequest, evidence: { kind: 'completion', target: point(B, 17) } });
   const result = await f.service.closeCascade(stop([A]));
@@ -202,7 +204,7 @@ test('stop after local child done still reaches that child and cancels an unissu
   await assert.rejects(f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; }));
   assert.equal(effects, 0);
 });
-test('the manager completion callback reobserves the canonical receipt and cannot substitute captured answer success for native done', async () => {
+test('the manager completion callback reobserves the canonical receipt and cannot substitute captured answer success for native done', { skip: posixCheckpoint }, async () => {
   for (const nativeDone of [true, false]) {
     const f = await fixture(true, nativeDone), beforeSend = point(B, 17);
     beforeSend.boundary.operation_id = 'sha256:' + '1'.repeat(64);
@@ -218,7 +220,7 @@ test('the manager completion callback reobserves the canonical receipt and canno
     }
   }
 });
-test('parent return preflight waits only for the original dispatch receipt and never resends child or queue', async () => {
+test('parent return preflight waits only for the original dispatch receipt and never resends child or queue', { skip: posixCheckpoint }, async () => {
   const f = await fixture(false); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   const entered = pause(), release = pause(); let childEffects = 0, queueEffects = 0;
   const dispatch = f.service.invokeDeferred(ref, 'send', async issue => {
@@ -231,7 +233,7 @@ test('parent return preflight waits only for the original dispatch receipt and n
   release.resolve(); await dispatch; assert.equal((await queue).isError, undefined);
   assert.equal(childEffects, 1); assert.equal(queueEffects, 1);
 });
-test('source stop cancels original-receipt preflight before any parent queue native slot is taken', async () => {
+test('source stop cancels original-receipt preflight before any parent queue native slot is taken', { skip: posixCheckpoint }, async () => {
   const f = await fixture(false); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   const entered = pause(), release = pause(); let queueEffects = 0;
   const dispatch = f.service.invokeDeferred(ref, 'send', async issue => {

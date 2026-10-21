@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,7 +40,7 @@ function fixture(clientName = 'bellteam') {
   const handlers = createExecutionToolHandlers(service, options);
   return { live, runtime, service, options, handlers };
 }
-test('host context, claim, source seat and current runtime launch must agree before generation adoption', async () => {
+test('host context, claim, source seat and current runtime launch must agree before generation adoption', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const result = await f.handlers.agent_execution(input('ab'), { _meta: meta(point(A)) });
   assert.equal(result.structuredContent.source.status, 'verified');
@@ -51,7 +53,7 @@ test('host context, claim, source seat and current runtime launch must agree bef
   const stale = await f.handlers.agent_execution(input('stale'), { _meta: meta(point(A)) });
   assert.equal(stale._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_STALE_GENERATION');
 });
-test('missing or explicitly null host source never falls back to claims or the host stdio environment', async () => {
+test('missing or explicitly null host source never falls back to claims or the host stdio environment', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   for (const [id, extra] of [['missing', {}], ['null', { _meta: meta(null) }]]) {
     const result = await f.handlers.agent_execution(input(id), extra);
@@ -64,7 +66,7 @@ test('missing or explicitly null host source never falls back to claims or the h
     assert.equal(effects, 0);
   }
 });
-test('host metadata is detached at ingress and concurrent requests do not share mutable source context', async () => {
+test('host metadata is detached at ingress and concurrent requests do not share mutable source context', { skip: posixCheckpoint }, async () => {
   const f = fixture(), original = meta(point(A));
   const first = f.handlers.agent_execution(input('from-a'), { _meta: original });
   original[EXECUTION_SOURCE_META_KEY].source.launch = D;
@@ -72,7 +74,7 @@ test('host metadata is detached at ingress and concurrent requests do not share 
   const results = await Promise.all([first, second]);
   assert.deepEqual(results.map(result => result.structuredContent.relation.source.launch), [A, D]);
 });
-test('direct CLI transport cannot replace its environment source with host metadata', async () => {
+test('direct CLI transport cannot replace its environment source with host metadata', { skip: posixCheckpoint }, async () => {
   const f = fixture('codex');
   const refused = await f.handlers.agent_execution(input('forged', D), { _meta: meta(point(D)) });
   assert.equal(refused._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNSUPPORTED');
@@ -80,7 +82,7 @@ test('direct CLI transport cannot replace its environment source with host metad
   const raw = createExecutionToolHandlers(f.service);
   assert.equal((await raw.agent_execution(input('unconfigured'), { _meta: meta(point(A)) }))._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNSUPPORTED');
 });
-test('native RPC admission references cannot be registered through model-controlled tool arguments', async () => {
+test('native RPC admission references cannot be registered through model-controlled tool arguments', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const args = input('forged-native');
   args.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: 'synthetic-start', request_id: 1,
@@ -89,7 +91,7 @@ test('native RPC admission references cannot be registered through model-control
   assert.equal(result._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNSUPPORTED');
   await assert.rejects(f.service.execute({ action: 'status', request: args.reservation.request }), value => value.code === 'EXECUTION_NOT_FOUND');
 });
-test('the actual in-memory MCP handler receives host metadata outside the register arguments', async t => {
+test('the actual in-memory MCP handler receives host metadata outside the register arguments', { skip: posixCheckpoint }, async t => {
   const f = fixture(), server = new McpServer({ name: 'synthetic-aiterm', version: '0.0.0' });
   registerExecutionTools(server, f.service, { sourceContext: extra => executionHostSourceFromMeta(extra._meta, server.server.getClientVersion()?.name) });
   const client = new Client({ name: 'bellteam', version: '0.0.0' });

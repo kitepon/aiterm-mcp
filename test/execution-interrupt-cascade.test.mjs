@@ -2,6 +2,8 @@
 // evidence is synthetic; no CLI, process, public tool or default runtime.
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -69,26 +71,26 @@ function fixture(t, timeout = 100) {
   return { store, live, observations, keys, runtime, service, register, edge, read, add,
     requireAll(value) { required = value; }, noProof() { proof = false; }, onProof(value) { onProof = value; } };
 }
-test('controller admits A/B/C before Esc, follows only actual outward edges, and leaves independent D unmodified', async t => {
+test('controller admits A/B/C before Esc, follows only actual outward edges, and leaves independent D unmodified', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); await f.edge(B, C); await f.edge(D, B); f.requireAll([A, B, C]);
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'confirmed'); assert.deepEqual(f.keys, [A.session_id, B.session_id, C.session_id]);
   assert.ok(result.targets.every(target => target.interruption === 'interrupted' && target.session_preserved === 'confirmed'));
   assert.equal(f.observations.get(D.session_id).recorded_state, 'running'); assert.deepEqual((await f.read()).stopping, []);
 });
-test('cycles and duplicate explicit roots do not duplicate native keys', async t => {
+test('cycles and duplicate explicit roots do not duplicate native keys', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); await f.edge(B, A); f.requireAll([A, B]);
   const result = await f.service.interruptCascade(input([A, A]));
   assert.equal(result.status, 'confirmed'); assert.deepEqual(f.keys.sort(), [A.session_id, B.session_id]);
 });
-test('key acceptance alone holds interruption/session unconfirmed and never retries on another controller call', async t => {
+test('key acceptance alone holds interruption/session unconfirmed and never retries on another controller call', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.noProof();
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].key_receipt, 'accepted');
   assert.equal(result.targets[0].session_preserved, 'unconfirmed');
   await f.service.interruptCascade(input([A])); assert.deepEqual(f.keys, [A.session_id]);
 });
-test('private control injection without native capabilities stays read-only, and a wire argument cannot enable the host-only mode', async t => {
+test('private control injection without native capabilities stays read-only, and a wire argument cannot enable the host-only mode', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), noSelector = new ExecutionService(f.store, { ...f.runtime, selectInterruptionSync: undefined });
   const result = await createExecutionToolHandlers(noSelector, { interruptCurrentRun: true }).agent_stop(input([A]));
   assert.equal(result.structuredContent.targets[0].interruption, 'unsupported');
@@ -97,14 +99,14 @@ test('private control injection without native capabilities stays read-only, and
   assert.equal(attempted.isError, true); assert.deepEqual(f.keys, []); assert.deepEqual((await f.read()).interruptions, []);
   assert.throws(() => createExecutionToolHandlers(f.service, { interruptCurrentRun: 'true' }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
-test('unsupported child admission holds parent release and does not close or guess a key for that child', async t => {
+test('unsupported child admission holds parent release and does not close or guess a key for that child', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); f.observations.delete(B.session_id);
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, [A.session_id]);
   assert.equal(result.targets.find(target => target.launch.session_id === B.session_id).interruption, 'unsupported');
   assert.equal((await f.read()).interruptions[0].phase, 'accepted');
 });
-test('an unsupported branch holds its ancestors while an independent explicit root keeps its confirmed result', async t => {
+test('an unsupported branch holds its ancestors while an independent explicit root keeps its confirmed result', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); f.observations.delete(B.session_id);
   const result = await f.service.interruptCascade(input([A, D]));
   assert.equal(result.status, 'partial'); assert.equal(result.relation_coverage, 'incomplete');
@@ -115,7 +117,7 @@ test('an unsupported branch holds its ancestors while an independent explicit ro
   assert.equal(state.interruptions.find(row => row.before.run.launch.session_id === A.session_id).phase, 'accepted');
   assert.equal(state.interruptions.find(row => row.before.run.launch.session_id === D.session_id).phase, 'settled');
 });
-test('an absent root still reaches its recorded child but does not prove the old ancestor invocation fence', async t => {
+test('an absent root still reaches its recorded child but does not prove the old ancestor invocation fence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); f.live.delete(A.session_id); f.observations.delete(A.session_id);
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, [B.session_id]);
@@ -124,7 +126,7 @@ test('an absent root still reaches its recorded child but does not prove the old
   assert.equal((await f.read()).interruptions[0].phase, 'accepted');
   assert.deepEqual((await f.read()).stopping, []); assert.ok(f.live.has(B.session_id));
 });
-test('a missing native alias stays local to its branch instead of discarding an independent root proof', async t => {
+test('a missing native alias stays local to its branch instead of discarding an independent root proof', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), canonical = point(B); canonical.boundary.turn_id = null;
   const request = await f.edge(A, B, canonical), result = await f.service.interruptCascade(input([A, D]));
   assert.equal(result.status, 'partial');
@@ -133,7 +135,7 @@ test('a missing native alias stays local to its branch instead of discarding an 
   const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
   assert.equal(record.relation.completion, 'open'); assert.deepEqual(record.relation.target, canonical);
 });
-test('a missing target generation cannot be hidden by a local root abort proof', async t => {
+test('a missing target generation cannot be hidden by a local root abort proof', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), record = await f.register('lost-target-binding', A, B);
   await f.store.transaction(state => {
     const value = state.records.find(value => value.reservation.request.delivery_id === record.reservation.request.delivery_id);
@@ -145,7 +147,7 @@ test('a missing target generation cannot be hidden by a local root abort proof',
   assert.ok(result.unresolved.some(value => value.reason === 'target_generation_missing'));
   assert.equal((await f.read()).interruptions[0].phase, 'accepted');
 });
-test('missing canonical native alias preserves the original turn-null receipt and never confirms/retires it', async t => {
+test('missing canonical native alias preserves the original turn-null receipt and never confirms/retires it', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), canonical = point(B); canonical.boundary.turn_id = null;
   const request = await f.edge(A, B, canonical);
   const result = await f.service.interruptCascade(input([B]));
@@ -153,7 +155,7 @@ test('missing canonical native alias preserves the original turn-null receipt an
   const record = (await f.read()).records.find(record => record.reservation.request.delivery_id === request.delivery_id);
   assert.deepEqual(record.relation.target, canonical); assert.equal(record.relation.completion, 'open'); assert.equal(record.relation.lifecycle, 'tracking');
 });
-test('an already native-bound canonical turn is re-observed at its original Point instead of replacing its dispatch cursor', async t => {
+test('an already native-bound canonical turn is re-observed at its original Point instead of replacing its dispatch cursor', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), request = await f.edge(A, B), original = point(B);
   f.runtime.selectInterruptionSync = launch => ({ ...structuredClone(f.observations.get(launch.session_id)),
     run: { ...point(launch), boundary: { ...point(launch).boundary, event_cursor: 99 } } });
@@ -163,7 +165,7 @@ test('an already native-bound canonical turn is re-observed at its original Poin
   const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
   assert.deepEqual(record.relation.target, original); assert.equal(record.relation.completion, 'interrupted');
 });
-test('native alias re-observation refuses a different conversation/harness/native identity before admission or a key', async t => {
+test('native alias re-observation refuses a different conversation/harness/native identity before admission or a key', { skip: posixCheckpoint }, async t => {
   for (const change of ['conversation', 'harness', 'native']) {
     const f = fixture(t), request = await f.edge(A, B);
     f.runtime.selectInterruptionSync = launch => ({ ...structuredClone(f.observations.get(launch.session_id)),
@@ -181,7 +183,7 @@ test('native alias re-observation refuses a different conversation/harness/nativ
     assert.equal(state.records.find(value => value.reservation.request.delivery_id === request.delivery_id).relation.completion, 'open');
   }
 });
-test('multiple canonical cursors for a native turn are not collapsed into one guessed receipt alias', async t => {
+test('multiple canonical cursors for a native turn are not collapsed into one guessed receipt alias', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B);
   const other = point(B); other.boundary.event_cursor++;
   const request = await f.edge(D, B, other), result = await f.service.interruptCascade(input([B]));
@@ -190,7 +192,7 @@ test('multiple canonical cursors for a native turn are not collapsed into one gu
   const record = (await f.read()).records.find(value => value.reservation.request.delivery_id === request.delivery_id);
   assert.deepEqual(record.relation.target, other); assert.equal(record.relation.completion, 'open');
 });
-test('an old native turn, operation or steer ref is not enriched from the currently selected native run', async t => {
+test('an old native turn, operation or steer ref is not enriched from the currently selected native run', { skip: posixCheckpoint }, async t => {
   for (const change of ['turn', 'operation', 'steer']) {
     const f = fixture(t), canonical = point(B);
     if (change === 'turn') canonical.boundary.turn_id = 'old-native-turn';
@@ -204,7 +206,7 @@ test('an old native turn, operation or steer ref is not enriched from the curren
     assert.deepEqual(record.relation.target, canonical); assert.equal(record.relation.completion, 'open');
   }
 });
-test('native-issued RPC timeout keeps all native keys unissued and real late receipt intact', async t => {
+test('native-issued RPC timeout keeps all native keys unissued and real late receipt intact', { skip: posixCheckpoint }, async t => {
   const f = fixture(t, 0), record = await f.register('pending-native', A, B), ready = deferred(), release = deferred();
   const pending = f.service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => {
     ready.resolve(); await release.promise; return { value: 'late accepted receipt', target: point(B) };
@@ -215,7 +217,7 @@ test('native-issued RPC timeout keeps all native keys unissued and real late rec
   assert.ok(result.unresolved.some(gap => gap.reason === 'native_issuance_unconfirmed'));
   release.resolve(); assert.equal((await pending).record.operations.send, 'accepted');
 });
-test('a genuine created-child receipt during drain adds its exact launch before any key', async t => {
+test('a genuine created-child receipt during drain adds its exact launch before any key', { skip: posixCheckpoint }, async t => {
   const f = fixture(t, 500); await f.edge(A, B); f.live.delete(C.session_id); f.observations.delete(C.session_id);
   const record = await f.register('late-child-create', B, C, null), ready = deferred(), release = deferred();
   const pending = f.service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'launch', async () => {
@@ -227,23 +229,23 @@ test('a genuine created-child receipt during drain adds its exact launch before 
   release.resolve(); assert.equal((await pending).record.operations.launch, 'accepted');
   const result = await stopping; assert.equal(result.status, 'confirmed'); assert.deepEqual(f.keys, [A.session_id, B.session_id, C.session_id]);
 });
-test('a replaced generation is never interrupted by reusable seat name', async t => {
+test('a replaced generation is never interrupted by reusable seat name', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.live.set(A.session_id, { ...A, launch_id: 'f'.repeat(32) });
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'unconfirmed'); assert.deepEqual(f.keys, []); assert.equal(result.targets[0].key_receipt, 'not_sent');
 });
-test('two controllers share the same journal and native command without replay', async t => {
+test('two controllers share the same journal and native command without replay', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), other = new ExecutionService(new FileExecutionStore(f.store.directory), f.runtime);
   const results = await Promise.all([f.service.interruptCascade(input([A])), other.interruptCascade(input([A]))]);
   assert.deepEqual(f.keys, [A.session_id]); assert.ok(results.some(result => result.status === 'confirmed'));
 });
-test('public stop remains read-only even with private controller callbacks; missing private capabilities also stay unsupported', async t => {
+test('public stop remains read-only even with private controller callbacks; missing private capabilities also stay unsupported', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); const result = await f.service.stop(input([A]));
   assert.equal(result.targets[0].interruption, 'unsupported'); assert.deepEqual((await f.read()).interruptions, []);
   delete f.runtime.selectInterruptionSync;
   assert.equal((await f.service.interruptCascade(input([A]))).targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
 });
-test('all barrier releases and the final scope commit together, before accepting same-launch new work', async t => {
+test('all barrier releases and the final scope commit together, before accepting same-launch new work', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B); let checked = 0;
   f.onProof(run => { if (run.launch.session_id !== B.session_id) return;
     const persisted = JSON.parse(readFileSync(join(f.store.directory, 'relations.json'), 'utf8'));
@@ -252,18 +254,18 @@ test('all barrier releases and the final scope commit together, before accepting
   assert.equal((await f.service.interruptCascade(input([A]))).status, 'confirmed'); assert.ok(checked > 0);
   assert.ok((await f.read()).interruptions.every(row => row.phase === 'settled'));
 });
-test('replacement of an earlier target during another proof rolls back all releases and stays possible', async t => {
+test('replacement of an earlier target during another proof rolls back all releases and stays possible', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); await f.edge(A, B);
   f.onProof(run => { if (run.launch.session_id === B.session_id) f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) }); });
   await assert.rejects(f.service.interruptCascade(input([A])), error => error.effect === 'possible');
   assert.ok((await f.read()).interruptions.every(row => row.phase === 'accepted')); assert.equal(f.keys.length, 2);
 });
-test('a late coverage callback rejection cannot erase native key effects with a not_started error', async t => {
+test('a late coverage callback rejection cannot erase native key effects with a not_started error', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.runtime.coverage = async () => { throw Object.assign(new Error('late callback refused'), { effect: 'not_started' }); };
   await assert.rejects(f.service.interruptCascade(input([A])), error => error.effect === 'possible');
   assert.deepEqual(f.keys, [A.session_id]); assert.equal((await f.read()).interruptions[0].phase, 'accepted');
 });
-test('unrelated native-issued RPC does not delay the selected cascade or get cancelled', async t => {
+test('unrelated native-issued RPC does not delay the selected cascade or get cancelled', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), record = await f.register('independent-rpc', C, D), ready = deferred(), release = deferred();
   const pending = f.service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => {
     ready.resolve(); await release.promise; return { value: 'independent receipt', target: point(D) };
@@ -272,13 +274,13 @@ test('unrelated native-issued RPC does not delay the selected cascade or get can
   assert.equal((await f.service.interruptCascade(input([A]))).status, 'confirmed'); assert.deepEqual(f.keys, [A.session_id]);
   release.resolve(); assert.equal((await pending).value, 'independent receipt');
 });
-test('incomplete relation coverage is partial even when a selected native run is independently confirmed', async t => {
+test('incomplete relation coverage is partial even when a selected native run is independently confirmed', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.runtime.coverage = async () => 'incomplete';
   const result = await f.service.interruptCascade(input([A]));
   assert.equal(result.status, 'partial'); assert.equal(result.relation_coverage, 'incomplete');
   assert.equal(result.targets[0].interruption, 'interrupted');
 });
-test('actual runtime constructor captures private controller callbacks without enabling the public stop control', async t => {
+test('actual runtime constructor captures private controller callbacks without enabling the public stop control', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
     exists: f.live.has(session_id), launch_id: f.live.get(session_id)?.launch_id ?? null });
   const bindings = { observeSession: observe, observeSessionSync: observe, async observeDone() { assert.fail('no generic completion'); },
@@ -291,7 +293,7 @@ test('actual runtime constructor captures private controller callbacks without e
   assert.equal((await service.stop(input([A]))).targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
   assert.equal((await service.interruptCascade(input([A]))).status, 'confirmed'); assert.deepEqual(f.keys, [A.session_id]);
 });
-test('selector receives detached recorded Points without resolving mixed receipts to a latest job or overwriting their bindings', async t => {
+test('selector receives detached recorded Points without resolving mixed receipts to a latest job or overwriting their bindings', { skip: posixCheckpoint }, async t => {
   for (const ambiguous of [false, true]) {
     const f = fixture(t); f.noProof(); const original = point(B), request = await f.edge(A, B, original);
     if (ambiguous) await f.edge(D, B, { ...original, boundary: { ...original.boundary, event_cursor: original.boundary.event_cursor + 1 } });
@@ -311,7 +313,7 @@ test('selector receives detached recorded Points without resolving mixed receipt
   }
 });
 
-test('source-name hints alone do not cancel another launch request, while selected old requests retain their own stop tombstone', async t => {
+test('source-name hints alone do not cancel another launch request, while selected old requests retain their own stop tombstone', { skip: posixCheckpoint }, async t => {
   const f = fixture(t);
   const hint = { kind: 'delivery', delivery_id: 'unknown-source-hint-only', target_session_id: D.session_id };
   await f.service.execute({ action: 'register', source_session_id: B.session_id, reservation: {
@@ -325,7 +327,7 @@ test('source-name hints alone do not cancel another launch request, while select
   assert.equal(record(hint).stopping, false); assert.equal(record(hint).operations.send, 'not_issued');
   assert.equal(record(unrelated.reservation.request).stopping, false); assert.equal(record(unrelated.reservation.request).operations.send, 'not_issued');
 });
-test('a stale explicit root does not cancel a same-name reservation bound to another expected generation', async t => {
+test('a stale explicit root does not cancel a same-name reservation bound to another expected generation', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), replacement = { ...B, launch_id: 'e'.repeat(32) }; f.live.set(B.session_id, replacement);
   const record = await f.register('new-generation-reservation', D, replacement);
   const result = await f.service.interruptCascade(input([B]));
@@ -334,7 +336,7 @@ test('a stale explicit root does not cancel a same-name reservation bound to ano
   assert.equal(saved.operations.send, 'not_issued'); assert.equal(saved.stopping, false); assert.deepEqual((await f.read()).stopping, []);
 });
 
-test('fully completed old contacts do not acquire a new request stop mark from another current run on the same launch', async t => {
+test('fully completed old contacts do not acquire a new request stop mark from another current run on the same launch', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), request = await f.edge(A, B);
   await f.store.transaction(state => {
     const record = state.records.find(row => JSON.stringify(row.reservation.request) === JSON.stringify(request));

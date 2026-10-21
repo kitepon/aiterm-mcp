@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,7 +42,7 @@ function fixture() {
   const capture = () => withExecutionRequest(request, () => evidence.capture(endpoint), ingress);
   return { snapshot, metadata, endpoint, ingress, bindings, evidence, capture };
 }
-test('actual native decoder and native process lineage bind the same verified generation without inventing a turn', () => {
+test('actual native decoder and native process lineage bind the same verified generation without inventing a turn', { skip: posixCheckpoint }, () => {
   const f = fixture(), proof = f.capture();
   assert.deepEqual(proof.request, request); assert.deepEqual(proof.source, point(A));
   assert.deepEqual(proof.harness_process, harness); assert.deepEqual(proof.mcp_process, actor);
@@ -50,7 +52,7 @@ test('actual native decoder and native process lineage bind the same verified ge
   f.evidence.verify(point(A), f.endpoint, proof, true);
   assert.equal(currentExecutionIngress(), null);
 });
-test('native metadata and environment source are detached before an asynchronous body can be steered', async () => {
+test('native metadata and environment source are detached before an asynchronous body can be steered', { skip: posixCheckpoint }, async () => {
   const f = fixture(), entered = pause(), release = pause();
   const pending = withExecutionRequest(request, async () => {
     entered.resolve(); await release.promise; return f.evidence.capture(f.endpoint);
@@ -61,12 +63,12 @@ test('native metadata and environment source are detached before an asynchronous
   release.resolve(); const proof = await pending;
   assert.deepEqual(proof.source, point(A)); assert.equal(proof.endpoint.thread_id, thread);
 });
-test('a model endpoint cannot replace the native decoded endpoint even for another real thread', () => {
+test('a model endpoint cannot replace the native decoded endpoint even for another real thread', { skip: posixCheckpoint }, () => {
   const f = fixture();
   assert.throws(() => withExecutionRequest(request, () => f.evidence.capture({ ...f.endpoint,
     thread_id: '00000000-0000-4000-8000-000000000099' }), f.ingress), code('EXECUTION_CONFLICT'));
 });
-test('missing ingress, unverified source, host refs and an unrecognized native client are not filled from current seats', () => {
+test('missing ingress, unverified source, host refs and an unrecognized native client are not filled from current seats', { skip: posixCheckpoint }, () => {
   for (const change of ['none', 'source', 'host', 'client', 'actor']) {
     const f = fixture(); let ref = request;
     if (change === 'source') f.ingress.source = null;
@@ -76,7 +78,7 @@ test('missing ingress, unverified source, host refs and an unrecognized native c
     assert.throws(() => withExecutionRequest(ref, () => f.evidence.capture(f.endpoint), change === 'none' ? undefined : f.ingress));
   }
 });
-test('PID reuse, disconnected ancestry, cycles, duplicate rows and unparseable native starts refuse capture', () => {
+test('PID reuse, disconnected ancestry, cycles, duplicate rows and unparseable native starts refuse capture', { skip: posixCheckpoint }, () => {
   for (const change of ['reused', 'disconnected', 'cycle', 'duplicate', 'unknown-time', 'newer-parent']) {
     const f = fixture(), row = f.snapshot.processes.at(-1);
     if (change === 'reused') row.started_identity = '2026-10-21T07:01:00Z';
@@ -88,7 +90,7 @@ test('PID reuse, disconnected ancestry, cycles, duplicate rows and unparseable n
     assert.throws(f.capture, code('EXECUTION_UNCONFIRMED'), change);
   }
 });
-test('same-name new generation, changed unique harness and wrong vendor never adopt cached endpoint provenance', () => {
+test('same-name new generation, changed unique harness and wrong vendor never adopt cached endpoint provenance', { skip: posixCheckpoint }, () => {
   for (const change of ['generation', 'harness', 'vendor', 'missing']) {
     const f = fixture(), proof = f.capture();
     if (change === 'generation') f.snapshot.source.launch.launch_id = 'e'.repeat(32);
@@ -98,13 +100,13 @@ test('same-name new generation, changed unique harness and wrong vendor never ad
     assert.throws(() => f.evidence.verify(point(A), f.endpoint, proof));
   }
 });
-test('a continuation retains original provenance after serving MCP exit but never rebinds another actor at initial send', () => {
+test('a continuation retains original provenance after serving MCP exit but never rebinds another actor at initial send', { skip: posixCheckpoint }, () => {
   const f = fixture(), proof = f.capture(); f.snapshot.processes.pop();
   f.evidence.verify(point(A), f.endpoint, proof);
   assert.throws(() => f.evidence.verify(point(A), f.endpoint, proof, true), code('EXECUTION_UNCONFIRMED'));
   assert.throws(() => f.evidence.verify(point(A), f.endpoint, null), code('EXECUTION_UNSUPPORTED'));
 });
-test('concurrent native requests retain separate request-local source and metadata snapshots', async () => {
+test('concurrent native requests retain separate request-local source and metadata snapshots', { skip: posixCheckpoint }, async () => {
   const f = fixture(), release = pause();
   const one = withExecutionRequest(request, async () => { await release.promise; return f.evidence.capture(f.endpoint); }, f.ingress);
   const two = withExecutionRequest({ ...request, request_id: 42 }, async () => {
@@ -112,7 +114,7 @@ test('concurrent native requests retain separate request-local source and metada
   }, f.ingress);
   release.resolve(); assert.deepEqual((await Promise.all([one, two])).map(proof => proof.request.request_id), [41, 42]);
 });
-test('actual dispatcher and store bind native source evidence before send, preserve it on recovery, and require independent endpoint proof', async t => {
+test('actual dispatcher and store bind native source evidence before send, preserve it on recovery, and require independent endpoint proof', { skip: posixCheckpoint }, async t => {
   const f = fixture(), directory = mkdtempSync(join(tmpdir(), 'parent-source-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory);
@@ -150,7 +152,7 @@ test('actual dispatcher and store bind native source evidence before send, prese
   assert.equal(effects, 1);
 });
 
-test('ingress-frozen native provenance remains request-local across concurrent waits without decoding a newer endpoint', async () => {
+test('ingress-frozen native provenance remains request-local across concurrent waits without decoding a newer endpoint', { skip: posixCheckpoint }, async () => {
   const f = fixture(), release = pause(), secondRequest = { ...request, request_id: 42 };
   const secondEndpoint = { ...f.endpoint, thread_id: '00000000-0000-4000-8000-000000000002' };
   const secondIngress = { ...f.ingress, metadata: { threadId: secondEndpoint.thread_id } };
@@ -164,7 +166,7 @@ test('ingress-frozen native provenance remains request-local across concurrent w
   assert.deepEqual(proofs.map(row => row.endpoint.thread_id), [f.endpoint.thread_id, secondEndpoint.thread_id]);
   assert.ok(proofs.every(row => row.source.boundary === null), 'native hook provenance does not create an input/turn alias');
 });
-test('native ingress absence or another request/source/actor cannot be replaced by currently available native metadata', () => {
+test('native ingress absence or another request/source/actor cannot be replaced by currently available native metadata', { skip: posixCheckpoint }, () => {
   for (const change of ['null', 'request', 'source', 'actor', 'client', 'endpoint']) {
     const f = fixture(), fixed = withExecutionRequest(request, () => f.evidence.captureIngress(), f.ingress);
     const ingress = { ...f.ingress, native_parent: fixed }; let ref = request;
@@ -180,7 +182,7 @@ test('native ingress absence or another request/source/actor cannot be replaced 
 });
 
 
-test('parent selection reads only the frozen endpoint, detaches its result and keeps concurrent requests separate', async () => {
+test('parent selection reads only the frozen endpoint, detaches its result and keeps concurrent requests separate', { skip: posixCheckpoint }, async () => {
   const f = fixture(), release = pause(), secondRequest = { ...request, request_id: 42 };
   const secondEndpoint = { ...f.endpoint, thread_id: '00000000-0000-4000-8000-000000000002' };
   const other = { ...f.ingress, metadata: { threadId: secondEndpoint.thread_id } };
@@ -193,7 +195,7 @@ test('parent selection reads only the frozen endpoint, detaches its result and k
   assert.deepEqual(await Promise.all([first, second]), [f.endpoint, secondEndpoint]);
 });
 
-test('parent selection distinguishes explicit absence and host context from missing or malformed native ingress', () => {
+test('parent selection distinguishes explicit absence and host context from missing or malformed native ingress', { skip: posixCheckpoint }, () => {
   const f = fixture(); f.bindings.decode = () => assert.fail('no current metadata fallback');
   assert.equal(withExecutionRequest(request, () => f.evidence.endpointFromIngress(), { ...f.ingress, native_parent: null }), null);
   assert.equal(withExecutionRequest({ kind: 'delivery', delivery_id: 'existing-host-reference', target_session_id: B.session_id },
@@ -203,7 +205,7 @@ test('parent selection distinguishes explicit absence and host context from miss
     assert.throws(() => withExecutionRequest(request, () => f.evidence.endpointFromIngress(), { ...f.ingress, ...extra }), code('EXECUTION_UNSUPPORTED'));
 });
 
-test('selected parent cannot cross request/client/source/actor or native generation boundaries', () => {
+test('selected parent cannot cross request/client/source/actor or native generation boundaries', { skip: posixCheckpoint }, () => {
   for (const change of ['request', 'client', 'source', 'actor', 'native-generation']) {
     const f = fixture(), fixed = withExecutionRequest(request, f.evidence.captureIngress, f.ingress);
     const ingress = { ...f.ingress, native_parent: fixed }; let ref = request;

@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -82,7 +84,7 @@ async function fixture(t, { accepted = true, ready = false, changeExecution, act
   return { root, store, service, adapter, endpoint, proof, child, record, stage, manager, diagnostic, live, execution,
     invocation, setRows: rows => { nativeRows = rows; }, counts: () => ({ watched, submissions, legacyChecks }) };
 }
-test('private recovery joins original accepted receipt and stronger before_send boundary read-only without canonical alias upgrades', async t => {
+test('private recovery joins original accepted receipt and stronger before_send boundary read-only without canonical alias upgrades', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t), file = join(f.root, 'graph', 'relations.json'), before = readFileSync(file, 'utf8');
   f.stage(); await f.manager.recover();
   assert.deepEqual(f.counts(), { watched: 1, submissions: 0, legacyChecks: 0 });
@@ -91,7 +93,7 @@ test('private recovery joins original accepted receipt and stronger before_send 
   assert.deepEqual(status.relation.target, point(B, 17)); assert.equal(status.relation.target.boundary.turn_id, null);
   assert.equal(status.relation.completion, 'open'); assert.equal(status.relation.target_fence, 'open');
 });
-test('owner reference, boundary, endpoint and proof substitutions remain unknown without reconstructing the graph', async t => {
+test('owner reference, boundary, endpoint and proof substitutions remain unknown without reconstructing the graph', { skip: posixCheckpoint }, async t => {
   const changes = [r => { r.execution.request.request_id++; r.execution.source_evidence.request.request_id++; },
     r => { r.boundary.event_cursor++; }, r => { r.boundary.operation_id = null; },
     r => { r.parent.request_id = 'toolu_other'; }, r => { r.execution.source_evidence.mcp_process.pid++; },
@@ -105,7 +107,7 @@ test('owner reference, boundary, endpoint and proof substitutions remain unknown
     assert.equal(readFileSync(join(f.root, 'graph', 'relations.json'), 'utf8'), before);
   }
 });
-test('unaccepted, preparing, issued and unknown original sends cannot recover waiting or ready from a local done body', async t => {
+test('unaccepted, preparing, issued and unknown original sends cannot recover waiting or ready from a local done body', { skip: posixCheckpoint }, async t => {
   for (const phase of ['not_sent', 'preparing', 'issued', 'unknown']) {
     const f = await fixture(t, { accepted: false, ready: true });
     await f.store.transaction(state => { state.records[0].operations.send = phase; });
@@ -115,14 +117,14 @@ test('unaccepted, preparing, issued and unknown original sends cannot recover wa
     assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
   }
 });
-test('missing graph rejects before watchers, remains unavailable on store reconstruction and never generates empty state', async t => {
+test('missing graph rejects before watchers, remains unavailable on store reconstruction and never generates empty state', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); f.stage(); rmSync(join(f.root, 'graph', 'relations.json')); await f.manager.recover();
   assert.equal(f.diagnostic().state, 'unknown'); assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
   const next = new FileExecutionStore(join(f.root, 'graph')); let calls = 0;
   await assert.rejects(next.transaction(() => { calls++; }), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
   assert.equal(calls, 0); assert.equal(existsSync(join(f.root, 'graph', 'relations.json')), false);
 });
-test('generation, native actor and current hook owner loss reject recovery using only the old source proof', async t => {
+test('generation, native actor and current hook owner loss reject recovery using only the old source proof', { skip: posixCheckpoint }, async t => {
   for (const change of [f => f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) }),
     f => f.live.delete(B.session_id), f => f.setRows([{ ...harness, parent_pid: 1 }]),
     f => writeFileSync(f.invocation, JSON.stringify({ request_id: f.endpoint.request_id, session_id: session, agent_id: null,
@@ -132,7 +134,7 @@ test('generation, native actor and current hook owner loss reject recovery using
     assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
   }
 });
-test('existing return reservation never becomes replay permission from a ready owner record', async t => {
+test('existing return reservation never becomes replay permission from a ready owner record', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { ready: true });
   await f.service.execute({ action: 'register', source_session_id: A.session_id,
     reservation: { schema: 'aiterm.execution-reservation.v1',
@@ -141,7 +143,7 @@ test('existing return reservation never becomes replay permission from a ready o
   f.stage(); await f.manager.recover(); assert.equal(f.diagnostic().state, 'unknown');
   assert.equal(f.diagnostic().text, f.record.text); assert.equal(f.counts().submissions, 0);
 });
-test('pending admission is invisible to beforeChange capture and a stop during read rejects before watching', async t => {
+test('pending admission is invisible to beforeChange capture and a stop during read rejects before watching', { skip: posixCheckpoint }, async t => {
   let enter, release; const entered = new Promise(done => { enter = done; }), resume = new Promise(done => { release = done; });
   const f = await fixture(t, { changeExecution(execution) {
     const verify = execution.verifyRecovery;
@@ -153,7 +155,7 @@ test('pending admission is invisible to beforeChange capture and a stop during r
   await f.store.transaction(state => { state.stopping.push(A); }); release(); await recovering;
   assert.equal(f.diagnostic().state, 'unknown'); assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
 });
-test('private manager requires exact true recovery acknowledgement; missing or truthy callbacks retain saved ready evidence', async t => {
+test('private manager requires exact true recovery acknowledgement; missing or truthy callbacks retain saved ready evidence', { skip: posixCheckpoint }, async t => {
   for (const callback of [undefined, async () => undefined, async () => ({ accepted: true })]) {
     const f = await fixture(t, { ready: true, changeExecution(execution) { execution.verifyRecovery = callback; } });
     f.stage(); await f.manager.recover(); assert.equal(f.diagnostic().state, 'unknown');
@@ -171,7 +173,7 @@ test('factory forwards recovery to the same selected adapter without recapturing
   assert.equal(await execution.verifyRecovery(...args), true); assert.equal(count, 1);
 });
 
-test('ready recovery validates saved receipt without interpreting body or local done as native completion', async t => {
+test('ready recovery validates saved receipt without interpreting body or local done as native completion', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { ready: true }), file = join(f.root, 'graph', 'relations.json'), before = readFileSync(file, 'utf8');
   f.stage(); await f.manager.recover(); await until(() => f.manager.status(B.session_id)[0]?.state === 'submitted');
   assert.deepEqual(f.counts(), { watched: 0, submissions: 1, legacyChecks: 0 });
@@ -181,7 +183,7 @@ test('ready recovery validates saved receipt without interpreting body or local 
   assert.equal(status.relation.completion, 'open'); assert.equal(status.relation.target_fence, 'open');
 });
 
-test('a different canonical accepted cursor or retired original branch cannot authorize recovery of the old owner', async t => {
+test('a different canonical accepted cursor or retired original branch cannot authorize recovery of the old owner', { skip: posixCheckpoint }, async t => {
   for (const change of [record => { record.relation.target.boundary.event_cursor = 18; },
     record => { record.relation.completion = 'completed'; record.relation.target_fence = 'closed'; record.relation.lifecycle = 'retired'; }]) {
     const f = await fixture(t); await f.store.transaction(state => { change(state.records[0]); });
@@ -194,7 +196,7 @@ const diagnose = f => f.adapter.diagnoseClaim(id, request, f.child, f.endpoint, 
 const enrollForDiagnosis = f => f.store.transaction(state => { state.participants.push({ actor, roles: ['mcp', 'parent_producer'] }); });
 const stageClaim = f => { f.stage(); writeFileSync(join(f.root, 'manager', 'claims', B.session_id + '.json'), JSON.stringify(f.record)); };
 
-test('claim diagnosis reads original accepted cursor and exact actor without upgrading receipt, native fence or clearance', async t => {
+test('claim diagnosis reads original accepted cursor and exact actor without upgrading receipt, native fence or clearance', { skip: posixCheckpoint }, async t => {
   const pids = [], f = await fixture(t, { actorObserver(ids) { pids.push([...ids]); return ids.map(pid => ({ pid, started_identity: actor.started_identity })); } });
   await enrollForDiagnosis(f);
   const file = join(f.root, 'graph', 'relations.json'), before = readFileSync(file, 'utf8');
@@ -209,7 +211,7 @@ test('claim diagnosis reads original accepted cursor and exact actor without upg
   assert.equal(readFileSync(file, 'utf8'), before); assert.equal(f.counts().watched, 0);
 });
 
-test('only explicit unsent/not_sent metadata distinguishes recorded non-issuance; preparing/issued/unknown and merely reserved do not', async t => {
+test('only explicit unsent/not_sent metadata distinguishes recorded non-issuance; preparing/issued/unknown and merely reserved do not', { skip: posixCheckpoint }, async t => {
   for (const phase of ['not_issued', 'preparing', 'issued', 'unknown', 'not_sent']) {
     const f = await fixture(t, { accepted: false });
     await f.store.transaction(state => { state.records[0].operations.send = phase; if (phase === 'not_sent') state.records[0].relation.phase = 'unsent'; });
@@ -220,7 +222,7 @@ test('only explicit unsent/not_sent metadata distinguishes recorded non-issuance
   }
 });
 
-test('lost binding never becomes inferred correspondence; matching unsent source metadata remains a diagnostic fact only', async t => {
+test('lost binding never becomes inferred correspondence; matching unsent source metadata remains a diagnostic fact only', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { accepted: false });
   await f.store.transaction(state => { state.parent_deliveries = []; state.records[0].operations.send = 'not_sent'; state.records[0].relation.phase = 'unsent'; });
   const result = await diagnose(f);
@@ -229,7 +231,7 @@ test('lost binding never becomes inferred correspondence; matching unsent source
   assert.equal((await f.store.transaction(state => state.parent_deliveries, { readOnly: true })).length, 0);
 });
 
-test('existing mismatched source proof, request, cursor or endpoint cannot pick another latest record or actor', async t => {
+test('existing mismatched source proof, request, cursor or endpoint cannot pick another latest record or actor', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await enrollForDiagnosis(f);
   for (const args of [[id, { ...request, request_id: 92 }, f.child, f.endpoint, f.proof],
     [id, request, point(B, 18), f.endpoint, f.proof], [id, request, f.child, { ...f.endpoint, request_id: 'toolu_changed' }, f.proof],
@@ -244,7 +246,7 @@ test('existing mismatched source proof, request, cursor or endpoint cannot pick 
   assert.ok(inconsistent.missing.includes('original_correspondence_unconfirmed'));
 });
 
-test('same-name replacement slots are excluded while exact or generation-missing slots and orphan effects remain visible', async t => {
+test('same-name replacement slots are excluded while exact or generation-missing slots and orphan effects remain visible', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await enrollForDiagnosis(f);
   await f.store.transaction(state => {
     state.slots.push({ session_id: B.session_id, expected_launch_id: B.launch_id, stage: 'send', state: 'unknown', request },
@@ -259,7 +261,7 @@ test('same-name replacement slots are excluded while exact or generation-missing
   assert.equal(result.original.input, 'receipt_recorded'); assert.equal(result.clearance, 'retained');
 });
 
-test('source PID absent, reused or async observations stay unavailable and never imply completion or current caller substitution', async t => {
+test('source PID absent, reused or async observations stay unavailable and never imply completion or current caller substitution', { skip: posixCheckpoint }, async t => {
   for (const actorObserver of [() => [], () => [{ pid: actor.pid, started_identity: '2026-10-21T20:01:00Z' }],
     () => Promise.reject(Error('synthetic asynchronous native probe missing'))]) {
     const f = await fixture(t, { actorObserver }); await enrollForDiagnosis(f); const result = await diagnose(f);
@@ -269,7 +271,7 @@ test('source PID absent, reused or async observations stay unavailable and never
   }
 });
 
-test('local ready/done state and source actor status do not replace the original missing receipt or create a parent return', async t => {
+test('local ready/done state and source actor status do not replace the original missing receipt or create a parent return', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { accepted: false, ready: true }); await enrollForDiagnosis(f); stageClaim(f);
   const claimFile = join(f.root, 'manager', 'claims', B.session_id + '.json'), before = readFileSync(claimFile, 'utf8');
   const result = await f.manager.diagnoseClaim(B.session_id);
@@ -280,7 +282,7 @@ test('local ready/done state and source actor status do not replace the original
   assert.equal(readFileSync(claimFile, 'utf8'), before); assert.equal(f.counts().submissions, 0);
 });
 
-test('diagnosis remains read-only after service failure and reports graph loss without clearing the claim or bootstrapping state', async t => {
+test('diagnosis remains read-only after service failure and reports graph loss without clearing the claim or bootstrapping state', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); stageClaim(f);
   f.manager.serviceError = Error('synthetic existing checkpoint failure');
   const claimFile = join(f.root, 'manager', 'claims', B.session_id + '.json'), before = readFileSync(claimFile, 'utf8');
@@ -292,7 +294,7 @@ test('diagnosis remains read-only after service failure and reports graph loss w
   await assert.rejects(f.manager.beforeChange(B.session_id), /synthetic existing checkpoint failure/);
 });
 
-test('missing, duplicate or mismatched owner records and adapter absence stay explicit and never use the current manager as origin', async t => {
+test('missing, duplicate or mismatched owner records and adapter absence stay explicit and never use the current manager as origin', { skip: posixCheckpoint }, async t => {
   for (const change of ['missing', 'mismatch', 'duplicate', 'adapter']) {
     const f = await fixture(t, { ready: true }); stageClaim(f);
     const oldFile = join(f.root, 'manager', 'active', 'synthetic-old-owner', id + '.json');
@@ -308,7 +310,7 @@ test('missing, duplicate or mismatched owner records and adapter absence stay ex
   }
 });
 
-test('parent return uses the same canonical child receipt and distinguishes accepted from explicit unsent without a fence upgrade', async t => {
+test('parent return uses the same canonical child receipt and distinguishes accepted from explicit unsent without a fence upgrade', { skip: posixCheckpoint }, async t => {
   for (const sent of [true, false]) {
     const f = await fixture(t); let issued = 0;
     const reply = await f.adapter.submit(id, f.endpoint, async (_binding, _endpoint, issue) => {
@@ -323,7 +325,7 @@ test('parent return uses the same canonical child receipt and distinguishes acce
   }
 });
 
-test('private diagnosis rejects a path or different child before callback and probes no unrelated declared actors', async t => {
+test('private diagnosis rejects a path or different child before callback and probes no unrelated declared actors', { skip: posixCheckpoint }, async t => {
   const observed = [], f = await fixture(t, { actorObserver(pids) { observed.push(pids); return pids.map(pid => ({ pid, started_identity: actor.started_identity })); } });
   await enrollForDiagnosis(f);
   await f.store.transaction(state => { state.participants.push({ actor: { pid: 909, started_identity: '2026-10-21T20:00:09Z' }, roles: ['mcp'] }); });
@@ -337,7 +339,7 @@ test('private diagnosis rejects a path or different child before callback and pr
 });
 
 
-test('manager claim diagnosis joins real stored Claude invocation and named Stop/result through the accepted original graph receipt without finishing the branch', async t => {
+test('manager claim diagnosis joins real stored Claude invocation and named Stop/result through the accepted original graph receipt without finishing the branch', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { recordDiagnosis: true }); stageClaim(f);
   mkdirSync(join(f.root, 'agents'));
   const stem = join(f.root, 'agents', B.session_id + '.' + B.launch_id), text = 'synthetic child result, excluded from diagnostics';
@@ -361,7 +363,7 @@ test('manager claim diagnosis joins real stored Claude invocation and named Stop
   assert.equal(readFileSync(claimFile, 'utf8'), beforeClaim); assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
 });
 
-test('graph refuses file correlation for unaccepted send, source/binding/cursor mismatch or an unrelated locally completed result', async t => {
+test('graph refuses file correlation for unaccepted send, source/binding/cursor mismatch or an unrelated locally completed result', { skip: posixCheckpoint }, async t => {
   for (const mode of ['unaccepted', 'source', 'binding', 'cursor']) {
     const f = await fixture(t, { recordDiagnosis: () => assert.fail('unverified original graph may not select Claude records') });
     await f.store.transaction(state => {
@@ -375,7 +377,7 @@ test('graph refuses file correlation for unaccepted send, source/binding/cursor 
   }
 });
 
-test('async, thrown or proof-upgrading injected record diagnosis cannot certify native interruption or replace the accepted receipt', async t => {
+test('async, thrown or proof-upgrading injected record diagnosis cannot certify native interruption or replace the accepted receipt', { skip: posixCheckpoint }, async t => {
   for (const observer of [() => Promise.resolve({ child_stop: 'recorded' }), () => Promise.reject(Error('synthetic delayed read')),
     () => { throw Error('synthetic unavailable records'); }, () => ({ parent_invocation: 'matched', delivery_binding: 'matched',
       child_stop: 'recorded', missing: [], native_input: 'confirmed', interruption: 'interrupted', session_preserved: 'confirmed',

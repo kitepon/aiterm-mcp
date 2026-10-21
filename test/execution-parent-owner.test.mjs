@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,7 +48,7 @@ async function fixture(t, options = {}) {
     counts: () => ({ probes, binds, watches }) };
 }
 
-test('new private origin owner is bound to the original request/proof and saved in record and claim before binding', async t => {
+test('new private origin owner is bound to the original request/proof and saved in record and claim before binding', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); const original = structuredClone(f.proof);
   f.execution.bind = async () => {
     const file = f.records()[0], record = JSON.parse(fs.readFileSync(file));
@@ -61,7 +63,7 @@ test('new private origin owner is bound to the original request/proof and saved 
   assert.equal(result.graph, null); assert.equal(result.clearance, 'retained'); assert.equal(result.retry, 'none');
 });
 
-test('missing, reused, ambiguous or rejected native owner read refuses before reserving metadata or binding', async t => {
+test('missing, reused, ambiguous or rejected native owner read refuses before reserving metadata or binding', { skip: posixCheckpoint }, async t => {
   for (const observe of [() => [], () => [{ pid: owner.pid, started_identity: null }],
     () => [{ ...owner, started_identity: '2026-10-21T21:01:00Z' }], () => [{ ...owner }, { ...owner }],
     () => { throw Error('synthetic native owner evidence missing'); },
@@ -74,7 +76,7 @@ test('missing, reused, ambiguous or rejected native owner read refuses before re
   }
 });
 
-test('a foreign original actor is not replaced with the current storage owner and never gains a recorded origin', async t => {
+test('a foreign original actor is not replaced with the current storage owner and never gains a recorded origin', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { requestActor: { ...owner, pid: owner.pid + 1000 } });
   await f.run();
   const record = JSON.parse(fs.readFileSync(f.records()[0])); assert.equal(Object.hasOwn(record.execution, 'origin_owner'), false);
@@ -84,7 +86,7 @@ test('a foreign original actor is not replaced with the current storage owner an
   assert.equal(f.counts().probes, 1, 'no native owner inference for an unrelated source');
 });
 
-test('saved origin survives result relocation while current owner.json cannot replace the native request origin', async t => {
+test('saved origin survives result relocation while current owner.json cannot replace the native request origin', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t);
   await f.run(() => {
     const ownerDirectory = fs.readdirSync(join(f.root, 'active'))[0];
@@ -98,7 +100,7 @@ test('saved origin survives result relocation while current owner.json cannot re
   assert.equal(f.counts().probes, 2);
 });
 
-test('older unstamped records are never backfilled from a reconstructed manager and its different native identity', async t => {
+test('older unstamped records are never backfilled from a reconstructed manager and its different native identity', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await f.run(); await f.manager.close();
   const oldFile = f.records()[0], claimFile = join(f.root, 'claims', boundary.session_id + '.json');
   const old = JSON.parse(fs.readFileSync(oldFile)); delete old.execution.origin_owner;
@@ -117,7 +119,7 @@ test('older unstamped records are never backfilled from a reconstructed manager 
   } finally { await restored.close(); }
 });
 
-test('native origin remains recorded after recovery by a different storage owner without becoming live proof', async t => {
+test('native origin remains recorded after recovery by a different storage owner without becoming live proof', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await f.run(); await f.manager.close();
   const oldFile = f.records()[0], claimFile = join(f.root, 'claims', boundary.session_id + '.json');
   const old = JSON.parse(fs.readFileSync(oldFile)); old.state = 'unknown'; old.error = 'PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED';
@@ -135,7 +137,7 @@ test('native origin remains recorded after recovery by a different storage owner
   } finally { await restored.close(); }
 });
 
-test('invalid origin identity or disagreement with the original proof is rejected without native mutation or silent legacy downgrade', async t => {
+test('invalid origin identity or disagreement with the original proof is rejected without native mutation or silent legacy downgrade', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await f.run(); const file = join(f.root, 'claims', boundary.session_id + '.json');
   const saved = JSON.parse(fs.readFileSync(file));
   for (const change of [record => { record.execution.origin_owner.pid++; },
@@ -148,7 +150,7 @@ test('invalid origin identity or disagreement with the original proof is rejecte
   assert.deepEqual(JSON.parse(fs.readFileSync(f.records()[0])).execution.origin_owner, owner);
 });
 
-test('stop while the old child preparation waits prevents origin probing and all new record/claim writes', async t => {
+test('stop while the old child preparation waits prevents origin probing and all new record/claim writes', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t), entered = deferred(), resume = deferred();
   f.manager.beforeChange = async () => { entered.resolve(); await resume.promise; };
   const pending = f.run(); await entered.promise; f.cancel(); resume.resolve();
@@ -158,7 +160,7 @@ test('stop while the old child preparation waits prevents origin probing and all
 });
 
 
-test('saved origin native reads are bounded, reference-specific and do not change metadata or release a live owner claim', async t => {
+test('saved origin native reads are bounded, reference-specific and do not change metadata or release a live owner claim', { skip: posixCheckpoint }, async t => {
   const pids = [], f = await fixture(t, { observeOriginOwner(pid) { pids.push(pid); return { state: 'present', actor: { ...owner } }; } });
   await f.run(); const files = [f.records()[0], join(f.root, 'claims', boundary.session_id + '.json')];
   const before = files.map(file => fs.readFileSync(file, 'utf8'));
@@ -171,7 +173,7 @@ test('saved origin native reads are bounded, reference-specific and do not chang
   assert.deepEqual(JSON.parse(fs.readFileSync(files[0])).execution.origin_owner, owner);
 });
 
-test('same PID with two consistent different starts is replaced without adopting the replacement owner', async t => {
+test('same PID with two consistent different starts is replaced without adopting the replacement owner', { skip: posixCheckpoint }, async t => {
   const replacement = { ...owner, started_identity: '2026-10-21T21:07:00Z' };
   const f = await fixture(t, { observeOriginOwner: () => ({ state: 'present', actor: replacement }) }); await f.run();
   const result = await f.manager.diagnoseClaim(boundary.session_id);
@@ -180,7 +182,7 @@ test('same PID with two consistent different starts is replaced without adopting
   assert.deepEqual(replacement, { ...owner, started_identity: '2026-10-21T21:07:00Z' });
 });
 
-test('original native absence requires two independent absent reads and never proves CLI completion or clears a claim', async t => {
+test('original native absence requires two independent absent reads and never proves CLI completion or clears a claim', { skip: posixCheckpoint }, async t => {
   let reads = 0;
   const f = await fixture(t, { observeOriginOwner(pid) { reads++; return { state: 'absent', pid }; } }); await f.run();
   const claimFile = join(f.root, 'claims', boundary.session_id + '.json'), before = fs.readFileSync(claimFile, 'utf8');
@@ -190,7 +192,7 @@ test('original native absence requires two independent absent reads and never pr
   assert.equal(fs.readFileSync(claimFile, 'utf8'), before); assert.equal(f.counts().watches, 1, 'original job is not finished or resubmitted');
 });
 
-test('a single absence or native identity transition cannot become confirmed original-owner absence or liveness', async t => {
+test('a single absence or native identity transition cannot become confirmed original-owner absence or liveness', { skip: posixCheckpoint }, async t => {
   for (const sequence of [
     [{ state: 'absent', pid: owner.pid }, { state: 'present', actor: owner }],
     [{ state: 'present', actor: owner }, { state: 'absent', pid: owner.pid }],
@@ -204,7 +206,7 @@ test('a single absence or native identity transition cannot become confirmed ori
   }
 });
 
-test('unknown, invalid, mismatched, thrown and asynchronous native observations stay unknown without a fallback or replay', async t => {
+test('unknown, invalid, mismatched, thrown and asynchronous native observations stay unknown without a fallback or replay', { skip: posixCheckpoint }, async t => {
   for (const observe of [() => ({ state: 'unknown', pid: owner.pid }), () => null,
     () => ({ state: 'absent', pid: owner.pid + 1 }), () => ({ state: 'present', actor: { ...owner, pid: owner.pid + 1 } }),
     () => ({ state: 'present', actor: { ...owner, started_identity: null } }), () => [],
@@ -218,7 +220,7 @@ test('unknown, invalid, mismatched, thrown and asynchronous native observations 
   }
 });
 
-test('missing origin and ambiguous owner records cannot be supplemented or probed using the current process', async t => {
+test('missing origin and ambiguous owner records cannot be supplemented or probed using the current process', { skip: posixCheckpoint }, async t => {
   for (const mode of ['legacy', 'mismatch']) {
     const f = await fixture(t, { observeOriginOwner: () => assert.fail('unproven original owner must not trigger native probe') }); await f.run();
     const file = f.records()[0], claimFile = join(f.root, 'claims', boundary.session_id + '.json');
@@ -233,14 +235,14 @@ test('missing origin and ambiguous owner records cannot be supplemented or probe
   }
 });
 
-test('missing runtime observer leaves saved origin recorded but native status unknown without a default OS probe', async t => {
+test('missing runtime observer leaves saved origin recorded but native status unknown without a default OS probe', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t); await f.run(); const result = await f.manager.diagnoseClaim(boundary.session_id);
   assert.equal(result.original_storage_owner, 'recorded');
   assert.deepEqual(result.origin_owner_native, { state: 'unknown', observations: 0, absent_observations: 0 });
   assert.ok(result.missing.includes('origin_owner_observer_unavailable')); assert.equal(f.counts().probes, 2);
 });
 
-test('metadata replacement while graph diagnosis waits suppresses all subsequent original-owner native probes', async t => {
+test('metadata replacement while graph diagnosis waits suppresses all subsequent original-owner native probes', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, { observeOriginOwner: () => assert.fail('changed metadata is not native evidence') }); await f.run();
   const entered = deferred(), resume = deferred(); f.execution.diagnoseClaim = async () => { entered.resolve(); await resume.promise; return null; };
   const pending = f.manager.diagnoseClaim(boundary.session_id); await entered.promise;
@@ -251,7 +253,7 @@ test('metadata replacement while graph diagnosis waits suppresses all subsequent
   fs.writeFileSync(file, before);
 });
 
-test('metadata loss during a synchronous native read overrides two apparent matching observations without recreating the claim', async t => {
+test('metadata loss during a synchronous native read overrides two apparent matching observations without recreating the claim', { skip: posixCheckpoint }, async t => {
   let f, reads = 0; f = await fixture(t, { observeOriginOwner: () => {
     if (++reads === 2) fs.unlinkSync(join(f.root, 'claims', boundary.session_id + '.json'));
     return { state: 'present', actor: { ...owner } };

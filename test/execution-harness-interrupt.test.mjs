@@ -1,5 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
+// These integration cases require the private POSIX file/directory checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'private native graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -106,7 +108,7 @@ function fixture(t, kind = 'codex') {
   return { name, point, metadata, marker, meta, actor, server, native, keys, control, writeTurn, apply, transcript, head };
 }
 const posix = { skip: process.platform === 'win32' ? 'POSIX native-identity fixture' : false };
-test('actual Codex and Claude core primitives send one expected-native Esc and leave metadata/correlation untouched, without confirming interruption', posix, t => {
+test('actual Codex and Claude core primitives send one expected-native Esc and leave metadata/correlation untouched, without confirming interruption', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const kind of ['codex', 'claude']) {
     const f = fixture(t, kind), before = readFileSync(f.metadata, 'utf8'); let issued = 0;
     const oldMarker = kind === 'claude' ? readFileSync(f.marker, 'utf8') : null;
@@ -117,7 +119,7 @@ test('actual Codex and Claude core primitives send one expected-native Esc and l
     if (oldMarker) assert.equal(readFileSync(f.marker, 'utf8'), oldMarker);
   }
 });
-test('real service/native admission commits the one Esc receipt while the run completion and fence remain open', posix, async t => {
+test('real service/native admission commits the one Esc receipt while the run completion and fence remain open', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   for (const kind of ['codex', 'claude']) {
     const f = fixture(t, kind), dir = mkdtempSync(join(tmpdir(), 'harness-interrupt-service-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -139,7 +141,7 @@ test('real service/native admission commits the one Esc receipt while the run co
     assert.equal(state.records[0].relation.target_fence, 'open'); assert.deepEqual(state.slots, []);
   }
 });
-test('missing/mismatched run and already-ended Codex turn cannot issue an Esc against another current computation', posix, t => {
+test('missing/mismatched run and already-ended Codex turn cannot issue an Esc against another current computation', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const change of ['missing-boundary', 'missing-turn', 'different-turn', 'done', 'claude-operation']) {
     const f = fixture(t, change === 'claude-operation' ? 'claude' : 'codex'), point = structuredClone(f.point);
     if (change === 'missing-boundary') point.boundary = null;
@@ -150,7 +152,7 @@ test('missing/mismatched run and already-ended Codex turn cannot issue an Esc ag
     assert.throws(() => f.apply(point)); assert.deepEqual(f.keys, []);
   }
 });
-test('generation/native ID/harness identity change during preflight refuses before a key instead of selecting the same name', posix, t => {
+test('generation/native ID/harness identity change during preflight refuses before a key instead of selecting the same name', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const change of ['generation', 'native', 'actor', 'server', 'run', 'claude-run']) {
     const f = fixture(t, change === 'claude-run' ? 'claude' : 'codex');
     f.control.afterFirstTable = () => {
@@ -164,12 +166,12 @@ test('generation/native ID/harness identity change during preflight refuses befo
     assert.throws(() => f.apply(), undefined, change); assert.deepEqual(f.keys, []);
   }
 });
-test('public Claude Escape remains guarded while its private exact-operation primitive preserves the marker', posix, t => {
+test('public Claude Escape remains guarded while its private exact-operation primitive preserves the marker', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   const f = fixture(t, 'claude');
   assert.throws(() => withExecutionEffectScope(f.name, () => {}, () => core.sendKeyResult(f.name, 'Escape')), /C-c/);
   assert.deepEqual(f.keys, []); assert.equal(f.apply().outcome, 'accepted'); assert.deepEqual(f.keys, ['Escape']);
 });
-test('Cursor/Grok stay unsupported, unknown native stamp and missing frame are refused, native failure never retries or closes', posix, t => {
+test('Cursor/Grok stay unsupported, unknown native stamp and missing frame are refused, native failure never retries or closes', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const kind of ['cursor', 'grok']) { const f = fixture(t, kind); assert.throws(() => f.apply()); assert.deepEqual(f.keys, []); }
   const old = fixture(t); delete old.meta.execution_native; writeFileSync(old.metadata, JSON.stringify(old.meta));
   assert.throws(() => old.apply()); assert.deepEqual(old.keys, []);
@@ -177,7 +179,7 @@ test('Cursor/Grok stay unsupported, unknown native stamp and missing frame are r
   assert.throws(() => core.interruptExpectedAgentRun(f.point), error => error.code === 'EXECUTION_UNSUPPORTED');
   f.control.failKey = true; assert.throws(() => f.apply(), error => error.effect === 'possible'); assert.deepEqual(f.keys, ['Escape']);
 });
-test('read-only exact Codex abort evidence retains the original point and native conversation/harness, without implying a stop fence', posix, t => {
+test('read-only exact Codex abort evidence retains the original point and native conversation/harness, without implying a stop fence', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   const f = fixture(t), metadata = readFileSync(f.metadata, 'utf8');
   const before = core.observeExpectedAgentRunInterruption(f.point);
   assert.equal(before.recorded_state, 'running'); assert.deepEqual(f.keys, []);
@@ -189,7 +191,7 @@ test('read-only exact Codex abort evidence retains the original point and native
   assert.equal(after.invocation_fence, 'unknown'); assert.equal(after.session_preserved, 'unconfirmed');
   assert.equal(readFileSync(f.metadata, 'utf8'), metadata); assert.deepEqual(f.keys, ['Escape']);
 });
-test('normal completion, another turn and cancellation for another reason never become the expected run interruption', posix, t => {
+test('normal completion, another turn and cancellation for another reason never become the expected run interruption', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const change of ['completed', 'other-abort', 'other-start', 'reason']) {
     const f = fixture(t);
     f.writeTurn(change === 'completed' ? 'task_complete' : change === 'other-start' ? 'task_started' : 'turn_aborted',
@@ -200,7 +202,7 @@ test('normal completion, another turn and cancellation for another reason never 
     assert.equal(result.session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, []);
   }
 });
-test('strict record reading refuses partial, corrupt, missing turn and unbound metadata without a key or metadata repair', posix, t => {
+test('strict record reading refuses partial, corrupt, missing turn and unbound metadata without a key or metadata repair', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const change of ['partial', 'corrupt', 'turn', 'legacy', 'marker-prefix', 'header-mismatch']) {
     const f = fixture(t);
     if (change === 'partial') writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8') + '{');
@@ -215,7 +217,7 @@ test('strict record reading refuses partial, corrupt, missing turn and unbound m
     assert.equal(readFileSync(f.metadata, 'utf8'), metadata);
   }
 });
-test('cached conversation IDs and latest mtime cannot disambiguate multiple native root endpoints', posix, t => {
+test('cached conversation IDs and latest mtime cannot disambiguate multiple native root endpoints', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   const f = fixture(t);
   f.meta.vendor_session_id = '00000000-0000-4000-8000-000000000002'; writeFileSync(f.metadata, JSON.stringify(f.meta));
   const other = f.transcript.replace('000000000002.jsonl', '000000000003.jsonl');
@@ -227,7 +229,7 @@ test('cached conversation IDs and latest mtime cannot disambiguate multiple nati
   assert.throws(() => core.observeExpectedAgentRunInterruption(ambiguous.point));
   assert.throws(() => ambiguous.apply()); assert.deepEqual(ambiguous.keys, []);
 });
-test('forked transcripts and arbitrary cached vendor IDs cannot supply native interruption evidence', posix, t => {
+test('forked transcripts and arbitrary cached vendor IDs cannot supply native interruption evidence', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   const f = fixture(t);
   f.meta.vendor_session_id = 'cached-unrelated-id'; writeFileSync(f.metadata, JSON.stringify(f.meta));
   // The actual native header wins over the cached value, without rewriting it.
@@ -235,7 +237,7 @@ test('forked transcripts and arbitrary cached vendor IDs cannot supply native in
   writeFileSync(f.transcript, readFileSync(f.transcript, 'utf8').replace('"source":"cli"', '"source":"cli","forked_from_id":"another-root"'));
   assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, []);
 });
-test('read-only observation rechecks native generation, actor and run while collecting evidence, and refuses Claude/Cursor/Grok', posix, t => {
+test('read-only observation rechecks native generation, actor and run while collecting evidence, and refuses Claude/Cursor/Grok', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const change of ['generation', 'native', 'run', 'actor']) {
     const f = fixture(t); let n = 0;
     f.control.afterFirstTable = () => {
@@ -251,7 +253,7 @@ test('read-only observation rechecks native generation, actor and run while coll
     const f = fixture(t, kind); assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.deepEqual(f.keys, []);
   }
 });
-test('actual private core primitive runs inside the stop-owned one-Esc frame with no service invocation/close or completion claim', posix, t => {
+test('actual private core primitive runs inside the stop-owned one-Esc frame with no service invocation/close or completion claim', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   for (const kind of ['codex', 'claude']) {
     const f = fixture(t, kind), before = readFileSync(f.metadata, 'utf8'); let admissions = 0;
     requireExecutionEffectScope(true);
@@ -261,7 +263,7 @@ test('actual private core primitive runs inside the stop-owned one-Esc frame wit
     assert.equal(readFileSync(f.metadata, 'utf8'), before); assert.equal(f.native.present, true);
   }
 });
-test('real core native run evidence and one Esc join the shared per-run journal, but absent native fence/preservation never reopen admission', posix, async t => {
+test('real core native run evidence and one Esc join the shared per-run journal, but absent native fence/preservation never reopen admission', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
   const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-run-admission-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
@@ -282,7 +284,7 @@ test('real core native run evidence and one Esc join the shared per-run journal,
   await assert.rejects(service.interruptRun(f.point, () => core.interruptExpectedAgentRun(f.point)));
   assert.deepEqual(f.keys, ['Escape']);
 });
-test('native selector uses the task_started byte boundary in the native rollout, independently of the common event log', posix, t => {
+test('native selector uses the task_started byte boundary in the native rollout, independently of the common event log', { ...(posix), skip: posixCheckpoint || (posix).skip }, t => {
   const f = fixture(t), metadata = readFileSync(f.metadata, 'utf8');
   const expectedOffset = Buffer.byteLength(f.head.join('\n') + '\n');
   const selected = core.selectExpectedAgentRunInterruption(f.point.launch);
@@ -302,7 +304,7 @@ test('native selector uses the task_started byte boundary in the native rollout,
   assert.equal(next.run.boundary.event_cursor, expectedOffset + Buffer.byteLength(prelude), 'byte count, not JS character count');
   assert.equal(next.run.boundary.turn_id, 'next-native-turn');
 });
-test('native selector refuses missing/symlink native refs, native boundary mutation during proof, ended turn, other CLI and replacement launch', posix, t => {
+test('native selector refuses missing/symlink native refs, native boundary mutation during proof, ended turn, other CLI and replacement launch', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for (const change of ['missing', 'symlink', 'native-race', 'same-turn-offset-race', 'done', 'other-kind', 'generation']) {
     const f = fixture(t, change === 'other-kind' ? 'claude' : 'codex');
     if (change === 'missing') rmSync(f.transcript);
@@ -318,7 +320,7 @@ test('native selector refuses missing/symlink native refs, native boundary mutat
     assert.throws(() => core.selectExpectedAgentRunInterruption(expected), undefined, change); assert.deepEqual(f.keys, []);
   }
 });
-test('actual native selector/runtime/controller sends the one expected Esc privately while endpoint/fence remain unknown', posix, async t => {
+test('actual native selector/runtime/controller sends the one expected Esc privately while endpoint/fence remain unknown', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-selector-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
@@ -334,7 +336,7 @@ test('actual native selector/runtime/controller sends the one expected Esc priva
   assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].key_receipt, 'accepted');
   assert.equal(result.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']); assert.equal(f.native.present, true);
 });
-test('a current native run selector does not supply a native caller-turn alias for an incoming stdio request', posix, async t => {
+test('a current native run selector does not supply a native caller-turn alias for an incoming stdio request', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t), runtime = createExecutionRuntime({
     sourceEnvironment: { AITERM_SESSION_ID: f.name, AITERM_AGENT_LAUNCH_ID: f.point.launch.launch_id },
     observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
@@ -347,7 +349,7 @@ test('a current native run selector does not supply a native caller-turn alias f
   assert.deepEqual(evidence.runtime_launch, f.point.launch); assert.equal(evidence.caller_bound, true);
   assert.equal(evidence.invocation_boundary, null); assert.deepEqual(f.keys, []);
 });
-test('actual native selector/controller preserves an already native-bound receipt and leaves turn-null dispatches unresolved', posix, async t => {
+test('actual native selector/controller preserves an already native-bound receipt and leaves turn-null dispatches unresolved', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   for (const knownTurn of [true, false]) {
     const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-canonical-'));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -380,7 +382,7 @@ test('actual native selector/controller preserves an already native-bound receip
     assert.equal(saved.relation.lifecycle, 'tracking'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
   }
 });
-test('same-server SDK control reaches the native controller only with fixed explicit host injection, without closing or confirming from key acceptance', posix, async t => {
+test('same-server SDK control reaches the native controller only with fixed explicit host injection, without closing or confirming from key acceptance', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   for (const enabled of [false, true]) {
     const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-sdk-'));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -422,7 +424,7 @@ function managedFixture(t) {
   writeFileSync(f.meta.event_file, 'synthetic earlier control metadata\n'.repeat(5));
   return { ...f, receipt };
 }
-test('Claude observation keeps the canonical operation/cursor and reservation identities without inventing native acceptance or a live conversation', posix, t => {
+test('Claude observation keeps the canonical operation/cursor and reservation identities without inventing native acceptance or a live conversation', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = managedFixture(t), before = [f.metadata, f.marker, f.receipt].map(file => readFileSync(file, 'utf8'));
   const result = core.observeExpectedAgentRunInterruption(f.point);
   assert.equal(nativeInterruptionObservationSchema.safeParse(result).success, true);
@@ -435,7 +437,7 @@ test('Claude observation keeps the canonical operation/cursor and reservation id
   assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch), error => error.code === 'EXECUTION_UNSUPPORTED');
   assert.deepEqual([f.metadata, f.marker, f.receipt].map(file => readFileSync(file, 'utf8')), before); assert.deepEqual(f.keys, []);
 });
-test('managed reservation observations cannot be promoted to running/interrupted/fence-closed or rekeyed as a Codex turn', posix, t => {
+test('managed reservation observations cannot be promoted to running/interrupted/fence-closed or rekeyed as a Codex turn', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = managedFixture(t), result = core.observeExpectedAgentRunInterruption(f.point);
   for (const changes of [{ recorded_state: 'running' }, { recorded_state: 'interrupted' }, { invocation_fence: 'closed' },
     { session_preserved: 'confirmed' }, { run: { ...f.point, boundary: { ...f.point.boundary, turn_id: 'invented-turn' } } },
@@ -443,7 +445,7 @@ test('managed reservation observations cannot be promoted to running/interrupted
     assert.equal(nativeInterruptionObservationSchema.safeParse({ ...result, ...changes }).success, false);
   assert.deepEqual(f.keys, []);
 });
-test('missing, anonymous, different or malformed Claude reservation/receipt cannot select a known managed operation', posix, t => {
+test('missing, anonymous, different or malformed Claude reservation/receipt cannot select a known managed operation', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for (const change of ['missing-marker', 'anonymous', 'different-operation', 'bad-marker', 'missing-receipt', 'nonempty-receipt', 'receipt-symlink']) {
     const f = managedFixture(t);
     if (change === 'missing-marker') rmSync(f.marker);
@@ -456,7 +458,7 @@ test('missing, anonymous, different or malformed Claude reservation/receipt cann
     assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, f.point), undefined, change); assert.deepEqual(f.keys, []);
   }
 });
-test('Claude observer refuses replaced marker/receipt, generation/native server and harness identities during its native read', posix, t => {
+test('Claude observer refuses replaced marker/receipt, generation/native server and harness identities during its native read', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for (const change of ['marker-replaced', 'receipt-replaced', 'generation', 'native', 'actor', 'server']) {
     const f = managedFixture(t); let changed = false;
     f.control.afterFirstTable = () => {
@@ -471,7 +473,7 @@ test('Claude observer refuses replaced marker/receipt, generation/native server 
     assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, f.point), undefined, change); assert.deepEqual(f.keys, []);
   }
 });
-test('Claude selector refuses absent/different/mixed canonical references instead of choosing the latest operation or current event length', posix, t => {
+test('Claude selector refuses absent/different/mixed canonical references instead of choosing the latest operation or current event length', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = managedFixture(t);
   for (const candidate of [null, { ...f.point, boundary: null }, { ...f.point, launch: { ...f.point.launch, session_id: 'other-seat' } },
     { ...f.point, boundary: { ...f.point.boundary, operation_id: null } },
@@ -479,12 +481,12 @@ test('Claude selector refuses absent/different/mixed canonical references instea
     assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, candidate));
   assert.deepEqual(f.keys, []);
 });
-test('different Claude operations are distinct existing run references even when their native turn IDs are both null', posix, t => {
+test('different Claude operations are distinct existing run references even when their native turn IDs are both null', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = managedFixture(t), other = { ...f.point, boundary: { ...f.point.boundary, operation_id: 'sha256:' + '8'.repeat(64) } };
   assert.equal(sameInterruptionRun(f.point, f.point), true); assert.equal(sameInterruptionRun(f.point, other), false);
   assert.equal(sameInterruptionRun(f.point, { ...f.point, boundary: { ...f.point.boundary, operation_id: null } }), false);
 });
-test('real Claude controller uses an existing operation receipt for one Esc only, retaining uncertainty, canonical binding and public key guard', posix, async t => {
+test('real Claude controller uses an existing operation receipt for one Esc only, retaining uncertainty, canonical binding and public key guard', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-controller-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
@@ -515,7 +517,7 @@ test('real Claude controller uses an existing operation receipt for one Esc only
   writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: f.point.boundary.operation_id }));
   assert.throws(() => withExecutionEffectScope(f.name, () => {}, () => core.sendKeyResult(f.name, 'Escape')), /C-c/);
 });
-test('Claude controller with no matching operation-bearing receipt performs no key and leaves missing provenance unresolved', posix, async t => {
+test('Claude controller with no matching operation-bearing receipt performs no key and leaves missing provenance unresolved', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   for (const mode of ['absent', 'operation-null', 'different-operation']) {
     const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-missing-'));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -537,7 +539,7 @@ test('Claude controller with no matching operation-bearing receipt performs no k
     assert.deepEqual(f.keys, []); assert.deepEqual(await store.transaction(state => state.interruptions, { readOnly: true }), []);
   }
 });
-test('mixed old jobs and multiple cursors do not exclude a reachable Claude launch from mechanical Esc, and unmatched aliases remain unresolved', posix, async t => {
+test('mixed old jobs and multiple cursors do not exclude a reachable Claude launch from mechanical Esc, and unmatched aliases remain unresolved', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-mixed-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
@@ -563,7 +565,7 @@ test('mixed old jobs and multiple cursors do not exclude a reachable Claude laun
     assert.equal(saved.relation.lifecycle, 'tracking'); assert.equal(saved.relation.completion, 'open');
   }
 });
-test('same-server SDK/scoped caller/core Claude operation Esc remains unconfirmed and leaves the accepted job binding intact', posix, async t => {
+test('same-server SDK/scoped caller/core Claude operation Esc remains unconfirmed and leaves the accepted job binding intact', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-sdk-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const actor = { pid: 202, started_identity: '2026-10-21T09:00:03Z' };
@@ -596,7 +598,7 @@ test('same-server SDK/scoped caller/core Claude operation Esc remains unconfirme
     assert.deepEqual(f.keys, ['Escape']); assert.equal(f.native.present, true);
   } finally { await client.close(); await server.close(); }
 });
-test('Claude native Esc failure after issuance keeps the original operation and unknown slot without replay or closed/idle success', posix, async t => {
+test('Claude native Esc failure after issuance keeps the original operation and unknown slot without replay or closed/idle success', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-key-failure-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
@@ -617,7 +619,7 @@ test('Claude native Esc failure after issuance keeps the original operation and 
   assert.equal(state.slots[0].state, 'unknown'); assert.equal(state.records[0].relation.lifecycle, 'tracking');
   assert.deepEqual(state.records[0].relation.target, f.point); assert.equal(f.native.present, true);
 });
-test('actual core Claude before_send reaches the real dispatcher binding without sourcing an operation/cursor from its output or arguments', posix, async t => {
+test('actual core Claude before_send reaches the real dispatcher binding without sourcing an operation/cursor from its output or arguments', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-actual-send-boundary-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true;
@@ -648,7 +650,7 @@ test('actual core Claude before_send reaches the real dispatcher binding without
   assert.equal(stop.targets[0].key_receipt, 'accepted'); assert.deepEqual(stop.targets[0].run, target);
   assert.equal(stop.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
 });
-test('real SDK claude_turn handler preserves its actual core boundary into the same private stop control without a fake input handler', posix, async t => {
+test('real SDK claude_turn handler preserves its actual core boundary into the same private stop control without a fake input handler', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-real-handler-boundary-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
@@ -687,7 +689,7 @@ function anonymousFixture(t) {
   writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 7 }));
   writeFileSync(f.meta.event_file, 'synthetic later output; never the original cursor\n'); return f;
 }
-test('anonymous Claude keeps the marker-bound original cursor, leaves hook/native evidence unknown and refuses legacy or inferred cursors', posix, t => {
+test('anonymous Claude keeps the marker-bound original cursor, leaves hook/native evidence unknown and refuses legacy or inferred cursors', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = anonymousFixture(t), before = readFileSync(f.marker, 'utf8');
   const observation = nativeInterruptionObservationSchema.parse(core.selectExpectedAgentRunInterruption(f.point.launch, [
     { ...f.point, boundary: { ...f.point.boundary, event_cursor: 6 } }, f.point,
@@ -706,7 +708,7 @@ test('anonymous Claude keeps the marker-bound original cursor, leaves hook/nativ
   writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: null }));
   assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, ['Escape']);
 });
-test('anonymous Claude marker replacement, cursor change and launch/actor changes during observation refuse Esc', posix, t => {
+test('anonymous Claude marker replacement, cursor change and launch/actor changes during observation refuse Esc', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for (const change of ['marker', 'cursor', 'generation', 'actor']) {
     const f = anonymousFixture(t); let changed = false;
     f.control.afterFirstTable = () => {
@@ -719,7 +721,7 @@ test('anonymous Claude marker replacement, cursor change and launch/actor change
     assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, [f.point]), undefined, change); assert.deepEqual(f.keys, []);
   }
 });
-test('anonymous Claude accepted Esc survives service reconstruction without retry, receipt rebinding or finish on marker consumption', posix, async t => {
+test('anonymous Claude accepted Esc survives service reconstruction without retry, receipt rebinding or finish on marker consumption', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = anonymousFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-anonymous-controller-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
@@ -744,7 +746,7 @@ test('anonymous Claude accepted Esc survives service reconstruction without retr
   const state = await store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.interruptions.length, 1); assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(state.slots[0].state, 'unknown');
 });
-test('actual anonymous core before_send writes private v2 with the original cursor; unmounted input keeps legacy v1', posix, async t => {
+test('actual anonymous core before_send writes private v2 with the original cursor; unmounted input keeps legacy v1', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   for (const injected of [false, true]) {
     const f = fixture(t, 'claude'); rmSync(f.marker); writeFileSync(f.meta.event_file, '\n');
     f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
@@ -772,7 +774,7 @@ test('actual anonymous core before_send writes private v2 with the original curs
   }
 });
 
-test('anonymous marker replacement at the physical core gate cannot receive Esc even with unchanged contents', posix, t => {
+test('anonymous marker replacement at the physical core gate cannot receive Esc even with unchanged contents', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f = anonymousFixture(t); let replaced = false;
   f.control.afterFirstTable = () => {
     if (replaced) return; replaced = true;
@@ -781,7 +783,7 @@ test('anonymous marker replacement at the physical core gate cannot receive Esc 
   assert.throws(() => f.apply()); assert.equal(replaced, true); assert.deepEqual(f.keys, []);
 });
 
-test('real SDK anonymous pty_send binds the v2 original cursor into the same private stop control while leaving native completion unknown', posix, async t => {
+test('real SDK anonymous pty_send binds the v2 original cursor into the same private stop control while leaving native completion unknown', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-real-handler-boundary-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
@@ -835,7 +837,7 @@ function anonymousRaceService(t, f, overrides = {}) {
   });
   return { store, service, dispatcher, dispatch, input: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] } };
 }
-test('stop during actual anonymous before_send cancels only the old unissued request even when no native run/marker can yet be selected', posix, async t => {
+test('stop during actual anonymous before_send cancels only the old unissued request even when no native run/marker can yet be selected', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const f = fixture(t, 'claude'), x = anonymousRaceService(t, f); let stop;
   const result = await x.dispatch('anonymous-stop-before-capture', async () => { stop = await x.service.interruptCascade(x.input); });
   assert.equal(stop.status, 'unconfirmed'); assert.equal(stop.targets[0].key_receipt, 'not_sent');
@@ -851,7 +853,7 @@ test('stop during actual anonymous before_send cancels only the old unissued req
   const next = await x.dispatch('independent-same-launch-next-request'); assert.equal(next.isError, undefined, JSON.stringify(next));
   assert.equal(next._meta['aiterm/execution_binding'].target.launch.launch_id, f.point.launch.launch_id); assert.deepEqual(f.keys, []);
 });
-test('actual issued anonymous input receipt arriving during stop is retained then reselected at its original Point before a single Esc', posix, async t => {
+test('actual issued anonymous input receipt arriving during stop is retained then reselected at its original Point before a single Esc', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
   const f = fixture(t, 'claude'), issued = pause(), release = pause(), selected = pause(); let selections = 0;
   const x = anonymousRaceService(t, f, { selectInterruptionSync(launch, candidates) {
@@ -872,7 +874,7 @@ test('actual issued anonymous input receipt arriving during stop is retained the
   await x.service.interruptCascade(x.input); assert.deepEqual(f.keys, ['Escape']);
 });
 
-test('a stop with missing anonymous canonical receipt suppresses further native effects of the issued old frame without claiming the first input was not sent', posix, async t => {
+test('a stop with missing anonymous canonical receipt suppresses further native effects of the issued old frame without claiming the first input was not sent', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } async t => {
   const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
   const f = fixture(t, 'claude'), issued = pause(), release = pause(), x = anonymousRaceService(t, f); let extraEffect = 0;
   const pending = x.dispatcher.dispatch('pty_send', { session_id: f.name }, { requestId: 'issued-frame-followup-after-stop' }, async () => {
@@ -889,7 +891,7 @@ test('a stop with missing anonymous canonical receipt suppresses further native 
   assert.equal(state.records[0].stopping, true); assert.equal(state.records[0].operations.send, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
 });
 
-test('immediate normal keys select harness gesture, preserve session metadata, and ignore missing completion proofs', posix, t => {
+test('immediate normal keys select harness gesture, preserve session metadata, and ignore missing completion proofs', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for(const kind of ['codex','claude','cursor','grok']) {
     const f=fixture(t,kind), before=readFileSync(f.metadata,'utf8');
     f.control.expectedKey=['cursor','grok'].includes(kind)?'C-c':'Escape';
@@ -903,7 +905,7 @@ test('immediate normal keys select harness gesture, preserve session metadata, a
   }
 });
 
-test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key has no close fallback', posix, t => {
+test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key has no close fallback', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   for(const kind of ['cursor','grok']) {
     const f=fixture(t,kind);f.control.expectedKey='C-c';
     f.control.immediateScreen=kind==='cursor'?'unrecognized screen':'unknown';
@@ -913,7 +915,7 @@ test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key
   }
 });
 
-test('normal successful listing with absent session returns idle without a key or metadata prerequisite', posix, t => {
+test('normal successful listing with absent session returns idle without a key or metadata prerequisite', p{ ...(osix,), skip: posixCheckpoint || (osix,).skip } t => {
   const f=fixture(t);f.native.present=false;
   assert.deepEqual(core.interruptSessionNow(f.name),{session_id:f.name,outcome:'idle'});assert.deepEqual(f.keys,[]);
 });

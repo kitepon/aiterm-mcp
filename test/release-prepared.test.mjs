@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,7 +16,7 @@ test('a reviewed prepared release validates metadata without rewriting or duplic
   const before=files.map(file=>readFileSync(join(root,file),'utf8'));
   const version=JSON.parse(before[0]).version, calls=[], original=childProcess.execFileSync, args=[...process.argv], npm=process.env.npm_execpath;
   childProcess.execFileSync=(command, argv, options)=>{
-    calls.push({command,args:[...argv]});assert.equal(options.cwd,root);
+    calls.push({command,args:[...argv]});assert.equal(realpathSync(options.cwd),realpathSync(root));
     if(command==='git'&&argv[0]==='branch')return 'main';
     if(command==='git'&&argv[0]==='rev-parse')return '1'.repeat(40);
     return '';

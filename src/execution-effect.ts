@@ -45,10 +45,17 @@ export function bindExecutionNativeTarget(session: string, nativeId: string): vo
   if (scope.session !== session || !/^\$\d+$/.test(nativeId)) refuse(scope, "EXECUTION_CONFLICT");
   scope.nativeTargets.add(nativeId);
 }
-export function beforeExecutionEffect(session: string): void {
+export function beforeExecutionEffect(session: string, verify?: () => void): void {
   const scope = scopes.getStore();
   if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+  if (scope.failure) throw scope.failure;
+  try { verify?.(); }
+  catch (error) {
+    scope.failure = error instanceof ExecutionError ? new ExecutionError(error.code, scope.didIssue ? "possible" : error.effect)
+      : new ExecutionError("EXECUTION_UNCONFIRMED", scope.didIssue ? "possible" : "not_started");
+    throw scope.failure;
+  }
   issueEffect(scope);
 }
 

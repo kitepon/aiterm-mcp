@@ -5,13 +5,20 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { executionLaunchSchema, executionRequestSchema } from "./execution-contract.js";
+import { executionLaunchSchema, executionRequestSchema, executionPointSchema } from "./execution-contract.js";
 import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
 import { writeJson0600 } from "./agent-shared.js";
 
 export const executionStateSchema = z.object({
   schema: z.literal("aiterm.execution-state.v1"),
   records: z.array(executionRecordSchema), stopping: z.array(executionLaunchSchema),
+  // Companion references for the existing parent-delivery ID, never payloads
+  // or a second delivery queue. The parent generation is fixed before_send.
+  parent_deliveries: z.array(z.object({
+    delivery_id: z.uuid(), request: executionRequestSchema,
+    parent: executionPointSchema, child: executionPointSchema,
+    endpoint_digest: z.string().regex(/^[0-9a-f]{64}$/),
+  }).strict()).default([]),
   slots: z.array(z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
     stage: z.enum(["launch", "send", "close", "configure"]),
@@ -27,7 +34,7 @@ export interface ExecutionStore {
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
 }
 export function emptyExecutionState(): ExecutionState {
-  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [] };
+  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [] };
 }
 
 /** Use the product's existing stateRoot and resolved multiplexer identity.

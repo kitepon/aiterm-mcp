@@ -389,6 +389,27 @@ direct CLIがそのhost参照やmcp参照のcontrol名をtool引数で借りる�
 receipt後の結合欠測では元成功receiptを維持し、unknown slotとstatus-onlyを残す。
 auto-name/普通PTY/remoteはこのadapterへまだ接続せず、adapter単体を一括mountしない。
 
+`createExecutionParentAdapter`は既存parent-delivery IDに、元dispatch参照・検証済parent Point・
+実before_send child Point・vendor受信先contextのdigestだけを同scopeへ保存する。
+parentの世代をvendor thread名/現在Bot名から補完しない。本文や配送queueを増やさない。
+`verifyParentEndpoint`による実managed metadataとnative vendor endpointの照合を必須とし、
+resolver無し/違う受信先は作用前拒否する。parentのlaunchだけの照合では別threadへの入力を許可しない。
+
+submitは元dispatchのaccepted receiptとbefore_send cursor/世代の一致を確認し、元receipt Pointを
+immutableなsource境界として、同じ既存delivery IDでchild→parentの実再開を予約する。
+公式queueの作用直前に独立したdeferred frameのeffect callbackを呼び、source/targetの停止と世代を再照合する。
+callbackはAsyncResourceへ明示bindし、別要求から呼ばれても元frameへ戻る。body終了後の逃げたcallbackを通さない。
+queue受理はtarget boundary=nullの実呼出であり、parent実行の完了/fence閉鎖にはしない。
+未発行のreturnは子/親の停止で取り消され、発行済みreturnはdrainし、到達した共有parentも停止する。
+元before_sendにだけoperationがある場合も、receiptのcanonical境界と別keyに分裂させない。
+
+これは保存・submit受付adapterの隔離実装である。実ParentDeliveryManagerからのrequest-local参照供給、
+vendor endpoint aliasの実証拠resolver、公式queue/hook/emit/wakeそれぞれの実作用口、
+別processでqueue受理後にemit/wakeする段階のfence/drainと復旧は未接続。
+現在launchを観測できない閉鎖済childからのreturnも、履歴だけで新規作用を許可せず未確認へ止める。
+pending companionを含む実invocation fence証拠が揃うまでは、局所doneからbranch退役を主張しない。
+既存recordだけでbindingが無い配送へsame-name fallbackは無く、全体のcoverageはincompleteを維持する。
+
 具体的なlaunch/send handlerは`runBoundExecution(..., body, actualTargetSessionId)`の最後の引数へ
 実際に発行するimmutableな対象引数を渡す。serviceは予約と一致しない対象を作用/slot発行前に拒否する。
 返却receiptの対象違いだけを作用後に検出する形へしない。省略形は既存の注入adapter互換用であり、

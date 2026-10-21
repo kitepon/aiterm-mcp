@@ -4,6 +4,7 @@ import { FileExecutionStore, type ExecutionState } from "./execution-store.js";
 import { executionActorSchema, executionParticipantRoleSchema, executionParticipantInventory,
   type ExecutionActor, type ExecutionParticipantRole } from "./execution-inventory.js";
 import { ExecutionError } from "./execution-wire.js";
+import { executionCheckpoint } from "./execution-checkpoint.js";
 
 export class ParticipantExecutionStore extends FileExecutionStore {
   private readonly actor: ExecutionActor;
@@ -55,6 +56,11 @@ export class ParticipantExecutionStore extends FileExecutionStore {
     this.assertScope();
     if (!this.roles.includes("mcp")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return { ...this.actor };
+  }
+  interruptionCheckpoint(): typeof executionCheckpoint {
+    this.interruptionActor();
+    if (process.platform === "win32") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return executionCheckpoint;
   }
   // Raw read deliberately permits diagnosis of a missing declaration. It has
   // no write/re-enrollment path and never enters another store lock.

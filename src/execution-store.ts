@@ -9,7 +9,7 @@ import { executionLaunchSchema, executionRequestSchema, executionPointSchema } f
 import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
 import { parentHookReferenceSchema } from "./execution-parent-alias.js";
-import { writeJson0600 } from "./agent-shared.js";
+import { writeExecutionCheckpoint, executionCheckpoint } from "./execution-checkpoint.js";
 import { executionParticipantSchema } from "./execution-inventory.js";
 import { executionInterruptionSchema } from "./execution-interruption.js";
 import { acquireExecutionLock, releaseExecutionLock, recoverExecutionLock, type ExecutionLock } from "./execution-lock.js";
@@ -69,6 +69,7 @@ export interface ExecutionStore {
   // Same process's native identity, supplied only by the scoped MCP store.
   // An old journal never acquires a caller from a reconstructed/latest actor.
   interruptionActor?(): ExecutionActor;
+  interruptionCheckpoint?(): typeof executionCheckpoint;
 }
 export function emptyExecutionState(): ExecutionState {
   return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [], participants: [], interruptions: [] };
@@ -126,7 +127,7 @@ export class FileExecutionStore implements ExecutionStore {
         void Promise.resolve(result).catch(() => undefined);
         throw new ExecutionError("EXECUTION_INVALID");
       }
-      if (!options.readOnly) writeJson0600(path.join(this.directory, "relations.json"), executionStateSchema.parse(state));
+      if (!options.readOnly) writeExecutionCheckpoint(path.join(this.directory, "relations.json"), executionStateSchema.parse(state));
       return structuredClone(result);
     } finally { releaseExecutionLock(lock); }
   }
@@ -150,7 +151,7 @@ export class FileExecutionStore implements ExecutionStore {
       // A callback exception commits nothing. Mutations must be prepared inside
       // this short transaction, and side effects must run after it commits.
       const result = await body(state);
-      if (!options.readOnly) writeJson0600(statePath, executionStateSchema.parse(state));
+      if (!options.readOnly) writeExecutionCheckpoint(statePath, executionStateSchema.parse(state));
       return structuredClone(result);
     } finally {
       releaseExecutionLock(lock);

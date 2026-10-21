@@ -7,6 +7,7 @@ import { ExecutionError } from "./execution-wire.js";
 import type { ExecutionState } from "./execution-store.js";
 import { executionActorSchema } from "./execution-inventory.js";
 import { isDeepStrictEqual as same } from "node:util";
+import { executionCheckpoint } from "./execution-checkpoint.js";
 
 const identity = z.object({ pid: z.number().int().positive(), started_identity: z.string().refine(value => Number.isFinite(Date.parse(value))) }).strict();
 export const nativeInterruptionObservationSchema = z.object({
@@ -30,10 +31,20 @@ export const executionInterruptionSchema = z.object({
   before: nativeInterruptionObservationSchema,
   phase: z.enum(["draining", "preparing", "issued", "accepted", "unknown", "not_sent", "settled"]),
   caller: executionActorSchema.optional(),
+  // Requires this writer protocol for every subsequent state commit. Old
+  // strict readers reject the field rather than silently issuing unsynced.
+  checkpoint: z.literal(executionCheckpoint).optional(),
+  // Explicit diagnosis of a dead caller's unissued key attempt. Keep phase
+  // preparing and old-run admission/tombstones; this is not a native fence.
+  preparing_resolution: z.literal("key_not_sent").optional(),
   requests: z.array(executionRequestSchema), parent_deliveries: z.array(z.uuid()),
 }).strict().superRefine((value, context) => {
   if (value.before.recorded_state !== "running") context.addIssue({ code: "custom", message: "interruption requires its original running observation" });
   if (value.caller && value.phase === "draining") context.addIssue({ code: "custom", message: "caller belongs to the claimed key frame, not admission alone" });
+  if (value.checkpoint && (!value.caller || value.phase === "draining"))
+    context.addIssue({ code: "custom", message: "checkpoint belongs to the original native caller claim" });
+  if (value.preparing_resolution && (value.phase !== "preparing" || !value.checkpoint || !value.caller))
+    context.addIssue({ code: "custom", message: "unissued key diagnosis must retain the original preparing claim and checkpoint" });
 });
 export function interruptionIdentity(value: NativeInterruptionObservation) {
   return { run: value.run, native: value.native, harness: value.harness, harness_process: value.harness_process, endpoint: value.endpoint };

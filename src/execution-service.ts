@@ -15,7 +15,8 @@ import type { ExecutionNativeServer } from "./execution-close.js";
 import { nativeInterruptionObservationSchema, interruptionIdentity, interruptionBlocksLaunch, interruptionBlocksRequest,
   interruptionSlots, assertInterruptionSource, sameInterruptionRun } from "./execution-interruption.js";
 import { isDeepStrictEqual } from "node:util";
-import { executionActorSchema } from "./execution-inventory.js";
+import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
+import { executionCheckpoint } from "./execution-checkpoint.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
@@ -155,6 +156,14 @@ export class ExecutionService {
     const run = executionPointSchema.parse(input);
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     const actorReader = this.store.interruptionActor?.bind(this.store);
+    const checkpointReader = this.store.interruptionCheckpoint?.bind(this.store);
+    const checkCheckpoint = () => {
+      if (!actorReader) return;
+      const result = checkpointReader?.();
+      if (result && typeof (result as unknown as { then?: unknown }).then === "function")
+        void Promise.resolve(result).catch(() => undefined);
+      if (result !== executionCheckpoint) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    };
     const readCaller = () => {
       if (!actorReader) return null; // legacy private fixture: never infer a native caller
       const value = actorReader();
@@ -170,7 +179,8 @@ export class ExecutionService {
       if (!row || row.phase !== "draining") throw new ExecutionError("EXECUTION_CONFLICT");
       if (interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
       const caller = readCaller();
-      if (caller) row.caller = caller;
+      checkCheckpoint();
+      if (caller) { row.caller = caller; row.checkpoint = executionCheckpoint; }
       row.phase = "preparing"; // one process claims this existing run; never an invocation ID
       return { before: row.before, caller };
     });
@@ -179,10 +189,12 @@ export class ExecutionService {
       const value = withExecutionInterruptEffectScope(run.launch.session_id, before.native.native_id, () => {
         this.store.transactionSync!(state => {
           const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
-          if (!row || row.phase !== (issued ? "issued" : "preparing") || interruptionSlots(state, run).length)
+          if (!row || row.preparing_resolution || row.phase !== (issued ? "issued" : "preparing") || interruptionSlots(state, run).length)
             throw new ExecutionError("EXECUTION_UNCONFIRMED");
           if (!isDeepStrictEqual(row.caller ?? null, caller) || !isDeepStrictEqual(readCaller(), caller))
             throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          checkCheckpoint();
+          if (caller && row.checkpoint !== executionCheckpoint) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           const now = this.interruptObservation(run);
           if (now.recorded_state !== "running" || !isDeepStrictEqual(interruptionIdentity(now), interruptionIdentity(before)))
             throw new ExecutionError("EXECUTION_CONFLICT");
@@ -209,13 +221,55 @@ export class ExecutionService {
     } catch (error) {
       try { await this.store.transaction(state => {
         const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
-        if (row && isDeepStrictEqual(row.caller ?? null, caller)) {
+        if (row && !row.preparing_resolution && isDeepStrictEqual(row.caller ?? null, caller)) {
           if (issued || row.phase === "preparing") row.phase = issued ? "unknown" : "not_sent";
           if (issued) for (const slot of state.slots) if (slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)) slot.state = "unknown";
         }
       }); } catch { /* retain issued journal/slot; reconstruction never replays */ }
       throw issued ? new ExecutionError("EXECUTION_UNCONFIRMED", "possible") : error;
     }
+  }
+
+  /** Private, explicit reconciliation of a key attempt, not of its run/job.
+   * A preparing checkpoint from this writer protocol plus native PID absence
+   * proves no key could follow a completed issued checkpoint in that process.
+   * Keep the barrier and all request/parent-return tombstones: native execution
+   * may still be running. Issued/accepted/unknown attempts are never recovered
+   * by process disappearance or replayed from this method.
+   */
+  reconcilePreparingInterruption(input: ExecutionPoint, expectedInput: ExecutionActor, observeCaller: (pid: number) => unknown) {
+    const run = executionPointSchema.parse(input), expected = executionActorSchema.parse(expectedInput);
+    const transact = this.store.transactionSync?.bind(this.store), actor = this.store.interruptionActor?.bind(this.store);
+    const checkpoint = this.store.interruptionCheckpoint?.bind(this.store);
+    if (!transact || !actor || !checkpoint || typeof observeCaller !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return transact(state => {
+      const current = executionActorSchema.parse(actor());
+      if (isDeepStrictEqual(current, expected) || checkpoint() !== executionCheckpoint) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+      const snapshot = row && structuredClone(row);
+      const check = () => {
+        if (!row || row.phase !== "preparing" || row.checkpoint !== executionCheckpoint || !isDeepStrictEqual(row.caller, expected)
+          || !isDeepStrictEqual(row, snapshot)
+          || state.slots.some(slot => slot.stage === "interrupt" && slot.session_id === run.launch.session_id))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      };
+      check();
+      for (let count = 0; count < 2; count++) {
+        const observed = observeCaller(expected.pid);
+        if (observed && typeof (observed as { then?: unknown }).then === "function") {
+          void Promise.resolve(observed).catch(() => undefined); throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        }
+        if (!z.object({ state: z.literal("absent"), pid: z.literal(expected.pid) }).strict().safeParse(observed).success)
+          throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        check();
+        if (!isDeepStrictEqual(executionActorSchema.parse(actor()), current) || checkpoint() !== executionCheckpoint)
+          throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      }
+      row!.preparing_resolution = "key_not_sent";
+      return { schema: "aiterm.preparing-interruption-reconciliation.v1" as const, run, caller: expected,
+        key: "not_sent" as const, admission: "retained" as const, interruption: "unconfirmed" as const,
+        session_preserved: "unconfirmed" as const, native_fence: "unknown" as const };
+    });
   }
 
   /** Only a private native observation/fence can release the temporary barrier.
@@ -839,9 +893,11 @@ export class ExecutionService {
           catch { /* actual journal distinguishes not_sent from issued/unknown; never retry */ }
           row = await this.store.transaction(state => state.interruptions.find(value => isDeepStrictEqual(value.before.run, run)) ?? null, { readOnly: true });
         }
-        outcomes.set(id, { launch: run.launch, run, key: row && row.phase !== "not_sent" && row.phase !== "draining" ? "Escape" : null,
-          key_receipt: row?.phase === "accepted" ? "accepted" : row && ["issued", "unknown", "preparing"].includes(row.phase) ? "unknown" : "not_sent",
-          interruption: "unconfirmed", session_preserved: "unconfirmed", reason: "native_interruption_or_fence_unconfirmed" });
+        const keyNotSent = row?.preparing_resolution === "key_not_sent";
+        outcomes.set(id, { launch: run.launch, run, key: !keyNotSent && row && row.phase !== "not_sent" && row.phase !== "draining" ? "Escape" : null,
+          key_receipt: keyNotSent ? "not_sent" : row?.phase === "accepted" ? "accepted" : row && ["issued", "unknown", "preparing"].includes(row.phase) ? "unknown" : "not_sent",
+          interruption: "unconfirmed", session_preserved: "unconfirmed",
+          reason: keyNotSent ? "key_not_sent_native_run_unconfirmed" : "native_interruption_or_fence_unconfirmed" });
       }
       const coverage = await this.runtime.coverage(roots);
       const final = await this.store.transaction(state => {

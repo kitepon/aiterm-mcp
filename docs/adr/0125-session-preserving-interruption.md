@@ -260,4 +260,32 @@ callerが記録されていない旧journalを現在MCPや最新登録者で埋�
 callerの不在やmetadata mutexの復旧だけでpreparing/issued/unknownをnot_sentへ戻さず、
 キーの再発行や自動takeoverを許さない。native作用/元run/fence欠測の明示清算は引き続き未了。
 
+### 作用前checkpointとpreparingキー試行だけの明示診断
+
+private FileExecutionStoreの全書込みは、0600 temporary fileのwrite/fchmod/file fsync/close、
+atomic rename、scope directoryからfilesystem rootまでのdirectory fsync/closeを完了してから返す。
+新しく作成したdirectoryの親entryも同期対象にする。任意の段階が失敗すればnative作用へ進まず、
+rename後に見えるstateをrollbackしない。issued metadataが見えている場合はそのslotを保つ。
+Windowsはこのprivate方式をunsupportedとし、他のfilesystemも同期APIが拒否すれば成功扱いにしない。
+これはOSの同期APIの完了保証であり、filesystem/hardware障害からの実復旧受入やnative終了fenceではない。
+通常agent metadataのwriteJson0600や通常mainの動作は変更しない。
+
+scoped caller claimは元run/callerの同じrowへ`checkpoint=file_and_directory_sync.v1`を固定する。
+この値はwriter protocolの条件であり、fieldが見えるだけで全flush完了やnative作用を証明しない。
+旧strict readerは未知fieldを拒否する。旧rowへ現在のwriter保証を補完しない。
+実Escはissued row/slotの同期commitが返ってからに限り、file/directory flush失敗時はキー0。
+
+`ExecutionService.reconcilePreparingInterruption(run, expectedCaller, observeExecutionActor)`は明示private操作。
+元run/callerが完全一致するpreparing row、新writer protocol、同sessionのinterrupt slot無し、
+元callerとは別の同scope MCP、元PID不在の同期native観測2回を共有transaction内で再照合する。
+alive/reused/unknown/wrong PID/Promise、旧checkpoint/caller欠測、issued/accepted/unknownは拒否する。
+process不在による自動清算・自動takeover・キー再送を追加しない。
+
+成功してもphaseはpreparingのまま`preparing_resolution=key_not_sent`だけを残す。
+元callerを現在MCPで置換せず、元request/parent delivery tombstone・旧source/return受付抑止を保つ。
+旧frameの遅着native作用とcleanupもこの診断を上書き・解除しない。
+返りはkey not_sent / admission retained / interruption unconfirmed / session_preserved unconfirmed /
+native_fence unknown。controllerも同じkey未送信事実だけを返し、中断成功/idle/会話維持/元job未送信へ
+付け替えない。旧native runの終了と受付解除には別の実証拠が引き続き必要である。
+
 実席/公式CLI試験・他席操作・本番・公開配布なし。旧closeのfake成功を中断成功へ付け替えない。

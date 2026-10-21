@@ -579,6 +579,22 @@ queueのacceptedも実完了ではない。確認済みnot_sentまたは後続�
 独立したprovider packageのDeliveryAdmissionErrorも、その実providerのconstructorで確かめてcertaintyを扱う。
 同名fieldを付けた汎用RPC例外は未確認のままとし、not_startedへ丸めない。
 
+### native hook参照と実行完了の区別
+
+具体的なnative endpoint/actor/scope verifierがemit作用直前に照合した参照だけを、既存parent_effectsの
+`hook_reference`として保存する。Codexはsession/turnとPostToolUse/Stop（旧contextはnull）、Claudeは
+session/tool、Cursorはconversation/hook eventを持つ。raw metadata、本文、pathや新たなgraph IDは持たない。
+batch emitも全既存deliveryへ別々に保存する。generic metadata callbackには参照の生成を許さない。
+
+`readAcceptedParentHookReference`は同じdeliveryのinvoked/accepted/非retired record、親子launch、
+source proofと正確なemit receiptを照合して読む。issued/unknown/欠測はnull、矛盾は未確認とし、
+過去のbranchを復活させない。参照だけでcanonical cursor/source境界を変更しない。
+
+特にCodex Stop hookのdecision:blockは、返した本文をそのhookのturnが処理し終えた証拠ではない。
+native hook参照は受取execution aliasやfinish証拠ではなく、後続で受取受付・実世代・実終了を別に
+対応付けるための材料。Claude toolやCursor conversationから架空のturnを作らず、終了fenceは未確認に保つ。
+この変更は隔離schemaだけでpublic mount/公開wire/installed依存の更新を行わない。
+
 ## 結果と残実装
 
 ```ts

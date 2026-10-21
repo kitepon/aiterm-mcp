@@ -8,6 +8,7 @@ import { executionLaunchSchema, type ExecutionPoint } from "./execution-contract
 import { ExecutionError, executionErrorResult } from "./execution-wire.js";
 import { beforeExecutionEffect, withExecutionEffectScope } from "./execution-effect.js";
 import { requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
+import { parentHookReferenceSchema, type ParentHookReference } from "./execution-parent-alias.js";
 
 type Stage = "dequeue" | "emit" | "wake";
 type Binding = ExecutionState["parent_deliveries"][number];
@@ -30,6 +31,9 @@ export interface ParentNativeBindings {
   observeSessionGenerationSync?(session: string): unknown;
   verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown, nativeContext?: unknown, binding?: Readonly<Binding>): boolean;
   sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
+  // Only a concrete endpoint/scope resolver may supply a normalized hook reference.
+  // Generic metadata/shape callbacks leave it missing, never verified by echo.
+  hookReference?(binding: Readonly<Binding>, endpoint: unknown, context?: unknown): ParentHookReference;
   // Bounded preflight waiting for the existing queue receipt, never a retry of
   // queue/emit/wake or a graph lifetime/expiry threshold.
   preparationTimeoutMs?: number;
@@ -109,7 +113,13 @@ export function createParentNativeAdmission(bindings: ParentNativeBindings) {
               throw new ExecutionError("EXECUTION_CONFLICT");
             if (state.slots.some(value => value.session_id === fresh.parent.launch.session_id))
               throw new ExecutionError("EXECUTION_UNCONFIRMED");
-            for (const each of ids) state.parent_effects.push({ delivery_id: each, stage, state: "issued", actor });
+            for (const each of ids) {
+              const hook_reference = stage === "emit" && bindings.hookReference
+                ? parentHookReferenceSchema.parse(bindings.hookReference(read(state, each, endpoint), endpoint, nativeContext)) : undefined;
+              if (hook_reference && !same(hook_reference.target, fresh.parent.launch)) throw new ExecutionError("EXECUTION_CONFLICT");
+              state.parent_effects.push({ delivery_id: each, stage, state: "issued", actor,
+                ...(hook_reference ? { hook_reference } : {}) });
+            }
             state.slots.push({ session_id: fresh.parent.launch.session_id, expected_launch_id: fresh.parent.launch.launch_id,
               stage: slotStage, state: "issued", request, source: fresh.child.launch,
               sources: [...new Map(ids.map(each => { const child = read(state, each, endpoint).child.launch;

@@ -11,6 +11,8 @@ import { withExecutionRequest } from '../dist/execution-context.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { executionStoreDirectory } from '../dist/execution-store.js';
+import { readAcceptedParentHookReference } from '../dist/execution-parent-alias.js';
+import { createParentNativeAdmission } from '../dist/execution-parent-native.js';
 
 const A = { session_id: 'bot-a', launch_id: 'a'.repeat(32) }, B = { session_id: 'bot-b', launch_id: 'b'.repeat(32) };
 const point = (launch, cursor = null) => ({ launch: { ...launch }, boundary: cursor === null ? null
@@ -54,6 +56,7 @@ async function seed(f, worker) {
     source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: null });
   await parent.bind(id, request, point(B, 17), f.endpoint, proof);
   await parent.submit(id, f.endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'existing-queue' }; });
+  return parent;
 }
 test('old public provider and incomplete injected runtimes fail before any local/native fallback', t => {
   const f = fixture(t); let reads = 0;
@@ -90,5 +93,68 @@ test('scope and participant capability are rechecked at the actual native bounda
     }, f.effect.native_context);
     assert.equal(result.error.effect, 'not_started'); assert.equal(result.error.code, 'EXECUTION_UNSUPPORTED'); assert.equal(effects, 0);
     assert.equal((await worker.store.transaction(state => state.parent_effects, { readOnly: true })).length, 0);
+  }
+});
+test('accepted hook alias supplements the original graph target without a fabricated cursor, source turn or raw metadata', async t => {
+  const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
+  const ctx = { ...f.effect.native_context, private_text: 'synthetic context must not persist' };
+  assert.equal((await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'emitted'; }, ctx)).value, 'emitted');
+  const alias = await readAcceptedParentHookReference(worker.store, id);
+  assert.deepEqual(alias, { schema: 'aiterm.parent-hook-reference.v1', target: A,
+    native: { vendor: 'codex', session_id: thread, turn_id: 'native-turn', hook_event_name: null } });
+  const state = await worker.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.records[0].relation.source.boundary, null);
+  assert.equal(state.records[1].relation.target.boundary, null);
+  assert.equal(state.records[1].relation.completion, 'open');
+  assert.equal(JSON.stringify(state).includes(ctx.private_text), false);
+});
+test('issued aliases are not eligible until the real native receipt, and lost outcomes remain ineligible after reconstruction', async t => {
+  for (const lost of [false, true]) {
+    const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
+    let release, entered; const ready = new Promise(resolve => { entered = resolve; });
+    const pending = new Promise(resolve => { release = resolve; });
+    const running = worker.native.run(id, 'emit', f.endpoint, async (_, issue) => {
+      issue(); entered(); await pending;
+      if (lost) throw Error('synthetic missing native receipt'); return 'emitted';
+    }, f.effect.native_context);
+    await ready; assert.equal(await readAcceptedParentHookReference(worker.store, id), null);
+    release(); const result = await running;
+    if (lost) {
+      assert.equal(result.error.effect, 'possible');
+      const reconstructed = createExecutionParentWorker(f.options);
+      assert.equal(await readAcceptedParentHookReference(reconstructed.store, id), null);
+    } else assert.equal((await readAcceptedParentHookReference(worker.store, id)).native.turn_id, 'native-turn');
+  }
+});
+test('a generic resolver cannot infer aliases from similarly named native metadata', async t => {
+  const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
+  const generic = createParentNativeAdmission({ store: worker.store, actor: hook,
+    observeSessionGenerationSync: f.observe, verifyParentEndpoint: () => true });
+  assert.equal((await generic.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'accepted'; }, f.effect.native_context)).value, 'accepted');
+  assert.equal(await readAcceptedParentHookReference(worker.store, id), null);
+});
+test('one native batch output retains separate aliases for every existing delivery without another graph ID', async t => {
+  const f = fixture(t), worker = createExecutionParentWorker(f.options), parent = await seed(f, worker);
+  const second = '00000000-0000-4000-8000-000000000003', first = await parent.lookup(id);
+  await parent.bind(second, request, point(B, 17), f.endpoint, first.source_evidence);
+  await parent.submit(second, f.endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'second-native-queue' }; });
+  let effects = 0;
+  assert.equal((await worker.native.run([id, second], 'emit', f.endpoint, async (_, issue) => { issue(); effects++; return 'one-output'; }, f.effect.native_context)).value, 'one-output');
+  assert.equal(effects, 1);
+  assert.deepEqual(await readAcceptedParentHookReference(worker.store, id), await readAcceptedParentHookReference(worker.store, second));
+  assert.deepEqual((await worker.store.transaction(state => state.parent_effects, { readOnly: true })).map(value => value.delivery_id), [id, second]);
+});
+test('retired or contradictory native references never revive history or select a different session/turn', async t => {
+  for (const change of ['retired', 'contradictory']) {
+    const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker);
+    await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => { issue(); return 'emitted'; }, f.effect.native_context);
+    await worker.store.transaction(state => {
+      if (change === 'retired') {
+        const relation = state.records[1].relation;
+        relation.completion = 'interrupted'; relation.target_fence = 'closed'; relation.lifecycle = 'retired';
+      } else state.parent_effects[0].hook_reference.native = { vendor: 'claude', session_id: thread, tool_use_id: 'different-native-tool' };
+    });
+    if (change === 'retired') assert.equal(await readAcceptedParentHookReference(worker.store, id), null);
+    else await assert.rejects(readAcceptedParentHookReference(worker.store, id), error => error.code === 'EXECUTION_UNCONFIRMED');
   }
 });

@@ -12,6 +12,8 @@ processごとのrequired profile factoryは隔離実装中であり、static pro
 scope一致やhook返却だけで全参加者の被覆・native turn alias・終了fenceを証明したことにはしない。
 Claudeのproducerは実PreToolUse owner/tool/sessionと配送bindingを作用直前にも確認する隔離factoryを持つ。
 既存parent returnが未解決なら局所doneのfenceを閉じず、元dispatch receiptの遅着は入力を再送せずmetadataだけを待つ。
+native emit直前に照合したhook参照は既存deliveryへ保存する。CodexのStop/PostToolUse、Claudeのtool、Cursorのconversationを
+受取executionの完了と同一視せず、canonical cursorを作らない。受取番の対応と終了fenceの証拠は別に必要。
 
 ## 目的と所有
 

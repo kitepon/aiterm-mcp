@@ -17,6 +17,7 @@ import { createParentNativeAdmission } from "./execution-parent-native.js";
 import { createNativeParentEndpointEvidence } from "./execution-parent-endpoint.js";
 import { createParentManagerExecution, type SteerProvider } from "./execution-parent-manager.js";
 import { ExecutionError } from "./execution-wire.js";
+import { parentHookReference } from "./execution-parent-alias.js";
 
 export interface ParentProducerRuntime extends ParentWorkerRuntime {
   sourceEnvironment(): Readonly<Record<string, string | undefined>>;
@@ -50,6 +51,7 @@ export function createExecutionParentProducer(input: {
   const parent = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe,
     verifyParentEndpoint: createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") }) });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence, observeSessionGenerationSync: observe,
+    hookReference: parentHookReference,
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
       claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(scope.state_root, "cursor-parent-hooks") }) });
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime });

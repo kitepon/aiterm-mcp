@@ -12,6 +12,7 @@ import { createNativeParentEndpointEvidence } from "./execution-parent-endpoint.
 import { createParentNativeAdmission } from "./execution-parent-native.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
 import { ExecutionError } from "./execution-wire.js";
+import { parentHookReference } from "./execution-parent-alias.js";
 
 export interface ExecutionWorkerScope {
   state_root: string; multiplexer: { kind: "socket" | "namespace"; key: string };
@@ -84,6 +85,7 @@ export function createExecutionParentWorker(input: {
   const endpoint = createNativeParentEndpointEvidence({ actor, sourceEvidence, codexHome: input.codexHome,
     claudeHookRoot: path.join(expected.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(expected.state_root, "cursor-parent-hooks") });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence,
+    hookReference: parentHookReference,
     observeSessionGenerationSync: session => { assertScope(); return runtime.observeSessionGeneration(session); },
     verifyParentEndpoint: endpoint });
   const admission = createSteerExecutionAdmission(null, native);

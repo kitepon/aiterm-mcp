@@ -8,6 +8,7 @@ import { z } from "zod";
 import { executionLaunchSchema, executionRequestSchema, executionPointSchema } from "./execution-contract.js";
 import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
+import { parentHookReferenceSchema } from "./execution-parent-alias.js";
 import { writeJson0600 } from "./agent-shared.js";
 
 export const executionStateSchema = z.object({
@@ -25,6 +26,7 @@ export const executionStateSchema = z.object({
   parent_effects: z.array(z.object({ delivery_id: z.uuid(), stage: z.enum(["dequeue", "emit", "wake"]),
     state: z.enum(["issued", "accepted", "unknown"]),
     actor: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict(),
+    hook_reference: parentHookReferenceSchema.optional(),
   }).strict()).default([]),
   slots: z.array(z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),

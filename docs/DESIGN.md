@@ -2,6 +2,11 @@
 
 ## 開発中: 連鎖停止
 
+2026-10-21夜の指揮官訂正を優先し、停止ボタン/連鎖/全体停止は現在処理を中断してsession/launch/会話を残す。
+[ADR0125](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0125-session-preserving-interruption.md)が現契約。
+旧closeは明示的な管理用closeCascadeへ分け、agent_stop v2から呼ばない。キー/維持証拠adapterが未接続のため、
+現在はread-only planとunsupported/not_sentを返し、中断・受付fence・会話維持の完成扱いをしない。
+
 実行関係のsource/target世代、Bridgeの既存参照、未完了関係の寿命と混在先も含む停止計画は
 [ADR 0124の契約案](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0124-cascade-stop-execution-contract.md)で設計中。
 `execution-*.ts`は隔離枝のwire、snapshot計画、共有metadata、受付/停止サービスと注入可能なMCP口。

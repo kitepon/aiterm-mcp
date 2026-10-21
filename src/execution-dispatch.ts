@@ -5,7 +5,7 @@ import { executionLaunchSchema, executionPointSchema, executionRequestSchema,
   type ExecutionPoint } from "./execution-contract.js";
 import { ExecutionService } from "./execution-service.js";
 import { executionSourceFromEnvironment } from "./execution-runtime.js";
-import { runDeferredBoundExecution } from "./execution-tools.js";
+import { runDeferredBoundExecution, type ExecutionControlRegistration } from "./execution-tools.js";
 import { ExecutionError, executionErrorResult, executionRefFromMeta, executionHostSourceFromMeta,
   EXECUTION_REQUEST_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
 import { EXECUTION_SOURCE_META_KEY } from "./execution-wire.js";
@@ -21,6 +21,7 @@ type NativeRequest = Extract<ReturnType<typeof executionRequestSchema.parse>, { 
 type Route = { tool: NativeRequest["tool"]; target: string; stage: "launch" | "send" };
 const launches = new Set(["agent_launch", "claude_agent", "codex_agent", "grok_agent"]);
 const reads = new Set(["diagnostics", "pty_list", "pty_read", "pty_observe", "agent_models"]);
+const controls = new Set(["agent_execution", "agent_execution_roots", "agent_stop"]);
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 function routeFor(name: string, args: Arguments): Route | null {
@@ -59,6 +60,7 @@ export interface ExecutionDispatcherBindings {
 }
 
 export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings): {
+  prepareControlRegistration(service: ExecutionService): ExecutionControlRegistration;
   dispatch(name: string, args: Arguments, extra: Extra,
     body: (fixedArgs: Arguments, fixedExtra: Extra) => Promise<ToolResult>): Promise<ToolResult>;
 } {
@@ -68,6 +70,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
   const directSeat = environment.AITERM_SESSION_ID ?? environment.AITERM_AGENT_SESSION_ID ?? null;
   const sourceFieldsPresent = ["AITERM_SESSION_ID", "AITERM_AGENT_SESSION_ID", "AITERM_AGENT_LAUNCH_ID"]
     .some(name => environment[name] !== undefined);
+  let registeredControls = false;
   const observe = async (session: string): Promise<{ state: "absent" | "present"; point: ExecutionPoint | null }> => {
     const value = await bindings.observeSessionGeneration(session) as Record<string, unknown> | null;
     if (!value || value.schema !== "aiterm.pty-observe-result.v1" || value.session_id !== session
@@ -82,6 +85,12 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
   };
 
   return {
+    prepareControlRegistration(service) {
+      if (service !== bindings.service) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      bindings.assertParticipant?.();
+      return { sourceContext: extra => executionHostSourceFromMeta(extra._meta, bindings.initializedClientName()),
+        activate: () => { registeredControls = true; } };
+    },
     async dispatch(name, input, extra, body) {
       try {
         bindings.assertParticipant?.();
@@ -89,6 +98,13 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
         // Handlers must consume these copies, not their mutable ingress object.
         const args = structuredClone(input), fixedExtra = { ...extra,
           requestId: extra.requestId, _meta: extra._meta === undefined ? undefined : structuredClone(extra._meta) };
+        if (controls.has(name)) {
+          if (!registeredControls || args.remote !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          // Only the same server's registered typed handlers run here. They
+          // already own metadata admission/stop; no synthetic send edge/frame.
+          executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName());
+          return await body(args, fixedExtra);
+        }
         const route = routeFor(name, args);
         if (!route) return await body(args, fixedExtra);
         const client = bindings.initializedClientName();

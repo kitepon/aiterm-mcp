@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -145,7 +147,7 @@ test('stop whose native close completed before registration loss remains possibl
   const f = fixture(t); let raw;
   const closes = enableClose(f, () => {}, () => raw.transactionSync(state => { state.participants = []; }));
   const p = f.create(); raw = new FileExecutionStore(p.store.directory);
-  await assert.rejects(p.service.stop(stop([B])), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'possible');
+  await assert.rejects(p.service.closeCascade(stop([B])), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'possible');
   assert.deepEqual(closes, [B]); assert.equal(f.live.has(B.session_id), false);
   const slot = raw.transactionSync(state => state.slots, { readOnly: true })[0];
   assert.equal(slot.stage, 'close'); assert.equal(slot.state, 'issued');
@@ -254,16 +256,16 @@ test('real SDK tools/call reaches the actual core key through the composed parti
 });
 test('composed stop closes each reached expected launch once and keeps an unrelated generation alive', async t => {
   const f = fixture(t), effects = enableClose(f), p = f.create(); await f.send(p);
-  const result = await p.service.stop(stop([A]));
+  const result = await p.service.closeCascade(stop([A]));
   assert.deepEqual(effects, [A, B]); assert.deepEqual(f.live.get(D.session_id), D);
   assert.equal(result.status, 'partial'); assert.equal(result.relation_coverage, 'incomplete');
   assert.ok(result.unresolved.some(value => value.reason === 'relation_coverage_incomplete'));
   assert.ok(result.targets.every(value => value.outcome === 'closed'));
-  await p.service.stop(stop([A])); assert.equal(effects.length, 2);
+  await p.service.closeCascade(stop([A])); assert.equal(effects.length, 2);
 });
 test('an injected participant without close primitive stays unsupported without a default core fallback', async t => {
   const f = fixture(t), p = f.create();
-  const result = await p.service.stop(stop([B]));
+  const result = await p.service.closeCascade(stop([B]));
   assert.equal(result.targets[0].outcome, 'unsupported'); assert.deepEqual(f.live.get(B.session_id), B);
   assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), []);
 });
@@ -275,17 +277,17 @@ test('scope, actor and generation drift after close preflight cannot cross the a
       if (change === 'actor') f.actor.started_identity = '2026-10-21T11:02:00Z';
       if (change === 'generation') f.live.set(B.session_id, replacement);
     });
-    const p = f.create(), result = await p.service.stop(stop([B]));
+    const p = f.create(), result = await p.service.closeCascade(stop([B]));
     assert.equal(effects.length, 0); assert.ok(f.live.has(B.session_id));
     assert.equal(result.targets[0].outcome, change === 'generation' ? 'replaced' : 'unknown');
   }
 });
 test('lost close receipt after an effect remains unknown across reconstruction despite observed absence and is never retried', async t => {
   const f = fixture(t), effects = enableClose(f, undefined, () => { throw Error('synthetic lost native receipt'); });
-  const p = f.create(), result = await p.service.stop(stop([B]));
+  const p = f.create(), result = await p.service.closeCascade(stop([B]));
   assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].outcome, 'unknown');
   assert.equal(effects.length, 1); assert.equal(f.live.has(B.session_id), false);
-  const rebuilt = f.create(), repeated = await rebuilt.service.stop(stop([B]));
+  const rebuilt = f.create(), repeated = await rebuilt.service.closeCascade(stop([B]));
   assert.equal(repeated.targets[0].outcome, 'unknown'); assert.equal(effects.length, 1);
   const slots = await rebuilt.store.transaction(state => state.slots, { readOnly: true });
   assert.equal(slots[0].state, 'unknown'); assert.equal(slots[0].expected_launch_id, B.launch_id);
@@ -296,7 +298,7 @@ test('an injected async close cannot issue a late native effect outside its sync
     await tick(); bindExecutionNativeTarget(expected.session_id, '$2');
     guardTmuxExecution(['kill-session', '-t', '$2']); effects++; f.live.delete(expected.session_id);
   };
-  const p = f.create(), result = await p.service.stop(stop([B]));
+  const p = f.create(), result = await p.service.closeCascade(stop([B]));
   assert.equal(result.targets[0].outcome, 'unknown'); assert.equal(effects, 0); assert.ok(f.live.has(B.session_id));
 });
 test('local native done cannot retire a composed branch without an invocation fence or complete participant evidence', async t => {
@@ -312,7 +314,7 @@ test('local native done cannot retire a composed branch without an invocation fe
     evidence: { kind: 'completion', target: binding.target } });
   assert.equal(finished.relation.completion, 'completed'); assert.equal(finished.relation.target_fence, 'unknown');
   assert.equal(finished.relation.lifecycle, 'tracking');
-  const stopped = await p.service.stop(stop([A]));
+  const stopped = await p.service.closeCascade(stop([A]));
   assert.deepEqual(effects, [A, B]); assert.equal(stopped.status, 'partial');
 });
 test('a guarded participant refuses direct unframed core mutations before native probes, auth, locks or metadata preparation', async t => {
@@ -346,7 +348,7 @@ test('preparation rechecks source/target/actor/scope after an await without issu
     });
     await entered;
     if (change === 'stop') {
-      const stopped = await p.service.stop(stop([A]));
+      const stopped = await p.service.closeCascade(stop([A]));
       assert.equal(stopped.targets[0].outcome, 'closed'); assert.ok(f.live.has(B.session_id));
     }
     if (change === 'source') f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) });

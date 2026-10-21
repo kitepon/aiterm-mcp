@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -126,7 +128,7 @@ test('deferred preflight is cancelled without waiting for idle or issuing an eff
   await entered.promise;
   assert.equal((await f.status(record.reservation.request)).operations.send, 'preparing');
   assert.equal((await f.store.transaction(state => state.slots, { readOnly: true })).length, 0);
-  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.equal((await f.service.closeCascade(stop([A]))).status, 'stopped');
   assert.deepEqual(f.closes, [A]);
   ready.resolve();
   await assert.rejects(running, error => error.effect === 'not_started');
@@ -157,7 +159,7 @@ test('the first deferred native effect persists issuance and stop drains only th
     return { value: 'accepted', target: point(B) };
   }, B.session_id);
   await entered.promise;
-  const stopping = f.service.stop(stop([A]));
+  const stopping = f.service.closeCascade(stop([A]));
   await until(async () => (await f.status(record.reservation.request)).stopping);
   assert.equal(f.closes.length, 0);
   reply.resolve(); assert.equal((await running).value, 'accepted');
@@ -257,7 +259,7 @@ test('expected-close native admission requires the persisted stop slot and permi
   assert.throws(() => primitive(A), code('EXECUTION_UNCONFIRMED'));
   assert.equal(nativeEffects, 0);
   f.runtime.close = async expected => { primitive(expected); };
-  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.equal((await f.service.closeCascade(stop([A]))).status, 'stopped');
   assert.equal(nativeEffects, 1);
 });
 test('expected-close gate rejects generation replacement at the native issuance boundary', async () => {
@@ -269,7 +271,7 @@ test('expected-close gate rejects generation replacement at the native issuance 
     guardTmuxExecution(['kill-session', '-t', '$7']); effects++;
     f.live.delete(A.session_id);
   });
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.equal(effects, 0); assert.deepEqual(f.live.get(A.session_id), replacement);
   assert.equal(result.targets[0].outcome, 'replaced');
 });
@@ -283,7 +285,7 @@ test('an existing native MCP request reference covers an empty launch without in
     issue(); f.live.set(B.session_id, B); return { value: 'launched empty', target: point(B, null) };
   }, B.session_id);
   assert.equal(result.record.relation.target.boundary, null);
-  assert.equal((await f.service.stop(stop([A]))).status, 'stopped');
+  assert.equal((await f.service.closeCascade(stop([A]))).status, 'stopped');
   assert.deepEqual(f.closes, [A, B]);
 });
 test('deferred normal close binds only confirmed absence and interrupts the same-generation incoming edge', async () => {
@@ -367,7 +369,7 @@ test('stop fences first, drains a delayed accepted send, and includes its target
   });
   await started.promise;
   const otherProcess = new ExecutionService(new FileExecutionStore(f.directory), f.runtime, 500);
-  const stopping = otherProcess.stop(stop([A]));
+  const stopping = otherProcess.closeCascade(stop([A]));
   await until(async () => (await f.status(record.reservation.request)).stopping);
   await assert.rejects(f.register('ac', A, C), code('EXECUTION_STOPPING'));
   assert.equal(f.closes.length, 0);
@@ -385,7 +387,7 @@ test('an in-flight launch gaining its target generation after the fence is inclu
     started.resolve(); await release.promise; f.live.set(C.session_id, C); return { value: null, target: point(C, null) };
   });
   await started.promise;
-  const stopping = f.service.stop(stop([A]));
+  const stopping = f.service.closeCascade(stop([A]));
   await until(async () => (await f.status(record.reservation.request)).stopping);
   release.resolve(); await launching;
   const result = await stopping;
@@ -394,7 +396,7 @@ test('an in-flight launch gaining its target generation after the fence is inclu
 });
 test('unissued reservations are cancelled and cannot send after root closure', async () => {
   const f = fixture(), record = await f.register('ab');
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'stopped');
   assert.deepEqual(f.closes, [A]);
   assert.equal((await f.status(record.reservation.request)).relation.phase, 'unsent');
@@ -425,7 +427,7 @@ test('after bounded drain reports partial, a late target is still fenced at bind
     started.resolve(); await release.promise; f.live.set(C.session_id, C); return { value: null, target: point(C, null) };
   });
   await started.promise;
-  const result = await shortStop.stop(stop([A]));
+  const result = await shortStop.closeCascade(stop([A]));
   assert.notEqual(result.status, 'stopped');
   assert.ok(result.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
   release.resolve(); await launching;
@@ -434,19 +436,19 @@ test('after bounded drain reports partial, a late target is still fenced at bind
 test('close effect followed by reject remains unknown, blocks replacement and is never retried', async () => {
   const f = fixture();
   f.runtime.close = async expected => { f.closes.push(expected); f.live.delete(expected.session_id); throw new Error('lost-response'); };
-  const result = await f.service.stop(stop([B]));
+  const result = await f.service.closeCascade(stop([B]));
   assert.equal(result.status, 'unconfirmed');
   const restarted = new ExecutionService(new FileExecutionStore(f.directory), f.runtime, 10);
   const roots = await restarted.roots({ session_id: B.session_id });
   assert.deepEqual(roots.roots, [B]);
   assert.equal(roots.relation_coverage, 'incomplete');
-  assert.equal((await restarted.stop(stop([B]))).status, 'unconfirmed');
+  assert.equal((await restarted.closeCascade(stop([B]))).status, 'unconfirmed');
   await assert.rejects(restarted.execute(f.registration('new-b', A, B, null)), code('EXECUTION_UNCONFIRMED'));
   assert.equal(f.closes.length, 1);
 });
 test('an unsupported close adapter reports unsupported without fabricating a successful close', async () => {
   const f = fixture(); f.runtime.close = async () => { throw new ExecutionError('EXECUTION_UNSUPPORTED', 'not_started'); };
-  const result = await f.service.stop(stop([B]));
+  const result = await f.service.closeCascade(stop([B]));
   assert.equal(result.status, 'unconfirmed');
   assert.equal(result.targets[0].outcome, 'unsupported');
   assert.equal(f.closes.length, 0);
@@ -456,7 +458,7 @@ test('a reached old launch does not close its same-name replacement, but retains
   await f.send(await f.register('ab'));
   await f.send(await f.register('bc', B, C), C);
   const replacement = launch('b', 'e'); f.live.set(B.session_id, replacement);
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'partial');
   assert.deepEqual(f.closes, [A, C]);
   assert.deepEqual(f.live.get(B.session_id), replacement);
@@ -466,7 +468,7 @@ test('an unbound source generation stays unresolved and is not guessed from a Bo
   const f = fixture(), input = f.registration('ab'); input.reservation.source.launch = null;
   const record = await f.service.execute(input);
   await f.send(record);
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'partial');
   assert.deepEqual(f.closes, [A]);
   assert.ok(result.unresolved.some(value => value.reason === 'source_generation_missing'));
@@ -475,7 +477,7 @@ test('an unbound source generation stays unresolved and is not guessed from a Bo
 });
 test('untracked coverage can never be reported as complete stopping', async () => {
   const f = fixture(); f.runtime.coverage = async () => 'incomplete';
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.equal(result.status, 'partial');
   assert.ok(result.unresolved.some(value => value.reason === 'relation_coverage_incomplete'));
 });
@@ -485,7 +487,7 @@ test('a rejected ordinary session change stays unknown after disappearance and b
     await assert.rejects(f.service.changeSession(B, stage, async () => {
       f.live.delete(B.session_id); throw new Error('response rejected after effect');
     }), code('EXECUTION_UNCONFIRMED'));
-    assert.equal((await f.service.stop(stop([B]))).status, 'unconfirmed');
+    assert.equal((await f.service.closeCascade(stop([B]))).status, 'unconfirmed');
     await assert.rejects(f.register(`new-${stage}`, A, B, null), code('EXECUTION_UNCONFIRMED'));
     assert.equal(f.closes.length, 0);
   }
@@ -495,7 +497,7 @@ test('an explicit pre-effect refusal of a session change releases only that issu
   await assert.rejects(f.service.changeSession(B, 'configure', async () => {
     throw new ExecutionError('EXECUTION_CONFLICT', 'not_started');
   }), code('EXECUTION_CONFLICT'));
-  assert.equal((await f.service.stop(stop([B]))).status, 'stopped');
+  assert.equal((await f.service.closeCascade(stop([B]))).status, 'stopped');
   assert.deepEqual(f.closes, [B]);
 });
 test('new outgoing calls cannot cross an already-issued source close/configure', async () => {
@@ -511,7 +513,7 @@ test('source-aware configuration drains before stopping its caller without inven
   const changing = f.service.changeSession(B, 'configure', async () => { entered.resolve(); await released.promise; }, A);
   await entered.promise;
   assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, [A]);
-  const stopping = f.service.stop(stop([A]));
+  const stopping = f.service.closeCascade(stop([A]));
   await until(async () => (await f.store.transaction(state => state.stopping)).some(value => value.session_id === A.session_id));
   await assert.rejects(f.service.changeSession(C, 'configure', async () => {}, A), code('EXECUTION_STOPPING'));
   assert.equal(f.closes.length, 0);
@@ -528,7 +530,7 @@ test('a lost source-aware change remains attributable after the caller is absent
   const roots = await restored.roots({ session_id: A.session_id });
   assert.deepEqual(roots.roots, [A]);
   assert.ok(roots.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
-  const result = await restored.stop(stop([A]));
+  const result = await restored.closeCascade(stop([A]));
   assert.equal(result.status, 'partial');
   assert.ok(result.unresolved.some(value => value.reason === 'issued_operation_unconfirmed'));
   await assert.rejects(restored.changeSession(B, 'configure', async () => {}), code('EXECUTION_UNCONFIRMED'));
@@ -580,23 +582,26 @@ test('fake in-memory MCP publishes and validates register/status/finish and agen
     const missing = await client.callTool({ name: 'agent_execution', arguments: { action: 'status', request: request('missing') } });
     assert.equal(missing.isError, true);
     assert.equal(missing._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_NOT_FOUND');
-    const remote = await client.callTool({ name: 'agent_stop', arguments: { ...stop([A]), remote: { host: 'foreign-scope' } } });
+    const remote = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A], remote: { host: 'foreign-scope' } } });
     assert.equal(remote.isError, true);
     assert.equal(f.closes.length, 0);
-    const result = await client.callTool({ name: 'agent_stop', arguments: stop([A]) });
-    assert.equal(result.structuredContent.status, 'stopped');
-    assert.deepEqual(f.closes, [A]);
+    const result = await client.callTool({ name: 'agent_stop', arguments: {
+      schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
+    assert.equal(result.isError, undefined);
+    assert.equal(result.structuredContent.status, 'unconfirmed');
+    assert.equal(result.structuredContent.targets[0].key_receipt, 'not_sent');
+    assert.deepEqual(f.closes, []);
   } finally { await client.close(); await server.close(); }
 });
 test('file corruption and an abandoned transaction lock do not become an empty successful graph', async () => {
   const f = fixture();
   writeFileSync(join(f.directory, 'relations.json'), '{');
-  await assert.rejects(f.service.stop(stop([A])), code('EXECUTION_STATE_UNAVAILABLE'));
+  await assert.rejects(f.service.closeCascade(stop([A])), code('EXECUTION_STATE_UNAVAILABLE'));
   await assert.rejects(f.service.roots({ session_id: A.session_id }), code('EXECUTION_STATE_UNAVAILABLE'));
   assert.equal(f.closes.length, 0);
   const other = fixture(); mkdirSync(join(other.directory, 'transaction.lock'));
   const locked = new ExecutionService(new FileExecutionStore(other.directory, 1), other.runtime);
-  await assert.rejects(locked.stop(stop([A])), code('EXECUTION_BUSY'));
+  await assert.rejects(locked.closeCascade(stop([A])), code('EXECUTION_BUSY'));
   assert.equal(other.closes.length, 0);
 });
 test('root lookup recovers an absent source generation with unfinished descendants after service reconstruction', async () => {
@@ -606,7 +611,7 @@ test('root lookup recovers an absent source generation with unfinished descendan
   assert.equal(result.observation, 'absent');
   assert.equal(result.current, null);
   assert.deepEqual(result.roots, [A]);
-  const stopped = await reconstructed.stop(stop(result.roots));
+  const stopped = await reconstructed.closeCascade(stop(result.roots));
   assert.equal(stopped.status, 'stopped');
   assert.deepEqual(f.closes, [B]);
 });

@@ -70,7 +70,8 @@ process.on('message', async message => {
       if (message.reject) throw new Error('synthetic lost response');
       return 'configured';
     });
-    else if (message.action === 'stop') value = await service.stop(message.input);
+    // Historical destructive admission fixture, not the stop control v2.
+    else if (message.action === 'stop') value = await service.closeCascade(message.input);
     else if (message.action === 'roots') value = await service.roots(message.input);
     else if (message.action === 'seedParent') {
       const record = await service.execute(message.input);

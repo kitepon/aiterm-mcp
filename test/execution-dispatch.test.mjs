@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -103,7 +105,7 @@ test('preparing work is canceled without idle wait and its delayed native effect
     entered.resolve(); await release.promise; f.effect(); return { content: [] };
   });
   await entered.promise;
-  const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
+  const stopped = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
   assert.equal(stopped.targets[0].outcome, 'closed');
   release.resolve();
   const result = await action;
@@ -190,7 +192,7 @@ test('configure is admitted without an invocation edge, while key and approval r
       f.effect(); return { content: [] };
     });
     assert.equal(result.isError, undefined);
-    const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
+    const stopped = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
     assert.deepEqual(stopped.targets.map(value => value.launch.session_id), tool === 'agent_configure' ? [A.session_id] : [A.session_id, B.session_id]);
   }
 });

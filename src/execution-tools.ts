@@ -2,7 +2,7 @@
 // it only after supplying the runtime evidence and mutation-path adapters.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { executionReservationSchema, executionRequestSchema, executionPointSchema, cascadeStopRequestSchema, cascadeStopResultObjectSchema,
+import { executionReservationSchema, executionRequestSchema, executionPointSchema, cascadeInterruptRequestSchema, cascadeInterruptResultObjectSchema,
   type ExecutionPoint } from "./execution-contract.js";
 import { executionActionSchema, executionFinishSchema, executionRecordSchema, executionBindingSchema,
   executionRootsRequestSchema, executionRootsResultObjectSchema,
@@ -30,6 +30,19 @@ export function executionBindingMeta(record: ExecutionRecord): Record<string, un
 export interface ExecutionToolOptions {
   // Installed by the serving host adapter, not supplied as tool arguments.
   sourceContext?(extra: { _meta?: unknown }): ExecutionTransportSource | undefined;
+}
+// Private same-server handshake. A guarded dispatcher must recognize the
+// exact bound service before these three controls become callable. Ordinary
+// standalone fake MCP handlers retain their existing explicit registration.
+export interface ExecutionControlRegistration {
+  sourceContext: NonNullable<ExecutionToolOptions["sourceContext"]>;
+  activate(): void;
+}
+const controlRegistrars = new WeakMap<McpServer, (service: ExecutionService) => ExecutionControlRegistration>();
+export function attachExecutionControlRegistrar(server: McpServer,
+  register: (service: ExecutionService) => ExecutionControlRegistration): void {
+  if (controlRegistrars.has(server)) throw new ExecutionError("EXECUTION_CONFLICT");
+  controlRegistrars.set(server, register);
 }
 export function createExecutionToolHandlers(service: ExecutionService, options: ExecutionToolOptions = {}): {
   agent_execution(input: unknown, extra?: { _meta?: unknown }): Promise<ToolResult>;
@@ -69,7 +82,9 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
 }
 
 export function registerExecutionTools(server: McpServer, service: ExecutionService, options: ExecutionToolOptions = {}): void {
-  const handlers = createExecutionToolHandlers(service, options);
+  const registration = controlRegistrars.get(server)?.(service);
+  const handlers = createExecutionToolHandlers(service, { ...options,
+    ...(registration ? { sourceContext: registration.sourceContext } : {}) });
   server.registerTool("agent_execution", {
     description: "既存の実配送/実行参照を送信前に登録、照会、対応終了証拠で更新する。本文や再送queueは保存しない。",
     // MCP accepts a raw object shape; the handler enforces the stricter action
@@ -81,15 +96,16 @@ export function registerExecutionTools(server: McpServer, service: ExecutionServ
     outputSchema: executionRecordSchema.shape,
   }, async (args, extra) => handlers.agent_execution(args, extra));
   server.registerTool("agent_stop", {
-    description: "期待launchを持つrootから未完了の実呼出を辿り、混在先も停止する。部分未確認と対象別結果を返す。",
-    inputSchema: { ...cascadeStopRequestSchema.shape, remote: z.never().optional() },
-    outputSchema: cascadeStopResultObjectSchema.shape,
+    description: "実呼出の到達先で現在処理を中断し、session/launch/会話を維持する。close/killへ昇格しない。未接続adapterはunsupported。",
+    inputSchema: { ...cascadeInterruptRequestSchema.shape, remote: z.never().optional() },
+    outputSchema: cascadeInterruptResultObjectSchema.shape,
   }, async args => handlers.agent_stop(args));
   server.registerTool("agent_execution_roots", {
     description: "指定席の現在launchと保存済み未完了branchの実世代/期待世代を読む。過去完了履歴は返さず、停止や登録は行わない。",
     inputSchema: { ...executionRootsRequestSchema.shape, remote: z.never().optional() },
     outputSchema: executionRootsResultObjectSchema.shape,
   }, async args => handlers.agent_execution_roots(args));
+  registration?.activate();
 }
 
 /** Wrapper for the registered launch/send path. A successful action receipt

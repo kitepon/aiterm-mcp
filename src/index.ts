@@ -22,6 +22,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ExecutionError, executionErrorResult } from "./execution-wire.js";
 import type { createExecutionDispatcher } from "./execution-dispatch.js";
+import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
@@ -60,6 +61,8 @@ if (options.execution && (!supplied || typeof supplied.dispatcher?.dispatch !== 
   || typeof supplied.parentExecution?.captureEndpointEvidence !== "function")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
 const execution = supplied ? { ...supplied, parentExecution: { ...supplied.parentExecution },
   dispatcher: { dispatch: supplied.dispatcher.dispatch.bind(supplied.dispatcher) } } : null;
+if (supplied && typeof supplied.dispatcher.prepareControlRegistration === "function")
+  attachExecutionControlRegistrar(server, supplied.dispatcher.prepareControlRegistration.bind(supplied.dispatcher));
 // 誤りの返りでは、Claude Code親は受け口のPostToolUse hookを走らせず、配送を結ばなかった呼び出しの置き場が残る。
 // 返す前にここで消す（ADR 0096）。McpServerは入力の検査の失敗やhandlerの例外も誤りの返りへ変えるので、
 // toolごとのhandlerではなくtools/callの返りを見る。McpServerがそのhandlerを置くのは最初のtool登録の時で、その前に包む。

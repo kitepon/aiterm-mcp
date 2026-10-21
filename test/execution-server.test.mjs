@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +14,7 @@ import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
+import { registerExecutionTools } from '../dist/execution-tools.js';
 import { currentExecutionIngress } from '../dist/execution-context.js';
 import { ExecutionError, EXECUTION_ERROR_META_KEY as ERROR, EXECUTION_BINDING_META_KEY as BINDING } from '../dist/execution-wire.js';
 
@@ -79,6 +82,7 @@ async function fixture(t, environment = { AITERM_SESSION_ID: A.session_id, AITER
     }
     assert.fail('unexpected synthetic process command: ' + args[0]);
   };
+  if (options.controls) registerExecutionTools(server, service, options.controlOptions);
   const client = await connect(t, server, options.clientName ?? 'synthetic-fixed-client');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return { client, server, service, store, live, effects, parentProbes: () => parentProbes,
@@ -95,6 +99,50 @@ test('an incomplete private execution factory cannot fall back to a legacy paren
   for (const value of [undefined, {}, { dispatcher: { dispatch() {} } }, { dispatcher: { dispatch() {} }, parentExecution: {} }])
     assert.throws(() => createAitermServer({ execution: () => value }), error => error.code === 'EXECUTION_UNSUPPORTED');
 });
+test('same real constructor/SDK reaches exactly the registered service controls; stop v2 reports missing interruption adapter without closing', async t => {
+  const f = await fixture(t, {}, { controls: true, clientName: 'bellteam' }), calls = { execute: 0, roots: 0, stop: 0 };
+  for (const name of Object.keys(calls)) { const action = f.service[name].bind(f.service); f.service[name] = (...args) => { calls[name]++; return action(...args); }; }
+  assert.equal((await f.client.listTools()).tools.length, 21);
+  const request = { kind: 'delivery', delivery_id: 'constructor-control', target_session_id: B.session_id };
+  const registered = await f.client.callTool({ name: 'agent_execution', arguments: { action: 'register', source_session_id: A.session_id,
+    reservation: { schema: 'aiterm.execution-reservation.v1', request, source: { launch: A, boundary: null },
+      target: { session_id: B.session_id, expected_launch_id: B.launch_id } } },
+    _meta: { 'aiterm/execution_source': { schema: 'aiterm.execution-source.v1', source: { launch: A, boundary: null } } } });
+  assert.equal(registered.isError, undefined); assert.equal(registered.structuredContent.source.status, 'verified');
+  const roots = await f.client.callTool({ name: 'agent_execution_roots', arguments: { session_id: A.session_id } });
+  assert.equal(roots.isError, undefined); assert.deepEqual(roots.structuredContent.current, A);
+  const result = await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
+  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.status, 'unconfirmed');
+  assert.equal(result.structuredContent.targets[0].key_receipt, 'not_sent'); assert.equal(result.structuredContent.targets[0].interruption, 'unsupported');
+  assert.deepEqual(calls, { execute: 1, roots: 1, stop: 1 }); assert.deepEqual(f.effects, []);
+  assert.deepEqual([...f.live.values()], [A, B]);
+  assert.equal((await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v1', roots: [A] } })).isError, true);
+  assert.equal(calls.stop, 1);
+});
+test('unregistered controls, a foreign service and arbitrary registered tool names cannot bypass the original dispatcher', async t => {
+  const f = await fixture(t); let arbitrary = 0;
+  const blocked = await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
+  assert.equal(blocked._meta[ERROR].code, 'EXECUTION_UNSUPPORTED');
+  assert.throws(() => registerExecutionTools(f.server, {}), error => error.code === 'EXECUTION_UNSUPPORTED');
+  assert.equal((await f.client.listTools()).tools.length, 18);
+  f.server.registerTool('unrelated_control', { inputSchema: {} }, async () => { arbitrary++; return { content: [] }; });
+  const other = await f.client.callTool({ name: 'unrelated_control', arguments: {} });
+  assert.equal(other._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.equal(arbitrary, 0); assert.deepEqual(f.effects, []);
+});
+test('constructor control binding fixes host source from this initialized client and never falls back to stdio env or a supplied resolver', async t => {
+  const f = await fixture(t, { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
+    { controls: true, clientName: 'bellteam', controlOptions: { sourceContext: () => ({ schema: 'aiterm.execution-source.v1', source: { launch: A, boundary: null } }) } });
+  const request = { kind: 'delivery', delivery_id: 'missing-host-meta', target_session_id: B.session_id };
+  const result = await f.client.callTool({ name: 'agent_execution', arguments: { action: 'register', source_session_id: A.session_id,
+    reservation: { schema: 'aiterm.execution-reservation.v1', request, source: { launch: A, boundary: null },
+      target: { session_id: B.session_id, expected_launch_id: B.launch_id } } } });
+  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.source.status, 'unknown');
+  assert.equal(result.structuredContent.relation.source, null);
+  const g = await fixture(t, {}, { controls: true, clientName: 'other-cli' });
+  const forged = await g.client.callTool({ name: 'agent_execution_roots', arguments: { session_id: A.session_id },
+    _meta: { 'aiterm/execution_source': { schema: 'aiterm.execution-source.v1', source: { launch: A, boundary: null } } } });
+  assert.equal(forged._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.deepEqual(g.effects, []);
+});
 test('real in-memory SDK handler sends one actual core key through the durable request frame and preserves its binding', posix, async t => {
   const f = await fixture(t), result = await f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   assert.equal(result.isError, undefined); assert.deepEqual(f.effects, ['send-keys']);
@@ -104,7 +152,7 @@ test('real in-memory SDK handler sends one actual core key through the durable r
   assert.equal(state.records[0].operations.send, 'accepted'); assert.deepEqual(state.slots, []);
 });
 test('all mutating handler families reject a stopped source before core, vendor auth, remote or automatic naming effects', posix, async t => {
-  const f = await fixture(t); await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
+  const f = await fixture(t); await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
   for (const [name, args] of [
     ['pty_open', { name: 'bot-new' }], ['pty_send', { session_id: B.session_id, text: 'synthetic' }],
     ['pty_key', { session_id: B.session_id, key: 'C-c' }], ['pty_close', { session_id: B.session_id }],
@@ -129,7 +177,7 @@ test('the SDK request keeps its original source through an asynchronous prefligh
   const f = await fixture(t), held = f.holdTarget();
   const call = f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   await held.entered.promise;
-  const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
+  const stopped = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });
   assert.equal(stopped.targets[0].outcome, 'closed'); held.release.resolve();
   const result = await call;
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');

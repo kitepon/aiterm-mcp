@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,7 +110,7 @@ test('a stopped child cancels deferred parent resumption and an old inherited re
     entered.resolve(); await release.promise; issue(); effects++; return { queued_submission_id: null };
   });
   await entered.promise;
-  await f.service.stop(stop([B]));
+  await f.service.closeCascade(stop([B]));
   release.resolve(); const result = await pending;
   assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
   assert.equal(effects, 0); assert.ok(f.live.has(A.session_id));
@@ -120,7 +122,7 @@ test('stop drains an actually issued parent return and reaches the same parent l
     issue(); effects++; entered.resolve(); await release.promise; return { queued_submission_id: null };
   });
   await entered.promise;
-  const stopping = f.service.stop(stop([B]));
+  const stopping = f.service.closeCascade(stop([B]));
   await new Promise(resolve => setTimeout(resolve, 2));
   assert.equal(f.live.size, 2); release.resolve();
   assert.equal((await pending).isError, undefined);
@@ -194,7 +196,7 @@ test('parent queue acceptance is not a completion fence, but confirmed unissued 
 test('stop after local child done still reaches that child and cancels an unissued bound parent return', async () => {
   const f = await fixture(true, true); await f.adapter.bind(id, originalRequest, point(B, 17), endpoint);
   await f.service.execute({ action: 'finish', request: originalRequest, evidence: { kind: 'completion', target: point(B, 17) } });
-  const result = await f.service.stop(stop([A]));
+  const result = await f.service.closeCascade(stop([A]));
   assert.deepEqual(new Set(result.targets.map(value => value.launch.session_id)), new Set([A.session_id, B.session_id]));
   let effects = 0;
   await assert.rejects(f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); effects++; return { queued_submission_id: null }; }));
@@ -237,7 +239,7 @@ test('source stop cancels original-receipt preflight before any parent queue nat
   }).catch(error => error);
   await entered.promise;
   const queue = f.adapter.submit(id, endpoint, async (_, __, issue) => { issue(); queueEffects++; return { queued_submission_id: null }; }).catch(error => error);
-  await new Promise(resolve => setTimeout(resolve, 2)); await f.service.stop(stop([B]));
+  await new Promise(resolve => setTimeout(resolve, 2)); await f.service.closeCascade(stop([B]));
   assert.equal((await queue).code, 'EXECUTION_STOPPING'); assert.equal(queueEffects, 0);
   release.resolve(); assert.equal((await dispatch).effect, 'not_started'); assert.ok(f.live.has(A.session_id));
 });

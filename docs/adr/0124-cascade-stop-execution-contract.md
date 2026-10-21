@@ -1,5 +1,10 @@
 # 0124. 未完了の実呼出を辿る連鎖停止・Bridge接続案
 
+**2026-10-21夜の指揮官訂正: 停止ボタン/連鎖/全体停止のclose/CLI終了方式は失効。**
+現契約は[0125](0125-session-preserving-interruption.md)。現在処理を中断しsession/launch/会話を残す。
+以下の閉鎖結果・launch消失によるfinish・closeのfake受入は、新中断へ流用しない。
+旧破壊的primitiveは明示的なcloseCascadeへ分け、agent_stopから呼ばない。実呼出関係/寿命/欠測の原則は維持する。
+
 状態: Proposed（2026-10-21、指揮官の混在停止確定指示と寿命相談を反映）。
 初稿fd5d59fの「混在/共有先は除外」「source元依頼の意味帰属/入力集合completeを必須」は失効。
 指揮官の確定指示は、混在を判定せず、対象へ到達した実行は他仕事があっても停止すること。

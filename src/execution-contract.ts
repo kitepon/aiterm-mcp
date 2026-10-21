@@ -44,6 +44,39 @@ export const executionRequestSchema = z.discriminatedUnion("kind", [
 ]);
 export type ExecutionRequest = z.infer<typeof executionRequestSchema>;
 
+// Owner correction: interruption preserves the current session/launch and
+// conversation. The former close result is deliberately a different version.
+export const cascadeInterruptRequestSchema = z.object({
+  schema: z.literal("aiterm.cascade-stop-request.v2"), mode: z.literal("interrupt"),
+  roots: z.array(executionLaunchSchema).min(1),
+}).strict();
+export const cascadeInterruptResultObjectSchema = z.object({
+  schema: z.literal("aiterm.cascade-stop-result.v2"), mode: z.literal("interrupt"),
+  roots: z.array(executionLaunchSchema).min(1), status: z.enum(["confirmed", "partial", "unconfirmed"]),
+  relation_coverage: z.enum(["complete", "incomplete"]),
+  unresolved: z.array(z.object({ request: executionRequestSchema.nullable(), reason: z.string() }).strict()),
+  targets: z.array(z.object({ launch: executionLaunchSchema, run: executionPointSchema.nullable(),
+    key: z.enum(["Escape", "C-c"]).nullable(), key_receipt: z.enum(["not_sent", "accepted", "unknown"]),
+    interruption: z.enum(["interrupted", "already_idle", "unconfirmed", "unsupported", "replaced"]),
+    session_preserved: z.enum(["confirmed", "unconfirmed"]), reason: z.string(),
+  }).strict()),
+}).strict();
+export const cascadeInterruptResultSchema = cascadeInterruptResultObjectSchema.superRefine((value, context) => {
+  const confirmed = (target: typeof value.targets[number]) => target.session_preserved === "confirmed"
+    && ["interrupted", "already_idle"].includes(target.interruption);
+  if (value.targets.some(target => (target.run && (target.run.launch.session_id !== target.launch.session_id
+      || target.run.launch.launch_id !== target.launch.launch_id))
+      || (target.key_receipt === "accepted" && !target.key)
+      || (target.interruption === "interrupted" && !target.run?.boundary))
+    || value.roots.some(root => !value.targets.some(target => target.launch.session_id === root.session_id && target.launch.launch_id === root.launch_id))
+    || (value.status === "confirmed" && (!value.targets.length || !value.targets.every(confirmed)
+      || value.relation_coverage !== "complete" || value.unresolved.length > 0))
+    || (value.status === "partial" && !value.targets.some(confirmed)))
+    context.addIssue({ code: "custom", message: "key receipt alone cannot confirm interruption or preserved-session coverage" });
+});
+
+
+
 // Mechanical operation type, never an interpretation of the message contents.
 // Mutation admission still fences/drains non-work operations; they do not
 // become an AI invocation edge merely because they touched another seat.

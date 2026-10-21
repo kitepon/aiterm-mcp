@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -104,7 +106,7 @@ test('actual dispatcher, service and core share the durable tty admission and ca
       nativeIdentity: { pid: 12345, started_identity: 'synthetic-native-process' }, initializedClientName: () => 'codex',
       observeSessionGeneration: observe });
     const result = await dispatcher.dispatch('pty_send', { session_id: target.session_id }, { requestId: 1 }, async () => {
-      if (scenario === 'stop') await service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [source] });
+      if (scenario === 'stop') await service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [source] });
       if (scenario === 'replacement') live.set(target.session_id, { ...target, launch_id: 'c'.repeat(32) });
       await core.ensureAgentOwnsPaneInput(target.session_id, 'codex');
       return { content: [], structuredContent: { schema: 'aiterm.pty-send-result.v1', mode: 'agent_dispatch',

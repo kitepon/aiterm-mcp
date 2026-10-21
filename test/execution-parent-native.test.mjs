@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,7 +40,7 @@ async function fixture() {
   const bindings = { store, actor: { pid: 12345, started_identity: 'synthetic-native-process-start' },
     observeSessionGenerationSync: observe, verifyParentEndpoint: verify };
   return { store, live, service, parent, bindings, native: createParentNativeAdmission(bindings),
-    alias(value) { aliasValid = value; }, stop: () => service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [B] }),
+    alias(value) { aliasValid = value; }, closeCascade: () => service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [B] }),
     state: () => store.transaction(state => structuredClone(state), { readOnly: true }) };
 }
 test('emit and wake join the same accepted delivery without submitting it again or completing its execution', async () => {
@@ -60,7 +62,7 @@ test('stop can finish while an emit is only preparing; its late callback cannot 
   const pending = f.native.run(id, 'emit', endpoint, async (_, issue) => {
     entered.resolve(); await release.promise; issue(); effects++; return 'emitted';
   });
-  await entered.promise; const result = await f.stop();
+  await entered.promise; const result = await f.closeCascade();
   assert.deepEqual(result.targets.map(value => value.launch.session_id), [B.session_id, A.session_id]);
   release.resolve(); assert.equal((await pending).error.effect, 'not_started'); assert.equal(effects, 0);
 });
@@ -71,7 +73,7 @@ test('stop drains an issued emit phase and finish cannot retire the relation whi
   });
   await entered.promise;
   await assert.rejects(f.service.execute({ action: 'finish', request: returning, evidence: { kind: 'not_sent' } }), error => error.code === 'EXECUTION_UNCONFIRMED');
-  const stopped = f.stop(); await new Promise(resolve => setTimeout(resolve, 2)); assert.equal(f.live.size, 2);
+  const stopped = f.closeCascade(); await new Promise(resolve => setTimeout(resolve, 2)); assert.equal(f.live.size, 2);
   release.resolve(); assert.equal((await pending).value, 'emitted');
   assert.deepEqual((await stopped).targets.map(value => value.outcome), ['closed', 'closed']); assert.equal(effects, 1);
 });
@@ -81,7 +83,7 @@ test('a lost issued native receipt survives reconstruction, is never retried and
   assert.equal(failed.error.effect, 'possible');
   const retry = await createParentNativeAdmission(f.bindings).run(id, 'wake', endpoint, async (_, issue) => { issue(); effects++; });
   assert.equal(retry.error.effect, 'possible'); assert.equal(effects, 1);
-  const stopped = await f.stop();
+  const stopped = await f.closeCascade();
   assert.equal(stopped.status, 'partial'); assert.equal(stopped.targets.find(value => value.launch.session_id === A.session_id).outcome, 'unknown');
   const state = await f.state(); assert.equal(state.parent_effects[0].state, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
 });
@@ -135,7 +137,7 @@ test('one hook output joins multiple existing deliveries and keeps every child f
   assert.equal(state.parent_effects.length, 2);
   await assert.rejects(f.service.execute({ action: 'finish', request: { kind: 'delivery', delivery_id: second, target_session_id: A.session_id },
     evidence: { kind: 'not_sent' } }), error => error.code === 'EXECUTION_UNCONFIRMED');
-  const stopping = f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [C] });
+  const stopping = f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [C] });
   await new Promise(resolve => setTimeout(resolve, 2)); release.resolve();
   assert.equal((await native).value, 'one-output'); assert.equal(effects, 1);
   assert.equal((await stopping).targets.every(value => value.outcome === 'closed'), true);

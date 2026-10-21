@@ -2,6 +2,7 @@
 // retries a launch/send/close. The core/MCP adapter is a separate integration.
 import { z } from "zod";
 import { assessExecutionSource, planCascadeStop, unfinishedExecutionRelations, cascadeStopRequestSchema, cascadeStopResultSchema,
+  cascadeInterruptRequestSchema, cascadeInterruptResultSchema,
   executionPointSchema, type ExecutionLaunch, type ExecutionPoint, type ExecutionRequest,
   executionLaunchSchema,
   type ExecutionSourceEvidence } from "./execution-contract.js";
@@ -577,7 +578,28 @@ export class ExecutionService {
     }
   }
 
-  async stop(input: unknown): Promise<z.infer<typeof cascadeStopResultSchema>> {
+  async stop(input: unknown): Promise<z.infer<typeof cascadeInterruptResultSchema>> {
+    const { roots } = cascadeInterruptRequestSchema.parse(input);
+    // Owner correction 2026-10-21: stop interrupts the current computation
+    // while retaining session/launch/conversation. No close/kill escalation.
+    // Until the exact harness interruption and preservation proof are wired,
+    // report unsupported before even fencing metadata; never run close/kill.
+    return this.store.transaction(state => {
+      const plan = planCascadeStop(roots, state.records.map(record => record.relation));
+      return cascadeInterruptResultSchema.parse({ schema: "aiterm.cascade-stop-result.v2", mode: "interrupt", roots,
+        status: "unconfirmed", relation_coverage: "incomplete",
+        unresolved: [...plan.gaps.map(gap => ({ request: gap.request, reason: gap.reason })),
+          { request: null, reason: "session_preserving_interrupt_adapter_missing" }],
+        targets: plan.targets.map(launch => ({ launch, run: null, key: null, key_receipt: "not_sent",
+          interruption: "unsupported", session_preserved: "unconfirmed", reason: "session_preserving_interrupt_adapter_missing" })),
+      });
+    }, { readOnly: true });
+  }
+
+  /** Explicit destructive maintenance primitive, NOT the stop button/control.
+   * Historical close tests exercise this path, not interruption acceptance.
+   */
+  async closeCascade(input: unknown): Promise<z.infer<typeof cascadeStopResultSchema>> {
     const { roots } = cascadeStopRequestSchema.parse(input);
     let admitted = false;
     try {

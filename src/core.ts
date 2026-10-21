@@ -1268,7 +1268,8 @@ export function sendKey(name: string, key: string, o: { preserveAgentOperation?:
     });
     return `sent key ${k} to ${name}`;
   }
-  tmux("send-keys", "-t", name, k);
+  const result = tmux("send-keys", "-t", name, k);
+  if (result.code !== 0) throw new AitermError("制御キー送信を確認できません。自動再送やcloseへの切替はしていません。", 2);
   return `sent key ${k} to ${name}`;
 }
 

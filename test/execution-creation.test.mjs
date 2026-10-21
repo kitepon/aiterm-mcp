@@ -1,3 +1,5 @@
+// Historical destructive close/admission fixtures use closeCascade explicitly.
+// These are not acceptance evidence for the session-preserving stop control.
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -161,11 +163,11 @@ test('composed participant connects actual creation metadata and core expected c
   const f = fixture(t, 'participant'), receipt = await f.launch();
   assert.equal(receipt.isError, undefined);
   const expected = { session_id: f.name, launch_id: receipt.structuredContent.launch_id };
-  const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
+  const stopped = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
   assert.equal(stopped.targets[0].outcome, 'closed'); assert.equal(stopped.status, 'partial');
   assert.equal(stopped.relation_coverage, 'incomplete'); assert.equal(f.native.has(f.name), false);
   assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
-  const again = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
+  const again = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [expected] });
   assert.equal(again.targets[0].outcome, 'already_closed');
   assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
 });
@@ -239,7 +241,7 @@ test('native creation provenance survives RPC completion and a reconstructed ser
   assert.deepEqual(saved.execution_native, { schema: 'aiterm.execution-native.v1', native_id: '$71',
     server: { pid: 4711, started_identity: 'Wed Oct 21 09:00:00 2026' } });
   const reconstructed = new ExecutionService(f.store, f.runtime, 5);
-  const result = await reconstructed.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
+  const result = await reconstructed.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
   assert.equal(result.status, 'partial', 'native closure does not manufacture complete relation coverage');
   assert.equal(result.targets[0].outcome, 'closed'); assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
   assert.equal(f.native.has(f.name), false); assert.equal(f.native.has(A.session_id), true);
@@ -256,7 +258,7 @@ test('old metadata cannot prove a same-name replacement, restarted server, missi
     const beforeRead = readFileSync(file);
     assert.deepEqual(core.observeExecutionSessionGeneration(f.name), { schema: 'aiterm.pty-observe-result.v1',
       session_id: f.name, exists: true, launch_id: null });
-    const stopped = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
+    const stopped = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [launch] });
     assert.equal(stopped.targets[0].outcome, 'unknown');
     assert.equal(f.effects.includes('kill-session'), false); assert.ok(f.native.has(f.name));
     assert.deepEqual(readFileSync(file), beforeRead, 'observation does not enroll or repair stale metadata');
@@ -265,11 +267,11 @@ test('old metadata cannot prove a same-name replacement, restarted server, missi
 test('a stopped generation stays retired when actual core creates new work under the same name and a different native ID', posix, async t => {
   const f = fixture(t), first = await f.launch(); assert.equal(first.isError, undefined);
   const old = { session_id: f.name, launch_id: first.structuredContent.launch_id };
-  assert.equal((await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] })).targets[0].outcome, 'closed');
+  assert.equal((await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] })).targets[0].outcome, 'closed');
   const second = await f.launch(); assert.equal(second.isError, undefined, JSON.stringify({ result: second, errors: f.errors }));
   const replacement = { session_id: f.name, launch_id: second.structuredContent.launch_id };
   assert.notEqual(replacement.launch_id, old.launch_id); assert.equal(f.native.get(f.name).id, '$72'); assert.equal(f.creates(), 2);
-  const staleStop = await f.service.stop({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] });
+  const staleStop = await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [old] });
   assert.equal(staleStop.targets[0].outcome, 'replaced'); assert.ok(f.native.has(f.name));
   assert.equal(f.effects.filter(value => value === 'kill-session').length, 1);
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });

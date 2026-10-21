@@ -1,5 +1,11 @@
 # Aiterm design
 
+## 開発中: 連鎖停止
+
+実行関係のsource/target世代、Bridgeからの既存依頼参照、混在仕事を閉じない停止計画は
+[ADR 0124の契約案](adr/0124-cascade-stop-execution-contract.md)で設計中。
+`execution-contract.ts`は隔離枝の未接続schema/純粋fixtureであり、現行公開toolの停止契約は変更していない。
+
 ## 目的と所有
 
 Aitermは、AIがローカルshell、SSH、container、REPL、別agentの対話TUIを、再接続可能な永続PTYとして

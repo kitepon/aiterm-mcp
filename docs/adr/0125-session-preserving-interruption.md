@@ -626,3 +626,32 @@ fileは同scope固定pathの同期読取だけで、サイズ上限、元cursor�
 一式が揃ってもchild_stop=recordedは歴史的記録の対応だけ。native_input/interruption/session_preservedはunconfirmed、
 native_fence unknown/clearance retained/retry noneを常に返す。CLI/旧hook/親returnの終了やloaded hookの証明ではなく、
 claim解除/slot清算/再送・stop成功/関係退役を実行しない。全native受入・他CLI・公開mountは未完。
+
+## 実用経路を優先する明示native SDK/stdio入口（2026-10-22）
+
+Trony経由の指揮官指示でclaim/Stop provenance診断の次工程を取り下げ、agent_stop v2→実core Escape→同sessionの
+次入力へ至る経路を最優先とする。旧診断時刻は着手待ちにしない。実席/本番/配布条件と未確認を成功にしない条件は維持。
+
+private dist/execution-native-server.js のcreateNativeExecutionServer({interruptCurrentRun:true,expectedScope,provider})が
+同一participant/serverへcontrolsを正規登録する。明示native組立でのみ実coreのselector/observer/Escを使い、通常index mainと
+localProducerRuntimeを自動有効化しない。SDK利用は返りserverを任意のMCP transportへconnectする。注入runtimeは3primitiveと
+全I/Oを必須とし、部分fakeからnativeへの個別fallback無し。actorは同MCP PID/start、state/socket scopeは実runtimeと一致が必須。
+選択したSteer providerのdecoder/verify/submitを同profileへ使い、installed0.4.7へ黙って戻らない。
+
+stdioコマンドは次の形。state/socketを決める既存環境は起動前に固定し、別scope/旧provider/flag欠測は起動拒否。
+
+```sh
+node /absolute/aiterm/dist/execution-native-server.js --execution-interrupt --state-root /absolute/state --socket /absolute/socket --steer-provider /absolute/admission-steer/dist/index.js
+```
+
+これはprivate入口の組立であり、実CLI受入や本体公開を意味しない。現在のnative観測はfence unknown/維持unconfirmedで、
+Esc受付後の一時admissionを解除できない。native run/会話/期待世代の中断確認と同session次入力の受入、native stampを持つ
+隔離新会話のbootstrap、turn-null binding aliasは続く実装の阻害として残る。キー受付だけで成功にせずclose/killへ昇格しない。
+
+同じnative entryと共通prefixへmodeだけを足して本体/4CLI MCP/parent hook登録で共有する。
+MCPは--mode mcp（既定）、Claude parent hookは--mode claude-hook、Cursorは--mode cursor-hook。
+Codexは--mode codex-hook --codex-home /absolute/native-home --hook-directory /absolute/registered-hook-dir。
+各hookは既存Steer run*HookMainへnative worker profileを渡し、stdin/stdout/stderr/exit 2の既存protocolを維持する。
+actorはそのhook自身のPID/startを実読取し、MCP actorを継承・推測しない。Cursorは同じ1scopeだけ、複数scope/channelは未対応。
+Claudeの独立claude-stop-hook（result writer）はparent receiverとは別であり、このparent-hook modeへ置換しない。
+GrokのMCP登録も同mcp modeを使えるが、Grok/Cursorのnative中断primitiveが受入済みという意味ではない。

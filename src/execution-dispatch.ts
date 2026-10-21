@@ -9,6 +9,7 @@ import { runDeferredBoundExecution } from "./execution-tools.js";
 import { ExecutionError, executionErrorResult, executionRefFromMeta, executionHostSourceFromMeta,
   EXECUTION_REQUEST_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
 import { EXECUTION_SOURCE_META_KEY } from "./execution-wire.js";
+import { withExecutionRequest } from "./execution-context.js";
 
 type ToolResult = {
   content: { type: "text"; text: string }[]; isError?: boolean;
@@ -134,7 +135,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           ? { session_id: route.target, launch_id: status.reservation.target.expected_launch_id } : null);
         const requestMeta = { ...(fixedExtra._meta as Record<string, unknown> | undefined), [EXECUTION_REQUEST_META_KEY]: reference };
         return await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
-          const result = await body(args, { ...fixedExtra, _meta: requestMeta });
+          const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }));
           if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           // Missing/invalid binding evidence is returned as null. The wrapper
           // retains the genuine successful receipt if binding then fails; it

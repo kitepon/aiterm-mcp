@@ -59,6 +59,10 @@ function fixture() {
   writeFileSync(join(root, 'synthetic-live.json'), JSON.stringify(Object.fromEntries([A, B, C].map(item => [item.session_id, item]))));
   return { root, scope: join(root, 'synthetic.sock') };
 }
+const parentId = '00000000-0000-4000-8000-000000000001';
+const parentEndpoint = { thread_id: 'synthetic-existing-parent-thread' };
+const seedParent = worker => worker.call('seedParent', { input: register('parent-ab'), delivery: parentId,
+  endpoint: parentEndpoint, child: point(B) }).result;
 const state = worker => JSON.parse(readFileSync(join(worker.directory, 'relations.json'), 'utf8'));
 
 test('storage scopes share only the same existing state and multiplexer identity', () => {
@@ -68,6 +72,45 @@ test('storage scopes share only the same existing state and multiplexer identity
   assert.notEqual(first, executionStoreDirectory(root, { kind: 'namespace', key: scope }));
   assert.notEqual(first, executionStoreDirectory(root, { kind: 'socket', key: scope + '-other' }));
   assert.throws(() => executionStoreDirectory('relative', { kind: 'socket', key: scope }));
+});
+
+test('a different process cancels an unissued parent emit without waiting for its receiver', async t => {
+  const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
+  assert.equal((await seedParent(one)).error, undefined);
+  const emit = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'emit' });
+  await until(() => one.events.some(value => value.event === 'entered' && value.id === emit.id));
+  const result = (await two.call('stop', { input: stop([B]) }).result).value;
+  assert.equal(result.status, 'stopped');
+  one.release(emit.id);
+  assert.equal((await emit.result).value.error.effect, 'not_started');
+  assert.equal(one.events.filter(value => value.event === 'native-effect').length, 0);
+});
+
+test('separate native receiver and stopper share an issued parent-phase slot and drain only that emission', async t => {
+  const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
+  await seedParent(one);
+  const emit = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'emit', issueBeforeGate: true });
+  await until(() => one.events.some(value => value.event === 'entered' && value.id === emit.id));
+  const stopping = two.call('stop', { input: stop([B]) });
+  await until(() => state(one).stopping.some(value => value.launch_id === B.launch_id));
+  assert.equal(state(one).slots[0].stage, 'parent_emit');
+  one.release(emit.id); assert.equal((await emit.result).value.value, 'synthetic-parent-native-receipt');
+  assert.equal((await stopping.result).value.status, 'stopped');
+  assert.equal(one.events.filter(value => value.event === 'native-effect').length, 1);
+});
+
+test('loss of a native receiver keeps its old actor and unknown phase instead of replaying wake', async t => {
+  const { root, scope } = fixture(), one = await worker(t, root, scope);
+  await seedParent(one);
+  const wake = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'wake', issueBeforeGate: true });
+  await until(() => one.events.some(value => value.event === 'entered' && value.id === wake.id));
+  const actor = state(one).parent_effects[0].actor; await one.kill();
+  const two = await worker(t, root, scope);
+  const retry = (await two.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'wake' }).result).value;
+  assert.equal(retry.error.effect, 'possible');
+  assert.deepEqual(state(two).parent_effects[0].actor, actor);
+  assert.equal(two.events.filter(value => value.event === 'native-effect').length, 0);
+  assert.equal((await two.call('stop', { input: stop([B]) }).result).value.status, 'partial');
 });
 
 test('separate MCP processes share the fence, drain the issued effect and close its late target once', async t => {

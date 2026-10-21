@@ -5,6 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
+import { currentExecutionRequest } from '../dist/execution-context.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
@@ -59,10 +60,12 @@ test('direct stdio uses existing native process/request identity and binds the g
   const result = await f.dispatcher.dispatch('pty_send', input, { requestId: 42 }, async (args, extra) => {
     assert.notEqual(args, input);
     assert.equal(extra._meta[REQUEST].request.request_id, 42);
+    assert.deepEqual(currentExecutionRequest(), extra._meta[REQUEST].request);
     f.effect(args.session_id); return accepted();
   });
   assert.equal(result.isError, undefined);
   assert.equal(f.effects(), 1);
+  assert.equal(currentExecutionRequest(), null);
   assert.equal(result._meta.preserved, 'original');
   const request = result._meta[BINDING].request;
   assert.equal(request.kind, 'mcp');

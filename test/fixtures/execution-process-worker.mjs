@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FileExecutionStore, executionStoreDirectory } from '../../dist/execution-store.js';
 import { ExecutionService } from '../../dist/execution-service.js';
+import { createExecutionParentAdapter } from '../../dist/execution-parent.js';
+import { createParentNativeAdmission } from '../../dist/execution-parent-native.js';
 
 const [root, scope] = process.argv.slice(2);
 if (!process.send || !root || !scope) throw new Error('fixture arguments required');
@@ -36,6 +38,12 @@ const runtime = {
   async coverage() { return 'complete'; },
 };
 const service = new ExecutionService(store, runtime, 150);
+const observeNative = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
+  exists: !!readLive()[session_id], launch_id: readLive()[session_id]?.launch_id ?? null });
+const verifyEndpoint = (_, endpoint) => endpoint.thread_id === 'synthetic-existing-parent-thread';
+const parent = createExecutionParentAdapter({ store, service, observeSessionGeneration: observeNative, verifyParentEndpoint: verifyEndpoint });
+const native = createParentNativeAdmission({ store, actor: { pid: process.pid, started_identity: 'synthetic-worker-start' },
+  observeSessionGenerationSync: observeNative, verifyParentEndpoint: verifyEndpoint });
 async function gate(id) {
   const pending = new Promise(resolve => gates.set(id, resolve));
   process.send({ event: 'entered', id });
@@ -64,6 +72,18 @@ process.on('message', async message => {
     });
     else if (message.action === 'stop') value = await service.stop(message.input);
     else if (message.action === 'roots') value = await service.roots(message.input);
+    else if (message.action === 'seedParent') {
+      const record = await service.execute(message.input);
+      const ref = { schema: 'aiterm.execution-ref.v1', request: record.reservation.request };
+      await service.invoke(ref, 'send', async () => ({ value: null, target: message.child }));
+      await parent.bind(message.delivery, record.reservation.request, message.child, message.endpoint);
+      value = await parent.submit(message.delivery, message.endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'synthetic-queue-receipt' }; });
+    } else if (message.action === 'parentNative') value = await native.run(message.delivery, message.stage, message.endpoint, async (_, issue) => {
+      if (!message.issueBeforeGate) await gate(id);
+      issue(); process.send({ event: 'native-effect', id });
+      if (message.issueBeforeGate) await gate(id);
+      return 'synthetic-parent-native-receipt';
+    });
     else throw new Error('unsupported fixture action');
     process.send({ event: 'result', id, value });
   } catch (error) {

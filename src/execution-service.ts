@@ -28,6 +28,10 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 const key = (value: unknown): string => JSON.stringify(value);
 const stopped = (state: ExecutionState, launch: ExecutionLaunch | null | undefined): boolean =>
   !!launch && state.stopping.some(value => same(value, launch));
+const openParentEffect = (state: ExecutionState, request: ExecutionRequest): boolean => request.kind === "delivery"
+  && state.parent_effects.some(effect => effect.delivery_id === request.delivery_id && effect.state !== "accepted"
+    && state.parent_deliveries.some(binding => binding.delivery_id === effect.delivery_id
+      && binding.parent.launch.session_id === request.target_session_id));
 function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord {
   const record = state.records.find(value => same(value.reservation.request, request));
   if (!record) throw new ExecutionError("EXECUTION_NOT_FOUND");
@@ -52,6 +56,8 @@ function retireSettledBranches(state: ExecutionState): void {
     const relation = record.relation;
     if (record.operations.launch === "issued" || record.operations.send === "issued"
       || record.operations.launch === "unknown" || record.operations.send === "unknown") continue;
+    if (state.slots.some(slot => slot.request && same(slot.request, record.reservation.request))) continue;
+    if (openParentEffect(state, record.reservation.request)) continue;
     if (relation.phase === "unsent" || (relation.source && relation.target_fence === "closed"
       && (relation.completion === "completed" || relation.completion === "interrupted") && !retained.has(key(relation.request))))
       relation.lifecycle = "retired";
@@ -119,8 +125,10 @@ export class ExecutionService {
       else if (current.state === "unknown" || current.state === "present")
         unresolved.push({ request: null, reason: "current_generation_unconfirmed" });
       for (const slot of state.slots) if (slot.session_id === session_id || (slot.request &&
-        find(state, slot.request).source_session_id === session_id) || slot.source?.session_id === session_id) {
+        find(state, slot.request).source_session_id === session_id) || slot.source?.session_id === session_id
+        || slot.sources?.some(source => source.session_id === session_id)) {
         if (slot.source?.session_id === session_id) roots.set(key(slot.source), slot.source);
+        for (const source of slot.sources ?? []) if (source.session_id === session_id) roots.set(key(source), source);
         if (slot.session_id === session_id && slot.expected_launch_id) {
           const expected = { session_id, launch_id: slot.expected_launch_id };
           roots.set(key(expected), expected);
@@ -362,6 +370,9 @@ export class ExecutionService {
       if (record.operations.launch === "issued" || record.operations.send === "issued"
         || record.operations.launch === "unknown" || record.operations.send === "unknown")
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      if (state.slots.some(slot => slot.request && same(slot.request, args.request)))
+        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      if (openParentEffect(state, args.request)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       if (args.evidence.kind === "not_sent") {
         if (record.operations.send === "accepted") throw new ExecutionError("EXECUTION_CONFLICT", "possible");
         record.operations.send = "not_sent";
@@ -456,6 +467,7 @@ export class ExecutionService {
         retireSettledBranches(state);
         return state.slots.filter(slot => [...reached.values()].some(value => value.session_id === slot.session_id)
           || stopped(state, slot.source)
+          || slot.sources?.some(source => stopped(state, source))
           || (slot.request && stopped(state, find(state, slot.request).relation.source?.launch)));
       });
       if (!pending.some(slot => slot.state === "issued") || performance.now() >= deadline) break;

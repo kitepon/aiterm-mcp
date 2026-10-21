@@ -14,6 +14,9 @@ import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
 import { answerAnywhere, observeAnywhere, remoteKey, remoteTargetSchema, type RemoteTarget } from "./remote.js";
+import type { ParentManagerExecution } from "./execution-parent-manager.js";
+import { currentExecutionRequest } from "./execution-context.js";
+import { ExecutionError } from "./execution-wire.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -153,6 +156,7 @@ function answerMessage(record: DeliveryRecord): string {
 /** ownerごとのディレクトリ間renameで、再起動後の回収者を一つに決める。 */
 export class ParentDeliveryManager {
   private readonly deps: ParentDeliveryDependencies;
+  private readonly execution?: ParentManagerExecution;
   private readonly root: string;
   private readonly recordRoots: string[];
   private readonly active: string;
@@ -170,10 +174,13 @@ export class ParentDeliveryManager {
   private closing = false;
   private lastHeartbeat = Number.NEGATIVE_INFINITY;
 
-  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
+  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; execution?: ParentManagerExecution;
+    dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
+    this.execution = options.execution;
     this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
       verify: verifyParent, processes: readProcessIdentities, exists: processExists,
-      now: () => performance.now(), wall: () => Date.now(), ...options.dependencies };
+      now: () => performance.now(), wall: () => Date.now(), ...options.dependencies,
+      ...(options.execution ? { submit: options.execution.submit } : {}) };
     const stateRoot = ensureStateRoot();
     // 別端末の子の記録はremote-で始まる保存場所へ分け、boundary.remoteを知らない旧版のreaderへ渡さない。
     const prefix = options.remote ? "remote-" : "";
@@ -221,9 +228,13 @@ export class ParentDeliveryManager {
     failed: (error: unknown) => void;
     wait_process: () => ReturnType<typeof cursorReceiveProcess> | null;
   } {
+    parent = structuredClone(parent);
+    const request = this.execution ? currentExecutionRequest() : null;
     let job: OwnedRecord | null = null;
     return {
       before_send: async (boundary) => {
+        boundary = structuredClone(boundary);
+        if (this.execution && (!request || boundary.remote)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
         const key = deliveryKey(boundary.session_id, boundary.remote);
         const previous = this.registering.get(key) ?? Promise.resolve();
         const registration = previous.then(async () => {
@@ -245,15 +256,17 @@ export class ParentDeliveryManager {
             }
             throw error;
           }
-          if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
-          if (isCursor(parent)) {
-            try { prepareCursorDelivery(parent, record.delivery_id); }
-            catch (error) {
+          try {
+            if (this.execution) await this.execution.bind(record.delivery_id, request!, { launch: {
+              session_id: boundary.session_id, launch_id: boundary.launch_id,
+            }, boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null } }, parent);
+            if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
+            if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
+          } catch (error) {
               this.releaseClaim(job);
               fs.unlinkSync(job.file);
               job = null;
               throw error;
-            }
           }
           this.jobs.set(record.delivery_id, job);
           this.watch(job);

@@ -410,6 +410,37 @@ vendor endpoint aliasの実証拠resolver、公式queue/hook/emit/wakeそれぞ�
 pending companionを含む実invocation fence証拠が揃うまでは、局所doneからbranch退役を主張しない。
 既存recordだけでbindingが無い配送へsame-name fallbackは無く、全体のcoverageはincompleteを維持する。
 
+### Queue受理後のnative段階（隔離接続）
+
+`createParentNativeAdmission`は、同じ既存deliveryのdequeue/emit/wakeを別processが引き取る口。
+parent_effectsへ既存delivery ID/段階/issued・accepted・unknown/native actor pid+started_identityを保存する。
+payload/再送queue/新しいbatch IDは無い。複数deliveryの一回のstdoutは同じ親launchを照合して一度だけ発行し、
+全deliveryのnative段階と全child sourceを保持する。共有slotのsourcesで各childの停止からもdrainする。
+その間のfinish/退役は、最初のdeliveryだけでなく全参加deliveryで未確認へ止める。
+
+queueの応答がまだissued/preparingなら、native receiverはboundedなmetadata preflightとして待つ。
+native slotを取らず停止を妨げない。queue/emitの再発行ではなく、期限でgraphを退役させるTTLでもない。
+unknownなqueue結果は待って成功へ昇格させず保持する。actual native callbackはAsyncResourceへbindする。
+発行後の失敗/actor消失は既存slot/actorを残し、再構築後も再発行しない。
+
+queue受理前の閉鎖済childから新しいreturnを作ることは引き続き拒否する。
+**既に受理済みの同じreturn**のemit/wakeは、保存済みchild世代と現在の期待parent、停止印を照合して続けられる。
+閉鎖済childを現在の同名launchへ付け替えるわけではない。
+genuine native receipt後のmetadata不確定でも元receiptを保持し、unknown slotを消さない。
+native emit/wake受理はtarget境界の完了やinvocation fence閉鎖を意味しない。
+
+`withExecutionRequest`はdispatcherが固定した既存参照だけを要求別ALSでParentDeliveryManagerへ渡す。
+managerはbefore_sendで同じ既存delivery IDと親/子/実endpointをcompanionへ結び、bind失敗時はchild claimを解放する。
+missing context/remoteは未対応。background/recoveryは旧RPCのissued callbackを再利用せず、
+`createParentManagerExecution`の実steer callbackへ入る。公開steer0.4.7のままではcapability不在で拒否する。
+`createSteerExecutionAdmission`はqueueのnative受理と、後続native段階を別々の共有受付へ繋ぐ。
+
+自分の別隔離repo `aiterm-steer-cascade` に低位callbackを追加し、実SDK風Node fixture→実queue/hook/
+Cursor単一scope出力/Claude再開信号との接続を検証する。製品への依存更新・public mountは未実施。
+required resolverを子へ輸送できない時は入力拒否。実worker factory/native alias証拠/復旧/全変更口/coverageと
+Cursor複数scope/channelは残る。native_contextは既存session/turn/tool/conversation参照の検証用で、
+その値からcanonical event_cursorを作ったり、近い実行へ意味で帰属したりしない。
+
 具体的なlaunch/send handlerは`runBoundExecution(..., body, actualTargetSessionId)`の最後の引数へ
 実際に発行するimmutableな対象引数を渡す。serviceは予約と一致しない対象を作用/slot発行前に拒否する。
 返却receiptの対象違いだけを作用後に検出する形へしない。省略形は既存の注入adapter互換用であり、

@@ -19,13 +19,20 @@ export const executionStateSchema = z.object({
     parent: executionPointSchema, child: executionPointSchema,
     endpoint_digest: z.string().regex(/^[0-9a-f]{64}$/),
   }).strict()).default([]),
+  // Native phases of that same existing delivery, not new invocation IDs.
+  parent_effects: z.array(z.object({ delivery_id: z.uuid(), stage: z.enum(["dequeue", "emit", "wake"]),
+    state: z.enum(["issued", "accepted", "unknown"]),
+    actor: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict(),
+  }).strict()).default([]),
   slots: z.array(z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
-    stage: z.enum(["launch", "send", "close", "configure"]),
+    stage: z.enum(["launch", "send", "close", "configure", "parent_dequeue", "parent_emit", "parent_wake"]),
     state: z.enum(["issued", "unknown"]), request: executionRequestSchema.nullable(),
     // Trusted transport snapshot for a non-delivery close/configure call.
     // Never filled from a latest job or inferred from the target's name.
     source: executionLaunchSchema.nullable().optional(),
+    // One native hook output may contain several existing delivery IDs.
+    sources: z.array(executionLaunchSchema).optional(),
   }).strict()),
 }).strict();
 export type ExecutionState = z.infer<typeof executionStateSchema>;
@@ -34,7 +41,7 @@ export interface ExecutionStore {
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
 }
 export function emptyExecutionState(): ExecutionState {
-  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [] };
+  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [] };
 }
 
 /** Use the product's existing stateRoot and resolved multiplexer identity.

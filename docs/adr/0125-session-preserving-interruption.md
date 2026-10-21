@@ -353,3 +353,32 @@ native steer receiptは実steer IDを優先し、before_send参照で上書き�
 これでevent_cursorを公開しないclaude_turn.issueも、実core before_send由来の元operation付きPointを
 結合できる。普通の匿名Claude turnにnamed operationを補完したとはしない。匿名markerと元境界の対応、
 native入力受理/処理開始、Codex native turn aliasは別の未了工程である。
+
+## 匿名Claudeの元before_send参照（private）
+
+named operationを匿名turnへ補完しない。匿名Claudeでは同じactual core before_sendの要求frameに
+捕捉した元cursorがある場合だけ、既存markerを`aiterm.claude-operation-marker.v2`で保存する。
+内容はoperation_id=nullと元event_cursorだけで、新ID・queue・本文を増やさない。launchは既存の
+launch固有marker pathと期待metadataへ照合する。未注入の通常coreはv1を維持する。
+v1匿名markerへ後から現在file長/最新jobを足さず、元cursor欠測・不一致ならunsupported。
+writerは同じ同期準備受付を通り、preparingのままmarkerを作る。
+
+private selectorはそのv2 markerと一致する**既存target Point**だけを採用し、異なるcursorの
+他仕事もgraphに残す。markerのfile identity、期待native server/session/launch/harness PID/startを
+前後とキー作用直前にも再照合する。別tag`aiterm.claude-anonymous-interruption-observation.v1`は
+recorded_state=unconfirmed、native_boundary=anonymous_turn_reserved、endpoint.session_id=null、
+dispatch_receipt=null、loaded_hook=unconfirmed、invocation_fence=unknownを必須にする。
+元before_send参照とnative入力受理は分け、汎用のrun/source比較へcursor同一を追加しない。
+同じ既存rowの再照合だけでcursorを使い、匿名cursorからnative source/turn aliasを作らない。
+
+この固定匿名参照を同じcaller/checkpoint/一回限りのslotへ結ぶ。Esc accepted後も元Point/receipt、
+accepted journal/unknown slotと旧要求/parent return抑止を保持する。service再構築、Stop、marker消費や
+消失から再送・finish・idle成功・抑止解除へ進めない。結果は
+anonymous_before_send_native_acceptance_unconfirmed/claude_hook_version_unconfirmedを保持する。
+public Claude pty_keyのC-c guard、既定stop unsupported、通常main/worker未mountは維持する。
+
+Stop hookとcoreは同じstrict marker decoderを使い、v1/v2を読み分ける。未知版/追加field/不正cursorは
+拒否し、旧v1 readerもv2を誤読しない。新hookはv2の同一inodeだけを消費できるが、元cursorを
+agent_done/resultへnative終了証拠としてexportしない。これはfixture上のreader互換性であり、
+実harnessにロード済みのhook版・全参加者被覆の証明ではない。その欠測は明示したままとする。
+実native入力受理・abort・同会話endpoint維持・旧呼出/親return終了fenceの受入は引き続き未了。

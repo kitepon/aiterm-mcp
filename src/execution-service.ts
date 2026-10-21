@@ -13,7 +13,7 @@ import type { ExecutionState, ExecutionStore } from "./execution-store.js";
 import { withExecutionEffectScope, withExecutionInterruptEffectScope, type ExecutionPreparation } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
 import { nativeInterruptionObservationSchema, interruptionIdentity, interruptionBlocksLaunch, interruptionBlocksRequest,
-  interruptionSlots, assertInterruptionSource, sameInterruptionRun } from "./execution-interruption.js";
+  interruptionSlots, assertInterruptionSource, sameInterruptionRowRun } from "./execution-interruption.js";
 import { interruptionKeyReference } from "./execution-interruption.js";
 import { isDeepStrictEqual } from "node:util";
 import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
@@ -131,13 +131,13 @@ export class ExecutionService {
     const run = executionPointSchema.parse(input);
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return this.store.transaction(state => {
-      const previous = state.interruptions.find(row => sameInterruptionRun(row.before.run, run));
+      const previous = state.interruptions.find(row => sameInterruptionRowRun(row.before, run));
       if (previous) return previous; // lookup never reissues a native key
       if (state.interruptions.some(row => isDeepStrictEqual(row.before.run.launch, run.launch)
         && !["settled", "not_sent"].includes(row.phase))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
       const before = this.interruptObservation(run);
       if (!interruptionKeyReference(before)) throw new ExecutionError("EXECUTION_CONFLICT");
-      if (before.schema === "aiterm.claude-managed-interruption-observation.v1") this.assertManagedInterruptionPoint(state, run);
+      if (before.harness === "claude-code") this.assertManagedInterruptionPoint(state, run);
       const related = state.records.filter(record => record.relation.lifecycle !== "retired"
         && (isDeepStrictEqual(record.relation.source?.launch, run.launch) || isDeepStrictEqual(record.relation.target?.launch, run.launch)
           || (record.reservation.target.session_id === run.launch.session_id && record.reservation.target.expected_launch_id === run.launch.launch_id)
@@ -207,7 +207,7 @@ export class ExecutionService {
           const now = this.interruptObservation(run);
           if (!interruptionKeyReference(now) || !isDeepStrictEqual(interruptionIdentity(now), interruptionIdentity(before)))
             throw new ExecutionError("EXECUTION_CONFLICT");
-          if (now.schema === "aiterm.claude-managed-interruption-observation.v1") this.assertManagedInterruptionPoint(state, run);
+          if (now.harness === "claude-code") this.assertManagedInterruptionPoint(state, run);
           if (!issued) {
             row.phase = "issued";
             state.slots.push({ session_id: run.launch.session_id, expected_launch_id: run.launch.launch_id,
@@ -865,7 +865,7 @@ export class ExecutionService {
               const observation = nativeInterruptionObservationSchema.parse(selected);
               if (!isDeepStrictEqual(observation.run.launch, launch) || !interruptionKeyReference(observation))
                 throw new ExecutionError("EXECUTION_UNSUPPORTED");
-              if (observation.schema === "aiterm.claude-managed-interruption-observation.v1"
+              if (observation.harness === "claude-code"
                 && !candidates.some(value => isDeepStrictEqual(observation.run, value))) throw new ExecutionError("EXECUTION_UNSUPPORTED");
               run = observation.run;
               // A native turn already present in an accepted canonical receipt
@@ -873,7 +873,7 @@ export class ExecutionService {
               // turn, match a different turn or pick among multiple cursors.
               // Existing operation/steer references need their own native
               // acceptance proof; this Codex observation does not provide it.
-              if (candidate && candidates.every(value => isDeepStrictEqual(value, candidate))
+              if (observation.harness === "codex-cli" && candidate && candidates.every(value => isDeepStrictEqual(value, candidate))
                 && candidate.boundary?.turn_id === run.boundary?.turn_id
                 && candidate.boundary?.operation_id === null && candidate.boundary?.steer_id === null) {
                 const proof = this.interruptObservation(candidate);
@@ -910,7 +910,8 @@ export class ExecutionService {
           key_receipt: keyNotSent ? "not_sent" : row?.phase === "accepted" ? "accepted" : row && ["issued", "unknown", "preparing"].includes(row.phase) ? "unknown" : "not_sent",
           interruption: "unconfirmed", session_preserved: "unconfirmed",
           reason: keyNotSent ? "key_not_sent_native_run_unconfirmed"
-            : row?.before.schema === "aiterm.claude-managed-interruption-observation.v1"
+            : row?.before.schema === "aiterm.claude-anonymous-interruption-observation.v1"
+              ? "anonymous_before_send_native_acceptance_unconfirmed" : row?.before.harness === "claude-code"
               ? "managed_operation_native_acceptance_unconfirmed" : "native_interruption_or_fence_unconfirmed" });
       }
       const coverage = await this.runtime.coverage(roots);
@@ -940,8 +941,9 @@ export class ExecutionService {
         for (const [id, run] of runs) {
           const branch = planCascadeStop([run.launch], last.relations);
           const journal = state.interruptions.find(value => isDeepStrictEqual(value.before.run, run));
-          if (journal?.before.schema === "aiterm.claude-managed-interruption-observation.v1")
-            gap("managed_operation_native_acceptance_unconfirmed");
+          if (journal?.before.schema === "aiterm.claude-anonymous-interruption-observation.v1") {
+            gap("anonymous_before_send_native_acceptance_unconfirmed"); gap("claude_hook_version_unconfirmed");
+          } else if (journal?.before.harness === "claude-code") gap("managed_operation_native_acceptance_unconfirmed");
           if (unadmittedBranches.some(value => value.targets.some(launch => isDeepStrictEqual(launch, run.launch)))) {
             const outcome = outcomes.get(id);
             if (outcome) outcome.reason = "ancestor_admission_unconfirmed";

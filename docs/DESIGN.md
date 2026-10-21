@@ -12,7 +12,7 @@ Claudeのmarker/dispatch receiptは入力予約であってnative受理/処理�
 通常main/稼働profileへは未mountで、中断・受付fence・同会話維持の完成扱いをしない。
 coreの実before_send Pointは同じ要求frameの同期準備受付で固定し、dispatcherが元target境界へ結ぶ。
 model引数/resultのoperationや現在event file長で補完せず、成功receiptとbinding欠測を分ける。
-この参照はnative入力受理/source aliasではない。匿名Claudeと元境界の照合も未了である。
+この参照はnative入力受理/source aliasではない。匿名Claudeはprivateなv2 markerへ同じ要求frameの元cursorを保存して既存Pointを照合する。未注入coreはv1のままで、旧markerの補完はしない。loaded hook版・native中断/会話維持/fenceは未確認。詳細はADR0125。
 
 実行関係のsource/target世代、Bridgeの既存参照、未完了関係の寿命と混在先も含む停止計画は
 [ADR 0124の契約案](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0124-cascade-stop-execution-contract.md)で設計中。

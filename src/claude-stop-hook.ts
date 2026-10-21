@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 const LAUNCH_ID_RE = /^[0-9a-f]{32}$/;
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const OPERATION_ID_RE = /^sha256:[0-9a-f]{64}$/;
+import { parseClaudeOperationMarker } from "./claude-operation-marker.js";
 const MAX_STDIN_BYTES = 8 * 1024 * 1024;
 const MAX_RESULT_BYTES = 4 * 1024 * 1024;
 
@@ -114,16 +114,10 @@ function readOperationMarker(file: string): OperationMarker | null {
     }
     const body = fs.readFileSync(fd!, "utf8");
     const value = JSON.parse(body) as Record<string, unknown>;
-    const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).sort() : [];
-    if (
-      keys.join(",") !== "operation_id,schema" ||
-      value.schema !== "aiterm.claude-operation-marker.v1" ||
-      (value.operation_id !== null &&
-        (typeof value.operation_id !== "string" || !OPERATION_ID_RE.test(value.operation_id)))
-    ) {
-      fail("operation markerのschemaまたはoperation_idが不正です");
-    }
-    return { operationId: value.operation_id as string | null, dev: st.dev, ino: st.ino };
+    // Reading/consuming the v2 reservation is compatibility only. Its cursor
+    // is deliberately absent from agent_done/result and proves no interruption.
+    const marker = parseClaudeOperationMarker(value);
+    return { operationId: marker.operationId, dev: st.dev, ino: st.ino };
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   } finally {

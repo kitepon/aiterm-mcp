@@ -20,7 +20,8 @@ export const executionStateSchema = z.object({
   records: z.array(executionRecordSchema), stopping: z.array(executionLaunchSchema),
   interruptions: z.array(executionInterruptionSchema).default([]).superRefine((rows, context) => {
     if (new Set(rows.map(row => JSON.stringify([row.before.run.launch, row.before.run.boundary?.turn_id,
-      row.before.run.boundary?.operation_id]))).size !== rows.length)
+      row.before.run.boundary?.operation_id, row.before.schema === "aiterm.claude-anonymous-interruption-observation.v1"
+        ? row.before.run.boundary?.event_cursor : null]))).size !== rows.length)
       context.addIssue({ code: "custom", message: "interruption run references must be unique" });
   }),
   // Native process declarations only; they do not establish launch/source,

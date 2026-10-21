@@ -48,10 +48,31 @@ export const claudeManagedInterruptionObservationSchema = z.object({
     || !Number.isFinite(Date.parse(value.native.server.started_identity)))
     context.addIssue({ code: "custom", message: "managed operation keeps its original operation-only Point without native acceptance proof" });
 });
-export const nativeInterruptionObservationSchema = z.union([codexInterruptionObservationSchema, claudeManagedInterruptionObservationSchema]);
+// Anonymous Claude has no operation/native turn ID. Accept only its original
+// private before_send cursor bound by the current v2 marker. This diagnostic
+// must never become a source alias or a native start/stop/fence proof.
+export const claudeAnonymousInterruptionObservationSchema = z.object({
+  schema: z.literal("aiterm.claude-anonymous-interruption-observation.v1"), run: executionPointSchema,
+  native: executionNativeBindingSchema, harness: z.literal("claude-code"), harness_process: identity,
+  endpoint: z.object({ session_id: z.null(),
+    operation_marker: z.object({ device: z.number().int().nonnegative(), inode: z.number().int().nonnegative() }).strict(),
+    dispatch_receipt: z.null(),
+  }).strict(),
+  recorded_state: z.literal("unconfirmed"),
+  native_boundary: z.object({ type: z.literal("anonymous_turn_reserved"), event_cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
+  marker_protocol: z.literal("aiterm.claude-operation-marker.v2"), loaded_hook: z.literal("unconfirmed"),
+  invocation_fence: z.literal("unknown"), session_preserved: z.literal("unconfirmed"),
+}).strict().superRefine((value, context) => {
+  const boundary = value.run.boundary;
+  if (!boundary || boundary.operation_id !== null || boundary.turn_id !== null || boundary.steer_id !== null
+    || boundary.event_cursor !== value.native_boundary.event_cursor || !Number.isFinite(Date.parse(value.native.server.started_identity)))
+    context.addIssue({ code: "custom", message: "anonymous reference requires its original v2 before_send cursor without native acceptance proof" });
+});
+export const nativeInterruptionObservationSchema = z.union([codexInterruptionObservationSchema,
+  claudeManagedInterruptionObservationSchema, claudeAnonymousInterruptionObservationSchema]);
 export type NativeInterruptionObservation = z.infer<typeof nativeInterruptionObservationSchema>;
 export function interruptionKeyReference(value: NativeInterruptionObservation): boolean {
-  return value.recorded_state === "running" || value.schema === "aiterm.claude-managed-interruption-observation.v1";
+  return value.recorded_state === "running" || value.harness === "claude-code";
 }
 export const executionInterruptionSchema = z.object({
   before: nativeInterruptionObservationSchema,
@@ -79,6 +100,12 @@ export function sameInterruptionRun(a: ExecutionPoint, b: ExecutionPoint): boole
   if (!same(a.launch, b.launch) || !a.boundary || !b.boundary || a.boundary.steer_id || b.boundary.steer_id) return false;
   return !!a.boundary.turn_id && !a.boundary.operation_id && !b.boundary.operation_id && a.boundary.turn_id === b.boundary.turn_id
     || !!a.boundary.operation_id && !a.boundary.turn_id && !b.boundary.turn_id && a.boundary.operation_id === b.boundary.operation_id;
+}
+export function sameInterruptionRowRun(before: NativeInterruptionObservation, point: ExecutionPoint): boolean {
+  // Only an already decoded private anonymous reservation may use cursor
+  // identity. Keep generic sameInterruptionRun/source verification strict.
+  return before.schema === "aiterm.claude-anonymous-interruption-observation.v1"
+    ? same(before.run, point) : sameInterruptionRun(before.run, point);
 }
 function activeTargets(state: ExecutionState): ExecutionLaunch[] {
   const roots = state.interruptions.filter(row => !["settled", "not_sent"].includes(row.phase)).map(row => row.before.run.launch);

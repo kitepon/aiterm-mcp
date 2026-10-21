@@ -679,3 +679,137 @@ test('real SDK claude_turn handler preserves its actual core boundary into the s
     assert.deepEqual(record.relation.target, target); assert.equal(record.relation.lifecycle, 'tracking');
   } finally { await client.close(); await server.close(); }
 });
+
+function anonymousFixture(t) {
+  const f = fixture(t, 'claude'); f.point.boundary.operation_id = null; f.point.boundary.event_cursor = 7;
+  writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 7 }));
+  writeFileSync(f.meta.event_file, 'synthetic later output; never the original cursor\n'); return f;
+}
+test('anonymous Claude keeps the marker-bound original cursor, leaves hook/native evidence unknown and refuses legacy or inferred cursors', posix, t => {
+  const f = anonymousFixture(t), before = readFileSync(f.marker, 'utf8');
+  const observation = nativeInterruptionObservationSchema.parse(core.selectExpectedAgentRunInterruption(f.point.launch, [
+    { ...f.point, boundary: { ...f.point.boundary, event_cursor: 6 } }, f.point,
+    { ...f.point, boundary: { ...f.point.boundary, event_cursor: 99 } },
+  ]));
+  assert.deepEqual(observation.run, f.point); assert.equal(observation.schema, 'aiterm.claude-anonymous-interruption-observation.v1');
+  assert.equal(observation.loaded_hook, 'unconfirmed'); assert.equal(observation.endpoint.dispatch_receipt, null);
+  assert.equal(observation.endpoint.session_id, null); assert.equal(observation.recorded_state, 'unconfirmed');
+  assert.equal(sameInterruptionRun(f.point, f.point), false, 'cursor is not a generic native run/source alias');
+  for (const mutate of [x => x.loaded_hook = 'confirmed', x => x.recorded_state = 'running', x => x.native_boundary.event_cursor++,
+    x => x.run.boundary.operation_id = 'sha256:' + 'a'.repeat(64), x => x.invocation_fence = 'closed']) {
+    const forged = structuredClone(observation); mutate(forged); assert.equal(nativeInterruptionObservationSchema.safeParse(forged).success, false);
+  }
+  assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, [{ ...f.point, boundary: { ...f.point.boundary, event_cursor: 8 } }]));
+  assert.equal(f.apply().outcome, 'accepted'); assert.deepEqual(f.keys, ['Escape']); assert.equal(readFileSync(f.marker, 'utf8'), before);
+  writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: null }));
+  assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, ['Escape']);
+});
+test('anonymous Claude marker replacement, cursor change and launch/actor changes during observation refuse Esc', posix, t => {
+  for (const change of ['marker', 'cursor', 'generation', 'actor']) {
+    const f = anonymousFixture(t); let changed = false;
+    f.control.afterFirstTable = () => {
+      if (changed) return; changed = true;
+      if (change === 'marker') { writeFileSync(f.marker + '.new', readFileSync(f.marker)); renameSync(f.marker + '.new', f.marker); }
+      if (change === 'cursor') writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 8 }));
+      if (change === 'generation') { const meta = JSON.parse(readFileSync(f.metadata)); meta.launch_id = 'f'.repeat(32); writeFileSync(f.metadata, JSON.stringify(meta)); }
+      if (change === 'actor') f.actor.started_identity = 'Wed Oct 21 09:00:03 2026';
+    };
+    assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, [f.point]), undefined, change); assert.deepEqual(f.keys, []);
+  }
+});
+test('anonymous Claude accepted Esc survives service reconstruction without retry, receipt rebinding or finish on marker consumption', posix, async t => {
+  const f = anonymousFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-anonymous-controller-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('no native finish proof'); },
+  }), service = new ExecutionService(store, runtime);
+  const request = { kind: 'delivery', delivery_id: 'existing-anonymous-claude', target_session_id: f.name };
+  await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1', request,
+    source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+  await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: 'existing receipt', target: f.point }));
+  const input = { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] };
+  const result = await service.interruptCascade(input);
+  assert.deepEqual(result.targets[0].run, f.point); assert.equal(result.targets[0].key_receipt, 'accepted');
+  assert.equal(result.targets[0].session_preserved, 'unconfirmed'); assert.equal(result.targets[0].interruption, 'unconfirmed');
+  assert.ok(result.unresolved.some(x => x.reason === 'claude_hook_version_unconfirmed')); assert.deepEqual(f.keys, ['Escape']);
+  const original = await service.execute({ action: 'status', request });
+  rmSync(f.marker); writeFileSync(f.meta.event_file, JSON.stringify({ type: 'agent_done', reason: 'Stop', operation_id: null }) + '\n');
+  const rebuilt = new ExecutionService(new FileExecutionStore(directory), runtime); await rebuilt.interruptCascade(input);
+  await assert.rejects(rebuilt.settleInterruption(f.point)); assert.deepEqual(f.keys, ['Escape']);
+  assert.deepEqual(await rebuilt.execute({ action: 'status', request }), original);
+  const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.interruptions.length, 1); assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(state.slots[0].state, 'unknown');
+});
+test('actual anonymous core before_send writes private v2 with the original cursor; unmounted input keeps legacy v1', posix, async t => {
+  for (const injected of [false, true]) {
+    const f = fixture(t, 'claude'); rmSync(f.marker); writeFileSync(f.meta.event_file, '\n');
+    f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
+    let target;
+    if (injected) {
+      const directory = mkdtempSync(join(tmpdir(), 'claude-anonymous-actual-send-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+      const service = new ExecutionService(new FileExecutionStore(directory), createExecutionRuntime({
+        observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+        async observeDone() { assert.fail('no finish proof'); },
+      }));
+      const dispatcher = createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+        sourceEnvironment: {}, initializedClientName: () => 'synthetic-operator', observeSessionGeneration: core.observeExecutionSessionGeneration });
+      const response = await dispatcher.dispatch('pty_send', { session_id: f.name }, { requestId: 'anonymous-before-send' }, async () => {
+        const receipt = await core.dispatchAgentTurn(f.name, 'synthetic input', { raw: true, pane_input_recovery: [] });
+        return { content: [], structuredContent: { schema: 'aiterm.pty-send-result.v1', mode: 'agent_dispatch', session_id: f.name,
+          event_cursor: receipt.event_cursor, operation_id: null } };
+      });
+      assert.equal(response.isError, undefined, JSON.stringify(response)); target = response._meta['aiterm/execution_binding'].target;
+      assert.ok(target); assert.equal(target.boundary.operation_id, null); assert.equal(target.boundary.turn_id, null);
+    } else await core.dispatchAgentTurn(f.name, 'synthetic input', { raw: true, pane_input_recovery: [] });
+    const marker = JSON.parse(readFileSync(f.marker));
+    assert.deepEqual(marker, injected ? { schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: target.boundary.event_cursor }
+      : { schema: 'aiterm.claude-operation-marker.v1', operation_id: null });
+    assert.ok(f.control.inputCommands.length); assert.deepEqual(f.keys, []);
+  }
+});
+
+test('anonymous marker replacement at the physical core gate cannot receive Esc even with unchanged contents', posix, t => {
+  const f = anonymousFixture(t); let replaced = false;
+  f.control.afterFirstTable = () => {
+    if (replaced) return; replaced = true;
+    writeFileSync(f.marker + '.new', readFileSync(f.marker)); renameSync(f.marker + '.new', f.marker);
+  };
+  assert.throws(() => f.apply()); assert.equal(replaced, true); assert.deepEqual(f.keys, []);
+});
+
+test('real SDK anonymous pty_send binds the v2 original cursor into the same private stop control while leaving native completion unknown', posix, async t => {
+  const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-real-handler-boundary-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('generic done is not native abort'); },
+  }));
+  const parent = { captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
+  const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
+    parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
+    dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+      sourceEnvironment: {}, initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration: core.observeExecutionSessionGeneration }),
+  }) });
+  registerExecutionTools(server, service, { interruptCurrentRun: true });
+  const client = new Client({ name: 'synthetic-operator', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide); await client.connect(clientSide);
+  try {
+    const submitted = await client.callTool({ name: 'pty_send', arguments: { session_id: f.name, raw: true, text: 'synthetic input' } });
+    assert.equal(submitted.isError, undefined, JSON.stringify(submitted));
+    assert.equal(submitted.structuredContent.mode, 'agent_dispatch'); assert.equal(submitted.structuredContent.event_cursor, 1);
+    const target = submitted._meta['aiterm/execution_binding'].target;
+    assert.equal(target.boundary.operation_id, null); assert.equal(target.boundary.event_cursor, 1);
+    const stopped = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] } });
+    assert.equal(stopped.isError, undefined); assert.deepEqual(stopped.structuredContent.targets[0].run, target);
+    assert.equal(stopped.structuredContent.targets[0].key_receipt, 'accepted'); assert.equal(stopped.structuredContent.targets[0].interruption, 'unconfirmed');
+    assert.equal(stopped.structuredContent.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
+    const record = await service.execute({ action: 'status', request: submitted._meta['aiterm/execution_binding'].request });
+    assert.deepEqual(record.relation.target, target); assert.equal(record.relation.lifecycle, 'tracking');
+    assert.equal(JSON.parse(readFileSync(f.marker)).schema, 'aiterm.claude-operation-marker.v2');
+    assert.ok(stopped.structuredContent.unresolved.some(x => x.reason === 'claude_hook_version_unconfirmed'));
+  } finally { await client.close(); await server.close(); }
+});

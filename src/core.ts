@@ -1,3 +1,4 @@
+import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
 /**
  * core — CLI/MCP が共有する純粋ロジック層（Node/TS 版）。
  *
@@ -16,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -1305,9 +1306,11 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
         throw new ExecutionError("EXECUTION_CONFLICT");
       return record;
     } else if (meta.kind === "claude") {
-      if (!point.boundary!.operation_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-      if (readClaudeOperationMarker(meta)?.operationId !== point.boundary!.operation_id) throw new ExecutionError("EXECUTION_CONFLICT");
-      return null;
+      const marker = readClaudeOperationMarker(meta);
+      if (!matchesClaudeInterruptionMarker(marker, point)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      // Anonymous identity is the v2 marker's original reservation, not a
+      // native turn. Keep its file identity stable through the physical gate.
+      return marker!.operationId === null ? observeManagedClaudeInterruption(point) : marker;
     } else throw new ExecutionError("EXECUTION_UNSUPPORTED"); // no guessed C-c/Esc for Cursor/Grok
   };
   const current = () => {
@@ -1350,7 +1353,7 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
  */
 export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
   const point = executionPointSchema.parse(input), name = point.launch.session_id;
-  if (point.boundary?.operation_id && !point.boundary.turn_id && !point.boundary.steer_id
+  if (point.boundary && !point.boundary.turn_id && !point.boundary.steer_id
     && loadAgentMetadata(name).kind === "claude") return observeManagedClaudeInterruption(point);
   if (!point.boundary?.turn_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const snapshot = () => {
@@ -1389,13 +1392,20 @@ export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
  * Keep the caller's original Point/cursor, never the current event-file size,
  * cached vendor conversation ID, latest job or another managed operation.
  */
+function matchesClaudeInterruptionMarker(marker: ClaudeOperationMarker | null, point: ExecutionPoint): boolean {
+  const boundary = point.boundary;
+  return !!marker && !!boundary && boundary.turn_id === null && boundary.steer_id === null
+    && marker.operationId === boundary.operation_id
+    && (marker.operationId !== null || marker.eventCursor !== null)
+    && (marker.eventCursor === null || marker.eventCursor === boundary.event_cursor);
+}
 function observeManagedClaudeInterruption(point: ExecutionPoint) {
   const name = point.launch.session_id, operation = point.boundary?.operation_id;
-  if (!operation || point.boundary!.turn_id !== null || point.boundary!.steer_id !== null)
+  if (!point.boundary || point.boundary.turn_id !== null || point.boundary.steer_id !== null)
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const files = (meta: AgentMetadata) => {
     const marker = agentClaudeOperationPath(name, point.launch.launch_id);
-    const receipt = agentClaudeDispatchReceiptPath(name, point.launch.launch_id, operation);
+    const receipt = operation ? agentClaudeDispatchReceiptPath(name, point.launch.launch_id, operation) : null;
     const identity = (file: string, empty: boolean) => {
       const stat = fs.lstatSync(file, { bigint: true });
       if (!stat.isFile() || (empty && stat.size !== 0n) || !Number.isSafeInteger(Number(stat.dev)) || !Number.isSafeInteger(Number(stat.ino)))
@@ -1403,9 +1413,9 @@ function observeManagedClaudeInterruption(point: ExecutionPoint) {
       return { device: Number(stat.dev), inode: Number(stat.ino), size: stat.size, mtime: stat.mtimeNs, ctime: stat.ctimeNs };
     };
     try {
-      const before = { marker: identity(marker, false), receipt: identity(receipt, true) };
-      if (readClaudeOperationMarker(meta)?.operationId !== operation) throw new ExecutionError("EXECUTION_CONFLICT");
-      const after = { marker: identity(marker, false), receipt: identity(receipt, true) };
+      const before = { marker: identity(marker, false), receipt: receipt ? identity(receipt, true) : null };
+      if (!matchesClaudeInterruptionMarker(readClaudeOperationMarker(meta), point)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      const after = { marker: identity(marker, false), receipt: receipt ? identity(receipt, true) : null };
       if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
       return after;
     } catch (error) {
@@ -1436,11 +1446,15 @@ function observeManagedClaudeInterruption(point: ExecutionPoint) {
   const before = snapshot(), after = snapshot();
   if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
   const reference = (file: { device: number; inode: number }) => ({ device: file.device, inode: file.inode });
-  return { schema: "aiterm.claude-managed-interruption-observation.v1" as const, run: point,
-    native: after.native, harness: "claude-code" as const, harness_process: after.actor,
-    endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: reference(after.files.receipt) },
-    recorded_state: "unconfirmed" as const, native_boundary: { type: "managed_operation_reserved" as const, operation_id: operation },
-    invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
+  const common = { run: point, native: after.native, harness: "claude-code" as const, harness_process: after.actor,
+    recorded_state: "unconfirmed" as const, invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
+  if (!operation) return { ...common, schema: "aiterm.claude-anonymous-interruption-observation.v1" as const,
+    endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: null },
+    native_boundary: { type: "anonymous_turn_reserved" as const, event_cursor: point.boundary.event_cursor },
+    marker_protocol: "aiterm.claude-operation-marker.v2" as const, loaded_hook: "unconfirmed" as const };
+  return { ...common, schema: "aiterm.claude-managed-interruption-observation.v1" as const,
+    endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: reference(after.files.receipt!) },
+    native_boundary: { type: "managed_operation_reserved" as const, operation_id: operation } };
 }
 
 /** Select the current native run for an explicit expected launch. The cursor
@@ -1455,11 +1469,10 @@ export function selectExpectedAgentRunInterruption(input: ExecutionLaunch, candi
   if (!generation.exists || !generation.launch_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (generation.launch_id !== launch.launch_id || meta.launch_id !== launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   if (meta.kind === "claude") {
-    const operation = readClaudeOperationMarker(meta)?.operationId;
-    if (!operation) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const marker = readClaudeOperationMarker(meta);
+    if (!marker) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     const references = executionPointSchema.array().parse(candidates ? Array.isArray(candidates) ? candidates : [candidates] : []);
-    const point = references.find(value => isDeepStrictEqual(value.launch, launch) && value.boundary?.operation_id === operation
-      && value.boundary.turn_id === null && value.boundary.steer_id === null);
+    const point = references.find(value => isDeepStrictEqual(value.launch, launch) && matchesClaudeInterruptionMarker(marker, value));
     if (!point) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     // An existing operation receipt can supply its own canonical boundary.
     // Pick a matching recorded reference, not a latest job or inferred native
@@ -2328,10 +2341,6 @@ function createAgentLineageContext(
   };
 }
 
-interface ClaudeOperationMarker {
-  operationId: string | null;
-}
-
 export interface ClaudeOperationResult {
   schema: "aiterm.claude-operation-result.v1";
   action: "issue" | "recover";
@@ -2476,10 +2485,16 @@ let agentTuiReadyStableSamplesTestOverride: number | null = null;
 
 function writeClaudeOperationMarker(meta: AgentMetadata, operationId: string | null): void {
   if (meta.kind !== "claude") throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
-  writeJson0600(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id), {
-    schema: "aiterm.claude-operation-marker.v1",
-    operation_id: operationId === null ? null : validateOperationId(operationId),
-  });
+  const operation = operationId === null ? null : validateOperationId(operationId);
+  // Only the same private request frame can supply this anonymous reference.
+  // Unmounted/legacy execution keeps v1; never infer a cursor from file size.
+  const captured = operation === null ? readExecutionSendBoundary(meta.aiterm_session) : null;
+  if (captured && (!isDeepStrictEqual(captured.launch, { session_id: meta.aiterm_session, launch_id: meta.launch_id })
+    || !captured.boundary || captured.boundary.operation_id !== null || captured.boundary.turn_id !== null
+    || captured.boundary.steer_id !== null)) throw new ExecutionError("EXECUTION_CONFLICT");
+  withExecutionPreparation(meta.aiterm_session, () => writeJson0600(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id), captured ? {
+    schema: "aiterm.claude-operation-marker.v2", operation_id: null, event_cursor: captured.boundary!.event_cursor,
+  } : { schema: "aiterm.claude-operation-marker.v1", operation_id: operation }));
 }
 
 function readClaudeOperationMarker(meta: AgentMetadata): ClaudeOperationMarker | null {
@@ -2504,16 +2519,8 @@ function readClaudeOperationMarker(meta: AgentMetadata): ClaudeOperationMarker |
     } catch {
       throw new AitermError("Claude operation markerを読めません", 2);
     }
-    const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).sort() : [];
-    if (
-      keys.join(",") !== "operation_id,schema" ||
-      value.schema !== "aiterm.claude-operation-marker.v1" ||
-      (value.operation_id !== null &&
-        (typeof value.operation_id !== "string" || !OPERATION_ID_RE.test(value.operation_id)))
-    ) {
-      throw new AitermError("Claude operation markerが不正です", 2);
-    }
-    return { operationId: value.operation_id };
+    try { return parseClaudeOperationMarker(value); }
+    catch { throw new AitermError("Claude operation markerが不正です", 2); }
   } finally {
     fs.closeSync(fd);
   }

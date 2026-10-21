@@ -399,3 +399,33 @@ test("grok-stop-hook: env の任意 path を無視し導出 path にだけ書く
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('claude-stop-hook: private anonymous v2 marker is consumed without exporting its before_send cursor as native completion evidence', () => {
+  const seat = claudeSeatWithRunningTurn('aiterm-claude-marker-v2-', '11111111-1111-4111-8111-111111111111');
+  try {
+    fs.writeFileSync(seat.files.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 37 }));
+    const result = spawnClaudeHook(seat.tmp, seat.env, stopOf('11111111-1111-4111-8111-111111111111', 'synthetic answer'));
+    assert.equal(result.status, 0); assert.equal(result.stderr, ''); assert.equal(fs.existsSync(seat.files.marker), false);
+    const event = JSON.parse(fs.readFileSync(seat.files.events, 'utf8').trim());
+    assert.equal(event.operation_id, null); assert.equal(event.turn_id, null); assert.equal(event.reason, 'Stop');
+    for (const key of ['event_cursor', 'interruption', 'session_preserved', 'invocation_fence']) assert.equal(Object.hasOwn(event, key), false);
+    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(seat.files.result)), 'event_cursor'), false);
+  } finally { fs.rmSync(seat.tmp, { recursive: true, force: true }); }
+});
+test('claude-stop-hook: malformed or future private marker version never consumes the reservation or writes a result', () => {
+  for (const marker of [
+    { schema: 'aiterm.claude-operation-marker.v2', operation_id: null },
+    { schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: -1 },
+    { schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 1.5 },
+    { schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: 1, native_accepted: true },
+    { schema: 'aiterm.claude-operation-marker.v3', operation_id: null, event_cursor: 1 },
+  ]) {
+    const seat = claudeSeatWithRunningTurn('aiterm-claude-marker-bad-', '11111111-1111-4111-8111-111111111111');
+    try {
+      fs.writeFileSync(seat.files.marker, JSON.stringify(marker)); const before = fs.readFileSync(seat.files.result, 'utf8');
+      const result = spawnClaudeHook(seat.tmp, seat.env, stopOf('11111111-1111-4111-8111-111111111111', 'synthetic answer'));
+      assert.equal(result.status, 0); assert.match(result.stderr, /marker/); assert.equal(fs.existsSync(seat.files.marker), true);
+      assert.equal(fs.existsSync(seat.files.events), false); assert.equal(fs.readFileSync(seat.files.result, 'utf8'), before);
+    } finally { fs.rmSync(seat.tmp, { recursive: true, force: true }); }
+  }
+});

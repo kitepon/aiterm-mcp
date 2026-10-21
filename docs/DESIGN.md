@@ -14,6 +14,8 @@ Claudeのproducerは実PreToolUse owner/tool/sessionと配送bindingを作用直
 既存parent returnが未解決なら局所doneのfenceを閉じず、元dispatch receiptの遅着は入力を再送せずmetadataだけを待つ。
 native emit直前に照合したhook参照は既存deliveryへ保存する。CodexのStop/PostToolUse、Claudeのtool、Cursorのconversationを
 受取executionの完了と同一視せず、canonical cursorを作らない。受取番の対応と終了fenceの証拠は別に必要。
+POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通す。ttyは正確なsession selectorで読み、
+実stty直前にも同じdeviceを確認する。停止や世代/tty交代後に古いdeviceへ回復を発行しない。
 
 ## 目的と所有
 

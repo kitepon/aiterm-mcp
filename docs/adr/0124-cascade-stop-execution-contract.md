@@ -595,6 +595,13 @@ native hook参照は受取execution aliasやfinish証拠ではなく、後続で
 対応付けるための材料。Claude toolやCursor conversationから架空のturnを作らず、終了fenceは未確認に保つ。
 この変更は隔離schemaだけでpublic mount/公開wire/installed依存の更新を行わない。
 
+### tmux以外のcore native作用
+
+POSIXの`ensureAgentOwnsPaneInput`によるstty raw/-echoはtmux gateを通らないので、実発行直前に
+`beforeExecutionEffect`を明示する。tty観測は`=session:`でprefix matchを避け、同じdeviceを再確認して
+から共通受付のsource/target世代・stoppingを確認する。foreground child toolの端末は変更しない。
+unmounted既定の回復は維持する。これは全core変更口の被覆完了を示さず、coverageはincompleteのまま。
+
 ## 結果と残実装
 
 ```ts

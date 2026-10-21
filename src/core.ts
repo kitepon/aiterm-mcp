@@ -16,7 +16,8 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
-import { bindExecutionNativeTarget } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect } from "./execution-effect.js";
+import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
@@ -432,7 +433,7 @@ export function termiosIsCooked(sttyOutput: string): boolean {
 }
 
 function paneTtyOf(name: string): string | null {
-  const r = tmux("display-message", "-p", "-t", name, "#{pane_tty}");
+  const r = tmux("display-message", "-p", "-t", `=${name}:`, "#{pane_tty}");
   if (r.code !== 0) return null;
   const tty = r.stdout.trim();
   return tty.startsWith("/dev/") ? tty : null;
@@ -484,6 +485,12 @@ export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): P
     const ttyFlag = process.platform === "linux" ? "-F" : "-f";
     const stty = spawnSync("/bin/stty", [ttyFlag, tty, "-a"], { encoding: "utf8", timeout: 5000, env: psEnv });
     if (stty.status === 0 && termiosIsCooked(stty.stdout ?? "")) {
+      // stty is a native mutation outside tmux's command gate. Recheck the
+      // captured device and the shared request generation/fence immediately
+      // before dispatch; a replaced pane must not inherit the old tty repair.
+      beforeExecutionEffect(name, () => {
+        if (paneTtyOf(name) !== tty) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      });
       const set = spawnSync("/bin/stty", [ttyFlag, tty, "raw", "-echo"], { encoding: "utf8", timeout: 5000, env: psEnv });
       if (set.status !== 0) {
         throw new AitermError(

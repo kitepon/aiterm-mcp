@@ -272,14 +272,25 @@ test('an injected participant without close primitive stays unsupported without 
 test('scope, actor and generation drift after close preflight cannot cross the actual native issuance gate', async t => {
   for (const change of ['scope', 'actor', 'generation']) {
     const f = fixture(t), replacement = { ...B, launch_id: 'e'.repeat(32) };
+    const originalScope = structuredClone(f.scope), originalActor = structuredClone(f.actor);
     const effects = enableClose(f, () => {
       if (change === 'scope') f.scope.multiplexer.key = join(f.root, 'changed.sock');
       if (change === 'actor') f.actor.started_identity = '2026-10-21T11:02:00Z';
       if (change === 'generation') f.live.set(B.session_id, replacement);
     });
-    const p = f.create(), result = await p.service.closeCascade(stop([B]));
+    const p = f.create();
+    if (change !== 'generation') {
+      await assert.rejects(p.service.closeCascade(stop([B])), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'possible');
+      assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), [{ session_id: B.session_id,
+        expected_launch_id: B.launch_id, stage: 'close', state: 'issued', request: null }]);
+      Object.assign(f.scope, originalScope); Object.assign(f.actor, originalActor);
+      const rebuilt = f.create(), repeated = await rebuilt.service.closeCascade(stop([B]));
+      assert.equal(repeated.targets[0].outcome, 'unknown');
+    } else {
+      const result = await p.service.closeCascade(stop([B]));
+      assert.equal(result.targets[0].outcome, 'replaced');
+    }
     assert.equal(effects.length, 0); assert.ok(f.live.has(B.session_id));
-    assert.equal(result.targets[0].outcome, change === 'generation' ? 'replaced' : 'unknown');
   }
 });
 test('lost close receipt after an effect remains unknown across reconstruction despite observed absence and is never retried', async t => {

@@ -1,6 +1,6 @@
 // Shared metadata only: no delivery text, payload, retry or work queue.
-// A crashed writer's lock is deliberately not stolen on elapsed time. Until
-// reconciliation exists, its scope returns STATE_UNAVAILABLE/BUSY, never empty.
+// A crashed writer's lock is never stolen on elapsed time. Explicit native-
+// owner recovery releases only that mutex; uncertain operations remain intact.
 import * as fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -12,6 +12,8 @@ import { parentHookReferenceSchema } from "./execution-parent-alias.js";
 import { writeJson0600 } from "./agent-shared.js";
 import { executionParticipantSchema } from "./execution-inventory.js";
 import { executionInterruptionSchema } from "./execution-interruption.js";
+import { acquireExecutionLock, releaseExecutionLock, recoverExecutionLock, type ExecutionLock } from "./execution-lock.js";
+import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
 
 export const executionStateSchema = z.object({
   schema: z.literal("aiterm.execution-state.v1"),
@@ -81,11 +83,22 @@ export function executionStoreDirectory(stateRoot: string, multiplexer: { kind: 
 }
 
 export class FileExecutionStore implements ExecutionStore {
-  constructor(readonly directory: string, private readonly lockTimeoutMs = 2000) {}
+  private readonly lockActor: ExecutionActor | null;
+  constructor(readonly directory: string, private readonly lockTimeoutMs = 2000, lockActor?: ExecutionActor) {
+    this.lockActor = lockActor ? executionActorSchema.parse(lockActor) : null;
+  }
+  recoverAbandonedLock(expected: ExecutionActor, observeOwner: (pid: number) => unknown) {
+    if (!this.lockActor) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return recoverExecutionLock(this.directory, this.lockActor, expected, observeOwner);
+  }
   private read(): ExecutionState {
     try { return executionStateSchema.parse(JSON.parse(fs.readFileSync(path.join(this.directory, "relations.json"), "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
+      // A retained abandoned mutex proves this is not an unobserved bootstrap.
+      // Recovery must not turn a subsequently missing graph into empty success.
+      if (fs.readdirSync(this.directory).some(name => name.startsWith("abandoned-transaction-lock-")))
+        throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
       return emptyExecutionState();
     }
   }
@@ -98,27 +111,32 @@ export class FileExecutionStore implements ExecutionStore {
    */
   transactionSync<T>(body: (state: ExecutionState) => T, options: { readOnly?: boolean } = {}): T {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    const lock = path.join(this.directory, "transaction.lock");
-    try { fs.mkdirSync(lock, { mode: 0o700 }); }
+    let lock: ExecutionLock;
+    try { lock = acquireExecutionLock(this.directory, this.lockActor); }
     catch (error) {
+      if (error instanceof ExecutionError) throw error;
       throw new ExecutionError((error as NodeJS.ErrnoException).code === "EEXIST" ? "EXECUTION_BUSY" : "EXECUTION_STATE_UNAVAILABLE", "not_started");
     }
     try {
       const state = this.read(), result = body(state);
-      if (result && typeof (result as { then?: unknown }).then === "function") throw new ExecutionError("EXECUTION_INVALID");
+      if (result && typeof (result as { then?: unknown }).then === "function") {
+        void Promise.resolve(result).catch(() => undefined);
+        throw new ExecutionError("EXECUTION_INVALID");
+      }
       if (!options.readOnly) writeJson0600(path.join(this.directory, "relations.json"), executionStateSchema.parse(state));
       return structuredClone(result);
-    } finally { try { fs.rmdirSync(lock); } catch { /* fail closed */ } }
+    } finally { releaseExecutionLock(lock); }
   }
   async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    const lock = path.join(this.directory, "transaction.lock");
+    let lock: ExecutionLock;
     const statePath = path.join(this.directory, "relations.json");
     const deadline = performance.now() + this.lockTimeoutMs;
     for (;;) {
-      try { fs.mkdirSync(lock, { mode: 0o700 }); break; }
+      try { lock = acquireExecutionLock(this.directory, this.lockActor); break; }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !(error instanceof ExecutionError && error.code === "EXECUTION_BUSY"))
+          throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
         if (performance.now() >= deadline) throw new ExecutionError("EXECUTION_BUSY", "possible");
         // Retrying lock acquisition never replays an invocation or transaction.
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -132,7 +150,7 @@ export class FileExecutionStore implements ExecutionStore {
       if (!options.readOnly) writeJson0600(statePath, executionStateSchema.parse(state));
       return structuredClone(result);
     } finally {
-      try { fs.rmdirSync(lock); } catch { /* fail closed for subsequent callers */ }
+      releaseExecutionLock(lock);
     }
   }
 }

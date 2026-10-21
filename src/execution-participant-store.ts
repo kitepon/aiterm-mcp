@@ -9,7 +9,7 @@ export class ParticipantExecutionStore extends FileExecutionStore {
   private readonly actor: ExecutionActor;
   private roles: ExecutionParticipantRole[] = [];
   constructor(directory: string, actor: ExecutionActor, private readonly assertScope: () => void) {
-    super(directory); this.actor = executionActorSchema.parse(actor);
+    super(directory, 2000, actor); this.actor = executionActorSchema.parse(actor);
   }
   enroll(roles: readonly ExecutionParticipantRole[]): void {
     const requested = [...new Set([...this.roles, ...roles.map(role => executionParticipantRoleSchema.parse(role))])];
@@ -28,10 +28,28 @@ export class ParticipantExecutionStore extends FileExecutionStore {
     if (!this.roles.length || !row || this.roles.some(role => !row.roles.includes(role))) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   }
   override transactionSync<T>(body: (state: ExecutionState) => T, options: { readOnly?: boolean } = {}): T {
-    return super.transactionSync(state => { this.check(state); return body(state); }, options);
+    return super.transactionSync(state => {
+      if (!options.readOnly) this.assertScope();
+      this.check(state); const value = body(state);
+      if (value && typeof (value as { then?: unknown }).then === "function") {
+        void Promise.resolve(value).catch(() => undefined); throw new ExecutionError("EXECUTION_INVALID");
+      }
+      this.check(state);
+      if (!options.readOnly) this.assertScope();
+      return value;
+    }, options);
   }
   override transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
-    return super.transaction(state => { this.check(state); return body(state); }, options);
+    return super.transaction(async state => {
+      if (!options.readOnly) this.assertScope();
+      this.check(state); const value = await body(state); this.check(state);
+      if (!options.readOnly) this.assertScope();
+      return value;
+    }, options);
+  }
+  override recoverAbandonedLock(expected: ExecutionActor, observeOwner: (pid: number) => unknown) {
+    this.assertScope();
+    return super.recoverAbandonedLock(expected, pid => { this.assertScope(); const value = observeOwner(pid); this.assertScope(); return value; });
   }
   // Raw read deliberately permits diagnosis of a missing declaration. It has
   // no write/re-enrollment path and never enters another store lock.

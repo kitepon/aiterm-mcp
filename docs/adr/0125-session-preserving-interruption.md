@@ -217,4 +217,29 @@ MCP入力からこの注入を要求する追加引数は受け付けず、close
 host source resolverは同じinitialized client名で固定し、BellTeamのmeta欠測をstdio envやclaimで補完しない。
 通常stdio mainは18 tools、controls未mountを維持する。
 
+## 既存metadata mutexの明示復旧（中断/fenceの復旧ではない）
+
+private participant storeは、既存の`transaction.lock/owner.json`へ起動時にnative照合した
+自分のPID/開始identityだけを記録する。新しい実行IDやleaseを作らず、通常の待機はlockを盗まない。
+書込みadmissionはscope/actor/roleをcallback前後で再照合し、不明になればcommitせず既存issued状態を残す。
+read-only診断はscope喪失後も保存済み領域を読めるが、登録や書込みを代行しない。
+
+`ParticipantExecutionStore.recoverAbandonedLock(expectedOwner, observeExecutionActor)` は明示private操作。
+元owner記録・directory/file identityが一致し、product所有の同期native observerがそのPIDの不在を
+2回確認した時だけ、元mutexを`abandoned-transaction-lock-<device>-<inode>`へ原子的に退避する。
+native observerは空の一覧だけで不在を証明せず、PID probeのESRCHも必要とする。
+PIDが存在する、identityが違う/読めない、probe欠測/非同期、owner記録が無い/部分/競合/差替えの時は解除しない。
+開始identityの表記差だけを旧process終了へ変換しないので、PID再利用時も現段階では復旧できない。
+
+退避先は空にせず保持する。同じ元inodeを復旧する競合側が、新しい所有者のmutexをその場所へ
+上書きrenameできないための既存filesystem identityであり、実行/配送の新IDではない。
+別の復旧lockやTTL、自動takeover/再送は導入しない。旧ownerの記録がないlegacy空lockは未対応のまま。
+退避の痕跡があるのにgraphが失われた場合も、empty stateへ初期化しない。
+
+これは**metadata mutexだけ**の修理である。元request/delivery、preparing/issued/unknownの操作、
+中断journal/slot、nativeキー受付/会話維持/終了fenceは照合・清算しない。
+返りも`operation_state=unreconciled/native_fence=unknown/relation_coverage=incomplete`で、
+中断の成功receiptや旧finishの代用にはならない。復旧したactorは旧operationを引き継がず、
+未確認のEscや旧parent returnを再発行しない。通常main/公開MCPへ復旧toolを追加しない。
+
 実席/公式CLI試験・他席操作・本番・公開配布なし。旧closeのfake成功を中断成功へ付け替えない。

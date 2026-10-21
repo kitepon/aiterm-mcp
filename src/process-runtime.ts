@@ -6,6 +6,7 @@ import { AitermError } from "./errors.js";
 import { lazyRelayExecutable } from "./lazy-relay.js";
 import { isWin } from "./tmux-runtime.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
+import type { ExecutionActorObservation } from "./execution-lock.js";
 
 export interface NativeProcessIdentity {
   pid: number;
@@ -182,6 +183,25 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
       throw new AitermError("Windows process一覧のfieldが不正です", 2);
     return { pid: row.pid, started_identity: new Date(row.started_identity).toISOString() };
   });
+}
+
+/** Private metadata-lock recovery read, not actor/invocation termination proof.
+ * An empty/failed identity read alone cannot prove absence: require ESRCH from
+ * the native PID probe as well. EPERM/unknown errors remain unknown. No signal
+ * other than the existing read-only signal 0 and no process termination.
+ */
+export function observeExecutionActor(pid: number): ExecutionActorObservation {
+  if (!Number.isSafeInteger(pid) || pid < 1) throw new AitermError("process照会のpidが不正です", 2);
+  const unknown = { state: "unknown" as const, pid };
+  try {
+    const rows = readProcessIdentities([pid]);
+    if (rows.length === 1 && rows[0].pid === pid && rows[0].started_identity
+      && Number.isFinite(Date.parse(rows[0].started_identity)))
+      return { state: "present", actor: { pid, started_identity: rows[0].started_identity } };
+    if (rows.length) return unknown;
+    try { process.kill(pid, 0); return unknown; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? { state: "absent", pid } : unknown; }
+  } catch { return unknown; }
 }
 
 /** `ps -o etime=`の「[[日-]時:]分:秒」を秒にする。 */

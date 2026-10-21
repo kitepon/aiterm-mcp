@@ -174,14 +174,16 @@ export class ParentDeliveryManager {
   private closing = false;
   private lastHeartbeat = Number.NEGATIVE_INFINITY;
 
-  constructor(options: { root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; execution?: ParentManagerExecution;
+  constructor(options: { root?: string; state_root?: string; parent_kind?: "claude" | "cursor"; remote?: boolean; execution?: ParentManagerExecution;
     dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
     this.execution = options.execution;
     this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
       verify: verifyParent, processes: readProcessIdentities, exists: processExists,
       now: () => performance.now(), wall: () => Date.now(), ...options.dependencies,
       ...(options.execution ? { submit: options.execution.submit } : {}) };
-    const stateRoot = ensureStateRoot();
+    if (options.state_root !== undefined && !path.isAbsolute(options.state_root))
+      throw new AitermError("PARENT_DELIVERY_STATE_INVALID: 配送の保存場所を確認できません", 2);
+    const stateRoot = options.state_root ?? ensureStateRoot();
     // 別端末の子の記録はremote-で始まる保存場所へ分け、boundary.remoteを知らない旧版のreaderへ渡さない。
     const prefix = options.remote ? "remote-" : "";
     const directory = options.parent_kind === "claude" ? "claude-parent-deliveries"

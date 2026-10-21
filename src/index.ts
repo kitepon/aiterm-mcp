@@ -45,6 +45,7 @@ export interface AitermServerExecution {
   parentDependencies?: ConstructorParameters<typeof ParentDeliveryManager>[0] extends infer T
     ? T extends { dependencies?: infer D } ? D : never : never;
   parentRoot?: string;
+  parentStateRoot?: string;
 }
 
 /** Constructor for isolated transport acceptance. main never supplies the
@@ -105,7 +106,8 @@ async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): P
   const manager = remote
     ? (remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName), remote: true }))
     : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName),
-      ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies, root: execution.parentRoot } : {}) }));
+      ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies,
+        root: execution.parentRoot, state_root: execution.parentStateRoot } : {}) }));
   await manager.prepare(parent);
   return manager.request(parent);
 }
@@ -1373,7 +1375,8 @@ registerAgentTool(
     core.setParentClient(name ?? null);
     if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
       parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name),
-        ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies, root: execution.parentRoot } : {}) });
+        ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies,
+          root: execution.parentRoot, state_root: execution.parentStateRoot } : {}) });
       if (!execution) remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
     }
   };

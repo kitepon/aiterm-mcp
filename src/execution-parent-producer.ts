@@ -18,6 +18,7 @@ import { createNativeParentEndpointEvidence } from "./execution-parent-endpoint.
 import { createParentManagerExecution, type SteerProvider } from "./execution-parent-manager.js";
 import { ExecutionError } from "./execution-wire.js";
 import { parentHookReference } from "./execution-parent-alias.js";
+import { createSteerExecutionAdmission } from "./execution-steer.js";
 
 export interface ParentProducerRuntime extends ParentWorkerRuntime {
   sourceEnvironment(): Readonly<Record<string, string | undefined>>;
@@ -43,10 +44,21 @@ export function createExecutionParentProducer(input: {
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = createExecutionParentEnvironment({ ...input, runtime });
   const { profile, actor, store, scope, assertScope } = environment;
+  // One startup read shared with the serving dispatcher. Do not read a mutable
+  // runtime/environment again when wiring the second half of this process.
+  const originalSource = runtime.sourceEnvironment();
+  if (!originalSource || typeof originalSource !== "object" || Array.isArray(originalSource))
+    throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const sourceEnvironment = Object.freeze(Object.fromEntries(
+    [...EXECUTION_SOURCE_ENV_NAMES, ...EXECUTION_SCOPE_ENV_NAMES].map(name => {
+      const value = originalSource?.[name];
+      if (value !== undefined && typeof value !== "string") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return [name, value];
+    })) as Readonly<Record<string, string | undefined>>);
   const observe = (session: string) => { assertScope(); return runtime.observeSessionGeneration(session); };
   const sourceEvidence = createParentSourceEvidence({ decode: (client, meta) => { assertScope(); return runtime.decodeParent(client, meta); },
     observeParentProcess: session => { assertScope(); return runtime.observeParentProcess(session); } });
-  const executionRuntime = createExecutionRuntime({ sourceEnvironment: runtime.sourceEnvironment(),
+  const executionRuntime = createExecutionRuntime({ sourceEnvironment,
     observeSession: observe, observeSessionSync: observe,
     ...(typeof runtime.observeNativeSessions === "function" ? { observeNativeSessionsSync: () => {
       assertScope(); return runtime.observeNativeSessions!();
@@ -60,5 +72,9 @@ export function createExecutionParentProducer(input: {
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
       claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(scope.state_root, "cursor-parent-hooks") }) });
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime });
-  return { execution, parent, native, service, store, scope: structuredClone(scope), relation_coverage: "incomplete" as const };
+  const worker = { profile: Object.freeze(Object.assign({}, profile, { delivery_admission: createSteerExecutionAdmission(null, native) })),
+    store, native, scope: structuredClone(scope), relation_coverage: "incomplete" as const };
+  return { execution, parent, native, service, store, scope: structuredClone(scope), worker,
+    startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe }),
+    relation_coverage: "incomplete" as const };
 }

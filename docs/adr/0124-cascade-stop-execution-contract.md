@@ -669,6 +669,23 @@ source停止/世代欠測等のExecutionErrorはvendor起動失敗のtelemetry�
 [psmux 3.3.8 flag reference](https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md)。
 flagが存在してもcreator/serverの証拠は別に必要。新規取得分はrag/ingest.py経由でrag/sources/backendsとmanifestへ保存した。
 
+## 同processのparticipant組立て
+
+private `createExecutionParticipant`は、producerの共有service/store、実18 handlerのserver、dispatcher、
+同process用worker profileを同じstate/socket scope・native actorへ結ぶ。source環境は既存8名だけを
+一度読んで固定し、serviceとdispatcherが別時点のsourceを採用することを防ぐ。未要求の環境値は保存しない。
+native actorはこのMCP processのPIDと開始identityであり、任意の別process値をserver ownerとして使わない。
+scopeとactorは作用前のobserverでも再照合する。異なるactorやscope、旧provider、不完全なruntimeはunsupported。
+
+provider/profile/expected scope/runtime methodは構築時に固定し、呼出側objectの後変更を新しい証拠や実装へしない。
+既存observerが返す現在scope/actorの変化は拒否する。source欠測を最新jobや同名席から補完しない。
+注入runtimeにはparent managerの全必要依存も明示させ、個別OS fallbackを作らない。managerの保存先は
+participantのstate root、ownerは同じnative actorへ照合する。別process workerは同scopeへ自分のnative actorで参加し、
+MCP actorをserializeして流用しない。
+
+この組立ては隔離constructorまでであり、default factory/native観測の実受入や静的profile/通常stdioへのmountではない。
+全core直接入口・全参加process inventory・実終了fence/復旧が未了のためcoverage incompleteを維持する。
+
 ## 結果と残実装
 
 ```ts

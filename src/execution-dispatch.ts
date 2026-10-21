@@ -55,6 +55,7 @@ export interface ExecutionDispatcherBindings {
   sourceEnvironment: Readonly<Record<string, string | undefined>>;
   initializedClientName(): string | undefined;
   observeSessionGeneration(session: string): unknown | Promise<unknown>;
+  assertParticipant?(): void;
 }
 
 export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings): {
@@ -83,6 +84,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
   return {
     async dispatch(name, input, extra, body) {
       try {
+        bindings.assertParticipant?.();
         // Fix input/transport context synchronously, before any async lookup.
         // Handlers must consume these copies, not their mutable ingress object.
         const args = structuredClone(input), fixedExtra = { ...extra,

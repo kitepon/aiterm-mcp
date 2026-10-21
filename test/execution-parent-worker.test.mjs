@@ -84,11 +84,12 @@ test('process-local worker joins the same store and native delivery evidence wit
   assert.equal(effects, 1);
 });
 test('scope and participant capability are rechecked at the actual native boundary after preflight', async t => {
-  for (const change of ['scope', 'contract']) {
+  for (const change of ['scope', 'contract', 'actor']) {
     const f = fixture(t), worker = createExecutionParentWorker(f.options); await seed(f, worker); let effects = 0;
     const result = await worker.native.run(id, 'emit', f.endpoint, async (_, issue) => {
       if (change === 'scope') f.actual.multiplexer.key = join(f.root, 'another-native.sock');
-      else f.options.provider.DELIVERY_ADMISSION_CONTRACT.serialized_required = false;
+      else if (change === 'contract') f.options.provider.DELIVERY_ADMISSION_CONTRACT.serialized_required = false;
+      else f.options.runtime.actor = () => ({ ...hook, started_identity: '2026-10-21T08:00:00Z' });
       issue(); effects++;
     }, f.effect.native_context);
     assert.equal(result.error.effect, 'not_started'); assert.equal(result.error.code, 'EXECUTION_UNSUPPORTED'); assert.equal(effects, 0);

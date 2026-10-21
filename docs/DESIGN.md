@@ -24,6 +24,11 @@ POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通�
 証拠の無い新server起動、Windows固有のserver作成、auto-name/通常PTY/auth等はまだunsupported。
 実18 toolsのhandlerを作るconstructorは、private dispatcher/親execution callbackを明示注入して隔離SDKで検証できる。
 通常のstdio mainは注入せず、全参加process/全core作用口・native fenceが揃うまで公開有効化しない。
+private participant factoryはproducer/service/dispatcher/同process用worker profileを同じscopeとnative actorで組む。
+source環境の既存8名は一度だけ読み、必要な値だけを固定してproducerとdispatcherへ渡す。
+呼出側のprovider/profile/runtime methodの差替えは構築済みparticipantへ混入させず、現在のscope/actorの変化は作用前に拒否する。
+親managerの保存先とownerも同じscope/actorへ照合する。別processのhookはactorを流用せず、自分のworker factoryで接続する。
+注入runtimeへ欠けたparent依存を既定OS処理で補わず、完全なfake依存を要求する。このfactoryも通常mainには未注入。
 
 ## 目的と所有
 

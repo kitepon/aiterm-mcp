@@ -60,18 +60,20 @@ export function createExecutionParentEnvironment(input: {
   if (typeof runtime.scope !== "function" || typeof runtime.actor !== "function"
     || typeof runtime.observeParentProcess !== "function" || typeof runtime.observeSessionGeneration !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const assertScope = () => {
-    assertContract();
-    const productRoot = profile.state_root();
-    if (typeof productRoot !== "string" || !path.isAbsolute(productRoot)
-      || !same(scope(runtime.scope()), expected) || path.resolve(productRoot) !== expected.state_root)
-      throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  };
-  assertScope();
   const observed = runtime.actor();
   if (!observed || !Number.isSafeInteger(observed.pid) || observed.pid < 1 || !observed.started_identity
     || !Number.isFinite(Date.parse(observed.started_identity))) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const actor = { pid: observed.pid, started_identity: observed.started_identity };
+  const assertScope = () => {
+    assertContract();
+    const productRoot = profile.state_root();
+    const currentActor = runtime.actor();
+    if (typeof productRoot !== "string" || !path.isAbsolute(productRoot)
+      || !same(scope(runtime.scope()), expected) || path.resolve(productRoot) !== expected.state_root
+      || currentActor?.pid !== actor.pid || currentActor.started_identity !== actor.started_identity)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  };
+  assertScope();
   const store = new FileExecutionStore(executionStoreDirectory(expected.state_root, expected.multiplexer));
   return { runtime, profile, actor, store, scope: expected, assertScope };
 }

@@ -1381,6 +1381,36 @@ export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
     invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
 }
 
+/** Select the current native run for an explicit expected launch. The cursor
+ * is an existing event-log observation boundary, NOT a proven alias for a
+ * dispatch/before_send receipt. Callers must retain that distinction; the
+ * cascade controller reports missing canonical aliases rather than rekeying.
+ * No metadata update, native key, latest-job lookup or cached vendor fallback.
+ */
+export function selectExpectedAgentRunInterruption(input: ExecutionLaunch) {
+  const launch = executionPointSchema.shape.launch.parse(input), name = launch.session_id;
+  const generation = observeExecutionSessionGeneration(name), meta = loadAgentMetadata(name);
+  if (!generation.exists || !generation.launch_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (generation.launch_id !== launch.launch_id || meta.launch_id !== launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  if (meta.kind !== "codex" || meta.event_file !== agentEventPath(name, launch.launch_id)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const record = codexInterruptionRecord(meta);
+  if (!record || record.boundary.type !== "task_started") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  let before: fs.BigIntStats;
+  try { before = fs.lstatSync(meta.event_file, { bigint: true }); }
+  catch { throw new ExecutionError("EXECUTION_UNSUPPORTED"); }
+  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const point: ExecutionPoint = { launch, boundary: { event_cursor: Number(before.size),
+    turn_id: record.boundary.turn_id, operation_id: null, steer_id: null } };
+  const observation = observeExpectedAgentRunInterruption(point);
+  let after: fs.BigIntStats;
+  try { after = fs.lstatSync(meta.event_file, { bigint: true }); }
+  catch { throw new ExecutionError("EXECUTION_UNSUPPORTED"); }
+  if (!after.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+    || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || observation.recorded_state !== "running")
+    throw new ExecutionError("EXECUTION_CONFLICT");
+  return observation;
+}
+
 export interface ReadOpts {
   wait?: boolean;
   until?: string | null;

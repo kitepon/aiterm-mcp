@@ -149,6 +149,20 @@ private observer欠測は作用前unsupportedで、通常main/公開controlへ�
 同scopeのprivate participant/producerは明示注入したobserverだけを固定して渡し、各読取り直前にscope/actorを再照合する。
 local default runtimeへの追加や実行は行わない。
 
+### 現在native runのread-only selector
+
+private `core.selectExpectedAgentRunInterruption(expectedLaunch)` は、明示した期待世代と現在のnative root記録を読み、
+Codexのtask_started turnと既存event logの観測byte境界を固定する。元dispatch Pointを引数に作らせない。
+期待native generation/harness/会話の再照合に加え、event logは正規のlaunch別path・regular fileを必要とし、
+read前後のinode/size/mtime/ctimeの不一致、欠測/symlinkを拒否する。無いfileを0 cursorで補完しない。
+他CLI/idle/終了したturnはunsupported/not_sentでキー推測をしない。
+
+このPointは**現在処理の観測参照**であり、before_sendや元配送へのnative aliasではない。
+selectorが使えてもcanonical bindingやincoming MCP caller sourceのturnを補完しない。
+元native turnと受理済みrequest/Pointの対応は別のnative相関証拠を必要とする。
+関係/metadataを書き換えず、controllerへ明示注入した場合だけ期待native Escの作用へ使える。
+現在のnative observerはfence unknown/維持unconfirmedなので、この実core接続も中断成功/再受付を認定しない。
+
 ## 正規control入口
 
 ### private controller export（通常control未接続）

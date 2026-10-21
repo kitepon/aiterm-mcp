@@ -258,3 +258,54 @@ test('real core native run evidence and one Esc join the shared per-run journal,
   await assert.rejects(service.interruptRun(f.point, () => core.interruptExpectedAgentRun(f.point)));
   assert.deepEqual(f.keys, ['Escape']);
 });
+test('native selector reads the explicit launch/current native turn and real event-log boundary without manufacturing a dispatch alias', posix, t => {
+  const f = fixture(t), metadata = readFileSync(f.metadata, 'utf8');
+  const selected = core.selectExpectedAgentRunInterruption(f.point.launch);
+  assert.deepEqual(selected.run, f.point); assert.equal(selected.recorded_state, 'running');
+  assert.equal(selected.invocation_fence, 'unknown'); assert.equal(selected.session_preserved, 'unconfirmed');
+  assert.equal(readFileSync(f.metadata, 'utf8'), metadata); assert.deepEqual(f.keys, []);
+  writeFileSync(f.meta.event_file, '{}\n');
+  const later = core.selectExpectedAgentRunInterruption(f.point.launch);
+  assert.equal(later.run.boundary.event_cursor, 3); assert.equal(later.run.boundary.turn_id, selected.run.boundary.turn_id);
+  assert.deepEqual(f.point.boundary.event_cursor, 0, 'do not overwrite the original reference');
+});
+test('native selector refuses missing/symlink event refs, event mutation during proof, ended turn, other CLI and replacement launch', posix, t => {
+  for (const change of ['missing', 'symlink', 'event-race', 'done', 'other-kind', 'generation']) {
+    const f = fixture(t, change === 'other-kind' ? 'claude' : 'codex');
+    if (change === 'missing') rmSync(f.meta.event_file);
+    if (change === 'symlink') { rmSync(f.meta.event_file); symlinkSync(f.transcript, f.meta.event_file); }
+    if (change === 'event-race') f.control.afterFirstTable = () => writeFileSync(f.meta.event_file, '{}\n');
+    if (change === 'done') f.writeTurn('task_complete');
+    const expected = change === 'generation' ? { ...f.point.launch, launch_id: 'f'.repeat(32) } : f.point.launch;
+    assert.throws(() => core.selectExpectedAgentRunInterruption(expected), undefined, change); assert.deepEqual(f.keys, []);
+  }
+});
+test('actual native selector/runtime/controller sends the one expected Esc privately while endpoint/fence remain unknown', posix, async t => {
+  const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-controller-selector-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption,
+    selectInterruptionSync: core.selectExpectedAgentRunInterruption, interruptKeySync: core.interruptExpectedAgentRun,
+    async observeDone() { assert.fail('no generic completion'); },
+  });
+  const service = new ExecutionService(store, runtime); requireExecutionEffectScope(true);
+  const request = { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] };
+  assert.equal((await service.stop(request)).targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
+  const result = await service.interruptCascade(request);
+  assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].key_receipt, 'accepted');
+  assert.equal(result.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']); assert.equal(f.native.present, true);
+});
+test('a current native run selector does not supply a native caller-turn alias for an incoming stdio request', posix, async t => {
+  const f = fixture(t), runtime = createExecutionRuntime({
+    sourceEnvironment: { AITERM_SESSION_ID: f.name, AITERM_AGENT_LAUNCH_ID: f.point.launch.launch_id },
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption,
+    selectInterruptionSync() { assert.fail('current processing is not native request provenance'); },
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('no generic completion'); },
+  });
+  const evidence = await runtime.sourceEvidence({ source_session_id: f.name,
+    reservation: { source: { launch: f.point.launch, boundary: f.point.boundary } } });
+  assert.deepEqual(evidence.runtime_launch, f.point.launch); assert.equal(evidence.caller_bound, true);
+  assert.equal(evidence.invocation_boundary, null); assert.deepEqual(f.keys, []);
+});

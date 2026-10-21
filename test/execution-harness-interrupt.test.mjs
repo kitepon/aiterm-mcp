@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
 import { agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeOperationPath } from '../dist/harnesses/claude.js';
-import { requireExecutionEffectScope, withExecutionEffectScope } from '../dist/execution-effect.js';
+import { requireExecutionEffectScope, withExecutionEffectScope, withExecutionInterruptEffectScope } from '../dist/execution-effect.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
@@ -221,5 +221,15 @@ test('read-only observation rechecks native generation, actor and run while coll
   }
   for (const kind of ['claude', 'cursor', 'grok']) {
     const f = fixture(t, kind); assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.deepEqual(f.keys, []);
+  }
+});
+test('actual private core primitive runs inside the stop-owned one-Esc frame with no service invocation/close or completion claim', posix, t => {
+  for (const kind of ['codex', 'claude']) {
+    const f = fixture(t, kind), before = readFileSync(f.metadata, 'utf8'); let admissions = 0;
+    requireExecutionEffectScope(true);
+    const receipt = withExecutionInterruptEffectScope(f.name, '$9', () => { admissions++; }, () => core.interruptExpectedAgentRun(f.point));
+    assert.ok(admissions > 0); assert.deepEqual(f.keys, ['Escape']);
+    assert.equal(receipt.interruption, 'unconfirmed'); assert.equal(receipt.session_preserved, 'unconfirmed');
+    assert.equal(readFileSync(f.metadata, 'utf8'), before); assert.equal(f.native.present, true);
   }
 });

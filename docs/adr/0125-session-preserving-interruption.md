@@ -94,6 +94,20 @@ Claude/Cursor/GrokにはこのCodex記録判定を流用しない。
 `invocation_fence=unknown/session_preserved=unconfirmed`を保つ。stop成功や関係退役へ昇格しない。
 元Pointのturn/operation aliasを検証する責任もruntimeに残し、モデルclaimから作らない。
 
+### 中断専用native frame（共有admissionへの結合は未了）
+
+既存execution-effect gateのprivate `withExecutionInterruptEffectScope` は、呼出record/edge/新IDを作らず、
+捕捉したnative IDに対する単独Escコマンドだけを1回許す。通常coreの期待run/世代照合は省略しない。
+close/respawn/new-session、文章入力、C-c等の別キー、人間名/別native ID、複合command queue、
+別native targetへの再結合、普通のwork frameへの入れ替えを拒否する。
+native直前の同期issue callbackを使い、Promise admission/bodyとframe終了後の遅着作用を拒否する。
+作用後に二度目のEscやfallbackを試みたframeはpossibleのまま失敗し、catchで成功へ変えられない。
+
+このframeは**in-processのnative作用制限部品**。共有storeにstop専用slot/元runの一時受付を持つ工程、
+既発行RPCのdrain、旧parent returnの抑止、欠測復旧、同launchの新依頼再開へ未接続。
+callerのnative ID/issue callbackはprivate runtimeが供給する条件で、登録宣言やモデル引数では満たせない。
+現agent_stopは引き続きread-only unsupported/not_sent。frameが存在するだけでキーを送らない。
+
 同じserverのguarded dispatcherと正規登録した同じExecutionServiceを明示的に結ぶ。
 対象はagent_execution/agent_execution_roots/agent_stopの3名だけ。登録前・別service・任意tool名は拒否する。
 host source resolverは同じinitialized client名で固定し、BellTeamのmeta欠測をstdio envやclaimで補完しない。

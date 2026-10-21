@@ -14,6 +14,7 @@ export interface ExecutionCreationBindings {
 export type ExecutionPreparation = <T>(body: () => T) => T;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
   prepare?: ExecutionPreparation; preparing?: boolean;
+  interrupt?: { native_id: string; sent: boolean; finished: boolean };
   creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
@@ -27,6 +28,7 @@ export function assertExecutionContext(session: string | null | undefined): void
   if (!scope && !required) return;
   if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (scope.failure) throw scope.failure;
+  if (scope.interrupt?.finished) refuse(scope, "EXECUTION_CONFLICT");
   if (typeof session !== "string") refuse(scope, "EXECUTION_UNSUPPORTED");
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
   if (scope.prepare && !scope.preparing) prepareInScope(scope, () => undefined);
@@ -69,9 +71,43 @@ function prepareInScope<T>(scope: EffectScope, body: () => T): T {
 }
 export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T,
   creation?: ExecutionCreationBindings, prepare?: ExecutionPreparation): T {
+  const enclosing = scopes.getStore();
+  if (enclosing?.interrupt) refuse(enclosing, "EXECUTION_UNSUPPORTED");
   const target = executionLaunchSchema.shape.session_id.parse(session);
   const scope: EffectScope = { session: target, issue, prepare, nativeTargets: new Set(), didIssue: false,
     ...(creation ? { creation: { ...creation } } : {}) };
+  return runEffectScope(scope, body);
+}
+/** Private stop-owned synchronous frame over the existing native gate. It
+ * creates no invocation/edge/request. The serving service must independently
+ * own durable admission and supply its synchronous issue check; this helper
+ * alone neither proves that fence nor permits reopening after interruption.
+ */
+export function withExecutionInterruptEffectScope<T>(session: string, nativeId: string, issue: () => void, body: () => T): T {
+  const enclosing = scopes.getStore();
+  if (enclosing) refuse(enclosing, "EXECUTION_UNSUPPORTED");
+  const target = executionLaunchSchema.shape.session_id.parse(session);
+  if (!/^\$\d+$/.test(nativeId)) throw new ExecutionError("EXECUTION_INVALID");
+  const interrupt = { native_id: nativeId, sent: false, finished: false };
+  const scope: EffectScope = { session: target, issue: () => {
+    const result: unknown = issue();
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      void Promise.resolve(result).catch(() => undefined);
+      refuse(scope, "EXECUTION_UNSUPPORTED");
+    }
+  }, nativeTargets: new Set([nativeId]), didIssue: false, interrupt };
+  try {
+    return runEffectScope(scope, () => {
+      const result = body();
+      if (result && typeof (result as { then?: unknown }).then === "function") {
+        void Promise.resolve(result).catch(() => undefined);
+        refuse(scope, "EXECUTION_UNSUPPORTED");
+      }
+      return result;
+    });
+  } finally { interrupt.finished = true; }
+}
+function runEffectScope<T>(scope: EffectScope, body: () => T): T {
   return scopes.run(scope, () => {
     let result: T;
     try { result = body(); } catch (error) { throw scope.failure ?? error; }
@@ -161,12 +197,14 @@ export function bindExecutionNativeTarget(session: string, nativeId: string): vo
   if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
   if (scope.failure) throw scope.failure;
   if (scope.session !== session || !/^\$\d+$/.test(nativeId)) refuse(scope, "EXECUTION_CONFLICT");
+  if (scope.interrupt && (scope.interrupt.finished || scope.interrupt.native_id !== nativeId)) refuse(scope, "EXECUTION_CONFLICT");
   scope.nativeTargets.add(nativeId);
 }
 export function beforeExecutionEffect(session: string, verify?: () => void): void {
   const scope = scopes.getStore();
   if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+  if (scope.interrupt?.finished) refuse(scope, "EXECUTION_CONFLICT");
   if (scope.failure) throw scope.failure;
   try { verify?.(); }
   catch (error) {
@@ -188,6 +226,27 @@ export function guardTmuxExecution(input: string[]): string[] {
   const scope = scopes.getStore();
   if (!scope && !required) return input;
   const args = [...input];
+  if (scope?.interrupt) {
+    const frame = scope.interrupt;
+    if (scope.failure) throw scope.failure;
+    if (frame.finished) refuse(scope, "EXECUTION_CONFLICT");
+    if (args[0] === "send-keys") {
+      if (args.length !== 4 || args[1] !== "-t" || args[2] !== frame.native_id || args[3] !== "Escape")
+        refuse(scope, "EXECUTION_UNSUPPORTED");
+      if (frame.sent) refuse(scope, "EXECUTION_CONFLICT");
+      frame.sent = true; // a failed admission cannot be retried in this frame
+      issueEffect(scope);
+    } else {
+      // Observation commands may precede the key; command queues cannot hide
+      // a second native effect, payload input or management fallback.
+      for (let start = 0; start < args.length;) {
+        if (!metadataOrRead.has(args[start])) refuse(scope, "EXECUTION_UNSUPPORTED");
+        const end = args.indexOf(";", start);
+        start = end < 0 ? args.length : end + 1;
+      }
+    }
+    return args;
+  }
   let effects = false;
   for (let start = 0; start < args.length;) {
     let end = args.indexOf(";", start);

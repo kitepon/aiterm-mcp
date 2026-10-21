@@ -2,7 +2,7 @@ import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { guardTmuxExecution, withExecutionEffectScope, beforeExecutionEffect,
-  bindExecutionNativeTarget, requireExecutionEffectScope } from '../dist/execution-effect.js';
+  bindExecutionNativeTarget, requireExecutionEffectScope, withExecutionInterruptEffectScope } from '../dist/execution-effect.js';
 import { tmuxCommand } from '../dist/tmux-runtime.js';
 
 test('native input, create, close and respawn cross the same request-scoped gate', () => {
@@ -96,4 +96,57 @@ test('a refusal after an earlier issued effect stays possible even if the handle
     return 'fake success';
   }), value => value.code === 'EXECUTION_CONFLICT' && value.effect === 'possible');
   assert.equal(issued, 1);
+});
+test('stop-owned native frame allows observations and exactly one captured-native Esc without creating an invocation', () => {
+  let admissions = 0;
+  const result = withExecutionInterruptEffectScope('bot-a', '$9', () => { admissions++; }, () => {
+    assert.deepEqual(guardTmuxExecution(['has-session', '-t', 'bot-a']), ['has-session', '-t', 'bot-a']);
+    assert.equal(admissions, 0);
+    bindExecutionNativeTarget('bot-a', '$9');
+    beforeExecutionEffect('bot-a');
+    return guardTmuxExecution(['send-keys', '-t', '$9', 'Escape']);
+  });
+  assert.equal(admissions, 2); assert.deepEqual(result, ['send-keys', '-t', '$9', 'Escape']);
+});
+test('stop frame refuses management, payloads, human-name targets, other keys and command queues before dispatch', () => {
+  for (const args of [ ['kill-session', '-t', '$9'], ['respawn-pane', '-t', '$9'], ['new-session', '-s', 'bot-a'],
+    ['paste-buffer', '-t', '$9'], ['send-keys', '-t', 'bot-a', 'Escape'], ['send-keys', '-t', '$10', 'Escape'],
+    ['send-keys', '-t', '$9', 'C-c'], ['send-keys', '-t', '$9', 'hello'], ['send-keys', '-t', '$9', '-l', 'Escape'],
+    ['send-keys', '-t', '$9', 'Escape', ';', 'kill-session', '-t', '$9'],
+    ['has-session', '-t', 'bot-a', ';', 'send-keys', '-t', '$9', 'Escape'], ['load-buffer', '-'],
+    ['set-option', '-g', 'update-environment', '*'] ]) {
+    let admissions = 0;
+    assert.throws(() => withExecutionInterruptEffectScope('bot-a', '$9', () => { admissions++; }, () => guardTmuxExecution(args)));
+    assert.equal(admissions, 0);
+  }
+});
+test('a second Esc and a caught forbidden fallback poison the stop frame after its single accepted command', () => {
+  let admissions = 0;
+  assert.throws(() => withExecutionInterruptEffectScope('bot-a', '$9', () => { admissions++; }, () => {
+    guardTmuxExecution(['send-keys', '-t', '$9', 'Escape']);
+    try { guardTmuxExecution(['send-keys', '-t', '$9', 'Escape']); } catch { /* cannot claim success */ }
+    return 'false success';
+  }), error => error.code === 'EXECUTION_CONFLICT' && error.effect === 'possible');
+  assert.equal(admissions, 1);
+});
+test('stop frame cannot be widened by nested work frames or native target rebinding', () => {
+  for (const nested of [() => withExecutionEffectScope('bot-a', () => {}, () => {}),
+    () => withExecutionInterruptEffectScope('bot-a', '$9', () => {}, () => {}), () => bindExecutionNativeTarget('bot-a', '$10')]) {
+    assert.throws(() => withExecutionInterruptEffectScope('bot-a', '$9', () => {}, nested));
+  }
+  assert.throws(() => withExecutionEffectScope('bot-a', () => {}, () =>
+    withExecutionInterruptEffectScope('bot-a', '$9', () => {}, () => {})));
+});
+test('async stop admission/body and escaped late callbacks cannot authorize a native key', async () => {
+  let late;
+  withExecutionInterruptEffectScope('bot-a', '$9', () => {}, () => {
+    late = new Promise(resolve => queueMicrotask(() => {
+      assert.throws(() => guardTmuxExecution(['send-keys', '-t', '$9', 'Escape']), error => error.effect === 'not_started');
+      resolve();
+    }));
+  });
+  await late;
+  assert.throws(() => withExecutionInterruptEffectScope('bot-a', '$9', async () => {}, () =>
+    guardTmuxExecution(['send-keys', '-t', '$9', 'Escape'])), error => error.effect === 'not_started');
+  assert.throws(() => withExecutionInterruptEffectScope('bot-a', '$9', () => {}, async () => {}), error => error.effect === 'not_started');
 });

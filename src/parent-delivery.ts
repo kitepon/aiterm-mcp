@@ -21,6 +21,7 @@ import { withExecutionPreparation } from "./execution-effect.js";
 import { executionRequestSchema } from "./execution-contract.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
 import { writeExecutionCheckpoint, syncExecutionDirectories } from "./execution-checkpoint.js";
+import { executionActorSchema } from "./execution-inventory.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -45,10 +46,17 @@ const recordSchema = z.object({
   queued_submission_id: z.string().nullable(),
   // Private references for this existing delivery, never a payload/retry queue.
   // Legacy unmounted records retain their original shape.
-  execution: z.object({ request: executionRequestSchema, source_evidence: parentSourceSchema.optional() }).strict().optional(),
+  execution: z.object({ request: executionRequestSchema, source_evidence: parentSourceSchema.optional(),
+    origin_owner: executionActorSchema.optional() }).strict().optional(),
 }).strict().superRefine((record, context) => {
   if (record.execution?.source_evidence && JSON.stringify(record.execution.request) !== JSON.stringify(record.execution.source_evidence.request))
     context.addIssue({ code: "custom", message: "parent delivery source request must match its original reference" });
+  const execution = record.execution;
+  if (execution?.origin_owner && (execution.request.kind !== "mcp" || !execution.source_evidence
+    || execution.origin_owner.pid !== execution.request.process_pid
+    || execution.origin_owner.started_identity !== execution.request.process_started_identity
+    || JSON.stringify(execution.origin_owner) !== JSON.stringify(execution.source_evidence.mcp_process)))
+    context.addIssue({ code: "custom", message: "origin owner must match the original MCP request and source process" });
 });
 
 type DeliveryRecord = z.infer<typeof recordSchema>;
@@ -246,6 +254,10 @@ export class ParentDeliveryManager {
     const evidence = structuredClone(this.execution?.captureEndpointEvidence?.(parent));
     const source = parentSourceSchema.safeParse(evidence);
     if (source.success && JSON.stringify(source.data.request) !== JSON.stringify(request)) throw new ExecutionError("EXECUTION_CONFLICT");
+    const capturedOwner = executionActorSchema.safeParse({ pid: this.owner.pid, started_identity: this.owner.started_identity });
+    const originOwner = this.execution && capturedOwner.success && source.success && request?.kind === "mcp"
+      && request.process_pid === capturedOwner.data.pid && request.process_started_identity === capturedOwner.data.started_identity
+      && JSON.stringify(source.data.mcp_process) === JSON.stringify(capturedOwner.data) ? capturedOwner.data : null;
     let job: OwnedRecord | null = null;
     return {
       before_send: async (boundary) => {
@@ -265,6 +277,20 @@ export class ParentDeliveryManager {
           const created: OwnedRecord = { record, file: path.join(this.ownerDir, `${record.delivery_id}.json`), controller: new AbortController() };
           let reservationStarted = false;
           const reserve = () => {
+            if (originOwner) {
+              // Same original process, in the original synchronous preparation
+              // frame. Missing/reused/ambiguous native identity cannot stamp it.
+              const snapshot: unknown = this.deps.processes([originOwner.pid]);
+              if (snapshot && typeof (snapshot as { then?: unknown }).then === "function") {
+                void Promise.resolve(snapshot).catch(() => undefined);
+                throw new ExecutionError("EXECUTION_UNCONFIRMED");
+              }
+              const parsed = z.array(z.object({ pid: z.number().int().positive(), started_identity: z.string().nullable() })).safeParse(snapshot);
+              const observed = parsed.success ? parsed.data.filter(row => row.pid === originOwner.pid) : [];
+              if (observed.length !== 1 || observed[0].started_identity !== originOwner.started_identity)
+                throw new ExecutionError("EXECUTION_UNCONFIRMED");
+              record.execution!.origin_owner = structuredClone(originOwner);
+            }
             reservationStarted = true;
             this.save(created);
             // Same-filesystem hard link claims this child atomically.
@@ -581,7 +607,8 @@ export class ParentDeliveryManager {
     if (!storageOwner) missing.push("storage_owner_unrecorded");
     // Location after a recovery is not original producer provenance. Report
     // the actual source actor from the saved request/proof separately.
-    missing.push("original_storage_owner_unproven");
+    const recordedOrigin = matched ? record?.execution?.origin_owner ?? null : null;
+    if (!recordedOrigin) missing.push("original_storage_owner_unproven");
     const ref = claim.execution?.request;
     const requestActor = ref?.kind === "mcp" ? { pid: ref.process_pid, started_identity: ref.process_started_identity } : null;
     const ownerMatchesActor = storageOwner && requestActor
@@ -603,7 +630,9 @@ export class ParentDeliveryManager {
     }
     return { delivery_id: claim.delivery_id, request: structuredClone(claim.execution?.request ?? null),
       claim: "present" as const, owner_record: matched ? "matched" as const : "unconfirmed" as const,
-      record_state: record?.state ?? null, storage_owner: storageOwner, original_storage_owner: "unproven" as const,
+      record_state: record?.state ?? null, storage_owner: storageOwner,
+      original_storage_owner: recordedOrigin ? "recorded" as const : "unproven" as const,
+      recorded_origin_owner: structuredClone(recordedOrigin),
       original_request_actor: requestActor, storage_owner_matches_request_actor: ownerMatchesActor,
       graph, graph_error: graphError, missing, clearance: "retained" as const, retry: "none" as const };
   }

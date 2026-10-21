@@ -573,3 +573,20 @@ claimと同IDのowner recordが無い・複数・参照不一致、graph欠測�
 この口はprivate manager/producer内部だけの診断で、公開MCP tools/wire/metaやBridgeの配線を追加しない。
 診断成功やOS同期ackはnative入力受理/中断/会話維持/全participant・作用口・旧binary移行の受入ではない。
 不確実claimの明示清算と安全な公開mountはなお未了である。
+
+
+### 新規private recordの元owner参照
+
+新しい元MCP要求のprivate recordでは、requestと固定source proofのMCP PID/startが同じmanager起動時の
+native owner identityへ一致する場合、元同期準備frame内でそのPID/startを再照合してexecution.origin_ownerへ
+保存する。native照会の欠測/再利用/重複/非同期/不正は保存・claim作成・bind前に拒否する。固定した元ownerを
+後着owner.jsonや現在envへ差し替えず、別source/由来を相関できない文脈へownerを推測して付けない。
+
+owner参照は同じ既存delivery/request/proofに束縛したidentityだけで、新IDではない。record schemaは元MCP
+requestとproofの同じprocessに一致しないstamp、proof無しや不正なidentityを拒否する。最初のrecord checkpointで
+claimより前に保存し、既存の結果移動/unknown診断/回収で参照を持ち越す。旧recordへ後から現在ownerを付けない。
+
+diagnoseClaimは対応するclaim/owner recordへ保存されている元owner参照だけをrecordedと返す。これは由来の
+保存記録であり、現在のnative生存/終了fenceや署名認証を証明しない。移動後の保管ownerや現在callerと混同せず、
+stamp欠測の旧recordはunprovenを維持する。clearance retained/retry none、native endpoint未観測/fence unknownの
+条件を変更しない。旧private binaryのstrict readerと混在移行、実4CLI、明示清算・公開mountは未受入である。

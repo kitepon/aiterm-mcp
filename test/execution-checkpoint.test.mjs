@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
 import { writeExecutionCheckpoint } from '../dist/execution-checkpoint.js';
-import { FileExecutionStore, executionStateSchema } from '../dist/execution-store.js';
+import { FileExecutionStore, executionStateSchema, emptyExecutionState } from '../dist/execution-store.js';
 import { ParticipantExecutionStore } from '../dist/execution-participant-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { guardTmuxExecution } from '../dist/execution-effect.js';
@@ -206,4 +206,47 @@ test('a late old caller frame cannot issue or clear the retained barrier after e
   }));
   assert.equal(f.keys(), 0); assert.equal(f.state().interruptions[0].preparing_resolution, 'key_not_sent');
   assert.equal(f.state().interruptions[0].phase, 'preparing'); assert.equal(interruptionBlocksLaunch(f.state(), launch), true);
+});
+test('loss of an initialized graph without any lock recovery evidence cannot bootstrap an empty scope or native key', async t => {
+  const f = fixture(t); await f.service.beginInterruption(run); await f.service.interruptRun(run, f.key);
+  assert.equal(f.keys(), 1); fs.unlinkSync(join(f.dir, 'relations.json'));
+  const next = new FileExecutionStore(f.dir);
+  assert.throws(() => next.transactionSync(() => assert.fail('no empty graph callback')), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+  await assert.rejects(next.transaction(() => assert.fail('no empty graph callback')), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+  assert.equal(fs.existsSync(join(f.dir, 'relations.json')), false); assert.equal(f.keys(), 1);
+});
+test('first graph checkpoint failure after a durable initialization marker remains unavailable on reconstruction', t => {
+  const dir = temporary(t), store = new FileExecutionStore(dir);
+  intercept(t, { renameSync(original, from, to) {
+    if (to === join(dir, 'relations.json')) throw Error('synthetic first graph rename failure'); return original(from, to);
+  } });
+  assert.throws(() => store.transactionSync(() => {}), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+  assert.equal(fs.existsSync(join(dir, 'relations.initialized.json')), true); assert.equal(fs.existsSync(join(dir, 'relations.json')), false);
+  assert.throws(() => new FileExecutionStore(dir).transactionSync(() => assert.fail('no empty reconstruction')), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+});
+test('invalid or symlink initialization metadata refuses even an otherwise valid graph rather than resetting the marker', t => {
+  const dir = temporary(t), store = new FileExecutionStore(dir); store.transactionSync(() => {});
+  const marker = join(dir, 'relations.initialized.json'), graph = fs.readFileSync(join(dir, 'relations.json'), 'utf8');
+  for (const invalid of ['{', '{}', '"unsupported-marker"']) {
+    fs.writeFileSync(marker, invalid);
+    assert.throws(() => store.transactionSync(() => assert.fail('no invalid marker callback')), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+    assert.equal(fs.readFileSync(marker, 'utf8'), invalid); assert.equal(fs.readFileSync(join(dir, 'relations.json'), 'utf8'), graph);
+  }
+  fs.unlinkSync(marker); const target = join(dir, 'marker-target'); fs.writeFileSync(target, '"aiterm.execution-store.v1"'); fs.symlinkSync(target, marker);
+  assert.throws(() => store.transactionSync(() => assert.fail('no symlink marker callback')), error => error.code === 'EXECUTION_STATE_UNAVAILABLE');
+  assert.equal(fs.lstatSync(marker).isSymbolicLink(), true);
+});
+test('a valid legacy graph can gain only store continuity metadata on write, never retroactive caller checkpoint evidence', t => {
+  const dir = temporary(t), state = emptyExecutionState(), graph = join(dir, 'relations.json'), marker = join(dir, 'relations.initialized.json');
+  fs.writeFileSync(graph, JSON.stringify(state)); const store = new FileExecutionStore(dir);
+  assert.deepEqual(store.transactionSync(state => state, { readOnly: true }), state); assert.equal(fs.existsSync(marker), false);
+  store.transactionSync(() => {}); assert.equal(JSON.parse(fs.readFileSync(marker)), 'aiterm.execution-store.v1');
+  assert.deepEqual(JSON.parse(fs.readFileSync(graph)), state);
+});
+test('invalid bootstrap state is refused before initialization and a read-only empty lookup never enrolls a scope', t => {
+  const dir = temporary(t), store = new FileExecutionStore(dir);
+  assert.throws(() => store.transactionSync(state => { state.schema = 'invalid'; }));
+  assert.equal(fs.existsSync(join(dir, 'relations.initialized.json')), false);
+  assert.deepEqual(store.transactionSync(state => state, { readOnly: true }), emptyExecutionState());
+  assert.equal(fs.existsSync(join(dir, 'relations.initialized.json')), false);
 });

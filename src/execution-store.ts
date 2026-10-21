@@ -95,13 +95,39 @@ export class FileExecutionStore implements ExecutionStore {
     if (!this.lockActor) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return recoverExecutionLock(this.directory, this.lockActor, expected, observeOwner);
   }
+  private initialized(): boolean {
+    const file = path.join(this.directory, "relations.initialized.json");
+    let found = false;
+    try {
+      const before = fs.lstatSync(file, { bigint: true });
+      found = true;
+      if (!before.isFile() || JSON.parse(fs.readFileSync(file, "utf8")) !== "aiterm.execution-store.v1")
+        throw new Error("invalid execution store marker");
+      const after = fs.lstatSync(file, { bigint: true });
+      if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
+        throw new Error("changed execution store marker");
+      return true;
+    } catch (error) {
+      if (!found && (error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
+    }
+  }
+  private write(state: ExecutionState): void {
+    // An immutable metadata marker, not a graph backup, queue, work ID or
+    // completion proof. Sync it before the first graph commit so a crash or
+    // later graph deletion cannot silently reopen a populated scope as empty.
+    const parsed = executionStateSchema.parse(state);
+    if (!this.initialized()) writeExecutionCheckpoint(path.join(this.directory, "relations.initialized.json"), "aiterm.execution-store.v1");
+    writeExecutionCheckpoint(path.join(this.directory, "relations.json"), parsed);
+  }
   private read(): ExecutionState {
+    const initialized = this.initialized();
     try { return executionStateSchema.parse(JSON.parse(fs.readFileSync(path.join(this.directory, "relations.json"), "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
       // A retained abandoned mutex proves this is not an unobserved bootstrap.
       // Recovery must not turn a subsequently missing graph into empty success.
-      if (fs.readdirSync(this.directory).some(name => name.startsWith("abandoned-transaction-lock-")))
+      if (initialized || fs.readdirSync(this.directory).some(name => name.startsWith("abandoned-transaction-lock-")))
         throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "possible");
       return emptyExecutionState();
     }
@@ -127,14 +153,13 @@ export class FileExecutionStore implements ExecutionStore {
         void Promise.resolve(result).catch(() => undefined);
         throw new ExecutionError("EXECUTION_INVALID");
       }
-      if (!options.readOnly) writeExecutionCheckpoint(path.join(this.directory, "relations.json"), executionStateSchema.parse(state));
+      if (!options.readOnly) this.write(state);
       return structuredClone(result);
     } finally { releaseExecutionLock(lock); }
   }
   async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     let lock: ExecutionLock;
-    const statePath = path.join(this.directory, "relations.json");
     const deadline = performance.now() + this.lockTimeoutMs;
     for (;;) {
       try { lock = acquireExecutionLock(this.directory, this.lockActor); break; }
@@ -151,7 +176,7 @@ export class FileExecutionStore implements ExecutionStore {
       // A callback exception commits nothing. Mutations must be prepared inside
       // this short transaction, and side effects must run after it commits.
       const result = await body(state);
-      if (!options.readOnly) writeExecutionCheckpoint(statePath, executionStateSchema.parse(state));
+      if (!options.readOnly) this.write(state);
       return structuredClone(result);
     } finally {
       releaseExecutionLock(lock);

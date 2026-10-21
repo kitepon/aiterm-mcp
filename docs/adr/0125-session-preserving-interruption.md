@@ -288,4 +288,19 @@ process不在による自動清算・自動takeover・キー再送を追加し�
 native_fence unknown。controllerも同じkey未送信事実だけを返し、中断成功/idle/会話維持/元job未送信へ
 付け替えない。旧native runの終了と受付解除には別の実証拠が引き続き必要である。
 
+### graph消失と空bootstrapの区別
+
+FileExecutionStoreは最初のgraph commitより先に、既存scope内のimmutable metadata
+`relations.initialized.json`（literal `aiterm.execution-store.v1`）を同じ同期手順で保存する。
+graph backup、実行ID、配送queueや終了証拠を追加するものではない。
+このmarkerまたは旧mutex退避痕跡があるのにrelations.jsonが無ければSTATE_UNAVAILABLEで、
+空scopeのcallback、再登録、キーや親returnへ進まない。最初のgraph保存が失敗した場合も同じである。
+markerの不正・symlink・読取中の差替えも初期化や修理へ読み替えない。
+readonlyの未観測bootstrapはmarkerを作らず、不正stateはmarkerの作成前に拒否する。
+
+有効なlegacy graphは最初の新writer commitでcontinuity markerを得るが、旧journalへの
+caller/checkpoint/native proofの補完は行わない。marker導入前にgraphも履歴も失われたlegacy空領域や、
+scope directoryごとの喪失を自動復元できるとはしない。旧binaryの参加・実filesystem crash recoveryと
+live state移行は未受入であり、通常mainへのmountを許可する追加根拠にはならない。
+
 実席/公式CLI試験・他席操作・本番・公開配布なし。旧closeのfake成功を中断成功へ付け替えない。

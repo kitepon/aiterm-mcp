@@ -393,11 +393,13 @@ export class ParentDeliveryManager {
 
   private finish(job: OwnedRecord): void {
     const privateRecord = Boolean(this.execution || job.record.execution);
+    const retainClaim = privateRecord && job.record.state === "unknown"
+      && job.record.error === "PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED";
     if (!privateRecord) this.releaseClaim(job);
     this.save(job);
     const destination = path.join(this.results, `${job.record.delivery_id}.json`);
     this.moveRecord(job, destination);
-    if (privateRecord) this.releaseClaim(job);
+    if (privateRecord && !retainClaim) this.releaseClaim(job);
     this.jobs.delete(job.record.delivery_id);
   }
 
@@ -672,7 +674,11 @@ export class ParentDeliveryManager {
         try { this.moveRecord(job, file); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
         record = job.record = readRecord(job.file);
-        if (record.execution && !this.execution) {
+        if (record.execution && record.state === "unknown" && record.error === "PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED") {
+          // A new manager may archive the original diagnosis, but cannot
+          // clear its uncertain claim by merely reconstructing the process.
+          this.finish(job);
+        } else if (record.execution && !this.execution) {
           record.state = "unknown";
           record.error = "PARENT_EXECUTION_ADAPTER_UNAVAILABLE";
           this.finish(job);

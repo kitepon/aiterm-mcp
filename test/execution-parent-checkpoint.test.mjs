@@ -259,3 +259,24 @@ test('post-submit result checkpoint loss retains the genuine queue receipt and c
   assert.deepEqual(saved.execution.request, request); await assert.rejects(f.manager.recover(), uncertain);
   assert.equal(f.counts().submits, 1);
 });
+
+test('reconstruction including a manager without execution adapter preserves the uncertain original claim and diagnosis', async t => {
+  const f = fixture(t); let linked = false, failed = 0; const paths = new Map();
+  const restore = intercept(t, {
+    openSync(original, file, ...args) { const fd = original(file, ...args); paths.set(fd, file); return fd; },
+    linkSync(original, ...args) { const result = original(...args); linked = true; return result; },
+    fsyncSync(original, fd) { if (linked && !failed && paths.get(fd) === join(f.root, 'claims')) { failed++; throw Error('synthetic claim checkpoint unknown'); } return original(fd); },
+  });
+  await assert.rejects(f.delivery.before_send(boundary), uncertain); restore(); await f.manager.close();
+  const original = JSON.parse(fs.readFileSync(f.records()[0])), claimBefore = fs.readFileSync(join(f.root, 'claims', 'bot-b.json'), 'utf8');
+  const restored = new ParentDeliveryManager({ root: f.root, dependencies: {
+    processes: () => [{ pid: process.pid, started_identity: 'synthetic-restored-owner' }], exists: () => false,
+    verify: async () => assert.fail('no endpoint fallback'), observe: async () => assert.fail('no restored wait'), submit: async () => assert.fail('no restored queue') } });
+  try {
+    await restored.recover(); const saved = JSON.parse(fs.readFileSync(f.records()[0]));
+    assert.equal(saved.state, 'unknown'); assert.equal(saved.error, 'PARENT_DELIVERY_CHECKPOINT_UNCONFIRMED');
+    assert.deepEqual(saved.execution, original.execution); assert.deepEqual(saved.boundary, original.boundary);
+    assert.equal(fs.readFileSync(join(f.root, 'claims', 'bot-b.json'), 'utf8'), claimBefore);
+    assert.equal(f.counts().binds, 0);
+  } finally { await restored.close(); }
+});

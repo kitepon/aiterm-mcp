@@ -546,3 +546,7 @@ ready checkpointの失敗でも元のgenuine本文/outcome/turn/requestを保持
 fenceを生成しない。claimのunlinkが作用後に欠測した場合は元記録と未確認を保持し、claimを再作成しない。
 元proof/actorの回収条件と旧binary/live移行の不足は変わらない。これはOSがfile/directory同期を応答した
 条件であり、hardware crash/電源断や実4CLIの耐久・中断・会話維持を受入済みにしない。
+
+checkpoint未確認のunknown診断を新managerが引き取っても、そのことだけで元claimを外さない。
+execution adapter無しの回収でも元CHECKPOINT_UNCONFIRMED診断を上書きせず、同delivery/request/boundaryと
+claimを保持する。記録の保管移動は許すが、受付解除はこの回収の成功と別の未了清算条件である。

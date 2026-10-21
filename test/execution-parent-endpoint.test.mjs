@@ -108,3 +108,12 @@ test('roots, process identity and native input are not overwritten by later chan
   assert.equal(f.check(), true);
   assert.throws(() => createNativeParentEndpointEvidence({ ...f.options }), error => error.code === 'EXECUTION_INVALID');
 });
+
+test('Claude hook owner cannot be replaced by a live MCP or hook descendant from the same harness lineage', t => {
+  const f = fixture(t, 'claude'); assert.equal(f.check(), true);
+  for (const actor of [mcp, hook]) {
+    write(join(f.directory, 'request.json'), { request_id: 'existing-tool-use', session_id: uuid, agent_id: null,
+      parent_pid: actor.pid, parent_started_identity: actor.started_identity });
+    assert.equal(f.check(), false, 'an observed descendant is not the fixed native CLI owner');
+  }
+});

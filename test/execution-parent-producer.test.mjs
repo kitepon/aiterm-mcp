@@ -57,8 +57,9 @@ function fixture(t, vendor = 'claude') {
         target: { session_id: B.session_id, expected_launch_id: B.launch_id } } });
   };
   const bind = async () => {
-    const proof = withExecutionRequest(request, () => producer.execution.captureEndpointEvidence(endpoint), {
-      source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' } });
+    const ingress = { source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' } };
+    const native_parent = withExecutionRequest(request, producer.startup.captureNativeParent, ingress);
+    const proof = withExecutionRequest(request, () => producer.execution.captureEndpointEvidence(endpoint), { ...ingress, native_parent });
     await producer.execution.bind(id, request, point(B, 17), endpoint, proof);
     return proof;
   };
@@ -126,4 +127,11 @@ test('a different serving process cannot inherit the original native request pro
     actor: () => ({ pid: 99, started_identity: '2026-10-21T07:00:04Z' }) } });
   await assert.rejects(other.execution.bind(id, request, point(B, 17), f.endpoint, proof), code('EXECUTION_CONFLICT'));
   assert.equal(existsSync(join(f.directory, 'answer.json')), false);
+});
+
+test('serving producer cannot decode a fresh parent later when its original ingress snapshot is missing', t => {
+  const f = fixture(t);
+  assert.throws(() => withExecutionRequest(request, () => f.producer.execution.captureEndpointEvidence(f.endpoint), {
+    source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' },
+  }), code('EXECUTION_UNSUPPORTED'));
 });

@@ -20,6 +20,7 @@ model引数/resultのoperationや現在event file長で補完せず、成功rece
 `execution-*.ts`は隔離枝のwire、snapshot計画、共有metadata、受付/停止サービスと注入可能なMCP口。
 fake MCPで検証中であり、runtime証拠adapterと全変更口への接続は未了。現行公開toolの停止契約は変更していない。
 native親配送は、要求時に固定したSDK metadata・検証済みsource世代・MCP/native harness identityを結ぶ。
+serving producerは最初のawait前にnative decoder/session/tool/ownerを元requestへ固定し、欠測を後で補完しない。Claude ownerは同じharness PID/startで、別のMCP/hook descendantを代用しない。source入力のnative受理/turn aliasではない。
 別processのhookは同じscopeと既存delivery bindingを照合し、callback欠測時に旧配送へfallbackしない。
 processごとのrequired profile factoryは隔離実装中であり、static profileや稼働hookへは未接続。
 scope一致やhook返却だけで全参加者の被覆・native turn alias・終了fenceを証明したことにはしない。

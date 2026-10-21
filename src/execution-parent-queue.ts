@@ -24,24 +24,35 @@ export function createParentQueueEndpointEvidence(input: {
 }) {
   if (!path.isAbsolute(input.claudeHookRoot) || /[\r\n\0]/.test(input.claudeHookRoot)) throw new ExecutionError("EXECUTION_INVALID");
   const root = path.resolve(input.claudeHookRoot), actor = input.actor && { ...input.actor }, sourceEvidence = input.sourceEvidence;
-  return (parent: ExecutionPoint, endpoint: unknown, binding: Readonly<Binding>, phase: "bind" | "queue"): boolean => {
-    const parsed = parentSourceSchema.safeParse(binding.source_evidence);
+  // A request exists before a delivery binding does. Check the actual native
+  // hook owner at ingress as well as at bind/queue; do not let an invalid old
+  // record become valid by rereading a different request after an await.
+  const verifyIngress = (endpoint: unknown, proofInput: unknown): string => {
+    const parsed = parentSourceSchema.safeParse(proofInput);
     if (!actor || !parsed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    const proof = parsed.data;
+    const proof = parsed.data, parent = proof.source;
     if (proof.endpoint.vendor !== "claude") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    if (!same(proof.request, binding.request) || !same(proof.mcp_process, actor) || !same(binding.parent, parent))
-      throw new ExecutionError("EXECUTION_CONFLICT");
-    sourceEvidence.verify(parent, endpoint, proof, true);
-    sourceEvidence.verifyActor(parent, proof, actor);
+    if (!same(proof.mcp_process, actor)) throw new ExecutionError("EXECUTION_CONFLICT");
+    sourceEvidence.verify(parent, endpoint, proof, true); sourceEvidence.verifyActor(parent, proof, actor);
     const ep = endpointSchema.safeParse(endpoint);
     if (!ep.success || !path.isAbsolute(ep.data.hook_root) || path.resolve(ep.data.hook_root) !== root
-      || ep.data.session_id !== proof.endpoint.session_id || ep.data.request_id !== proof.endpoint.request_id) return false;
+      || ep.data.session_id !== proof.endpoint.session_id || ep.data.request_id !== proof.endpoint.request_id)
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
     const directory = path.join(root, ep.data.request_id);
-    if (fs.existsSync(path.join(directory, "closed.json"))) return false;
+    if (fs.existsSync(path.join(directory, "closed.json"))) throw new ExecutionError("EXECUTION_STALE_GENERATION");
     const invocation = invocationSchema.safeParse(read(path.join(directory, "request.json")));
     if (!invocation.success || invocation.data.request_id !== ep.data.request_id
-      || invocation.data.session_id !== ep.data.session_id || invocation.data.agent_id !== null) return false;
-    sourceEvidence.verifyActor(parent, proof, { pid: invocation.data.parent_pid, started_identity: invocation.data.parent_started_identity });
+      || invocation.data.session_id !== ep.data.session_id || invocation.data.agent_id !== null
+      || !same({ pid: invocation.data.parent_pid, started_identity: invocation.data.parent_started_identity }, proof.harness_process))
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    sourceEvidence.verifyActor(parent, proof, proof.harness_process);
+    return directory;
+  };
+  const verify = (parent: ExecutionPoint, endpoint: unknown, binding: Readonly<Binding>, phase: "bind" | "queue"): boolean => {
+    const parsed = parentSourceSchema.safeParse(binding.source_evidence);
+    if (!parsed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    if (!same(parsed.data.request, binding.request) || !same(binding.parent, parent)) throw new ExecutionError("EXECUTION_CONFLICT");
+    const directory = verifyIngress(endpoint, parsed.data);
     const deliveryFile = path.join(directory, "delivery.json");
     // The existing manager writes the native delivery binding just after our
     // before_send companion. It must exist for actual queue, and an existing
@@ -52,4 +63,5 @@ export function createParentQueueEndpointEvidence(input: {
     }
     return true;
   };
+  return Object.assign(verify, { verifyIngress: (endpoint: unknown, proof: unknown): void => { verifyIngress(endpoint, proof); } });
 }

@@ -49,8 +49,12 @@ export interface ParentSourceBindings {
   // Private core adapter: generation + unique native harness + same process
   // table snapshot. No screen, argv, environment, or arbitrary current Bot ID.
   observeParentProcess(session: string): unknown;
+  // Mandatory in the serving producer; standalone primitive fixtures may
+  // capture their own synchronous frame without an asynchronous dispatcher.
+  requireFrozenIngress?: boolean;
 }
 export function createParentSourceEvidence(bindings: ParentSourceBindings) {
+  const requireFrozenIngress = bindings.requireFrozenIngress === true;
   const observe = (source: ExecutionPoint) => {
     let value: z.infer<typeof snapshotSchema>;
     try { value = snapshotSchema.parse(bindings.observeParentProcess(source.launch.session_id)); }
@@ -94,25 +98,53 @@ export function createParentSourceEvidence(bindings: ParentSourceBindings) {
       row = parent;
     }
   };
+  const fresh = (endpointInput: unknown, decodedInput?: { value: unknown }): ParentSource => {
+    const context = currentExecutionIngress();
+    const request = context?.request, ingress = context?.ingress;
+    if (request?.kind !== "mcp" || !ingress?.source || !ingress.client_name || !ingress.native_identity)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const actual = identity.parse(ingress.native_identity);
+    if (actual.pid !== request.process_pid || actual.started_identity !== request.process_started_identity)
+      throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    const decoded = decodedInput ? decodedInput.value : bindings.decode(ingress.client_name, ingress.metadata);
+    if (!decoded || !equalEndpoint(decoded, endpointInput)) throw new ExecutionError("EXECUTION_CONFLICT");
+    const snapshot = observe(ingress.source);
+    const proof = parentSourceSchema.parse({ schema: "aiterm.parent-source.v1", request,
+      source: ingress.source, client_name: ingress.client_name, mcp_process: actual,
+      harness_process: snapshot.harness_process, endpoint: nativeEndpoint(decoded) });
+    compatible(proof, snapshot); lineage(snapshot, actual);
+    return proof;
+  };
+  const frozenSchema = z.object({ endpoint: z.unknown(), proof: parentSourceSchema }).strict();
   return {
-    capture(endpointInput: unknown): ParentSource {
-      const context = currentExecutionIngress();
-      const request = context?.request, ingress = context?.ingress;
-      if (request?.kind !== "mcp" || !ingress?.source || !ingress.client_name || !ingress.native_identity)
-        throw new ExecutionError("EXECUTION_UNSUPPORTED");
-      const actual = identity.parse(ingress.native_identity);
-      if (actual.pid !== request.process_pid || actual.started_identity !== request.process_started_identity)
-        throw new ExecutionError("EXECUTION_UNCONFIRMED");
-      // Decoder runs on the detached native metadata before any asynchronous
-      // manager preflight. Equal-looking model arguments cannot supply it.
+    // Serving producer only: call synchronously at ingress, before any target
+    // or metadata await. Decode exactly once; actor/source proof is captured in
+    // the same request frame, not from a later hook file or latest job.
+    captureIngress() {
+      const context = currentExecutionIngress(), ingress = context?.ingress;
+      if (context?.request.kind !== "mcp" || !ingress?.source || !ingress.client_name || !ingress.native_identity) return null;
       const decoded = bindings.decode(ingress.client_name, ingress.metadata);
-      if (!decoded || !equalEndpoint(decoded, endpointInput)) throw new ExecutionError("EXECUTION_CONFLICT");
-      const snapshot = observe(ingress.source);
-      const proof = parentSourceSchema.parse({ schema: "aiterm.parent-source.v1", request,
-        source: ingress.source, client_name: ingress.client_name, mcp_process: actual,
-        harness_process: snapshot.harness_process, endpoint: nativeEndpoint(decoded) });
-      compatible(proof, snapshot); lineage(snapshot, actual);
-      return proof;
+      if (!decoded) return null;
+      return frozenSchema.parse({ endpoint: structuredClone(decoded), proof: fresh(decoded, { value: decoded }) });
+    },
+    capture(endpointInput: unknown): ParentSource {
+      const context = currentExecutionIngress(), ingress = context?.ingress;
+      if (ingress && Object.hasOwn(ingress, "native_parent")) {
+        const fixed = frozenSchema.safeParse(ingress.native_parent);
+        if (!fixed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+        const { proof, endpoint } = fixed.data;
+        if (!same(proof.request, context!.request) || !same(proof.source, ingress.source)
+          || proof.client_name !== ingress.client_name || !same(proof.mcp_process, ingress.native_identity)
+          || !equalEndpoint(endpoint, endpointInput) || !same(nativeEndpoint(endpoint), proof.endpoint))
+          throw new ExecutionError("EXECUTION_CONFLICT");
+        const snapshot = observe(proof.source); compatible(proof, snapshot); lineage(snapshot, proof.mcp_process);
+        return parentSourceSchema.parse(proof);
+      }
+      // Standalone private adapters can still capture their own synchronous
+      // frame. The serving participant always supplies native_parent (or null)
+      // and cannot use this legacy path after an asynchronous wait.
+      if (requireFrozenIngress) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return fresh(endpointInput);
     },
     verify(parent: ExecutionPoint, endpointInput: unknown, proofInput: unknown, initial = false): void {
       const parsed = parentSourceSchema.safeParse(proofInput);

@@ -52,7 +52,7 @@ export function createExecutionParticipant(input: ProducerOptions & { parentDepe
   const producer = createExecutionParentProducer({ ...input, provider,
     profile, claudeRuntime, expectedScope: structuredClone(input.expectedScope),
     ...(input.runtime ? { runtime: snapshotRuntime(input.runtime) } : {}) });
-  const { actor, sourceEnvironment, assertScope, observeSessionGeneration } = producer.startup;
+  const { actor, sourceEnvironment, assertScope, observeSessionGeneration, captureNativeParent } = producer.startup;
   // This factory serves THIS MCP process, never a serialized worker actor.
   if (actor.pid !== process.pid) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const dependencies = supplied && { ...supplied };
@@ -70,7 +70,7 @@ export function createExecutionParticipant(input: ProducerOptions & { parentDepe
   const server = createAitermServer({ execution: server => {
     assertScope();
     dispatcher = createExecutionDispatcher({ service: producer.service, nativeIdentity: actor, sourceEnvironment,
-      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope });
+      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope, captureNativeParent });
     return { dispatcher, parentExecution: producer.execution, parentDependencies, parentStateRoot: producer.scope.state_root };
   } });
   producer.store.enroll(["mcp"]);

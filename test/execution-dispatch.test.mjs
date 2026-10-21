@@ -7,7 +7,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
-import { currentExecutionRequest } from '../dist/execution-context.js';
+import { currentExecutionRequest, currentExecutionIngress } from '../dist/execution-context.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
@@ -318,4 +318,22 @@ test('actual SDK requestId reaches the dispatcher and native admission without m
   const result = await client.callTool({ name: 'pty_send', arguments: { session_id: B.session_id, text: 'synthetic' } });
   assert.equal(result.isError, undefined); assert.equal(f.effects(), 1);
   assert.equal(Number.isSafeInteger(result._meta[BINDING].request.request_id), true);
+});
+
+test('native ingress capture is synchronous and an asynchronous callback cannot become a deferred source proof or native send', async () => {
+  const f = fixture({ bindings: { captureNativeParent: () => Promise.resolve(null) } });
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 'async-native-source' }, async () => {
+    f.effect(); return accepted();
+  });
+  assert.equal(errorCode(result), 'EXECUTION_UNSUPPORTED'); assert.equal(f.effects(), 0); assert.deepEqual(await f.records(), []);
+});
+test('native ingress null is fixed by the private host adapter rather than model arguments or SDK meta claiming a proof', async () => {
+  let calls = 0;
+  const f = fixture({ bindings: { captureNativeParent: () => { calls++; return null; } } });
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id, native_parent: { forged: true } },
+    { requestId: 'native-source-null', _meta: { native_parent: { forged: true } } }, async () => {
+      const context = currentExecutionIngress(); assert.equal(context.ingress.native_parent, null);
+      f.effect(); return accepted();
+    });
+  assert.equal(result.isError, undefined); assert.equal(calls, 1); assert.equal(f.effects(), 1);
 });

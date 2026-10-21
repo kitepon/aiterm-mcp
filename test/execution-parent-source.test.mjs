@@ -149,3 +149,32 @@ test('actual dispatcher and store bind native source evidence before send, prese
   await assert.rejects(recovered.submit(id, f.endpoint, async () => { effects++; }), code('EXECUTION_STALE_GENERATION'));
   assert.equal(effects, 1);
 });
+
+test('ingress-frozen native provenance remains request-local across concurrent waits without decoding a newer endpoint', async () => {
+  const f = fixture(), release = pause(), secondRequest = { ...request, request_id: 42 };
+  const secondEndpoint = { ...f.endpoint, thread_id: '00000000-0000-4000-8000-000000000002' };
+  const secondIngress = { ...f.ingress, metadata: { threadId: secondEndpoint.thread_id } };
+  const one = withExecutionRequest(request, () => f.evidence.captureIngress(), f.ingress);
+  const two = withExecutionRequest(secondRequest, () => f.evidence.captureIngress(), secondIngress);
+  const first = withExecutionRequest(request, async () => { await release.promise; return f.evidence.capture(f.endpoint); }, { ...f.ingress, native_parent: one });
+  const second = withExecutionRequest(secondRequest, async () => { await release.promise; return f.evidence.capture(secondEndpoint); }, { ...secondIngress, native_parent: two });
+  f.bindings.decode = () => assert.fail('no late native decoder fallback'); one.proof.request.request_id = 999;
+  release.resolve(); const proofs = await Promise.all([first, second]);
+  assert.deepEqual(proofs.map(row => row.request.request_id), [41, 42]);
+  assert.deepEqual(proofs.map(row => row.endpoint.thread_id), [f.endpoint.thread_id, secondEndpoint.thread_id]);
+  assert.ok(proofs.every(row => row.source.boundary === null), 'native hook provenance does not create an input/turn alias');
+});
+test('native ingress absence or another request/source/actor cannot be replaced by currently available native metadata', () => {
+  for (const change of ['null', 'request', 'source', 'actor', 'client', 'endpoint']) {
+    const f = fixture(), fixed = withExecutionRequest(request, () => f.evidence.captureIngress(), f.ingress);
+    const ingress = { ...f.ingress, native_parent: fixed }; let ref = request;
+    if (change === 'null') ingress.native_parent = null;
+    if (change === 'request') ref = { ...request, request_id: 42 };
+    if (change === 'source') ingress.source = { ...point(A), launch: { ...A, launch_id: 'e'.repeat(32) } };
+    if (change === 'actor') ingress.native_identity = { ...actor, pid: 99 };
+    if (change === 'client') ingress.client_name = 'other-client';
+    if (change === 'endpoint') fixed.endpoint.thread_id = '00000000-0000-4000-8000-000000000099';
+    f.bindings.decode = () => assert.fail('no fallback from missing or mismatched ingress proof');
+    assert.throws(() => withExecutionRequest(ref, () => f.evidence.capture(f.endpoint), ingress));
+  }
+});

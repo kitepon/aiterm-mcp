@@ -62,8 +62,11 @@ export function createNativeParentEndpointEvidence(input: {
       const delivery = z.object({ delivery_id: z.uuid() }).strict().safeParse(read(path.join(directory, "delivery.json")));
       if (!invocation.success || !delivery.success || delivery.data.delivery_id !== binding.delivery_id || invocation.data.agent_id !== null
         || invocation.data.request_id !== ep.data.request_id || invocation.data.session_id !== ep.data.session_id) return false;
-      sourceEvidence.verifyActor(parent, proof, { pid: invocation.data.parent_pid, started_identity: invocation.data.parent_started_identity });
-      return true;
+      const owner = { pid: invocation.data.parent_pid, started_identity: invocation.data.parent_started_identity };
+      sourceEvidence.verifyActor(parent, proof, owner);
+      // A sibling MCP/hook descendant is not the CLI that owned PreToolUse.
+      // Keep the original native harness identity at the worker boundary too.
+      return same(owner, proof.harness_process);
     }
     const ep = cursor.safeParse(endpoint), event = z.object({ conversation_id: conversationId,
       hook_event_name: z.enum(["postToolUse", "postToolUseFailure"]) }).safeParse(nativeContext);

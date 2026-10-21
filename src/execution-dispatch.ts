@@ -9,7 +9,7 @@ import { runDeferredBoundExecution, type ExecutionControlRegistration } from "./
 import { ExecutionError, executionErrorResult, executionRefFromMeta, executionHostSourceFromMeta,
   EXECUTION_REQUEST_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
 import { EXECUTION_SOURCE_META_KEY } from "./execution-wire.js";
-import { withExecutionRequest } from "./execution-context.js";
+import { withExecutionRequest, type ExecutionIngress } from "./execution-context.js";
 import { readExecutionSendBoundary } from "./execution-effect.js";
 
 type ToolResult = {
@@ -58,6 +58,8 @@ export interface ExecutionDispatcherBindings {
   initializedClientName(): string | undefined;
   observeSessionGeneration(session: string): unknown | Promise<unknown>;
   assertParticipant?(): void;
+  // Same-process private producer; no tool/meta argument can set this proof.
+  captureNativeParent?(): unknown | null;
 }
 
 export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings): {
@@ -65,6 +67,8 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
   dispatch(name: string, args: Arguments, extra: Extra,
     body: (fixedArgs: Arguments, fixedExtra: Extra) => Promise<ToolResult>): Promise<ToolResult>;
 } {
+  const captureNativeParent = bindings.captureNativeParent;
+  if (captureNativeParent !== undefined && typeof captureNativeParent !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = { ...bindings.sourceEnvironment };
   const directSource = executionSourceFromEnvironment(environment);
   const native = bindings.nativeIdentity && { ...bindings.nativeIdentity };
@@ -117,6 +121,22 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
         const supplied = executionRefFromMeta(fixedExtra._meta);
         if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
         let reference = supplied;
+        let directRequest: NativeRequest | null = null;
+        let frozenParent: unknown | null = null;
+        if (!reference && client !== "bellteam" && native) {
+          directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
+            process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
+            tool: route.tool, target_session_id: route.target });
+          if (captureNativeParent) {
+            const ingress: ExecutionIngress = { source, client_name: client ?? null, native_identity: native,
+              metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta };
+            const captured = withExecutionRequest(directRequest, captureNativeParent, ingress);
+            if (captured && typeof (captured as { then?: unknown }).then === "function") {
+              void Promise.resolve(captured).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            }
+            frozenParent = captured === null ? null : structuredClone(captured);
+          }
+        }
         if (reference) {
           // External host refs are created by the real Bridge ingress. Direct
           // model requests cannot borrow another call's reservation or choose
@@ -137,12 +157,10 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           ) throw new ExecutionError("EXECUTION_STALE_GENERATION");
         } else {
           // BellTeam must retain its existing delivery/room/call reference.
-          if (client === "bellteam" || !native) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          if (client === "bellteam" || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           const current = await observe(route.target);
           if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-          const request = executionRequestSchema.parse({ kind: "mcp", process_pid: native.pid,
-            process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
-            tool: route.tool, target_session_id: route.target });
+          const request = directRequest;
           await bindings.service.execute({ action: "register", source_session_id: source?.launch.session_id ?? directSeat,
             reservation: { schema: "aiterm.execution-reservation.v1", request,
               source: { launch: source?.launch ?? null, boundary: source?.boundary ?? null },
@@ -158,6 +176,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             source: status.source.status === "verified" ? status.source.point : null,
             client_name: client ?? null, native_identity: native,
             metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta,
+            ...(captureNativeParent ? { native_parent: frozenParent } : {}),
           });
           if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           // Missing/invalid binding evidence is returned as null. The wrapper

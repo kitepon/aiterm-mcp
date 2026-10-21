@@ -69,7 +69,7 @@ export function createExecutionParentProducer(input: {
       return [name, value];
     })) as Readonly<Record<string, string | undefined>>);
   const observe = (session: string) => { assertScope(); return runtime.observeSessionGeneration(session); };
-  const sourceEvidence = createParentSourceEvidence({ decode: (client, meta) => { assertScope(); return runtime.decodeParent(client, meta); },
+  const sourceEvidence = createParentSourceEvidence({ requireFrozenIngress: true, decode: (client, meta) => { assertScope(); return runtime.decodeParent(client, meta); },
     observeParentProcess: session => { assertScope(); return runtime.observeParentProcess(session); } });
   let service!: ExecutionService;
   const executionRuntime = createExecutionRuntime({ sourceEnvironment,
@@ -90,8 +90,9 @@ export function createExecutionParentProducer(input: {
       await service.withExpectedCloseEffect(expected, () => runtime.closeExpectedSession!(expected));
     } });
   service = new ExecutionService(store, executionRuntime);
+  const producerEndpoint = createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") });
   const parent = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe,
-    verifyParentEndpoint: createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") }) });
+    verifyParentEndpoint: producerEndpoint });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence, observeSessionGenerationSync: observe,
     hookReference: parentHookReference,
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
@@ -103,6 +104,13 @@ export function createExecutionParentProducer(input: {
   requireExecutionEffectScope(true);
   return { execution, parent, native, service, store, scope: structuredClone(scope), worker,
     inventory: () => store.inventory(typeof runtime.observeActors === "function" ? pids => { assertScope(); return runtime.observeActors!(pids); } : undefined),
-    startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe }),
+    startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe,
+      captureNativeParent: () => {
+        assertScope(); const fixed = sourceEvidence.captureIngress();
+        // Codex/Cursor keep only their existing hook provenance here. This
+        // does not upgrade their missing current queue endpoint capability.
+        if (fixed?.proof.endpoint.vendor === "claude") producerEndpoint.verifyIngress(fixed.endpoint, fixed.proof);
+        return fixed;
+      } }),
     relation_coverage: "incomplete" as const };
 }

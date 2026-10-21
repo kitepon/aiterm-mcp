@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as tick } from 'node:timers/promises';
@@ -14,6 +14,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { guardTmuxExecution, bindExecutionNativeTarget, assertExecutionContext, withExecutionPreparation } from '../dist/execution-effect.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { closeExpectedExecution } from '../dist/execution-close.js';
+import { claudeParentFromRequest } from '../dist/claude-parent-receiver.js';
 import { currentExecutionIngress } from '../dist/execution-context.js';
 import { EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
 import { registerExecutionTools } from '../dist/execution-tools.js';
@@ -463,4 +464,71 @@ test('actual same-server private SDK stop records the composed MCP actor as key 
   assert.ok(inventory.participants.some(row => row.references.some(reference => reference.kind === 'interruption')));
   assert.equal(inventory.native_fence, 'unknown'); assert.equal(inventory.relation_coverage, 'incomplete');
   assert.deepEqual(state.records, [], 'a stop caller is not a synthetic source invocation/job');
+});
+
+test('real participant freezes native hook endpoint/actor or absence before the first target await instead of adopting later provenance', async t => {
+  const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+  for (const change of ['stable', 'endpoint', 'harness', 'missing']) {
+    const f = fixture(t), tool = 'toolu_ingress_fixed', hookRoot = join(f.root, 'claude-parent-hooks'), directory = join(hookRoot, tool);
+    mkdirSync(directory, { recursive: true });
+    const invocation = { request_id: tool, session_id: '00000000-0000-4000-8000-000000000001', agent_id: null,
+      parent_pid: 20, parent_started_identity: '2026-10-21T07:00:00Z' };
+    writeFileSync(join(directory, 'request.json'), JSON.stringify(invocation));
+    const native = { schema: 'aiterm.execution-parent-process.v1', source: point(A), harness: 'claude-code',
+      harness_process: { pid: 20, started_identity: invocation.parent_started_identity },
+      processes: [{ pid: 20, parent_pid: 19, started_identity: invocation.parent_started_identity }, { ...f.actor, parent_pid: 20 }] };
+    let missing = change === 'missing';
+    f.options.runtime.observeParentProcess = () => structuredClone(native);
+    f.options.runtime.decodeParent = (client, metadata) => missing ? null : claudeParentFromRequest(client, metadata, hookRoot);
+    const ready = pause(), release = pause(), observe = f.options.runtime.observeSessionGeneration; let first = true;
+    f.options.runtime.observeSessionGeneration = session => {
+      if (session === B.session_id && first) { first = false; ready.resolve(); return release.promise.then(() => observe(session)); }
+      return observe(session);
+    };
+    const p = f.create(); await connect(t, p, 'claude-code'); let effects = 0;
+    const pending = p.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+      { requestId: 'native-provenance-before-await-' + change, _meta: { 'claudecode/toolUseId': tool } }, async () => {
+        const endpoint = claudeParentFromRequest('claude-code', { 'claudecode/toolUseId': tool }, hookRoot);
+        p.execution.captureEndpointEvidence(endpoint);
+        guardTmuxExecution(['send-keys', '-t', B.session_id, 'synthetic']); effects++; return accepted();
+      });
+    await ready.promise;
+    if (change === 'endpoint') {
+      invocation.session_id = '00000000-0000-4000-8000-000000000002'; writeFileSync(join(directory, 'request.json'), JSON.stringify(invocation));
+    }
+    if (change === 'harness') native.harness_process.started_identity = native.processes[0].started_identity = '2026-10-21T07:00:00.500Z';
+    missing = false; release.resolve(); const result = await pending;
+    if (change === 'stable') { assert.equal(result.isError, undefined, JSON.stringify(result)); assert.equal(effects, 1); }
+    else {
+      assert.equal(result.isError, true, change + ' must not be adopted after ingress');
+      assert.equal(result._meta[ERROR].effect, 'not_started'); assert.equal(effects, 0);
+    }
+  }
+});
+
+test('an initially invalid Claude hook owner cannot be repaired after target lookup and promoted to ingress provenance', async t => {
+  const f = fixture(t), tool = 'toolu_bad_initial_owner', hookRoot = join(f.root, 'claude-parent-hooks'), directory = join(hookRoot, tool);
+  mkdirSync(directory, { recursive: true });
+  const harness = { pid: 20, started_identity: '2026-10-21T07:00:00Z' };
+  const invocation = { request_id: tool, session_id: '00000000-0000-4000-8000-000000000001', agent_id: null,
+    parent_pid: 99, parent_started_identity: harness.started_identity };
+  writeFileSync(join(directory, 'request.json'), JSON.stringify(invocation));
+  f.options.runtime.decodeParent = (client, metadata) => claudeParentFromRequest(client, metadata, hookRoot);
+  f.options.runtime.observeParentProcess = () => ({ schema: 'aiterm.execution-parent-process.v1', source: point(A), harness: 'claude-code',
+    harness_process: harness, processes: [{ ...harness, parent_pid: 19 }, { ...f.actor, parent_pid: 20 }] });
+  const observe = f.options.runtime.observeSessionGeneration; let targetReads = 0, effects = 0;
+  f.options.runtime.observeSessionGeneration = session => {
+    if (session === B.session_id) {
+      targetReads++; invocation.parent_pid = harness.pid; writeFileSync(join(directory, 'request.json'), JSON.stringify(invocation));
+    }
+    return observe(session);
+  };
+  const p = f.create(); await connect(t, p, 'claude-code');
+  const result = await p.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'invalid-native-hook-owner', _meta: { 'claudecode/toolUseId': tool } }, async () => {
+      p.execution.captureEndpointEvidence(claudeParentFromRequest('claude-code', { 'claudecode/toolUseId': tool }, hookRoot));
+      guardTmuxExecution(['send-keys', '-t', B.session_id, 'synthetic']); effects++; return accepted();
+    });
+  assert.equal(result.isError, true); assert.equal(targetReads, 0); assert.equal(effects, 0);
+  assert.equal(result._meta[ERROR].effect, 'not_started');
 });

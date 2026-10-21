@@ -406,3 +406,29 @@ not_sentと偽らず、後続作用が拒否された旧issued frameはunknown/p
 stopping fieldのwire形は既存のまま。旧binaryがこのrecord印をnative gateで使う保証は無いため、
 旧binary混在/全参加者被覆/稼働移行は未受入で、通常mainへのmountを認める条件にはしない。
 既定read-only stopにはこの取消を入れず、明示private host注入だけに限定する。
+
+### native親provenanceを最初のawait前に固定する
+
+private producerは同じnative MCP request参照をdispatcher入口で作り、最初のtarget観測やregisterの
+awaitより前に、SDK metadataを実decoderへ一度だけ渡す。独立したnative source/harness/MCP actor
+観測とClaude hookのsession/tool/ownerを照合し、元request/source/endpoint/actorの証拠を固定する。
+これは既存の実呼出provenanceであり、受信した元入力のnative受理やturn aliasの証明ではない。
+
+固定値は既存ExecutionIngressのprivateなnative_parentに置く。explicit nullはその要求で証拠が
+取れなかった意味で、後からhook記録が現れても補完しない。tool引数や公開_metaにこの値を置いても
+採用しない。callbackは同期/読取だけで、Promiseを後着proofへ変えない。公開wire/meta key/実行IDを
+追加せず、raw SDK metadataや入力本文をgraphへ保存しない。
+
+同じfactoryの実handler/managerは、固定したendpointと同じものだけをcaptureできる。
+request/source/client/MCP actorが違うものを拒否し、作用前には同じnative世代/harness/lineageも
+再照合する。producerはsnapshot欠測を拒否し、待機後のfresh decoderへのfallbackを持たない。
+standaloneな低位primitiveの同期captureは、serving producerの最初のawait前の証拠を代用しない。
+
+ClaudeのPreToolUse ownerは実harnessのPID/startそのものを要求する。単に同じharness配下のMCPや
+別hookが生きていることでは代用しない。入口、before_send bind、queue、別processのnative workerで
+同じowner条件を使う。hook記録が最初に不正だった場合、target待ち後の書換えで有効化しない。
+Codex/Cursorでcurrent producer endpointの独立証拠が無い制限は、このsnapshotで解消しない。
+
+既存ParentSource v1とdelivery bindingは同じ参照を保持し、source boundaryがnullならそのまま。
+既存親hookのnative tool/sessionを元入力のoperation/turnへ補完せず、abort・live会話維持・旧呼出の
+終了fence・全参加者被覆も未確認。通常main/profile/稼働worker未mountと既定stop unsupportedを維持する。

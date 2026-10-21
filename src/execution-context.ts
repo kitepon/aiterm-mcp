@@ -9,6 +9,9 @@ export interface ExecutionIngress {
   native_identity: { pid: number; started_identity: string } | null;
   // Native SDK metadata, never the tool's arguments. Not persisted or exposed.
   metadata: unknown;
+  // Private producer snapshot before the dispatcher's first await. Explicit
+  // null means native provenance was unavailable; never fill it later.
+  native_parent?: unknown | null;
 }
 const requests = new AsyncLocalStorage<{ request: ExecutionRequest; ingress: ExecutionIngress | null }>();
 export function withExecutionRequest<T>(input: ExecutionRequest, body: () => T, ingress?: ExecutionIngress): T {

@@ -2,9 +2,9 @@
 
 ## 開発中: 連鎖停止
 
-実行関係のsource/target世代、Bridgeからの既存依頼参照、混在仕事を閉じない停止計画は
+実行関係のsource/target世代、Bridgeの既存参照、未完了関係の寿命と混在先も含む停止計画は
 [ADR 0124の契約案](adr/0124-cascade-stop-execution-contract.md)で設計中。
-`execution-contract.ts`は隔離枝の未接続schema/純粋fixtureであり、現行公開toolの停止契約は変更していない。
+`execution-contract.ts`は隔離枝の未接続schema/純粋snapshot計画であり、現行公開toolの停止契約は変更していない。
 
 ## 目的と所有
 

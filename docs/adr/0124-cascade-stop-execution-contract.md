@@ -1,190 +1,175 @@
-# 0124. 連鎖停止の実行境界・Bridge接続案
+# 0124. 未完了の実呼出を辿る連鎖停止・Bridge接続案
 
-状態: Proposed（2026-10-21）。所有境界・共有先保留はトロニー氏と合意済み。
-公開tool名・wire schema・source検証adapterは本稿で提案する段階。
-`src/execution-contract.ts`は未接続の型/検証fixtureで、MCP公開口や実停止の実装ではない。
+状態: Proposed（2026-10-21、指揮官の混在停止確定指示と寿命相談を反映）。
+初稿fd5d59fの「混在/共有先は除外」「source元依頼の意味帰属/入力集合completeを必須」は失効。
+指揮官の確定指示は、混在を判定せず、対象へ到達した実行は他仕事があっても停止すること。
+その後の「昔に呼んだ先まで止めると最後は全員」という相談に対し、本稿は未完了関係の寿命で範囲を絞る案。
+経過時間の閾値や欠測の切捨ては未裁定であり、本稿から既定値を作らない。
+
+`src/execution-contract.ts`は未接続schema/純粋snapshot計画、同名testは隔離fixture。
+実際のsource検証、関係保存、finish検証、受付排他、閉鎖executor、MCP公開口はまだ実装していない。
 
 ## 所有境界
 
-Aitermは期待launchを照合した停止計画・受付競合・対象席の実行/観測・対象別結果を持つ。
-BellTeamはBridge因果adapter、配送/起動/予定の受付抑止、単体API、全体ON/OFF、配送整理を持つ。
-アプリUIはベル。停止を実行する呼出元はBellTeam本体で、対象root席の終了に依存しない。
-新ID体系、永続配送queue、本文保存、自動再送を導入しない。既存の配送/実行参照を関連付ける。
-開発は明示承認済み。公開配布・本番反映の既存個別条件は維持する。
+Aitermは実行世代/境界の照合、関係の記録/寿命、停止計画、受付競合、期待launchの閉鎖/観測と対象別結果を持つ。
+BellTeamはBridge参照adapter、配送/起動/予定の受付抑止、単体API、全体ON/OFF、配送整理を持つ。
+UIはベル。BellTeam本体が停止処理を呼ぶため、root席の終了でexecutorは消えない。
+新ID体系、永続配送queue、本文保存、自動再送は足さない。開発承認済み。
+公開配布/本番反映の既存個別条件は維持。実席停止/本番試験/既存作業終了は今回行わない。
 
-## 現在の不足を隠さない
+## 二つの照合を区別する
 
-`X-Bellteam-Seat`はBot IDで、source launch/turnの証明ではない。
-`parent_session_id/lineage`は起動時の親名で、親launch世代や今の依頼の専有を証明しない。
-現在の親配送も全Bridge配送の仕事因果を網羅しない。
+**実際に呼んだ関係の採用:** source/targetのlaunch世代と実際のlaunch/sendを照合すれば採用する。
+元の仕事の意味、独立/共有の分類、入力集合の完全性、単独active jobは採用条件にしない。
+同一turnへ複数入力が混ざっても、実際に発行したcall edgeはすべて保持し、到達先を止める。
+`shared_busy`という結果/除外は廃止する。独立した別の呼出元へ逆向きには辿らない。
 
-Bridgeが渡す値はclaim。照合結果の`verified`や`input_coverage=complete`を外部要求が指定してはならない。
-live launchの照合と、当該tool呼出を既存の依頼へ結ぶ検証は別である。
-今のBridgeにないsource情報を、最新/唯一のactive jobで補完しない。
+**古い関係を終了する照合:** 対応する実行境界の終了と、その境界から呼んだ下流の終了を機械的に照合する。
+ここで必要なのはruntimeのturn/dispatchの区切りであって、どの意味の仕事に帰属するかの推測ではない。
+境界が欠けても確認済み世代の実呼出関係は採用する。寿命の欠測を報告し、記録済み関係ごとunknownへ捨てない。
 
-## 参照型（ローカル初版）
+Bot名/lineageだけでは世代は分からない。`X-Bellteam-Seat`だけを現在launchへ昇格させない。
+launchヘッダーは既存runtime環境値の輸送であり、tool引数からverifiedを指定する口ではない。
 
-ローカルのstate/socket領域は呼び出したAitermへ束縛される。pathをwireへ運ばない。
-同名remoteは別scopeであり、初版のローカル参照へ変換しない。
+## 最小参照
 
 ```ts
-type LaunchRef = { session_id: string; launch_id: string }; // 既存32桁hex launch_id
+type LaunchRef = { session_id: string; launch_id: string }; // 既存32hex
 type Boundary = {
   event_cursor: number;
-  operation_id: string | null;  // 既存sha256相関。Claude以外は通常null
-  turn_id: string | null;       // harnessから確定できた時だけ
-  steer_id: string | null;      // 既存_meta["aiterm/steer"]の参照
+  operation_id: string | null; // 既存sha256、通常Claudeのみ
+  turn_id: string | null;     // native記録で確定したとき
+  steer_id: string | null;    // 既存steer参照
 };
+type Point = { launch: LaunchRef; boundary: Boundary | null };
 type RequestRef =
   | { kind: "delivery"; delivery_id: string; target_session_id: string }
   | { kind: "room"; message_id: string; target_session_id: string }
   | { kind: "call"; call_session_id: string; event: "session.message" | "session.reply";
       seq: number; target_session_id: string }
   | { kind: "aiterm"; launch: LaunchRef; boundary: Boundary };
-type SourceClaim = {
-  launch: LaunchRef | null;
-  boundary: Boundary | null;
-  request: RequestRef | null; // 送り手が受けた元依頼。今回送るdelivery_idとは別
-};
+type SourceClaim = { launch: LaunchRef | null; boundary: Boundary | null };
 ```
 
-roomは同一message_idでも実target別の入力。返信者一覧だけに限定せず実fan-outを登録する。
-callはsessionだけでは識別しない。seqが無い受信でもBellTeamが付けた既存delivery_idがあるなら
-delivery参照を使える。どちらも無ければ識別不足としてunknownを維持する。
-`groupId`が既存delivery/message IDと同じなら別IDとして二重登録しない。
+state/socket scopeは呼び出したローカルAitermへ束縛する。同名remoteは別scope。
+roomは実fan-outのtargetごとに登録する。返信者以外への通知も実行を呼ぶなら対象。
+callの既存seqが無くても既存delivery_idがあればdelivery参照でよい。groupIdが同じ既存IDなら増やさない。
+Boundaryはadapterが同じ実行を指す不変な既存参照へ正規化する。後で分かったnative turnはaliasとして結ぶ。
+steerが同じturnを取ったことを確認できれば同じ実行境界、next_turnなら次の境界。
+単にcursorが近い、時刻が近いという理由で同一視しない。未確定ならboundary=nullを保持する。
 
-## sourceに最低限必要な情報と証拠
+## Bridgeが渡す情報・取得時点・不足
 
-| 項目 | 渡す時点・出所 | Aitermでの判定 |
+| 必要な物 | 現行にある物/不足 | いつ結ぶか |
 | --- | --- | --- |
-| source session_id | MCP要求を受けた時のruntimeの席情報 | 登録済みの現在launchと照合。Bot ID単独ならunknown |
-| source launch_id | その要求を送るruntimeに付けた既存AITERM_AGENT_LAUNCH_ID | 現在metadata/生存/呼出元との束縛を照合。IDの文字列一致だけをcaller証明にしない |
-| 元のRequestRef | Bridgeが保持する元配送・room target・callイベント、または直接Aiterm実行境界 | 入力台帳と照合。今回の送信先配送を元依頼と取り違えない |
-| source Boundary | その呼出を発した現在のharness/依頼の確定境界 | 元入力・tool呼出との対応がAitermで確認できる時だけ採用 |
-| 候補入力集合 | Bridge jobs/dispatch/steerとAiterm直接入力の対応 | 一件だけでも証明の代わりにしない。未登録入力があり得ればcoverage不完全 |
+| 呼出元席/世代 | Bot IDはある。HTTPにsource launchはない | MCP要求受信時のruntime環境から固定。queueの後で現在値に置換しない |
+| source実行境界 | native turn/dispatchの呼出コンテキストが共通には無い | 実tool呼出の受付前に取れる既存境界を固定。無いならnull。元依頼の意味は不要 |
+| 実際の配送参照 | delivery_id、room message_id、callイベント/seqまたはdelivery_id | queue/launch/send前にreservation。実fan-outごと |
+| 実target世代 | launch/send receiptのsession_id/launch_id | launch受理直後に結び、send直前に再照合 |
+| target実行境界 | dispatch event_cursor/operation、追跡可能なsteer参照 | Aitermの実before_sendとreceiptから結ぶ。後から近いjobへ当てはめない |
+| 終了証拠 | 対応waitのdoneとnative turn/operation、既存job状態 | 通知受付でなく実行終了時。同じ参照/世代/境界に対応させる |
+| source受付fence | 現行Bridgeの世代情報/未決登録drainには追加が必要 | terminalを受けても発行済み関係の確定前には退役しない |
 
-HTTP Bridge接続では、必要なら既存環境値を運ぶlaunchヘッダー等を追加するが、これは候補の輸送である。
-それだけで`caller_bound`や`invocation_bound`をtrueにしない。
-Aiterm側に、runtime/harnessの呼出コンテキストを現在launchと既存依頼境界へ結ぶ検証adapterが要る。
-native tool-use/turn等の既存参照を使う。提供できないharnessや経路はunknownのままにする。
-共通の全harnessでその情報が現在取得できるとは確認していない。この点は次の実装工程の課題である。
+最小Bridge追加はruntime固定の`AITERM_AGENT_LAUNCH_ID`輸送、既存IDでの登録、target receipt対応、
+対応する完了/未送信/中断の報告。環境ヘッダー等は各harness設定とBridge受信の両側で整合させる必要がある。
+Aitermは呼出元runtimeと期待launchを検証するadapterを持つ。任意tool引数のID文字列だけで検証済みにしない。
+source native turnが取れないことを、世代まで取れた実配送の不採用条件にしない。
 
-内部の`ExecutionSourceEvidence`はwire inputではなく、その検証adapterだけが生成する。
-`assessExecutionSource`はこの内部証拠との純粋比較をfixtureで確認するもので、証拠の取得はまだ行わない。
+現0.60.1の`seat_turns`はCodexのみ。他harnessや旧版でnullを返すことがあり、全経路の現在境界が取れるとは未確認。
+`lineage`は親名だけで親launch/turnを持たず、全Bridge関係の代用にはならない。
 
-判定は次のとおり。
+## 登録と寿命
 
-- launchを確定できない/呼出元を束縛できない: unknown。
-- 同名だがlaunchが違う: stale。新launchを古い関係へ結ばない。
-- 入力集合が不完全: unknown。判明している候補を返す。
-- 同一実行へ独立入力が混在: mixed。active jobを一つ選ばない。
-- 一つの入力でも個別tool呼出との対応が無い: unknown。
-- source launch、呼出、元依頼、境界、入力集合のすべてが一致: verified。
-
-ユーザー/予定等の独立root入力は、Bridgeの当該入口の事実とAitermのroot受付を結ぶ別の内部証拠で登録する。
-SourceClaimがnullという理由だけで、モデルからの呼出を独立rootへ昇格させない。
-混在入力が全て同じ停止rootに属することを証明できる最適化は初版では行わず、mixedを保留する。
-
-## 登録時点とreceiptの対応
-
-提案する汎用入口は`agent_execution`のregister/status/finishと`agent_stop`。
-名前はまだMCP tools/listへ追加していない。
-
-1. Bridgeは既存delivery/message/event参照を採番した後、配送queue/起動/本文貼付より前にregisterする。
-   送り手情報はMCP受信時点のsnapshotを運び、後から別turnで解決した情報へ取り替えない。
-   未送信入力も登録するが、本文・画像・再送payloadは保存しない。
-2. registerの入出力は次の案。証拠不明でもunknownとして登録でき、後の完全停止の対象漏れとして残る。
-   同一RequestRefの同一内容は同じ登録。内容を違える再登録はconflictであり別の送信を作らない。
-
-```json
-{
-  "schema": "aiterm.execution-reservation.v1",
-  "request": {"kind":"delivery","delivery_id":"existing-outgoing-id","target_session_id":"bot-b"},
-  "source": {
-    "launch":{"session_id":"bot-a","launch_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-    "boundary":null,
-    "request":null
-  },
-  "target":{"session_id":"bot-b","expected_launch_id":null}
-}
-```
-
-この例のsourceはverifiedではない。現在のBot IDだけならlaunchもnullにする。
-稼働済みの受け手はexpected_launch_idにその既存launchを指定し、未起動だけnullを許す。
-registerは停止中root/受付済み関係と同じAiterm側排他で判断する必要がある。
-独立したregisterだけ成功して後のsendが無条件で通る実装にはしない。
-
-3. `agent_launch`と`pty_send`は要求_metaの`aiterm/execution`で同じRequestRefを渡す案。
-   Aitermは送信lockの中で関係と停止状態を再確認し、未送信なら拒否する。
-   wakeが必要な場合はlaunchも同じ登録へ結び、launch receiptで実target世代を束縛してから本文を送る。
-   起動後の停止競合で、空の新席だけが未登録で残ることも防ぐ。
-4. Aitermが実際の`before_send`境界を記録し、send receiptの既存mode/session/launch/event_cursor/operationと
-   差し込み_metaのsteer_idを登録へ結ぶ。Bridgeが後から一番近いreceiptへ当てはめない。
-   追加の結果_meta案は次の形。
+提案入口は`agent_execution` register/status/finishと`agent_stop`。まだtools/listへ追加していない。
+既存RequestRefで冪等照合し、同じ参照でsource/targetを変える再登録はconflict。送信は再発行しない。
 
 ```ts
-{
-  schema: "aiterm.execution-binding.v1",
-  request: RequestRef,
-  target: LaunchRef,
-  boundary: Boundary,
-  source: { status: "verified" | "mixed" | "unknown" | "stale", reason: string },
-  state: "admitted" | "submitted_unknown"
-}
+// register。未知のtarget launchは未起動時だけnull。
+{ schema: "aiterm.execution-reservation.v1", request: RequestRef,
+  source: SourceClaim, target: { session_id: string; expected_launch_id: string | null } }
 ```
 
-返却されたmode=agent_steerが同じtarget turnへ混在すれば、その関係を上書きせず多入力として保持する。
-RPC応答消失/部分貼付はsubmitted_unknownとして残し、receiptが無いことを未送信の証明にしない。
-回復は既存参照のstatus照会とし、登録やsendを自動再送しない。
+1. queue/launch/sendより前にreservationを登録する。これは実呼出済みedgeではない。
+   停止は未発行分を拒否/未送信確定し、起動済みの空席があるなら実launchを関係に含める。
+2. 実launch/sendの発行前に、同じ登録を要求_metaの`aiterm/execution`へ結ぶ案。
+   Aitermがsource/target世代とstoppingを同じ受付排他で確認する。
+   通った実呼出を`invoked`、発行結果不明は`submitted_unknown`で記録する。
+   既存receiptのtarget launch/event_cursor/operation/steer参照を同じRequestRefへ結ぶ。
+3. `running/steered`、通知受理、配送UIの`delivered`だけでは実行完了にしない。
+   対応wait/native終了を確認したときだけ、当該target境界の`completed`を確定する。
+   明示的な未送信は`unsent`。実行中断は当該境界か、期待launch全体の閉鎖確認で`interrupted`。
+   waiterをabortしただけ、RPC reject/timeout、rate_limitedだけは終了解釈に使わない。
+4. **局所完了とedge退役を分ける。** A→Bが完了しても、そのB境界のB→Cが未完了ならA→Bを接続として残す。
+   source/target境界が確認できるときは同じruntime実行だけを結ぶ。別のB turnからの新しい呼出で古いA→Bを復活させない。
+   境界欠測がある既知世代の下流候補は、元の記録済み接続を保守的に保持して欠測を出す。
+   source世代さえ欠けた下流は推測で新しいedgeにせず、同定不足として残す。
+5. 実行終了、発行済み関係の応答確定、下流の全終了を確認したbranchを`retired`へ封印する。
+   terminal通知より前に発行した呼出の遅着があり得るので、終わった瞬間に接続を消さない。
+   同一source境界の受付fenceを閉じ、発行済み登録/変更をdrainしてから退役する。
+   遅着した旧境界の呼出は新しいcurrent境界へ繋ぎ替えず、旧登録の確定/拒否/未確認として処理する。
+6. 全部terminalの循環は互いを未完了として保持しない。未完了から逆向きに必要な接続を求める最小固定点とし、
+   未完了の出口が無いterminal成分はまとめて退役できる。実停止の巡回はlaunchの訪問済み集合で重複を防ぐ。
+   退役済みIDは必要最小のtombstoneで遅着/重複を拒否し、実行graphからは外す。全履歴本文や無期限Bot名graphを作らない。
 
-5. finishはBridgeの通知受付時点では行わず、対応するAiterm完了/中断/明示未送信の確定後に行う。
-   target launchとboundaryを再照合し、completed/cancelled/unsent/unknownを区別する。
-   元のturnが返っても未解決の下流依頼がある間は因果を消さない。
-   rootの寿命を時刻だけで打ち切ったり、返答イベントで逆向きの新しい親を自動作成したりしない。
+純粋fixtureの`planCascadeStop`は、runtimeが証拠照合したsnapshotを入力にした計画だけである。
+`completion`や`retired`を外部claimから信じる実装ではない。fence/drain/退役の永続処理は未実装。
 
-## 停止要求と結果
+## rootの現在境界と到達範囲
+
+stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。
+対象にするのは現在の実行と、局所完了しても未解決の下流を持つ既存branch。全て終了した過去境界は対象外。
+rootに未解決の前のbranchが残っていれば現在分と併せて辿る。この範囲を単独の最新active jobへ狭めない。
+対象へ到達したlaunchは混在/共有を調べず停止するため、そのlaunchからの現在有効な実呼出も辿る。
+独立した別のincoming親へ逆には辿らない。明示root自体はidleでも通常停止として閉じる。
+
+例: A→Bが終わり、下流も終了済みなら、その後BがCを呼んでもA停止ではB/Cへ行かない。
+A→Bが局所完了でも同じB実行からのCがまだ動いていればA→B→Cを保持する。
+この場合Bが別仕事も始めていても、同じ到達launchならBを止める。意味による仕事分割はしない。
+同名新launchへ自動追従せず、旧launchの記録した未解決子孫だけを辿り、置換自体は対象別に報告する。
+
+停止中に先行して受理済みのlaunch/sendがあれば応答確定まで追い、新たに確定した到達先を加えて収束させる。
+fence後の呼出は未送信拒否。sourceが停止中に送ったという理由で未記録の新関係を見逃さない。
+
+## 完了を取れない経路とowner選択
+
+dispatchはreceiptの待ち境界と対応doneで追える。追跡可能なsteerは`steer_id`と取り込まれたturnの終了を使う。
+0.59.1以前や控え取得不能のsteer、placement=unknown、完了相関のない外部経路は、
+Bridgeの親job終了/通知配送だけで閉じず`completion_missing`等の欠測にする。
+launch開始だけでprompt/実行境界が無い関係も、CLIがidleという理由で自動終了にはしない。
+ハーネスの明示終了解釈は個別adapterで判定し、実行が再開し得る利用上限を終了解釈にしない。
+
+開発案の既定は、**終了証拠が無い記録は未確認として保持し、確認できた期待世代の停止は進める**。
+既知の実呼出まで全unknownへ捨てず、同定/寿命/停止の欠測理由を個別に返す。
+閉鎖確認で当該launch全体の中断を確定できれば、境界不明の局所寿命を解決できることがある。
+未記録の下流/外部まで解決したことにはならない。
+
+時間で欠測を外すと古い未完了実行を残し得る。このtradeoffの裁定が必要なのは次の選択だけ。
+
+- 証拠が取れるまで未確認を保持する（保守案）。欠測が長く残る場合は古い対象も含み得る。
+- ownerが明示した時刻窓/上限で欠測の候補を範囲外へ出す。除外記録と未確認を返し、全停止成功にしない。
+
+後者の閾値、時計の基準/ずれ、切捨て時の表示/結果はまだ選ばれていない。
+タイムスタンプは記録/順序補助に残すが、初版が勝手にTTLを決めたり、時刻だけで完了扱いにしたりしない。
+トロニーがownerへの範囲相談を持ち、Aitermは機械的な終了証拠の追加と保守案で独立に開発を進める。
+
+## 結果と残実装
 
 ```ts
-// 呼び出したローカルAitermのscope。全体ONも明示root配列で渡す。
 { schema: "aiterm.cascade-stop-request.v1", roots: LaunchRef[] }
-{
-  schema: "aiterm.cascade-stop-result.v1",
-  roots: LaunchRef[], status: "stopped" | "partial" | "unconfirmed",
-  relation_coverage: "complete" | "incomplete",
-  targets: { launch: LaunchRef,
-    outcome: "closed" | "already_closed" | "shared_busy" | "unknown" | "unsupported" | "replaced",
-    reason: string }[]
-}
+{ schema: "aiterm.cascade-stop-result.v1", roots: LaunchRef[],
+  status: "stopped" | "partial" | "unconfirmed", relation_coverage: "complete" | "incomplete",
+  unresolved: { request: RequestRef | null; reason: string }[],
+  targets: { launch: LaunchRef;
+    outcome: "closed" | "already_closed" | "unknown" | "unsupported" | "replaced"; reason: string }[] }
 ```
 
-同名新launchを閉じず、root世代と対象別世代を排他の中で照合する。
-共有/混在/不明の子は席全体をcloseしない。未送信分と今後の当該因果呼出を抑止し部分結果へ残す。
-循環・多親は既存参照で訪問済みを管理し、同じlaunchを二重closeしない。
-停止受付と新たな関係登録/送信を直列化し、受付済みの下流関係も確定してから収束を判定する。
-`stopped`は関係coverageがcompleteで、明示root全てと全対象の閉鎖確認がある時だけ返せる。
-初版schema fixtureもこの条件を検証する。既知targetsが空だから成功にはしない。
-同定不足の未起動先等、LaunchRefをまだ作れない対象の詳細表現はwire最終化で追加する必要がある。
-それまではcoverage=incompleteを維持し、存在しないlaunch_idを生成して埋めない。
+relation_coverageは追跡可能な実呼出の記録/世代/寿命/停止の確認範囲であり、意味的な全入力の完全性ではない。
+schemaだけで全対象網羅を証明できない。registry/executorが計画対象全件と未解決を照合して結果を作る。
+未知launchは偽IDで埋めずunresolvedへ。既存同名slotの通信上結果不明は保持し、launch/send/configureを解禁しない。
+期待launch照合、発行済み変更drain、close一回と後観測をAitermの同じ排他の下で行う必要がある。
+現行`pty_close`のreceipt単独は全process終了を証明しない。切り離したOS子/外部副作用の取消は保証しない。
+remoteは既存権限と両端契約が無ければunsupported/未確認。新しいSSH権限を開発承認から作らない。
 
-停止executorはBellTeam本体からのAiterm呼出で存続する。MCP process間の関係共有/排他と、再起動後の
-結果不明保持もAiterm側の実装範囲。常駐daemonや独立の配送queueを足す案にはしない。
-旧変更のRPC reject/timeoutは取消完了ではない。同名slotを解禁せず対象別unknownへ残す。
-rootの停止でも切り離されたOS子や別端末、既に実施した外部副作用の取消までは保証しない。
-remoteは別scopeとして、既存権限・両端契約が整うまではunsupported/coverage不完全にする。
-
-## 隔離受入と実装順
-
-この段階のbuildと`test/execution-contract.test.mjs`の10件は通過。source判定/参照照合/完全停止結果の
-純粋fixtureだけであり、runtime証拠取得、関係保存、停止計画、閉鎖executorはまだ接続していない。
-
-次の実装順:
-
-1. source検証adapterと既存入力台帳への対応。現行HTTPのsource不明はunknownのままで接続できること。
-2. MCP process間の関係保存・受付/停止の排他。既存参照の冪等register/statusとfinish。本文を持たないこと。
-3. source/targetの期待世代を含む直接launch/sendとBridge_metaの共通受付。未送信/送信済み不明の保持。
-4. graph計画とexecutor。循環、多親、独立仕事を持つ共有先、混在、unknown、未登録、同名置換、
-   停止中の新規呼出、発行済み応答遅延/欠測、部分失敗/未対応をfixtureで確認する。
-5. ローカルMCPのfake入口で登録→dispatch/steer receipt→停止計画/結果→次の独立新依頼を受入。
-   Bridge側の因果登録/admission順序と返りをトロニー氏が統合受入する。
-
-実席停止・本番試験・既存作業終了・公開配布・本番反映は、この契約返却とfixture確認には含めない。
+残工程は、runtime世代/境界adapter、関係保存とfinish証拠照合、process間の受付fence/drainと退役、
+直接launch/sendおよびBridge_meta接続、期待世代を守る閉鎖executor、fake MCP受入の順。
+既知のfixtureが通っても実装/実席受入/公開/配布の完了ではない。

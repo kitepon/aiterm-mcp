@@ -129,13 +129,14 @@ export async function runBoundExecution(service: ExecutionService, meta: unknown
  * waits remain preparing; the first native effect commits the shared slot.
  */
 export async function runDeferredBoundExecution(service: ExecutionService, meta: unknown, stage: "launch" | "send",
-  targetSessionId: string, body: () => Promise<{ result: ToolResult; target: ExecutionPoint | null }>): Promise<ToolResult> {
-  return runExecutionReceipt(service, meta, stage, body, targetSessionId, true);
+  targetSessionId: string, body: () => Promise<{ result: ToolResult; target: ExecutionPoint | null }>,
+  admission?: () => void): Promise<ToolResult> {
+  return runExecutionReceipt(service, meta, stage, body, targetSessionId, true, admission);
 }
 
 async function runExecutionReceipt(service: ExecutionService, meta: unknown, stage: "launch" | "send",
   body: () => Promise<{ result: ToolResult; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
-  deferred: boolean): Promise<ToolResult> {
+  deferred: boolean, admission?: () => void): Promise<ToolResult> {
   let observed: ToolResult | undefined;
   try {
     const ref = executionRefFromMeta(meta);
@@ -159,7 +160,7 @@ async function runExecutionReceipt(service: ExecutionService, meta: unknown, sta
         // frame has a genuine successful action receipt to preserve on binding.
         observed = action.value;
         return action;
-      }, targetSessionId!)
+      }, targetSessionId!, admission)
       : await service.invoke(ref, stage, async () => {
         const action = await run();
         return { value: action.value, target: executionPointSchema.parse(action.target) };

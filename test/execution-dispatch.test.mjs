@@ -12,7 +12,7 @@ import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { guardTmuxExecution, prepareExecutionCreation, captureExecutionCreatedNative, bindExecutionCreatedLaunch,
-  captureExecutionSendBoundary, readExecutionSendBoundary } from '../dist/execution-effect.js';
+  captureExecutionSendBoundary, readExecutionSendBoundary, withExecutionPreparation } from '../dist/execution-effect.js';
 import { EXECUTION_REQUEST_META_KEY as REQUEST, EXECUTION_SOURCE_META_KEY as SOURCE,
   EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -37,7 +37,7 @@ function fixture(options = {}) {
   const live = new Map([A, B, D].map(value => [value.session_id, value]));
   const store = new FileExecutionStore(mkdtempSync(join(tmpdir(), 'execution-dispatch-')));
   let effects = 0, clientName = options.clientName ?? 'codex';
-  const observe = session_id => { const value = live.get(session_id); return {
+  const observe = session_id => { options.beforeObserve?.(session_id); const value = live.get(session_id); return {
     schema: 'aiterm.pty-observe-result.v1', session_id, exists: !!value, launch_id: value?.launch_id ?? null }; };
   const runtime = createExecutionRuntime({ sourceEnvironment: env,
     observeSession: observe, observeSessionSync: observe,
@@ -336,4 +336,170 @@ test('native ingress null is fixed by the private host adapter rather than model
       f.effect(); return accepted();
     });
   assert.equal(result.isError, undefined); assert.equal(calls, 1); assert.equal(f.effects(), 1);
+});
+
+
+test('SDK signal already cancelled refuses mutation before registration, while model cancellation fields are inert', async () => {
+  const f = fixture(), controller = new AbortController(); controller.abort('synthetic');
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancelled-at-entry', signal: controller.signal }, async () => { f.effect(); return accepted(); });
+  assert.equal(errorCode(result), 'EXECUTION_STOPPING'); assert.equal(f.effects(), 0); assert.deepEqual(await f.records(), []);
+  const next = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id, signal: { aborted: true } },
+    { requestId: 'new-rpc', _meta: { signal: { aborted: true }, cancelled: true } }, async () => { f.effect(); return accepted(); });
+  assert.equal(next.isError, undefined); assert.equal(f.effects(), 1);
+});
+
+test('cancel during initial target observation cannot register a delayed request or affect a new request on the same launch', async () => {
+  const entered = pause(), resume = pause(), controller = new AbortController(); let gated = false;
+  const f = fixture({ bindings: { async observeSessionGeneration(session_id) {
+    if (!gated) { gated = true; entered.resolve(); await resume.promise; }
+    return { schema: 'aiterm.pty-observe-result.v1', session_id, exists: true, launch_id: B.launch_id };
+  } } });
+  const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-before-register', signal: controller.signal }, async () => { f.effect(); return accepted(); });
+  await entered.promise; controller.abort(); resume.resolve(); const result = await pending;
+  assert.equal(errorCode(result), 'EXECUTION_STOPPING'); assert.deepEqual(await f.records(), []); assert.equal(f.effects(), 0);
+  const next = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 'same-launch-new-rpc' }, async () => {
+    f.effect(); return accepted();
+  });
+  assert.equal(next.isError, undefined); assert.equal(f.effects(), 1);
+});
+
+test('preparing SDK cancellation immediately fences metadata and native input without waiting for the shared store lock', async () => {
+  const f = fixture(), entered = pause(), resume = pause(), locked = pause(), unlock = pause(), controller = new AbortController();
+  const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-preparing', signal: controller.signal }, async () => {
+      entered.resolve(); await resume.promise;
+      assert.throws(() => withExecutionPreparation(B.session_id, () => assert.fail('cancelled metadata')), error => error.code === 'EXECUTION_STOPPING');
+      f.effect(); return accepted();
+    });
+  await entered.promise;
+  const held = f.store.transaction(async () => { locked.resolve(); await unlock.promise; }); await locked.promise;
+  controller.abort(); resume.resolve();
+  // Release the shared lock only after local synchronous checks ran. An async
+  // cancellation writer cannot be the sole native gate here.
+  await new Promise(resolve => setImmediate(resolve)); unlock.resolve(); await held;
+  const result = await pending;
+  assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started'); assert.equal(f.effects(), 0);
+  const record = (await f.records())[0]; assert.equal(record.stopping, true); assert.equal(record.operations.send, 'not_sent');
+  assert.equal(record.relation.completion, 'open'); assert.notEqual(record.relation.target_fence, 'closed');
+  assert.deepEqual(await f.store.transaction(state => state.slots, { readOnly: true }), []);
+});
+
+test('issued cancellation keeps genuine delayed receipt, original Point and open fence without stopping another request', async () => {
+  const f = fixture(), entered = pause(), resume = pause(), controller = new AbortController();
+  const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-issued-receipt', signal: controller.signal }, async () => {
+      captureExecutionSendBoundary({ launch: B, boundary: { event_cursor: 17, operation_id: null, turn_id: null, steer_id: null } });
+      f.effect(); entered.resolve(); await resume.promise; return accepted();
+    });
+  await entered.promise; controller.abort(); resume.resolve(); const result = await pending;
+  assert.equal(result.isError, undefined); assert.equal(result._meta.preserved, 'original'); assert.equal(f.effects(), 1);
+  const record = (await f.records())[0]; assert.equal(record.stopping, true); assert.equal(record.operations.send, 'accepted');
+  assert.deepEqual(record.relation.target, result._meta[BINDING].target); assert.equal(record.relation.target.boundary.turn_id, null);
+  assert.equal(record.relation.completion, 'open'); assert.equal(record.relation.target_fence, 'open');
+  assert.deepEqual(await f.store.transaction(state => state.slots, { readOnly: true }), []);
+  const next = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 'unrelated-rpc' }, async () => { f.effect(); return accepted(B, 18); });
+  assert.equal(next.isError, undefined); assert.equal(f.effects(), 2); assert.equal((await f.records())[1].stopping, false);
+});
+
+test('cancel after native issuance rejects a later effect and preserves unknown operation/slot without replay', async () => {
+  const f = fixture(), entered = pause(), resume = pause(), controller = new AbortController();
+  const pending = f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-issued-followup', signal: controller.signal }, async () => {
+      f.effect(); entered.resolve(); await resume.promise; f.effect(); return accepted();
+    });
+  await entered.promise; controller.abort(); resume.resolve(); const result = await pending;
+  assert.equal(errorCode(result), 'EXECUTION_UNCONFIRMED'); assert.equal(result._meta[ERROR].effect, 'possible'); assert.equal(f.effects(), 1);
+  const record = (await f.records())[0]; assert.equal(record.stopping, true); assert.equal(record.operations.send, 'unknown');
+  const slots = await f.store.transaction(state => state.slots, { readOnly: true }); assert.equal(slots.length, 1); assert.equal(slots[0].state, 'unknown');
+  const retry = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-issued-followup' }, async () => { f.effect(); return accepted(); });
+  assert.equal(retry.isError, true); assert.equal(f.effects(), 1);
+});
+
+
+test('cancellation persistence failure retains the genuine successful result with status-only uncertainty', async () => {
+  const f = fixture(), controller = new AbortController();
+  f.service.cancelRequestActions = async () => { throw new Error('synthetic unavailable metadata'); };
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-storage-uncertain', signal: controller.signal }, async () => { f.effect(); controller.abort(); return accepted(); });
+  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.mode, 'agent_dispatch');
+  assert.equal(result._meta.preserved, 'original'); assert.equal(result._meta[ERROR].effect, 'possible');
+  assert.equal(result._meta[ERROR].follow_up, 'status_only'); assert.equal(f.effects(), 1);
+  assert.equal((await f.records())[0].operations.send, 'accepted');
+});
+
+test('read-only and registered controls do not create cancelled mutation records or normal native frames', async () => {
+  const f = fixture(), controller = new AbortController(); controller.abort();
+  f.dispatcher.prepareControlRegistration(f.service).activate();
+  for (const [name, args] of [['pty_observe', { session_id: B.session_id }], ['agent_stop', {}]]) {
+    const result = await f.dispatcher.dispatch(name, args, { signal: controller.signal }, async () => ({ content: [] }));
+    assert.equal(result.isError, undefined);
+  }
+  assert.deepEqual(await f.records(), []); assert.equal(f.effects(), 0);
+});
+
+for (const mode of ['notification', 'transport-close']) test('real SDK ' + mode + ' fences the exact original RPC and preserves its issued receipt', async t => {
+  const f = fixture(), entered = pause(), resume = pause(), aborted = pause(), finished = pause();
+  const server = new McpServer({ name: 'synthetic-aiterm', version: '0.0.0' });
+  let originalRequest, serverResult;
+  server.registerTool('pty_send', { inputSchema: { session_id: z.string(), text: z.string() } }, async (args, extra) => {
+    extra.signal.addEventListener('abort', () => aborted.resolve(), { once: true });
+    try {
+      serverResult = await f.dispatcher.dispatch('pty_send', args, extra, async () => {
+        originalRequest = currentExecutionRequest(); f.effect(); entered.resolve(); await resume.promise; return accepted();
+      }); return serverResult;
+    } finally { finished.resolve(); }
+  });
+  const client = new Client({ name: 'codex', version: '0.0.0' }), controller = new AbortController();
+  const [left, right] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { resume.resolve(); await client.close(); await server.close(); });
+  await server.connect(left); await client.connect(right);
+  const pending = client.callTool({ name: 'pty_send', arguments: { session_id: B.session_id, text: 'synthetic' } }, undefined,
+    { signal: controller.signal }).then(value => ({ value }), error => ({ error }));
+  await entered.promise;
+  if (mode === 'notification') {
+    await client.notification({ method: 'notifications/cancelled', params: { requestId: originalRequest.request_id + 999, reason: 'unrelated RPC' } });
+    assert.equal((await f.records())[0].stopping, false);
+    controller.abort(new Error('synthetic client cancellation'));
+  }
+  else await client.close();
+  await aborted.promise; resume.resolve(); await finished.promise; assert.ok((await pending).error);
+  assert.equal(serverResult.isError, undefined); assert.equal(serverResult.structuredContent.mode, 'agent_dispatch');
+  const record = (await f.records())[0]; assert.deepEqual(record.reservation.request, originalRequest);
+  assert.equal(record.stopping, true); assert.equal(record.operations.send, 'accepted');
+  assert.equal(record.relation.completion, 'open'); assert.equal(record.relation.target_fence, 'open');
+  assert.equal(f.effects(), 1); assert.equal(record.relation.target.boundary.turn_id, null);
+  assert.deepEqual(await f.store.transaction(state => ({ slots: state.slots, stopping: state.stopping, interruptions: state.interruptions }),
+    { readOnly: true }), { slots: [], stopping: [], interruptions: [] });
+});
+
+
+test('host cancellation is applied only after the supplied ref target and fixed source are authorized', async () => {
+  const f = fixture({ clientName: 'bellteam' }), request = { kind: 'delivery', delivery_id: 'cancel-host-existing', target_session_id: B.session_id };
+  await f.service.execute({ action: 'register', source_session_id: A.session_id,
+    reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point(A),
+      target: { session_id: B.session_id, expected_launch_id: B.launch_id } } }, { schema: 'aiterm.execution-source.v1', source: point(A) });
+  const controller = new AbortController(); controller.abort();
+  const ref = { schema: 'aiterm.execution-ref.v1', request };
+  const refused = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 'wrong-host', signal: controller.signal,
+    _meta: { [REQUEST]: ref, [SOURCE]: { schema: 'aiterm.execution-source.v1', source: point(D) } } }, async () => { f.effect(); return accepted(); });
+  assert.equal(errorCode(refused), 'EXECUTION_STALE_GENERATION'); assert.equal((await f.records())[0].stopping, false);
+  const cancelled = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'authorized-host', signal: controller.signal, _meta: { [REQUEST]: ref } }, async () => { f.effect(); return accepted(); });
+  assert.equal(errorCode(cancelled), 'EXECUTION_STOPPING'); assert.equal((await f.records())[0].stopping, true); assert.equal(f.effects(), 0);
+});
+
+
+test('cancellation raised by a synchronous native observation is rechecked before the issuance checkpoint', async () => {
+  const controller = new AbortController(); let armed = false;
+  const f = fixture({ beforeObserve: () => { if (armed) { armed = false; controller.abort(); } } });
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id },
+    { requestId: 'cancel-inside-native-observe', signal: controller.signal }, async () => {
+      armed = true; f.effect(); return accepted();
+    });
+  assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started'); assert.equal(f.effects(), 0);
+  const record = (await f.records())[0]; assert.equal(record.stopping, true); assert.equal(record.operations.send, 'not_sent');
+  assert.deepEqual(await f.store.transaction(state => state.slots, { readOnly: true }), []);
 });

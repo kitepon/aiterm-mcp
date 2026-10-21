@@ -329,6 +329,20 @@ export class ExecutionService {
     if (!isDeepStrictEqual(last, observation)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
   }
 
+  /** Private serving-RPC cancellation. Only the exact existing request is
+   * tombstoned; no launch/descendant stop or native interruption is inferred.
+   * A missing record is not recreated. Issued/accepted/unknown slots survive.
+   */
+  async cancelRequestActions(input: ExecutionRequest): Promise<void> {
+    const request = executionRefMetaSchema.parse({ schema: "aiterm.execution-ref.v1", request: input }).request;
+    const exists = await this.store.transaction(state => state.records.some(value => same(value.reservation.request, request)), { readOnly: true });
+    if (!exists) return;
+    await this.store.transaction(state => {
+      const record = state.records.find(value => same(value.reservation.request, request));
+      if (record) cancelUnissuedInterruptionActions([record]);
+    });
+  }
+
   /** Internal receipt callbacks for the serving launch frame. No tool args,
    * new identifiers, native effects or name-based generation inference.
    */
@@ -535,16 +549,18 @@ export class ExecutionService {
    * Synchronous metadata admission persists issuance before any native action.
    */
   async invokeDeferred<T>(metaInput: unknown, stage: "launch" | "send",
-    body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string): Promise<{ value: T; record: ExecutionRecord }> {
-    return this.invokeInternal(metaInput, stage, body, targetSessionId, true);
+    body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string,
+    admission?: () => void): Promise<{ value: T; record: ExecutionRecord }> {
+    return this.invokeInternal(metaInput, stage, body, targetSessionId, true, admission);
   }
 
   private async invokeInternal<T>(metaInput: unknown, stage: "launch" | "send",
     body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
-    deferred: boolean): Promise<{ value: T; record: ExecutionRecord }> {
+    deferred: boolean, admission?: () => void): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (deferred && (!this.store.transactionSync || !this.runtime.observeSync)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     await this.store.transaction(async state => {
+      admission?.();
       const record = find(state, request);
       const relation = record.relation;
       if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
@@ -586,9 +602,11 @@ export class ExecutionService {
     });
     let issued = !deferred, finished = false;
     const checkOrIssue = (commit: boolean, preparation: () => unknown): unknown => {
+      admission?.();
+      const prepared = () => { admission?.(); return preparation(); };
       if (finished) throw new ExecutionError("EXECUTION_CONFLICT");
       if (issued) {
-        if (!deferred) return commit ? undefined : preparation();
+        if (!deferred) return commit ? undefined : prepared();
         // An RPC can issue several native commands with an async readiness
         // wait between them. Owning its slot is not permission to ignore a
         // stop, uncertain slot or generation replacement after the first one.
@@ -618,7 +636,7 @@ export class ExecutionService {
               throw new ExecutionError("EXECUTION_UNCONFIRMED");
             if (slot.expected_launch_id === null) {
               if (current.state !== "present" || current.launch !== null) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-              return preparation(); // bound physical shell, before core publishes its managed launch
+              return prepared(); // bound physical shell, before core publishes its managed launch
             }
           }
           // A fresh launch's expected ID starts null. Until the core adapter
@@ -626,7 +644,7 @@ export class ExecutionService {
           // new same-name observation merely because this RPC created a slot.
           if (slot.expected_launch_id === null && current.state === "present") throw new ExecutionError("EXECUTION_UNSUPPORTED");
           this.expectTarget(current, slot.expected_launch_id, slot.session_id);
-          return preparation();
+          return prepared();
         }, { readOnly: true });
       }
       const result = this.store.transactionSync!(state => {
@@ -648,7 +666,8 @@ export class ExecutionService {
         if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
         if ((stage === "launch" && current.state !== "absent") || (stage === "send" && current.state !== "present"))
           throw new ExecutionError("EXECUTION_CONFLICT");
-        if (!commit) return preparation();
+        if (!commit) return prepared();
+        admission?.();
         record.operations[stage] = "issued";
         relation.phase = "submitted_unknown";
         if (current.state === "present" && current.launch && !relation.target) relation.target = { launch: current.launch, boundary: null };

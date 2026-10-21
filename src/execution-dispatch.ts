@@ -2,12 +2,12 @@
 // imports or public mount at import. Uncovered ordinary/native/remote targets
 // fail before the handler; they must acquire their own generation adapter.
 import { executionLaunchSchema, executionPointSchema, executionRequestSchema,
-  type ExecutionPoint } from "./execution-contract.js";
+  type ExecutionPoint, type ExecutionRequest } from "./execution-contract.js";
 import { ExecutionService } from "./execution-service.js";
 import { executionSourceFromEnvironment } from "./execution-runtime.js";
 import { runDeferredBoundExecution, type ExecutionControlRegistration } from "./execution-tools.js";
 import { ExecutionError, executionErrorResult, executionRefFromMeta, executionHostSourceFromMeta,
-  EXECUTION_REQUEST_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
+  EXECUTION_REQUEST_META_KEY, EXECUTION_ERROR_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
 import { EXECUTION_SOURCE_META_KEY } from "./execution-wire.js";
 import { withExecutionRequest, type ExecutionIngress } from "./execution-context.js";
 import { readExecutionSendBoundary } from "./execution-effect.js";
@@ -46,6 +46,37 @@ function routeFor(name: string, args: Arguments): Route | null {
   const session = executionLaunchSchema.shape.session_id.safeParse(target);
   if (!session.success) throw new ExecutionError("EXECUTION_INVALID");
   return { tool: nativeTool.data, target: session.data, stage: launches.has(name) ? "launch" : "send" };
+}
+
+// The SDK signal belongs to this serving RPC, not to a whole CLI turn. Keep
+// an immediate local gate while the shared metadata lock may be awaiting I/O.
+// The durable tombstone also fences later parent-return workers. Neither path
+// sends a key, closes a session, or discards an issued action's late receipt.
+function requestCancellation(service: ExecutionService, request: ExecutionRequest, input: unknown) {
+  if (input === undefined) return undefined;
+  if (!(input instanceof AbortSignal)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const signal = input;
+  let cancelled = signal.aborted;
+  let pending: Promise<void> | undefined;
+  let failure: unknown;
+  const persist = () => {
+    pending = service.cancelRequestActions(request).catch(error => { failure = error; });
+  };
+  const abort = () => { cancelled = true; persist(); };
+  signal.addEventListener("abort", abort, { once: true });
+  if (cancelled) persist();
+  return {
+    assert() { if (cancelled) throw new ExecutionError("EXECUTION_STOPPING"); },
+    async finish() {
+      signal.removeEventListener("abort", abort);
+      if (!cancelled) return;
+      await pending;
+      // Cancellation may have arrived before register created the record.
+      // Reconcile the same ref only; do not retry any native action.
+      await service.cancelRequestActions(request);
+      if (failure) throw failure;
+    },
+  };
 }
 
 export interface ExecutionDispatcherBindings {
@@ -97,129 +128,148 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
         activate: () => { registeredControls = true; } };
     },
     async dispatch(name, input, extra, body) {
-      try {
-        bindings.assertParticipant?.();
-        // Fix input/transport context synchronously, before any async lookup.
-        // Handlers must consume these copies, not their mutable ingress object.
-        const args = structuredClone(input), fixedExtra = { ...extra,
-          requestId: extra.requestId, _meta: extra._meta === undefined ? undefined : structuredClone(extra._meta) };
-        if (controls.has(name)) {
-          if (!registeredControls || args.remote !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-          // Only the same server's registered typed handlers run here. They
-          // already own metadata admission/stop; no synthetic send edge/frame.
-          executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName());
-          return await body(args, fixedExtra);
-        }
-        const route = routeFor(name, args);
-        if (!route) return await body(args, fixedExtra);
-        const client = bindings.initializedClientName();
-        const host = executionHostSourceFromMeta(fixedExtra._meta, client);
-        const source = host !== undefined ? host.source : directSource;
-        // Partial/mismatched stdio identity is not an independent operator.
-        if (host === undefined && sourceFieldsPresent && !source) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-        const context: ExecutionTransportSource = { schema: "aiterm.execution-source.v1", source };
-        const supplied = executionRefFromMeta(fixedExtra._meta);
-        if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-        let reference = supplied;
-        let directRequest: NativeRequest | null = null;
-        let frozenParent: unknown | null = null;
-        if (!reference && client !== "bellteam" && native) {
-          directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
-            process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
-            tool: route.tool, target_session_id: route.target });
-          if (captureNativeParent) {
-            const ingress: ExecutionIngress = { source, client_name: client ?? null, native_identity: native,
-              metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta };
-            const captured = withExecutionRequest(directRequest, captureNativeParent, ingress);
-            if (captured && typeof (captured as { then?: unknown }).then === "function") {
-              void Promise.resolve(captured).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
-            }
-            frozenParent = captured === null ? null : structuredClone(captured);
+      let cancellation: ReturnType<typeof requestCancellation>;
+      const run = async (): Promise<ToolResult> => {
+        try {
+          bindings.assertParticipant?.();
+          // Fix input/transport context synchronously, before any async lookup.
+          // Handlers must consume these copies, not their mutable ingress object.
+          const args = structuredClone(input), fixedExtra: Extra = { ...extra,
+            requestId: extra.requestId, _meta: extra._meta === undefined ? undefined : structuredClone(extra._meta) };
+          if (controls.has(name)) {
+            if (!registeredControls || args.remote !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            // Only the same server's registered typed handlers run here. They
+            // already own metadata admission/stop; no synthetic send edge/frame.
+            executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName());
+            return await body(args, fixedExtra);
           }
-        }
-        if (reference) {
-          // External host refs are created by the real Bridge ingress. Direct
-          // model requests cannot borrow another call's reservation or choose
-          // a native control label to suppress an invocation edge.
-          if (client !== "bellteam" || reference.request.kind === "mcp"
-            || (route.tool !== "agent_launch" && route.tool !== "pty_send"))
-            throw new ExecutionError("EXECUTION_UNSUPPORTED");
-          const record = await bindings.service.execute({ action: "status", request: reference.request });
-          if (record.reservation.target.session_id !== route.target) throw new ExecutionError("EXECUTION_CONFLICT");
-          // register fixed and verified the original HTTP ingress source. The
-          // subsequent host launch/send carries that same existing ref, not a
-          // new source context requirement. If supplied, an explicit context
-          // must still match; absence must not overwrite it with host env/null.
-          const hasContext = fixedExtra._meta && typeof fixedExtra._meta === "object"
-            && EXECUTION_SOURCE_META_KEY in fixedExtra._meta;
-          if (hasContext && (!same(record.reservation.source.launch, source?.launch ?? null)
-            || (record.reservation.source.boundary && !same(record.reservation.source.boundary, source?.boundary ?? null)))
-          ) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-        } else {
-          // BellTeam must retain its existing delivery/room/call reference.
-          if (client === "bellteam" || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-          const current = await observe(route.target);
-          if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-          const request = directRequest;
-          await bindings.service.execute({ action: "register", source_session_id: source?.launch.session_id ?? directSeat,
-            reservation: { schema: "aiterm.execution-reservation.v1", request,
-              source: { launch: source?.launch ?? null, boundary: source?.boundary ?? null },
-              target: { session_id: route.target, expected_launch_id: current.point?.launch.launch_id ?? null } } }, context);
-          reference = { schema: "aiterm.execution-ref.v1", request };
-        }
-        const status = await bindings.service.execute({ action: "status", request: reference.request });
-        const expected = status.relation.target?.launch ?? (status.reservation.target.expected_launch_id
-          ? { session_id: route.target, launch_id: status.reservation.target.expected_launch_id } : null);
-        const requestMeta = { ...(fixedExtra._meta as Record<string, unknown> | undefined), [EXECUTION_REQUEST_META_KEY]: reference };
-        return await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
-          const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }), {
-            source: status.source.status === "verified" ? status.source.point : null,
-            client_name: client ?? null, native_identity: native,
-            metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta,
-            ...(captureNativeParent ? { native_parent: frozenParent } : {}),
-          });
-          if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-          // Missing/invalid binding evidence is returned as null. The wrapper
-          // retains the genuine successful receipt if binding then fails; it
-          // must not turn a valid accepted action into permission to resend.
-          let target: ExecutionPoint | null = null;
-          try {
-            if (route.tool === "pty_close") target = expected ? { launch: expected, boundary: null } : null;
-            else {
-              const current = await observe(route.target);
-              target = current.point;
-              const receipt = result.structuredContent;
-              if (receipt && receipt.session_id !== undefined && receipt.session_id !== route.target) target = null;
-              else if (receipt?.launch_id !== undefined && receipt.launch_id !== null
-                && receipt.launch_id !== target?.launch.launch_id) target = null;
-              if (target && (launches.has(name) || name === "pty_send")) {
-                const cursor = receipt?.event_cursor;
-                const steer = result._meta?.["aiterm/steer"] as Record<string, unknown> | undefined;
-                if (Number.isSafeInteger(cursor) && Number(cursor) >= 0 && receipt?.mode !== "sent") {
-                  const candidate = executionPointSchema.safeParse({ launch: target.launch, boundary: {
-                    event_cursor: cursor, operation_id: null, turn_id: null,
-                    steer_id: receipt?.mode === "agent_steer" ? steer?.steer_id : null } });
-                  // An untracked steer is a generation edge, not a fabricated
-                  // new dispatch boundary. Preserve its lifetime uncertainty.
-                  if (candidate.success) target = candidate.data;
+          const route = routeFor(name, args);
+          if (!route) return await body(args, fixedExtra);
+          const client = bindings.initializedClientName();
+          const host = executionHostSourceFromMeta(fixedExtra._meta, client);
+          const source = host !== undefined ? host.source : directSource;
+          // Partial/mismatched stdio identity is not an independent operator.
+          if (host === undefined && sourceFieldsPresent && !source) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          const context: ExecutionTransportSource = { schema: "aiterm.execution-source.v1", source };
+          const supplied = executionRefFromMeta(fixedExtra._meta);
+          if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          let reference = supplied;
+          let directRequest: NativeRequest | null = null;
+          let frozenParent: unknown | null = null;
+          if (!reference && client !== "bellteam" && native) {
+            directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
+              process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
+              tool: route.tool, target_session_id: route.target });
+            cancellation = requestCancellation(bindings.service, directRequest, fixedExtra.signal);
+            cancellation?.assert();
+            if (captureNativeParent) {
+              const ingress: ExecutionIngress = { source, client_name: client ?? null, native_identity: native,
+                metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta };
+              const captured = withExecutionRequest(directRequest, captureNativeParent, ingress);
+              if (captured && typeof (captured as { then?: unknown }).then === "function") {
+                void Promise.resolve(captured).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+              }
+              frozenParent = captured === null ? null : structuredClone(captured);
+            }
+          }
+          if (reference) {
+            // External host refs are created by the real Bridge ingress. Direct
+            // model requests cannot borrow another call's reservation or choose
+            // a native control label to suppress an invocation edge.
+            if (client !== "bellteam" || reference.request.kind === "mcp"
+              || (route.tool !== "agent_launch" && route.tool !== "pty_send"))
+              throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            const record = await bindings.service.execute({ action: "status", request: reference.request });
+            if (record.reservation.target.session_id !== route.target) throw new ExecutionError("EXECUTION_CONFLICT");
+            // register fixed and verified the original HTTP ingress source. The
+            // subsequent host launch/send carries that same existing ref, not a
+            // new source context requirement. If supplied, an explicit context
+            // must still match; absence must not overwrite it with host env/null.
+            const hasContext = fixedExtra._meta && typeof fixedExtra._meta === "object"
+              && EXECUTION_SOURCE_META_KEY in fixedExtra._meta;
+            if (hasContext && (!same(record.reservation.source.launch, source?.launch ?? null)
+              || (record.reservation.source.boundary && !same(record.reservation.source.boundary, source?.boundary ?? null)))
+            ) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+            cancellation = requestCancellation(bindings.service, reference.request, fixedExtra.signal);
+            cancellation?.assert();
+          } else {
+            // BellTeam must retain its existing delivery/room/call reference.
+            if (client === "bellteam" || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            const current = await observe(route.target);
+            if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+            const request = directRequest;
+            cancellation?.assert();
+            await bindings.service.execute({ action: "register", source_session_id: source?.launch.session_id ?? directSeat,
+              reservation: { schema: "aiterm.execution-reservation.v1", request,
+                source: { launch: source?.launch ?? null, boundary: source?.boundary ?? null },
+                target: { session_id: route.target, expected_launch_id: current.point?.launch.launch_id ?? null } } }, context);
+            reference = { schema: "aiterm.execution-ref.v1", request };
+          }
+          cancellation?.assert();
+          const status = await bindings.service.execute({ action: "status", request: reference.request });
+          const expected = status.relation.target?.launch ?? (status.reservation.target.expected_launch_id
+            ? { session_id: route.target, launch_id: status.reservation.target.expected_launch_id } : null);
+          const requestMeta = { ...(fixedExtra._meta as Record<string, unknown> | undefined), [EXECUTION_REQUEST_META_KEY]: reference };
+          return await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
+            const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }), {
+              source: status.source.status === "verified" ? status.source.point : null,
+              client_name: client ?? null, native_identity: native,
+              metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta,
+              ...(captureNativeParent ? { native_parent: frozenParent } : {}),
+            });
+            if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            // Missing/invalid binding evidence is returned as null. The wrapper
+            // retains the genuine successful receipt if binding then fails; it
+            // must not turn a valid accepted action into permission to resend.
+            let target: ExecutionPoint | null = null;
+            try {
+              if (route.tool === "pty_close") target = expected ? { launch: expected, boundary: null } : null;
+              else {
+                const current = await observe(route.target);
+                target = current.point;
+                const receipt = result.structuredContent;
+                if (receipt && receipt.session_id !== undefined && receipt.session_id !== route.target) target = null;
+                else if (receipt?.launch_id !== undefined && receipt.launch_id !== null
+                  && receipt.launch_id !== target?.launch.launch_id) target = null;
+                if (target && (launches.has(name) || name === "pty_send")) {
+                  const cursor = receipt?.event_cursor;
+                  const steer = result._meta?.["aiterm/steer"] as Record<string, unknown> | undefined;
+                  if (Number.isSafeInteger(cursor) && Number(cursor) >= 0 && receipt?.mode !== "sent") {
+                    const candidate = executionPointSchema.safeParse({ launch: target.launch, boundary: {
+                      event_cursor: cursor, operation_id: null, turn_id: null,
+                      steer_id: receipt?.mode === "agent_steer" ? steer?.steer_id : null } });
+                    // An untracked steer is a generation edge, not a fabricated
+                    // new dispatch boundary. Preserve its lifetime uncertainty.
+                    if (candidate.success) target = candidate.data;
+                  }
+                }
+                const captured = readExecutionSendBoundary(route.target);
+                if (target && captured && receipt?.mode !== "agent_steer") {
+                  // This came from actual core before_send in the same admitted
+                  // request, not args/result.operation_id or a current-file read.
+                  // Contradictory successful receipts remain successful receipts,
+                  // with unknown binding and no permission to resend.
+                  if (!same(captured.launch, target.launch) || receipt?.mode === "sent"
+                    || (receipt?.event_cursor !== undefined && receipt.event_cursor !== captured.boundary?.event_cursor)
+                    || (receipt?.operation_id !== undefined && receipt.operation_id !== captured.boundary?.operation_id)) target = null;
+                  else target = captured;
                 }
               }
-              const captured = readExecutionSendBoundary(route.target);
-              if (target && captured && receipt?.mode !== "agent_steer") {
-                // This came from actual core before_send in the same admitted
-                // request, not args/result.operation_id or a current-file read.
-                // Contradictory successful receipts remain successful receipts,
-                // with unknown binding and no permission to resend.
-                if (!same(captured.launch, target.launch) || receipt?.mode === "sent"
-                  || (receipt?.event_cursor !== undefined && receipt.event_cursor !== captured.boundary?.event_cursor)
-                  || (receipt?.operation_id !== undefined && receipt.operation_id !== captured.boundary?.operation_id)) target = null;
-                else target = captured;
-              }
-            }
-          } catch { target = null; /* preserve receipt and let service mark binding unknown */ }
-          return { result, target };
-        });
-      } catch (error) { return executionErrorResult(error); }
+            } catch { target = null; /* preserve receipt and let service mark binding unknown */ }
+            return { result, target };
+          }, cancellation?.assert);
+        } catch (error) { return executionErrorResult(error); }
+      };
+      const result = await run();
+      try { await cancellation?.finish(); }
+      catch {
+        const failure = executionErrorResult(new ExecutionError("EXECUTION_UNCONFIRMED", "possible"));
+        // Preserve a genuine accepted result even when cancellation recording
+        // failed. Status-only uncertainty must never become permission to resend.
+        return result.isError ? failure : { ...result, _meta: { ...result._meta,
+          [EXECUTION_ERROR_META_KEY]: failure._meta![EXECUTION_ERROR_META_KEY] } };
+      }
+      return result;
     },
   };
 }

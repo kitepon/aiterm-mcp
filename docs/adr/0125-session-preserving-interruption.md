@@ -432,3 +432,24 @@ Codex/Cursorでcurrent producer endpointの独立証拠が無い制限は、こ�
 既存ParentSource v1とdelivery bindingは同じ参照を保持し、source boundaryがnullならそのまま。
 既存親hookのnative tool/sessionを元入力のoperation/turnへ補完せず、abort・live会話維持・旧呼出の
 終了fence・全参加者被覆も未確認。通常main/profile/稼働worker未mountと既定stop unsupportedを維持する。
+
+
+### SDK request取消は元要求の受付だけを抑止する
+
+既存SDKのnotifications/cancelled(requestId)とtransport closeが供給するhandler extra.signalを、
+同じ既存RequestRefへprivateに結ぶ。モデル引数や_metaのsignalは採用しない。read/history/3controlsは
+通常作用の取消frameを作らない。host既存refはtargetと固定sourceの照合後だけ取消できる。
+
+signalで即座に要求ローカルの同期gateを閉じ、共有lockが別の観測をawait中でも後続metadata/native作用を
+発行しない。同じrefの既存recordだけを共有transactionでstoppingにし、not_issued/preparingをnot_sentへ
+変える。未登録ならrecordを作らず、登録との競合は要求終了時に同じrefだけ再照合する。発行済み作用や
+issued/accepted/unknown slotを消去しない。native effect/キーの再試行や別launchの停止は行わない。
+
+取消後のgenuine成功receiptと元Pointは通常通り結合し、読取を再受付にしない。取消記録に失敗しても
+成功receiptを捨てずpossible/status_onlyを添える。発行後の後続作用が拒否された場合は既存unknown/slotを
+保持する。共有record印は旧parent queue/dequeue/emit/wakeにも適用するが、別の新依頼へコピーせず、
+同じlaunchの永久停止印やnative終了証拠にしない。
+
+SDKcancel/接続終了はMCP要求の取消であり、CLIがEscで通知すること、元入力のnative受理、中断完了、
+同会話維持、source turn aliasや終了fenceの証拠ではない。通常main/worker未mount、全参加者/旧binary
+混在の制約は維持する。稼働CLIの通知契約を未検証のまま全中断対応としない。

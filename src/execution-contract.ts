@@ -145,7 +145,8 @@ export const executionRelationSchema = z.object({
   phase: executionPhaseSchema,
   completion: z.enum(["open", "completed", "interrupted", "unknown"]),
   target_fence: z.enum(["open", "closed", "unknown"]),
-  // Set only after source/target completion fences and descendant draining.
+  // Set after the recorded invocation and its known return/descendant work finish.
+  // This is relation lifetime, not proof that a CLI process has terminated.
   // A retired edge is never revived by unrelated work on the same seat.
   lifecycle: z.enum(["tracking", "retired"]),
 }).strict().superRefine((value, context) => {

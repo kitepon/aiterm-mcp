@@ -108,6 +108,13 @@ function cancelUnissuedInterruptionActions(records: ExecutionRecord[]): void {
   }
 }
 function retireSettledBranches(state: ExecutionState): void {
+  // A reobserved completion ends this recorded call, without waiting for all
+  // native actors to terminate. Known pending return/issued work still holds it.
+  for (const record of state.records) if (record.relation.completion === "completed"
+    && ![record.operations.launch, record.operations.send].some(stage => stage === "issued" || stage === "unknown")
+    && !state.slots.some(slot => slot.request && same(slot.request, record.reservation.request))
+    && !openParentEffect(state, record.reservation.request)
+    && !pendingParentReturn(state, record.reservation.request)) record.relation.target_fence = "closed";
   const roots = [...new Map(state.records.flatMap(record => record.relation.source ? [record.relation.source.launch] : [])
     .map(launch => [key(launch), launch])).values()];
   const retained = new Set(roots.length ? planCascadeStop(roots, state.records.map(record => record.relation)).retained.map(key) : []);
@@ -786,7 +793,8 @@ export class ExecutionService {
           const observed = await this.runtime.completion(target);
           if (observed.state === "unknown") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
           record.relation.completion = observed.state;
-          record.relation.target_fence = observed.fence === "closed" && pendingParentReturn(state, args.request) ? "unknown" : observed.fence;
+          record.relation.target_fence = pendingParentReturn(state, args.request) ? "unknown"
+            : observed.state === "completed" ? "closed" : observed.fence;
         } else {
           if (!same(target.launch, args.evidence.target)) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
           if (record.relation.completion === "interrupted" && record.relation.target_fence === "closed") return view(state, record);

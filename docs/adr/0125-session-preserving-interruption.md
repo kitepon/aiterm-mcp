@@ -681,3 +681,12 @@ Codexは--mode codex-hook --codex-home /absolute/native-home --hook-directory /a
 actorはそのhook自身のPID/startを実読取し、MCP actorを継承・推測しない。Cursorは同じ1scopeだけ、複数scope/channelは未対応。
 Claudeの独立claude-stop-hook（result writer）はparent receiverとは別であり、このparent-hook modeへ置換しない。
 GrokのMCP登録も同mcp modeを使えるが、Grok/Cursorのnative中断primitiveが受入済みという意味ではない。
+
+## 通常完了の関係寿命とwire互換（release候補）
+
+停止ボタンのsentはfinishではない。通常waitUntilDone後の元request/元binding Pointを使うcompletionはruntimeで再観測する。
+元処理のcompletedを観測でき、同requestのissued/unknown/slotと既知の親returnが残っていなければ、記録済み呼出の
+`target_fence`をclosedとする。ここで閉じるのは元呼出の寿命であり、CLI終了・全native actor終了・中断成功の証明ではない。
+既知の未完了下流がある間はconnectorをtrackingで保持し、下流完了後にretiredへ封印する。封印後の同席の別仕事では復活しない。
+親return欠測/実行未確認/発行結果不明は引き続き保持。retiredには従来どおりclosedまたはunsentを必須とし、wireに新しいenumや項目を足さない。
+agent_stopの即時snapshot/キー発行には保存・finish・証明待ちを加えない。

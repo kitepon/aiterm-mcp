@@ -340,7 +340,7 @@ test('launch-only effect remains a relation when its subsequent prompt is confir
   assert.equal(finished.relation.phase, 'invoked');
   assert.equal(finished.relation.lifecycle, 'tracking');
 });
-test('completion is reobserved, and local done cannot retire an unknown invocation fence', async () => {
+test('completion is reobserved and the recorded call expires without an all-native actor fence', async () => {
   const f = fixture();
   const accepted = (await f.send(await f.register('ab'))).record;
   f.runtime.completion = async () => ({ state: 'unknown', fence: 'unknown' });
@@ -348,8 +348,9 @@ test('completion is reobserved, and local done cannot retire an unknown invocati
   assert.equal((await f.status(accepted.reservation.request)).relation.completion, 'open');
   f.runtime.completion = async () => ({ state: 'completed', fence: 'unknown' });
   const pending = await f.finish(accepted);
-  assert.equal(pending.relation.lifecycle, 'tracking');
-  assert.equal(planCascadeStop([A], [pending.relation]).targets.length, 2);
+  assert.equal(pending.relation.lifecycle, 'retired');
+  assert.equal(pending.relation.target_fence, 'closed');
+  assert.equal(planCascadeStop([A], [pending.relation]).targets.length, 1);
   f.runtime.completion = async () => ({ state: 'completed', fence: 'closed' });
   assert.equal((await f.finish(accepted)).relation.lifecycle, 'retired');
 });
@@ -360,6 +361,20 @@ test('a completed parent is retained until its actual descendant also finishes',
   assert.equal((await f.finish(ab)).relation.lifecycle, 'tracking');
   await f.finish(bc);
   assert.equal((await f.status(ab.reservation.request)).relation.lifecycle, 'retired');
+});
+test('normal done with unknown native fence retains unfinished descendants then seals the old branch', async () => {
+  const f = fixture(); f.runtime.completion = async () => ({ state: 'completed', fence: 'unknown' });
+  const ab = (await f.send(await f.register('old-ab'))).record;
+  const bc = (await f.send(await f.register('old-bc', B, C), C)).record;
+  assert.equal((await f.finish(ab)).relation.lifecycle, 'tracking');
+  let relations = f.store.snapshot().records.map(record => record.relation);
+  assert.deepEqual(planCascadeStop([A], relations).targets, [A, B, C]);
+  await f.finish(bc);
+  assert.equal((await f.status(ab.reservation.request)).relation.lifecycle, 'retired');
+  await f.send(await f.register('independent-bd', B, D), D);
+  relations = f.store.snapshot().records.map(record => record.relation);
+  assert.deepEqual(planCascadeStop([A], relations).targets, [A]);
+  assert.deepEqual(planCascadeStop([B], relations).targets, [B, D]);
 });
 test('stop fences first, drains a delayed accepted send, and includes its target', async () => {
   const f = fixture(), record = await f.register('ab');

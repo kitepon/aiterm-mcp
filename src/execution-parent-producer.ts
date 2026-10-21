@@ -50,6 +50,7 @@ const localProducerRuntime: ParentProducerRuntime = {
 };
 export function createExecutionParentProducer(input: {
   profile: steer.ProductProfile; expectedScope: ExecutionWorkerScope; provider?: SteerProvider;
+  deferEnrollment?: boolean;
   runtime?: ParentProducerRuntime; claudeRuntime?: Parameters<typeof steer.submitClaudeParentAnswer>[4];
 }) {
   const runtime = input.runtime ?? localProducerRuntime;

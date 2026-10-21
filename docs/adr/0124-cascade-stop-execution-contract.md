@@ -350,6 +350,29 @@ idle/graceful終了を待たず、名前によるlog/metadata cleanupもしな�
 全製品変更口との共通受付と同じscopeのslot所有が前提であり、それが未接続の現在はpublic mountへ使用しない。
 既存の通常`pty_close`契約とそのcleanupは変更しない。
 
+共通受付の実装対象を、現在の公開18 toolsの作用で分ける。tool名だけのread判定はしない。
+
+| 入口 | 受付が必要な作用と既存境界 |
+| --- | --- |
+| agent_launch / claude_agent / codex_agent / grok_agent | session選択・作成、managed metadata、初手、fast/trust。空launchからsendまで同じ予約を維持する |
+| pty_open | 明示/自動採番した同名slotの作成。managed launch無しを偽世代で埋めない |
+| pty_send | managed dispatch/steerの両方とordinary/force入力。既存before_sendはsteerへ呼ばれないため、それだけでは覆えない |
+| pty_key | control入力。source停止と対象世代/slotを照合する |
+| pty_close | 通常closeと停止closeを同じslotで排他。期待世代stopのnative primitiveへ名前だけのcloseを代入しない |
+| agent_configure | idle待ちの前から保持する旧依頼の世代を、実入力時にも照合。発行済みだけdrainする |
+| agent_auth | start/cancelに加え、session付きstatusも対象。公式login終了後のonboardingでrespawn-pane/launchAuthProcessが走るため、statusという名前からread-onlyにしない |
+| agent_approval / claude_approval | inspectはread、respondは実control入力。inspectのdigestだけで世代照合を省かない |
+| claude_turn | recoverは実入力無し、issueはoperation境界の送信。通常pty_sendと同じ排他を使う |
+| pty_list / pty_read / pty_observe / agent_models / diagnostics | 対象への新規入力/起動ではない。既存観測/metadata更新を新しい仕事の実行と混同しない |
+
+remote指定は元のローカルsource fenceを通した上で両端契約を照合する。未対応をローカル成功へfallbackしない。
+別processのParentDeliveryManager/background watcher、公式queue/hookのsubmit/emit/wake、
+aiterm-parent-deliveryからの受付も別に覆う必要がある。現parent-delivery recordのparentはvendor contextであり、
+親の期待launchが直接保存されているわけではない。子boundary/親vendor contextだけから現在の同名席へ付け替えない。
+呼出元が閉じても停止executorが続くというBridge本体の所有条件も維持し、
+対象launch配下のstdio MCPを閉じて自身のexecutorが消えるケースを成功保証に含めない。
+上記未接続経路が残る現在はcoverage=incomplete、public mount未実施とする。
+
 stopの外部入力は期待`LaunchRef[]`。受付排他内でrootの現在のnative turn/before_send境界をsnapshotする。
 対象にするのは現在の実行と、局所完了しても未解決の下流を持つ既存branch。全て終了した過去境界は対象外。
 rootに未解決の前のbranchが残っていれば現在分と併せて辿る。この範囲を単独の最新active jobへ狭めない。

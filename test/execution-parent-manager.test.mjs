@@ -1,7 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ParentDeliveryManager } from '../dist/parent-delivery.js';
@@ -110,4 +110,128 @@ test('durable answer releases its old child claim while execution metadata waits
   try { await two.before_send(boundary('bot-b')); }
   finally { release(); }
   assert.notEqual(two.result().delivery_id, one.result().delivery_id);
+});
+
+test('cancel after execution binding refuses old Claude/Cursor companion writes and retains the bound delivery for diagnosis', async t => {
+  const { mkdirSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
+  const { stateRoot } = await import('../dist/agent-shared.js');
+  const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
+  const { ExecutionError } = await import('../dist/execution-wire.js');
+  const { bindClaudeParentDelivery, prepareCursorDelivery } = await import('aiterm-steer-delivery');
+  const root = mkdtempSync(join(tmpdir(), 'execution-companion-'));
+  const profile = { id: 'aiterm', state_root: () => stateRoot() };
+  for (const kind of ['claude', 'cursor']) {
+    const entered = deferred(), resume = deferred(); let cancelled = false, binds = 0, companion = 0, watched = 0;
+    const endpoint = kind === 'claude' ? { kind, session_id: '00000000-0000-4000-8000-000000000001',
+      request_id: 'toolu_companion_cancel', hook_root: join(stateRoot(), 'claude-parent-hooks') }
+      : { kind, hook_root: join(root, 'cursor-parent-hooks') };
+    if (kind === 'claude') {
+      const dir = join(endpoint.hook_root, endpoint.request_id); mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'request.json'), JSON.stringify({ request_id: endpoint.request_id, session_id: endpoint.session_id,
+        agent_id: null, parent_pid: 20, parent_started_identity: 'synthetic-harness' }));
+    }
+    const manager = new ParentDeliveryManager({ root: join(root, kind), execution: {
+      async bind() { binds++; entered.resolve(); await resume.promise; },
+      prepareCompanion(id, parent) { companion++; if (kind === 'claude') bindClaudeParentDelivery(profile, parent, id); else prepareCursorDelivery(parent, id); },
+      async submit() { assert.fail('no old queue'); },
+    }, dependencies: { processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true,
+      verify: async () => {}, answer: async () => assert.fail('no old answer'),
+      observe: async (_session, options) => { watched++; return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(Error('synthetic fixture abort')), { once: true });
+      }); } } });
+    t.after(() => manager.close());
+    let delivery;
+    const pending = withExecutionEffectScope('bot-b', () => assert.fail('no native input'), () => withExecutionRequest(request('bot-b'), async () => {
+      delivery = manager.request(endpoint); await delivery.before_send(boundary('bot-b'));
+    }), undefined, body => { if (cancelled) throw new ExecutionError('EXECUTION_STOPPING'); return body(); });
+    await entered.promise; cancelled = true; resume.resolve();
+    await assert.rejects(pending, error => error.code === 'EXECUTION_STOPPING');
+    assert.equal(binds, 1); assert.equal(companion, 0); assert.equal(watched, 0);
+    const saved = delivery.result(); assert.equal(saved.state, 'unknown'); assert.equal(manager.status('bot-b')[0].state, 'unknown');
+    assert.equal(existsSync(kind === 'claude' ? join(endpoint.hook_root, endpoint.request_id, 'delivery.json')
+      : join(endpoint.hook_root, 'deliveries', saved.delivery_id)), false);
+    const diagnostic = JSON.parse(readFileSync(join(root, kind, 'results', saved.delivery_id + '.json')));
+    assert.equal(diagnostic.boundary.event_cursor, 17); assert.equal(diagnostic.child_outcome, null); assert.equal(diagnostic.state, 'unknown');
+  }
+});
+function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
+
+
+test('cancel while manager waits for an old child prevents even the new reservation/claim metadata', async t => {
+  const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
+  const { ExecutionError } = await import('../dist/execution-wire.js');
+  const f = fixture(t), entered = deferred(), resume = deferred(); let cancelled = false;
+  f.manager.beforeChange = async () => { entered.resolve(); await resume.promise; };
+  let delivery;
+  const pending = withExecutionEffectScope('bot-b', () => assert.fail('no native'), () => withExecutionRequest(request('bot-b'), async () => {
+    delivery = f.manager.request(parent); await delivery.before_send(boundary('bot-b'));
+  }), undefined, body => { if (cancelled) throw new ExecutionError('EXECUTION_STOPPING'); return body(); });
+  await entered.promise; cancelled = true; resume.resolve();
+  await assert.rejects(pending, error => error.code === 'EXECUTION_STOPPING');
+  assert.equal(delivery.result(), null); assert.equal(f.binds.length, 0); assert.equal(f.submits.length, 0);
+  assert.deepEqual(f.manager.status('bot-b'), []);
+});
+
+test('execution Claude/Cursor without a private companion adapter cannot fall back to legacy helpers', async t => {
+  const f = fixture(t);
+  for (const endpoint of [{ kind: 'claude', hook_root: '/synthetic', request_id: 'toolu_missing', session_id: parent.thread_id },
+    { kind: 'cursor', hook_root: '/synthetic' }]) {
+    const delivery = withExecutionRequest(request('bot-b'), () => f.manager.request(endpoint));
+    await assert.rejects(delivery.before_send(boundary('bot-b')), error => error.code === 'EXECUTION_UNSUPPORTED');
+    assert.equal(delivery.result(), null);
+  }
+  assert.equal(f.binds.length, 0); assert.deepEqual(f.manager.status('bot-b'), []);
+});
+
+function companionProvider(overrides = {}) {
+  return { DELIVERY_ADMISSION_CONTRACT: { schema: 'steer.delivery-admission.v1', native_context: true,
+    cursor_profile_parameter: true, serialized_required: true, multi_delivery_emit: true }, withDeliveryEffect() {},
+    submitCodexParentAnswer() {}, submitClaudeParentAnswer() {}, submitCursorParentAnswer() {}, ...overrides };
+}
+
+test('companion factory uses its selected profile/provider and rejects replaced owner evidence before writing', async () => {
+  let verified = false, calls = 0;
+  const proof = { original: true }, parent = { kind: 'claude', request_id: 'toolu_selected', session_id: '00000000-0000-4000-8000-000000000001', hook_root: '/synthetic-selected' };
+  const provider = companionProvider({ bindClaudeParentDelivery(profile, endpoint, id) {
+    assert.equal(verified, true); assert.equal(profile.state_root(), '/synthetic-selected'); assert.deepEqual(endpoint, parent); assert.equal(id, 'existing-delivery'); calls++;
+  } });
+  const execution = createParentManagerExecution({ parent: {}, native: {}, provider, profile: { state_root: () => '/synthetic-selected' },
+    verifyCompanion(_id, endpoint, evidence) { assert.deepEqual(endpoint, parent); assert.deepEqual(evidence, proof); verified = true; } });
+  provider.bindClaudeParentDelivery = () => assert.fail('mutated provider function');
+  execution.prepareCompanion('existing-delivery', parent, proof); assert.equal(calls, 1);
+  const lost = createParentManagerExecution({ parent: {}, native: {}, provider, profile: {}, verifyCompanion() { throw Error('synthetic owner changed'); } });
+  assert.throws(() => lost.prepareCompanion('existing-delivery', parent, proof), /owner changed/); assert.equal(calls, 1);
+});
+
+test('missing or asynchronous companion evidence cannot become a late proof and call a metadata writer', async () => {
+  let calls = 0;
+  const provider = companionProvider({ bindClaudeParentDelivery() { calls++; } });
+  const endpoint = { kind: 'claude', request_id: 'toolu_bad', hook_root: '/synthetic', session_id: parent.thread_id };
+  for (const verifyCompanion of [undefined, () => Promise.resolve(true)]) {
+    const execution = createParentManagerExecution({ parent: {}, native: {}, provider, profile: {}, verifyCompanion });
+    assert.throws(() => execution.prepareCompanion('existing-id', endpoint, {}), error => error.code === 'EXECUTION_UNSUPPORTED');
+  }
+  assert.equal(calls, 0);
+});
+
+test('a companion failure after a partial metadata write keeps the original bound record without a watcher or implicit retry', async t => {
+  const { withExecutionEffectScope } = await import('../dist/execution-effect.js');
+  const root = mkdtempSync(join(tmpdir(), 'execution-companion-partial-')), proof = { original: true };
+  let binds = 0, writes = 0, watchers = 0;
+  const execution = { captureEndpointEvidence: () => proof, async bind() { binds++; },
+    prepareCompanion(id) { writes++; writeFileSync(join(root, 'partial.json'), JSON.stringify({ delivery_id: id })); throw Error('synthetic rename acknowledgement missing'); },
+    async submit() { assert.fail('no queue'); } };
+  const manager = new ParentDeliveryManager({ root: join(root, 'manager'), execution, dependencies: {
+    processes: () => [{ pid: process.pid, started_identity: 'synthetic-owner' }], exists: () => true, verify: async () => {},
+    observe: async () => { watchers++; assert.fail('no watcher'); }, answer: async () => assert.fail('no answer') } });
+  t.after(() => manager.close());
+  let delivery;
+  await assert.rejects(withExecutionEffectScope('bot-b', () => assert.fail('no input'), () => withExecutionRequest(request('bot-b'), async () => {
+    delivery = manager.request({ kind: 'cursor', hook_root: join(root, 'cursor-parent-hooks') }); await delivery.before_send(boundary('bot-b'));
+  }), undefined, body => body()), error => error.code === 'EXECUTION_UNCONFIRMED' && error.effect === 'not_started');
+  const saved = delivery.result(); assert.equal(saved.state, 'unknown');
+  assert.equal(JSON.parse(readFileSync(join(root, 'partial.json'))).delivery_id, saved.delivery_id);
+  assert.equal(binds, 1); assert.equal(writes, 1); assert.equal(watchers, 0);
+  const diagnostic = JSON.parse(readFileSync(join(root, 'manager', 'results', saved.delivery_id + '.json')));
+  assert.equal(diagnostic.boundary.event_cursor, 17); assert.equal(diagnostic.state, 'unknown'); assert.equal(diagnostic.child_outcome, null);
 });

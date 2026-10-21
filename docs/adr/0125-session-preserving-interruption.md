@@ -453,3 +453,25 @@ issued/accepted/unknown slotを消去しない。native effect/キーの再試�
 SDKcancel/接続終了はMCP要求の取消であり、CLIがEscで通知すること、元入力のnative受理、中断完了、
 同会話維持、source turn aliasや終了fenceの証拠ではない。通常main/worker未mount、全参加者/旧binary
 混在の制約は維持する。稼働CLIの通知契約を未検証のまま全中断対応としない。
+
+
+### parent before_send後のcompanion metadata
+
+元before_sendの非同期child予約待ち後、既存owner record/child claimの保存を同じ要求の
+withExecutionPreparation内で行う。graphのbindが応答した後も、Claude/Cursor companion書込の直前に
+同じ同期準備受付を再通過する。取消/stop/元source・target世代やscope/actor欠測を後着書込へ持ち越さない。
+共有metadata lockを非同期bind/待機全体へ拡大せず、stageをissuedへ早めない。
+
+private managerは同じfactoryで選んだprovider/profileの同期prepareCompanionだけを使う。通常の
+static profile/installed helperへfallbackしない。元requestのfrozen native provenance/ownerを再照合し、
+後から現れた別deliveryのheaderを上書きしない。Cursor等に独立endpoint証拠が無い制限は保持する。
+
+bind応答後の取消/companion失敗は、元delivery ID/parent/child境界を持つunknown診断を既存manager結果へ
+残す。child claimは手放し、watch/queue/native入力は始めず、graph bindingや旧receiptを削除しない。
+bind自体が拒否された場合は従来の未結合claim清掃を維持する。partial metadataをnative中断/受理成功へ
+昇格せず、元要求/旧親返送の抑止と未確認状態を保存する。
+
+private constructorのerror返却では、static profileによるClaude hook discardを行わない。現在のfileが
+元ownerのものと証明できず、graph bindingも既に残る場合があるため、確認済みownerの清算へ保持する。
+legacy未注入の通常cleanupは従来通り。これはhook loaded version/全process/legacy混在やnative入力・終了
+fenceの解消ではなく、通常main/workerへmountする条件にはならない。

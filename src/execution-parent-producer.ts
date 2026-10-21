@@ -97,7 +97,12 @@ export function createExecutionParentProducer(input: {
     hookReference: parentHookReference,
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
       claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(scope.state_root, "cursor-parent-hooks") }) });
-  const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime });
+  const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime,
+    verifyCompanion: (id, endpoint, evidence) => {
+      assertScope();
+      if (JSON.stringify(sourceEvidence.capture(endpoint)) !== JSON.stringify(evidence)) throw new ExecutionError("EXECUTION_CONFLICT");
+      producerEndpoint.verifyCompanion(id, endpoint, evidence);
+    } });
   const worker = { profile: Object.freeze(Object.assign({}, profile, { delivery_admission: createSteerExecutionAdmission(null, native) })),
     store, native, scope: structuredClone(scope), relation_coverage: "incomplete" as const };
   store.enroll(["parent_producer", "parent_worker"]);

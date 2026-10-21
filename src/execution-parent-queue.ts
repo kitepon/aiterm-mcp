@@ -63,5 +63,15 @@ export function createParentQueueEndpointEvidence(input: {
     }
     return true;
   };
-  return Object.assign(verify, { verifyIngress: (endpoint: unknown, proof: unknown): void => { verifyIngress(endpoint, proof); } });
+  return Object.assign(verify, {
+    verifyIngress: (endpoint: unknown, proof: unknown): void => { verifyIngress(endpoint, proof); },
+    verifyCompanion: (id: string, endpoint: unknown, proof: unknown): void => {
+      const directory = verifyIngress(endpoint, proof), expected = z.uuid().parse(id);
+      const file = path.join(directory, "delivery.json");
+      if (fs.existsSync(file)) {
+        const existing = z.object({ delivery_id: z.uuid() }).strict().safeParse(read(file));
+        if (!existing.success || existing.data.delivery_id !== expected) throw new ExecutionError("EXECUTION_CONFLICT");
+      }
+    },
+  });
 }

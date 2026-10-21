@@ -87,7 +87,10 @@ server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown,
         });
     } else result = await handler(request, extra) as typeof result;
     // 片付けの失敗で返りを変えない。残った置き場は、後の依頼のhookが見回って消す。
-    if (result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, cleanupExtra._meta); } catch { /* 見回りへ回す */ }
+    // Private execution owns frozen provenance and may already have a graph
+    // binding. A static-profile cleanup cannot prove that the current hook
+    // file is still this request; retain it for verified owner cleanup.
+    if (!execution && result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, cleanupExtra._meta); } catch { /* 見回りへ回す */ }
     return result;
   })) as typeof server.server.setRequestHandler;
 let parentDelivery: ParentDeliveryManager | null = null;

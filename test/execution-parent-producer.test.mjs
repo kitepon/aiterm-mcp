@@ -135,3 +135,31 @@ test('serving producer cannot decode a fresh parent later when its original ingr
     source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' },
   }), code('EXECUTION_UNSUPPORTED'));
 });
+
+
+test('post-bind companion revalidates the original frozen source/owner and uses only the selected provider', async t => {
+  const f = fixture(t); let writes = 0;
+  // This fixture tests provenance revalidation; the provider's synchronous
+  // metadata writer is synthetic, not native input/alias/finish evidence.
+  f.options.provider.bindClaudeParentDelivery = () => { writes++; };
+  const producer = createExecutionParentProducer(f.options);
+  await producer.service.execute({ action: 'register', source_session_id: A.session_id,
+    reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point(A),
+      target: { session_id: B.session_id, expected_launch_id: B.launch_id } } });
+  const ingress = { source: point(A), client_name: 'synthetic-native-client', native_identity: mcp, metadata: { tool: 'existing-tool-use' } };
+  const native_parent = withExecutionRequest(request, producer.startup.captureNativeParent, ingress);
+  await withExecutionRequest(request, async () => {
+    const proof = producer.execution.captureEndpointEvidence(f.endpoint);
+    await producer.execution.bind(id, request, point(B, 17), f.endpoint, proof);
+    f.invocation.parent_pid = mcp.pid; f.invocation.parent_started_identity = mcp.started_identity;
+    write(join(f.directory, 'request.json'), f.invocation);
+    assert.throws(() => producer.execution.prepareCompanion(id, f.endpoint, proof), code('EXECUTION_STALE_GENERATION'));
+    assert.equal(writes, 0); assert.equal(existsSync(join(f.directory, 'delivery.json')), false);
+    f.invocation.parent_pid = harness.pid; f.invocation.parent_started_identity = harness.started_identity;
+    write(join(f.directory, 'request.json'), f.invocation);
+    const other = { delivery_id: '00000000-0000-4000-8000-000000000099' };
+    write(join(f.directory, 'delivery.json'), other);
+    assert.throws(() => producer.execution.prepareCompanion(id, f.endpoint, proof), code('EXECUTION_CONFLICT'));
+    assert.equal(writes, 0); assert.deepEqual(JSON.parse(readFileSync(join(f.directory, 'delivery.json'))), other);
+  }, { ...ingress, native_parent });
+});

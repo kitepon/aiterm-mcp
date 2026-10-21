@@ -17,6 +17,7 @@ import { answerAnywhere, observeAnywhere, remoteKey, remoteTargetSchema, type Re
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { currentExecutionRequest } from "./execution-context.js";
 import { ExecutionError } from "./execution-wire.js";
+import { withExecutionPreparation } from "./execution-effect.js";
 
 const recordSchema = z.object({
   schema: z.literal("aiterm.parent-delivery.v1"),
@@ -238,6 +239,8 @@ export class ParentDeliveryManager {
       before_send: async (boundary) => {
         boundary = structuredClone(boundary);
         if (this.execution && (!request || boundary.remote)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+        if (this.execution && (isClaude(parent) || isCursor(parent)) && typeof this.execution.prepareCompanion !== "function")
+          throw new ExecutionError("EXECUTION_UNSUPPORTED");
         const key = deliveryKey(boundary.session_id, boundary.remote);
         const previous = this.registering.get(key) ?? Promise.resolve();
         const registration = previous.then(async () => {
@@ -246,30 +249,47 @@ export class ParentDeliveryManager {
           const record: DeliveryRecord = { schema: "aiterm.parent-delivery.v1", delivery_id: randomUUID(),
             created_at: now, updated_at: now, parent, boundary, state: "waiting", text: null,
             child_outcome: null, child_turn_id: null, error: null, queued_submission_id: null };
-          job = { record, file: path.join(this.ownerDir, `${record.delivery_id}.json`), controller: new AbortController() };
-          this.save(job);
-          // 記録を調べてから作るだけでは、別processが同時に同じ子を予約できる。
-          // 同一filesystemのhard link作成で、回答をまだ保存していない依頼を一つに決める。
-          try { fs.linkSync(job.file, path.join(this.claims, `${key}.json`)); }
-          catch (error) {
-            fs.unlinkSync(job.file);
-            job = null;
-            if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-              throw new AitermError("PARENT_RESULT_PENDING: 同じ子の回答保存を別の依頼が所有しています", 2);
+          const created: OwnedRecord = { record, file: path.join(this.ownerDir, `${record.delivery_id}.json`), controller: new AbortController() };
+          const reserve = () => {
+            this.save(created);
+            // Same-filesystem hard link claims this child atomically.
+            try { fs.linkSync(created.file, path.join(this.claims, `${key}.json`)); }
+            catch (error) {
+              fs.unlinkSync(created.file);
+              if ((error as NodeJS.ErrnoException).code === "EEXIST")
+                throw new AitermError("PARENT_RESULT_PENDING: 同じ子の回答保存を別の依頼が所有しています", 2);
+              throw error;
             }
-            throw error;
-          }
+          };
+          if (this.execution) withExecutionPreparation(boundary.session_id, reserve);
+          else reserve();
+          job = created;
+          let bound = false;
           try {
             if (this.execution) await this.execution.bind(record.delivery_id, request!, { launch: {
               session_id: boundary.session_id, launch_id: boundary.launch_id,
             }, boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null } }, parent, evidence);
-            if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
-            if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
+            if (this.execution) {
+              bound = true;
+              withExecutionPreparation(boundary.session_id, () => this.execution!.prepareCompanion?.(record.delivery_id, parent, evidence));
+            } else {
+              if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
+              if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
+            }
           } catch (error) {
+            if (bound) {
+              // The graph acknowledged this original delivery before companion
+              // preparation failed. Preserve its references, without a watcher,
+              // queue, native input or fabricated completion/retirement.
+              job.record.state = "unknown";
+              job.record.error = "PARENT_DELIVERY_PREPARATION_UNCONFIRMED";
+              this.finish(job);
+            } else {
               this.releaseClaim(job);
               fs.unlinkSync(job.file);
               job = null;
-              throw error;
+            }
+            throw error;
           }
           this.jobs.set(record.delivery_id, job);
           this.watch(job);

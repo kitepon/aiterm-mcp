@@ -15,22 +15,28 @@ type Receipt = { queued_submission_id: string | null };
 export interface ParentManagerExecution {
   captureEndpointEvidence?(endpoint: unknown): unknown;
   bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
+  // Synchronous companion metadata only, called inside the original preparation frame.
+  prepareCompanion?(id: string, parent: Parent, evidence?: unknown): void;
   submit(parent: Parent, id: string, text: string): Promise<Receipt>;
   outcomeUnknown?(error: unknown): boolean | null;
   recordChildCompletion?(id: string): Promise<unknown>;
 }
 export type SteerProvider = Pick<typeof installedSteer, "submitCodexParentAnswer" | "submitClaudeParentAnswer" | "submitCursorParentAnswer">
+  & Partial<Pick<typeof installedSteer, "bindClaudeParentDelivery" | "prepareCursorDelivery">>
   & { withDeliveryEffect?: unknown; DELIVERY_ADMISSION_CONTRACT?: unknown; SteerDeliveryError?: typeof installedSteer.SteerDeliveryError };
 export function createParentManagerExecution(input: {
   parent: ReturnType<typeof createExecutionParentAdapter>; native: ReturnType<typeof createParentNativeAdmission>;
   profile: installedSteer.ProductProfile; provider?: SteerProvider; codexRuntime?: installedSteer.CodexReceiverRuntime;
   claudeRuntime?: Parameters<typeof installedSteer.submitClaudeParentAnswer>[4];
+  verifyCompanion?(id: string, endpoint: unknown, evidence: unknown): unknown;
 }): ParentManagerExecution {
   const provider: SteerProvider = input.provider ?? installedSteer;
   const contract = provider.DELIVERY_ADMISSION_CONTRACT as Record<string, unknown> | undefined;
   if (typeof provider.withDeliveryEffect !== "function" || contract?.schema !== "steer.delivery-admission.v1"
     || contract.native_context !== true || contract.cursor_profile_parameter !== true || contract.serialized_required !== true
     || contract.multi_delivery_emit !== true) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const bindClaude = provider.bindClaudeParentDelivery, prepareCursor = provider.prepareCursorDelivery;
+  const verifyCompanion = input.verifyCompanion;
   const profile = Object.assign({}, input.profile, { delivery_admission: createSteerExecutionAdmission(input.parent, input.native) });
   return {
     outcomeUnknown(error) {
@@ -42,6 +48,24 @@ export function createParentManagerExecution(input: {
     captureEndpointEvidence: endpoint => input.parent.captureEndpointEvidence(endpoint),
     recordChildCompletion: id => input.parent.recordChildCompletion(id),
     bind: (id, request, child, endpoint, evidence) => input.parent.bind(id, request, child, endpoint, evidence),
+    prepareCompanion(id, parent, evidence) {
+      if (!("kind" in parent)) return; // Codex has no companion to prepare here.
+      if (typeof verifyCompanion !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      // Recheck the same native owner/endpoint after asynchronous bind. Never
+      // fall back to an installed/static profile or invent a missing proof.
+      const checked = verifyCompanion(id, parent, evidence);
+      if (checked && typeof (checked as { then?: unknown }).then === "function") {
+        void Promise.resolve(checked).catch(() => undefined);
+        throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      }
+      if (parent.kind === "claude") {
+        if (typeof bindClaude !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+        return bindClaude(profile, parent, id);
+      } else {
+        if (typeof prepareCursor !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+        return prepareCursor(parent, id);
+      }
+    },
     submit(parent, id, text) {
       if ("kind" in parent && parent.kind === "claude") return provider.submitClaudeParentAnswer(profile, parent, id, text, input.claudeRuntime);
       if ("kind" in parent && parent.kind === "cursor") {

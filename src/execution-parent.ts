@@ -106,6 +106,32 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
   };
   return {
     captureEndpointEvidence(endpoint: unknown) { return bindings.sourceEvidence?.capture(endpoint); },
+    /** Read-only recovery admission for an existing owner record. Its saved
+     * references must corroborate the graph, not reconstruct it. This does not
+     * admit a native effect or establish completion/fence evidence. */
+    async verifyRecovery(idInput: string, requestInput: ExecutionRequest, childInput: ExecutionPoint,
+      endpointInput: unknown, evidenceInput: unknown): Promise<true> {
+      const id = deliveryId.parse(idInput), request = executionRequestSchema.parse(requestInput);
+      const child = executionPointSchema.parse(childInput), endpoint = structuredClone(endpointInput);
+      const proof = parentSourceSchema.safeParse(evidenceInput);
+      if (!bindings.sourceEvidence || !proof.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (!same(proof.data.request, request)) throw new ExecutionError("EXECUTION_CONFLICT");
+      return bindings.store.transaction(async state => {
+        const value = read(state, id);
+        if (!same(value.request, request) || !same(value.child, child)
+          || !same(value.source_evidence, proof.data) || !same(value.parent, proof.data.source)
+          || value.endpoint_digest !== digest(endpoint)) throw new ExecutionError("EXECUTION_CONFLICT");
+        original(state, value, true); // no waiting for a missing/issued receipt
+        const returning = { kind: "delivery", delivery_id: id, target_session_id: value.parent.launch.session_id };
+        // Any prior return reservation needs explicit reconciliation. Even a
+        // saved ready body cannot authorize replay after an uncertain issue.
+        if (state.records.some(record => same(record.reservation.request, returning)))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        await observe(value.parent); await observe(value.child);
+        verifyEndpoint(value, endpoint);
+        return true as const;
+      }, { readOnly: true });
+    },
     async recordChildCompletion(idInput: string) {
       const id = deliveryId.parse(idInput);
       const completed = await waitForReceipt(() => bindings.store.transaction(state => {

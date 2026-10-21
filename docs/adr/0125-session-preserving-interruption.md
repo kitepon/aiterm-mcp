@@ -509,3 +509,21 @@ diagnostic unknownはmanager再構築でも再送しない。execution参照を�
 managerが回収しても、adapter無しではunknownとして保存しwatch/返送へ進まない。旧binary readerや
 live移行の対応を宣言せず、通常未注入記録/receiptの形は維持する。owner JSONの既存atomic renameは
 hardware crash後の耐久性を証明しない。graphの欠測もowner診断からempty/成功へ復元しない。
+
+
+### private waiting/readyの回収受付
+
+旧ownerのwaiting/readyを監視・既存返送へ戻す前に、保存済みexecution参照を同scopeのgraphへ
+read-only照合する。delivery ID/request/親endpoint digest/元source proof/子before_send Pointを
+同じbindingへ一致させ、元sendがacceptedでcanonical receiptのcursor等と対応することを確認する。
+欠測/preparing/issued/unknown/unsent/退役/停止は待機や推測で埋めない。旧return予約が既に存在する
+場合も自動再発行へ進めず明示清算を要する。元proofを現在MCP/native_parent/最新jobから取り直さない。
+
+同じnative世代/actor/実hook owner/headerの独立照合も必要。現在のproducer検証は元MCP actorとの一致を
+要求するため、別processへの権限引継をこの受付で成立させない。Codex/Cursorの独立endpoint不足も維持する。
+managerはcallback欠測/証拠無し/拒否/true以外の返却をunknownへ保存し、元text/child outcome/requestを
+残してwatch/queueを開始しない。照合待ちjobをbeforeChangeへ公開しない。legacy未注入の回収は従来通り。
+
+この読取はgraphを登録/修復/finishせず、receiptのturn=nullや強いbefore_send operationをcanonical aliasへ
+昇格しない。ready本文や局所doneをnative終了fenceにしない。読取後の作用は既存の作用直前gateをなお要し、
+全参加者・旧binary移行・同会話維持・実CLI受入・公開mountを証明しない。owner JSONのhardware耐久性も未受入。

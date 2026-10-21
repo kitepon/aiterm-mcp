@@ -589,7 +589,6 @@ export class ParentDeliveryManager {
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
         const record = readRecord(file);
         const job: OwnedRecord = { record, file, controller: new AbortController() };
-        this.jobs.set(record.delivery_id, job);
         if (record.execution && !this.execution) {
           record.state = "unknown";
           record.error = "PARENT_EXECUTION_ADAPTER_UNAVAILABLE";
@@ -600,13 +599,26 @@ export class ParentDeliveryManager {
           this.finish(job);
         } else if (record.state === "waiting" || record.state === "ready") {
           try {
+            if (this.execution) {
+              if (!record.execution?.source_evidence || record.boundary.remote || typeof this.execution.verifyRecovery !== "function")
+                throw new ExecutionError("EXECUTION_UNSUPPORTED");
+              const boundary = record.boundary;
+              const admitted = await this.execution.verifyRecovery(record.delivery_id, structuredClone(record.execution.request), {
+                launch: { session_id: boundary.session_id, launch_id: boundary.launch_id },
+                boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null },
+              }, structuredClone(record.parent), structuredClone(record.execution.source_evidence));
+              if (admitted !== true) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            }
+            // Pending recovery must not be visible to beforeChange/capture;
+            // those could otherwise bypass the awaited receipt admission.
+            this.jobs.set(record.delivery_id, job);
             if (record.state === "waiting") this.watch(job);
             else {
-              await this.deps.verify(record.parent);
+              if (!this.execution) await this.deps.verify(record.parent);
               job.delivery = this.deliver(job).catch((error) => this.reportServiceError(error));
             }
           } catch (error) {
-            record.state = "failed";
+            record.state = this.execution ? "unknown" : "failed";
             record.error = error instanceof Error ? error.message : String(error);
             this.finish(job);
           }

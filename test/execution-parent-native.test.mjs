@@ -165,3 +165,28 @@ test('native hook context is fixed at ingress and must match the actual endpoint
   await entered.promise; context.conversation_id = 'later-conversation'; release.resolve();
   assert.equal((await running).value, 'emitted'); assert.equal(effects, 1);
 });
+test('each delivery in one native output needs its own evidence both at preflight and the actual issue boundary', async () => {
+  const f = await fixture(), second = '00000000-0000-4000-8000-000000000002';
+  await f.parent.bind(second, request, point(B, 17), endpoint);
+  await f.parent.submit(second, endpoint, async (_, __, issue) => { issue(); return { queued_submission_id: 'second-queue' }; });
+  let secondValid = false, effects = 0;
+  const native = createParentNativeAdmission({ ...f.bindings,
+    verifyParentEndpoint: (_, __, ___, binding) => binding.delivery_id === id || secondValid });
+  const first = await native.run([id, second], 'emit', endpoint, async () => { assert.fail('invalid second delivery must fail preflight'); });
+  assert.equal(first.error.code, 'EXECUTION_STALE_GENERATION');
+  secondValid = true;
+  const later = await native.run([id, second], 'emit', endpoint, async (_, issue) => {
+    secondValid = false; issue(); effects++; return 'not-emitted';
+  });
+  assert.equal(later.error.effect, 'not_started'); assert.equal(effects, 0);
+  assert.equal((await f.state()).parent_effects.length, 0);
+});
+test('pending/rejected endpoint verification promises cannot authorize a native output', async () => {
+  const f = await fixture(); let effects = 0;
+  for (const verifyParentEndpoint of [async () => true, async () => { throw Error('missing native proof'); }]) {
+    const result = await createParentNativeAdmission({ ...f.bindings, verifyParentEndpoint })
+      .run(id, 'emit', endpoint, async (_, issue) => { issue(); effects++; });
+    assert.equal(result.error.code, 'EXECUTION_UNSUPPORTED'); assert.equal(result.error.effect, 'not_started');
+  }
+  assert.equal(effects, 0);
+});

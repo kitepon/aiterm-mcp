@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { executionLaunchSchema, executionRequestSchema, executionPointSchema } from "./execution-contract.js";
 import { executionRecordSchema, ExecutionError } from "./execution-wire.js";
+import { parentSourceSchema } from "./execution-parent-source.js";
 import { writeJson0600 } from "./agent-shared.js";
 
 export const executionStateSchema = z.object({
@@ -18,6 +19,7 @@ export const executionStateSchema = z.object({
     delivery_id: z.uuid(), request: executionRequestSchema,
     parent: executionPointSchema, child: executionPointSchema,
     endpoint_digest: z.string().regex(/^[0-9a-f]{64}$/),
+    source_evidence: parentSourceSchema.optional(),
   }).strict()).default([]),
   // Native phases of that same existing delivery, not new invocation IDs.
   parent_effects: z.array(z.object({ delivery_id: z.uuid(), stage: z.enum(["dequeue", "emit", "wake"]),

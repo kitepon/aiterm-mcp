@@ -14,12 +14,13 @@ const request = session => ({ kind: 'delivery', delivery_id: 'existing-' + sessi
 const until = async check => { const end = performance.now() + 1000; while (!check()) {
   assert.ok(performance.now() < end); await new Promise(resolve => setTimeout(resolve, 2));
 } };
-function fixture(t, failFirst = false) {
+function fixture(t, failFirst = false, capture) {
   const root = mkdtempSync(join(tmpdir(), 'execution-manager-')), binds = [], submits = [], completions = new Map();
   const execution = {
-    async bind(id, request, child, endpoint) {
+    ...(capture ? { captureEndpointEvidence: capture } : {}),
+    async bind(id, request, child, endpoint, evidence) {
       if (failFirst) { failFirst = false; throw Object.assign(Error('synthetic binding unavailable'), { code: 'EXECUTION_UNCONFIRMED' }); }
-      binds.push({ id, request, child, endpoint });
+      binds.push({ id, request, child, endpoint, ...(evidence === undefined ? {} : { evidence }) });
     },
     async submit(endpoint, id, text) { submits.push({ endpoint, id, text }); return { queued_submission_id: 'native-existing-queue-id' }; },
   };
@@ -69,4 +70,12 @@ test('failed generation binding releases the existing child claim rather than le
   assert.equal(failed.result(), null); assert.equal(f.manager.status('bot-b').length, 0);
   const next = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
   await next.before_send(boundary('bot-b')); assert.equal(next.result().state, 'waiting');
+});
+test('manager captures and detaches native evidence at request time rather than a later registration continuation', async t => {
+  const original = { native_tool_id: 'existing-native-tool', request: request('bot-b') };
+  const f = fixture(t, false, () => original);
+  const delivery = withExecutionRequest(request('bot-b'), () => f.manager.request(parent));
+  original.native_tool_id = 'late-tool'; original.request.delivery_id = 'late-ref';
+  await delivery.before_send(boundary('bot-b'));
+  assert.deepEqual(f.binds[0].evidence, { native_tool_id: 'existing-native-tool', request: request('bot-b') });
 });

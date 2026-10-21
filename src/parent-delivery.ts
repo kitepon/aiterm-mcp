@@ -230,6 +230,7 @@ export class ParentDeliveryManager {
   } {
     parent = structuredClone(parent);
     const request = this.execution ? currentExecutionRequest() : null;
+    const evidence = structuredClone(this.execution?.captureEndpointEvidence?.(parent));
     let job: OwnedRecord | null = null;
     return {
       before_send: async (boundary) => {
@@ -259,7 +260,7 @@ export class ParentDeliveryManager {
           try {
             if (this.execution) await this.execution.bind(record.delivery_id, request!, { launch: {
               session_id: boundary.session_id, launch_id: boundary.launch_id,
-            }, boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null } }, parent);
+            }, boundary: { event_cursor: boundary.event_cursor, operation_id: boundary.operation_id, turn_id: null, steer_id: null } }, parent, evidence);
             if (isClaude(parent)) bindClaudeParentDelivery(parent, record.delivery_id);
             if (isCursor(parent)) prepareCursorDelivery(parent, record.delivery_id);
           } catch (error) {

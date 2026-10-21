@@ -17,6 +17,7 @@ import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
 import { bindExecutionNativeTarget } from "./execution-effect.js";
+import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
@@ -1661,6 +1662,22 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
   const exists = listSessionsResult().sessions.some(session => session.session_id === name);
   return { schema: "aiterm.pty-observe-result.v1", session_id: name, exists,
     launch_id: exists ? tryLoadAgentMetadata(name)?.launch_id ?? null : null };
+}
+
+/** Private source-provenance snapshot. It deliberately omits screen, argv,
+ * environment and cached vendor_session_id. No public tool is added. The
+ * consumer proves its native serving MCP process descends from this unique
+ * harness in this same process table, and separately verifies the endpoint.
+ */
+export function observeExecutionParentProcess(name: string): unknown {
+  assertSessionName(name);
+  return readExecutionParentProcess(name, {
+    present: () => listSessionsResult().sessions.some(session => session.session_id === name),
+    metadata: () => tryLoadAgentMetadata(name),
+    pane: () => tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}"),
+    processes: readRuntimeProcesses,
+    select: (meta, rows, pid) => ({ harness: agentHarness(meta.kind), processes: selectHarnessProcesses(meta, rows, processSubtree(rows, pid)) }),
+  });
 }
 
 export function listSessionsResult(envKeys: string[] = []): {

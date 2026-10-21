@@ -518,6 +518,47 @@ launch開始だけでprompt/実行境界が無い関係も、CLIがidleという
 タイムスタンプは記録/順序補助に残すが、初版が勝手にTTLを決めたり、時刻だけで完了扱いにしたりしない。
 トロニーがownerへの範囲相談を持ち、Aitermは機械的な終了証拠の追加と保守案で独立に開発を進める。
 
+## native親要求のprovenanceと別process hook
+
+`execution-context`は、dispatcherが固定した既存request、検証済みsource Point、initialized client、
+serving MCPのnative PID/started_identity、元SDK metadataのコピーをrequest-localに保持する。
+モデル引数、変更後のingress object、別requestのcontextやhost stdio envで補完しない。
+sourceが未検証、host参照だけ、native actor不明なら親配送provenanceはunsupported。
+これは記録済みの実呼出edgeを意味判定で捨てる条件ではなく、未発行の親配送を正しい実世代へ結ぶ受付条件。
+
+`execution-parent-source`は元SDK metadataを既存native decoderへ渡してendpointの一致を確認する。
+`core.observeExecutionParentProcess`/`execution-parent-process`は、同じmanaged metadata、native pane、
+唯一のharnessとprocess表を読み、前後のpane/launch一致も確認する。画面、argv、env、cached vendor_session_idを
+証拠に含めない。PIDだけではなくstarted_identityと親子順序を照合し、切断・循環・PID再利用・重複行は欠測。
+MCPからharnessへ辿れることをbefore_sendで再照合する。新native turn IDやgraph IDは作らない。
+
+既存parent-delivery IDのcompanionに、元request、source世代、MCP/harness native identity、
+native endpointのthread/session/tool参照だけを追加する。本文やhome/hook path、metadata全文は保存しない。
+元requestと違う証拠は拒否し、復旧時もこの記録を読む。後続配送で元MCP processが自然終了していても
+別processへ付け替えず、同じ期待harnessと独立したendpoint証拠を要求する。
+provenanceだけで「そのthreadが現在もloaded」とはしない。queueの独立したruntime endpoint verifierも必須。
+同期native issue境界のverifierは実boolean trueだけを受け入れ、未完Promise/欠測を真値として採らない。
+
+`execution-parent-endpoint`は別processのnative hook出力に、現在のactorのnative lineageも要求する。
+Codexはnative session/threadとturn参照、Claudeは実PreToolUse request.jsonのsession/tool/native ownerと
+同じdelivery.json、Cursorはそのdelivery IDのbind.jsonとnative conversation/eventを照合する。
+Claude closed/agent_id、別conversation、別scope、別actorは別席へredirectしない。
+複数配送を一回でemitする場合は全件をpreflight/実作用直前の両方で再照合する。
+hook turn/conversation参照はendpoint相関であり、before_send cursorのaliasや実終了fenceではない。
+
+`createExecutionParentWorker`は、processごとのnative callback用required profileを作る隔離factory。
+実装既定は既存coreのstate root/socketまたはnamespace、現在processのnative identity、上記観測口を使う。
+旧public steer 0.4.7や不完全な注入runtimeを、OS/stateへの個別fallback前にunsupportedで拒否する。
+producerから渡された期待scopeと実processのscope/product rootを照合し、同じFileExecutionStoreを開く。
+実作用前にもscopeと実libraryのcallback capabilityを確認する。profileはコピーで作りstatic profileを変えない。
+native workerはqueue producerではなく、新registerや旧submitへfallbackしない。
+
+現時点で実default factoryは呼ばず合成runtimeで受入。static AITERM_PROFILE、実worker/hook、公開18toolsへは
+未mount。全参加process/全変更口の被覆証明は別工程で、factoryが作れてもcoverage=incomplete。
+native contextの無いCodex opener/wake、Cursor背景stdout・複数scope/channel等は、この厳格endpoint verifierでは
+unsupportedを維持する。独立したqueue alias証拠、終了fence/self-turn、旧actor/放棄lockの復旧も未了。
+現在のhook/file相関は同一OS利用者内のlocal correlationであり、暗号認証ではない。
+
 ## 結果と残実装
 
 ```ts

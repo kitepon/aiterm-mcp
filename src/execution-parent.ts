@@ -10,6 +10,7 @@ import type { ExecutionStore, ExecutionState } from "./execution-store.js";
 import { runDeferredBoundExecution } from "./execution-tools.js";
 import { beforeExecutionEffect } from "./execution-effect.js";
 import { EXECUTION_REQUEST_META_KEY, ExecutionError } from "./execution-wire.js";
+import { parentSourceSchema, requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
 
 type Binding = ExecutionState["parent_deliveries"][number];
 type QueueReceipt = { queued_submission_id: string | null };
@@ -26,6 +27,7 @@ export interface ExecutionParentBindings {
   // launch (native vendor session/home correlation). Generation alone cannot
   // authorize a different thread/hook endpoint. Missing proof is unsupported.
   verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown): boolean;
+  sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
 }
 /** Construct once for the same state/socket scope as the serving service. Each
  * submit/emit/wake process must look up this binding; no latest-seat fallback.
@@ -43,9 +45,10 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
     if (!serialized) throw new ExecutionError("EXECUTION_INVALID");
     return createHash("sha256").update(serialized).digest("hex");
   };
-  const verifyEndpoint = (parent: ExecutionPoint, endpoint: unknown): void => {
+  const verifyEndpoint = (parent: ExecutionPoint, endpoint: unknown, evidence?: unknown, initial = false): void => {
+    if (bindings.sourceEvidence) bindings.sourceEvidence.verify(parent, endpoint, evidence, initial);
     if (!bindings.verifyParentEndpoint) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    if (!bindings.verifyParentEndpoint(parent, endpoint)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    requireParentEndpointEvidence(bindings.verifyParentEndpoint(parent, endpoint));
   };
   const observe = async (point: ExecutionPoint): Promise<void> => {
     const value = await bindings.observeSessionGeneration(point.launch.session_id) as Record<string, unknown> | null;
@@ -84,24 +87,28 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
     return target;
   };
   return {
+    captureEndpointEvidence(endpoint: unknown) { return bindings.sourceEvidence?.capture(endpoint); },
     /** Called from the real request-local parent manager before_send callback,
      * after its existing delivery ID exists. Fix parent from the already
      * verified dispatch record; never vendor thread ID or current Bot name.
      */
-    async bind(idInput: string, requestInput: ExecutionRequest, childInput: ExecutionPoint, endpointInput: unknown): Promise<Binding> {
+    async bind(idInput: string, requestInput: ExecutionRequest, childInput: ExecutionPoint, endpointInput: unknown, evidenceInput?: unknown): Promise<Binding> {
       const id = deliveryId.parse(idInput), request = executionRequestSchema.parse(requestInput);
       const child = executionPointSchema.parse(childInput);
       const endpoint = structuredClone(endpointInput), endpoint_digest = digest(endpoint);
+      const source_evidence = evidenceInput === undefined ? undefined : parentSourceSchema.parse(evidenceInput);
+      if (source_evidence && !same(source_evidence.request, request)) throw new ExecutionError("EXECUTION_CONFLICT");
       if (!child.boundary) throw new ExecutionError("EXECUTION_INVALID");
       executionBoundarySchema.parse(child.boundary);
       return bindings.store.transaction(async state => {
         const record = state.records.find(record => same(record.reservation.request, request));
         const parent = record?.source.status === "verified" ? record.relation.source : null;
         if (!parent) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-        const proposed: Binding = { delivery_id: id, request, parent, child, endpoint_digest };
+        const proposed: Binding = { delivery_id: id, request, parent, child, endpoint_digest,
+          ...(source_evidence ? { source_evidence } : {}) };
         original(state, proposed, false);
         await observe(parent); await observe(child);
-        verifyEndpoint(parent, endpoint);
+        verifyEndpoint(parent, endpoint, source_evidence, true);
         const previous = state.parent_deliveries.find(value => value.delivery_id === id);
         if (previous && !same(previous, proposed)) throw new ExecutionError("EXECUTION_CONFLICT");
         if (!previous) state.parent_deliveries.push(proposed);
@@ -123,7 +130,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
         if (value.endpoint_digest !== endpoint_digest) throw new ExecutionError("EXECUTION_CONFLICT");
         const canonicalChild = original(state, value, true)!;
         await observe(value.parent); await observe(value.child);
-        verifyEndpoint(value.parent, endpoint);
+        verifyEndpoint(value.parent, endpoint, value.source_evidence);
         // Bind the exact immutable receipt point. The before_send operation is
         // corroborating alias evidence, never a different lifetime graph key.
         return { ...value, child: canonicalChild };
@@ -143,7 +150,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
         const effect = AsyncResource.bind(() => {
           beforeExecutionEffect(binding.parent.launch.session_id, () => {
             if (issued) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
-            verifyEndpoint(binding.parent, endpoint);
+            verifyEndpoint(binding.parent, endpoint, binding.source_evidence);
           });
           issued = true;
         });

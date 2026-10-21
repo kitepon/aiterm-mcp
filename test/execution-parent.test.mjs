@@ -153,3 +153,11 @@ test('an escaped official callback remains bound to its finished admission frame
   assert.throws(() => { escaped(); effects++; });
   assert.equal(effects, 0);
 });
+test('an asynchronous endpoint proof is not a synchronous true even when it resolves successfully or rejects', async () => {
+  const f = await fixture();
+  for (const verifyParentEndpoint of [async () => true, async () => { throw Error('missing native proof'); }]) {
+    await assert.rejects(createExecutionParentAdapter({ ...f.bindings, verifyParentEndpoint })
+      .bind(id, originalRequest, point(B, 17), endpoint), code('EXECUTION_UNSUPPORTED'));
+  }
+  await assert.rejects(f.adapter.lookup(id), code('EXECUTION_NOT_FOUND'));
+});

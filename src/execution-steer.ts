@@ -8,7 +8,7 @@ import { ExecutionError, executionErrorSchema } from "./execution-wire.js";
 
 type Effect = { delivery_ids: readonly string[]; stage: "queue" | "dequeue" | "emit" | "wake";
   vendor: "codex" | "claude" | "cursor"; endpoint: unknown; native_context?: unknown };
-export function createSteerExecutionAdmission(parent: ReturnType<typeof createExecutionParentAdapter>,
+export function createSteerExecutionAdmission(parent: ReturnType<typeof createExecutionParentAdapter> | null,
   native: ReturnType<typeof createParentNativeAdmission>) {
   return {
     required: true as const,
@@ -23,7 +23,7 @@ export function createSteerExecutionAdmission(parent: ReturnType<typeof createEx
         const failure = executionErrorSchema.parse(result.error);
         throw new ExecutionError(failure.code, failure.effect);
       }
-      if (ids.length !== 1) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (ids.length !== 1 || !parent) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       let observed = false, value: T | undefined;
       const result = await parent.submit(ids[0], endpoint, async (_, __, issue) => {
         issue(); value = await action();

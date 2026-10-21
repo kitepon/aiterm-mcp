@@ -7,6 +7,7 @@ import type { ExecutionStore, ExecutionState } from "./execution-store.js";
 import { executionLaunchSchema, type ExecutionPoint } from "./execution-contract.js";
 import { ExecutionError, executionErrorResult } from "./execution-wire.js";
 import { beforeExecutionEffect, withExecutionEffectScope } from "./execution-effect.js";
+import { requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
 
 type Stage = "dequeue" | "emit" | "wake";
 type Binding = ExecutionState["parent_deliveries"][number];
@@ -27,7 +28,8 @@ export interface ParentNativeBindings {
   store: ExecutionStore;
   actor: Actor | null;
   observeSessionGenerationSync?(session: string): unknown;
-  verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown, nativeContext?: unknown): boolean;
+  verifyParentEndpoint?(parent: ExecutionPoint, endpoint: unknown, nativeContext?: unknown, binding?: Readonly<Binding>): boolean;
+  sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
   // Bounded preflight waiting for the existing queue receipt, never a retry of
   // queue/emit/wake or a graph lifetime/expiry threshold.
   preparationTimeoutMs?: number;
@@ -49,14 +51,15 @@ export function createParentNativeAdmission(bindings: ParentNativeBindings) {
     return binding;
   };
   const verify = (binding: Binding, endpoint: unknown, nativeContext?: unknown): void => {
+    if (bindings.sourceEvidence) bindings.sourceEvidence.verify(binding.parent, endpoint, binding.source_evidence);
     if (!bindings.observeSessionGenerationSync || !bindings.verifyParentEndpoint) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     const value = bindings.observeSessionGenerationSync(binding.parent.launch.session_id) as Record<string, unknown> | null;
     if (!value || value.schema !== "aiterm.pty-observe-result.v1" || value.session_id !== binding.parent.launch.session_id
       || value.exists !== true) throw new ExecutionError("EXECUTION_UNCONFIRMED");
     const launch = executionLaunchSchema.safeParse({ session_id: value.session_id, launch_id: value.launch_id });
     if (!launch.success) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-    if (!same(launch.data, binding.parent.launch) || !bindings.verifyParentEndpoint(binding.parent, endpoint, nativeContext))
-      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    if (!same(launch.data, binding.parent.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    requireParentEndpointEvidence(bindings.verifyParentEndpoint(binding.parent, endpoint, nativeContext, binding));
   };
   return {
     async run<T>(idInput: string | readonly string[], stageInput: Stage, endpointInput: unknown,
@@ -78,8 +81,10 @@ export function createParentNativeAdmission(bindings: ParentNativeBindings) {
           try {
             binding = await bindings.store.transaction(state => {
               const result = read(state, id, endpoint); verify(result, endpoint, nativeContext);
-              for (const each of ids.slice(1)) if (!same(read(state, each, endpoint).parent.launch, result.parent.launch))
-                throw new ExecutionError("EXECUTION_CONFLICT");
+              for (const each of ids.slice(1)) {
+                const other = read(state, each, endpoint); verify(other, endpoint, nativeContext);
+                if (!same(other.parent.launch, result.parent.launch)) throw new ExecutionError("EXECUTION_CONFLICT");
+              }
               const prior = state.parent_effects.find(value => ids.includes(value.delivery_id) && value.stage === stage);
               if (prior) throw new ExecutionError(prior.state === "accepted" ? "EXECUTION_CONFLICT" : "EXECUTION_UNCONFIRMED",
                 prior.state === "accepted" ? "not_started" : "possible");
@@ -96,8 +101,10 @@ export function createParentNativeAdmission(bindings: ParentNativeBindings) {
           if (finished || issued) throw new ExecutionError("EXECUTION_CONFLICT", issued ? "possible" : "not_started");
           bindings.store.transactionSync!(state => {
             const fresh = read(state, id, endpoint); verify(fresh, endpoint, nativeContext);
-            for (const each of ids.slice(1)) if (!same(read(state, each, endpoint).parent.launch, fresh.parent.launch))
-              throw new ExecutionError("EXECUTION_CONFLICT");
+            for (const each of ids.slice(1)) {
+              const other = read(state, each, endpoint); verify(other, endpoint, nativeContext);
+              if (!same(other.parent.launch, fresh.parent.launch)) throw new ExecutionError("EXECUTION_CONFLICT");
+            }
             if (state.parent_effects.some(value => ids.includes(value.delivery_id) && value.stage === stage))
               throw new ExecutionError("EXECUTION_CONFLICT");
             if (state.slots.some(value => value.session_id === fresh.parent.launch.session_id))

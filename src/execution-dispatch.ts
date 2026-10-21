@@ -135,7 +135,11 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           ? { session_id: route.target, launch_id: status.reservation.target.expected_launch_id } : null);
         const requestMeta = { ...(fixedExtra._meta as Record<string, unknown> | undefined), [EXECUTION_REQUEST_META_KEY]: reference };
         return await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
-          const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }));
+          const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }), {
+            source: status.source.status === "verified" ? status.source.point : null,
+            client_name: client ?? null, native_identity: native,
+            metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta,
+          });
           if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           // Missing/invalid binding evidence is returned as null. The wrapper
           // retains the genuine successful receipt if binding then fails; it

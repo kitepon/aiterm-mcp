@@ -6,6 +6,10 @@
 [ADR 0124の契約案](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0124-cascade-stop-execution-contract.md)で設計中。
 `execution-*.ts`は隔離枝のwire、snapshot計画、共有metadata、受付/停止サービスと注入可能なMCP口。
 fake MCPで検証中であり、runtime証拠adapterと全変更口への接続は未了。現行公開toolの停止契約は変更していない。
+native親配送は、要求時に固定したSDK metadata・検証済みsource世代・MCP/native harness identityを結ぶ。
+別processのhookは同じscopeと既存delivery bindingを照合し、callback欠測時に旧配送へfallbackしない。
+processごとのrequired profile factoryは隔離実装中であり、static profileや稼働hookへは未接続。
+scope一致やhook返却だけで全参加者の被覆・native turn alias・終了fenceを証明したことにはしない。
 
 ## 目的と所有
 

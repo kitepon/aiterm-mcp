@@ -13,7 +13,8 @@ import type { CursorParent } from "./cursor-parent-receiver.js";
 type Parent = CodexParent | ClaudeParent | CursorParent;
 type Receipt = { queued_submission_id: string | null };
 export interface ParentManagerExecution {
-  bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown): Promise<unknown>;
+  captureEndpointEvidence?(endpoint: unknown): unknown;
+  bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
   submit(parent: Parent, id: string, text: string): Promise<Receipt>;
 }
 type SteerProvider = Pick<typeof installedSteer, "submitCodexParentAnswer" | "submitClaudeParentAnswer" | "submitCursorParentAnswer">
@@ -29,7 +30,8 @@ export function createParentManagerExecution(input: {
     || contract.multi_delivery_emit !== true) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const profile = Object.assign({}, input.profile, { delivery_admission: createSteerExecutionAdmission(input.parent, input.native) });
   return {
-    bind: (id, request, child, endpoint) => input.parent.bind(id, request, child, endpoint),
+    captureEndpointEvidence: endpoint => input.parent.captureEndpointEvidence(endpoint),
+    bind: (id, request, child, endpoint, evidence) => input.parent.bind(id, request, child, endpoint, evidence),
     submit(parent, id, text) {
       if ("kind" in parent && parent.kind === "claude") return provider.submitClaudeParentAnswer(profile, parent, id, text);
       if ("kind" in parent && parent.kind === "cursor") {

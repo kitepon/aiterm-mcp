@@ -1,6 +1,6 @@
 {
   "name": "aiterm-mcp",
-  "version": "0.60.1",
+  "version": "0.61.0",
   "mcpName": "io.github.kitepon/aiterm-mcp",
   "description": "Persistent terminal MCP with one harness-based launcher for Claude Code, Codex CLI, Grok CLI, and Cursor Agent CLI, plus durable PTYs for SSH, containers, and REPLs.",
   "keywords": [
@@ -68,11 +68,12 @@
     "test:docs": "node --import ./test/seat-env.mjs --test test/repository-contract.test.mjs",
     "prepublishOnly": "npm run verify:release-commit && npm run build",
     "start": "node dist/index.js",
-    "test": "npm run build && node --import ./test/seat-env.mjs --test test/seat-env.test.mjs && node --import ./test/seat-env.mjs --test scripts/verify-release-commit.test.mjs test/*.test.mjs"
+    "test": "npm run build && node --import ./test/seat-env.mjs --test test/seat-env.test.mjs && node --import ./test/seat-env.mjs --test scripts/verify-release-commit.test.mjs test/*.test.mjs",
+    "ci:dependencies": "node scripts/install-ci-dependencies.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "aiterm-steer-delivery": "^0.4.7",
+    "aiterm-steer-delivery": "^0.5.0",
     "ws": "8.21.3",
     "zod": "^4.4.3"
   },

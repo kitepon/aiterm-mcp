@@ -58,7 +58,7 @@ jobs:
     with:
       environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
       comparison_base: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_base || '' }}
-      dependency-command: npm ci
+      dependency-command: npm run ci:dependencies
       documentation-command: npm run test:docs
       full-command: >-
         node --version && npm --version && node scripts/run-product-ci-tests.mjs

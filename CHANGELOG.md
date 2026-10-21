@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-10-22
+
 ### Added
 
 - Opt-in native MCP entry with `agent_stop({session_id})` / `{session_ids}`. It sends each harness's normal cancel key to recorded descendants before their callers, once per session, preserving conversations. Results report key delivery (`sent`, `partial`, `failed`, `idle`), not native completion proof. Stop does not wait for metadata checkpoints, in-flight requests, or interruption journals and does not permanently block the next input.
@@ -2696,7 +2698,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...HEAD
+[0.61.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.1...v0.61.0
 [0.60.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.0...v0.60.1
 [0.60.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.1...v0.60.0
 [0.59.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.0...v0.59.1

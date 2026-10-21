@@ -912,3 +912,8 @@ test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key
     assert.throws(()=>core.interruptSessionNow(f.name),error=>error.effect==='possible');assert.deepEqual(f.keys,['C-c']);assert.equal(f.native.present,true);
   }
 });
+
+test('normal successful listing with absent session returns idle without a key or metadata prerequisite', posix, t => {
+  const f=fixture(t);f.native.present=false;
+  assert.deepEqual(core.interruptSessionNow(f.name),{session_id:f.name,outcome:'idle'});assert.deepEqual(f.keys,[]);
+});

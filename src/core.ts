@@ -1311,7 +1311,7 @@ export function interruptSessionNow(name: string, expectedLaunchId?: string): Pt
   const listing = observeExecutionNativeSessions();
   if (listing.state !== "known") throw new ExecutionError("EXECUTION_UNCONFIRMED");
   const native = listing.sessions.find(session => session.session_id === name);
-  if (!native) throw new ExecutionError("EXECUTION_NOT_FOUND");
+  if (!native) return { session_id: name, outcome: "idle" };
   const meta = readInterruptionTarget(name);
   if (!meta || !["codex", "claude", "cursor", "grok"].includes(meta.kind)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const key = meta.kind === "codex" ? CODEX_INTERRUPT_KEY : meta.kind === "claude" ? CLAUDE_INTERRUPT_KEY

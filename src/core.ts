@@ -15,7 +15,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
-import type { ExecutionLaunch } from "./execution-contract.js";
+import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
@@ -1246,11 +1246,24 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
   }
 }
 
+export interface PtyKeyResult {
+  schema: "aiterm.pty-key-result.v1"; session_id: string; key: string;
+  outcome: "accepted"; interruption: "unconfirmed"; session_preserved: "unconfirmed";
+}
 export function sendKey(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): string {
+  const result = sendKeyResult(name, key, o);
+  return `sent key ${result.key} to ${result.session_id}`;
+}
+/** Native transport acknowledgement only. This does not observe a turn stop,
+ * a launch/conversation identity, or permission to retry a failed delivery.
+ */
+export function sendKeyResult(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): PtyKeyResult {
   assertExecutionContext(name);
   assertSessionName(name);
   if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い`, 2);
   const k = KEYMAP[key.toLowerCase()] ?? key;
+  const receipt = (): PtyKeyResult => ({ schema: "aiterm.pty-key-result.v1", session_id: name, key: k,
+    outcome: "accepted", interruption: "unconfirmed", session_preserved: "unconfirmed" });
   if (!o.preserveAgentOperation && managedClaudeOperation(name) !== undefined && k !== "C-c") {
     throw new AitermError(
       "aiterm相関付きClaude agent sessionではturn相関を壊さないC-cだけをpty_keyで送れます。" +
@@ -1266,11 +1279,62 @@ export function sendKey(name: string, key: string, o: { preserveAgentOperation?:
       raw: true,
       preserveAgentOperation: o.preserveAgentOperation,
     });
-    return `sent key ${k} to ${name}`;
+    return receipt();
   }
   const result = tmux("send-keys", "-t", name, k);
   if (result.code !== 0) throw new AitermError("制御キー送信を確認できません。自動再送やcloseへの切替はしていません。", 2);
-  return `sent key ${k} to ${name}`;
+  return receipt();
+}
+
+/** Private minimal harness primitive. The caller already owns the current
+ * run's native admission frame. No public pty_key guard bypass is exposed to
+ * Bridge/model args, and agent_stop remains disconnected until preservation
+ * and interruption/fence evidence are implemented. Never close or retry.
+ */
+export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
+  const point = executionPointSchema.parse(input), name = point.launch.session_id;
+  assertExecutionContext(name);
+  if (!point.boundary) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const verifyRun = (meta: AgentMetadata) => {
+    if (meta.kind === "codex") {
+      if (!point.boundary!.turn_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (codexRunningTurn(meta) !== point.boundary!.turn_id) throw new ExecutionError("EXECUTION_CONFLICT");
+    } else if (meta.kind === "claude") {
+      if (!point.boundary!.operation_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (readClaudeOperationMarker(meta)?.operationId !== point.boundary!.operation_id) throw new ExecutionError("EXECUTION_CONFLICT");
+    } else throw new ExecutionError("EXECUTION_UNSUPPORTED"); // no guessed C-c/Esc for Cursor/Grok
+  };
+  const current = () => {
+    const observed = observeExecutionSessionGeneration(name);
+    if (!observed.exists || !observed.launch_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    if (observed.launch_id !== point.launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    const meta = loadAgentMetadata(name);
+    if (meta.launch_id !== point.launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    verifyRun(meta);
+    const process = observeExecutionParentProcess(name) as { schema?: string; source?: ExecutionPoint;
+      harness?: string; harness_process?: { pid: number; started_identity: string } } | null;
+    const actor = process?.harness_process;
+    if (process?.schema !== "aiterm.execution-parent-process.v1" || !isDeepStrictEqual(process.source?.launch, point.launch)
+      || process.harness !== agentHarness(meta.kind) || !actor || !Number.isSafeInteger(actor.pid) || actor.pid < 1
+      || !Number.isFinite(Date.parse(actor.started_identity)) || !meta.execution_native)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const after = observeExecutionSessionGeneration(name), last = loadAgentMetadata(name);
+    if (!after.exists || after.launch_id !== point.launch.launch_id || last.kind !== meta.kind
+      || !isDeepStrictEqual(last.execution_native, meta.execution_native)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    verifyRun(last);
+    return { actor, native: meta.execution_native, kind: meta.kind };
+  };
+  const before = current();
+  bindExecutionNativeTarget(name, before.native.native_id);
+  beforeExecutionEffect(name, () => {
+    if (!isDeepStrictEqual(current(), before)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  });
+  // This address came from the same expected-generation native stamp, rather
+  // than a reusable name. Claude's operation marker is read, never cleared.
+  const result = tmux("send-keys", "-t", before.native.native_id, "Escape");
+  if (result.code !== 0) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+  return { schema: "aiterm.pty-key-result.v1", session_id: name, key: "Escape", outcome: "accepted",
+    interruption: "unconfirmed", session_preserved: "unconfirmed" };
 }
 
 export interface ReadOpts {

@@ -654,15 +654,18 @@ registerRemoteAwareTool(
 registerRemoteAwareTool(
   "pty_key",
   {
-    description: "制御キーを送る（C-c, C-d, Enter, Tab, Up, Down... の別名に対応）。aiterm相関付きClaude sessionではturn相関を守るためC-cだけを許可し、承認UIはclaude_approvalで操作する。",
+    description: "制御キーを送る（C-c, C-d, Enter, Tab, Up, Down... の別名に対応）。acceptedは入力受付であり処理中断/会話維持の確認ではない。aiterm相関付きClaudeではC-cだけを許可し、承認UIはclaude_approvalで操作する。",
     inputSchema: {
       session_id: z.string(),
       key: z.string().describe('キー名（例 "C-c", "Enter", "Up"）'),
     },
+    // Additive local receipt: do not require outputSchema from an older remote
+    // pty_key peer that still returns the existing text-only success.
   },
   async ({ session_id, key }) => {
     try {
-      return ok(core.sendKey(session_id, key));
+      const result = core.sendKeyResult(session_id, key);
+      return { ...ok(`sent key ${result.key} to ${result.session_id}`), structuredContent: { ...result } };
     } catch (e) {
       return fail(e);
     }

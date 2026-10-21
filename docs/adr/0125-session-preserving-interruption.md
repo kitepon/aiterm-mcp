@@ -47,9 +47,31 @@ already_idleはキーを送らない局所状態であり、下流や未確認�
 | Cursor | TUI観測にctrl+c to stop、transcriptにUser aborted requestの扱い | idle境界のC-cがCLI/会話を維持することと元run対応が未受入。Escの等価性も未確認。自動adapterはunsupported |
 | Grok | 保存済み画面にCtrl+c:cancel。turn_ended:cancelledを処理できる | send_nowのcancelledは後続turnへの継ぎ目で終了ではない。キーと維持条件の厳格な対応が不足し、自動adapterはunsupported |
 
-pty_keyの返りはsent key ...という文字列で、期待launch/現在run/会話維持のstructured receiptではない。
-send-keysの非0終了でもsentと返す不良を隔離修理し、非0なら成否未確認のエラーにする。
-0終了でもCLI中断確認へ昇格しない。Ctrl-C連打や別キー・closeへのfallbackは行わない。
+稼働版pty_keyの返りはsent key ...という文字列だけ。隔離枝は同じ文字列を保ち、入力受付だけを示す加算の
+structuredContentを添える。新tool名やlaunch/turnの推測を作らない。
+
+```ts
+{ schema: "aiterm.pty-key-result.v1", session_id: string, key: string,
+  outcome: "accepted", interruption: "unconfirmed", session_preserved: "unconfirmed" }
+```
+
+acceptedはmultiplexerのsend-keys commandが0終了したことを指し、CLIの処理中断/会話維持の確認ではない。
+send-keys非0でもsentと返す不良を修理し、非0なら成否未確認のエラーにする。再発行しない。
+相関付きClaudeのpublic C-c限定はこのreceipt追加で緩めない。Ctrl-C連打や別キー・closeへのfallbackも行わない。
+
+### 隔離した最小Esc primitive
+
+core.interruptExpectedAgentRunは、既存のnative admission frameと既存Pointを使うprivate部品。
+Codexは現在のnative turn_id、Claudeは現在の相関operation_idが一致するときだけEscを1回送る。
+managed metadataのnative ID/server owner、期待launch、唯一のnative harness PID/開始identityを前後に読み、
+harness読取の間の世代/native ID/actor/server交代やrun終了も作用前に拒否する。推測の同名補完はしない。
+送信先は検証したnative session IDで、CLIへ文章を送らず、Claude operation markerも消さない。
+public Claude pty_keyのguardを緩める引数はBridgeへ出さない。
+
+返りは上のキー受付receiptだけで、interruption/session_preservedはunconfirmedのまま。
+Cursor/Grok、run境界欠測、旧metadataのnative stamp欠測はunsupported。native送信失敗はpossibleで再発行しない。
+この部品はagent_stop/通常mainへ未接続。serviceのnative slot内でのfake受付も、処理の中断完了、native終了fence、
+会話endpoint維持、古いparent return抑止や同じlaunchの次依頼再開の受入を示さない。
 
 ## 正規control入口
 

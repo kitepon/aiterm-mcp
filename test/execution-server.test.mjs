@@ -78,7 +78,7 @@ async function fixture(t, environment = { AITERM_SESSION_ID: A.session_id, AITER
     if (['send-keys', 'kill-session'].includes(args[0])) {
       assert.equal(target, '=' + B.session_id + ':'); effects.push(args[0]);
       if (args[0] === 'kill-session') live.delete(B.session_id);
-      return ok('');
+      return args[0] === 'send-keys' && options.keyFailure ? { ...ok(''), status: 1 } : ok('');
     }
     assert.fail('unexpected synthetic process command: ' + args[0]);
   };
@@ -146,10 +146,22 @@ test('constructor control binding fixes host source from this initialized client
 test('real in-memory SDK handler sends one actual core key through the durable request frame and preserves its binding', posix, async t => {
   const f = await fixture(t), result = await f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'C-c' } });
   assert.equal(result.isError, undefined); assert.deepEqual(f.effects, ['send-keys']);
+  assert.deepEqual(result.structuredContent, { schema: 'aiterm.pty-key-result.v1', session_id: B.session_id, key: 'C-c',
+    outcome: 'accepted', interruption: 'unconfirmed', session_preserved: 'unconfirmed' });
+  assert.ok(result.content.some(item => item.text?.includes(`sent key C-c to ${B.session_id}`)));
   assert.deepEqual(result._meta[BINDING].source.point.launch, A); assert.deepEqual(result._meta[BINDING].target.launch, B);
   assert.equal(result._meta[BINDING].request.process_pid, native.pid);
   const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.records[0].operations.send, 'accepted'); assert.deepEqual(state.slots, []);
+});
+test('a rejected native key has no accepted structured receipt; the real SDK frame preserves uncertainty and never retries or closes', posix, async t => {
+  const f = await fixture(t, { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id }, { keyFailure: true });
+  const result = await f.client.callTool({ name: 'pty_key', arguments: { session_id: B.session_id, key: 'Escape' } });
+  assert.equal(result.isError, true); assert.equal(result.structuredContent?.outcome, undefined);
+  assert.equal(result._meta[ERROR].effect, 'possible'); assert.deepEqual(f.effects, ['send-keys']);
+  assert.deepEqual([...f.live.values()], [A, B]);
+  const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.slots.length, 1); assert.equal(state.slots[0].state, 'unknown');
 });
 test('all mutating handler families reject a stopped source before core, vendor auth, remote or automatic naming effects', posix, async t => {
   const f = await fixture(t); await f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [A] });

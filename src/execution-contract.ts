@@ -67,7 +67,8 @@ export const cascadeInterruptResultSchema = cascadeInterruptResultObjectSchema.s
   if (value.targets.some(target => (target.run && (target.run.launch.session_id !== target.launch.session_id
       || target.run.launch.launch_id !== target.launch.launch_id))
       || (target.key_receipt === "accepted" && !target.key)
-      || (target.interruption === "interrupted" && !target.run?.boundary))
+      || (target.interruption === "interrupted" && !target.run?.boundary)
+      || (target.interruption === "already_idle" && (target.key !== null || target.key_receipt !== "not_sent")))
     || value.roots.some(root => !value.targets.some(target => target.launch.session_id === root.session_id && target.launch.launch_id === root.launch_id))
     || (value.status === "confirmed" && (!value.targets.length || !value.targets.every(confirmed)
       || value.relation_coverage !== "complete" || value.unresolved.length > 0))

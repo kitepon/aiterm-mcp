@@ -45,6 +45,7 @@ test('accepted key, idle-looking screen, absent session and legacy closed receip
   assert.equal(cascadeInterruptResultSchema.safeParse(base).success, true);
   for (const mutation of [value => { value.status = 'confirmed'; }, value => { value.targets[0].interruption = 'closed'; },
     value => { value.targets[0].interruption = 'already_closed'; }, value => { value.targets[0].interruption = 'interrupted'; value.targets[0].session_preserved = 'confirmed'; },
+    value => { value.targets[0].interruption = 'already_idle'; },
     value => { value.status = 'confirmed'; value.targets = []; value.relation_coverage = 'complete'; }]) {
     const value = structuredClone(base); mutation(value); assert.equal(cascadeInterruptResultSchema.safeParse(value).success, false);
   }
@@ -59,6 +60,9 @@ test('existing key aliases deliver a single synthetic key and return only transp
   };
   assert.equal(core.sendKey('synthetic-key', 'esc'), 'sent key Escape to synthetic-key');
   assert.equal(core.sendKey('synthetic-key', 'ctrl-c'), 'sent key C-c to synthetic-key'); assert.deepEqual(keys, ['Escape', 'C-c']);
+  assert.deepEqual(core.sendKeyResult('synthetic-key', 'esc'), { schema: 'aiterm.pty-key-result.v1', session_id: 'synthetic-key', key: 'Escape',
+    outcome: 'accepted', interruption: 'unconfirmed', session_preserved: 'unconfirmed' });
+  assert.deepEqual(keys, ['Escape', 'C-c', 'Escape']);
 });
 test('a failed native key command is not reported sent and never escalates to retry/close/kill', { skip: process.platform === 'win32' }, () => {
   const commands = []; runner = (bin, args) => {

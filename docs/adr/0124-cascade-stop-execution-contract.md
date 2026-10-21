@@ -375,6 +375,20 @@ indexの全handlerへのframe供給、direct request ID/native process identity�
 auto-name、普通PTY/authのmanaged launch無しの世代、remote source-only admission、parent queue/hookのscopeは未接続。
 この状態では一般PTYをunsupportedへ変える一括有効化やpublic mountを行わない。coverageはincompleteを維持する。
 
+`createExecutionDispatcher`は、名前が固定されたmanaged targetについて、実SDKの`extra.requestId`と
+serving processの既存pid/started_identityを内部mcp参照へ結ぶ隔離adapter。
+既存handlerはdispatcherが固定したargs/extraを使い、最初のnative作用で共有slotを発行する。
+SDK extraのsignal/通知関数はそのまま保持し、source meta/引数だけを要求ごとにcloneする。
+初期化済client名/stdio環境/native identityはモデル引数から取得しない。
+source環境の一部欠落/不一致を独立operatorへ読み替えず、作用前に未確認とする。
+
+BellTeamのlaunch/sendはregisterで固定済みの既存delivery/room/call参照を使う。
+後続要求へhost source metaの再添付は要求しない。明示添付されたcontextが保存sourceと違う時は拒否する。
+direct CLIがそのhost参照やmcp参照のcontrol名をtool引数で借りることは認めない。
+無追跡steerは世代edgeとして保持し、新しいdispatch cursorを作らない。
+receipt後の結合欠測では元成功receiptを維持し、unknown slotとstatus-onlyを残す。
+auto-name/普通PTY/remoteはこのadapterへまだ接続せず、adapter単体を一括mountしない。
+
 具体的なlaunch/send handlerは`runBoundExecution(..., body, actualTargetSessionId)`の最後の引数へ
 実際に発行するimmutableな対象引数を渡す。serviceは予約と一致しない対象を作用/slot発行前に拒否する。
 返却receiptの対象違いだけを作用後に検出する形へしない。省略形は既存の注入adapter互換用であり、

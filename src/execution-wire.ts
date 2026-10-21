@@ -57,6 +57,24 @@ export const executionRecordSchema = z.object({
 }).strict();
 export type ExecutionRecord = z.infer<typeof executionRecordSchema>;
 
+export const executionRootsRequestSchema = z.object({
+  session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+}).strict();
+export const executionRootsResultObjectSchema = z.object({
+  schema: z.literal("aiterm.execution-roots.v1"), session_id: z.string(),
+  observation: z.enum(["present", "absent", "unknown"]), current: executionLaunchSchema.nullable(),
+  roots: z.array(executionLaunchSchema), relation_coverage: z.enum(["complete", "incomplete"]),
+  unresolved: z.array(z.object({ request: executionRequestSchema.nullable(), reason: z.string() }).strict()),
+}).strict();
+export const executionRootsResultSchema = executionRootsResultObjectSchema.superRefine((value, context) => {
+  if (value.roots.some(root => root.session_id !== value.session_id)
+    || (value.current && (value.observation !== "present" || value.current.session_id !== value.session_id
+      || !value.roots.some(root => root.launch_id === value.current!.launch_id)))
+    || (value.relation_coverage === "complete" && (value.unresolved.length > 0 || value.observation === "unknown"
+      || (value.observation === "present" && !value.current))))
+    context.addIssue({ code: "custom", message: "root lookup must preserve scope and report missing evidence" });
+});
+
 export const executionErrorCodeSchema = z.enum([
   "EXECUTION_INVALID", "EXECUTION_NOT_FOUND", "EXECUTION_CONFLICT", "EXECUTION_STOPPING",
   "EXECUTION_STALE_GENERATION", "EXECUTION_UNCONFIRMED", "EXECUTION_BUSY",
@@ -96,4 +114,5 @@ export function executionRefFromMeta(meta: unknown): z.infer<typeof executionRef
 export const EXECUTION_TOOL_CONTRACT = {
   agent_execution: { input: executionActionSchema, output: executionRecordSchema },
   agent_stop: { input: cascadeStopRequestSchema, output: cascadeStopResultSchema },
+  agent_execution_roots: { input: executionRootsRequestSchema, output: executionRootsResultSchema },
 } as const;

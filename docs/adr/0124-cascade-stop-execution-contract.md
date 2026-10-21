@@ -81,7 +81,8 @@ source native turnが取れないことを、世代まで取れた実配送の�
 
 ## 登録と寿命
 
-提案入口は`agent_execution` register/status/finishと`agent_stop`。まだtools/listへ追加していない。
+隔離実装の入口は`agent_execution` register/status/finishと`agent_stop`、読取専用の`agent_execution_roots`。
+稼働版のtools/listへはまだ追加していない。
 既存RequestRefで冪等照合し、同じ参照でsource/targetを変える再登録はconflict。送信は再発行しない。
 
 ```ts
@@ -166,6 +167,32 @@ done/当該中断と、その実行の発行済み関係fenceを別に記録す�
 not_sentでも既に空launchが成功していれば、その実launch edgeは消さず保持する。
 interruptedは期待launchの消失と未決変更が無いことを再観測する。RPC reject後の単なる消失はこれに当たらない。
 確定済みの同じ終了証拠は冪等。doneでもtarget_fence=unknownならlifecycle=trackingであり退役完了ではない。
+
+### 席absent・job消失後のroot世代読取
+
+```ts
+// tool: agent_execution_roots （新規登録/停止をしない）
+{ session_id: string }
+// structuredContent
+{ schema: "aiterm.execution-roots.v1", session_id: string,
+  observation: "present" | "absent" | "unknown", current: LaunchRef | null,
+  roots: LaunchRef[], relation_coverage: "complete" | "incomplete",
+  unresolved: { request: RequestRef | null; reason: string }[] }
+```
+
+同じAiterm state scopeの共有metadataと現在観測を短い同じ排他内で読み、metadataは書き換えない。
+rootsは、現在観測で確定したlaunchに加え、未完了branchに保存された同席のsource/実target、
+未送信reservationの確認済み期待target、発行済み/結果不明slotの期待世代だけ。
+局所完了でも未完了下流を持つ接続は含む。完了/退役済み履歴から最新一件を選ばない。
+source_session_id hintだけでlaunchを生成せず、別席のincoming親をrootへ混ぜない。
+同席に未完了の旧世代と現在世代があれば、両方を既存参照で明示する。
+
+jobやBridge本体が失われてもAitermの記録が残っていれば、このrootsをagent_stopの期待rootsへ渡せる。
+queryとstopは別要求なのでsnapshotであり、query自体は受付fenceではない。
+世代交代はagent_stop側でも再照合し、query時の旧世代を同名新launchへ繋ぎ替えない。
+rootsが空でもcoverage不足、世代/現在観測不明、発行済みslot不明なら未確認を返す。
+空配列だけから「未記録の子孫まで停止済み」と判断しない。状態破損/放棄lockは型付き拒否で、空の成功結果へ変えない。
+BridgeはBot IDから世代を推測せず、この読取結果または保持済みbindingの期待世代を使う。
 
 ### 型付きエラーとreceiptを失わない返り
 

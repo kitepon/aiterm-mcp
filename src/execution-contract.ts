@@ -130,9 +130,7 @@ export interface CascadePlan {
  * Terminal history is excluded unless needed to reach unfinished descendants.
  * Atomic runtime admission/draining and closure verification are separate work.
  */
-export function planCascadeStop(rootInput: unknown, relationInput: unknown): CascadePlan {
-  const roots = z.array(executionLaunchSchema).min(1).parse(rootInput);
-  const relations = z.array(executionRelationSchema).parse(relationInput);
+function relationActivity(relations: ExecutionRelation[]): { active: Set<number>; uncertainRetention: Set<number> } {
   const active = new Set<number>();
   const uncertainRetention = new Set<number>();
   for (let i = 0; i < relations.length; i++) {
@@ -165,6 +163,18 @@ export function planCascadeStop(rootInput: unknown, relationInput: unknown): Cas
       }
     }
   }
+  return { active, uncertainRetention };
+}
+
+export function unfinishedExecutionRelations(input: unknown): ExecutionRelation[] {
+  const relations = z.array(executionRelationSchema).parse(input);
+  return [...relationActivity(relations).active].map(index => relations[index]);
+}
+
+export function planCascadeStop(rootInput: unknown, relationInput: unknown): CascadePlan {
+  const roots = z.array(executionLaunchSchema).min(1).parse(rootInput);
+  const relations = z.array(executionRelationSchema).parse(relationInput);
+  const { active, uncertainRetention } = relationActivity(relations);
   const plan: CascadePlan = { targets: [], retained: [], cancel_reservations: [], gaps: [] };
   const visited = new Set<string>();
   const reported = new Set<string>();

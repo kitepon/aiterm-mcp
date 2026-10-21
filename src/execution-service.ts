@@ -1,10 +1,10 @@
 // Metadata/admission service with injected runtime. It never owns a payload or
 // retries a launch/send/close. The core/MCP adapter is a separate integration.
 import { z } from "zod";
-import { assessExecutionSource, planCascadeStop, cascadeStopRequestSchema, cascadeStopResultSchema,
+import { assessExecutionSource, planCascadeStop, unfinishedExecutionRelations, cascadeStopRequestSchema, cascadeStopResultSchema,
   executionPointSchema, type ExecutionLaunch, type ExecutionPoint, type ExecutionRequest,
   type ExecutionSourceEvidence } from "./execution-contract.js";
-import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, ExecutionError,
+import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, executionRootsRequestSchema, executionRootsResultSchema, ExecutionError,
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
 
@@ -16,7 +16,7 @@ export interface ExecutionRuntime {
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
   // complete. Old/untracked/remote paths must not be inferred from graph shape.
-  coverage(roots: ExecutionLaunch[]): Promise<"complete" | "incomplete">;
+  coverage(roots: ExecutionLaunch[], sessionIdHint?: string): Promise<"complete" | "incomplete">;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 const key = (value: unknown): string => JSON.stringify(value);
@@ -59,8 +59,57 @@ export class ExecutionService {
   async execute(input: unknown): Promise<ExecutionRecord> {
     const args = executionActionSchema.parse(input);
     if (args.action === "register") return this.register(args);
-    if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)));
+    if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)), { readOnly: true });
     return this.finish(args);
+  }
+
+  /** Read-only root selection, not a stop or a reservation. Generations come
+   * only from current observation or persisted unfinished relations/slots. A
+   * completed/retired contact never becomes a root just because its name matches.
+   */
+  async roots(input: unknown): Promise<z.infer<typeof executionRootsResultSchema>> {
+    const { session_id } = executionRootsRequestSchema.parse(input);
+    return this.store.transaction(async state => {
+      const current = await this.runtime.observe(session_id).catch((): Observation => ({ state: "unknown" }));
+      const roots = new Map<string, ExecutionLaunch>();
+      const unresolved: z.infer<typeof executionRootsResultSchema>["unresolved"] = [];
+      const relations = state.records.map(record => record.relation);
+      const active = unfinishedExecutionRelations(relations);
+      for (const relation of active) {
+        if (relation.source?.launch.session_id === session_id) roots.set(key(relation.source.launch), relation.source.launch);
+        else if (!relation.source && relation.source_session_id === session_id)
+          unresolved.push({ request: relation.request, reason: "source_generation_missing" });
+        if (relation.target?.launch.session_id === session_id) roots.set(key(relation.target.launch), relation.target.launch);
+        const record = find(state, relation.request);
+        if (relation.phase === "reserved" && record.reservation.target.session_id === session_id
+          && record.reservation.target.expected_launch_id) {
+          const expected = { session_id, launch_id: record.reservation.target.expected_launch_id };
+          roots.set(key(expected), expected);
+        }
+        if (!relation.target && relation.phase !== "reserved" && record.reservation.target.session_id === session_id)
+          unresolved.push({ request: relation.request, reason: "target_generation_missing" });
+      }
+      if (current.state === "present" && current.launch) roots.set(key(current.launch), current.launch);
+      else if (current.state === "unknown" || current.state === "present")
+        unresolved.push({ request: null, reason: "current_generation_unconfirmed" });
+      for (const slot of state.slots) if (slot.session_id === session_id || (slot.request &&
+        find(state, slot.request).source_session_id === session_id)) {
+        if (slot.session_id === session_id && slot.expected_launch_id) {
+          const expected = { session_id, launch_id: slot.expected_launch_id };
+          roots.set(key(expected), expected);
+        }
+        unresolved.push({ request: slot.request, reason: "issued_operation_unconfirmed" });
+      }
+      const selected = [...roots.values()];
+      if (selected.length) for (const gap of planCascadeStop(selected, relations).gaps)
+        if (!unresolved.some(value => same(value.request, gap.request) && value.reason === gap.reason))
+          unresolved.push({ request: gap.request, reason: gap.reason });
+      const coverage = await this.runtime.coverage(selected, session_id);
+      if (coverage !== "complete") unresolved.push({ request: null, reason: "relation_coverage_incomplete" });
+      return executionRootsResultSchema.parse({ schema: "aiterm.execution-roots.v1", session_id,
+        observation: current.state, current: current.state === "present" ? current.launch : null,
+        roots: selected, relation_coverage: !unresolved.length && coverage === "complete" ? "complete" : "incomplete", unresolved });
+    }, { readOnly: true });
   }
 
   private async register(args: ExecutionRegister): Promise<ExecutionRecord> {
@@ -330,7 +379,14 @@ export class ExecutionService {
         this.interruptRelations(state, launch);
       });
       return result("closed", "expected_launch_absence_confirmed");
-    } catch {
+    } catch (error) {
+      if (error instanceof ExecutionError && error.effect === "not_started") {
+        await this.store.transaction(state => {
+          state.slots = state.slots.filter(slot => !(slot.session_id === launch.session_id && slot.stage === "close"));
+        });
+        return result(error.code === "EXECUTION_UNSUPPORTED" ? "unsupported"
+          : error.code === "EXECUTION_STALE_GENERATION" ? "replaced" : "unknown", error.code);
+      }
       await this.store.transaction(state => {
         const slot = state.slots.find(value => value.session_id === launch.session_id && value.stage === "close");
         if (slot) slot.state = "unknown";

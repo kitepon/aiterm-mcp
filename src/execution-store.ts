@@ -12,14 +12,14 @@ export const executionStateSchema = z.object({
   schema: z.literal("aiterm.execution-state.v1"),
   records: z.array(executionRecordSchema), stopping: z.array(executionLaunchSchema),
   slots: z.array(z.object({
-    session_id: z.string(), expected_launch_id: z.string().nullable(),
+    session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
     stage: z.enum(["launch", "send", "close", "configure"]),
     state: z.enum(["issued", "unknown"]), request: executionRequestSchema.nullable(),
   }).strict()),
 }).strict();
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 export interface ExecutionStore {
-  transaction<T>(body: (state: ExecutionState) => T | Promise<T>): Promise<T>;
+  transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
 }
 export function emptyExecutionState(): ExecutionState {
   return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [] };
@@ -27,7 +27,7 @@ export function emptyExecutionState(): ExecutionState {
 
 export class FileExecutionStore implements ExecutionStore {
   constructor(readonly directory: string, private readonly lockTimeoutMs = 2000) {}
-  async transaction<T>(body: (state: ExecutionState) => T | Promise<T>): Promise<T> {
+  async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const lock = path.join(this.directory, "transaction.lock");
     const statePath = path.join(this.directory, "relations.json");
@@ -51,7 +51,7 @@ export class FileExecutionStore implements ExecutionStore {
       // A callback exception commits nothing. Mutations must be prepared inside
       // this short transaction, and side effects must run after it commits.
       const result = await body(state);
-      writeJson0600(statePath, executionStateSchema.parse(state));
+      if (!options.readOnly) writeJson0600(statePath, executionStateSchema.parse(state));
       return structuredClone(result);
     } finally {
       try { fs.rmdirSync(lock); } catch { /* fail closed for subsequent callers */ }

@@ -1,7 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ExecutionService } from '../dist/execution-service.js';
@@ -199,9 +199,19 @@ test('close effect followed by reject remains unknown, blocks replacement and is
   const result = await f.service.stop(stop([B]));
   assert.equal(result.status, 'unconfirmed');
   const restarted = new ExecutionService(new FileExecutionStore(f.directory), f.runtime, 10);
+  const roots = await restarted.roots({ session_id: B.session_id });
+  assert.deepEqual(roots.roots, [B]);
+  assert.equal(roots.relation_coverage, 'incomplete');
   assert.equal((await restarted.stop(stop([B]))).status, 'unconfirmed');
   await assert.rejects(restarted.execute(f.registration('new-b', A, B, null)), code('EXECUTION_UNCONFIRMED'));
   assert.equal(f.closes.length, 1);
+});
+test('an unsupported close adapter reports unsupported without fabricating a successful close', async () => {
+  const f = fixture(); f.runtime.close = async () => { throw new ExecutionError('EXECUTION_UNSUPPORTED', 'not_started'); };
+  const result = await f.service.stop(stop([B]));
+  assert.equal(result.status, 'unconfirmed');
+  assert.equal(result.targets[0].outcome, 'unsupported');
+  assert.equal(f.closes.length, 0);
 });
 test('a reached old launch does not close its same-name replacement, but retains known descendants', async () => {
   const f = fixture();
@@ -288,11 +298,14 @@ test('fake in-memory MCP publishes and validates register/status/finish and agen
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   try {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    assert.deepEqual((await client.listTools()).tools.map(value => value.name), ['agent_execution', 'agent_stop']);
+    assert.deepEqual((await client.listTools()).tools.map(value => value.name), ['agent_execution', 'agent_stop', 'agent_execution_roots']);
     const registered = await client.callTool({ name: 'agent_execution', arguments: f.registration('ab') });
     const record = registered.structuredContent;
     assert.equal(record.schema, 'aiterm.execution-record.v1');
     assert.deepEqual(registered._meta[EXECUTION_BINDING_META_KEY].request, record.reservation.request);
+    const roots = await client.callTool({ name: 'agent_execution_roots', arguments: { session_id: A.session_id } });
+    assert.equal(roots.structuredContent.schema, 'aiterm.execution-roots.v1');
+    assert.deepEqual(roots.structuredContent.current, A);
     await f.send(record);
     const status = await client.callTool({ name: 'agent_execution', arguments: { action: 'status', request: record.reservation.request } });
     assert.equal(status.structuredContent.operations.send, 'accepted');
@@ -314,11 +327,67 @@ test('file corruption and an abandoned transaction lock do not become an empty s
   const f = fixture();
   writeFileSync(join(f.directory, 'relations.json'), '{');
   await assert.rejects(f.service.stop(stop([A])), code('EXECUTION_STATE_UNAVAILABLE'));
+  await assert.rejects(f.service.roots({ session_id: A.session_id }), code('EXECUTION_STATE_UNAVAILABLE'));
   assert.equal(f.closes.length, 0);
   const other = fixture(); mkdirSync(join(other.directory, 'transaction.lock'));
   const locked = new ExecutionService(new FileExecutionStore(other.directory, 1), other.runtime);
   await assert.rejects(locked.stop(stop([A])), code('EXECUTION_BUSY'));
   assert.equal(other.closes.length, 0);
+});
+test('root lookup recovers an absent source generation with unfinished descendants after service reconstruction', async () => {
+  const f = fixture(); await f.send(await f.register('ab')); f.live.delete(A.session_id);
+  const reconstructed = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
+  const result = await reconstructed.roots({ session_id: A.session_id });
+  assert.equal(result.observation, 'absent');
+  assert.equal(result.current, null);
+  assert.deepEqual(result.roots, [A]);
+  const stopped = await reconstructed.stop(stop(result.roots));
+  assert.equal(stopped.status, 'stopped');
+  assert.deepEqual(f.closes, [B]);
+});
+test('root lookup retains locally completed connectors but excludes completed history and unrelated seats', async () => {
+  const f = fixture();
+  const ab = (await f.send(await f.register('ab'))).record;
+  const bc = (await f.send(await f.register('bc', B, C), C)).record;
+  await f.send(await f.register('db-independent', D, B));
+  await f.finish(ab); f.live.delete(A.session_id);
+  assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, [A]);
+  await f.finish(bc);
+  assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, []);
+});
+test('current replacement and a genuinely unfinished old generation are both explicit roots', async () => {
+  const f = fixture(); await f.send(await f.register('ab'));
+  const replacement = launch('a', 'e'); f.live.set(A.session_id, replacement);
+  const result = await f.service.roots({ session_id: A.session_id });
+  assert.deepEqual(result.current, replacement);
+  assert.deepEqual(result.roots, [A, replacement]);
+});
+test('a persisted incoming target receipt also proves the absent seat generation', async () => {
+  const f = fixture(); await f.send(await f.register('da', D, A), A); f.live.delete(A.session_id);
+  assert.deepEqual((await f.service.roots({ session_id: A.session_id })).roots, [A]);
+});
+test('generation-missing source hints never fabricate an old root', async () => {
+  const f = fixture(), input = f.registration('ab'); input.reservation.source.launch = null;
+  await f.send(await f.service.execute(input)); f.live.delete(A.session_id);
+  const result = await f.service.roots({ session_id: A.session_id });
+  assert.deepEqual(result.roots, []);
+  assert.equal(result.relation_coverage, 'incomplete');
+  assert.ok(result.unresolved.some(value => value.reason === 'source_generation_missing'));
+});
+test('absent and empty is not complete when record coverage is missing', async () => {
+  const f = fixture(); f.live.delete(A.session_id); f.runtime.coverage = async () => 'incomplete';
+  const result = await f.service.roots({ session_id: A.session_id });
+  assert.deepEqual(result.roots, []);
+  assert.equal(result.relation_coverage, 'incomplete');
+});
+test('lookup of old-generation records is read-only and does not register, stop or rewrite metadata', async () => {
+  const f = fixture(); await f.send(await f.register('ab')); f.live.delete(A.session_id);
+  const statePath = join(f.directory, 'relations.json'), before = readFileSync(statePath, 'utf8');
+  const beforeStat = statSync(statePath, { bigint: true });
+  await f.service.roots({ session_id: A.session_id });
+  assert.equal(readFileSync(statePath, 'utf8'), before);
+  assert.equal(statSync(statePath, { bigint: true }).mtimeNs, beforeStat.mtimeNs);
+  assert.equal(f.closes.length, 0);
 });
 test('typed errors redact arbitrary exceptions; request metadata is strict and contains only an existing reference', () => {
   assert.deepEqual(executionRefFromMeta({ [EXECUTION_REQUEST_META_KEY]: ref(request('ab')) }), ref(request('ab')));

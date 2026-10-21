@@ -5,6 +5,7 @@ import { z } from "zod";
 import { executionReservationSchema, executionRequestSchema, cascadeStopRequestSchema, cascadeStopResultObjectSchema,
   type ExecutionPoint } from "./execution-contract.js";
 import { executionFinishSchema, executionRecordSchema, executionBindingSchema,
+  executionRootsRequestSchema, executionRootsResultObjectSchema,
   executionRefFromMeta, executionErrorResult, ExecutionError,
   EXECUTION_BINDING_META_KEY, EXECUTION_ERROR_META_KEY,
   type ExecutionRecord } from "./execution-wire.js";
@@ -26,6 +27,7 @@ export function executionBindingMeta(record: ExecutionRecord): Record<string, un
 export function createExecutionToolHandlers(service: ExecutionService): {
   agent_execution(input: unknown): Promise<ToolResult>;
   agent_stop(input: unknown): Promise<ToolResult>;
+  agent_execution_roots(input: unknown): Promise<ToolResult>;
 } {
   return {
     async agent_execution(input) {
@@ -38,6 +40,12 @@ export function createExecutionToolHandlers(service: ExecutionService): {
     async agent_stop(input) {
       try {
         const result = await service.stop(input);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return executionErrorResult(error); }
+    },
+    async agent_execution_roots(input) {
+      try {
+        const result = await service.roots(input);
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return executionErrorResult(error); }
     },
@@ -61,6 +69,11 @@ export function registerExecutionTools(server: McpServer, service: ExecutionServ
     inputSchema: { ...cascadeStopRequestSchema.shape, remote: z.never().optional() },
     outputSchema: cascadeStopResultObjectSchema.shape,
   }, async args => handlers.agent_stop(args));
+  server.registerTool("agent_execution_roots", {
+    description: "指定席の現在launchと保存済み未完了branchの実世代/期待世代を読む。過去完了履歴は返さず、停止や登録は行わない。",
+    inputSchema: { ...executionRootsRequestSchema.shape, remote: z.never().optional() },
+    outputSchema: executionRootsResultObjectSchema.shape,
+  }, async args => handlers.agent_execution_roots(args));
 }
 
 /** Wrapper for the registered launch/send path. A successful action receipt

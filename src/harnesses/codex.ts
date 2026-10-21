@@ -459,6 +459,7 @@ function codexLatestTurnBoundary(meta: AgentMetadata, reach: "tail" | "whole"): 
  */
 export function codexInterruptionRecord(meta: AgentMetadata): {
   session_id: string; file: { device: number; inode: number };
+  event_cursor: number;
   boundary: { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: string; reason: string | null };
 } | null {
   if (meta.kind !== "codex" || meta.hook_route !== "shared_codex_home" || !meta.codex_home) return null;
@@ -513,11 +514,15 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
     if (matches.length !== 1) return null;
     const file = matches[0], before = fs.statSync(file), session = header(file);
     if (!session || !before.isFile()) return null;
-    const boundary = scanLinesNewestFirst(file, codexTurnBoundaryLine, AGENT_TURN_BOUNDARY_TAIL_BYTES);
+    const boundary = scanLinesNewestFirst(file, (line, offset) => {
+      const value = codexTurnBoundaryLine(line);
+      return value ? { ...value, event_cursor: offset } : value;
+    }, AGENT_TURN_BOUNDARY_TAIL_BYTES);
     const after = fs.statSync(file);
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-      || !boundary || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
+      || !boundary || !Number.isSafeInteger(boundary.event_cursor) || boundary.event_cursor < 0
+      || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
       || (boundary.type === "turn_aborted" && typeof boundary.reason !== "string")) return null;
     // Re-resolve the candidate set, without the ordinary launch-verdict cache.
     const last = listStrict();
@@ -529,7 +534,7 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
     const final = fs.statSync(file);
     if (after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size
       || after.mtimeMs !== final.mtimeMs || after.ctimeMs !== final.ctimeMs) return null;
-    return { session_id: session, file: { device: before.dev, inode: before.ino },
+    return { session_id: session, file: { device: before.dev, inode: before.ino }, event_cursor: boundary.event_cursor,
       boundary: { type: boundary.type, turn_id: boundary.turn_id,
         reason: typeof boundary.reason === "string" ? boundary.reason : null } };
   } catch { return null; }

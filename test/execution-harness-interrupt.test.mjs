@@ -258,23 +258,37 @@ test('real core native run evidence and one Esc join the shared per-run journal,
   await assert.rejects(service.interruptRun(f.point, () => core.interruptExpectedAgentRun(f.point)));
   assert.deepEqual(f.keys, ['Escape']);
 });
-test('native selector reads the explicit launch/current native turn and real event-log boundary without manufacturing a dispatch alias', posix, t => {
+test('native selector uses the task_started byte boundary in the native rollout, independently of the common event log', posix, t => {
   const f = fixture(t), metadata = readFileSync(f.metadata, 'utf8');
+  const expectedOffset = Buffer.byteLength(f.head.join('\n') + '\n');
   const selected = core.selectExpectedAgentRunInterruption(f.point.launch);
-  assert.deepEqual(selected.run, f.point); assert.equal(selected.recorded_state, 'running');
+  assert.equal(selected.run.boundary.event_cursor, expectedOffset);
+  assert.equal(selected.run.boundary.turn_id, f.point.boundary.turn_id);
+  assert.equal(selected.recorded_state, 'running');
   assert.equal(selected.invocation_fence, 'unknown'); assert.equal(selected.session_preserved, 'unconfirmed');
   assert.equal(readFileSync(f.metadata, 'utf8'), metadata); assert.deepEqual(f.keys, []);
-  writeFileSync(f.meta.event_file, '{}\n');
-  const later = core.selectExpectedAgentRunInterruption(f.point.launch);
-  assert.equal(later.run.boundary.event_cursor, 3); assert.equal(later.run.boundary.turn_id, selected.run.boundary.turn_id);
-  assert.deepEqual(f.point.boundary.event_cursor, 0, 'do not overwrite the original reference');
+  writeFileSync(f.meta.event_file, 'unrelated共通event log\n');
+  assert.deepEqual(core.selectExpectedAgentRunInterruption(f.point.launch), selected);
+  rmSync(f.meta.event_file);
+  assert.deepEqual(core.selectExpectedAgentRunInterruption(f.point.launch), selected, 'common event file is not the Codex cursor source');
+  assert.equal(f.point.boundary.event_cursor, 0, 'do not overwrite the original dispatch reference');
+  const prelude = JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '別の記録🚀' }] } }) + '\n';
+  writeFileSync(f.transcript, f.head.join('\n') + '\n' + prelude + JSON.stringify({ type: 'event_msg', payload: { type: 'task_started', turn_id: 'next-native-turn' } }) + '\n');
+  const next = core.selectExpectedAgentRunInterruption(f.point.launch);
+  assert.equal(next.run.boundary.event_cursor, expectedOffset + Buffer.byteLength(prelude), 'byte count, not JS character count');
+  assert.equal(next.run.boundary.turn_id, 'next-native-turn');
 });
-test('native selector refuses missing/symlink event refs, event mutation during proof, ended turn, other CLI and replacement launch', posix, t => {
-  for (const change of ['missing', 'symlink', 'event-race', 'done', 'other-kind', 'generation']) {
+test('native selector refuses missing/symlink native refs, native boundary mutation during proof, ended turn, other CLI and replacement launch', posix, t => {
+  for (const change of ['missing', 'symlink', 'native-race', 'same-turn-offset-race', 'done', 'other-kind', 'generation']) {
     const f = fixture(t, change === 'other-kind' ? 'claude' : 'codex');
-    if (change === 'missing') rmSync(f.meta.event_file);
-    if (change === 'symlink') { rmSync(f.meta.event_file); symlinkSync(f.transcript, f.meta.event_file); }
-    if (change === 'event-race') f.control.afterFirstTable = () => writeFileSync(f.meta.event_file, '{}\n');
+    if (change === 'missing') rmSync(f.transcript);
+    if (change === 'symlink') { rmSync(f.transcript); symlinkSync(f.meta.event_file, f.transcript); }
+    if (change === 'native-race') f.control.afterFirstTable = () => f.writeTurn('task_started', 'new-turn');
+    if (change === 'same-turn-offset-race') f.control.afterFirstTable = () => {
+      const text = readFileSync(f.transcript, 'utf8');
+      if (!text.includes('unrelated')) writeFileSync(f.transcript, text.replace('"type":"event_msg"', '"padding":"unrelated","type":"event_msg"')
+        .replace('\n{"padding"', '\n{}\n{"padding"'));
+    };
     if (change === 'done') f.writeTurn('task_complete');
     const expected = change === 'generation' ? { ...f.point.launch, launch_id: 'f'.repeat(32) } : f.point.launch;
     assert.throws(() => core.selectExpectedAgentRunInterruption(expected), undefined, change); assert.deepEqual(f.keys, []);

@@ -152,9 +152,9 @@ local default runtimeへの追加や実行は行わない。
 ### 現在native runのread-only selector
 
 private `core.selectExpectedAgentRunInterruption(expectedLaunch)` は、明示した期待世代と現在のnative root記録を読み、
-Codexのtask_started turnと既存event logの観測byte境界を固定する。元dispatch Pointを引数に作らせない。
-期待native generation/harness/会話の再照合に加え、event logは正規のlaunch別path・regular fileを必要とし、
-read前後のinode/size/mtime/ctimeの不一致、欠測/symlinkを拒否する。無いfileを0 cursorで補完しない。
+Codexのtask_started turnとそのnative rollout内の行頭byte境界を固定する。元dispatch Pointを引数に作らせない。
+期待native generation/harness/会話と同じnative境界を再照合し、native記録のinode/size/mtime/ctimeの競合、
+欠測/symlinkを拒否する。共通event_fileの長さをCodex cursorへ流用せず、無いnative記録を0で補完しない。
 他CLI/idle/終了したturnはunsupported/not_sentでキー推測をしない。
 
 このPointは**現在処理の観測参照**であり、before_sendや元配送へのnative aliasではない。

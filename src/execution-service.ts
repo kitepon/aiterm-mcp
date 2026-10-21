@@ -32,6 +32,10 @@ export interface ExecutionRuntime {
   // Private native adapter only. No tool args/claim echo, asynchronous fallback
   // or generic completion/closed observation can provide this evidence.
   interruptionSync?(point: ExecutionPoint): unknown;
+  // Private current-run selection and key transport. These are deliberately
+  // absent from the default runtime and the public stop control.
+  selectInterruptionSync?(launch: ExecutionLaunch): unknown;
+  interruptKeySync?(point: ExecutionPoint): unknown;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 const key = (value: unknown): string => JSON.stringify(value);
@@ -201,24 +205,28 @@ export class ExecutionService {
    */
   async settleInterruption(input: ExecutionPoint) {
     const run = executionPointSchema.parse(input);
-    return this.store.transaction(state => {
-      const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
-      if (!row || row.phase !== "accepted" || interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-      const observation = this.interruptObservation(run);
-      if (observation.recorded_state !== "interrupted" || observation.invocation_fence !== "closed"
-        || observation.session_preserved !== "confirmed" || !isDeepStrictEqual(interruptionIdentity(observation), interruptionIdentity(row.before)))
-        throw new ExecutionError("EXECUTION_UNCONFIRMED");
-      const last = this.interruptObservation(run);
-      if (!isDeepStrictEqual(last, observation)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-      if (!state.slots.some(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-      row.phase = "settled";
-      state.slots = state.slots.filter(slot => !(slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)));
-      for (const record of state.records) if (record.relation.lifecycle !== "retired" && isDeepStrictEqual(record.relation.target, run)) {
-        record.relation.completion = "interrupted"; record.relation.target_fence = "closed";
-      }
-      retireSettledBranches(state);
-      return row;
-    });
+    return this.store.transaction(state => this.settleInterruptionState(state, run));
+  }
+  private settleInterruptionState(state: ExecutionState, run: ExecutionPoint) {
+    const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+    if (!row || row.phase !== "accepted" || interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    this.assertInterruptionProof(run, row.before);
+    if (!state.slots.some(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    row.phase = "settled";
+    state.slots = state.slots.filter(slot => !(slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)));
+    for (const record of state.records) if (record.relation.lifecycle !== "retired" && isDeepStrictEqual(record.relation.target, run)) {
+      record.relation.completion = "interrupted"; record.relation.target_fence = "closed";
+    }
+    retireSettledBranches(state);
+    return row;
+  }
+  private assertInterruptionProof(run: ExecutionPoint, before: z.infer<typeof nativeInterruptionObservationSchema>) {
+    const observation = this.interruptObservation(run);
+    if (observation.recorded_state !== "interrupted" || observation.invocation_fence !== "closed"
+      || observation.session_preserved !== "confirmed" || !isDeepStrictEqual(interruptionIdentity(observation), interruptionIdentity(before)))
+      throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    const last = this.interruptObservation(run);
+    if (!isDeepStrictEqual(last, observation)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
   }
 
   /** Internal receipt callbacks for the serving launch frame. No tool args,
@@ -719,6 +727,129 @@ export class ExecutionService {
         else if (slot) slot.state = "unknown";
       }); committed = true; } catch { /* retain the durable issued slot if cleanup cannot be admitted */ }
       throw certain && committed ? error : new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+    }
+  }
+
+  /** Private cascade controller over the existing shared graph/admission.
+   * Public agent_stop remains read-only until native aliases/fence/coverage
+   * and the serving constructor acceptance are complete. No new wire or IDs.
+   */
+  async interruptCascade(input: unknown): Promise<z.infer<typeof cascadeInterruptResultSchema>> {
+    const { roots } = cascadeInterruptRequestSchema.parse(input);
+    if (!this.runtime.selectInterruptionSync || !this.runtime.interruptKeySync || !this.store.transactionSync)
+      return this.stop(input);
+    try {
+      const reached = new Map(roots.map(launch => [key(launch), launch]));
+      const runs = new Map<string, ExecutionPoint>();
+      const outcomes = new Map<string, z.infer<typeof cascadeInterruptResultSchema>["targets"][number]>();
+      const unresolved: z.infer<typeof cascadeInterruptResultSchema>["unresolved"] = [];
+      const gap = (reason: string, request: ExecutionRequest | null = null) => {
+        if (!unresolved.some(value => value.reason === reason && isDeepStrictEqual(value.request, request))) unresolved.push({ request, reason });
+      };
+      const pendingNative = (state: ExecutionState, targets: ExecutionLaunch[]) => state.slots.filter(slot => slot.stage !== "interrupt" && targets.some(launch =>
+        slot.session_id === launch.session_id || isDeepStrictEqual(slot.source, launch)
+        || slot.sources?.some(source => isDeepStrictEqual(source, launch))
+        || (slot.request && isDeepStrictEqual(find(state, slot.request).relation.source?.launch, launch))));
+      const snapshot = () => this.store.transaction(state => {
+        const plan = planCascadeStop([...reached.values()], state.records.map(record => record.relation));
+        const pending = pendingNative(state, plan.targets);
+        return { plan, pending, relations: state.records.map(record => record.relation) };
+      }, { readOnly: true });
+      const deadline = performance.now() + this.drainTimeoutMs; // RPC drain bound, never graph expiry
+      let drainUnconfirmed = false;
+      for (;;) {
+        const current = await snapshot();
+        let added = false;
+        for (const launch of current.plan.targets) {
+          const id = key(launch); reached.set(id, launch);
+          if (runs.has(id) || outcomes.has(id)) continue;
+          added = true;
+          try {
+            const existing = await this.store.transaction(state => state.interruptions.find(row =>
+              isDeepStrictEqual(row.before.run.launch, launch) && !["settled", "not_sent"].includes(row.phase)) ?? null, { readOnly: true });
+            let run: ExecutionPoint;
+            if (existing) run = existing.before.run;
+            else {
+              const selected = this.runtime.selectInterruptionSync(executionLaunchSchema.parse(launch));
+              if (selected && typeof (selected as { then?: unknown }).then === "function") {
+                void Promise.resolve(selected).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+              }
+              const observation = nativeInterruptionObservationSchema.parse(selected);
+              if (!isDeepStrictEqual(observation.run.launch, launch) || observation.recorded_state !== "running")
+                throw new ExecutionError("EXECUTION_UNSUPPORTED");
+              run = observation.run;
+            }
+            await this.beginInterruption(run); runs.set(id, run);
+          } catch {
+            outcomes.set(id, { launch, run: null, key: null, key_receipt: "not_sent", interruption: "unsupported",
+              session_preserved: "unconfirmed", reason: "native_current_run_unavailable" });
+          }
+        }
+        // Admit the whole currently reachable set before the first key. A late
+        // genuine receipt may add another target while existing RPCs drain.
+        if (added) continue;
+        if (current.pending.some(slot => slot.state === "issued") && performance.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 10)); continue;
+        }
+        for (const slot of current.pending) { gap("native_issuance_unconfirmed", slot.request); drainUnconfirmed = true; }
+        break;
+      }
+      for (const [id, run] of runs) {
+        let row = await this.store.transaction(state => state.interruptions.find(value => isDeepStrictEqual(value.before.run, run)) ?? null, { readOnly: true });
+        if (row?.phase === "draining" && !drainUnconfirmed) {
+          try { await this.interruptRun(run, () => this.runtime.interruptKeySync!(executionPointSchema.parse(run))); }
+          catch { /* actual journal distinguishes not_sent from issued/unknown; never retry */ }
+          row = await this.store.transaction(state => state.interruptions.find(value => isDeepStrictEqual(value.before.run, run)) ?? null, { readOnly: true });
+        }
+        outcomes.set(id, { launch: run.launch, run, key: row && row.phase !== "not_sent" && row.phase !== "draining" ? "Escape" : null,
+          key_receipt: row?.phase === "accepted" ? "accepted" : row && ["issued", "unknown", "preparing"].includes(row.phase) ? "unknown" : "not_sent",
+          interruption: "unconfirmed", session_preserved: "unconfirmed", reason: "native_interruption_or_fence_unconfirmed" });
+      }
+      const coverage = await this.runtime.coverage(roots);
+      const final = await this.store.transaction(state => {
+        const last = { plan: planCascadeStop([...reached.values()], state.records.map(record => record.relation)),
+          relations: state.records.map(record => record.relation) };
+        for (const slot of pendingNative(state, last.plan.targets)) { drainUnconfirmed = true; gap("native_issuance_unconfirmed", slot.request); }
+        let late = false, aliasMissing = false;
+        for (const launch of last.plan.targets) if (!reached.has(key(launch))) {
+          late = true; reached.set(key(launch), launch); gap("late_target_unconfirmed");
+          outcomes.set(key(launch), { launch, run: null, key: null, key_receipt: "not_sent", interruption: "unconfirmed",
+            session_preserved: "unconfirmed", reason: "late_target_unconfirmed" });
+        }
+        for (const relation of last.relations) if (relation.lifecycle !== "retired" && relation.phase !== "unsent"
+          && ["open", "unknown"].includes(relation.completion) && relation.target && reached.has(key(relation.target.launch))) {
+          const run = runs.get(key(relation.target.launch));
+          if (run && !isDeepStrictEqual(relation.target, run)) { aliasMissing = true; gap("native_canonical_alias_missing", relation.request); }
+        }
+        // Missing downstream admission must not be hidden by releasing a parent.
+        // Cycles can settle locally only after every reached run was admitted.
+        if (!drainUnconfirmed && !late && !aliasMissing && runs.size === reached.size) for (const [id, run] of runs) {
+          try {
+            this.settleInterruptionState(state, run);
+            outcomes.set(id, { launch: run.launch, run, key: "Escape", key_receipt: "accepted", interruption: "interrupted",
+              session_preserved: "confirmed", reason: "native_run_interrupted_session_preserved" });
+          } catch { gap("native_interruption_or_fence_unconfirmed"); }
+        }
+        // All releases and the final scope snapshot commit together. Native reads
+        // for another target must not hide replacement of an earlier one.
+        for (const [id, run] of runs) if (outcomes.get(id)?.interruption === "interrupted") {
+          const row = state.interruptions.find(value => isDeepStrictEqual(value.before.run, run));
+          if (!row) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          this.assertInterruptionProof(run, row.before);
+        }
+        return planCascadeStop([...reached.values()], state.records.map(record => record.relation));
+      });
+      for (const item of final.gaps) gap(item.reason, item.request);
+      if (coverage !== "complete") gap("relation_coverage_incomplete");
+      for (const target of outcomes.values()) if (target.interruption !== "interrupted") gap(target.reason);
+      const targets = [...outcomes.values()], any = targets.some(target => target.interruption === "interrupted");
+      return cascadeInterruptResultSchema.parse({ schema: "aiterm.cascade-stop-result.v2", mode: "interrupt", roots,
+        status: any && !unresolved.length && targets.length === reached.size ? "confirmed" : any ? "partial" : "unconfirmed",
+        relation_coverage: !unresolved.length && coverage === "complete" ? "complete" : "incomplete", unresolved, targets });
+    } catch {
+      // Admission or keys may already be committed. An unrelated late callback
+      // rejection cannot turn this control into a safe-to-retry not_started.
+      throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     }
   }
 

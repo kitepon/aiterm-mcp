@@ -63,11 +63,16 @@ export interface ExecutionRuntimeBindings {
   invocationFence?(point: ExecutionPoint): Promise<"closed" | "unknown">;
   relationCoverage?(roots: ExecutionLaunch[], sessionIdHint?: string): Promise<"complete" | "incomplete">;
   observeInterruptionSync?(point: ExecutionPoint): unknown;
+  selectInterruptionSync?(expected: ExecutionLaunch): unknown;
+  interruptKeySync?(point: ExecutionPoint): unknown;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): ExecutionRuntime {
+  for (const name of ["observeInterruptionSync", "selectInterruptionSync", "interruptKeySync"] as const)
+    if (bindings[name] !== undefined && typeof bindings[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const interruption = bindings.observeInterruptionSync;
+  const selectInterruption = bindings.selectInterruptionSync, interruptKey = bindings.interruptKeySync;
   const environmentSource = bindings.sourceEnvironment ? executionSourceFromEnvironment(bindings.sourceEnvironment) : null;
   const parseObservation = (session: string, value: unknown): Awaited<ReturnType<ExecutionRuntime["observe"]>> => {
     try {
@@ -83,6 +88,8 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
   };
   return {
     ...(interruption ? { interruptionSync: (point: ExecutionPoint) => interruption(executionPointSchema.parse(point)) } : {}),
+    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch) => selectInterruption(executionLaunchSchema.parse(expected)) } : {}),
+    ...(interruptKey ? { interruptKeySync: (point: ExecutionPoint) => interruptKey(executionPointSchema.parse(point)) } : {}),
     observe,
     ...(bindings.observeNativeSessionsSync ? { nativeSessionSync: (session: string) => {
       try {

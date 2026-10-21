@@ -151,6 +151,28 @@ local default runtimeへの追加や実行は行わない。
 
 ## 正規control入口
 
+### private controller export（通常control未接続）
+
+`ExecutionService.interruptCascade(v2Input)`をprivate部品として追加する。既存graphを唯一の関係正本とし、
+全到達launchの現在native runを同期selectorで検証・admitしてからキーへ進む。未完branchのみを辿り、
+逆方向の独立callerを追加しない。循環/重複rootでも同じnative runへキーを重ねない。
+発行済みRPCをbounded drainし、その間に届いた正規child launch receiptも再計画してadmitする。
+不明slot/未drain/世代不一致を無視してキーを発行せず、無関係席のRPCを前置き待機しない。
+
+未解決の元target Pointと選んだnative runが完全一致しない場合はnative_canonical_alias_missingとして保持する。
+null native turn、別cursor、現在turn等を元bindingへ書き戻さず、旧receipt/関係を終了扱いにしない。
+alias proofを新たに生成するadapterはこのcontrollerに含めない。
+下流admission欠測/遅着target/alias欠測時は親の一時受付を解除しない。
+解除可能な全対象のproof再観測・metadata整理・最終scope snapshotを一つの共有transactionでcommitし、
+途中で親だけ再受付して新しい仕事を旧cascadeへ混入させない。別対象の観測中に先行世代が交代した場合も
+最後に再照合し、解除をrollbackする。作用後のcallback拒否はpossibleのままでnot_startedへ戻さない。
+
+private runtimeは既存observeInterruptionSyncに加え、selectInterruptionSync(expectedLaunch)と
+interruptKeySync(Point)を明示注入する。function参照と引数は固定/cloneし、participant/producerは各呼出しのscope/actorを再照合する。
+local default runtimeはこれらを持たず、通常main/公開agent_stopには接続しない。
+明示的に注入したprivate controller exportが利用できることと、MCP公開stopが受入済みであることを区別する。
+現在runの選択に証拠が無い、idle/別harness/旧世代の場合はunsupported/not_sentで、既存キーの推測やcloseで補わない。
+
 同じserverのguarded dispatcherと正規登録した同じExecutionServiceを明示的に結ぶ。
 対象はagent_execution/agent_execution_roots/agent_stopの3名だけ。登録前・別service・任意tool名は拒否する。
 host source resolverは同じinitialized client名で固定し、BellTeamのmeta欠測をstdio envやclaimで補完しない。

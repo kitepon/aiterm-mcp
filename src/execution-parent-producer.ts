@@ -31,6 +31,8 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
   // remains unsupported; it must not call the default core by individual fallback.
   closeExpectedSession?(expected: ExecutionLaunch): void;
   observeInterruptionSync?(point: ExecutionPoint): unknown;
+  selectInterruptionSync?(expected: ExecutionLaunch): unknown;
+  interruptKeySync?(point: ExecutionPoint): unknown;
 }
 const localProducerRuntime: ParentProducerRuntime = {
   ...localParentWorkerRuntime,
@@ -47,8 +49,10 @@ export function createExecutionParentProducer(input: {
   runtime?: ParentProducerRuntime; claudeRuntime?: Parameters<typeof steer.submitClaudeParentAnswer>[4];
 }) {
   const runtime = input.runtime ?? localProducerRuntime;
-  if (runtime.observeInterruptionSync !== undefined && typeof runtime.observeInterruptionSync !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  for (const name of ["observeInterruptionSync", "selectInterruptionSync", "interruptKeySync"] as const)
+    if (runtime[name] !== undefined && typeof runtime[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const interruption = runtime.observeInterruptionSync?.bind(runtime);
+  const selectInterruption = runtime.selectInterruptionSync?.bind(runtime), interruptKey = runtime.interruptKeySync?.bind(runtime);
   if (typeof runtime.sourceEnvironment !== "function" || typeof runtime.decodeParent !== "function" || typeof runtime.observeDone !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = createExecutionParentEnvironment({ ...input, runtime });
@@ -70,6 +74,8 @@ export function createExecutionParentProducer(input: {
   let service!: ExecutionService;
   const executionRuntime = createExecutionRuntime({ sourceEnvironment,
     ...(interruption ? { observeInterruptionSync: (point: ExecutionPoint) => { assertScope(); return interruption(point); } } : {}),
+    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch) => { assertScope(); return selectInterruption(expected); } } : {}),
+    ...(interruptKey ? { interruptKeySync: (point: ExecutionPoint) => { assertScope(); return interruptKey(point); } } : {}),
     observeSession: observe, observeSessionSync: observe,
     ...(typeof runtime.observeNativeSessions === "function" ? { observeNativeSessionsSync: () => {
       assertScope(); return runtime.observeNativeSessions!();

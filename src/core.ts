@@ -1350,6 +1350,8 @@ export function interruptExpectedAgentRun(input: ExecutionPoint): PtyKeyResult {
  */
 export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
   const point = executionPointSchema.parse(input), name = point.launch.session_id;
+  if (point.boundary?.operation_id && !point.boundary.turn_id && !point.boundary.steer_id
+    && loadAgentMetadata(name).kind === "claude") return observeManagedClaudeInterruption(point);
   if (!point.boundary?.turn_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const snapshot = () => {
     const generation = observeExecutionSessionGeneration(name), meta = loadAgentMetadata(name);
@@ -1381,17 +1383,90 @@ export function observeExpectedAgentRunInterruption(input: ExecutionPoint) {
     invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
 }
 
+/** Existing Aiterm managed-operation provenance, not a native processing-start
+ * or interruption proof. Reservation/receipt creation precedes input sending;
+ * neither a marker nor its removal proves the CLI accepted or aborted it.
+ * Keep the caller's original Point/cursor, never the current event-file size,
+ * cached vendor conversation ID, latest job or another managed operation.
+ */
+function observeManagedClaudeInterruption(point: ExecutionPoint) {
+  const name = point.launch.session_id, operation = point.boundary?.operation_id;
+  if (!operation || point.boundary!.turn_id !== null || point.boundary!.steer_id !== null)
+    throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const files = (meta: AgentMetadata) => {
+    const marker = agentClaudeOperationPath(name, point.launch.launch_id);
+    const receipt = agentClaudeDispatchReceiptPath(name, point.launch.launch_id, operation);
+    const identity = (file: string, empty: boolean) => {
+      const stat = fs.lstatSync(file, { bigint: true });
+      if (!stat.isFile() || (empty && stat.size !== 0n) || !Number.isSafeInteger(Number(stat.dev)) || !Number.isSafeInteger(Number(stat.ino)))
+        throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return { device: Number(stat.dev), inode: Number(stat.ino), size: stat.size, mtime: stat.mtimeNs, ctime: stat.ctimeNs };
+    };
+    try {
+      const before = { marker: identity(marker, false), receipt: identity(receipt, true) };
+      if (readClaudeOperationMarker(meta)?.operationId !== operation) throw new ExecutionError("EXECUTION_CONFLICT");
+      const after = { marker: identity(marker, false), receipt: identity(receipt, true) };
+      if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
+      return after;
+    } catch (error) {
+      if (error instanceof ExecutionError) throw error;
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    }
+  };
+  const snapshot = () => {
+    const generation = observeExecutionSessionGeneration(name), meta = loadAgentMetadata(name);
+    if (!generation.exists || !generation.launch_id || meta.kind !== "claude" || !meta.execution_native)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    if (generation.launch_id !== point.launch.launch_id || meta.launch_id !== point.launch.launch_id)
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    const beforeFiles = files(meta);
+    const process = observeExecutionParentProcess(name) as { schema?: string; source?: ExecutionPoint; harness?: string;
+      harness_process?: { pid: number; started_identity: string } } | null;
+    const actor = process?.harness_process;
+    if (process?.schema !== "aiterm.execution-parent-process.v1" || !isDeepStrictEqual(process.source?.launch, point.launch)
+      || process.harness !== "claude-code" || !actor || !Number.isSafeInteger(actor.pid) || actor.pid < 1
+      || !Number.isFinite(Date.parse(actor.started_identity))) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const after = observeExecutionSessionGeneration(name), last = loadAgentMetadata(name);
+    if (!after.exists || after.launch_id !== point.launch.launch_id || last.kind !== meta.kind
+      || !isDeepStrictEqual(last.execution_native, meta.execution_native)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    const afterFiles = files(last);
+    if (!isDeepStrictEqual(beforeFiles, afterFiles)) throw new ExecutionError("EXECUTION_CONFLICT");
+    return { native: meta.execution_native, actor, files: afterFiles };
+  };
+  const before = snapshot(), after = snapshot();
+  if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
+  const reference = (file: { device: number; inode: number }) => ({ device: file.device, inode: file.inode });
+  return { schema: "aiterm.claude-managed-interruption-observation.v1" as const, run: point,
+    native: after.native, harness: "claude-code" as const, harness_process: after.actor,
+    endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: reference(after.files.receipt) },
+    recorded_state: "unconfirmed" as const, native_boundary: { type: "managed_operation_reserved" as const, operation_id: operation },
+    invocation_fence: "unknown" as const, session_preserved: "unconfirmed" as const };
+}
+
 /** Select the current native run for an explicit expected launch. The cursor
  * is the existing native rollout's task_started byte boundary, NOT an alias for a
  * dispatch/before_send receipt. Callers must retain that distinction; the
  * cascade controller reports missing canonical aliases rather than rekeying.
  * No metadata update, native key, latest-job lookup or cached vendor fallback.
  */
-export function selectExpectedAgentRunInterruption(input: ExecutionLaunch) {
+export function selectExpectedAgentRunInterruption(input: ExecutionLaunch, candidates?: ExecutionPoint | readonly ExecutionPoint[] | null) {
   const launch = executionPointSchema.shape.launch.parse(input), name = launch.session_id;
   const generation = observeExecutionSessionGeneration(name), meta = loadAgentMetadata(name);
   if (!generation.exists || !generation.launch_id) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (generation.launch_id !== launch.launch_id || meta.launch_id !== launch.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  if (meta.kind === "claude") {
+    const operation = readClaudeOperationMarker(meta)?.operationId;
+    if (!operation) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const references = executionPointSchema.array().parse(candidates ? Array.isArray(candidates) ? candidates : [candidates] : []);
+    const point = references.find(value => isDeepStrictEqual(value.launch, launch) && value.boundary?.operation_id === operation
+      && value.boundary.turn_id === null && value.boundary.steer_id === null);
+    if (!point) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    // An existing operation receipt can supply its own canonical boundary.
+    // Pick a matching recorded reference, not a latest job or inferred native
+    // alias. Other work/Points do not veto Esc; unresolved aliases stay open.
+    // This managed reservation is still unconfirmed, never native running.
+    return observeManagedClaudeInterruption(point);
+  }
   if (meta.kind !== "codex") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const record = codexInterruptionRecord(meta);
   if (!record || record.boundary.type !== "task_started") throw new ExecutionError("EXECUTION_UNSUPPORTED");

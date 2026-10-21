@@ -63,7 +63,7 @@ export interface ExecutionRuntimeBindings {
   invocationFence?(point: ExecutionPoint): Promise<"closed" | "unknown">;
   relationCoverage?(roots: ExecutionLaunch[], sessionIdHint?: string): Promise<"complete" | "incomplete">;
   observeInterruptionSync?(point: ExecutionPoint): unknown;
-  selectInterruptionSync?(expected: ExecutionLaunch): unknown;
+  selectInterruptionSync?(expected: ExecutionLaunch, candidates?: readonly ExecutionPoint[]): unknown;
   interruptKeySync?(point: ExecutionPoint): unknown;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -88,7 +88,8 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
   };
   return {
     ...(interruption ? { interruptionSync: (point: ExecutionPoint) => interruption(executionPointSchema.parse(point)) } : {}),
-    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch) => selectInterruption(executionLaunchSchema.parse(expected)) } : {}),
+    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch, candidates?: readonly ExecutionPoint[]) =>
+      selectInterruption(executionLaunchSchema.parse(expected), z.array(executionPointSchema).parse(candidates ?? [])) } : {}),
     ...(interruptKey ? { interruptKeySync: (point: ExecutionPoint) => interruptKey(executionPointSchema.parse(point)) } : {}),
     observe,
     ...(bindings.observeNativeSessionsSync ? { nativeSessionSync: (session: string) => {

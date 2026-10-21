@@ -304,3 +304,34 @@ scope directoryごとの喪失を自動復元できるとはしない。旧binar
 live state移行は未受入であり、通常mainへのmountを許可する追加根拠にはならない。
 
 実席/公式CLI試験・他席操作・本番・公開配布なし。旧closeのfake成功を中断成功へ付け替えない。
+
+## Claude managed operationの最小private Esc参照
+
+Claudeの既存operation markerと空dispatch receiptは、coreが入力を送る前のreserve処理で作る。
+その存在をnative入力受理・処理開始・中断完了と見なさない。Stop hookによるmarker消費や
+generic agent_doneも、Escが当該処理を中断したこと・旧呼出fence・同会話維持の証拠にはしない。
+
+private selectorは既存未完了graphの実target Point集合を別引数で受け取り、現在markerと同じ
+operation_idを持つ**既存参照**を使う。同じlaunch、operation-only boundary、元cursorを保持する。
+候補集合はcloneして渡し、thread/current turn、現在event file長、最新job、cached vendor_session_idで補完しない。
+現在operationに対応する元Pointが無い場合はunsupported/not_sentで、markerから新しいPointを作らない。
+別の仕事/operationや複数cursorが混ざっていても、それだけで到達launchを除外しない。
+同じ現在operationの実参照を選び、他のPoint/関係は保持し、対応しないaliasは未確認として残す。
+これは元依頼の意味・専有・全入力集合の判定ではなく、実marker/既存参照の機械的照合である。
+
+読み取り観測は別tag `aiterm.claude-managed-interruption-observation.v1`。
+recorded_state=unconfirmed、native_boundary=managed_operation_reserved、endpoint.session_id=null、
+session_preserved=unconfirmed、invocation_fence=unknownを固定し、native running/abortedへ昇格できない。
+同じ期待native server/session・唯一のharness PID/start、markerとreceiptのfile identityを前後で照合し、
+別operation、匿名marker、receipt欠測/不正、世代/actor/file差替えを拒否する。
+
+この固定参照への機械的キー作用だけをprivate controllerで許可する。native processing-startを
+証明できたという許可ではない。元Pointが今も共有graphに存在することを準備・実キー直前にも確認し、
+同じcaller/checkpoint/既存run slotでEscを最大1回発行する。異なるClaude operationをturn=nullだけで
+同一runへまとめず、Codex turn/steerとも混同しない。公開Claude pty_keyのguardは変更しない。
+
+キー受付が返ってもaccepted journal/unknown slotと元Point/receipt/関係を保持し、v2は
+interruption/session_preserved unconfirmed・managed_operation_native_acceptance_unconfirmedを返す。
+キー応答欠測はunknown、再構築/再controlで再送しない。marker消失やStopでsettleせず、
+元jobのfinish/interrupted/closed/already_idleへ変換しない。既定stop/通常mainは未接続のまま。
+native受付相関と実終了/親return fence、live同会話endpointの厳格adapterと稼働受入は引き続き未了。

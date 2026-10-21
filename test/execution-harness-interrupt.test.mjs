@@ -3,13 +3,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync, symlinkSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
-import { agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeOperationPath } from '../dist/harnesses/claude.js';
+import { agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeOperationPath, agentClaudeDispatchReceiptPath } from '../dist/harnesses/claude.js';
+import { nativeInterruptionObservationSchema, sameInterruptionRun } from '../dist/execution-interruption.js';
 import { requireExecutionEffectScope, withExecutionEffectScope, withExecutionInterruptEffectScope } from '../dist/execution-effect.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
+import { ParticipantExecutionStore } from '../dist/execution-participant-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
@@ -395,4 +397,206 @@ test('same-server SDK control reaches the native controller only with fixed expl
       assert.deepEqual(state.stopping, []); assert.equal(state.interruptions.length, enabled ? 1 : 0);
     } finally { await client.close(); await server.close(); }
   }
+});
+function managedFixture(t) {
+  const f = fixture(t, 'claude');
+  const receipt = agentClaudeDispatchReceiptPath(f.name, f.point.launch.launch_id, f.point.boundary.operation_id);
+  writeFileSync(receipt, ''); f.point.boundary.event_cursor = 7;
+  writeFileSync(f.meta.event_file, 'synthetic earlier control metadata\n'.repeat(5));
+  return { ...f, receipt };
+}
+test('Claude observation keeps the canonical operation/cursor and reservation identities without inventing native acceptance or a live conversation', posix, t => {
+  const f = managedFixture(t), before = [f.metadata, f.marker, f.receipt].map(file => readFileSync(file, 'utf8'));
+  const result = core.observeExpectedAgentRunInterruption(f.point);
+  assert.equal(nativeInterruptionObservationSchema.safeParse(result).success, true);
+  assert.equal(result.schema, 'aiterm.claude-managed-interruption-observation.v1'); assert.deepEqual(result.run, f.point);
+  assert.equal(result.recorded_state, 'unconfirmed'); assert.equal(result.native_boundary.type, 'managed_operation_reserved');
+  assert.equal(result.native_boundary.operation_id, f.point.boundary.operation_id);
+  assert.equal(result.endpoint.session_id, null, 'cached vendor_session_id is not a live endpoint proof');
+  assert.equal(result.session_preserved, 'unconfirmed'); assert.equal(result.invocation_fence, 'unknown');
+  assert.deepEqual(core.selectExpectedAgentRunInterruption(f.point.launch, f.point), result);
+  assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch), error => error.code === 'EXECUTION_UNSUPPORTED');
+  assert.deepEqual([f.metadata, f.marker, f.receipt].map(file => readFileSync(file, 'utf8')), before); assert.deepEqual(f.keys, []);
+});
+test('managed reservation observations cannot be promoted to running/interrupted/fence-closed or rekeyed as a Codex turn', posix, t => {
+  const f = managedFixture(t), result = core.observeExpectedAgentRunInterruption(f.point);
+  for (const changes of [{ recorded_state: 'running' }, { recorded_state: 'interrupted' }, { invocation_fence: 'closed' },
+    { session_preserved: 'confirmed' }, { run: { ...f.point, boundary: { ...f.point.boundary, turn_id: 'invented-turn' } } },
+    { native_boundary: { ...result.native_boundary, operation_id: 'sha256:' + 'f'.repeat(64) } }])
+    assert.equal(nativeInterruptionObservationSchema.safeParse({ ...result, ...changes }).success, false);
+  assert.deepEqual(f.keys, []);
+});
+test('missing, anonymous, different or malformed Claude reservation/receipt cannot select a known managed operation', posix, t => {
+  for (const change of ['missing-marker', 'anonymous', 'different-operation', 'bad-marker', 'missing-receipt', 'nonempty-receipt', 'receipt-symlink']) {
+    const f = managedFixture(t);
+    if (change === 'missing-marker') rmSync(f.marker);
+    if (change === 'anonymous') writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: null }));
+    if (change === 'different-operation') writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: 'sha256:' + '8'.repeat(64) }));
+    if (change === 'bad-marker') writeFileSync(f.marker, '{}');
+    if (change === 'missing-receipt') rmSync(f.receipt);
+    if (change === 'nonempty-receipt') writeFileSync(f.receipt, 'not a reservation receipt');
+    if (change === 'receipt-symlink') { rmSync(f.receipt); writeFileSync(f.receipt + '.target', ''); symlinkSync(f.receipt + '.target', f.receipt); }
+    assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, f.point), undefined, change); assert.deepEqual(f.keys, []);
+  }
+});
+test('Claude observer refuses replaced marker/receipt, generation/native server and harness identities during its native read', posix, t => {
+  for (const change of ['marker-replaced', 'receipt-replaced', 'generation', 'native', 'actor', 'server']) {
+    const f = managedFixture(t); let changed = false;
+    f.control.afterFirstTable = () => {
+      if (changed) return; changed = true;
+      if (change === 'marker-replaced') { writeFileSync(f.marker + '.next', readFileSync(f.marker)); renameSync(f.marker + '.next', f.marker); }
+      if (change === 'receipt-replaced') { writeFileSync(f.receipt + '.next', ''); renameSync(f.receipt + '.next', f.receipt); }
+      if (change === 'generation') { const meta = JSON.parse(readFileSync(f.metadata)); meta.launch_id = 'f'.repeat(32); writeFileSync(f.metadata, JSON.stringify(meta)); }
+      if (change === 'native') f.native.id = '$10';
+      if (change === 'actor') f.actor.started_identity = 'Wed Oct 21 09:00:03 2026';
+      if (change === 'server') f.server.started_identity = 'Wed Oct 21 09:00:01 2026';
+    };
+    assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, f.point), undefined, change); assert.deepEqual(f.keys, []);
+  }
+});
+test('Claude selector refuses absent/different/mixed canonical references instead of choosing the latest operation or current event length', posix, t => {
+  const f = managedFixture(t);
+  for (const candidate of [null, { ...f.point, boundary: null }, { ...f.point, launch: { ...f.point.launch, session_id: 'other-seat' } },
+    { ...f.point, boundary: { ...f.point.boundary, operation_id: null } },
+    { ...f.point, boundary: { ...f.point.boundary, turn_id: 'native-turn-from-another-harness' } }])
+    assert.throws(() => core.selectExpectedAgentRunInterruption(f.point.launch, candidate));
+  assert.deepEqual(f.keys, []);
+});
+test('different Claude operations are distinct existing run references even when their native turn IDs are both null', posix, t => {
+  const f = managedFixture(t), other = { ...f.point, boundary: { ...f.point.boundary, operation_id: 'sha256:' + '8'.repeat(64) } };
+  assert.equal(sameInterruptionRun(f.point, f.point), true); assert.equal(sameInterruptionRun(f.point, other), false);
+  assert.equal(sameInterruptionRun(f.point, { ...f.point, boundary: { ...f.point.boundary, operation_id: null } }), false);
+});
+test('real Claude controller uses an existing operation receipt for one Esc only, retaining uncertainty, canonical binding and public key guard', posix, async t => {
+  const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-controller-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('Stop/marker not native finish proof'); },
+  }), service = new ExecutionService(store, runtime);
+  const record = await service.execute({ action: 'register', source_session_id: null, reservation: {
+    schema: 'aiterm.execution-reservation.v1', request: { kind: 'delivery', delivery_id: 'existing-claude-operation', target_session_id: f.name },
+    source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+  await service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => ({ value: 'existing receipt', target: f.point }));
+  const input = { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] };
+  assert.equal((await service.stop(input)).targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
+  const result = await service.interruptCascade(input);
+  assert.equal(result.status, 'unconfirmed'); assert.deepEqual(result.targets[0].run, f.point); assert.equal(result.targets[0].key_receipt, 'accepted');
+  assert.equal(result.targets[0].interruption, 'unconfirmed'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
+  assert.deepEqual(f.keys, ['Escape']); assert.equal(f.native.present, true);
+  const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.interruptions[0].before.recorded_state, 'unconfirmed'); assert.equal(state.interruptions[0].phase, 'accepted');
+  assert.equal(state.records[0].relation.completion, 'open'); assert.equal(state.records[0].relation.lifecycle, 'tracking');
+  assert.deepEqual(state.records[0].relation.target, f.point); assert.equal(state.slots[0].state, 'unknown');
+  await assert.rejects(service.settleInterruption(f.point)); await service.interruptCascade(input); assert.deepEqual(f.keys, ['Escape']);
+  assert.ok(result.unresolved.some(value => value.reason === 'managed_operation_native_acceptance_unconfirmed'));
+  writeFileSync(f.meta.event_file, JSON.stringify({ type: 'agent_done', reason: 'Stop', operation_id: f.point.boundary.operation_id }) + '\n');
+  assert.equal(core.observeExpectedAgentRunInterruption(f.point).recorded_state, 'unconfirmed', 'generic Stop is not native interrupted evidence');
+  rmSync(f.marker); await service.interruptCascade(input); assert.deepEqual(f.keys, ['Escape']);
+  assert.equal((await store.transaction(state => state.interruptions[0], { readOnly: true })).phase, 'accepted');
+  writeFileSync(f.marker, JSON.stringify({ schema: 'aiterm.claude-operation-marker.v1', operation_id: f.point.boundary.operation_id }));
+  assert.throws(() => withExecutionEffectScope(f.name, () => {}, () => core.sendKeyResult(f.name, 'Escape')), /C-c/);
+});
+test('Claude controller with no matching operation-bearing receipt performs no key and leaves missing provenance unresolved', posix, async t => {
+  for (const mode of ['absent', 'operation-null', 'different-operation']) {
+    const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-missing-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+      observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+      observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+      interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('not a finish proof'); },
+    }));
+    if (mode !== 'absent') for (let i = 0; i < 1; i++) {
+      const target = structuredClone(f.point); if (mode === 'operation-null') target.boundary.operation_id = null;
+      if (mode === 'different-operation') target.boundary.operation_id = 'sha256:' + '8'.repeat(64);
+      const record = await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1',
+        request: { kind: 'delivery', delivery_id: 'existing-claude-' + i, target_session_id: f.name }, source: { launch: null, boundary: null },
+        target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+      await service.invoke({ schema: 'aiterm.execution-ref.v1', request: record.reservation.request }, 'send', async () => ({ value: 'existing', target }));
+    }
+    const result = await service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] });
+    assert.equal(result.targets[0].interruption, 'unsupported'); assert.equal(result.targets[0].key_receipt, 'not_sent');
+    assert.deepEqual(f.keys, []); assert.deepEqual(await store.transaction(state => state.interruptions, { readOnly: true }), []);
+  }
+});
+test('mixed old jobs and multiple cursors do not exclude a reachable Claude launch from mechanical Esc, and unmatched aliases remain unresolved', posix, async t => {
+  const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-mixed-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('no completion proof'); },
+  }));
+  const originals = [];
+  for (let i = 0; i < 3; i++) {
+    const target = structuredClone(f.point); target.boundary.event_cursor += i;
+    if (i === 0) target.boundary.operation_id = 'sha256:' + '8'.repeat(64); // earlier other operation is not current
+    const request = { kind: 'delivery', delivery_id: 'existing-mixed-' + i, target_session_id: f.name };
+    await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1', request,
+      source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+    await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: 'existing', target })); originals.push({ request, target });
+  }
+  const result = await service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] });
+  assert.deepEqual(f.keys, ['Escape']); assert.equal(result.targets[0].key_receipt, 'accepted');
+  assert.deepEqual(result.targets[0].run, originals[1].target, 'matching existing reference; never a newest job or fabricated cursor');
+  assert.ok(result.unresolved.some(value => value.reason === 'native_canonical_alias_missing'));
+  for (const { request, target } of originals) {
+    const saved = await service.execute({ action: 'status', request }); assert.deepEqual(saved.relation.target, target);
+    assert.equal(saved.relation.lifecycle, 'tracking'); assert.equal(saved.relation.completion, 'open');
+  }
+});
+test('same-server SDK/scoped caller/core Claude operation Esc remains unconfirmed and leaves the accepted job binding intact', posix, async t => {
+  const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-sdk-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const actor = { pid: 202, started_identity: '2026-10-21T09:00:03Z' };
+  const store = new ParticipantExecutionStore(directory, actor, () => {}); store.enroll(['mcp']);
+  const runtime = createExecutionRuntime({ observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('no native completion adapter'); } });
+  const service = new ExecutionService(store, runtime), request = { kind: 'delivery', delivery_id: 'sdk-existing-claude', target_session_id: f.name };
+  await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1', request,
+    source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+  await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: 'old accepted receipt', target: f.point }));
+  const parent = { captureEndpointEvidence() { assert.fail('no new parent'); }, async bind() { assert.fail('no bind'); }, async submit() { assert.fail('no submit'); } };
+  const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
+    parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
+    dispatcher: createExecutionDispatcher({ service, nativeIdentity: actor, sourceEnvironment: {},
+      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration: core.observeExecutionSessionGeneration }),
+  }) });
+  registerExecutionTools(server, service, { interruptCurrentRun: true });
+  const client = new Client({ name: 'bellteam', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide); await client.connect(clientSide);
+  try {
+    const response = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] } });
+    assert.equal(response.isError, undefined); const result = response.structuredContent;
+    assert.equal(result.status, 'unconfirmed'); assert.equal(result.targets[0].key_receipt, 'accepted'); assert.deepEqual(result.targets[0].run, f.point);
+    assert.equal(result.targets[0].interruption, 'unconfirmed'); assert.equal(result.targets[0].session_preserved, 'unconfirmed');
+    const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+    assert.deepEqual(state.interruptions[0].caller, actor); assert.notEqual(state.interruptions[0].caller.pid, f.actor.pid);
+    assert.equal(state.interruptions[0].before.recorded_state, 'unconfirmed'); assert.deepEqual(state.records[0].relation.target, f.point);
+    assert.equal(state.records[0].relation.lifecycle, 'tracking'); assert.equal(state.slots[0].state, 'unknown');
+    assert.deepEqual(f.keys, ['Escape']); assert.equal(f.native.present, true);
+  } finally { await client.close(); await server.close(); }
+});
+test('Claude native Esc failure after issuance keeps the original operation and unknown slot without replay or closed/idle success', posix, async t => {
+  const f = managedFixture(t), directory = mkdtempSync(join(tmpdir(), 'claude-managed-key-failure-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('not native abort proof'); },
+  })), request = { kind: 'delivery', delivery_id: 'existing-claude-key-failure', target_session_id: f.name };
+  await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1', request,
+    source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+  await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: 'existing', target: f.point }));
+  f.control.failKey = true;
+  const input = { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] };
+  const first = await service.interruptCascade(input), second = await service.interruptCascade(input);
+  assert.deepEqual(f.keys, ['Escape']); assert.equal(first.targets[0].key_receipt, 'unknown');
+  assert.equal(second.targets[0].key_receipt, 'unknown'); assert.equal(second.targets[0].session_preserved, 'unconfirmed');
+  const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.interruptions[0].phase, 'unknown'); assert.deepEqual(state.interruptions[0].before.run, f.point);
+  assert.equal(state.slots[0].state, 'unknown'); assert.equal(state.records[0].relation.lifecycle, 'tracking');
+  assert.deepEqual(state.records[0].relation.target, f.point); assert.equal(f.native.present, true);
 });

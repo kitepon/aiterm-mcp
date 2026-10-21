@@ -291,3 +291,22 @@ test('actual runtime constructor captures private controller callbacks without e
   assert.equal((await service.stop(input([A]))).targets[0].interruption, 'unsupported'); assert.deepEqual(f.keys, []);
   assert.equal((await service.interruptCascade(input([A]))).status, 'confirmed'); assert.deepEqual(f.keys, [A.session_id]);
 });
+test('selector receives detached recorded Points without resolving mixed receipts to a latest job or overwriting their bindings', async t => {
+  for (const ambiguous of [false, true]) {
+    const f = fixture(t); f.noProof(); const original = point(B), request = await f.edge(A, B, original);
+    if (ambiguous) await f.edge(D, B, { ...original, boundary: { ...original.boundary, event_cursor: original.boundary.event_cursor + 1 } });
+    const received = [];
+    const runtime = createExecutionRuntime({ observeSession: session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
+      exists: true, launch_id: f.live.get(session_id).launch_id }),
+      observeSessionSync: session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id, exists: true, launch_id: f.live.get(session_id).launch_id }),
+      async observeDone() { assert.fail('not a finish proof'); }, observeInterruptionSync: f.runtime.interruptionSync,
+      selectInterruptionSync(launch, candidates) {
+        received.push(structuredClone(candidates));
+        if (candidates.length) candidates[0].boundary.event_cursor = 999;
+        return f.runtime.selectInterruptionSync(launch);
+      }, interruptKeySync: f.runtime.interruptKeySync });
+    await new ExecutionService(f.store, runtime).interruptCascade(input([B]));
+    assert.deepEqual(received, [ambiguous ? [original, { ...original, boundary: { ...original.boundary, event_cursor: original.boundary.event_cursor + 1 } }] : [original]]);
+    assert.deepEqual((await f.service.execute({ action: 'status', request })).relation.target, original);
+  }
+});

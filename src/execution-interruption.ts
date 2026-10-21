@@ -10,7 +10,7 @@ import { isDeepStrictEqual as same } from "node:util";
 import { executionCheckpoint } from "./execution-checkpoint.js";
 
 const identity = z.object({ pid: z.number().int().positive(), started_identity: z.string().refine(value => Number.isFinite(Date.parse(value))) }).strict();
-export const nativeInterruptionObservationSchema = z.object({
+const codexInterruptionObservationSchema = z.object({
   schema: z.literal("aiterm.native-interruption-observation.v1"), run: executionPointSchema,
   native: executionNativeBindingSchema, harness: z.literal("codex-cli"), harness_process: identity,
   endpoint: z.object({ session_id: z.string().min(1).max(256),
@@ -23,10 +23,36 @@ export const nativeInterruptionObservationSchema = z.object({
   const turn = value.run.boundary?.turn_id, boundary = value.native_boundary;
   const expected = boundary.turn_id !== turn ? "other_run" : boundary.type === "task_started" ? "running"
     : boundary.type === "task_complete" ? "completed" : boundary.reason === "interrupted" ? "interrupted" : "unconfirmed";
-  if (!turn || value.recorded_state !== expected || !Number.isFinite(Date.parse(value.native.server.started_identity)))
+  if (!turn || value.run.boundary?.operation_id !== null || value.run.boundary.steer_id !== null
+    || value.recorded_state !== expected || !Number.isFinite(Date.parse(value.native.server.started_identity)))
     context.addIssue({ code: "custom", message: "native boundary must identify the original run and state" });
 });
+// Aiterm reserves these files before sending the input. They identify an
+// existing managed operation, NOT native acceptance, running/aborted state or
+// the live conversation. Only that fixed managed reference may be keyed; this
+// diagnostic can never settle or claim a native processing-start/abort proof.
+export const claudeManagedInterruptionObservationSchema = z.object({
+  schema: z.literal("aiterm.claude-managed-interruption-observation.v1"), run: executionPointSchema,
+  native: executionNativeBindingSchema, harness: z.literal("claude-code"), harness_process: identity,
+  endpoint: z.object({ session_id: z.null(),
+    operation_marker: z.object({ device: z.number().int().nonnegative(), inode: z.number().int().nonnegative() }).strict(),
+    dispatch_receipt: z.object({ device: z.number().int().nonnegative(), inode: z.number().int().nonnegative() }).strict(),
+  }).strict(),
+  recorded_state: z.literal("unconfirmed"),
+  native_boundary: z.object({ type: z.literal("managed_operation_reserved"),
+    operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict(),
+  invocation_fence: z.literal("unknown"), session_preserved: z.literal("unconfirmed"),
+}).strict().superRefine((value, context) => {
+  if (!value.run.boundary?.operation_id || value.run.boundary.operation_id !== value.native_boundary.operation_id
+    || value.run.boundary.turn_id !== null || value.run.boundary.steer_id !== null
+    || !Number.isFinite(Date.parse(value.native.server.started_identity)))
+    context.addIssue({ code: "custom", message: "managed operation keeps its original operation-only Point without native acceptance proof" });
+});
+export const nativeInterruptionObservationSchema = z.union([codexInterruptionObservationSchema, claudeManagedInterruptionObservationSchema]);
 export type NativeInterruptionObservation = z.infer<typeof nativeInterruptionObservationSchema>;
+export function interruptionKeyReference(value: NativeInterruptionObservation): boolean {
+  return value.recorded_state === "running" || value.schema === "aiterm.claude-managed-interruption-observation.v1";
+}
 export const executionInterruptionSchema = z.object({
   before: nativeInterruptionObservationSchema,
   phase: z.enum(["draining", "preparing", "issued", "accepted", "unknown", "not_sent", "settled"]),
@@ -39,7 +65,7 @@ export const executionInterruptionSchema = z.object({
   preparing_resolution: z.literal("key_not_sent").optional(),
   requests: z.array(executionRequestSchema), parent_deliveries: z.array(z.uuid()),
 }).strict().superRefine((value, context) => {
-  if (value.before.recorded_state !== "running") context.addIssue({ code: "custom", message: "interruption requires its original running observation" });
+  if (!interruptionKeyReference(value.before)) context.addIssue({ code: "custom", message: "interruption requires its original native turn or managed operation reference" });
   if (value.caller && value.phase === "draining") context.addIssue({ code: "custom", message: "caller belongs to the claimed key frame, not admission alone" });
   if (value.checkpoint && (!value.caller || value.phase === "draining"))
     context.addIssue({ code: "custom", message: "checkpoint belongs to the original native caller claim" });
@@ -50,7 +76,9 @@ export function interruptionIdentity(value: NativeInterruptionObservation) {
   return { run: value.run, native: value.native, harness: value.harness, harness_process: value.harness_process, endpoint: value.endpoint };
 }
 export function sameInterruptionRun(a: ExecutionPoint, b: ExecutionPoint): boolean {
-  return same(a.launch, b.launch) && !!a.boundary?.turn_id && a.boundary.turn_id === b.boundary?.turn_id;
+  if (!same(a.launch, b.launch) || !a.boundary || !b.boundary || a.boundary.steer_id || b.boundary.steer_id) return false;
+  return !!a.boundary.turn_id && !a.boundary.operation_id && !b.boundary.operation_id && a.boundary.turn_id === b.boundary.turn_id
+    || !!a.boundary.operation_id && !a.boundary.turn_id && !b.boundary.turn_id && a.boundary.operation_id === b.boundary.operation_id;
 }
 function activeTargets(state: ExecutionState): ExecutionLaunch[] {
   const roots = state.interruptions.filter(row => !["settled", "not_sent"].includes(row.phase)).map(row => row.before.run.launch);
@@ -70,7 +98,7 @@ export function assertInterruptionSource(state: ExecutionState, source: Executio
   for (const row of state.interruptions) {
     if (source && !same(row.before.run.launch, source.launch)) continue;
     if (!source && hint !== row.before.run.launch.session_id) continue;
-    if (!source?.boundary?.turn_id) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    if (!source || !sameInterruptionRun(source, source)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
     if (!["settled", "not_sent"].includes(row.phase) || sameInterruptionRun(source, row.before.run)) throw new ExecutionError("EXECUTION_STOPPING");
   }
 }

@@ -31,7 +31,7 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
   // remains unsupported; it must not call the default core by individual fallback.
   closeExpectedSession?(expected: ExecutionLaunch): void;
   observeInterruptionSync?(point: ExecutionPoint): unknown;
-  selectInterruptionSync?(expected: ExecutionLaunch): unknown;
+  selectInterruptionSync?(expected: ExecutionLaunch, candidates?: readonly ExecutionPoint[]): unknown;
   interruptKeySync?(point: ExecutionPoint): unknown;
 }
 const localProducerRuntime: ParentProducerRuntime = {
@@ -74,7 +74,8 @@ export function createExecutionParentProducer(input: {
   let service!: ExecutionService;
   const executionRuntime = createExecutionRuntime({ sourceEnvironment,
     ...(interruption ? { observeInterruptionSync: (point: ExecutionPoint) => { assertScope(); return interruption(point); } } : {}),
-    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch) => { assertScope(); return selectInterruption(expected); } } : {}),
+    ...(selectInterruption ? { selectInterruptionSync: (expected: ExecutionLaunch, candidates?: readonly ExecutionPoint[]) => {
+      assertScope(); return selectInterruption(expected, candidates); } } : {}),
     ...(interruptKey ? { interruptKeySync: (point: ExecutionPoint) => { assertScope(); return interruptKey(point); } } : {}),
     observeSession: observe, observeSessionSync: observe,
     ...(typeof runtime.observeNativeSessions === "function" ? { observeNativeSessionsSync: () => {

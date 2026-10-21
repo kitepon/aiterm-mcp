@@ -10,6 +10,7 @@ import { ExecutionError, executionErrorResult, executionRefFromMeta, executionHo
   EXECUTION_REQUEST_META_KEY, type ExecutionTransportSource } from "./execution-wire.js";
 import { EXECUTION_SOURCE_META_KEY } from "./execution-wire.js";
 import { withExecutionRequest } from "./execution-context.js";
+import { readExecutionSendBoundary } from "./execution-effect.js";
 
 type ToolResult = {
   content: { type: "text"; text: string }[]; isError?: boolean;
@@ -184,8 +185,19 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
                   if (candidate.success) target = candidate.data;
                 }
               }
+              const captured = readExecutionSendBoundary(route.target);
+              if (target && captured && receipt?.mode !== "agent_steer") {
+                // This came from actual core before_send in the same admitted
+                // request, not args/result.operation_id or a current-file read.
+                // Contradictory successful receipts remain successful receipts,
+                // with unknown binding and no permission to resend.
+                if (!same(captured.launch, target.launch) || receipt?.mode === "sent"
+                  || (receipt?.event_cursor !== undefined && receipt.event_cursor !== captured.boundary?.event_cursor)
+                  || (receipt?.operation_id !== undefined && receipt.operation_id !== captured.boundary?.operation_id)) target = null;
+                else target = captured;
+              }
             }
-          } catch { /* preserve receipt and let service mark binding unknown */ }
+          } catch { target = null; /* preserve receipt and let service mark binding unknown */ }
           return { result, target };
         });
       } catch (error) { return executionErrorResult(error); }

@@ -11,13 +11,15 @@ import { currentExecutionRequest } from '../dist/execution-context.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
-import { guardTmuxExecution, prepareExecutionCreation, captureExecutionCreatedNative, bindExecutionCreatedLaunch } from '../dist/execution-effect.js';
+import { guardTmuxExecution, prepareExecutionCreation, captureExecutionCreatedNative, bindExecutionCreatedLaunch,
+  captureExecutionSendBoundary, readExecutionSendBoundary } from '../dist/execution-effect.js';
 import { EXECUTION_REQUEST_META_KEY as REQUEST, EXECUTION_SOURCE_META_KEY as SOURCE,
   EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { z } from 'zod';
+import { AsyncResource } from 'node:async_hooks';
 
 const A = { session_id: 'bot-a', launch_id: 'a'.repeat(32) };
 const B = { session_id: 'bot-b', launch_id: 'b'.repeat(32) };
@@ -83,6 +85,78 @@ test('direct stdio uses existing native process/request identity and binds the g
   });
   assert.equal(errorCode(duplicate), 'EXECUTION_CONFLICT');
   assert.equal(f.effects(), 1);
+});
+test('actual request-local before_send reference preserves a managed operation absent from the structured receipt', async () => {
+  const f = fixture(), boundary = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
+  const result = await f.dispatcher.dispatch('claude_turn', { action: 'issue', session_id: B.session_id, operation_id: boundary.boundary.operation_id },
+    { requestId: 401 }, async () => {
+      captureExecutionSendBoundary(boundary); f.effect();
+      return { content: [], structuredContent: { schema: 'aiterm.claude-operation-result.v1', action: 'issue', status: 'accepted',
+        session_id: B.session_id, operation_id: boundary.boundary.operation_id, raw_output: null, reason: null, submit_residue: null } };
+    });
+  assert.equal(result.isError, undefined); assert.deepEqual(result._meta[BINDING].target, boundary); assert.equal(f.effects(), 1);
+  assert.deepEqual((await f.records())[0].relation.target, boundary);
+});
+test('model args and a receipt operation field do not replace missing actual core before_send provenance', async () => {
+  const f = fixture(), operation = 'sha256:' + '7'.repeat(64);
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id, operation_id: operation }, { requestId: 402 }, async () => {
+    f.effect(); const result = accepted(); result.structuredContent.operation_id = operation; return result;
+  });
+  assert.equal(result.isError, undefined); assert.equal(result._meta[BINDING].target.boundary.operation_id, null);
+});
+test('before_send snapshots are detached and cannot be borrowed by a later request or another target', async () => {
+  const f = fixture(), original = { launch: B, boundary: { event_cursor: 17, operation_id: null, turn_id: null, steer_id: null } };
+  const value = structuredClone(original); let late;
+  const first = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 403 }, async () => {
+    captureExecutionSendBoundary(value); value.boundary.event_cursor = 999;
+    const read = readExecutionSendBoundary(B.session_id); read.boundary.event_cursor = 888;
+    assert.deepEqual(readExecutionSendBoundary(B.session_id), original);
+    const inherited = new AsyncResource('synthetic-late-before-send');
+    late = () => inherited.runInAsyncScope(() => captureExecutionSendBoundary(original)); f.effect(); return accepted();
+  });
+  assert.deepEqual(first._meta[BINDING].target, original);
+  assert.throws(late, error => error.code === 'EXECUTION_CONFLICT');
+  const second = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 404 }, async () => {
+    assert.equal(readExecutionSendBoundary(B.session_id), null); f.effect(); return accepted(B, 18);
+  });
+  assert.equal(second._meta[BINDING].target.boundary.event_cursor, 18); assert.equal(f.effects(), 2);
+});
+test('conflicting before_send references poison a frame before native input and cannot silently select a latest boundary', async () => {
+  for (const other of ['cursor', 'target']) {
+    const f = fixture(), first = { launch: B, boundary: { event_cursor: 17, operation_id: null, turn_id: null, steer_id: null } };
+    const second = structuredClone(first); if (other === 'cursor') second.boundary.event_cursor++; else second.launch = D;
+    const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 405 }, async () => {
+      captureExecutionSendBoundary(first); try { captureExecutionSendBoundary(second); } catch {}
+      try { f.effect(); } catch {} return accepted();
+    });
+    assert.equal(result.isError, true); assert.equal(f.effects(), 0);
+  }
+});
+test('contradictory receipt and captured boundary retain the genuine accepted result with unknown binding and never resend', async () => {
+  for (const change of ['cursor', 'operation', 'launch']) {
+    const f = fixture(), before = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
+    const action = () => f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 406 }, async () => {
+      captureExecutionSendBoundary(before); f.effect(); const result = accepted();
+      if (change === 'cursor') result.structuredContent.event_cursor++;
+      if (change === 'operation') result.structuredContent.operation_id = 'sha256:' + '8'.repeat(64);
+      if (change === 'launch') result.structuredContent.launch_id = D.launch_id;
+      return result;
+    });
+    const result = await action(); assert.notEqual(result.isError, true); assert.equal(result.structuredContent.mode, 'agent_dispatch');
+    assert.equal(result._meta[ERROR].effect, 'possible'); assert.equal(f.effects(), 1);
+    assert.equal((await action()).isError, true); assert.equal(f.effects(), 1);
+  }
+});
+test('reading a captured pre-send reference after the native action does not re-admit its ended source or discard the genuine receipt', async () => {
+  const f = fixture(), target = { launch: B, boundary: { event_cursor: 17, operation_id: 'sha256:' + '7'.repeat(64), turn_id: null, steer_id: null } };
+  const result = await f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 407 }, async () => {
+    captureExecutionSendBoundary(target); f.effect();
+    f.live.set(A.session_id, { ...A, launch_id: D.launch_id }); // original source replaced after its actual input
+    return accepted();
+  });
+  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.mode, 'agent_dispatch');
+  assert.deepEqual(result._meta[BINDING].target, target); assert.equal(f.effects(), 1);
+  assert.deepEqual((await f.records())[0].relation.source, { launch: A, boundary: null });
 });
 test('source environment, native identity and ingress arguments are detached before async lookup', async () => {
   const environment = { ...env }, nativeIdentity = { pid: 12345, started_identity: 'original-start' };

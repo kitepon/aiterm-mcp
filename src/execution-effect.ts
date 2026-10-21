@@ -1,7 +1,8 @@
 // Native effect gate. No live state or process I/O at import. The product mount
 // supplies a request-scoped issue() backed by the shared metadata transaction.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { executionLaunchSchema, type ExecutionLaunch } from "./execution-contract.js";
+import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
+import { isDeepStrictEqual } from "node:util";
 import { ExecutionError } from "./execution-wire.js";
 import type { ExecutionNativeServer, ExecutionNativeBinding } from "./execution-close.js";
 
@@ -14,6 +15,7 @@ export interface ExecutionCreationBindings {
 export type ExecutionPreparation = <T>(body: () => T) => T;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
   prepare?: ExecutionPreparation; preparing?: boolean;
+  sendBoundary?: ExecutionPoint;
   interrupt?: { native_id: string; sent: boolean; finished: boolean };
   creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
@@ -43,6 +45,31 @@ export function withExecutionPreparation<T>(session: string, body: () => T): T {
   if (scope.failure) throw scope.failure;
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
   return prepareInScope(scope, body);
+}
+/** Product core's existing before_send boundary in this request only. This is
+ * a pre-send reference, never native input acceptance, source attribution or a
+ * new invocation. Unmounted legacy core remains inert. A model/tool argument
+ * or structured result cannot populate this private request-local slot.
+ */
+export function captureExecutionSendBoundary(input: ExecutionPoint): void {
+  const scope = scopes.getStore();
+  if (!scope && !required) return;
+  if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const point = executionPointSchema.parse(input);
+  if (scope.interrupt || !point.boundary) refuse(scope, "EXECUTION_UNSUPPORTED");
+  withExecutionPreparation(point.launch.session_id, () => {
+    if (scope.sendBoundary && !isDeepStrictEqual(scope.sendBoundary, point)) refuse(scope, "EXECUTION_CONFLICT");
+    scope.sendBoundary = point;
+  });
+}
+export function readExecutionSendBoundary(session: string): ExecutionPoint | null {
+  const scope = scopes.getStore();
+  if (!scope?.sendBoundary) return null;
+  // Immutable history after the native body returned, not fresh admission.
+  // A source that ended meanwhile must not poison a genuine action receipt.
+  // Target/current-state checks still occur in the dispatch/service binding.
+  if (scope.session !== session) throw new ExecutionError("EXECUTION_CONFLICT");
+  return executionPointSchema.parse(scope.sendBoundary);
 }
 function prepareInScope<T>(scope: EffectScope, body: () => T): T {
   const synchronous = (): T => {

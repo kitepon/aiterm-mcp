@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -4878,6 +4878,8 @@ async function sendInitialAgentPromptInLock(
     prepareSendText(promptText, { raw: false });
     await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
       harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null });
+    captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
+      event_cursor: startOffset, operation_id: null, turn_id: null, steer_id: null } });
     if (meta.kind === "claude") {
       prepareSendText(text, { raw: false });
       reserveAnonymousClaudeTurn(meta);
@@ -6440,6 +6442,8 @@ async function dispatchAgentTurnInLock(
   prepareSendText(dispatchText, { raw: o.raw });
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
+  captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
+    event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
   recordInterimBoundary(meta, startOffset, operationId);
   if (meta.kind === "claude") {
     // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの

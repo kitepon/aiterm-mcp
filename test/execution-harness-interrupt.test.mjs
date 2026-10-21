@@ -16,6 +16,7 @@ import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
 import { registerExecutionTools } from '../dist/execution-tools.js';
+import { SOCKDIR } from '../dist/tmux-runtime.js';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -60,7 +61,7 @@ function fixture(t, kind = 'codex') {
   const writeTurn = (type = 'task_started', turn_id = 'native-current-turn') => writeFileSync(transcript, [...head,
     JSON.stringify({ type: 'event_msg', payload: { type, turn_id, reason: type === 'turn_aborted' ? 'interrupted' : undefined } })].join('\n') + '\n');
   writeTurn();
-  const control = { failKey: false, afterFirstTable: null };
+  const control = { failKey: false, afterFirstTable: null, allowInput: false, inputCommands: [] };
   const ok = stdout => ({ status: 0, stdout: stdout ?? '', stderr: '' });
   run = (bin, args) => {
     if (bin === '/bin/ps') {
@@ -80,6 +81,13 @@ function fixture(t, kind = 'codex') {
     }
     if (command[0] === 'display-message' && format === '#{pane_pid}\t#{pane_dead}') return ok('200\t0\n');
     if (command[0] === 'has-session') return { ...ok(''), status: native.present ? 0 : 1 };
+    if (control.allowInput && ['load-buffer', 'set-buffer', 'paste-buffer', 'delete-buffer', 'capture-pane'].includes(command[0])) {
+      control.inputCommands.push(command[0]); return ok(command[0] === 'capture-pane' ? '❯\n' : '');
+    }
+    if (control.allowInput && command[0] === 'list-commands') return ok('paste-buffer [-dpr] [-b buffer-name] [-t target-pane]');
+    if (control.allowInput && command[0] === 'send-keys' && command[3] !== 'Escape') {
+      control.inputCommands.push('send-keys-input'); return ok('');
+    }
     assert.equal(command[0], 'send-keys'); assert.equal(command[2], '$9'); assert.equal(command[3], 'Escape');
     keys.push(command[3]); return { ...ok(''), status: control.failKey ? 1 : 0 };
   };
@@ -599,4 +607,35 @@ test('Claude native Esc failure after issuance keeps the original operation and 
   assert.equal(state.interruptions[0].phase, 'unknown'); assert.deepEqual(state.interruptions[0].before.run, f.point);
   assert.equal(state.slots[0].state, 'unknown'); assert.equal(state.records[0].relation.lifecycle, 'tracking');
   assert.deepEqual(state.records[0].relation.target, f.point); assert.equal(f.native.present, true);
+});
+test('actual core Claude before_send reaches the real dispatcher binding without sourcing an operation/cursor from its output or arguments', posix, async t => {
+  const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-actual-send-boundary-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  rmSync(f.marker); writeFileSync(f.meta.event_file, '\n'); f.control.allowInput = true;
+  mkdirSync(SOCKDIR, { recursive: true }); // the synthetic tmux never creates its fixture directory
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
+    interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('not native acceptance proof'); },
+  }));
+  const dispatcher = createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+    sourceEnvironment: {}, initializedClientName: () => 'claude-code', observeSessionGeneration: core.observeExecutionSessionGeneration });
+  let before, coreError;
+  const result = await dispatcher.dispatch('claude_turn', { action: 'issue', session_id: f.name, operation_id: f.point.boundary.operation_id }, { requestId: 'actual-core-send' }, async () => {
+    let receipt;
+    try { receipt = await core.dispatchAgentTurn(f.name, 'synthetic input', { operation_id: f.point.boundary.operation_id,
+      raw: true, pane_input_recovery: [], before_send: async boundary => { before = structuredClone(boundary); } }); }
+    catch (error) { coreError = error; throw error; }
+    // Public claude_turn result does not carry a dispatch event_cursor. Only
+    // the actual product core boundary may supply it to the private binding.
+    return { content: [], structuredContent: { schema: 'aiterm.claude-operation-result.v1', action: 'issue', status: 'accepted',
+      session_id: f.name, operation_id: receipt.operation_id, raw_output: null, reason: null, submit_residue: null } };
+  });
+  assert.equal(result.isError, undefined, coreError?.stack ?? JSON.stringify(result)); assert.ok(before); assert.ok(f.control.inputCommands.length);
+  const target = result._meta['aiterm/execution_binding'].target;
+  assert.equal(target.boundary.event_cursor, before.event_cursor); assert.equal(target.boundary.operation_id, before.operation_id);
+  assert.equal(target.boundary.turn_id, null); assert.equal(result.structuredContent.event_cursor, undefined);
+  const stop = await service.interruptCascade({ schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [f.point.launch] });
+  assert.equal(stop.targets[0].key_receipt, 'accepted'); assert.deepEqual(stop.targets[0].run, target);
+  assert.equal(stop.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
 });

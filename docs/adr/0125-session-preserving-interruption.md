@@ -335,3 +335,21 @@ interruption/session_preserved unconfirmed・managed_operation_native_acceptance
 キー応答欠測はunknown、再構築/再controlで再送しない。marker消失やStopでsettleせず、
 元jobのfinish/interrupted/closed/already_idleへ変換しない。既定stop/通常mainは未接続のまま。
 native受付相関と実終了/親return fence、live同会話endpointの厳格adapterと稼働受入は引き続き未了。
+
+### core before_sendと実要求の結合
+
+structured receiptにoperation_idを追加しただけ、またはmodel引数にoperationを置いただけでは
+canonical Pointへ採用しない。既存coreが実before_sendの直後に作るPointを同じeffect scopeへ一つだけ
+保存する。元session/launch・cursor・既存operationをcloneし、preparingのまま同じ同期準備受付を通す。
+これはnative受理の証拠やsource aliasではなく、実要求が準備したtarget参照である。
+新しいrequest/queue/IDや永続入力payloadを作らず、未注入の通常coreでは何もしない。
+
+同じframeで違うPointへの上書き、別対象、RPC完了後の遅着captureは拒否する。
+dispatcherは成功bodyが返ってからそのimmutableな履歴を読み、現在target/実receiptとの矛盾を照合する。
+この履歴readで古いsourceを再受付して成功receiptを失わせず、以後のbinding/state検証はserviceに残す。
+矛盾やbinding欠測は元の成功receiptを保持したpossible/status-onlyで、native作用を再送しない。
+native steer receiptは実steer IDを優先し、before_send参照で上書きしない。
+
+これでevent_cursorを公開しないclaude_turn.issueも、実core before_send由来の元operation付きPointを
+結合できる。普通の匿名Claude turnにnamed operationを補完したとはしない。匿名markerと元境界の対応、
+native入力受理/処理開始、Codex native turn aliasは別の未了工程である。

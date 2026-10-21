@@ -62,10 +62,12 @@ export interface ExecutionRuntimeBindings {
   guardedClose?(expected: ExecutionLaunch): Promise<void>;
   invocationFence?(point: ExecutionPoint): Promise<"closed" | "unknown">;
   relationCoverage?(roots: ExecutionLaunch[], sessionIdHint?: string): Promise<"complete" | "incomplete">;
+  observeInterruptionSync?(point: ExecutionPoint): unknown;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): ExecutionRuntime {
+  const interruption = bindings.observeInterruptionSync;
   const environmentSource = bindings.sourceEnvironment ? executionSourceFromEnvironment(bindings.sourceEnvironment) : null;
   const parseObservation = (session: string, value: unknown): Awaited<ReturnType<ExecutionRuntime["observe"]>> => {
     try {
@@ -80,6 +82,7 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
     catch { return { state: "unknown" }; }
   };
   return {
+    ...(interruption ? { interruptionSync: (point: ExecutionPoint) => interruption(executionPointSchema.parse(point)) } : {}),
     observe,
     ...(bindings.observeNativeSessionsSync ? { nativeSessionSync: (session: string) => {
       try {

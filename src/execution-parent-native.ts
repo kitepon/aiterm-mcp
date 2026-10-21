@@ -9,6 +9,7 @@ import { ExecutionError, executionErrorResult } from "./execution-wire.js";
 import { beforeExecutionEffect, withExecutionEffectScope } from "./execution-effect.js";
 import { requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
 import { parentHookReferenceSchema, type ParentHookReference } from "./execution-parent-alias.js";
+import { interruptionBlocksParent } from "./execution-interruption.js";
 
 type Stage = "dequeue" | "emit" | "wake";
 type Binding = ExecutionState["parent_deliveries"][number];
@@ -44,7 +45,7 @@ export function createParentNativeAdmission(bindings: ParentNativeBindings) {
     const binding = state.parent_deliveries.find(value => value.delivery_id === id);
     if (!binding) throw new ExecutionError("EXECUTION_NOT_FOUND");
     if (binding.endpoint_digest !== endpointDigest(endpoint)) throw new ExecutionError("EXECUTION_CONFLICT");
-    if (state.stopping.some(launch => same(launch, binding.parent.launch) || same(launch, binding.child.launch)))
+    if (interruptionBlocksParent(state, binding) || state.stopping.some(launch => same(launch, binding.parent.launch) || same(launch, binding.child.launch)))
       throw new ExecutionError("EXECUTION_STOPPING");
     const record = state.records.find(value => same(value.reservation.request, requestFor(binding)));
     if (record && (record.operations.send === "preparing" || record.operations.send === "issued"))

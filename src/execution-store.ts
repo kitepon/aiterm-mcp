@@ -11,10 +11,15 @@ import { parentSourceSchema } from "./execution-parent-source.js";
 import { parentHookReferenceSchema } from "./execution-parent-alias.js";
 import { writeJson0600 } from "./agent-shared.js";
 import { executionParticipantSchema } from "./execution-inventory.js";
+import { executionInterruptionSchema } from "./execution-interruption.js";
 
 export const executionStateSchema = z.object({
   schema: z.literal("aiterm.execution-state.v1"),
   records: z.array(executionRecordSchema), stopping: z.array(executionLaunchSchema),
+  interruptions: z.array(executionInterruptionSchema).default([]).superRefine((rows, context) => {
+    if (new Set(rows.map(row => JSON.stringify([row.before.run.launch, row.before.run.boundary?.turn_id]))).size !== rows.length)
+      context.addIssue({ code: "custom", message: "interruption run references must be unique" });
+  }),
   // Native process declarations only; they do not establish launch/source,
   // all-process discovery, mandatory entrypoint coverage or termination.
   participants: z.array(executionParticipantSchema).default([]).superRefine((rows, context) => {
@@ -37,8 +42,9 @@ export const executionStateSchema = z.object({
   }).strict()).default([]),
   slots: z.array(z.object({
     session_id: executionLaunchSchema.shape.session_id, expected_launch_id: executionLaunchSchema.shape.launch_id.nullable(),
-    stage: z.enum(["launch", "send", "close", "configure", "parent_dequeue", "parent_emit", "parent_wake"]),
+    stage: z.enum(["launch", "send", "close", "configure", "parent_dequeue", "parent_emit", "parent_wake", "interrupt"]),
     state: z.enum(["issued", "unknown"]), request: executionRequestSchema.nullable(),
+    run: executionPointSchema.optional(),
     // Native ID returned by this request's actual new-session command.
     created_native_id: z.string().regex(/^\$\d+$/).optional(),
     created_server: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict().optional(),
@@ -47,7 +53,12 @@ export const executionStateSchema = z.object({
     source: executionLaunchSchema.nullable().optional(),
     // One native hook output may contain several existing delivery IDs.
     sources: z.array(executionLaunchSchema).optional(),
-  }).strict()),
+  }).strict().superRefine((slot, context) => {
+    if (slot.stage === "interrupt" && (!slot.run || slot.request !== null || slot.run.launch.session_id !== slot.session_id
+      || slot.run.launch.launch_id !== slot.expected_launch_id))
+      context.addIssue({ code: "custom", message: "interrupt slot must identify its exact run and launch" });
+    if (slot.stage !== "interrupt" && slot.run) context.addIssue({ code: "custom", message: "run is reserved for interrupt slots" });
+  })),
 }).strict();
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 export interface ExecutionStore {
@@ -55,7 +66,7 @@ export interface ExecutionStore {
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
 }
 export function emptyExecutionState(): ExecutionState {
-  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [], participants: [] };
+  return { schema: "aiterm.execution-state.v1", records: [], stopping: [], slots: [], parent_deliveries: [], parent_effects: [], participants: [], interruptions: [] };
 }
 
 /** Use the product's existing stateRoot and resolved multiplexer identity.

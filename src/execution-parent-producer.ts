@@ -3,7 +3,7 @@
 import path from "node:path";
 import type * as steer from "aiterm-steer-delivery";
 import { observeAgentDone, observeExecutionNativeCreationScope, closeExpectedAgentSession } from "./core.js";
-import type { ExecutionLaunch } from "./execution-contract.js";
+import type { ExecutionLaunch, ExecutionPoint } from "./execution-contract.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
 import { cursorParentFromRequest } from "./cursor-parent-receiver.js";
@@ -30,6 +30,7 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
   // Synchronous product primitive only. An injected runtime with no primitive
   // remains unsupported; it must not call the default core by individual fallback.
   closeExpectedSession?(expected: ExecutionLaunch): void;
+  observeInterruptionSync?(point: ExecutionPoint): unknown;
 }
 const localProducerRuntime: ParentProducerRuntime = {
   ...localParentWorkerRuntime,
@@ -46,6 +47,8 @@ export function createExecutionParentProducer(input: {
   runtime?: ParentProducerRuntime; claudeRuntime?: Parameters<typeof steer.submitClaudeParentAnswer>[4];
 }) {
   const runtime = input.runtime ?? localProducerRuntime;
+  if (runtime.observeInterruptionSync !== undefined && typeof runtime.observeInterruptionSync !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const interruption = runtime.observeInterruptionSync?.bind(runtime);
   if (typeof runtime.sourceEnvironment !== "function" || typeof runtime.decodeParent !== "function" || typeof runtime.observeDone !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = createExecutionParentEnvironment({ ...input, runtime });
@@ -66,6 +69,7 @@ export function createExecutionParentProducer(input: {
     observeParentProcess: session => { assertScope(); return runtime.observeParentProcess(session); } });
   let service!: ExecutionService;
   const executionRuntime = createExecutionRuntime({ sourceEnvironment,
+    ...(interruption ? { observeInterruptionSync: (point: ExecutionPoint) => { assertScope(); return interruption(point); } } : {}),
     observeSession: observe, observeSessionSync: observe,
     ...(typeof runtime.observeNativeSessions === "function" ? { observeNativeSessionsSync: () => {
       assertScope(); return runtime.observeNativeSessions!();

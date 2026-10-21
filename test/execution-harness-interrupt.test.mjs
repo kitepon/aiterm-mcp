@@ -237,3 +237,24 @@ test('actual private core primitive runs inside the stop-owned one-Esc frame wit
     assert.equal(readFileSync(f.metadata, 'utf8'), before); assert.equal(f.native.present, true);
   }
 });
+test('real core native run evidence and one Esc join the shared per-run journal, but absent native fence/preservation never reopen admission', posix, async t => {
+  const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'native-run-admission-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const store = new FileExecutionStore(directory), runtime = createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeInterruptionSync: core.observeExpectedAgentRunInterruption,
+    async observeDone() { assert.fail('no generic completion proof'); }, async guardedClose() { assert.fail('never close'); },
+  });
+  const service = new ExecutionService(store, runtime); requireExecutionEffectScope(true);
+  await service.beginInterruption(f.point);
+  const result = await service.interruptRun(f.point, () => core.interruptExpectedAgentRun(f.point));
+  assert.equal(result.outcome, 'accepted'); assert.deepEqual(f.keys, ['Escape']);
+  f.writeTurn('turn_aborted');
+  assert.equal(core.observeExpectedAgentRunInterruption(f.point).recorded_state, 'interrupted');
+  await assert.rejects(service.settleInterruption(f.point));
+  const state = await store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(state.slots[0].stage, 'interrupt');
+  assert.deepEqual(state.records, []); assert.deepEqual(state.stopping, []); assert.equal(f.native.present, true);
+  await assert.rejects(service.interruptRun(f.point, () => core.interruptExpectedAgentRun(f.point)));
+  assert.deepEqual(f.keys, ['Escape']);
+});

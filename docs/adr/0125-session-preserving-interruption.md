@@ -36,7 +36,8 @@ already_idleはキーを送らない局所状態であり、下流や未確認�
 旧finishのkind=interruptedは期待launchの閉鎖を確認する管理用の意味であり、新中断へ流用しない。
 中断結果を関係へ反映する責任はAitermに置き、Bridgeから旧finishを代用しない。
 旧launch単位の永続stopping印もそのまま使わない。旧要求/親returnの抑止と、確認後の同一launchへの新依頼を、
-既存run/request参照で分ける工程が残る。受付/全体ON抑止はBridgeの責任を維持する。
+既存run/request参照で分けるprivate admissionを隔離開発する。native受入と公開接続は未了。
+受付/全体ON抑止はBridgeの責任を維持する。
 
 ## 既存public口とCLI差（ローカル実装/保存済み証拠）
 
@@ -73,7 +74,7 @@ Cursor/Grok、run境界欠測、旧metadataのnative stamp欠測はunsupported�
 この部品はagent_stop/通常mainへ未接続。serviceのnative slot内でのfake受付も、処理の中断完了、native終了fence、
 会話endpoint維持、古いparent return抑止や同じlaunchの次依頼再開の受入を示さない。
 
-## 正規control入口
+## 隔離したnative部品
 
 ### 元runに対応するnative記録のread-only adapter
 
@@ -104,10 +105,51 @@ close/respawn/new-session、文章入力、C-c等の別キー、人間名/別nat
 native直前の同期issue callbackを使い、Promise admission/bodyとframe終了後の遅着作用を拒否する。
 作用後に二度目のEscやfallbackを試みたframeはpossibleのまま失敗し、catchで成功へ変えられない。
 
-このframeは**in-processのnative作用制限部品**。共有storeにstop専用slot/元runの一時受付を持つ工程、
-既発行RPCのdrain、旧parent returnの抑止、欠測復旧、同launchの新依頼再開へ未接続。
+このframeは**in-processのnative作用制限部品**。次節のprivate per-run admissionへ隔離接続する。
+native受付/全参加者のfenceとcascade controller、稼働版への接続は未了。
 callerのnative ID/issue callbackはprivate runtimeが供給する条件で、登録宣言やモデル引数では満たせない。
 現agent_stopは引き続きread-only unsupported/not_sent。frameが存在するだけでキーを送らない。
+
+### 既存runごとの共有admission（private、公開stop未接続）
+
+同じFileExecutionStoreの`interruptions`は、元native観測・既存request/delivery参照・phaseだけを保存する。
+新ID、配送内容、永続queue、TTL、入力再送を作らない。旧readerは追加fieldを読めないのでlive移行受入は別工程。
+`beginInterruption(Point)`はprivate同期native observerで元のrunning turn/launchを検証し、同じlockで
+旧要求の参照を固定し未発行だけをnot_sentへ整理する。accepted/issued/unknown receiptを消さない。
+元runが同じならcursorが変わっても既存journalを返し、新たなキー発行を作らない。canonical Pointは維持する。
+
+activeな中断は未完の記録済み関係から機械的に到達するlaunchの新受付を抑止する。
+遅着した正規child launch receiptは保存し、同じ関係から一時抑止へ加える。旧launch永久stoppingは追加しない。
+これはper-run primitiveであり、到達先それぞれの元run確定/中断/部分結果を集めるcontrollerは未実装。
+親runをsettleする前に下流の中断受付を独立して確保する責任はそのcontrollerに残る。
+
+`interruptRun(Point, nativeBody)`は関連native-issued/unknown slotが残ればキーを発行しない。
+共有lockで既存runをpreparingへ確保し、別processの競合要求が先行のreceiptをnot_sentへ戻せないようにする。
+preparingのままcallerが失われた時も自動で引き継がず、元callerの遅着を排除する復旧は別工程。
+同期gateが同じ元run/native server/ID/harness/会話recordを再照合し、共有interrupt slotを記録してから
+lock外でEscを1回だけ実行する。返ったキーreceiptはacceptedとして保存するがslotは未確認のまま保持する。
+作用後のRPC/metadata欠測はissued/unknownを保持し、再構築・abort記録・session消失で再発行を許さない。
+作用前拒否はnot_sentとして記録するが、同じrunへの自動再試行はしない。
+
+`settleInterruption(Point)`へ利用者の証拠引数は渡さない。private native observerで元runのinterrupted、
+前後の同じnative/harness/会話、session維持confirmed、invocation fence closedを再観測した場合だけ、
+accepted journalの一時受付を解除する。通常完了/別turn/closed/idle、キー受付、欠測や宣言だけでは解除しない。
+現coreのCodex観測はfence unknown/維持unconfirmedなので**実core接続ではまだ解除できない**。
+テストのsynthetic confirmed proofによる同launch再開は実nativeの受入ではない。
+
+解除後も旧request/元native turn/deliveryの拒否参照を残す。同じturnの別cursorを新run扱いしない。
+元launchしか無くnative turnが欠けるsourceは未確認、新しいnative turnを検証できるsourceだけを通す。
+owner等から来る新しいtarget依頼は同じlaunchを使用できる。旧parent queue/dequeue/emit/wakeは
+同じ元deliveryを共有storeで再照合し、別process・再構築後も再開しない。
+この拒否参照はgraphの全履歴closureやscope選択の根拠にせず、未完journalだけをroots読取りに残す。
+
+Claude/Cursor/Grokのnative中断証拠/維持、全participant/全作用口のnative fence、作用不明slotの明示復旧、
+新native source turn/alias、Windows/bootstrap/auto-name/普通PTY/auth/remote・4CLI受入は未了。
+private observer欠測は作用前unsupportedで、通常main/公開controlへ自動mountしない。
+同scopeのprivate participant/producerは明示注入したobserverだけを固定して渡し、各読取り直前にscope/actorを再照合する。
+local default runtimeへの追加や実行は行わない。
+
+## 正規control入口
 
 同じserverのguarded dispatcherと正規登録した同じExecutionServiceを明示的に結ぶ。
 対象はagent_execution/agent_execution_roots/agent_stopの3名だけ。登録前・別service・任意tool名は拒否する。

@@ -11,6 +11,7 @@ import { runDeferredBoundExecution } from "./execution-tools.js";
 import { beforeExecutionEffect } from "./execution-effect.js";
 import { EXECUTION_REQUEST_META_KEY, ExecutionError } from "./execution-wire.js";
 import { parentSourceSchema, requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
+import { interruptionBlocksParent } from "./execution-interruption.js";
 
 type Binding = ExecutionState["parent_deliveries"][number];
 type QueueReceipt = { queued_submission_id: string | null };
@@ -69,7 +70,7 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
     const record = state.records.find(record => same(record.reservation.request, binding.request));
     if (!record || record.source.status !== "verified" || !same(record.relation.source, binding.parent))
       throw new ExecutionError("EXECUTION_UNCONFIRMED");
-    if (stopped(state, binding.parent) || stopped(state, binding.child)) throw new ExecutionError("EXECUTION_STOPPING");
+    if (stopped(state, binding.parent) || stopped(state, binding.child) || interruptionBlocksParent(state, binding)) throw new ExecutionError("EXECUTION_STOPPING");
     if (record.relation.phase === "unsent" || record.relation.lifecycle === "retired") throw new ExecutionError("EXECUTION_CONFLICT");
     if (record.reservation.target.session_id !== binding.child.launch.session_id
       || (record.reservation.target.expected_launch_id !== null

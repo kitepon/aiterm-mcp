@@ -10,8 +10,11 @@ import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, e
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
-import { withExecutionEffectScope, type ExecutionPreparation } from "./execution-effect.js";
+import { withExecutionEffectScope, withExecutionInterruptEffectScope, type ExecutionPreparation } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
+import { nativeInterruptionObservationSchema, interruptionIdentity, interruptionBlocksLaunch, interruptionBlocksRequest,
+  interruptionSlots, assertInterruptionSource, sameInterruptionRun } from "./execution-interruption.js";
+import { isDeepStrictEqual } from "node:util";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
@@ -26,11 +29,14 @@ export interface ExecutionRuntime {
   // Only adapters covering the execution's actual admission paths may return
   // complete. Old/untracked/remote paths must not be inferred from graph shape.
   coverage(roots: ExecutionLaunch[], sessionIdHint?: string): Promise<"complete" | "incomplete">;
+  // Private native adapter only. No tool args/claim echo, asynchronous fallback
+  // or generic completion/closed observation can provide this evidence.
+  interruptionSync?(point: ExecutionPoint): unknown;
 }
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 const key = (value: unknown): string => JSON.stringify(value);
 const stopped = (state: ExecutionState, launch: ExecutionLaunch | null | undefined): boolean =>
-  !!launch && state.stopping.some(value => same(value, launch));
+  !!launch && (state.stopping.some(value => same(value, launch)) || interruptionBlocksLaunch(state, launch));
 const openParentEffect = (state: ExecutionState, request: ExecutionRequest): boolean => request.kind === "delivery"
   && state.parent_effects.some(effect => effect.delivery_id === request.delivery_id && effect.state !== "accepted"
     && state.parent_deliveries.some(binding => binding.delivery_id === effect.delivery_id
@@ -58,9 +64,11 @@ function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord
 }
 function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
   return executionRecordSchema.parse({ ...record,
-    stopping: stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch) });
+    stopping: stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch)
+      || interruptionBlocksRequest(state, record.reservation.request) });
 }
 function sourceAdmission(state: ExecutionState, point: ExecutionPoint | null, seatHint: string | null): void {
+  assertInterruptionSource(state, point, seatHint);
   if (stopped(state, point?.launch)) throw new ExecutionError("EXECUTION_STOPPING");
   if (state.slots.some(slot => slot.session_id === (point?.launch.session_id ?? seatHint)))
     throw new ExecutionError("EXECUTION_UNCONFIRMED");
@@ -86,6 +94,132 @@ function retireSettledBranches(state: ExecutionState): void {
 export class ExecutionService {
   constructor(private readonly store: ExecutionStore, private readonly runtime: ExecutionRuntime,
     private readonly drainTimeoutMs = 2000) {}
+
+  private interruptObservation(point: ExecutionPoint) {
+    if (!this.runtime.interruptionSync || !this.runtime.observeSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const result = this.runtime.interruptionSync(executionPointSchema.parse(point));
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      void Promise.resolve(result).catch(() => undefined);
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    }
+    const observation = nativeInterruptionObservationSchema.safeParse(result);
+    if (!observation.success || !isDeepStrictEqual(observation.data.run, point)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    const current = this.runtime.observeSync(point.launch.session_id);
+    if (current.state !== "present" || !isDeepStrictEqual(current.launch, point.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    return observation.data;
+  }
+
+  /** Private per-run interruption admission. The public stop remains read-only
+   * until the real native fence/endpoint adapter and cascade controller exist.
+   * Snapshot old refs under the same shared lock before allowing any key.
+   */
+  async beginInterruption(input: ExecutionPoint) {
+    const run = executionPointSchema.parse(input);
+    if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return this.store.transaction(state => {
+      const previous = state.interruptions.find(row => sameInterruptionRun(row.before.run, run));
+      if (previous) return previous; // lookup never reissues a native key
+      if (state.interruptions.some(row => isDeepStrictEqual(row.before.run.launch, run.launch)
+        && !["settled", "not_sent"].includes(row.phase))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const before = this.interruptObservation(run);
+      if (before.recorded_state !== "running") throw new ExecutionError("EXECUTION_CONFLICT");
+      const related = state.records.filter(record => record.relation.lifecycle !== "retired"
+        && (isDeepStrictEqual(record.relation.source?.launch, run.launch) || isDeepStrictEqual(record.relation.target?.launch, run.launch)
+          || (record.reservation.target.session_id === run.launch.session_id && record.reservation.target.expected_launch_id === run.launch.launch_id)
+          || (!record.relation.source && record.source_session_id === run.launch.session_id)));
+      const requests = related.map(record => record.reservation.request);
+      const parent_deliveries = state.parent_deliveries.filter(binding => isDeepStrictEqual(binding.parent.launch, run.launch)
+        || isDeepStrictEqual(binding.child.launch, run.launch) || requests.some(request => isDeepStrictEqual(request, binding.request))).map(binding => binding.delivery_id);
+      const row: ExecutionState["interruptions"][number] = { before, phase: "draining", requests, parent_deliveries };
+      state.interruptions.push(row);
+      for (const record of related) {
+        // Accepted/unknown/native-issued receipts retain their real meaning.
+        // Cancellation only proves not_sent for still-unissued old actions.
+        for (const stage of ["launch", "send"] as const)
+          if (["not_issued", "preparing"].includes(record.operations[stage])) record.operations[stage] = "not_sent";
+        if (record.operations.launch === "not_sent" && record.operations.send === "not_sent") record.relation.phase = "unsent";
+      }
+      return row;
+    });
+  }
+
+  /** Synchronous actual key callback, outside the metadata lock. Durable
+   * issuance precedes its first native effect. No implicit retry or close.
+   */
+  async interruptRun<T>(input: ExecutionPoint, body: () => T): Promise<T> {
+    const run = executionPointSchema.parse(input);
+    if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const before = await this.store.transaction(state => {
+      const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+      if (!row || row.phase !== "draining") throw new ExecutionError("EXECUTION_CONFLICT");
+      if (interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      row.phase = "preparing"; // one process claims this existing run; never an invocation ID
+      return row.before;
+    });
+    let issued = false;
+    try {
+      const value = withExecutionInterruptEffectScope(run.launch.session_id, before.native.native_id, () => {
+        this.store.transactionSync!(state => {
+          const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+          if (!row || row.phase !== (issued ? "issued" : "preparing") || interruptionSlots(state, run).length)
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          const now = this.interruptObservation(run);
+          if (now.recorded_state !== "running" || !isDeepStrictEqual(interruptionIdentity(now), interruptionIdentity(before)))
+            throw new ExecutionError("EXECUTION_CONFLICT");
+          if (!issued) {
+            row.phase = "issued";
+            state.slots.push({ session_id: run.launch.session_id, expected_launch_id: run.launch.launch_id,
+              stage: "interrupt", state: "issued", request: null, run });
+          } else if (!state.slots.some(slot => slot.stage === "interrupt" && slot.state === "issued" && isDeepStrictEqual(slot.run, run)))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        }, issued ? { readOnly: true } : undefined);
+        issued = true;
+      }, body);
+      if (!issued || !z.object({ schema: z.literal("aiterm.pty-key-result.v1"), session_id: z.literal(run.launch.session_id),
+        key: z.literal("Escape"), outcome: z.literal("accepted"), interruption: z.literal("unconfirmed"),
+        session_preserved: z.literal("unconfirmed") }).safeParse(value).success) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      await this.store.transaction(state => {
+        const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+        const slot = state.slots.find(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run));
+        if (!row || row.phase !== "issued" || !slot || slot.state !== "issued") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        row.phase = "accepted"; slot.state = "unknown"; // key known; interruption/fence still unknown
+      });
+      return value;
+    } catch (error) {
+      try { await this.store.transaction(state => {
+        const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+        if (row && (issued || row.phase === "preparing")) row.phase = issued ? "unknown" : "not_sent";
+        if (issued) for (const slot of state.slots) if (slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)) slot.state = "unknown";
+      }); } catch { /* retain issued journal/slot; reconstruction never replays */ }
+      throw issued ? new ExecutionError("EXECUTION_UNCONFIRMED", "possible") : error;
+    }
+  }
+
+  /** Only a private native observation/fence can release the temporary barrier.
+   * Old request/delivery tombstones remain; new target work may use this same
+   * launch. Unknown/issued key receipts require separate recovery, never retry.
+   */
+  async settleInterruption(input: ExecutionPoint) {
+    const run = executionPointSchema.parse(input);
+    return this.store.transaction(state => {
+      const row = state.interruptions.find(row => isDeepStrictEqual(row.before.run, run));
+      if (!row || row.phase !== "accepted" || interruptionSlots(state, run).length) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const observation = this.interruptObservation(run);
+      if (observation.recorded_state !== "interrupted" || observation.invocation_fence !== "closed"
+        || observation.session_preserved !== "confirmed" || !isDeepStrictEqual(interruptionIdentity(observation), interruptionIdentity(row.before)))
+        throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const last = this.interruptObservation(run);
+      if (!isDeepStrictEqual(last, observation)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      if (!state.slots.some(slot => slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      row.phase = "settled";
+      state.slots = state.slots.filter(slot => !(slot.stage === "interrupt" && isDeepStrictEqual(slot.run, run)));
+      for (const record of state.records) if (record.relation.lifecycle !== "retired" && isDeepStrictEqual(record.relation.target, run)) {
+        record.relation.completion = "interrupted"; record.relation.target_fence = "closed";
+      }
+      retireSettledBranches(state);
+      return row;
+    });
+  }
 
   /** Internal receipt callbacks for the serving launch frame. No tool args,
    * new identifiers, native effects or name-based generation inference.
@@ -142,7 +276,7 @@ export class ExecutionService {
         || current.state !== "present" || !same(current.launch, launch)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       slot.expected_launch_id = launch.launch_id;
       record.relation.target = { launch, boundary: null };
-      if (stopped(state, record.relation.source?.launch) && !stopped(state, launch)) state.stopping.push(launch);
+      if (state.stopping.some(value => same(value, record.relation.source?.launch)) && !state.stopping.some(value => same(value, launch))) state.stopping.push(launch);
     });
   }
 
@@ -208,6 +342,11 @@ export class ExecutionService {
       if (current.state === "present" && current.launch) roots.set(key(current.launch), current.launch);
       else if (current.state === "unknown" || current.state === "present")
         unresolved.push({ request: null, reason: "current_generation_unconfirmed" });
+      for (const row of state.interruptions) if (row.before.run.launch.session_id === session_id
+        && !["settled", "not_sent"].includes(row.phase)) {
+        roots.set(key(row.before.run.launch), row.before.run.launch);
+        unresolved.push({ request: null, reason: "interruption_unconfirmed" });
+      }
       for (const slot of state.slots) if (slot.session_id === session_id || (slot.request &&
         find(state, slot.request).source_session_id === session_id) || slot.source?.session_id === session_id
         || slot.sources?.some(source => source.session_id === session_id)) {
@@ -239,6 +378,7 @@ export class ExecutionService {
           throw new ExecutionError("EXECUTION_CONFLICT", "possible");
         return view(state, previous); // idempotent lookup, never a second invocation
       }
+      if (interruptionBlocksRequest(state, args.reservation.request)) throw new ExecutionError("EXECUTION_STOPPING");
       const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args, context));
       if (source.status === "stale") throw new ExecutionError("EXECUTION_STALE_GENERATION");
       if (args.reservation.source.launch && source.status !== "verified") {
@@ -299,6 +439,7 @@ export class ExecutionService {
     await this.store.transaction(async state => {
       const record = find(state, request);
       const relation = record.relation;
+      if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
       // The concrete MCP adapter must supply its actual immutable argument.
       // Validating only the eventual receipt is too late to prevent a tool
       // accidentally invoking another seat before binding discovers the error.
@@ -345,6 +486,8 @@ export class ExecutionService {
         // stop, uncertain slot or generation replacement after the first one.
         return this.store.transactionSync!(state => {
           const record = find(state, request), relation = record.relation;
+          if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
+          assertInterruptionSource(state, relation.source, record.source_session_id);
           const slot = state.slots.find(value => same(value.request, request) && value.stage === stage);
           if (!slot || slot.state !== "issued" || record.operations[stage] !== "issued"
             || relation.lifecycle === "retired") throw new ExecutionError("EXECUTION_UNCONFIRMED");
@@ -380,6 +523,7 @@ export class ExecutionService {
       }
       const result = this.store.transactionSync!(state => {
         const record = find(state, request), relation = record.relation;
+        if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
         if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "preparing")
           throw new ExecutionError("EXECUTION_CONFLICT", "not_started");
         sourceAdmission(state, relation.source, record.source_session_id);
@@ -471,7 +615,7 @@ export class ExecutionService {
       record.relation.phase = "invoked";
       record.relation.completion = closing ? "interrupted" : "open";
       if (closing) record.relation.target_fence = "closed";
-      if (stopped(state, record.relation.source?.launch) && !stopped(state, targetPoint.launch))
+      if (state.stopping.some(value => same(value, record.relation.source?.launch)) && !state.stopping.some(value => same(value, targetPoint.launch)))
         state.stopping.push(targetPoint.launch);
       state.slots = state.slots.filter(value => !same(value.request, request));
       if (closing) this.interruptRelations(state, targetPoint.launch);

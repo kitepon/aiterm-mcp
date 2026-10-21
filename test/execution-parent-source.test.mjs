@@ -178,3 +178,41 @@ test('native ingress absence or another request/source/actor cannot be replaced 
     assert.throws(() => withExecutionRequest(ref, () => f.evidence.capture(f.endpoint), ingress));
   }
 });
+
+
+test('parent selection reads only the frozen endpoint, detaches its result and keeps concurrent requests separate', async () => {
+  const f = fixture(), release = pause(), secondRequest = { ...request, request_id: 42 };
+  const secondEndpoint = { ...f.endpoint, thread_id: '00000000-0000-4000-8000-000000000002' };
+  const other = { ...f.ingress, metadata: { threadId: secondEndpoint.thread_id } };
+  const one = withExecutionRequest(request, f.evidence.captureIngress, f.ingress);
+  const two = withExecutionRequest(secondRequest, f.evidence.captureIngress, other);
+  const first = withExecutionRequest(request, async () => { await release.promise; const selected = f.evidence.endpointFromIngress();
+    selected.thread_id = 'mutated-return'; return f.evidence.endpointFromIngress(); }, { ...f.ingress, native_parent: one });
+  const second = withExecutionRequest(secondRequest, async () => { await release.promise; return f.evidence.endpointFromIngress(); }, { ...other, native_parent: two });
+  f.bindings.decode = () => assert.fail('no current native decoder'); release.resolve();
+  assert.deepEqual(await Promise.all([first, second]), [f.endpoint, secondEndpoint]);
+});
+
+test('parent selection distinguishes explicit absence and host context from missing or malformed native ingress', () => {
+  const f = fixture(); f.bindings.decode = () => assert.fail('no current metadata fallback');
+  assert.equal(withExecutionRequest(request, () => f.evidence.endpointFromIngress(), { ...f.ingress, native_parent: null }), null);
+  assert.equal(withExecutionRequest({ kind: 'delivery', delivery_id: 'existing-host-reference', target_session_id: B.session_id },
+    () => f.evidence.endpointFromIngress(), { ...f.ingress, native_parent: { forged: true } }), null);
+  assert.throws(() => f.evidence.endpointFromIngress(), code('EXECUTION_UNSUPPORTED'));
+  for (const extra of [{}, { native_parent: undefined }, { native_parent: { malformed: true } }])
+    assert.throws(() => withExecutionRequest(request, () => f.evidence.endpointFromIngress(), { ...f.ingress, ...extra }), code('EXECUTION_UNSUPPORTED'));
+});
+
+test('selected parent cannot cross request/client/source/actor or native generation boundaries', () => {
+  for (const change of ['request', 'client', 'source', 'actor', 'native-generation']) {
+    const f = fixture(), fixed = withExecutionRequest(request, f.evidence.captureIngress, f.ingress);
+    const ingress = { ...f.ingress, native_parent: fixed }; let ref = request;
+    if (change === 'request') ref = { ...request, request_id: 99 };
+    if (change === 'client') ingress.client_name = 'other-native-client';
+    if (change === 'source') ingress.source = point({ ...A, launch_id: 'e'.repeat(32) });
+    if (change === 'actor') ingress.native_identity = { ...actor, started_identity: '2026-10-21T07:03:00Z' };
+    if (change === 'native-generation') f.snapshot.source.launch.launch_id = 'e'.repeat(32);
+    f.bindings.decode = () => assert.fail('no late decode');
+    assert.throws(() => withExecutionRequest(ref, () => f.evidence.endpointFromIngress(), ingress));
+  }
+});

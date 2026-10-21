@@ -1,5 +1,7 @@
 // Capability-gated factory for the real parent manager. Public steer 0.4.7 has
 // no native admission callbacks; it is refused rather than silently bypassed.
+import path from "node:path";
+import { z } from "zod";
 import * as installedSteer from "aiterm-steer-delivery";
 import type { ExecutionRequest, ExecutionPoint } from "./execution-contract.js";
 import type { createExecutionParentAdapter } from "./execution-parent.js";
@@ -7,12 +9,17 @@ import type { createParentNativeAdmission } from "./execution-parent-native.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
 import { ExecutionError } from "./execution-wire.js";
 import type { CodexParent } from "./codex-parent-receiver.js";
-import type { ClaudeParent } from "./claude-parent-receiver.js";
-import type { CursorParent } from "./cursor-parent-receiver.js";
+import { claudeParentSchema, type ClaudeParent } from "./claude-parent-receiver.js";
+import { cursorParentSchema, type CursorParent } from "./cursor-parent-receiver.js";
 
 type Parent = CodexParent | ClaudeParent | CursorParent;
 type Receipt = { queued_submission_id: string | null };
+const selectedParentSchema = z.union([claudeParentSchema, cursorParentSchema,
+  z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict()])
+  .refine(value => { const root = "hook_root" in value ? value.hook_root : value.codex_home;
+    return path.isAbsolute(root) && !/[\r\n\0]/.test(root); });
 export interface ParentManagerExecution {
+  parentFromIngress?(): Parent | null;
   captureEndpointEvidence?(endpoint: unknown): unknown;
   bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
   // Synchronous companion metadata only, called inside the original preparation frame.
@@ -29,6 +36,7 @@ export function createParentManagerExecution(input: {
   profile: installedSteer.ProductProfile; provider?: SteerProvider; codexRuntime?: installedSteer.CodexReceiverRuntime;
   claudeRuntime?: Parameters<typeof installedSteer.submitClaudeParentAnswer>[4];
   verifyCompanion?(id: string, endpoint: unknown, evidence: unknown): unknown;
+  parentFromIngress?(): unknown | null;
 }): ParentManagerExecution {
   const provider: SteerProvider = input.provider ?? installedSteer;
   const contract = provider.DELIVERY_ADMISSION_CONTRACT as Record<string, unknown> | undefined;
@@ -36,9 +44,20 @@ export function createParentManagerExecution(input: {
     || contract.native_context !== true || contract.cursor_profile_parameter !== true || contract.serialized_required !== true
     || contract.multi_delivery_emit !== true) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const bindClaude = provider.bindClaudeParentDelivery, prepareCursor = provider.prepareCursorDelivery;
-  const verifyCompanion = input.verifyCompanion;
+  const verifyCompanion = input.verifyCompanion, parentFromIngress = input.parentFromIngress;
   const profile = Object.assign({}, input.profile, { delivery_admission: createSteerExecutionAdmission(input.parent, input.native) });
   return {
+    parentFromIngress() {
+      if (typeof parentFromIngress !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      const selected = parentFromIngress();
+      if (selected === null) return null;
+      if (selected && typeof (selected as { then?: unknown }).then === "function") {
+        void Promise.resolve(selected).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      }
+      const parsed = selectedParentSchema.safeParse(selected);
+      if (!parsed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      return structuredClone(parsed.data);
+    },
     outcomeUnknown(error) {
       // An isolated/new provider has its own class identity. Accept certainty
       // only from that exact provider, never a matching field on an RPC error.

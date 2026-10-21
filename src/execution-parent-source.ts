@@ -127,6 +127,21 @@ export function createParentSourceEvidence(bindings: ParentSourceBindings) {
       if (!decoded) return null;
       return frozenSchema.parse({ endpoint: structuredClone(decoded), proof: fresh(decoded, { value: decoded }) });
     },
+    // Read only the immutable ingress selection. A later decoder/default root
+    // cannot manufacture a parent when ingress explicitly had none.
+    endpointFromIngress(): unknown | null {
+      const context = currentExecutionIngress(), ingress = context?.ingress;
+      if (!context || !ingress) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (context.request.kind !== "mcp") return null; // fixed host delivery/room/call context
+      if (!Object.hasOwn(ingress, "native_parent")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (ingress.native_parent === null) return null;
+      const fixed = frozenSchema.safeParse(ingress.native_parent);
+      if (!fixed.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      // capture requires this exact snapshot/request/source/client/actor and
+      // independently reobserves current native generation/lineage.
+      this.capture(fixed.data.endpoint);
+      return structuredClone(fixed.data.endpoint);
+    },
     capture(endpointInput: unknown): ParentSource {
       const context = currentExecutionIngress(), ingress = context?.ingress;
       if (ingress && Object.hasOwn(ingress, "native_parent")) {

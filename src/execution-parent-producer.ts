@@ -98,6 +98,14 @@ export function createExecutionParentProducer(input: {
     verifyParentEndpoint: createNativeParentEndpointEvidence({ actor, sourceEvidence,
       claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks"), cursorHookRoot: path.join(scope.state_root, "cursor-parent-hooks") }) });
   const execution = createParentManagerExecution({ parent, native, profile, provider: input.provider, claudeRuntime: input.claudeRuntime,
+    parentFromIngress: () => {
+      assertScope();
+      const endpoint = sourceEvidence.endpointFromIngress();
+      if (endpoint === null) return null;
+      const proof = sourceEvidence.capture(endpoint);
+      if (proof.endpoint.vendor === "claude") producerEndpoint.verifyIngress(endpoint, proof);
+      return endpoint;
+    },
     verifyCompanion: (id, endpoint, evidence) => {
       assertScope();
       if (JSON.stringify(sourceEvidence.capture(endpoint)) !== JSON.stringify(evidence)) throw new ExecutionError("EXECUTION_CONFLICT");

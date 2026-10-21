@@ -235,3 +235,17 @@ test('a companion failure after a partial metadata write keeps the original boun
   const diagnostic = JSON.parse(readFileSync(join(root, 'manager', 'results', saved.delivery_id + '.json')));
   assert.equal(diagnostic.boundary.event_cursor, 17); assert.equal(diagnostic.state, 'unknown'); assert.equal(diagnostic.child_outcome, null);
 });
+
+
+test('factory parent selector is mandatory and synchronous, detached and fixed independently of later option changes', () => {
+  const endpoint = { kind: 'claude', request_id: 'toolu_frozen', session_id: parent.thread_id, hook_root: '/synthetic-fixed-root' };
+  const input = { parent: {}, native: {}, provider: companionProvider(), profile: {}, parentFromIngress: () => endpoint };
+  const execution = createParentManagerExecution(input); input.parentFromIngress = () => null;
+  const selected = execution.parentFromIngress(); selected.request_id = 'mutated';
+  assert.deepEqual(execution.parentFromIngress(), endpoint);
+  for (const parentFromIngress of [undefined, () => undefined, () => Promise.resolve(endpoint), () => ({ ...endpoint, unexpected: true })]) {
+    const missing = createParentManagerExecution({ ...input, parentFromIngress });
+    assert.throws(() => missing.parentFromIngress(), error => error.code === 'EXECUTION_UNSUPPORTED');
+  }
+  assert.equal(createParentManagerExecution({ ...input, parentFromIngress: () => null }).parentFromIngress(), null);
+});

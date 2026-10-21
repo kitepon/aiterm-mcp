@@ -475,3 +475,20 @@ private constructorのerror返却では、static profileによるClaude hook dis
 元ownerのものと証明できず、graph bindingも既に残る場合があるため、確認済みownerの清算へ保持する。
 legacy未注入の通常cleanupは従来通り。これはhook loaded version/全process/legacy混在やnative入力・終了
 fenceの解消ではなく、通常main/workerへmountする条件にはならない。
+
+
+### private入口の親選択は固定ingressだけを読む
+
+private deliveryForRequestはParentManagerExecution.parentFromIngressの同期読取だけを使う。
+通常vendor decoder/default hook rootは未注入legacy時だけ使用する。親選択callback欠測・Promise・
+不正endpointは未対応として拒否し、明示nullだけをこの要求で親が無い状態として扱う。
+
+同じfactoryのsourceEvidence.endpointFromIngressは、入口で固定されたnative_parent endpoint/proofを
+同じrequest/client/source/native actorと照合し、現在のgeneration/harness lineageを独立再観測する。
+Claudeはnative hook session/tool/ownerも同じprofile/scopeで再照合する。返すendpointはcloneし、
+待機中のmetadata/root/decoderの変化から別親を採用しない。snapshot欠測を現在fileから補わず、
+明示nullを後から有効化しない。host delivery/room/callはstdio envを元に親を自動構成しない。
+
+読取はnative親呼出provenanceだけであり、元入力受理/turn alias、中断/会話維持/loaded hookや終了fence
+の証明ではない。Codex/Cursorで独立current endpoint証拠が無い制限は、cloneしたendpointで解消しない。
+通常main/worker未mount、既定stop unsupported、全参加者/旧binary移行の不足は維持する。

@@ -26,10 +26,10 @@ import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
-import { codexParentFromRequest } from "./codex-parent-receiver.js";
-import { claudeParentFromRequest, discardClaudeHookRequest } from "./claude-parent-receiver.js";
+import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
+import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
-import { cursorParentFromRequest, isCursorMcpClient } from "./cursor-parent-receiver.js";
+import { cursorParentFromRequest, isCursorMcpClient, type CursorParent } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
 import { INTERIM_RESULT_META_KEY, interimCallerFromMeta, interimRequestFromMeta } from "./interim-words.js";
 import { SEAT_TURNS_RESULT_META_KEY, STEER_RESULT_META_KEY } from "./steer-follow.js";
@@ -107,7 +107,18 @@ function deliveryParentKind(clientName: string | undefined): "claude" | "cursor"
 async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): Promise<DeliveryRequest | null> {
   if (execution && remote) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const clientName = server.server.getClientVersion()?.name;
-  const parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
+  let parent: CodexParent | ClaudeParent | CursorParent | null;
+  if (execution) {
+    const select = execution.parentExecution.parentFromIngress;
+    if (typeof select !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const fixed = select();
+    if (fixed && typeof (fixed as { then?: unknown }).then === "function") {
+      void Promise.resolve(fixed).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    }
+    if (fixed !== null && (!fixed || typeof fixed !== "object" || Array.isArray(fixed)))
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    parent = fixed === null ? null : structuredClone(fixed);
+  } else parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
   if (!parent) return null;
   const manager = remote
     ? (remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName), remote: true }))

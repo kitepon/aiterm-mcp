@@ -35,7 +35,7 @@ const TOOL_NAMES = ['diagnostics', 'pty_open', 'pty_send', 'pty_read', 'pty_key'
 const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const native = { pid: 12345, started_identity: 'synthetic-server-native-process' };
 const posix = { skip: process.platform === 'win32' ? 'POSIX tmux command fixture' : false };
-const parent = { captureEndpointEvidence() { assert.fail('no native parent endpoint supplied'); },
+const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no native parent endpoint supplied'); },
   async bind() { assert.fail('no parent bind fixture'); }, async submit() { assert.fail('no parent submit fixture'); } };
 async function connect(t, server, name = 'synthetic-fixed-client') {
   const client = new Client({ name, version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -205,7 +205,7 @@ test('the actual close handler shares admission and binds only the confirmed clo
 test('the initialized native parent uses the injected real manager and receives the frozen request source without legacy verification', async t => {
   const captures = [], thread = '00000000-0000-4000-8000-000000000001';
   const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {
-    ...parent, captureEndpointEvidence(endpoint) {
+    ...parent, parentFromIngress: () => ({ thread_id: thread, codex_home: '/synthetic-frozen-parent' }), captureEndpointEvidence(endpoint) {
       captures.push({ endpoint: structuredClone(endpoint), context: currentExecutionIngress() });
       throw new ExecutionError('EXECUTION_UNSUPPORTED'); // no native alias/finish proof is invented
     },
@@ -220,4 +220,28 @@ test('the initialized native parent uses the injected real manager and receives 
   assert.deepEqual(captures[0].context.ingress.source.launch, A);
   assert.equal(captures[0].context.ingress.metadata.threadId, thread);
   assert.deepEqual(f.effects, []);
+});
+
+
+test('private explicit parent absence ignores valid current native metadata instead of redecoding a parent', async t => {
+  let selections = 0, captures = 0;
+  const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {
+    ...parent, parentFromIngress: () => { selections++; return null; }, captureEndpointEvidence() { captures++; throw Error('no late parent'); },
+  } });
+  const result = await f.client.callTool({ name: 'agent_launch', arguments: { harness: 'codex-cli', session_name: B.session_id, prompt: 'synthetic' },
+    _meta: { threadId: '00000000-0000-4000-8000-000000000001' } });
+  assert.equal(result.isError, true); assert.equal(selections, 1); assert.equal(captures, 0); assert.deepEqual(f.effects, []);
+});
+
+test('private missing or asynchronous selectors fail before a current metadata parent can be captured', async t => {
+  let captures = 0;
+  for (const selection of [undefined, () => undefined, () => Promise.resolve(null)]) {
+    const f = await fixture(t, undefined, { clientName: 'codex-mcp-client', parentExecution: {
+      ...parent, parentFromIngress: selection, captureEndpointEvidence() { captures++; throw Error('no legacy fallback'); },
+    } });
+    const result = await f.client.callTool({ name: 'agent_launch', arguments: { harness: 'codex-cli', session_name: B.session_id, prompt: 'synthetic' },
+      _meta: { threadId: '00000000-0000-4000-8000-000000000001' } });
+    assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started'); assert.deepEqual(f.effects, []);
+  }
+  assert.equal(captures, 0);
 });

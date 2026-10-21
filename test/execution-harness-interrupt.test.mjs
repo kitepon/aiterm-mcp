@@ -388,7 +388,7 @@ test('same-server SDK control reaches the native controller only with fixed expl
       selectInterruptionSync: core.selectExpectedAgentRunInterruption, interruptKeySync: core.interruptExpectedAgentRun,
       async observeDone() { assert.fail('no generic completion proof'); }, async guardedClose() { assert.fail('never close'); },
     }), service = new ExecutionService(store, runtime);
-    const parent = { captureEndpointEvidence() { assert.fail('no parent endpoint'); },
+    const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no parent endpoint'); },
       async bind() { assert.fail('no parent bind'); }, async submit() { assert.fail('no parent submit'); } };
     const server = createAitermServer({ execution: server => ({ parentExecution: parent,
       parentStateRoot: join(directory, 'parent'), parentDependencies: { processes: () => [], exists: () => true,
@@ -573,7 +573,7 @@ test('same-server SDK/scoped caller/core Claude operation Esc remains unconfirme
   await service.execute({ action: 'register', source_session_id: null, reservation: { schema: 'aiterm.execution-reservation.v1', request,
     source: { launch: null, boundary: null }, target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
   await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: 'old accepted receipt', target: f.point }));
-  const parent = { captureEndpointEvidence() { assert.fail('no new parent'); }, async bind() { assert.fail('no bind'); }, async submit() { assert.fail('no submit'); } };
+  const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no new parent'); }, async bind() { assert.fail('no bind'); }, async submit() { assert.fail('no submit'); } };
   const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
     parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
     dispatcher: createExecutionDispatcher({ service, nativeIdentity: actor, sourceEnvironment: {},
@@ -655,7 +655,7 @@ test('real SDK claude_turn handler preserves its actual core boundary into the s
     observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
     interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('generic done is not native abort'); },
   }));
-  const parent = { captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
+  const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
   const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
     parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
     dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
@@ -788,7 +788,7 @@ test('real SDK anonymous pty_send binds the v2 original cursor into the same pri
     observeInterruptionSync: core.observeExpectedAgentRunInterruption, selectInterruptionSync: core.selectExpectedAgentRunInterruption,
     interruptKeySync: core.interruptExpectedAgentRun, async observeDone() { assert.fail('generic done is not native abort'); },
   }));
-  const parent = { captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
+  const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no parent source'); }, async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
   const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
     parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no parent wait'); }, async answer() { assert.fail('no parent answer'); } },
     dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },

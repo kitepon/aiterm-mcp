@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
@@ -198,6 +198,10 @@ test('cached conversation IDs and latest mtime cannot disambiguate multiple nati
   copyFileSync(f.transcript, other);
   writeFileSync(other, readFileSync(other, 'utf8').replace('"id":"00000000-0000-4000-8000-000000000002"', '"id":"00000000-0000-4000-8000-000000000003"'));
   assert.throws(() => core.observeExpectedAgentRunInterruption(f.point)); assert.throws(() => f.apply()); assert.deepEqual(f.keys, []);
+  const ambiguous = fixture(t);
+  symlinkSync(ambiguous.transcript, ambiguous.transcript + '.alias');
+  assert.throws(() => core.observeExpectedAgentRunInterruption(ambiguous.point));
+  assert.throws(() => ambiguous.apply()); assert.deepEqual(ambiguous.keys, []);
 });
 test('forked transcripts and arbitrary cached vendor IDs cannot supply native interruption evidence', posix, t => {
   const f = fixture(t);

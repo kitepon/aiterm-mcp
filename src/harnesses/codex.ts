@@ -463,7 +463,22 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
 } | null {
   if (meta.kind !== "codex" || meta.hook_route !== "shared_codex_home" || !meta.codex_home) return null;
   try {
-    const files = listCodexTranscripts(meta.codex_home), matches: string[] = [];
+    // The ordinary browser skips unreadable directories. Such a partial list
+    // cannot establish a unique native endpoint for interruption evidence.
+    const listStrict = () => {
+      const files: string[] = [];
+      const visit = (dir: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (entry.isSymbolicLink()) throw new Error("ambiguous native transcript path");
+          const file = path.join(dir, entry.name);
+          if (entry.isDirectory()) visit(file);
+          else if (entry.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) files.push(file);
+        }
+      };
+      visit(path.join(meta.codex_home!, "sessions"));
+      return files.sort();
+    };
+    const files = listStrict(), matches: string[] = [];
     const marker = `AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`;
     const header = (file: string) => {
       const lines = readFileRange(file, 0, Math.min(safeStatSize(file), 1024 * 1024)).toString("utf8").split("\n");
@@ -505,7 +520,7 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
       || !boundary || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
       || (boundary.type === "turn_aborted" && typeof boundary.reason !== "string")) return null;
     // Re-resolve the candidate set, without the ordinary launch-verdict cache.
-    const last = listCodexTranscripts(meta.codex_home);
+    const last = listStrict();
     if (JSON.stringify(last) !== JSON.stringify(files)) return null;
     for (const candidate of last) {
       const verdict = codexLaunchVerdict(candidate, meta);

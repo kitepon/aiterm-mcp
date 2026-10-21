@@ -86,6 +86,7 @@ native stamp/server owner、期待launch、唯一のharness PID/開始identity�
 会話IDはnative headerとfile名、完全なdeveloper launch行から読み、cached vendor_session_idや
 mtimeで選ばない。fork、部分/破損した境界、曖昧な複数root、旧shared-home以外はunsupported。
 複数候補はcached IDで選ばず、native endpointの厳格な別adapterができるまで可用性を限定する。
+通常の一覧が読めないdirectoryを飛ばす動作も使わず、全探索の読取失敗やsymlinkは候補欠測として拒否する。
 キー作用前のCodex照合にも同じ読取りを使い、同じturn IDでも会話fileが交代すれば拒否する。
 Claude/Cursor/GrokにはこのCodex記録判定を流用しない。
 

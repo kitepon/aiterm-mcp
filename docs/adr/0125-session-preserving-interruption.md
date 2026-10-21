@@ -608,3 +608,21 @@ graph await後とnative読取後に元claim/recordを再照合し、欠測・変
 この診断は読み取りだけ。native MCP producerの不在であって、CLI/親hook/旧要求の終了fence、元入力未受理、
 中断/同会話維持、全participantの証明ではない。明示not_sent記録や局所doneとの組合せでもclaim解除・slot清算・
 再送を許可しない。clearance=retained/retry=noneを維持し、公開wire/meta/toolsと通常未注入legacyは変えない。
+
+### Claudeの既存hook/resultを元deliveryへ相関する非解除読取
+
+private producerのclaim診断は、元graphのverified source、同request/deliveryのparent binding、元childの
+accepted canonical receiptが対応する場合だけ、同state rootのClaude記録読取adapterへ進む。未受理・世代/元cursor/
+endpoint digest/proof不一致を局所doneやresult本文で補わない。既定public tools/wire/metaは増やさない。
+
+親側PreToolUse request.jsonのtool/session/元harness PID・開始identityとdelivery.jsonを固定source proofへ照合し、
+子側は保存child Pointの非null operationに限って同launch metadata、result v2、元event_cursor以降の唯一のStopを
+照合する。親tool要求と子operationは別参照のまま保持する。result本文のbyte数/digestとStopのmetadataを検査するが、
+本文やdigestを返却・新保存せず、canonical Pointへnative turnを足さない。匿名operation=null/Stop理由・turn欠測は
+native中断/受理/finish証拠へ変換しない。marker消失、現在vendor cache/同名/最新event/時刻による補完は行わない。
+
+fileは同scope固定pathの同期読取だけで、サイズ上限、元cursorの行境界、symlink/hardlink拒否、fd/path identityと
+全snapshotの最終再照合を要する。欠測・別会話/operation・曖昧/部分/不正event・読取中変更・scope交代は未確認。
+一式が揃ってもchild_stop=recordedは歴史的記録の対応だけ。native_input/interruption/session_preservedはunconfirmed、
+native_fence unknown/clearance retained/retry noneを常に返す。CLI/旧hook/親returnの終了やloaded hookの証明ではなく、
+claim解除/slot清算/再送・stop成功/関係退役を実行しない。全native受入・他CLI・公開mountは未完。

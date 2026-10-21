@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { FileExecutionStore } from '../dist/execution-store.js';
 import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
+import { createHash } from 'node:crypto';
+import { createClaudeParentRecordDiagnosis } from '../dist/execution-parent-claude-records.js';
 import { createExecutionParentAdapter } from '../dist/execution-parent.js';
 import { createParentSourceEvidence } from '../dist/execution-parent-source.js';
 import { createParentQueueEndpointEvidence } from '../dist/execution-parent-queue.js';
@@ -22,7 +24,7 @@ const request = { kind: 'mcp', process_pid: actor.pid, process_started_identity:
 const until = async check => { const deadline = performance.now() + 1000; while (!check()) {
   assert.ok(performance.now() < deadline); await new Promise(done => setTimeout(done, 2));
 } };
-async function fixture(t, { accepted = true, ready = false, changeExecution, actorObserver } = {}) {
+async function fixture(t, { accepted = true, ready = false, changeExecution, actorObserver, recordDiagnosis } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'parent-recovery-')), store = new FileExecutionStore(join(root, 'graph'));
   const live = new Map([A, B].map(launch => [launch.session_id, structuredClone(launch)]));
   const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
@@ -36,7 +38,7 @@ async function fixture(t, { accepted = true, ready = false, changeExecution, act
     reservation: { schema: 'aiterm.execution-reservation.v1', request, source: point(A),
       target: { session_id: B.session_id, expected_launch_id: B.launch_id } } });
   if (accepted) await service.invoke({ schema: 'aiterm.execution-ref.v1', request }, 'send', async () => ({ value: null, target: point(B, 17) }));
-  const endpoint = { kind: 'claude', session_id: session, request_id: 'toolu_original', hook_root: join(root, 'hooks') };
+  const endpoint = { kind: 'claude', session_id: session, request_id: 'toolu_original', hook_root: join(root, recordDiagnosis === true ? 'claude-parent-hooks' : 'hooks') };
   mkdirSync(join(endpoint.hook_root, endpoint.request_id), { recursive: true });
   const invocation = join(endpoint.hook_root, endpoint.request_id, 'request.json');
   writeFileSync(invocation, JSON.stringify({ request_id: endpoint.request_id, session_id: session, agent_id: null,
@@ -47,6 +49,7 @@ async function fixture(t, { accepted = true, ready = false, changeExecution, act
       harness: 'claude-code', harness_process: harness, processes: nativeRows }) });
   const verifyParentEndpoint = createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: endpoint.hook_root });
   const adapter = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe, verifyParentEndpoint,
+    diagnoseClaudeRecords: recordDiagnosis === true ? createClaudeParentRecordDiagnosis({ stateRoot: root, assertScope() {} }) : recordDiagnosis,
     observeActors: pids => actorObserver ? actorObserver(pids) : nativeRows.filter(row => pids.includes(row.pid)).map(({ pid, started_identity }) => ({ pid, started_identity })) });
   const proof = { schema: 'aiterm.parent-source.v1', request, source: point(A), client_name: 'claude-code',
     mcp_process: actor, harness_process: harness, endpoint: { vendor: 'claude', session_id: session, request_id: endpoint.request_id } };
@@ -331,4 +334,55 @@ test('private diagnosis rejects a path or different child before callback and pr
   assert.equal(observed.length, 0);
   const result = await f.manager.diagnoseClaim(B.session_id); assert.equal(result.owner_record, 'matched');
   assert.deepEqual(observed, [[actor.pid]]); assert.equal(result.graph.inventory.participants.length, 1);
+});
+
+
+test('manager claim diagnosis joins real stored Claude invocation and named Stop/result through the accepted original graph receipt without finishing the branch', async t => {
+  const f = await fixture(t, { recordDiagnosis: true }); stageClaim(f);
+  mkdirSync(join(f.root, 'agents'));
+  const stem = join(f.root, 'agents', B.session_id + '.' + B.launch_id), text = 'synthetic child result, excluded from diagnostics';
+  const digest = createHash('sha256').update(text).digest('hex'), resultBytes = Buffer.byteLength(text);
+  writeFileSync(stem + '.agent.json', JSON.stringify({ kind: 'claude', aiterm_session: B.session_id, launch_id: B.launch_id,
+    vendor_session_id: session, event_file: stem + '.events.jsonl', result_file: stem + '.claude-result.json' }));
+  const prefix = JSON.stringify({ type: 'prior' }) + '\n'; assert.equal(Buffer.byteLength(prefix), 17);
+  writeFileSync(stem + '.events.jsonl', prefix + JSON.stringify({ type: 'agent_done', vendor: 'claude', aiterm_session: B.session_id,
+    launch_id: B.launch_id, vendor_session_id: session, turn_id: null, operation_id: f.child.boundary.operation_id,
+    reason: 'Stop', done_status: 'turn_done', result_digest: digest, result_bytes: resultBytes }) + '\n');
+  writeFileSync(stem + '.claude-result.json', JSON.stringify({ schema: 'aiterm.claude-turn-result.v2', operation_id: f.child.boundary.operation_id,
+    vendor_session_id: session, result_digest: digest, result_bytes: resultBytes, text }));
+  const graphFile = join(f.root, 'graph', 'relations.json'), claimFile = join(f.root, 'manager', 'claims', B.session_id + '.json');
+  const beforeGraph = readFileSync(graphFile, 'utf8'), beforeClaim = readFileSync(claimFile, 'utf8');
+  const value = await f.manager.diagnoseClaim(B.session_id);
+  assert.equal(value.graph.claude_records.child_stop, 'recorded'); assert.equal(value.graph.claude_records.parent_invocation, 'matched');
+  assert.equal(value.graph.native_fence, 'unknown'); assert.equal(value.graph.claude_records.interruption, 'unconfirmed');
+  assert.equal(value.graph.claude_records.session_preserved, 'unconfirmed'); assert.equal(value.clearance, 'retained');
+  assert.deepEqual(value.graph.original.target, point(B, 17), 'canonical operation and turn stay null');
+  assert.equal(JSON.stringify(value).includes(text), false); assert.equal(readFileSync(graphFile, 'utf8'), beforeGraph);
+  assert.equal(readFileSync(claimFile, 'utf8'), beforeClaim); assert.deepEqual(f.counts(), { watched: 0, submissions: 0, legacyChecks: 0 });
+});
+
+test('graph refuses file correlation for unaccepted send, source/binding/cursor mismatch or an unrelated locally completed result', async t => {
+  for (const mode of ['unaccepted', 'source', 'binding', 'cursor']) {
+    const f = await fixture(t, { recordDiagnosis: () => assert.fail('unverified original graph may not select Claude records') });
+    await f.store.transaction(state => {
+      if (mode === 'unaccepted') state.records[0].operations.send = 'unknown';
+      if (mode === 'source') state.records[0].source.status = 'unknown';
+      if (mode === 'binding') state.parent_deliveries[0].endpoint_digest = 'f'.repeat(64);
+      if (mode === 'cursor') state.records[0].relation.target.boundary.event_cursor++;
+    });
+    const result = await diagnose(f); assert.equal(result.claude_records, null); assert.equal(result.native_fence, 'unknown');
+    assert.equal(result.clearance, 'retained');
+  }
+});
+
+test('async, thrown or proof-upgrading injected record diagnosis cannot certify native interruption or replace the accepted receipt', async t => {
+  for (const observer of [() => Promise.resolve({ child_stop: 'recorded' }), () => Promise.reject(Error('synthetic delayed read')),
+    () => { throw Error('synthetic unavailable records'); }, () => ({ parent_invocation: 'matched', delivery_binding: 'matched',
+      child_stop: 'recorded', missing: [], native_input: 'confirmed', interruption: 'interrupted', session_preserved: 'confirmed',
+      native_fence: 'closed', clearance: 'released', retry: 'allowed' })]) {
+    const f = await fixture(t, { recordDiagnosis: observer }); const before = readFileSync(join(f.root, 'graph', 'relations.json'), 'utf8');
+    const result = await diagnose(f); assert.equal(result.claude_records, null); assert.equal(result.original.input, 'receipt_recorded');
+    assert.ok(result.missing.includes('claude_records_diagnosis_unavailable')); assert.equal(result.native_fence, 'unknown');
+    assert.equal(readFileSync(join(f.root, 'graph', 'relations.json'), 'utf8'), before);
+  }
 });

@@ -13,6 +13,7 @@ import { EXECUTION_REQUEST_META_KEY, ExecutionError } from "./execution-wire.js"
 import { parentSourceSchema, requireParentEndpointEvidence, type createParentSourceEvidence } from "./execution-parent-source.js";
 import { interruptionBlocksParent } from "./execution-interruption.js";
 import { executionParticipantInventory } from "./execution-inventory.js";
+import { claudeParentRecordDiagnosisSchema, type createClaudeParentRecordDiagnosis } from "./execution-parent-claude-records.js";
 
 type Binding = ExecutionState["parent_deliveries"][number];
 type QueueReceipt = { queued_submission_id: string | null };
@@ -32,12 +33,14 @@ export interface ExecutionParentBindings {
   sourceEvidence?: ReturnType<typeof createParentSourceEvidence>;
   preparationTimeoutMs?: number;
   observeActors?(pids: number[]): unknown;
+  diagnoseClaudeRecords?: ReturnType<typeof createClaudeParentRecordDiagnosis>;
 }
 /** Construct once for the same state/socket scope as the serving service. Each
  * submit/emit/wake process must look up this binding; no latest-seat fallback.
  * Public tool arguments do not provide this adapter's original request/source.
  */
 export function createExecutionParentAdapter(bindings: ExecutionParentBindings) {
+  const diagnoseClaudeRecords = bindings.diagnoseClaudeRecords;
   const digest = (endpoint: unknown): string => {
     const canonical = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(canonical);
@@ -180,12 +183,24 @@ export function createExecutionParentAdapter(bindings: ExecutionParentBindings) 
         if (inventory.participants.some(row => row.missing.length) || !inventory.participants.length
           || [...actors].some(key => !inventory.participants.some(row => actorKey(row.actor) === key)))
           missing.push("native_actor_inventory_incomplete");
+        let claudeRecords = null;
+        // Only the graph's verified original source/binding/canonical receipt
+        // can select these files. A local done body cannot create that join.
+        if (input === "receipt_recorded" && bindingMatches && diagnoseClaudeRecords) {
+          try {
+            const value = diagnoseClaudeRecords(structuredClone(binding!), structuredClone(endpointInput));
+            if (value && typeof (value as unknown as { then?: unknown }).then === "function") {
+              void Promise.resolve(value).catch(() => undefined); throw new Error("asynchronous records");
+            }
+            claudeRecords = claudeParentRecordDiagnosisSchema.parse(value);
+          } catch { missing.push("claude_records_diagnosis_unavailable"); }
+        }
         return structuredClone({ delivery_id: id, request, child, binding: bindingMatches ? "matched" : binding ? "mismatched" : "missing",
           original: original ? { send: original.operations.send, launch: original.operations.launch, phase: original.relation.phase,
             lifecycle: original.relation.lifecycle, target: canonical, input } : null,
           returning: returning ? { request: returnRequest, send: returning.operations.send, phase: returning.relation.phase,
             target: returning.relation.target, input: parentInput } : null,
-          parent_effects: effects, slots, inventory, missing,
+          parent_effects: effects, slots, inventory, claude_records: claudeRecords, missing,
           native_endpoint: "not_observed" as const, native_fence: "unknown" as const,
           clearance: "retained" as const, retry: "none" as const });
       }, { readOnly: true });

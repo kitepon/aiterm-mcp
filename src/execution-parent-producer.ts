@@ -22,6 +22,7 @@ import { parentHookReference } from "./execution-parent-alias.js";
 import { createSteerExecutionAdmission } from "./execution-steer.js";
 import { requireExecutionEffectScope } from "./execution-effect.js";
 import { observeExecutionActor } from "./process-runtime.js";
+import { createClaudeParentRecordDiagnosis } from "./execution-parent-claude-records.js";
 
 export interface ParentProducerRuntime extends ParentWorkerRuntime {
   observeOriginOwner?(pid: number): unknown;
@@ -97,6 +98,7 @@ export function createExecutionParentProducer(input: {
   service = new ExecutionService(store, executionRuntime);
   const producerEndpoint = createParentQueueEndpointEvidence({ actor, sourceEvidence, claudeHookRoot: path.join(scope.state_root, "claude-parent-hooks") });
   const parent = createExecutionParentAdapter({ store, service, sourceEvidence, observeSessionGeneration: observe,
+    diagnoseClaudeRecords: createClaudeParentRecordDiagnosis({ stateRoot: scope.state_root, assertScope }),
     observeActors: pids => { assertScope(); return observeActors?.([...pids]); },
     verifyParentEndpoint: producerEndpoint });
   const native = createParentNativeAdmission({ store, actor, sourceEvidence, observeSessionGenerationSync: observe,

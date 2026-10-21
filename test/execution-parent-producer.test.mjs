@@ -182,3 +182,17 @@ test('injected producer with no native origin observer stays unsupported instead
   f.options.runtime.observeOriginOwner = 'not a callback';
   assert.throws(() => createExecutionParentProducer(f.options), code('EXECUTION_UNSUPPORTED'));
 });
+
+test('real producer mounts its same-scope record diagnosis while an anonymous accepted child still cannot gain a native operation or completion fence', async t => {
+  const f = fixture(t); await f.initialize(); const proof = await f.bind();
+  write(join(f.directory, 'delivery.json'), { delivery_id: id }); await f.accept();
+  const before = readFileSync(join(f.producer.store.directory, 'relations.json'), 'utf8');
+  const result = await f.producer.parent.diagnoseClaim(id, request, point(B, 17), f.endpoint, proof);
+  assert.equal(result.claude_records.parent_invocation, 'matched'); assert.equal(result.claude_records.delivery_binding, 'matched');
+  assert.equal(result.claude_records.child_stop, 'unconfirmed');
+  assert.deepEqual(result.claude_records.missing, ['child_operation_reference_missing']);
+  assert.equal(result.original.target.boundary.operation_id, null); assert.equal(result.original.target.boundary.turn_id, null);
+  assert.equal(result.native_endpoint, 'not_observed'); assert.equal(result.native_fence, 'unknown');
+  assert.equal(result.claude_records.session_preserved, 'unconfirmed'); assert.equal(result.clearance, 'retained');
+  assert.equal(readFileSync(join(f.producer.store.directory, 'relations.json'), 'utf8'), before);
+});

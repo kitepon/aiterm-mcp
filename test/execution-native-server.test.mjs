@@ -2,7 +2,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -103,4 +103,24 @@ test('separate hook worker uses its own scoped actor and admission profile inste
   assert.deepEqual(graph.participants[0].actor, hookActor); assert.deepEqual(graph.participants[0].roles, ['parent_worker']);
   assert.equal(typeof worker.profile.delivery_admission.run, 'function'); assert.equal(worker.relation_coverage, 'incomplete');
   f.scope.multiplexer.key += '-changed'; await assert.rejects(worker.store.transaction(() => null));
+});
+
+test('native same-server immediate control sends before held graph lock without v2 journals, permits next request', async t => {
+  const f = fixture(t), sends = [];
+  f.options.immediateStop = { currentLaunchId: () => A.launch_id,
+    sendKey: name => { sends.push(name); return {session_id:name,outcome:'accepted'}; } };
+  const p=f.create(), client=new Client({name:'synthetic-owner',version:'test'}), [a,b]=InMemoryTransport.createLinkedPair();
+  await p.server.connect(b);await client.connect(a);t.after(()=>client.close());
+  const before=await p.store.transaction(state=>structuredClone(state),{readOnly:true});
+  const graphBefore=readFileSync(join(p.store.directory,'relations.json'));
+  mkdirSync(join(p.store.directory,'transaction.lock'));
+  const result=await client.callTool({name:'agent_stop',arguments:{session_ids:[A.session_id,A.session_id]}});
+  assert.deepEqual(readFileSync(join(p.store.directory,'relations.json')),graphBefore);
+  rmSync(join(p.store.directory,'transaction.lock'),{recursive:true});
+  assert.equal(result.isError,undefined);assert.equal(result.structuredContent.status,'sent');assert.deepEqual(sends,[A.session_id]);
+  const after=await p.store.transaction(state=>structuredClone(state),{readOnly:true});assert.deepEqual(after,before);
+  const registered=await client.callTool({name:'agent_execution',arguments:{action:'register',source_session_id:null,reservation:{
+    schema:'aiterm.execution-reservation.v1',request:{kind:'delivery',delivery_id:'next-after-key-only',target_session_id:A.session_id},
+    source:{launch:null,boundary:null},target:{session_id:A.session_id,expected_launch_id:A.launch_id}}}});
+  assert.equal(registered.isError,undefined);assert.equal(registered.structuredContent.operations.send,'not_issued');
 });

@@ -10,6 +10,7 @@ import * as core from "./core.js";
 import { localParentWorkerRuntime, createExecutionParentWorker, type ParentWorkerRuntime } from "./execution-parent-worker.js";
 import type { ParentProducerRuntime } from "./execution-parent-producer.js";
 import { createExecutionParticipant } from "./execution-participant.js";
+import { interruptKnownSessions } from "./execution-immediate-stop.js";
 import { registerExecutionTools } from "./execution-tools.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
 import { EXECUTION_SOURCE_ENV_NAMES, EXECUTION_SCOPE_ENV_NAMES } from "./execution-runtime.js";
@@ -23,7 +24,9 @@ export type NativeProvider = NonNullable<ParticipantOptions["provider"]> & Pick<
 export function createNativeExecutionServer(input: {
   interruptCurrentRun: true; expectedScope: ParticipantOptions["expectedScope"]; provider: NativeProvider;
   // Complete injected fake runtime only; missing primitives never use live OS.
-  runtime?: ParentProducerRuntime; parentDependencies?: ParticipantOptions["parentDependencies"];
+  runtime?: ParentProducerRuntime;
+  immediateStop?: Pick<Parameters<typeof interruptKnownSessions>[1], "currentLaunchId" | "sendKey">;
+  parentDependencies?: ParticipantOptions["parentDependencies"];
   claudeRuntime?: ParticipantOptions["claudeRuntime"];
 }) {
   if (input.interruptCurrentRun !== true || !input.expectedScope || !path.isAbsolute(input.expectedScope.state_root)
@@ -58,7 +61,14 @@ export function createNativeExecutionServer(input: {
       parentDependencies: input.parentDependencies, claudeRuntime: input.claudeRuntime })
     : createExecutionParticipant({ profile, expectedScope, provider, runtime,
       parentDependencies: nativeParentDependencies(provider, profile), claudeRuntime: { running: nativeProcessRunning } });
-  registerExecutionTools(participant.server, participant.service, { interruptCurrentRun: true });
+  registerExecutionTools(participant.server, participant.service, { interruptCurrentRun: true,
+    // The stop button uses this direct path, not the old v2 proof controller.
+    ...(!input.runtime || input.immediateStop ? { interruptSessionsNow: (args: unknown) => interruptKnownSessions(args, {
+      relations: () => participant.store.snapshot().records.map(record => record.relation),
+      currentLaunchId: input.immediateStop?.currentLaunchId ?? core.interruptionLaunchId,
+      sendKey: input.immediateStop?.sendKey ?? core.interruptSessionNow,
+    }) } : {}),
+  });
   return participant;
 }
 

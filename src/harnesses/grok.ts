@@ -808,3 +808,6 @@ export function grokModelFromFooter(screen: string, catalog: AgentModelCatalog):
   }
   return null;
 }
+
+// The ordinary interactive cancel gesture; not a process termination signal.
+export const GROK_INTERRUPT_KEY = "C-c" as const;

@@ -7,7 +7,32 @@
 AIへの停止依頼や意味判断を使わず、効かなくてもclose/killへ自動昇格しない。
 通常の明示的な管理用closeは残すが、中断の受入には数えない。
 
-## 最小wire
+## 2026-10-22 最新訂正: 停止ボタンは即時の通常中断操作
+
+指揮官指示により、下記旧v2の証明・journal/drainは停止ボタンの実行経路から外す。
+明示native entryの正規agent_stopは `{session_id}` または `{session_ids:[...]}` を受ける。
+返りは `{session_id?,status:'sent'|'partial'|'failed'|'idle',targets:[{session_id,status:'sent'|'failed'|'idle',error?}]}`。
+記録済み未完了graphのatomic-rename snapshotをwriter lock無しで一度読み、leaf→rootで通常の中断キーを送る。
+循環・重複root・共有先はsessionごと1回、外向きの既知関係だけ。完了済branchは再利用しない。
+rootは現在launch、子は記録済み期待launchを照合する。graph読取不能でも明示rootへの送信を実行してpartialを返す。
+
+Codex/ClaudeはEscape、Cursor/GrokはCtrl+C。キーは各harnessが所有する定数で選ぶ。
+Ctrl+Cは通常の既存pane観測がbusyの時だけ1回送り、idleは送信無し、未知/拒否/送信失敗はfailed。
+GrokのEscはturnを取消さず、Ctrl+Cの連打はquitへ昇格するため行わない。
+参照: [Claude](https://code.claude.com/docs/en/interactive-mode)、
+[Grok](https://docs.x.ai/build/keyboard-shortcuts)、Cursorの既存`ctrl+c to stop`採取/解析。
+
+sentはmultiplexerへ通常中断キーを送れた事実だけで、native処理終了・会話維持の観測を装わない。
+graph checkpoint/fsync・全actor生存・claim清算・drain・native終了proofを実行/次入力の前提にしない。
+停止操作はgraph/metadata/receiptを変更せず、一時/永久stopping印やjournalを作らない。同session次入力を塞がない。
+送信失敗は対象別に返して他対象へ続け、retry/close/killへ昇格しない。旧v2は隔離診断用に残るがnative停止ボタンから呼ばない。
+通常mainや稼働席への反映とは別である。
+
+native hooksの設定は `execution-native-setup.configureNativeExecutionHooks(home,{registration,expectedScope,providerFile,codexBinary})`。
+MCPと同一command/entry/flags/scope/providerにmodeだけを付け、Claude/Cursor/Codexへ登録する。
+Steer providerのnative_hook_args対応が必要。ユーザー設定への実適用・配布は従来条件を維持する。
+
+## 旧v2診断wire（停止ボタンからは呼ばない）
 
 tool名はagent_stop。旧close成功と誤認しないよう、このcontrolだけv2とmodeを必須にする。
 register/status/finish/rootsのwireは維持。新ID、queue、再送frameworkを作らない。

@@ -61,7 +61,7 @@ function fixture(t, kind = 'codex') {
   const writeTurn = (type = 'task_started', turn_id = 'native-current-turn') => writeFileSync(transcript, [...head,
     JSON.stringify({ type: 'event_msg', payload: { type, turn_id, reason: type === 'turn_aborted' ? 'interrupted' : undefined } })].join('\n') + '\n');
   writeTurn();
-  const control = { failKey: false, afterFirstTable: null, allowInput: false, inputCommands: [] };
+  const control = { expectedKey: 'Escape', immediateScreen: undefined, failKey: false, afterFirstTable: null, allowInput: false, inputCommands: [] };
   const ok = stdout => ({ status: 0, stdout: stdout ?? '', stderr: '' });
   run = (bin, args) => {
     if (bin === '/bin/ps') {
@@ -82,9 +82,11 @@ function fixture(t, kind = 'codex') {
     assert.equal(args[0], '-S'); const command = args.slice(2), format = command.at(-1);
     if (command[0] === 'list-sessions') {
       if (!native.present) return ok('');
+      if (format === '#{session_id}\t#{session_name}') return ok(`${native.id}\t${name}\n`);
       if (format === '#{pid}\t#{session_id}\t#{session_name}') return ok(`4711\t${native.id}\t${name}\n`);
       if (format === '#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}') return ok(`${name}\tbash\t0\t80\t24\n`);
     }
+    if (command[0] === 'capture-pane' && control.immediateScreen !== undefined) return ok(control.immediateScreen);
     if (command[0] === 'display-message' && format === '#{pane_pid}\t#{pane_dead}') return ok('200\t0\n');
     if (control.allowInput && command[0] === 'display-message' && format === '#{pane_tty}') return ok('/dev/synthetic-target');
     if (command[0] === 'has-session') return { ...ok(''), status: native.present ? 0 : 1 };
@@ -95,7 +97,7 @@ function fixture(t, kind = 'codex') {
     if (control.allowInput && command[0] === 'send-keys' && command[3] !== 'Escape') {
       control.inputCommands.push('send-keys-input'); return ok('');
     }
-    assert.equal(command[0], 'send-keys'); assert.equal(command[2], '$9'); assert.equal(command[3], 'Escape');
+    assert.equal(command[0], 'send-keys'); assert.equal(command[2], '$9'); assert.equal(command[3], control.expectedKey);
     keys.push(command[3]); return { ...ok(''), status: control.failKey ? 1 : 0 };
   };
   const point = { launch: { session_id: name, launch_id }, boundary: { event_cursor: 0, operation_id: kind === 'claude' ? operation : null,
@@ -885,4 +887,28 @@ test('a stop with missing anonymous canonical receipt suppresses further native 
   assert.equal(result._meta['aiterm/execution_error'].effect, 'possible'); assert.equal(extraEffect, 0); assert.deepEqual(f.keys, []);
   const state = await x.store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.records[0].stopping, true); assert.equal(state.records[0].operations.send, 'unknown'); assert.equal(state.slots[0].state, 'unknown');
+});
+
+test('immediate normal keys select harness gesture, preserve session metadata, and ignore missing completion proofs', posix, t => {
+  for(const kind of ['codex','claude','cursor','grok']) {
+    const f=fixture(t,kind), before=readFileSync(f.metadata,'utf8');
+    f.control.expectedKey=['cursor','grok'].includes(kind)?'C-c':'Escape';
+    if(kind==='cursor') f.control.immediateScreen='Working\nctrl+c to stop\n';
+    if(kind==='grok') f.control.immediateScreen='Responding...\n';
+    requireExecutionEffectScope(true);
+    const receipt=core.interruptSessionNow(f.name,f.point.launch.launch_id);
+    assert.equal(receipt.outcome,'accepted');assert.deepEqual(f.keys,[f.control.expectedKey]);
+    assert.equal(readFileSync(f.metadata,'utf8'),before);assert.equal(f.native.present,true);
+    assert.equal(receipt.interruption,'unconfirmed');
+  }
+});
+
+test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key has no close fallback', posix, t => {
+  for(const kind of ['cursor','grok']) {
+    const f=fixture(t,kind);f.control.expectedKey='C-c';
+    f.control.immediateScreen=kind==='cursor'?'unrecognized screen':'unknown';
+    assert.throws(()=>core.interruptSessionNow(f.name),error=>error.code==='EXECUTION_UNCONFIRMED');assert.deepEqual(f.keys,[]);
+    f.control.immediateScreen=kind==='cursor'?'ctrl+c to stop':'Responding...';f.control.failKey=true;
+    assert.throws(()=>core.interruptSessionNow(f.name),error=>error.effect==='possible');assert.deepEqual(f.keys,['C-c']);assert.equal(f.native.present,true);
+  }
 });

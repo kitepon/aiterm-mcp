@@ -1296,3 +1296,6 @@ export function restoreCodexDefaultInFile(configPath: string, key: CodexDefaultK
     throw error;
   }
 }
+
+// The ordinary interactive cancel gesture; not a process termination signal.
+export const CODEX_INTERRUPT_KEY = "Escape" as const;

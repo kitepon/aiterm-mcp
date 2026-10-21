@@ -93,6 +93,11 @@ export class FileExecutionStore implements ExecutionStore {
   constructor(readonly directory: string, private readonly lockTimeoutMs = 2000, lockActor?: ExecutionActor) {
     this.lockActor = lockActor ? executionActorSchema.parse(lockActor) : null;
   }
+  /** Atomic-rename snapshot: no writer lock, checkpoint, repair, or wait. */
+  snapshot(): ExecutionState {
+    if (!fs.existsSync(this.directory)) return emptyExecutionState();
+    return this.read();
+  }
   recoverAbandonedLock(expected: ExecutionActor, observeOwner: (pid: number) => unknown) {
     if (!this.lockActor) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return recoverExecutionLock(this.directory, this.lockActor, expected, observeOwner);

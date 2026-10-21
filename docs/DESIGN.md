@@ -4,16 +4,13 @@
 
 2026-10-21夜の指揮官訂正を優先し、停止ボタン/連鎖/全体停止は現在処理を中断してsession/launch/会話を残す。
 [ADR0125](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0125-session-preserving-interruption.md)が現契約。
-旧closeは明示的な管理用closeCascadeへ分け、agent_stop v2から呼ばない。既定はread-only planと
-unsupported/not_sentを返す。同server/serviceへの明示private host注入だけがcontrollerへ接続し、
-Codex native turnまたは元receiptで固定したClaude managed operationへ期待世代のEscを1回発行できる。
-Claudeのmarker/dispatch receiptは入力予約であってnative受理/処理開始ではなく、unconfirmedのまま記録する。
-混在した未完了記録を除外条件にせず、元Point/cursorと未解決aliasを保持し、キー受付でjob終了にしない。
-通常main/稼働profileへは未mountで、中断・受付fence・同会話維持の完成扱いをしない。
-run選択前でも既存recordの停止印で旧requestの未発行stage/後続作用を抑止し、元issued/accepted/unknownは保存する。名前だけで取消対象を広げず、drain中のcanonical Point変化だけをread-only再照合する。
-coreの実before_send Pointは同じ要求frameの同期準備受付で固定し、dispatcherが元target境界へ結ぶ。
-model引数/resultのoperationや現在event file長で補完せず、成功receiptとbinding欠測を分ける。
-この参照はnative入力受理/source aliasではない。匿名Claudeはprivateなv2 markerへ同じ要求frameの元cursorを保存して既存Pointを照合する。未注入coreはv1のままで、旧markerの補完はしない。loaded hook版・native中断/会話維持/fenceは未確認。詳細はADR0125。
+正規native入口のagent_stopは `{session_id}` / `{session_ids:[...]}` を受け、Aitermが記録する未完了呼出関係を
+leaf→rootで辿り、対象ごとに通常中断キーを1回送る。Codex/ClaudeはEscape、Cursor/GrokはCtrl+C。
+Ctrl+Cは既存paneのbusy時だけ、idleは送信せずidle、不明/拒否/送信失敗はfailedを返す。
+結果のsentはキー送信受付でありnative終了観測ではない。会話をclose/killしない。
+停止経路はgraph snapshot読取だけで、writer lock/fsync/drain/journal/全actor・native終了proofを待たず、
+同sessionの次入力を永久に抑止しない。旧v2の確認controllerは停止ボタンから外した。
+通常main/稼働登録への反映は別で、native hooksは同scope/providerのexecution-native-setupが生成する。
 
 実行関係のsource/target世代、Bridgeの既存参照、未完了関係の寿命と混在先も含む停止計画は
 [ADR 0124の契約案](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0124-cascade-stop-execution-contract.md)で設計中。

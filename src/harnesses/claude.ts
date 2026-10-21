@@ -840,3 +840,6 @@ export function claudeFastResult(before: string, after: string): ClaudeFastResul
 export function claudeFastIndicatorShown(screen: string): boolean {
   return screen.split("\n").slice(-8).some((line) => line.includes("\u21AF"));
 }
+
+// The ordinary interactive cancel gesture; not a process termination signal.
+export const CLAUDE_INTERRUPT_KEY = "Escape" as const;

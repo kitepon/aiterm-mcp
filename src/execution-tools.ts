@@ -14,6 +14,8 @@ import { ExecutionService } from "./execution-service.js";
 import { withExecutionEffectScope } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
 
+import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
+
 type ToolResult = {
   content: { type: "text"; text: string }[];
   structuredContent?: Record<string, unknown>;
@@ -34,6 +36,7 @@ export interface ExecutionToolOptions {
   // read-only; neither wire args nor native callback presence enable keys.
   // A capable controller still reports missing abort/preservation/fence proof.
   interruptCurrentRun?: boolean;
+  interruptSessionsNow?(input: unknown): ReturnType<typeof immediateStopResultSchema.parse>;
 }
 // Private same-server handshake. A guarded dispatcher must recognize the
 // exact bound service before these three controls become callable. Ordinary
@@ -75,7 +78,9 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
     },
     async agent_stop(input) {
       try {
-        const result = await (interruptCurrentRun ? service.interruptCascade(input) : service.stop(input));
+        const result = options.interruptSessionsNow
+          ? options.interruptSessionsNow(immediateStopInputSchema.parse(input))
+          : await (interruptCurrentRun ? service.interruptCascade(input) : service.stop(input));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return executionErrorResult(error); }
     },
@@ -103,10 +108,12 @@ export function registerExecutionTools(server: McpServer, service: ExecutionServ
     outputSchema: executionRecordSchema.shape,
   }, async (args, extra) => handlers.agent_execution(args, extra));
   server.registerTool("agent_stop", {
-    description: "実呼出の到達先で現在処理を中断し、session/launch/会話を維持する。close/killへ昇格しない。未接続adapterはunsupported。",
-    inputSchema: { ...cascadeInterruptRequestSchema.shape, remote: z.never().optional() },
-    outputSchema: cascadeInterruptResultObjectSchema.shape,
-  }, async args => handlers.agent_stop(args));
+    description: options.interruptSessionsNow
+      ? "指定sessionと記録済み呼出先へ末端からEscapeを送る。sentはキー送信結果で中断完了証明ではない。会話を閉じず、失敗を個別に返す。"
+      : "現在処理の中断・会話維持を診断する旧v2 control。",
+    inputSchema: options.interruptSessionsNow ? immediateStopInputSchema.shape : { ...cascadeInterruptRequestSchema.shape, remote: z.never().optional() },
+    outputSchema: options.interruptSessionsNow ? immediateStopResultSchema.shape : cascadeInterruptResultObjectSchema.shape,
+  }, async (args: unknown) => handlers.agent_stop(args));
   server.registerTool("agent_execution_roots", {
     description: "指定席の現在launchと保存済み未完了branchの実世代/期待世代を読む。過去完了履歴は返さず、停止や登録は行わない。",
     inputSchema: { ...executionRootsRequestSchema.shape, remote: z.never().optional() },

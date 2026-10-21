@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary } from "./execution-effect.js";
+import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -120,6 +120,7 @@ import {
   grokTuiReady,
   grokTuiBusy,
   grokPaneObservation,
+  GROK_INTERRUPT_KEY,
   grokRateLimitDialog,
   grokPromptAwaitingAccept,
   grokUnacceptedPromptRestored,
@@ -150,6 +151,7 @@ import {
   codexLaunchNote,
   codexTuiReady,
   codexPaneObservation,
+  CODEX_INTERRUPT_KEY,
   codexTuiBusy,
   codexHelperProcess,
   codexRateLimitModelSwitchDialog,
@@ -194,6 +196,7 @@ import {
   claudeLaunchNote,
   claudeTuiReady,
   claudePaneObservation,
+  CLAUDE_INTERRUPT_KEY,
   claudeUsageLimit,
   claudeLiveSelectMenu,
   claudeModelPicker,
@@ -238,6 +241,7 @@ import {
   cursorEffortNavigation,
   cursorTuiReady,
   cursorPaneObservation,
+  CURSOR_INTERRUPT_KEY,
   cursorPromptHooksRunning,
   cursorUsageLimit,
   CURSOR_SUBMIT_SEQUENCE,
@@ -1286,6 +1290,55 @@ export function sendKeyResult(name: string, key: string, o: { preserveAgentOpera
   const result = tmux("send-keys", "-t", name, k);
   if (result.code !== 0) throw new AitermError("制御キー送信を確認できません。自動再送やcloseへの切替はしていません。", 2);
   return receipt();
+}
+
+// Interrupt needs the recorded harness/name/launch, not auth readiness or
+// transcript/operation proof. An expired login must not block the cancel key.
+function readInterruptionTarget(name: string): { kind: AgentKind; launch_id: string } | null {
+  try {
+    const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
+    if (files.length !== 1) return null;
+    const meta = JSON.parse(fs.readFileSync(path.join(agentsDir(), files[0]), "utf8"));
+    return meta.aiterm_session === name && ["codex", "claude", "cursor", "grok"].includes(meta.kind)
+      && typeof meta.launch_id === "string" && LAUNCH_ID_RE.test(meta.launch_id) ? { kind: meta.kind, launch_id: meta.launch_id } : null;
+  } catch { return null; }
+}
+/** Immediate stop-button operation. No run/actor/claim journal or completion
+ * proof is required to send the harness's normal cancel key. The native session ID prevents a same-name
+ * replacement from receiving the key. This never closes or clears a session. */
+export function interruptSessionNow(name: string, expectedLaunchId?: string): PtyKeyResult | { session_id: string; outcome: "idle" } {
+  assertSessionName(name);
+  const listing = observeExecutionNativeSessions();
+  if (listing.state !== "known") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+  const native = listing.sessions.find(session => session.session_id === name);
+  if (!native) throw new ExecutionError("EXECUTION_NOT_FOUND");
+  const meta = readInterruptionTarget(name);
+  if (!meta || !["codex", "claude", "cursor", "grok"].includes(meta.kind)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const key = meta.kind === "codex" ? CODEX_INTERRUPT_KEY : meta.kind === "claude" ? CLAUDE_INTERRUPT_KEY
+    : meta.kind === "cursor" ? CURSOR_INTERRUPT_KEY : GROK_INTERRUPT_KEY;
+  // A normal Ctrl+C can quit an idle CLI. Use its existing immediate pane
+  // observation, never repeated Ctrl+C or kill as an escalation.
+  if (key === "C-c") {
+    const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    const state = (meta.kind === "cursor" ? cursorPaneObservation(screen) : grokPaneObservation(screen)).state;
+    if (state === "idle") return { session_id: name, outcome: "idle" };
+    if (state !== "busy") throw new ExecutionError("EXECUTION_UNCONFIRMED");
+  }
+  return withExecutionInterruptEffectScope(name, native.native_id, () => {
+    if (expectedLaunchId && readInterruptionTarget(name)?.launch_id !== expectedLaunchId)
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  }, () => {
+    bindExecutionNativeTarget(name, native.native_id);
+    beforeExecutionEffect(name);
+    const result = tmux("send-keys", "-t", native.native_id, key);
+    if (result.code !== 0) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+    return { schema: "aiterm.pty-key-result.v1", session_id: name, key, outcome: "accepted",
+      interruption: "unconfirmed", session_preserved: "unconfirmed" };
+  }, key);
+}
+export function interruptionLaunchId(name: string): string | null {
+  assertSessionName(name);
+  return readInterruptionTarget(name)?.launch_id ?? null;
 }
 
 /** Private minimal harness primitive. The caller already owns the current

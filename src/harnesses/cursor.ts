@@ -806,3 +806,6 @@ export const CURSOR_DEFAULT_MODEL_KEYS: readonly string[] = [
 export function cursorUserConfigPath(cursorHome: string): string {
   return path.join(cursorHome, "cli-config.json");
 }
+
+// The ordinary interactive cancel gesture; not a process termination signal.
+export const CURSOR_INTERRUPT_KEY = "C-c" as const;

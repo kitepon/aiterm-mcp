@@ -16,7 +16,7 @@ export type ExecutionPreparation = <T>(body: () => T) => T;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
   prepare?: ExecutionPreparation; preparing?: boolean;
   sendBoundary?: ExecutionPoint;
-  interrupt?: { native_id: string; sent: boolean; finished: boolean };
+  interrupt?: { native_id: string; key: "Escape" | "C-c"; sent: boolean; finished: boolean };
   creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
@@ -106,16 +106,15 @@ export function withExecutionEffectScope<T>(session: string, issue: () => void, 
   return runEffectScope(scope, body);
 }
 /** Private stop-owned synchronous frame over the existing native gate. It
- * creates no invocation/edge/request. The serving service must independently
- * own durable admission and supply its synchronous issue check; this helper
- * alone neither proves that fence nor permits reopening after interruption.
+ * creates no invocation/edge/request. The ordinary stop path supplies only
+ * its target check, without a durable journal or completion/fence prerequisite.
  */
-export function withExecutionInterruptEffectScope<T>(session: string, nativeId: string, issue: () => void, body: () => T): T {
+export function withExecutionInterruptEffectScope<T>(session: string, nativeId: string, issue: () => void, body: () => T, key: "Escape" | "C-c" = "Escape"): T {
   const enclosing = scopes.getStore();
   if (enclosing) refuse(enclosing, "EXECUTION_UNSUPPORTED");
   const target = executionLaunchSchema.shape.session_id.parse(session);
   if (!/^\$\d+$/.test(nativeId)) throw new ExecutionError("EXECUTION_INVALID");
-  const interrupt = { native_id: nativeId, sent: false, finished: false };
+  const interrupt = { native_id: nativeId, key, sent: false, finished: false };
   const scope: EffectScope = { session: target, issue: () => {
     const result: unknown = issue();
     if (result && typeof (result as { then?: unknown }).then === "function") {
@@ -258,7 +257,7 @@ export function guardTmuxExecution(input: string[]): string[] {
     if (scope.failure) throw scope.failure;
     if (frame.finished) refuse(scope, "EXECUTION_CONFLICT");
     if (args[0] === "send-keys") {
-      if (args.length !== 4 || args[1] !== "-t" || args[2] !== frame.native_id || args[3] !== "Escape")
+      if (args.length !== 4 || args[1] !== "-t" || args[2] !== frame.native_id || args[3] !== frame.key)
         refuse(scope, "EXECUTION_UNSUPPORTED");
       if (frame.sent) refuse(scope, "EXECUTION_CONFLICT");
       frame.sent = true; // a failed admission cannot be retried in this frame

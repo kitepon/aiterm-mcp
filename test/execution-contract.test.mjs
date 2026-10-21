@@ -46,14 +46,15 @@ test('a shared target and its unfinished calls are reached despite unrelated inp
 test('active cycles and repeated roots include each expected launch only once', () => {
   assert.deepEqual(targets(planCascadeStop([A, A], [edge('ab', A, B), edge('ba', B, A)])), ['bot-a', 'bot-b']);
 });
-test('MCP mutation admission does not invent an AI invocation edge for configuration or approval', () => {
+test('MCP controls that can start or resume work are reached; pure configuration does not invent a child job', () => {
   const native = tool => ({ kind: 'mcp', process_pid: 123, process_started_identity: 'native-start', request_id: 7, tool,
     target_session_id: B.session_id });
-  for (const tool of ['agent_configure', 'agent_auth.status', 'agent_approval.respond', 'pty_key', 'pty_close']) {
+  for (const tool of ['agent_configure', 'agent_auth.status', 'pty_close']) {
     const relation = { ...edge('ab', A, B), request: native(tool) };
     assert.deepEqual(targets(planCascadeStop([A], [relation])), ['bot-a']);
   }
-  assert.deepEqual(targets(planCascadeStop([A], [{ ...edge('ab', A, B), request: native('pty_send') }])), ['bot-a', 'bot-b']);
+  for (const tool of ['pty_send', 'pty_key', 'agent_approval.respond', 'claude_approval.respond'])
+    assert.deepEqual(targets(planCascadeStop([A], [{ ...edge('ab', A, B), request: native(tool) }])), ['bot-a', 'bot-b']);
   assert.equal(executionRequestSchema.safeParse(native('unknown-tool')).success, false);
 });
 test('old completed contact does not pull a later independent execution into the stop', () => {

@@ -48,7 +48,8 @@ export type ExecutionRequest = z.infer<typeof executionRequestSchema>;
 // Mutation admission still fences/drains non-work operations; they do not
 // become an AI invocation edge merely because they touched another seat.
 export function executionRequestStartsWork(request: ExecutionRequest): boolean {
-  return request.kind !== "mcp" || ["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_send", "claude_turn.issue"].includes(request.tool);
+  return request.kind !== "mcp" || ["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_send", "pty_key",
+    "agent_approval.respond", "claude_approval.respond", "claude_turn.issue"].includes(request.tool);
 }
 
 export const executionSourceClaimSchema = z.object({

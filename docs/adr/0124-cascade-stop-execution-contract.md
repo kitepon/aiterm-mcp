@@ -362,7 +362,7 @@ scope内で拒否をcatchしてもframeをpoisonし、別の作用へのfallback
 この参照はserving dispatcherが内部生成する。公開register handlerからのmcp参照登録はUNSUPPORTEDとし、
 モデル引数でcontrol操作の名札を選びAI呼出をgraphから隠す形にはしない。
 同じprocessが扱うstdio接続の既存request IDを想定し、HTTP経路はBridgeの既存delivery/room/call参照を使う。
-launch/send/issueは実呼出edge、configure/auth/key/close等は変更受付として機械的に扱う。
+launch/send/issue、実行を開始/再開し得るkey/approval respondは実呼出edge、configure/auth/close等は変更受付として機械的に扱う。
 後者は停止fence/drainの対象になるが、他AIへの仕事依頼edgeを新たに作らない。
 empty launchは実launch参照とboundary=nullを保存でき、cursor=0等を捏造しない。
 

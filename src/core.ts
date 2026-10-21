@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import type { ExecutionLaunch } from "./execution-contract.js";
-import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext } from "./execution-effect.js";
+import { bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -5847,8 +5847,10 @@ async function configureAgentInLock(
   });
   const rememberModel = (): void => {
     if (!model) return;
-    meta.model = model;
-    writeAgentMetadata(meta);
+    withExecutionPreparation(name, () => {
+      meta.model = model;
+      writeAgentMetadata(meta);
+    });
   };
   // fast: true は、modelやeffortを替える前に対応を確かめる（断る時は何も変えない）。
   let fastVerified = false;
@@ -6986,39 +6988,42 @@ export function openAgent(
   try {
     const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
     if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
-    const meta = agentDone
-      ? kind === "claude"
-        ? createClaudeAgentMetadata(
-            sid,
-            cwd,
-            opts.prompt ? "pending" : "none",
-            launchOperationId,
-            launchRequestDigest,
-            lineageContext,
-            model,
-            effort,
-          )
-        : kind === "codex"
-        ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
-        : kind === "cursor"
-          ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
-          : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
-      : null;
-    if (meta) {
-      // Metadata constructors publish their internally generated launch ID.
-      // Stamp its exact native creator before binding and any later input.
-      if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
-      meta.agent_executable = bin;
-      // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
-      meta.fast = opts.fast_state === true;
-      meta.model = opts.base_model !== undefined ? opts.base_model : model;
-      // The new physical shell is already pinned by its actual create receipt.
-      // Validate it before publishing metadata, then bind this internally
-      // generated managed launch. Model arguments cannot select this ID.
-      writeAgentMetadata(meta);
-      agentMetadataNegativeCache.delete(sid);
-      if (hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
-    }
+    const meta = withExecutionPreparation(sid, () => {
+      const meta = agentDone
+        ? kind === "claude"
+          ? createClaudeAgentMetadata(
+              sid,
+              cwd,
+              opts.prompt ? "pending" : "none",
+              launchOperationId,
+              launchRequestDigest,
+              lineageContext,
+              model,
+              effort,
+            )
+          : kind === "codex"
+          ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
+          : kind === "cursor"
+            ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
+            : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
+        : null;
+      if (meta) {
+        // Metadata constructors publish their internally generated launch ID.
+        // Stamp its exact native creator before binding and any later input.
+        if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
+        meta.agent_executable = bin;
+        // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
+        meta.fast = opts.fast_state === true;
+        meta.model = opts.base_model !== undefined ? opts.base_model : model;
+        // The new physical shell is already pinned by its actual create receipt.
+        // Validate it before publishing metadata, then bind this internally
+        // generated managed launch. Model arguments cannot select this ID.
+        writeAgentMetadata(meta);
+        agentMetadataNegativeCache.delete(sid);
+      }
+      return meta;
+    });
+    if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
     launchNote = buildAgentLaunchNote(kind, model, effort, meta);
     let full: string;
     if (paneShell === "pwsh" && meta) {

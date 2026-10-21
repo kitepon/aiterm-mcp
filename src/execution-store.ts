@@ -75,6 +75,8 @@ export class FileExecutionStore implements ExecutionStore {
    * the stack. Use the same short metadata lock, but never block the JS thread
    * waiting for an async owner: contention is an explicit pre-effect refusal.
    * The callback is metadata-only; it must not issue a native effect itself.
+   * Guarded synchronous preparation may update companion metadata under this
+   * lock while leaving execution state read-only and the operation unissued.
    */
   transactionSync<T>(body: (state: ExecutionState) => T, options: { readOnly?: boolean } = {}): T {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });

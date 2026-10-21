@@ -38,6 +38,11 @@ coreの公開変更入口も、打鍵や設定・認証・lock/metadata準備に
 この入口確認はissuedへの昇格ではない。実作用時には既存の同期受付を別に通す。
 通常stdio mainはprivate factoryを使わず既定挙動を維持する。別processの未登録参加者や非同期準備中の全metadata作用を
 この入口だけで覆ったとはしない。全参加者inventoryと各実作用の接続を確認するまでcoverage incompleteを維持する。
+deferred frameには既存requestと期待世代を再照合する同期の準備callbackを渡す。
+core入口の再確認と、managed metadata/hook生成・設定model保存は同じsource/target/slot条件を使う。
+準備callbackは短い共有metadata lock内で動き、execution graphはread-onlyのまま、preparingをissuedへ変えない。
+native作用やawaitをcallbackへ入れず、停止・世代/actor/scope交代・RPC終了後の遅着を拒否する。
+これらの明示接続以外の設定復元や親配送metadata経路はまだ未了であり、既定mainへの有効化条件を満たさない。
 
 ## 目的と所有
 

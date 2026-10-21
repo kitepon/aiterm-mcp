@@ -712,6 +712,23 @@ process modeはserver closeでlegacyへ戻さない。通常stdio mainはこれ�
 この拒否はguarded process内のcore入口とnative command gateに限る。別processのstatic profile/未登録worker、
 親配送の全経路、非同期準備中の各metadata作用、全参加者inventory/native終了証拠の完成を示さない。
 
+### 同期の準備再照合
+
+deferred serviceは同じ既存request/stageから、`issue`と別に同期の準備callbackをframeへ渡す。
+準備時にも元source/期待targetの世代、停止印、slot競合、runtimeのscope/actorを照合する。
+graphのread-only transactionでcallbackを呼び、sourceの停止受付とcompanion metadata更新の間を同じ短いlockで直列化する。
+準備中の要求はpreparingのままで、native slotを作らず、native作用をissuedへ早めない。
+
+`assertExecutionContext`はこのcallbackがあるframeで再照合する。`withExecutionPreparation`は同期のmetadata actionを
+同じtransaction内で行う。nested helperは同じlockに留まり、別対象、native発行、Promise返却やnested失敗はframeを失敗にする。
+拒否をcatchしても成功receiptへ変えない。RPC終了後の継承callbackも元frameの期限切れで拒否し、metadataを後書きしない。
+これは時間TTLではなく、同じ実RPCの終了に結ぶ寿命である。
+
+coreのmanaged metadata constructor/hook生成・native stampの保存、およびconfigureのmodel保存へ明示接続する。
+作成したmanaged launchをslotへ結ぶ処理はgraphを更新するので、準備transactionを抜けてから既存の別照合で行う。
+metadataだけの準備と新launchの実発行を混同しない。既定mainはframe無しのlegacy挙動を維持する。
+設定復元・残る親配送metadata・全参加者inventoryやnative終了証拠まで完了したとはしない。
+
 ## 結果と残実装
 
 ```ts

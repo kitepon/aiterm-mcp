@@ -3,13 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as tick } from 'node:timers/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { guardTmuxExecution, bindExecutionNativeTarget } from '../dist/execution-effect.js';
+import { guardTmuxExecution, bindExecutionNativeTarget, assertExecutionContext, withExecutionPreparation } from '../dist/execution-effect.js';
+import { FileExecutionStore } from '../dist/execution-store.js';
 import { closeExpectedExecution } from '../dist/execution-close.js';
 import { currentExecutionIngress } from '../dist/execution-context.js';
 import { EXECUTION_BINDING_META_KEY as BINDING, EXECUTION_ERROR_META_KEY as ERROR } from '../dist/execution-wire.js';
@@ -282,4 +283,93 @@ test('a guarded participant refuses direct unframed core mutations before native
     () => core.runClaudeOperation({ action: 'issue', session_id: B.session_id, operation_id: 'synthetic' }),
     () => core.ensureAgentOwnsPaneInput(B.session_id, 'codex'),
   ]) await assert.rejects(async () => operation(), code('EXECUTION_UNSUPPORTED'));
+});
+test('preparation rechecks source/target/actor/scope after an await without issuing the pending native operation', async t => {
+  for (const change of ['stop', 'source', 'target', 'actor', 'scope']) {
+    const f = fixture(t); enableClose(f); const p = f.create();
+    let enter, release, prepared = 0;
+    const entered = new Promise(done => { enter = done; }), held = new Promise(done => { release = done; });
+    const pending = p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'preparation-' + change }, async () => {
+      enter(); await held; assertExecutionContext(B.session_id); prepared++;
+      return accepted();
+    });
+    await entered;
+    if (change === 'stop') {
+      const stopped = await p.service.stop(stop([A]));
+      assert.equal(stopped.targets[0].outcome, 'closed'); assert.ok(f.live.has(B.session_id));
+    }
+    if (change === 'source') f.live.set(A.session_id, { ...A, launch_id: 'e'.repeat(32) });
+    if (change === 'target') f.live.set(B.session_id, { ...B, launch_id: 'e'.repeat(32) });
+    if (change === 'actor') f.actor.started_identity = '2026-10-21T12:30:00Z';
+    if (change === 'scope') f.scope.multiplexer.key = join(f.root, 'different.sock');
+    release(); const result = await pending;
+    assert.equal(prepared, 0, change); assert.equal(result._meta[ERROR].effect, 'not_started', change);
+    assert.equal(f.effects(), 0);
+  }
+});
+test('metadata preparation shares the short admission lock without changing preparing phase, native slots or graph bytes', async t => {
+  const f = fixture(t), p = f.create(), competitor = new FileExecutionStore(p.store.directory);
+  const metadata = join(f.root, 'synthetic-preparation.json');
+  const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'atomic-prepare' }, async () => {
+    const graph = join(p.store.directory, 'relations.json'), before = readFileSync(graph, 'utf8');
+    const prepared = withExecutionPreparation(B.session_id, () => {
+      assert.equal(existsSync(join(p.store.directory, 'transaction.lock')), true);
+      const state = JSON.parse(readFileSync(graph, 'utf8'));
+      assert.equal(state.records[0].operations.send, 'preparing'); assert.deepEqual(state.slots, []);
+      assert.throws(() => competitor.transactionSync(() => assert.fail('another admission entered the preparation lock')),
+        code('EXECUTION_BUSY'));
+      // Nested metadata helpers stay inside this exact transaction.
+      return withExecutionPreparation(B.session_id, () => {
+        assertExecutionContext(B.session_id); writeFileSync(metadata, 'synthetic prepared'); return { prepared: true };
+      });
+    });
+    assert.deepEqual(prepared, { prepared: true }); assert.equal(readFileSync(graph, 'utf8'), before);
+    assert.equal(existsSync(join(p.store.directory, 'transaction.lock')), false);
+    guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); return accepted();
+  });
+  assert.equal(result.isError, undefined); assert.equal(readFileSync(metadata, 'utf8'), 'synthetic prepared');
+});
+test('a preparation callback cannot issue a native command or borrow a different target, even when refusal is swallowed', async t => {
+  for (const change of ['native', 'target']) {
+    const f = fixture(t), p = f.create(); let effects = 0;
+    const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'invalid-prepare-' + change }, async () => {
+      try {
+        withExecutionPreparation(change === 'target' ? A.session_id : B.session_id, () => {
+          guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); effects++;
+        });
+      } catch { /* a caller cannot make a poisoned frame successful */ }
+      return accepted();
+    });
+    assert.equal(effects, 0); assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
+    assert.deepEqual(await p.store.transaction(state => state.slots, { readOnly: true }), []);
+  }
+});
+test('async or failed nested preparation poisons the frame without leaving a lock or an unhandled rejection', async t => {
+  for (const change of ['async', 'nested']) {
+    const f = fixture(t), p = f.create();
+    const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'failed-prepare-' + change }, async () => {
+      try {
+        withExecutionPreparation(B.session_id, () => {
+          if (change === 'async') return Promise.reject(Error('synthetic invalid async preparation'));
+          try { withExecutionPreparation(B.session_id, () => { throw Error('synthetic metadata failure'); }); } catch {}
+        });
+      } catch {}
+      return accepted();
+    });
+    await tick(); assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
+    assert.equal(existsSync(join(p.store.directory, 'transaction.lock')), false); assert.equal(f.effects(), 0);
+  }
+});
+test('an inherited preparation callback cannot write metadata after its original RPC frame has finished', async t => {
+  const f = fixture(t), p = f.create(); let release, later, writes = 0;
+  const held = new Promise(done => { release = done; });
+  const receipt = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'late-prepare' }, async () => {
+    later = held.then(() => {
+      try { withExecutionPreparation(B.session_id, () => { writes++; }); }
+      catch (error) { return error; }
+    });
+    return accepted();
+  });
+  assert.equal(receipt.isError, undefined); release(); const error = await later;
+  assert.equal(writes, 0); assert.equal(error.code, 'EXECUTION_CONFLICT'); assert.equal(error.effect, 'not_started');
 });

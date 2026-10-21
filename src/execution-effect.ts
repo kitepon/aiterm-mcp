@@ -11,7 +11,9 @@ export interface ExecutionCreationBindings {
   native(session: string, nativeId: string, serverPid: number): void;
   launch(launch: ExecutionLaunch): void;
 }
+export type ExecutionPreparation = <T>(body: () => T) => T;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
+  prepare?: ExecutionPreparation; preparing?: boolean;
   creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
 const scopes = new AsyncLocalStorage<EffectScope>();
 let required = false; // unmounted legacy product remains unchanged
@@ -27,10 +29,49 @@ export function assertExecutionContext(session: string | null | undefined): void
   if (scope.failure) throw scope.failure;
   if (typeof session !== "string") refuse(scope, "EXECUTION_UNSUPPORTED");
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+  if (scope.prepare && !scope.preparing) prepareInScope(scope, () => undefined);
 }
-export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T, creation?: ExecutionCreationBindings): T {
+/** A synchronous metadata action under the same short admission transaction.
+ * It neither acquires a native issuance slot nor permits native effects.
+ */
+export function withExecutionPreparation<T>(session: string, body: () => T): T {
+  const scope = scopes.getStore();
+  if (!scope && !required) return body();
+  if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (scope.failure) throw scope.failure;
+  if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+  return prepareInScope(scope, body);
+}
+function prepareInScope<T>(scope: EffectScope, body: () => T): T {
+  const synchronous = (): T => {
+    const result = body();
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      // This API cannot hold its synchronous transaction over an await. Keep
+      // the rejected caller frame poisoned and observe a malformed thenable's
+      // rejection without making an unhandled process error.
+      void Promise.resolve(result).catch(() => undefined);
+      refuse(scope, "EXECUTION_UNSUPPORTED");
+    }
+    return result;
+  };
+  try {
+    if (scope.preparing) return synchronous(); // already inside this exact transaction
+    if (!scope.prepare) refuse(scope, "EXECUTION_UNSUPPORTED");
+    return scope.prepare(() => {
+      scope.preparing = true;
+      try { return synchronous(); } finally { scope.preparing = false; }
+    });
+  } catch (error) {
+    scope.failure ??= error instanceof ExecutionError ? new ExecutionError(error.code, scope.didIssue ? "possible" : error.effect)
+      : new ExecutionError("EXECUTION_UNCONFIRMED", scope.didIssue ? "possible" : "not_started");
+    throw scope.failure;
+  }
+}
+export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T,
+  creation?: ExecutionCreationBindings, prepare?: ExecutionPreparation): T {
   const target = executionLaunchSchema.shape.session_id.parse(session);
-  const scope: EffectScope = { session: target, issue, nativeTargets: new Set(), didIssue: false, ...(creation ? { creation: { ...creation } } : {}) };
+  const scope: EffectScope = { session: target, issue, prepare, nativeTargets: new Set(), didIssue: false,
+    ...(creation ? { creation: { ...creation } } : {}) };
   return scopes.run(scope, () => {
     let result: T;
     try { result = body(); } catch (error) { throw scope.failure ?? error; }
@@ -47,6 +88,7 @@ function refuse(scope: EffectScope, code: "EXECUTION_CONFLICT" | "EXECUTION_UNSU
 }
 function issueEffect(scope: EffectScope): void {
   if (scope.failure) throw scope.failure;
+  if (scope.preparing) refuse(scope, "EXECUTION_UNSUPPORTED");
   try { if (scope.creationPrepared && !scope.createdNative) scope.creation!.verifyServer(); scope.issue(); scope.didIssue = true; }
   catch (error) {
     scope.failure = error instanceof ExecutionError ? new ExecutionError(error.code, scope.didIssue ? "possible" : error.effect)

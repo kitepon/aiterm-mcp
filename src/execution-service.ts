@@ -9,7 +9,7 @@ import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, e
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
-import { withExecutionEffectScope } from "./execution-effect.js";
+import { withExecutionEffectScope, type ExecutionPreparation } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
@@ -286,12 +286,12 @@ export class ExecutionService {
    * Synchronous metadata admission persists issuance before any native action.
    */
   async invokeDeferred<T>(metaInput: unknown, stage: "launch" | "send",
-    body: (issue: () => void) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string): Promise<{ value: T; record: ExecutionRecord }> {
+    body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string): Promise<{ value: T; record: ExecutionRecord }> {
     return this.invokeInternal(metaInput, stage, body, targetSessionId, true);
   }
 
   private async invokeInternal<T>(metaInput: unknown, stage: "launch" | "send",
-    body: (issue: () => void) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
+    body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
     deferred: boolean): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (deferred && (!this.store.transactionSync || !this.runtime.observeSync)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
@@ -335,14 +335,14 @@ export class ExecutionService {
       state.slots.push({ session_id: target.session_id, expected_launch_id: expected, stage, state: "issued", request });
     });
     let issued = !deferred, finished = false;
-    const issue = (): void => {
+    const checkOrIssue = (commit: boolean, preparation: () => unknown): unknown => {
       if (finished) throw new ExecutionError("EXECUTION_CONFLICT");
       if (issued) {
-        if (!deferred) return;
+        if (!deferred) return commit ? undefined : preparation();
         // An RPC can issue several native commands with an async readiness
         // wait between them. Owning its slot is not permission to ignore a
         // stop, uncertain slot or generation replacement after the first one.
-        this.store.transactionSync!(state => {
+        return this.store.transactionSync!(state => {
           const record = find(state, request), relation = record.relation;
           const slot = state.slots.find(value => same(value.request, request) && value.stage === stage);
           if (!slot || slot.state !== "issued" || record.operations[stage] !== "issued"
@@ -366,7 +366,7 @@ export class ExecutionService {
               throw new ExecutionError("EXECUTION_UNCONFIRMED");
             if (slot.expected_launch_id === null) {
               if (current.state !== "present" || current.launch !== null) throw new ExecutionError("EXECUTION_UNCONFIRMED");
-              return; // bound physical shell, before core publishes its managed launch
+              return preparation(); // bound physical shell, before core publishes its managed launch
             }
           }
           // A fresh launch's expected ID starts null. Until the core adapter
@@ -374,10 +374,10 @@ export class ExecutionService {
           // new same-name observation merely because this RPC created a slot.
           if (slot.expected_launch_id === null && current.state === "present") throw new ExecutionError("EXECUTION_UNSUPPORTED");
           this.expectTarget(current, slot.expected_launch_id, slot.session_id);
+          return preparation();
         }, { readOnly: true });
-        return;
       }
-      this.store.transactionSync!(state => {
+      const result = this.store.transactionSync!(state => {
         const record = find(state, request), relation = record.relation;
         if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "preparing")
           throw new ExecutionError("EXECUTION_CONFLICT", "not_started");
@@ -395,13 +395,17 @@ export class ExecutionService {
         if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
         if ((stage === "launch" && current.state !== "absent") || (stage === "send" && current.state !== "present"))
           throw new ExecutionError("EXECUTION_CONFLICT");
+        if (!commit) return preparation();
         record.operations[stage] = "issued";
         relation.phase = "submitted_unknown";
         if (current.state === "present" && current.launch && !relation.target) relation.target = { launch: current.launch, boundary: null };
         state.slots.push({ session_id: target.session_id, expected_launch_id: expected, stage, state: "issued", request });
-      });
-      issued = true;
+      }, commit ? undefined : { readOnly: true });
+      if (commit) issued = true;
+      return result;
     };
+    const issue = (): void => { checkOrIssue(true, () => undefined); };
+    const prepare: ExecutionPreparation = body => checkOrIssue(false, body) as ReturnType<typeof body>;
     const unissued = async (): Promise<ExecutionRecord> => this.store.transaction(state => {
       const record = find(state, request);
       if (!["preparing", "not_sent"].includes(record.operations[stage])) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
@@ -412,7 +416,7 @@ export class ExecutionService {
     });
     let outcome: { value: T; target: ExecutionPoint | null };
     try {
-      outcome = await body(issue);
+      outcome = await body(issue, prepare);
       finished = true;
       if (!issued) return { value: outcome.value, record: await unissued() };
       outcome.target = executionPointSchema.parse(outcome.target);

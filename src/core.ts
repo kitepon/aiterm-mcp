@@ -5760,8 +5760,10 @@ const restoreCursorDefaults = (configPath: string) => (before: Buffer | null): v
 };
 
 function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
-  meta.fast = fast;
-  writeAgentMetadata(meta);
+  withExecutionPreparation(meta.aiterm_session, () => {
+    meta.fast = fast;
+    writeAgentMetadata(meta);
+  });
 }
 
 /** 動いている席のfastを切り替える。返りは切り替えた後の状態。席は入力待ちである事（呼び手が確かめる）。 */

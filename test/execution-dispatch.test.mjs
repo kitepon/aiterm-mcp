@@ -551,3 +551,34 @@ test('cancellation raised by a synchronous native observation is rechecked befor
   const record = (await f.records())[0]; assert.equal(record.stopping, true); assert.equal(record.operations.send, 'not_sent');
   assert.deepEqual(await f.store.transaction(state => state.slots, { readOnly: true }), []);
 });
+
+test('BellTeam configure owns a native management RPC and preserves the existing generation across model, effort and fast stages', { skip: posixCheckpoint }, async () => {
+  const f = fixture({ clientName: 'bellteam', environment: {} }); let calls = 0;
+  const result = await f.dispatcher.dispatch('agent_configure', { session_id: B.session_id, model: 'synthetic-model', reasoning_effort: 'high', fast: true },
+    { requestId: 'host-configure' }, async () => {
+      calls++; f.effect(); await Promise.resolve(); f.effect(); await Promise.resolve(); f.effect();
+      return { content: [], structuredContent: { schema: 'aiterm.agent-configure-result.v1', session_id: B.session_id,
+        provider: 'codex', harness: 'codex-cli', model: 'synthetic-model', reasoning_effort: 'high', fast: true } };
+    });
+  assert.equal(result.isError, undefined, JSON.stringify(result)); assert.equal(calls, 1); assert.equal(f.effects(), 3);
+  assert.deepEqual(f.live.get(B.session_id), B); assert.deepEqual(result._meta[BINDING].target, point(B));
+  const records = await f.records(); assert.equal(records.length, 1);
+  assert.equal(records[0].reservation.request.tool, 'agent_configure'); assert.equal(records[0].reservation.request.kind, 'mcp');
+  assert.equal(records[0].operations.send, 'accepted'); assert.deepEqual(f.store.snapshot().slots, []);
+});
+for (const change of ['stop', 'generation', 'unknown-slot', 'handler-error'])
+  test(`BellTeam configure stops later stages on ${change} and retains possible effects`, { skip: posixCheckpoint }, async () => {
+    const f = fixture({ clientName: 'bellteam', environment: {} });
+    const result = await f.dispatcher.dispatch('agent_configure', { session_id: B.session_id, model: 'synthetic-model', fast: true },
+      { requestId: 'host-configure-' + change }, async () => {
+        f.effect();
+        if (change === 'handler-error') return { isError: true, content: [{type:'text',text:'synthetic partial configure failure'}] };
+        if (change === 'generation') f.live.set(B.session_id, { ...B, launch_id: 'e'.repeat(32) });
+        else await f.store.transaction(state => { if (change === 'stop') state.stopping.push(B); else state.slots[0].state = 'unknown'; });
+        f.effect(); assert.fail('second native stage must be refused');
+      });
+    assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible'); assert.equal(f.effects(), 1);
+    const record = (await f.records())[0]; assert.equal(record.operations.send, 'unknown');
+    assert.equal(f.store.snapshot().slots[0].state, 'unknown');
+    if (change === 'handler-error') assert.match(result.content[0].text, /partial configure failure/);
+  });

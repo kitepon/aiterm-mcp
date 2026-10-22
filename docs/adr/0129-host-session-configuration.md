@@ -1,0 +1,7 @@
+# ADR 0129: Native host session configuration
+
+BellTeam changes model, reasoning effort and fast through ref-less agent_configure, an explicit operator action rather than a message delivery. The native dispatcher previously rejected it before the handler, causing saved settings to roll back. Allow this specific host management operation with the serving process/start identity and actual SDK request ID; do not invent delivery references or route it as a read.
+
+Capture the existing target generation before admission. The ordinary deferred metadata preparation/native effect gates own one request and recheck source, target, slot and stops for every stage, including a second model/effort/fast action. Do not create a new generation or reopen unknown operations. A failure after any native stage remains possible/unknown. Fast metadata written after asynchronous CLI result observation must also pass the same preparation check, preventing a stale generation write.
+
+Regression tests reproduce the pre-handler refusal, exercise three stages with one stable generation, and prove stops, replacement, unknown slots and partial handler errors block later input with possible effects. A real SDK/tmux/fake-Claude test toggles fast on and off exactly once, preserves the native/managed generation, checks the stored fast state and restores user defaults. Existing fast/model tests continue covering all harness-specific CLI operations. No real authentication, paid fast session or installed seat is used.

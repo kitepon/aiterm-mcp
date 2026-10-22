@@ -799,6 +799,8 @@ In the opt-in POSIX native execution entry, an ordinary message arriving at a ve
 Sessions live on a shared tmux socket on POSIX or a shared psmux namespace on native Windows. The attach line printed by `pty_open` and `agent_launch` lets a human attach to the same terminal and intervene, including a Claude/Codex/Grok/Cursor harness session: `tmux -S … attach -t <id>` on POSIX, or `psmux -L <namespace> attach -t <id>` on native Windows.
 On POSIX, the first `agent_launch` can create the tmux server when its socket does not yet exist. Aiterm verifies the exact created session and server before accepting that launch; an uncertain result is reported without retrying the input.
 
+BellTeam model, effort and fast changes use a native management request bound to the existing session generation. Later stages stop if that generation, its admission slot or stop state changes. A partial change remains an uncertain effect and must not be blindly repeated.
+
 ## Requirements
 
 - **Node.js >= 18**

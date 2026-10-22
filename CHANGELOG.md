@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BellTeam model, effort and fast changes are admitted as native management RPCs bound to the existing session generation. Every native stage retains its normal stop/slot/generation checks, and partial failures retain possible effects. Fast-state metadata is revalidated before writing after asynchronous CLI observations.
+
 ## [0.61.6] - 2026-10-22
 
 ### Fixed

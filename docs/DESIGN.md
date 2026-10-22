@@ -37,6 +37,9 @@ incomingのslotを解放・書換・成功扱いせず、unknown・管理操作�
 incomingの完了待ちをoutgoingへ課して相互送信を循環待ちにしない（ADR 0127）。
 BellTeamのpromptなし明示管理launchは、管理close同様にserving process/request identityへ結合する。
 promptやThroughline読出しを含む未登録送信、auto-name、remoteはこの管理例外へ含めない。
+BellTeamのrefなしagent_configureも同じnative process/request identityの管理RPCとして受ける。
+model/effort/fastの各stageは同じ既存世代・slot・source・停止のgateを通り、途中で変われば続きの打鍵を拒否する。
+発行後の途中失敗はpossible/unknownを保持する。CLI結果待ち後のfast metadata書込も同じ準備受付で再検査する（ADR 0129）。
 新launchは、既存POSIX serverのnative owner、またはserver未作成の完全な空観測を受付時と発行直前に確認する。
 冷間時は最初のnew-session自身でserverを作り、その実receiptのnative IDとserver PIDを、作成後の安定したnative一覧とprocess開始識別子で照合する。
 既存server時も冷間時も、作成したsessionのnative ID・server owner・core内部のlaunch世代を同じ要求slotへ段階結合する。

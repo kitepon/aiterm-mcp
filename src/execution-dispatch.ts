@@ -157,7 +157,8 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const hostClose = client === "bellteam" && route.tool === "pty_close" && !supplied;
           const hostLaunch = client === "bellteam" && route.tool === "agent_launch" && !supplied
             && args.prompt == null && args.throughline_source_session === undefined;
-          const hostManagement = hostClose || hostLaunch;
+          const hostConfigure = client === "bellteam" && route.tool === "agent_configure" && !supplied;
+          const hostManagement = hostClose || hostLaunch || hostConfigure;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;

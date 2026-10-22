@@ -68,6 +68,9 @@ export type ExecutionState = z.infer<typeof executionStateSchema>;
 export interface ExecutionStore {
   transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
   transactionSync?<T>(body: (state: ExecutionState) => T, options?: { readOnly?: boolean }): T;
+  // Wait for metadata contention before entering a synchronous native segment.
+  // Each nested transactionSync still commits before its corresponding effect.
+  admitNative?<T>(body: () => T): Promise<T>;
   // Same process's native identity, supplied only by the scoped MCP store.
   // An old journal never acquires a caller from a reconstructed/latest actor.
   interruptionActor?(): ExecutionActor;
@@ -90,6 +93,7 @@ export function executionStoreDirectory(stateRoot: string, multiplexer: { kind: 
 
 export class FileExecutionStore implements ExecutionStore {
   private readonly lockActor: ExecutionActor | null;
+  private nativeAdmission = false;
   constructor(readonly directory: string, private readonly lockTimeoutMs = 2000, lockActor?: ExecutionActor) {
     this.lockActor = lockActor ? executionActorSchema.parse(lockActor) : null;
   }
@@ -148,8 +152,8 @@ export class FileExecutionStore implements ExecutionStore {
    */
   transactionSync<T>(body: (state: ExecutionState) => T, options: { readOnly?: boolean } = {}): T {
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    let lock: ExecutionLock;
-    try { lock = acquireExecutionLock(this.directory, this.lockActor); }
+    let lock: ExecutionLock | undefined;
+    try { if (!this.nativeAdmission) lock = acquireExecutionLock(this.directory, this.lockActor); }
     catch (error) {
       if (error instanceof ExecutionError) throw error;
       throw new ExecutionError((error as NodeJS.ErrnoException).code === "EEXIST" ? "EXECUTION_BUSY" : "EXECUTION_STATE_UNAVAILABLE", "not_started");
@@ -162,9 +166,38 @@ export class FileExecutionStore implements ExecutionStore {
       }
       if (!options.readOnly) this.write(state);
       return structuredClone(result);
-    } finally { releaseExecutionLock(lock); }
+    } finally { if (lock) releaseExecutionLock(lock); }
+  }
+  async admitNative<T>(body: () => T): Promise<T> {
+    // The marker exists only on a synchronous stack, never across an await.
+    // Re-entry shares the physical mutex but not a mutable state snapshot.
+    if (this.nativeAdmission) return this.nativeBody(body);
+    fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    const deadline = performance.now() + this.lockTimeoutMs;
+    let lock: ExecutionLock;
+    for (;;) {
+      try { lock = acquireExecutionLock(this.directory, this.lockActor); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !(error instanceof ExecutionError && error.code === "EXECUTION_BUSY"))
+          throw new ExecutionError("EXECUTION_STATE_UNAVAILABLE", "not_started");
+        if (performance.now() >= deadline) throw new ExecutionError("EXECUTION_BUSY", "not_started");
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    this.nativeAdmission = true;
+    try { return this.nativeBody(body); }
+    finally { this.nativeAdmission = false; releaseExecutionLock(lock); }
+  }
+  private nativeBody<T>(body: () => T): T {
+    const result = body();
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      void Promise.resolve(result).catch(() => undefined);
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    }
+    return result;
   }
   async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
+    if (this.nativeAdmission) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     let lock: ExecutionLock;
     const deadline = performance.now() + this.lockTimeoutMs;

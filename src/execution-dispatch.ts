@@ -155,11 +155,14 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           // A host's explicit session close is a management RPC with its own
           // existing process/request identity, not a delivery or resend.
           const hostClose = client === "bellteam" && route.tool === "pty_close" && !supplied;
+          const hostLaunch = client === "bellteam" && route.tool === "agent_launch" && !supplied
+            && args.prompt == null && args.throughline_source_session === undefined;
+          const hostManagement = hostClose || hostLaunch;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;
           let frozenParent: unknown | null = null;
-          if (!reference && (client !== "bellteam" || hostClose) && native) {
+          if (!reference && (client !== "bellteam" || hostManagement) && native) {
             directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
               process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
               tool: route.tool, target_session_id: route.target });
@@ -197,7 +200,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             cancellation?.assert();
           } else {
             // BellTeam must retain its existing delivery/room/call reference.
-            if ((client === "bellteam" && !hostClose) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            if ((client === "bellteam" && !hostManagement) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             const current = await observe(route.target);
             if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
             const request = directRequest;

@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget } from "./execution-effect.js";
+import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -6520,26 +6520,28 @@ async function dispatchAgentTurnInLock(
   prepareSendText(dispatchText, { raw: o.raw });
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
-  captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
-    event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
-  recordInterimBoundary(meta, startOffset, operationId);
-  if (meta.kind === "claude") {
-    // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
-    // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
-    prepareSendText(text, { raw: o.raw });
-    if (operationId) {
-      reserveClaudeOperation(meta, operationId);
-    } else reserveAnonymousClaudeTurn(meta);
-  }
-  send(name, dispatchText, {
-    enter: false,
-    force: o.force,
-    raw: o.raw,
-    mark: false,
-    rtk: false,
-    preserveAgentOperation: meta.kind === "claude",
-    bracketedPaste: true,
-    typedPreface: prefaced.typedPreface,
+  await withExecutionNativeAdmission(name, () => {
+    captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
+      event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
+    recordInterimBoundary(meta, startOffset, operationId);
+    if (meta.kind === "claude") {
+      // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
+      // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
+      prepareSendText(text, { raw: o.raw });
+      if (operationId) {
+        reserveClaudeOperation(meta, operationId);
+      } else reserveAnonymousClaudeTurn(meta);
+    }
+    send(name, dispatchText, {
+      enter: false,
+      force: o.force,
+      raw: o.raw,
+      mark: false,
+      rtk: false,
+      preserveAgentOperation: meta.kind === "claude",
+      bracketedPaste: true,
+      typedPreface: prefaced.typedPreface,
+    });
   });
   // Cursorの冷間起動ではbracketed pasteの反映が250msを超えることがある。本文がcomposerへ
   // 現れた実測をsubmit条件にし、未反映のままEnterだけを失う競合を作らない。
@@ -6556,7 +6558,7 @@ async function dispatchAgentTurnInLock(
     // Codex TUI は literal text 投入直後の Enter を取り落とすことがある。agent 経路だけ submit を分離する。
     await sleep(AGENT_SUBMIT_DELAY_MS);
   }
-  sendKey(name, "Enter", { preserveAgentOperation: meta.kind === "claude" });
+  await withExecutionNativeAdmission(name, () => sendKey(name, "Enter", { preserveAgentOperation: meta.kind === "claude" }));
   let residue = await detectAgentSubmitResidue(name, meta.kind, dispatchText);
   // Cursorはcomposerへの貼付反映後でも最初のEnterを取り落とすことがある。本文残留を
   // 陽性観測した場合だけ同じEnterを一度再送し、再検査後も残る時は失敗として返す。
@@ -6783,7 +6785,7 @@ async function steerRunningTurn(
   };
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   const preserveAgentOperation = meta.kind === "claude";
-  send(name, text, {
+  await withExecutionNativeAdmission(name, () => send(name, text, {
     enter: false,
     force: true,
     raw: o.raw,
@@ -6792,7 +6794,7 @@ async function steerRunningTurn(
     preserveAgentOperation,
     bracketedPaste: true,
     typedPreface: prefaced.typedPreface,
-  });
+  }));
   if (meta.kind === "cursor") {
     const visible = await waitCursorPromptVisible(name, text);
     if (!visible.visible) {
@@ -6803,7 +6805,7 @@ async function steerRunningTurn(
   } else {
     await sleep(AGENT_SUBMIT_DELAY_MS);
   }
-  sendKey(name, "Enter", { preserveAgentOperation });
+  await withExecutionNativeAdmission(name, () => sendKey(name, "Enter", { preserveAgentOperation }));
   // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
   // 完了通知が差し込み前の回答で届いてしまう。待ち行列へ入ったことを確かめ、標準の「今すぐ送る」で現在turnへ移す。
   const queued = meta.kind === "grok" ? grokSteerQueued
@@ -6821,7 +6823,7 @@ async function steerRunningTurn(
           `文は新しいturnとして始まっており、その完了は通知されません。再送する前にpty_read(screen:true)で確かめてください。`, 2,
       );
     }
-    sendKey(name, "Enter");
+    await withExecutionNativeAdmission(name, () => sendKey(name, "Enter"));
     if (!await waitSteerScreen(name, screen => !queued(screen), stillRunning)) {
       throw new AitermError(
         `STEER_STILL_QUEUED vendor=${meta.kind} session=${name}\n` +

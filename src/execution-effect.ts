@@ -13,9 +13,11 @@ export interface ExecutionCreationBindings {
   launch(launch: ExecutionLaunch): void;
 }
 export type ExecutionPreparation = <T>(body: () => T) => T;
+export type ExecutionNativeAdmission = <T>(body: () => T) => Promise<T>;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
   managementCloseTarget?: string;
   prepare?: ExecutionPreparation; preparing?: boolean;
+  admitNative?: ExecutionNativeAdmission;
   sendBoundary?: ExecutionPoint;
   interrupt?: { native_id: string; key: "Escape" | "C-c"; sent: boolean; finished: boolean };
   creation?: ExecutionCreationBindings; creationPrepared?: boolean; creationServer?: ExecutionNativeServer; createdNative?: string };
@@ -98,13 +100,35 @@ function prepareInScope<T>(scope: EffectScope, body: () => T): T {
   }
 }
 export function withExecutionEffectScope<T>(session: string, issue: () => void, body: () => T,
-  creation?: ExecutionCreationBindings, prepare?: ExecutionPreparation): T {
+  creation?: ExecutionCreationBindings, prepare?: ExecutionPreparation, admitNative?: ExecutionNativeAdmission): T {
   const enclosing = scopes.getStore();
   if (enclosing?.interrupt) refuse(enclosing, "EXECUTION_UNSUPPORTED");
   const target = executionLaunchSchema.shape.session_id.parse(session);
-  const scope: EffectScope = { session: target, issue, prepare, nativeTargets: new Set(), didIssue: false,
+  const scope: EffectScope = { session: target, issue, prepare, admitNative, nativeTargets: new Set(), didIssue: false,
     ...(creation ? { creation: { ...creation } } : {}) };
   return runEffectScope(scope, body);
+}
+/** Resume one synchronous native segment after asynchronous readiness/waits.
+ * Waits for the existing metadata mutex, never replays the native body. The
+ * normal gates inside body still check source/target/stop and persist issuance.
+ */
+export async function withExecutionNativeAdmission<T>(session: string, body: () => T): Promise<T> {
+  const scope = scopes.getStore();
+  if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return body(); }
+  if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
+  if (scope.failure) throw scope.failure;
+  if (!scope.admitNative) return body(); // explicit legacy/fake frame
+  try {
+    return await scope.admitNative(() => {
+      if (scope.failure) throw scope.failure;
+      assertExecutionContext(session);
+      return body();
+    });
+  } catch (error) {
+    scope.failure ??= error instanceof ExecutionError ? new ExecutionError(error.code, scope.didIssue ? "possible" : error.effect)
+      : new ExecutionError("EXECUTION_UNCONFIRMED", scope.didIssue ? "possible" : "not_started");
+    throw scope.failure;
+  }
 }
 /** Private stop-owned synchronous frame over the existing native gate. It
  * creates no invocation/edge/request. The ordinary stop path supplies only

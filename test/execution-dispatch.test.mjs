@@ -64,6 +64,38 @@ function fixture(options = {}) {
     async records() { return store.transaction(state => structuredClone(state.records), { readOnly: true }); },
   };
 }
+test('BellTeam explicit promptless restart launch owns a native management request after close', { skip: posixCheckpoint }, async () => {
+  const f = fixture({ clientName: 'bellteam', environment: {}, nativeCreation: true });
+  f.live.clear();
+  let invoked = 0;
+  const result = await f.dispatcher.dispatch('agent_launch', { session_name: B.session_id, harness: 'codex-cli' },
+    { requestId: 802 }, async () => {
+      invoked++;
+      prepareExecutionCreation();
+      guardTmuxExecution(['new-session', '-d', '-s', B.session_id]);
+      f.live.set(B.session_id, { ...B, launch_id: null });
+      captureExecutionCreatedNative('$9\t' + B.session_id + '\t4711\n');
+      f.live.set(B.session_id, B);
+      bindExecutionCreatedLaunch(B);
+      return { content: [], structuredContent: { session_id: B.session_id, launch_id: B.launch_id } };
+    });
+  assert.equal(result.isError, undefined, JSON.stringify(result));
+  assert.equal(invoked, 1);
+  assert.equal(result._meta[BINDING].request.kind, 'mcp');
+  assert.equal(result._meta[BINDING].request.tool, 'agent_launch');
+});
+test('BellTeam management launch does not authorize prompt delivery, portable fork or an automatic target', { skip: posixCheckpoint }, async () => {
+  const f = fixture({ clientName: 'bellteam', environment: {} });
+  for (const args of [
+    { session_name: B.session_id, prompt: 'synthetic unregistered input' },
+    { session_name: B.session_id, throughline_source_session: 'synthetic-source' },
+    { harness: 'codex-cli' },
+  ]) {
+    const result = await f.dispatcher.dispatch('agent_launch', args, { requestId: 803 }, async () => assert.fail('unregistered input'));
+    assert.equal(errorCode(result), 'EXECUTION_UNSUPPORTED');
+  }
+  assert.deepEqual(await f.records(), []);
+});
 test('a native handler error retains its original error response and uncertainty without admitting a replay', { skip: posixCheckpoint }, async () => {
   const f = fixture();
   const original = { isError: true, content: [{ type: 'text', text: 'aiterm: synthetic native input failed after paste; Enter was not sent' }],

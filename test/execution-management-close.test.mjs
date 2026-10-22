@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import * as provider from 'aiterm-steer-delivery';
@@ -58,6 +58,25 @@ test('native management close of an unknown send keeps another session and permi
   assert.equal(tmux('list-sessions', '-F', '#{session_name}').trim(), other);
   assert.deepEqual(await participant.service.execute({ action: 'status', request }), original);
   assert.deepEqual(participant.store.snapshot().slots, []);
+  // BellTeam restart_session next calls a promptless agent_launch without a
+  // delivery ref. Exercise that same host SDK entry, not a separate reservation.
+  const binary = join(process.env.HOME, 'fixture-codex');
+  writeFileSync(binary, '#!/bin/sh\nprintf "OpenAI Codex\\n› ready\\n"\nwhile IFS= read -r line; do printf "%s\\n" "$line"; done\n', { mode: 0o700 });
+  const oldBinary = process.env.CODEX_BIN; process.env.CODEX_BIN = binary;
+  t.after(() => { process.env.CODEX_BIN = oldBinary; });
+  core.__testSetAgentTuiReadyStableSamples(1);
+  t.after(() => core.__testSetAgentTuiReadyStableSamples(null));
+  const opened = await client.callTool({ name: 'agent_launch', arguments: {
+    harness: 'codex-cli', session_name: session, cwd: process.env.HOME, trust_project: true } });
+  assert.equal(opened.isError, undefined, JSON.stringify(opened));
+  assert.equal(opened.structuredContent.startup.status, 'ready');
+  assert.equal(opened.structuredContent.initial_prompt.status, 'not_requested');
+  assert.equal(opened._meta['aiterm/execution_binding'].request.kind, 'mcp');
+  assert.notEqual(core.observeExecutionSessionGeneration(session).launch_id, launch);
+  assert.deepEqual(await participant.service.execute({ action: 'status', request }), original);
+  const closedAgain = await client.callTool({ name: 'pty_close', arguments: { session_id: session } });
+  assert.equal(closedAgain.isError, undefined, JSON.stringify(closedAgain));
+  assert.equal(tmux('list-sessions', '-F', '#{session_name}').trim(), other);
   const next = await participant.service.execute({ action: 'register', source_session_id: null, reservation: {
     schema: 'aiterm.execution-reservation.v1', request: { ...request, delivery_id: '00000000-0000-4000-8000-000000000002' },
     source: { launch: null, boundary: null }, target: { session_id: session, expected_launch_id: null } } });

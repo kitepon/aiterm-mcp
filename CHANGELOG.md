@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- In the opt-in POSIX native entry, an ordinary incoming send to a verified caller no longer invalidates that caller's outgoing send between paste and Enter. The incoming slot remains owned by its original request; unknown input, management operations, stops and generation changes remain blockers. Reciprocal sends do not wait on each other.
+- Agent paste/submit segments asynchronously acquire the existing metadata mutex before running their synchronous native gates. Routine graph-writer contention no longer poisons an already pasted input. Each effect still rechecks generations and stop state, and issuance is durable before input; no native command is replayed.
+- BellTeam's explicit promptless management `agent_launch` now uses the serving process/request identity after `pty_close`. Unreferenced prompt delivery, portable forks and automatic names remain refused.
+
 ## [0.61.4] - 2026-10-22
 
 ### 修正

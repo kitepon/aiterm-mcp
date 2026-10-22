@@ -28,6 +28,13 @@ native emit直前に照合したhook参照は既存deliveryへ保存する。Cod
 POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通す。ttyは正確なsession selectorで読み、
 実stty直前にも同じdeviceを確認する。停止や世代/tty交代後に古いdeviceへ回復を発行しない。
 一つのRPCが複数のnative作用を発行するときも、各回に同じissued slotとsource/target世代・停止を再確認する。
+agentの貼付け・Enterの同期区間は、既存metadata mutexを非同期に取得してから実行する。
+mutexをawait中へ持ち越さず、同じ同期stack内の各gateが発行記録を永続化してからnative作用へ進む。
+検証済みsourceと同世代への通常sendがissuedである間も、そのsourceの送信先が別ならoutgoing RPCは継続できる。
+incomingのslotを解放・書換・成功扱いせず、unknown・管理操作・世代不一致は従来どおり拒否する。
+incomingの完了待ちをoutgoingへ課して相互送信を循環待ちにしない（ADR 0127）。
+BellTeamのpromptなし明示管理launchは、管理close同様にserving process/request identityへ結合する。
+promptやThroughline読出しを含む未登録送信、auto-name、remoteはこの管理例外へ含めない。
 新launchは、既存POSIX serverのnative owner、またはserver未作成の完全な空観測を受付時と発行直前に確認する。
 冷間時は最初のnew-session自身でserverを作り、その実receiptのnative IDとserver PIDを、作成後の安定したnative一覧とprocess開始識別子で照合する。
 既存server時も冷間時も、作成したsessionのnative ID・server owner・core内部のlaunch世代を同じ要求slotへ段階結合する。

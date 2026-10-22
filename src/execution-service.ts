@@ -95,10 +95,27 @@ function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
     stopping: record.stopping || stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch)
       || interruptionBlocksRequest(state, record.reservation.request) });
 }
+/** An admitted ordinary input to the caller does not replace its generation
+ * or revoke its outstanding outgoing RPC. Blocking that input's issued slot
+ * would make reciprocal sends poison each other between paste and Enter.
+ * Unknown operations and management/creation slots are never exempted.
+ */
+function blocksSource(state: ExecutionState, source: ExecutionLaunch | null, seatHint: string | null,
+  own?: ExecutionState["slots"][number]): boolean {
+  return state.slots.some(slot => {
+    if (slot === own || slot.session_id !== (source?.session_id ?? seatHint)) return false;
+    if (!source || slot.stage !== "send" || slot.state !== "issued" || slot.expected_launch_id !== source.launch_id || !slot.request
+      || slot.request.kind === "mcp" && !["pty_send", "claude_turn.issue"].includes(slot.request.tool)) return true;
+    const incoming = state.records.find(value => same(value.reservation.request, slot.request));
+    return incoming?.operations.send !== "issued" || ["issued", "unknown"].includes(incoming.operations.launch)
+      || incoming.relation.phase !== "submitted_unknown" || incoming.relation.completion !== "open"
+      || incoming.relation.lifecycle !== "tracking" || !same(incoming.relation.target?.launch, source);
+  });
+}
 function sourceAdmission(state: ExecutionState, point: ExecutionPoint | null, seatHint: string | null): void {
   assertInterruptionSource(state, point, seatHint);
   if (stopped(state, point?.launch)) throw new ExecutionError("EXECUTION_STOPPING");
-  if (state.slots.some(slot => slot.session_id === (point?.launch.session_id ?? seatHint)))
+  if (blocksSource(state, point?.launch ?? null, seatHint))
     throw new ExecutionError("EXECUTION_UNCONFIRMED");
   if (!point && seatHint && state.stopping.some(value => value.session_id === seatHint))
     throw new ExecutionError("EXECUTION_UNCONFIRMED");
@@ -486,6 +503,10 @@ export class ExecutionService {
     if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)), { readOnly: true });
     return this.finish(args);
   }
+  async admitNative<T>(body: () => T): Promise<T> {
+    if (!this.store.admitNative) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return this.store.admitNative(body);
+  }
 
   /** Read-only root selection, not a stop or a reservation. Generations come
    * only from current observation or persisted unfinished relations/slots. A
@@ -688,7 +709,7 @@ export class ExecutionService {
           if (stopped(state, relation.source?.launch)) throw new ExecutionError("EXECUTION_STOPPING");
           if (!relation.source && record.source_session_id && state.stopping.some(value => value.session_id === record.source_session_id))
             throw new ExecutionError("EXECUTION_UNCONFIRMED");
-          if (state.slots.some(value => value !== slot && value.session_id === (relation.source?.launch.session_id ?? record.source_session_id)))
+          if (blocksSource(state, relation.source?.launch ?? null, record.source_session_id, slot))
             throw new ExecutionError("EXECUTION_UNCONFIRMED");
           if (relation.source) {
             const source = this.runtime.observeSync!(relation.source.launch.session_id);

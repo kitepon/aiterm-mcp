@@ -166,7 +166,7 @@ async function runExecutionReceipt(service: ExecutionService, meta: unknown, sta
           native: (session, nativeId, serverPid) => { if (expectedServer === undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             return service.captureCreatedNative(ref, session, nativeId, expectedServer, serverPid); },
           launch: launch => service.bindCreatedLaunch(ref, launch),
-        } : undefined, prepare);
+        } : undefined, prepare, body => service.admitNative(body));
         // A swallowed native refusal poisons the frame. Only a cleanly returned
         // frame has a genuine successful action receipt to preserve on binding.
         observed = action.value;

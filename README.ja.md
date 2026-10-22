@@ -735,6 +735,8 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 ## 人が覗く
 
+POSIXの明示native実行構成では、検証済みcallerへ通常メッセージが届く間も、そのcallerから別席への送信を継続できる。callerの世代や各requestのslotは書き換えない。agentの貼付け・Enterはmetadata mutexの競合を入力前に待ち、不明な操作・世代交代・停止では入力を止める。BellTeamは閉じた席をpromptなしの明示管理`agent_launch`で再作成できる。promptを送る呼出しには元の実行参照が必要である。
+
 セッションは共有tmux socket（Windows nativeはpsmux namespace）上にある。`pty_open`／`agent_launch`の戻り値に表示されるattachコマンドで、人間がClaude／Codex／Grok／Cursor harnessの同じ端末へ入り、途中でキーボードを引き取れる。
 POSIXでは、tmuxのソケットがまだ無くても最初の`agent_launch`でserverを起動できる。Aitermは作成したsessionとserverを実際のreceiptから照合して受付を確定し、不明な結果を入力の再送で補わない。
 

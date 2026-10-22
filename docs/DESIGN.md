@@ -426,6 +426,15 @@ ADR 0074（repositoryの`docs/adr/0074-agent-model-catalog.md`）。
 境界失敗は明示errorにする。retry、別model、別harness、別backendへ自動fallbackしない。
 stale send lockは並行processとのABAを避けるため自動削除せず、公開APIでは対象sessionを`pty_close`して
 同じIDで再作成する。全session一括停止は公開しない。
+POSIXの明示native execution構成では、返却済みsendのunknown枠が対象席の管理closeまで
+永久に拒否しないよう、通常`pty_close`だけを同じ期待launch/native IDで受付できる。
+unknown send枠を保持したまま既存core closeへ進み、native close成功と席の不在を確認した後だけ
+該当send枠を解放する。元recordのphase/completion/sendはunknownのまま残し、再送や成功化をしない。
+旧callbackは未知/消失した元slotで拒否され、同IDの新launchへnative作用を発行できない。
+issued、管理close自体のunknown、親作用のslot、世代/native/serverの不明・交代は対象外。
+既存の送信・待機lockの拒否も維持し、他席やissuerの停止を復旧条件へ追加しない。
+native handlerのisErrorは元の本文を保持し、`aiterm/execution_error`のcode/effectを併記する。
+native作用後の不明はpossibleのままで、原因説明を再送可否や成功receiptへ変換しない。
 agent sessionへの送信1本を守る`<name>.agent-send.lock`は持つ時間が長いので、持ち主が終了した残骸を次の送信が片付ける。消す役を`<name>.agent-send.lock.reap`の排他作成で1つに絞り、
 その中でもう一度確かめてから消すので、確かめた後で別のlockに入れ替わらない。消す役の印そのものが残った時だけは自動で消さず、`pty_close`を案内する。
 終了した持ち主のpidを別のprocessが使い回すと、pidだけでは生きて見える。生きて見える持ち主は、processが始まってからの経過とlockを作ってからの時間を比べ、

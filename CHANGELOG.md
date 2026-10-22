@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - POSIXのnative実行口で最初の`agent_launch`がtmuxソケット未作成時に`EXECUTION_UNSUPPORTED`で止まっていた。発行直前にも空状態を確かめ、最初の`new-session`自身が作ったserverのPID・開始識別子とsession IDを実receiptから照合して起動する。補助sessionや入力再送は作らず、読取不能・receipt不一致は未確認で止める。
 
+## [0.61.3] - 2026-10-22
+
+### Fixed
+
+- An unknown send in the opt-in POSIX native execution entry no longer permanently blocks an explicit `pty_close` of that one session. The close is pinned to its expected launch/native identity; only confirmed close and absence release the failed-send admission. The original request remains unknown and is never replayed. Issued work, unknown management operations, and uncertain identities stay blocked.
+- Native handler errors retain their original explanation alongside the typed execution error. A failed recovery close preserves the old launch metadata and reports the native failure.
+
 ## [0.61.2] - 2026-10-22
 
 ### 修正
@@ -2719,7 +2726,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...HEAD
+[0.61.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.1...v0.61.0

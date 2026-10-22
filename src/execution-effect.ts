@@ -14,6 +14,7 @@ export interface ExecutionCreationBindings {
 }
 export type ExecutionPreparation = <T>(body: () => T) => T;
 type EffectScope = { session: string; issue: () => void; nativeTargets: Set<string>; didIssue: boolean; failure?: ExecutionError;
+  managementCloseTarget?: string;
   prepare?: ExecutionPreparation; preparing?: boolean;
   sendBoundary?: ExecutionPoint;
   interrupt?: { native_id: string; key: "Escape" | "C-c"; sent: boolean; finished: boolean };
@@ -237,6 +238,20 @@ export function bindExecutionNativeTarget(session: string, nativeId: string): vo
   if (scope.interrupt && (scope.interrupt.finished || scope.interrupt.native_id !== nativeId)) refuse(scope, "EXECUTION_CONFLICT");
   scope.nativeTargets.add(nativeId);
 }
+/** Bound only by the management-close wrapper, never tool arguments. The
+ * ordinary core close/cleanup keeps using its session name; native commands
+ * are pinned to the independently captured native ID through the same gate.
+ */
+export function bindExecutionManagementCloseTarget(session: string, nativeId: string): void {
+  const scope = scopes.getStore();
+  if (!scope || scope.session !== session || scope.didIssue || scope.creation || scope.interrupt || !/^\$\d+$/.test(nativeId))
+    throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  scope.managementCloseTarget = nativeId; scope.nativeTargets.add(nativeId);
+}
+export function executionManagementCloseTarget(session: string): string | undefined {
+  const scope = scopes.getStore();
+  return scope?.session === session ? scope.managementCloseTarget : undefined;
+}
 export function beforeExecutionEffect(session: string, verify?: () => void): void {
   const scope = scopes.getStore();
   if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
@@ -304,7 +319,7 @@ export function guardTmuxExecution(input: string[]): string[] {
       } else {
         const parsed = /^=?([A-Za-z0-9_-]{1,64})(:(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
         if (!parsed || parsed[1] !== scope.session) refuse(scope, "EXECUTION_CONFLICT");
-        if (command !== "new-session") args[at + 1] = `${scope.createdNative ?? "=" + scope.session}${parsed[2] ?? ":"}`;
+        if (command !== "new-session") args[at + 1] = `${scope.managementCloseTarget ?? scope.createdNative ?? "=" + scope.session}${parsed[2] ?? ":"}`;
       }
       effects = true;
     } else if (command === "load-buffer" || command === "delete-buffer" || command === "save-buffer" || command === "set-option") {

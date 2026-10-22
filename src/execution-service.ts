@@ -69,6 +69,27 @@ function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord
   if (!record) throw new ExecutionError("EXECUTION_NOT_FOUND");
   return record;
 }
+const managementClose = (request: ExecutionRequest): boolean => request.kind === "mcp" && request.tool === "pty_close";
+/** Only a returned, unknown send may be displaced by an explicit close of
+ * that exact launch. Issued work, management/parent slots and other generations
+ * remain blockers. The record is never turned into accepted or not_sent.
+ */
+function recoverableSends(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null) {
+  if (!managementClose(request) || expected === null) return [];
+  return state.slots.filter(slot => {
+    if (slot.session_id !== session || slot.expected_launch_id !== expected || slot.stage !== "send"
+      || slot.state !== "unknown" || !slot.request || same(slot.request, request)) return false;
+    if (slot.request.kind === "mcp" && !["pty_send", "claude_turn.issue"].includes(slot.request.tool)) return false;
+    const original = state.records.find(record => same(record.reservation.request, slot.request));
+    return original?.operations.send === "unknown" && !["issued", "unknown"].includes(original.operations.launch)
+      && original.relation.phase === "submitted_unknown" && original.relation.completion === "unknown"
+      && same(original.relation.target?.launch, { session_id: session, launch_id: expected });
+  });
+}
+function targetBlocked(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null): boolean {
+  const recoverable = recoverableSends(state, request, session, expected);
+  return state.slots.some(slot => slot.session_id === session && !recoverable.includes(slot));
+}
 function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
   return executionRecordSchema.parse({ ...record,
     stopping: record.stopping || stopped(state, record.relation.source?.launch) || stopped(state, record.relation.target?.launch)
@@ -364,6 +385,24 @@ export class ExecutionService {
       return native.server;
     }, { readOnly: true });
   }
+  /** Private wrapper preparation for an explicit management close. No native
+   * effect or slot removal occurs here. The invoke gate independently rechecks
+   * this same identity immediately before every native command.
+   */
+  managementCloseNative(metaInput: unknown): string | undefined {
+    const { request } = executionRefMetaSchema.parse(metaInput);
+    if (!managementClose(request)) return undefined;
+    if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    return this.store.transactionSync(state => {
+      const record = find(state, request), target = record.reservation.target;
+      if (!recoverableSends(state, request, target.session_id, target.expected_launch_id).length) return undefined;
+      if (record.operations.send !== "preparing" || targetBlocked(state, request, target.session_id, target.expected_launch_id))
+        throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      const native = this.runtime.nativeSessionSync?.(target.session_id);
+      if (native?.state !== "present" || !native.server) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      return native.native_id;
+    }, { readOnly: true });
+  }
   verifyCreationServer(metaInput: unknown, expected: ExecutionNativeServer | null): void {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
@@ -524,7 +563,8 @@ export class ExecutionService {
       }
       sourceAdmission(state, source.point, args.source_session_id);
       const target = args.reservation.target;
-      if (state.slots.some(slot => slot.session_id === target.session_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      if (targetBlocked(state, args.reservation.request, target.session_id, target.expected_launch_id))
+        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       const current = await this.runtime.observe(target.session_id);
       this.expectTarget(current, target.expected_launch_id, target.session_id);
       if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
@@ -571,6 +611,7 @@ export class ExecutionService {
     body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
     deferred: boolean, admission?: () => void): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
+    let expectedCloseNative: { native_id: string; server: ExecutionNativeServer } | undefined;
     if (deferred && (!this.store.transactionSync || !this.runtime.observeSync)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     await this.store.transaction(async state => {
       admission?.();
@@ -588,6 +629,14 @@ export class ExecutionService {
       if (record.reservation.source.launch && !relation.source)
         throw new ExecutionError("EXECUTION_UNCONFIRMED");
       if (deferred) {
+        const target = record.reservation.target;
+        if (recoverableSends(state, request, target.session_id, target.expected_launch_id).length) {
+          if (targetBlocked(state, request, target.session_id, target.expected_launch_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          this.expectTarget(await this.runtime.observe(target.session_id), target.expected_launch_id, target.session_id);
+          const native = this.runtime.nativeSessionSync?.(target.session_id);
+          if (native?.state !== "present" || !native.server) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          expectedCloseNative = { native_id: native.native_id, server: structuredClone(native.server) };
+        }
         record.operations[stage] = "preparing";
         return; // no native effect or target slot yet; stop can cancel this
       }
@@ -614,6 +663,12 @@ export class ExecutionService {
       state.slots.push({ session_id: target.session_id, expected_launch_id: expected, stage, state: "issued", request });
     });
     let issued = !deferred, finished = false;
+    const checkCloseNative = (session: string) => {
+      if (!expectedCloseNative) return;
+      const native = this.runtime.nativeSessionSync?.(session);
+      if (native?.state !== "present" || native.native_id !== expectedCloseNative.native_id
+        || !same(native.server, expectedCloseNative.server)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+    };
     const checkOrIssue = (commit: boolean, preparation: () => unknown): unknown => {
       admission?.();
       const prepared = () => { admission?.(); return preparation(); };
@@ -641,6 +696,7 @@ export class ExecutionService {
             if (source.state !== "present" || !same(source.launch, relation.source.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
           }
           const current = this.runtime.observeSync!(slot.session_id);
+          checkCloseNative(slot.session_id);
           if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
           if (slot.created_native_id) {
             const native = this.runtime.nativeSessionSync?.(slot.session_id);
@@ -672,10 +728,11 @@ export class ExecutionService {
           if (source.state !== "present" || !same(source.launch, relation.source.launch)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
         }
         const target = record.reservation.target;
-        if (state.slots.some(slot => slot.session_id === target.session_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        if (targetBlocked(state, request, target.session_id, target.expected_launch_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
         const expected = relation.target?.launch.launch_id ?? target.expected_launch_id;
         const current = this.runtime.observeSync!(target.session_id);
         this.expectTarget(current, expected, target.session_id);
+        checkCloseNative(target.session_id);
         if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
         if ((stage === "launch" && current.state !== "absent") || (stage === "send" && current.state !== "present"))
           throw new ExecutionError("EXECUTION_CONFLICT");
@@ -758,7 +815,14 @@ export class ExecutionService {
       if (state.stopping.some(value => same(value, record.relation.source?.launch)) && !state.stopping.some(value => same(value, targetPoint.launch)))
         state.stopping.push(targetPoint.launch);
       state.slots = state.slots.filter(value => !same(value.request, request));
-      if (closing) this.interruptRelations(state, targetPoint.launch);
+      if (closing) {
+        // Actual management close plus confirmed absence releases only these
+        // failed send admissions. Old callbacks still fail their missing-slot
+        // guard, and their records remain unknown and cannot be invoked again.
+        const recovered = recoverableSends(state, request, slot.session_id, expected);
+        state.slots = state.slots.filter(value => !recovered.includes(value));
+        this.interruptRelations(state, targetPoint.launch);
+      }
       return view(state, record);
     }).catch(async () => {
       // The side effect already returned, but its result could not be safely
@@ -1166,6 +1230,7 @@ export class ExecutionService {
 
   private interruptRelations(state: ExecutionState, launch: ExecutionLaunch): void {
     for (const record of state.records) if (same(record.relation.target?.launch, launch)) {
+      if (record.operations.launch === "unknown" || record.operations.send === "unknown") continue;
       record.relation.completion = "interrupted";
       record.relation.target_fence = "closed";
     }

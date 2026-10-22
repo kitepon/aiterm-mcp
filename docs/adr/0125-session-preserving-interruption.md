@@ -35,6 +35,24 @@ Steer providerのnative_hook_args対応が必要。ユーザー設定への実�
 
 ## 旧v2診断wire（停止ボタンからは呼ばない）
 
+### 2026-10-22: unknown sendからの明示管理close
+
+停止ボタンは引き続き会話を閉じない。返却済みsendがunknownとなり後続登録を拒否する席の
+復旧は、利用者が明示する既存`pty_close`を使う。host BellTeamのunbound管理closeも、
+実stdioのprocess/request identityで既存mcp参照を登録する。モデル入力が参照を選ぶ機能は足さない。
+
+許可する競合は同期待launchに結合済みのunknown sendだけ。発行中、close/configure/親作用、
+target欠測、別世代を除外し、native IDとserver ownerを準備時と各native gateで照合する。
+coreのcloseは捕捉したnative IDへ固定し、既存send/wait lockの拒否を通る。
+close成功後の不在を確認してから元sendのslotだけを解放する。
+元sendのunknown recordをそのまま残し、旧requestの再発行や成功/未送信への変更を許可しない。
+slotの消失後も旧frameの各native gateは拒否される。closeの失敗・応答/不在の不明はslotを残す。
+graph schema、新ID、queue、retry、全actor証明、別診断入口は追加しない。
+
+handlerが返したisErrorの本文は失わず、execution_errorの不明/未開始判定と共に返す。
+lock競合からunknownになる経路は自己fixtureで再現したが、元障害のraw応答が無いため
+元発生原因がlock競合だったと断定しない。
+
 tool名はagent_stop。旧close成功と誤認しないよう、このcontrolだけv2とmodeを必須にする。
 register/status/finish/rootsのwireは維持。新ID、queue、再送frameworkを作らない。
 

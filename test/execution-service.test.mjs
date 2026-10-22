@@ -194,6 +194,31 @@ test('synchronous effect admission refuses an async lock owner without blocking 
   await assert.rejects(running, code('EXECUTION_BUSY'));
   assert.equal((await f.status(record.reservation.request)).operations.send, 'not_sent');
 });
+test('a lock owner between paste and submit leaves an unknown slot that reconstruction, finish and generation replacement cannot clear', { skip: posixCheckpoint }, async () => {
+  const f = fixture(), record = await f.register('paste-then-lock'), pasted = deferred(), submit = deferred(), tried = deferred();
+  let effects = 0;
+  const sending = f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
+    issue(); effects++; pasted.resolve(); await submit.promise;
+    try { issue(); effects++; } finally { tried.resolve(); }
+    return { value: 'must not submit', target: point(B) };
+  }, B.session_id);
+  const rejection = assert.rejects(sending, code('EXECUTION_UNCONFIRMED'));
+  await pasted.promise;
+  const held = deferred(), release = deferred();
+  const holding = f.store.transaction(async () => { held.resolve(); await release.promise; });
+  await held.promise; submit.resolve(); await tried.promise;
+  release.resolve(); await holding; await rejection;
+  const before = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(effects, 1); assert.equal(before.records[0].operations.send, 'unknown');
+  assert.equal(before.slots[0].state, 'unknown'); assert.equal(before.records[0].relation.target.boundary, null);
+  const restored = new ExecutionService(new FileExecutionStore(f.directory), f.runtime);
+  await assert.rejects(restored.execute(f.registration('later')), code('EXECUTION_UNCONFIRMED'));
+  await assert.rejects(restored.execute({ action: 'finish', request: record.reservation.request, evidence: { kind: 'not_sent' } }), code('EXECUTION_UNCONFIRMED'));
+  f.live.set(B.session_id, launch('b', 'e'));
+  await assert.rejects(restored.execute(f.registration('replacement', C, launch('b', 'e'))), code('EXECUTION_UNCONFIRMED'));
+  const after = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.deepEqual(after, before); assert.equal(effects, 1);
+});
 test('once the native gate was crossed even a later typed refusal remains possible and is not replayed', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('deferred-failure');
   await assert.rejects(f.service.invokeDeferred(ref(record.reservation.request), 'send', async issue => {
@@ -303,6 +328,90 @@ test('deferred normal close binds only confirmed absence and interrupts the same
   assert.equal((await f.status(request('original-ab'))).relation.completion, 'interrupted');
   assert.equal((await f.store.transaction(state => state.slots)).length, 0);
 });
+async function unknownSendFixture() {
+  const f = fixture(), original = await f.register('failed-original');
+  const server = { pid: 4711, started_identity: '2026-10-21T09:00:00Z' };
+  let native = { state: 'present', native_id: '$9', server };
+  f.runtime.nativeSessionSync = () => native;
+  await assert.rejects(f.service.invokeDeferred(ref(original.reservation.request), 'send', async issue => {
+    issue(); throw Error('synthetic failure after native paste');
+  }, B.session_id), code('EXECUTION_UNCONFIRMED'));
+  const closeArgs = f.registration('management-close', C);
+  closeArgs.reservation.request = { kind: 'mcp', process_pid: 123, process_started_identity: '2026-10-21T09:00:00Z', request_id: 802,
+    tool: 'pty_close', target_session_id: B.session_id };
+  return { ...f, original, closeArgs, native: value => { native = value; },
+    close: async body => {
+      const record = await f.service.execute(closeArgs);
+      return runDeferredBoundExecution(f.service, { [EXECUTION_REQUEST_META_KEY]: ref(record.reservation.request) }, 'send', B.session_id, body);
+    } };
+}
+test('explicit management close releases only failed-send admission after native close and absence, retaining the original unknown record', { skip: posixCheckpoint }, async () => {
+  const f = await unknownSendFixture(), before = await f.status(f.original.reservation.request);
+  let effects = 0;
+  const result = await f.close(async () => {
+    assert.deepEqual(guardTmuxExecution(['kill-session', '-t', B.session_id]), ['kill-session', '-t', '$9:']);
+    effects++; f.live.delete(B.session_id); f.native({ state: 'absent' });
+    return { result: { content: [], structuredContent: { schema: 'aiterm.pty-close-result.v1', session_id: B.session_id, outcome: 'closed' } }, target: point(B, null) };
+  });
+  assert.notEqual(result.isError, true); assert.equal(effects, 1);
+  assert.deepEqual(await f.status(f.original.reservation.request), before);
+  assert.deepEqual(f.store.snapshot().slots, []); assert.ok(f.live.has(A.session_id)); assert.ok(f.live.has(C.session_id));
+  let replay = 0;
+  await assert.rejects(f.service.invokeDeferred(ref(f.original.reservation.request), 'send', async issue => {
+    issue(); replay++; return { value: null, target: point(B) };
+  }, B.session_id), code('EXECUTION_CONFLICT'));
+  const replacement = launch('b', 'e'), next = await f.register('new-launch', C, replacement, null);
+  const launched = await f.service.invokeDeferred(ref(next.reservation.request), 'launch', async issue => {
+    issue(); f.live.set(B.session_id, replacement); return { value: 'new conversation', target: point(replacement, null) };
+  }, B.session_id);
+  assert.equal(launched.record.operations.launch, 'accepted'); assert.equal(replay, 0);
+  assert.deepEqual(await f.status(f.original.reservation.request), before);
+});
+test('management close does not displace issued, wrong-generation, missing-evidence or management slots', { skip: posixCheckpoint }, async () => {
+  for (const change of ['issued', 'other-generation', 'missing-target', 'other-operation', 'close-unknown']) {
+    const f = await unknownSendFixture(); let effects = 0;
+    await f.store.transaction(state => {
+      const slot = state.slots[0], record = state.records[0];
+      if (change === 'issued') { slot.state = 'issued'; record.operations.send = 'issued'; }
+      if (change === 'other-generation') slot.expected_launch_id = 'e'.repeat(32);
+      if (change === 'missing-target') record.relation.target = null;
+      if (change === 'other-operation' || change === 'close-unknown') {
+        const request = { ...f.closeArgs.reservation.request, request_id: 999, tool: change === 'close-unknown' ? 'pty_close' : 'agent_configure' };
+        slot.request = request; record.reservation.request = request; record.relation.request = request;
+      }
+    });
+    const before = f.store.snapshot();
+    await assert.rejects(f.close(async () => { effects++; assert.fail('no native close'); }), code('EXECUTION_UNCONFIRMED'));
+    assert.equal(effects, 0); assert.deepEqual(f.store.snapshot(), before);
+  }
+});
+test('unknown native, native/server replacement and failed or unconfirmed close retain failed-send admission', { skip: posixCheckpoint }, async () => {
+  for (const change of ['unknown-native', 'native-replaced', 'server-replaced', 'native-error', 'still-present', 'target-replaced']) {
+    const f = await unknownSendFixture(); let effects = 0;
+    if (change === 'unknown-native') {
+      f.native({ state: 'unknown' });
+      const result = await f.close(async () => assert.fail('unknown native'));
+      assert.equal(result._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNCONFIRMED');
+    } else {
+      const result = await f.close(async () => {
+        if (change === 'native-replaced' || change === 'server-replaced') f.native({ state: 'present',
+          native_id: change === 'native-replaced' ? '$10' : '$9', server: { pid: 4711,
+            started_identity: change === 'server-replaced' ? '2026-10-21T09:01:00Z' : '2026-10-21T09:00:00Z' } });
+        guardTmuxExecution(['kill-session', '-t', B.session_id]); effects++;
+        if (change === 'native-error') throw Error('native close failed');
+        if (change === 'target-replaced') f.live.set(B.session_id, launch('b', 'e'));
+        return { result: { content: [] }, target: point(B, null) };
+      });
+      // A returned handler receipt can survive binding uncertainty; neither
+      // that receipt nor native disappearance grants another close attempt.
+      assert.equal(result._meta[EXECUTION_ERROR_META_KEY].code, 'EXECUTION_UNCONFIRMED');
+    }
+    assert.equal(f.store.snapshot().slots.some(slot => sameRequest(slot.request, f.original.reservation.request)), true);
+    assert.equal((await f.status(f.original.reservation.request)).operations.send, 'unknown');
+    assert.equal(effects, ['native-error', 'still-present', 'target-replaced'].includes(change) ? 1 : 0);
+  }
+});
+const sameRequest = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 test('target generation replacement after reservation rejects before body invocation', { skip: posixCheckpoint }, async () => {
   const f = fixture(), record = await f.register('ab');
   f.live.set(B.session_id, launch('b', 'e'));

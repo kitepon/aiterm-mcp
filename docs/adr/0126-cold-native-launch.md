@@ -1,0 +1,11 @@
+# 0126. 最初のnative launchでtmux serverを作る
+
+## 判断
+
+POSIXのnative実行口は、対象socketにtmux serverが無いと完全に観測できた時、最初の`new-session`でserverと要求されたsessionを一緒に作る。発行直前にも同じ空状態を確かめ、実際の`new-session -P`のreceiptからnative session IDとserver PIDを取り、作成後の安定した一覧とprocess開始識別子で照合してからmanaged launchへ結び付ける。冷間起動専用の補助sessionは作らない。
+
+既存serverの経路は従来どおり発行前のownerを照合する。ソケット権限異常、読取不能、予想外のserver出現、receiptと作成後の観測の不一致は未確認で止める。native作用が発行済みならその要求slotを保持し、自動再送しない。Windows nativeのserver作成は引き続き未対応とする。
+
+## 根拠
+
+0.61.2はソケット欠落を空状態として登録できたが、`prepareCreation`が既存serverのownerを必須にしていたため、BellTeamのコンテナ再作成直後の初回配送は`EXECUTION_UNSUPPORTED`になった。手動の一時PTYでserverを先に作ると配送は動いたが、利用側へ起動順を委ねることになり、製品の正規入口の受入条件を満たさない。tmuxの`start-server`だけではsessionが無いままserverを保持できない。要求された`new-session`の実receiptなら、余分なsessionを残さず同じ要求の作用とownerを結合できる。

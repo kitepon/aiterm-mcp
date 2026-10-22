@@ -7,9 +7,9 @@ import { ExecutionError } from "./execution-wire.js";
 import type { ExecutionNativeServer, ExecutionNativeBinding } from "./execution-close.js";
 
 export interface ExecutionCreationBindings {
-  prepare(): ExecutionNativeServer;
+  prepare(): ExecutionNativeServer | null;
   verifyServer(): void;
-  native(session: string, nativeId: string, serverPid: number): void;
+  native(session: string, nativeId: string, serverPid: number): ExecutionNativeServer | void;
   launch(launch: ExecutionLaunch): void;
 }
 export type ExecutionPreparation = <T>(body: () => T) => T;
@@ -159,16 +159,19 @@ function issueEffect(scope: EffectScope): void {
   }
 }
 export function hasExecutionCreationScope(): boolean { return !!scopes.getStore()?.creation; }
-export function prepareExecutionCreation(): void {
+export function prepareExecutionCreation(): boolean {
   const scope = scopes.getStore();
   if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   if (scope.failure) throw scope.failure;
   if (!scope.creation || scope.creationPrepared || scope.didIssue) refuse(scope, "EXECUTION_UNSUPPORTED");
   try {
     const server = scope.creation.prepare();
-    if (!Number.isSafeInteger(server?.pid) || server.pid < 1 || typeof server.started_identity !== "string" || !server.started_identity)
+    if (server !== null && (!Number.isSafeInteger(server?.pid) || server.pid < 1
+      || typeof server.started_identity !== "string" || !server.started_identity))
       throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    scope.creationServer = { ...server }; scope.creationPrepared = true;
+    if (server) scope.creationServer = { ...server };
+    scope.creationPrepared = true;
+    return server === null;
   }
   catch (error) {
     scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "not_started");
@@ -176,7 +179,7 @@ export function prepareExecutionCreation(): void {
   }
 }
 /** Private core metadata stamp, derived only from this frame's actual create
- * receipt and pre-existing native server proof. Not a tool input or lookup.
+ * receipt and verified native server proof. Not a tool input or name lookup.
  */
 export function executionCreatedNativeBinding(session: string): ExecutionNativeBinding {
   const scope = scopes.getStore();
@@ -195,7 +198,15 @@ export function captureExecutionCreatedNative(receipt: string): void {
   const parsed = /^(\$\d+)\t([A-Za-z0-9_-]{1,64})\t([1-9][0-9]*)\r?\n?$/.exec(receipt);
   if (!parsed || parsed[2] !== scope.session || (scope.createdNative && scope.createdNative !== parsed[1]))
     refuse(scope, "EXECUTION_CONFLICT");
-  try { scope.creation.native(scope.session, parsed[1], Number(parsed[3])); }
+  try {
+    const server = scope.creation.native(scope.session, parsed[1], Number(parsed[3]));
+    if (server) {
+      if (!Number.isSafeInteger(server.pid) || server.pid < 1 || typeof server.started_identity !== "string" || !server.started_identity)
+        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      scope.creationServer = { ...server };
+    }
+    if (!scope.creationServer) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+  }
   catch (error) {
     scope.failure = new ExecutionError(error instanceof ExecutionError ? error.code : "EXECUTION_UNCONFIRMED", "possible");
     throw scope.failure;

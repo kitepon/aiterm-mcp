@@ -26,7 +26,7 @@ export interface ExecutionRuntime {
   // Generation-only synchronous read at the first native effect. Its absence
   // makes deferred native admission unsupported, never an async fallback.
   observeSync?(sessionId: string): Observation;
-  nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer };
+  nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer | null };
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -353,39 +353,45 @@ export class ExecutionService {
   /** Internal receipt callbacks for the serving launch frame. No tool args,
    * new identifiers, native effects or name-based generation inference.
    */
-  prepareCreation(metaInput: unknown): ExecutionNativeServer {
+  prepareCreation(metaInput: unknown): ExecutionNativeServer | null {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (!this.store.transactionSync || !this.runtime.nativeSessionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return this.store.transactionSync(state => {
       const record = find(state, request);
       if (record.operations.launch !== "preparing" || record.relation.lifecycle === "retired") throw new ExecutionError("EXECUTION_CONFLICT");
       const native = this.runtime.nativeSessionSync!(record.reservation.target.session_id);
-      if (native.state !== "absent" || !native.server) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      if (native.state !== "absent" || native.server === undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       return native.server;
     }, { readOnly: true });
   }
-  verifyCreationServer(metaInput: unknown, expected: ExecutionNativeServer): void {
+  verifyCreationServer(metaInput: unknown, expected: ExecutionNativeServer | null): void {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     this.store.transactionSync(state => {
       const record = find(state, request), native = this.runtime.nativeSessionSync?.(record.reservation.target.session_id);
-      if (!native?.server || !same(native.server, expected)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      if (native?.state !== "absent" || !same(native.server, expected)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
     }, { readOnly: true });
   }
-  captureCreatedNative(metaInput: unknown, session: string, nativeId: string, expectedServer: ExecutionNativeServer, receiptPid: number): void {
+  captureCreatedNative(metaInput: unknown, session: string, nativeId: string,
+    expectedServer: ExecutionNativeServer | null, receiptPid: number): ExecutionNativeServer {
     const { request } = executionRefMetaSchema.parse(metaInput);
     if (!/^\$\d+$/.test(nativeId) || !this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED", "possible");
-    this.store.transactionSync(state => {
+    return this.store.transactionSync(state => {
       const record = find(state, request), slot = state.slots.find(value => same(value.request, request) && value.stage === "launch");
+      // A cold first new-session creates the server itself. Prove its owner
+      // from the exact receipt and a stable native listing before stamping it.
+      const observed = expectedServer ? null : this.runtime.nativeSessionSync?.(session);
+      const server = expectedServer ?? (observed?.state === "present" && observed.native_id === nativeId ? observed.server : undefined);
       if (!slot || slot.state !== "issued" || record.operations.launch !== "issued" || slot.session_id !== session
         || record.reservation.target.expected_launch_id !== null || record.relation.lifecycle === "retired"
-        || expectedServer.pid !== receiptPid
+        || !server || server.pid !== receiptPid
         || (slot.created_native_id && slot.created_native_id !== nativeId)
-        || (slot.created_server && !same(slot.created_server, expectedServer))) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+        || (slot.created_server && !same(slot.created_server, server))) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
       // Preserve this genuine native receipt even if a stop is already fencing
       // its caller. Binding metadata does not authorize another native action.
       slot.created_native_id = nativeId;
-      slot.created_server = expectedServer;
+      slot.created_server = server;
+      return server;
     });
   }
 

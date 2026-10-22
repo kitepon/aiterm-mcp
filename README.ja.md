@@ -736,6 +736,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 ## 人が覗く
 
 セッションは共有tmux socket（Windows nativeはpsmux namespace）上にある。`pty_open`／`agent_launch`の戻り値に表示されるattachコマンドで、人間がClaude／Codex／Grok／Cursor harnessの同じ端末へ入り、途中でキーボードを引き取れる。
+POSIXでは、tmuxのソケットがまだ無くても最初の`agent_launch`でserverを起動できる。Aitermは作成したsessionとserverを実際のreceiptから照合して受付を確定し、不明な結果を入力の再送で補わない。
 
 ## 要件
 

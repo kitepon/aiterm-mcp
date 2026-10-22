@@ -794,6 +794,7 @@ Each `pty_send` accepts at most 64 KiB of UTF-8 text. Sends to the same session 
 ## A human can watch
 
 Sessions live on a shared tmux socket on POSIX or a shared psmux namespace on native Windows. The attach line printed by `pty_open` and `agent_launch` lets a human attach to the same terminal and intervene, including a Claude/Codex/Grok/Cursor harness session: `tmux -S … attach -t <id>` on POSIX, or `psmux -L <namespace> attach -t <id>` on native Windows.
+On POSIX, the first `agent_launch` can create the tmux server when its socket does not yet exist. Aiterm verifies the exact created session and server before accepting that launch; an uncertain result is reported without retrying the input.
 
 ## Requirements
 

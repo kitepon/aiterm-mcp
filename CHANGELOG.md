@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- POSIXのnative実行口で最初の`agent_launch`がtmuxソケット未作成時に`EXECUTION_UNSUPPORTED`で止まっていた。発行直前にも空状態を確かめ、最初の`new-session`自身が作ったserverのPID・開始識別子とsession IDを実receiptから照合して起動する。補助sessionや入力再送は作らず、読取不能・receipt不一致は未確認で止める。
+
 ## [0.61.2] - 2026-10-22
 
 ### 修正
 
-- tmuxがまだ起動しておらず、対象ソケットが存在しない時、新規実行の登録が`EXECUTION_UNCONFIRMED`で止まっていた。実行世代の観測でもソケット未作成を空状態として扱い、初回の席を起動できるようにした。別ソケットや権限・接続の異常は引き続き不明として止める。
+- tmuxがまだ起動しておらず、対象ソケットが存在しない時、新規実行の登録が`EXECUTION_UNCONFIRMED`で止まっていた。実行世代の観測でもソケット未作成を空状態として扱う。別ソケットや権限・接続の異常は引き続き不明として止める。この版では、その次の初回席作成が既存serverを要求しており、冷間起動はまだ完了しなかった。
 
 ## [0.61.1] - 2026-10-22
 

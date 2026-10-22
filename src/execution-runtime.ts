@@ -99,10 +99,12 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
           session_id: executionLaunchSchema.shape.session_id, native_id: z.string().regex(/^\$\d+$/),
         }).strict()) }).strict().parse(bindings.observeNativeSessionsSync!());
         if (new Set(parsed.sessions.map(value => value.session_id)).size !== parsed.sessions.length
-          || new Set(parsed.sessions.map(value => value.native_id)).size !== parsed.sessions.length) return { state: "unknown" } as const;
+          || new Set(parsed.sessions.map(value => value.native_id)).size !== parsed.sessions.length
+          || (parsed.server === null && parsed.sessions.length > 0)) return { state: "unknown" } as const;
+        const server = parsed.server === null ? { server: null } : parsed.server ? { server: parsed.server } : {};
         const target = parsed.sessions.find(value => value.session_id === session);
-        return target ? { state: "present", native_id: target.native_id, ...(parsed.server ? { server: parsed.server } : {}) } as const
-          : { state: "absent", ...(parsed.server ? { server: parsed.server } : {}) } as const;
+        return target ? { state: "present", native_id: target.native_id, ...server } as const
+          : { state: "absent", ...server } as const;
       } catch { return { state: "unknown" } as const; }
     } } : {}),
     ...(bindings.observeSessionSync ? { observeSync: (session: string) => {

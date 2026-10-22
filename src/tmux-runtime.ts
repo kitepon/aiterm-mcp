@@ -533,9 +533,9 @@ export function tmuxNewSession(
 ): { code: number; stdout: string; stderr: string } {
   const guarded = hasExecutionCreationScope();
   // Windows per-session server creation needs a separate native-owner proof.
-  // The legacy public launcher is unchanged; guarded creation cannot assume
-  // POSIX's existing shared-server identity or bootstrap a missing server.
-  if (guarded) { if (isWin) throw new ExecutionError("EXECUTION_UNSUPPORTED"); prepareExecutionCreation(); }
+  // The legacy public launcher is unchanged.
+  let cold = false;
+  if (guarded) { if (isWin) throw new ExecutionError("EXECUTION_UNSUPPORTED"); cold = prepareExecutionCreation(); }
   const printNative = guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
   if (isWin) {
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
@@ -543,6 +543,14 @@ export function tmuxNewSession(
     return result;
   }
   const env = sessionCallerEnvironment();
+  if (cold) {
+    // With no server, there is no global environment to adjust. The first
+    // new-session inherits this caller's environment and prints its native ID
+    // and newly created server PID for the guarded receipt proof.
+    const r = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, launch.shell], env);
+    if (r.code === 0 || r.stdout) captureExecutionCreatedNative(r.stdout);
+    return r;
+  }
   const wildcard = tmuxHasSessionEnvironmentFlags();
   // tmux は起動時に PWD を共通環境へ足す。
   const others = new Set(["PWD"]);

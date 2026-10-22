@@ -155,12 +155,12 @@ async function runExecutionReceipt(service: ExecutionService, meta: unknown, sta
     };
     const result = deferred
       ? await service.invokeDeferred(ref, stage, async (issue, prepare) => {
-        let expectedServer: ExecutionNativeServer | undefined;
+        let expectedServer: ExecutionNativeServer | null | undefined;
         const action = await withExecutionEffectScope(targetSessionId!, issue, run, stage === "launch" ? {
           prepare: () => { expectedServer = service.prepareCreation(ref); return expectedServer; },
-          verifyServer: () => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED"); service.verifyCreationServer(ref, expectedServer); },
-          native: (session, nativeId, serverPid) => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-            service.captureCreatedNative(ref, session, nativeId, expectedServer, serverPid); },
+          verifyServer: () => { if (expectedServer === undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED"); service.verifyCreationServer(ref, expectedServer); },
+          native: (session, nativeId, serverPid) => { if (expectedServer === undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            return service.captureCreatedNative(ref, session, nativeId, expectedServer, serverPid); },
           launch: launch => service.bindCreatedLaunch(ref, launch),
         } : undefined, prepare);
         // A swallowed native refusal poisons the frame. Only a cleanly returned

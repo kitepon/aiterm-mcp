@@ -45,7 +45,7 @@ function fixture(t, scenario = 'accepted') {
   process.env.AITERM_TMUX = 'tmux';
   let store = new FileExecutionStore(directory);
   const native = new Map([[A.session_id, { id: '$70', name: A.session_id }]]);
-  if (scenario === 'no-server') native.clear();
+  if (['no-server', 'cold-malformed', 'cold-unknown'].includes(scenario)) native.clear();
   if (scenario === 'mixed-server') native.set('bot-other', { id: '$69', name: 'bot-other' });
   const effects = [], queries = [], errors = [];
   let source = { ...A }, creates = 0, requests = 0, service, serverStarted = 'Wed Oct 21 09:00:00 2026', probes = 0;
@@ -58,6 +58,8 @@ function fixture(t, scenario = 'accepted') {
     if (args[0] === 'list-commands') return ok('paste-buffer [-dprS] [-b buffer-name] [-t target-pane]\n');
     if (args[0] === 'has-session') return { ...ok(''), status: find(target) ? 0 : 1 };
     if (args[0] === 'list-sessions') {
+      if (['no-server', 'cold-malformed', 'cold-unknown'].includes(scenario) && native.size === 0)
+        return { status: 1, stdout: '', stderr: `error connecting to ${SOCK} (${scenario === 'cold-unknown' ? 'Permission denied' : 'No such file or directory'})` };
       const format = args[args.indexOf('-F') + 1];
       if (format === '#{pid}\t#{session_id}\t#{session_name}')
         return ok([...native.values()].map(value => (scenario === 'mixed-server' && value.name === 'bot-other' ? '4712' : '4711')
@@ -73,7 +75,7 @@ function fixture(t, scenario = 'accepted') {
       creates++; const createdId = '$' + (70 + creates); native.set(name, { id: createdId, name }); effects.push('create');
       if (scenario === 'replaced') native.set(name, { id: '$72', name });
       if (scenario === 'server-restarted') serverStarted = 'Wed Oct 21 09:01:00 2026';
-      return { ...ok(scenario === 'malformed' ? 'unrelated output' : createdId + '\t' + name + '\t' + (scenario === 'receipt-server-mismatch' ? '4712' : '4711') + '\n'),
+      return { ...ok(['malformed', 'cold-malformed'].includes(scenario) ? 'unrelated output' : createdId + '\t' + name + '\t' + (scenario === 'receipt-server-mismatch' ? '4712' : '4711') + '\n'),
         status: scenario === 'failed-after-create' ? 1 : 0 };
     }
     if (['set-option', 'pipe-pane', 'set-environment', 'paste-buffer', 'send-keys', 'kill-session'].includes(args[0])) {
@@ -183,7 +185,7 @@ test('only an exact new-session receipt binds native ownership, and every later 
     assert.deepEqual(guardTmuxExecution(['send-keys', '-t', 'bot-new:3.2', 'Enter']), ['send-keys', '-t', '$9:3.2', 'Enter']);
     assert.deepEqual(guardTmuxExecution(['has-session', '-t', '=bot-new:']), ['has-session', '-t', '$9:']);
     bindExecutionCreatedLaunch(launch);
-  }, { prepare: () => syntheticServer, verifyServer() {}, native: (...args) => received.push(args), launch: value => received.push(value) });
+  }, { prepare: () => syntheticServer, verifyServer() {}, native: (...args) => { received.push(args); }, launch: value => received.push(value) });
   assert.deepEqual(received, [['bot-new', '$9', 4711], launch]);
 });
 test('malformed, other-seat and changed native receipts poison the frame instead of enabling another create', { skip: posixCheckpoint }, () => {
@@ -217,18 +219,29 @@ test('actual core create, physical shell setup, internally generated launch and 
   assert.match(state.records[0].relation.target.launch.launch_id, /^[a-f0-9]{32}$/); assert.deepEqual(state.slots, []);
 });
 test('receipt loss, a missing native reader or physical replacement keeps the issued slot and never configures a replacement', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
-  for (const scenario of ['malformed', 'replaced', 'failed-after-create', 'server-restarted', 'receipt-server-mismatch']) {
+  for (const scenario of ['malformed', 'cold-malformed', 'replaced', 'failed-after-create', 'server-restarted', 'receipt-server-mismatch']) {
     const f = fixture(t, scenario), result = await f.launch();
     assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'possible');
     assert.equal(f.creates(), 1); assert.deepEqual(f.effects, ['create']);
     const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
     assert.equal(state.slots[0].state, 'unknown'); assert.equal(state.records[0].operations.launch, 'unknown');
-    if (!['malformed', 'receipt-server-mismatch'].includes(scenario)) assert.equal(state.slots[0].created_native_id, '$71');
+    if (!['malformed', 'cold-malformed', 'receipt-server-mismatch'].includes(scenario)) assert.equal(state.slots[0].created_native_id, '$71');
     assert.ok(f.native.has(f.name), 'no name-based cleanup kills a same-name session');
   }
 });
+test('the first guarded launch creates and binds its native server from the exact receipt', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
+  const f = fixture(t, 'no-server'), result = await f.launch();
+  assert.equal(result.isError, undefined, JSON.stringify({ result, errors: f.errors }));
+  assert.equal(f.creates(), 1); assert.deepEqual([...f.native.keys()], [f.name]);
+  const launch = result.structuredContent;
+  const metadata = JSON.parse(readFileSync(agentMetadataPath(f.name, launch.launch_id)));
+  assert.deepEqual(metadata.execution_native, { schema: 'aiterm.execution-native.v1', native_id: '$71',
+    server: { pid: 4711, started_identity: 'Wed Oct 21 09:00:00 2026' } });
+  const state = await f.store.transaction(state => structuredClone(state), { readOnly: true });
+  assert.equal(state.records[0].operations.launch, 'accepted'); assert.deepEqual(state.slots, []);
+});
 test('missing native server ownership is rejected before any create or persistent issued slot', { ...(posix), skip: posixCheckpoint || (posix).skip }, async t => {
-  for (const scenario of ['missing-reader', 'owner-missing', 'owner-reused-before-create', 'no-server', 'mixed-server']) {
+  for (const scenario of ['missing-reader', 'owner-missing', 'owner-reused-before-create', 'cold-unknown', 'mixed-server']) {
     const f = fixture(t, scenario), result = await f.launch();
     assert.equal(result.isError, true); assert.equal(result._meta[ERROR].effect, 'not_started');
     assert.equal(f.creates(), 0); assert.deepEqual(f.effects, []);

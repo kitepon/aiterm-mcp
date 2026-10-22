@@ -24,6 +24,10 @@ test('native session ownership requires a complete well-formed unique scoped lis
     observeNativeSessionsSync: () => listing });
   assert.deepEqual(runtime.nativeSessionSync(A.session_id), { state: 'present', native_id: '$7' });
   assert.deepEqual(runtime.nativeSessionSync('other'), { state: 'absent' });
+  listing = { state: 'known', sessions: [], server: null };
+  assert.deepEqual(runtime.nativeSessionSync('other'), { state: 'absent', server: null });
+  listing = { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }], server: null };
+  assert.deepEqual(runtime.nativeSessionSync('other'), { state: 'unknown' });
   for (const value of [null, { state: 'unknown' }, { state: 'known', sessions: [{ session_id: A.session_id, native_id: '7' }] },
     { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }, { session_id: 'other', native_id: '$7' }] },
     { state: 'known', sessions: [{ session_id: A.session_id, native_id: '$7' }, { session_id: A.session_id, native_id: '$8' }] },

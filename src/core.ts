@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary } from "./execution-effect.js";
+import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -2176,7 +2176,12 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
   assertSessionName(name);
   assertSessionClosable(name);
   if (o.letHarnessExit) letClaudeExitBeforeClose(name);
-  (observeDependency ? tmux : tmuxCleanup)("kill-session", "-t", name);
+  const killed = (observeDependency ? tmux : tmuxCleanup)("kill-session", "-t", name);
+  if (executionManagementCloseTarget(name) && killed.code !== 0) {
+    // Recovery must not erase the old launch metadata or report closed when
+    // its one pinned native close failed. Keep the original send uncertainty.
+    throw new AitermError(`tmux sessionを閉じられませんでした: ${killed.stderr.trim() || `code=${killed.code}`}`, 2);
+  }
   for (const p of [logpath(name), offsetpath(name), lastcmdpath(name), markpath(name), sendLockPath(name)]) {
     try {
       fs.unlinkSync(p);

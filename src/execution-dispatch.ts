@@ -152,11 +152,14 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           if (host === undefined && sourceFieldsPresent && !source) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           const context: ExecutionTransportSource = { schema: "aiterm.execution-source.v1", source };
           const supplied = executionRefFromMeta(fixedExtra._meta);
+          // A host's explicit session close is a management RPC with its own
+          // existing process/request identity, not a delivery or resend.
+          const hostClose = client === "bellteam" && route.tool === "pty_close" && !supplied;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;
           let frozenParent: unknown | null = null;
-          if (!reference && client !== "bellteam" && native) {
+          if (!reference && (client !== "bellteam" || hostClose) && native) {
             directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
               process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
               tool: route.tool, target_session_id: route.target });
@@ -194,7 +197,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             cancellation?.assert();
           } else {
             // BellTeam must retain its existing delivery/room/call reference.
-            if (client === "bellteam" || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            if ((client === "bellteam" && !hostClose) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             const current = await observe(route.target);
             if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
             const request = directRequest;
@@ -210,14 +213,21 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const expected = status.relation.target?.launch ?? (status.reservation.target.expected_launch_id
             ? { session_id: route.target, launch_id: status.reservation.target.expected_launch_id } : null);
           const requestMeta = { ...(fixedExtra._meta as Record<string, unknown> | undefined), [EXECUTION_REQUEST_META_KEY]: reference };
-          return await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
+          let handlerFailure: ToolResult | undefined;
+          const bound = await runDeferredBoundExecution(bindings.service, requestMeta, route.stage, route.target, async () => {
             const result = await withExecutionRequest(reference!.request, () => body(args, { ...fixedExtra, _meta: requestMeta }), {
               source: status.source.status === "verified" ? status.source.point : null,
               client_name: client ?? null, native_identity: native,
               metadata: fixedExtra._meta === undefined ? null : fixedExtra._meta,
               ...(captureNativeParent ? { native_parent: frozenParent } : {}),
             });
-            if (result.isError) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            if (result.isError) {
+              // Keep the original native/handler refusal for the caller. It is
+              // still an error, never an accepted receipt or replay permission;
+              // the service determines whether an effect crossed its gate.
+              handlerFailure = result;
+              throw new ExecutionError("EXECUTION_UNCONFIRMED");
+            }
             // Missing/invalid binding evidence is returned as null. The wrapper
             // retains the genuine successful receipt if binding then fails; it
             // must not turn a valid accepted action into permission to resend.
@@ -258,6 +268,8 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             } catch { target = null; /* preserve receipt and let service mark binding unknown */ }
             return { result, target };
           }, cancellation?.assert);
+          return handlerFailure && bound.isError ? { ...handlerFailure,
+            _meta: { ...handlerFailure._meta, ...bound._meta } } : bound;
         } catch (error) { return executionErrorResult(error); }
       };
       const result = await run();
@@ -266,7 +278,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
         const failure = executionErrorResult(new ExecutionError("EXECUTION_UNCONFIRMED", "possible"));
         // Preserve a genuine accepted result even when cancellation recording
         // failed. Status-only uncertainty must never become permission to resend.
-        return result.isError ? failure : { ...result, _meta: { ...result._meta,
+        return { ...result, _meta: { ...result._meta,
           [EXECUTION_ERROR_META_KEY]: failure._meta![EXECUTION_ERROR_META_KEY] } };
       }
       return result;

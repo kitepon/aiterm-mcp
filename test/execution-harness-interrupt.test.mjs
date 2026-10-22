@@ -91,6 +91,11 @@ function fixture(t, kind = 'codex') {
     if (command[0] === 'display-message' && format === '#{pane_pid}\t#{pane_dead}') return ok('200\t0\n');
     if (control.allowInput && command[0] === 'display-message' && format === '#{pane_tty}') return ok('/dev/synthetic-target');
     if (command[0] === 'has-session') return { ...ok(''), status: native.present ? 0 : 1 };
+    if (control.allowClose && command[0] === 'kill-session') {
+      assert.equal(command[2], native.id + ':'); control.closeCalls = (control.closeCalls ?? 0) + 1;
+      if (control.closeFails) return { ...ok(''), status: 1, stderr: 'synthetic close failure' };
+      native.present = false; return ok('');
+    }
     if (control.allowInput && ['load-buffer', 'set-buffer', 'paste-buffer', 'delete-buffer', 'capture-pane'].includes(command[0])) {
       control.inputCommands.push(command[0]); return ok(command[0] === 'capture-pane' ? '❯\n' : '');
     }
@@ -617,6 +622,77 @@ test('Claude native Esc failure after issuance keeps the original operation and 
   assert.equal(state.interruptions[0].phase, 'unknown'); assert.deepEqual(state.interruptions[0].before.run, f.point);
   assert.equal(state.slots[0].state, 'unknown'); assert.equal(state.records[0].relation.lifecycle, 'tracking');
   assert.deepEqual(state.records[0].relation.target, f.point); assert.equal(f.native.present, true);
+});
+test('actual core Codex steer traverses every repeated native admission and binds the original receipt', posix, async t => {
+  const f = fixture(t, 'codex'), directory = mkdtempSync(join(tmpdir(), 'codex-actual-steer-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  f.control.allowInput = true; f.control.immediateScreen = '◦ Working (5s • esc to interrupt)';
+  mkdirSync(SOCKDIR, { recursive: true });
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    async observeDone() { assert.fail('no completion proof'); },
+  }));
+  const dispatcher = createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+    sourceEnvironment: {}, initializedClientName: () => 'codex', observeSessionGeneration: core.observeExecutionSessionGeneration });
+  let coreError;
+  const result = await dispatcher.dispatch('pty_send', { session_id: f.name, text: 'synthetic steer' }, { requestId: 'actual-core-steer' }, async () => {
+    let receipt;
+    try { receipt = await core.sendAgentMessage(f.name, 'synthetic steer', { follow: true }); }
+    catch (error) { coreError = error; throw error; }
+    return { content: [], structuredContent: { schema: 'aiterm.pty-send-result.v1', mode: 'agent_steer',
+      session_id: f.name, launch_id: receipt.launch_id, event_cursor: receipt.follow.event_cursor },
+      _meta: { 'aiterm/steer': { schema: 'aiterm.steer-ref.v1', steer_id: receipt.follow.steer_id, interim_from: receipt.follow.interim_from } } };
+  });
+  assert.equal(result.isError, undefined, coreError?.stack ?? JSON.stringify(result));
+  assert.ok(f.control.inputCommands.includes('paste-buffer')); assert.ok(f.control.inputCommands.includes('send-keys-input'));
+  const state = store.snapshot(); assert.deepEqual(state.slots, []); assert.equal(state.records[0].operations.send, 'accepted');
+  assert.ok(state.records[0].relation.target.boundary.steer_id);
+});
+test('real SDK BellTeam pty_close recovers one failed send through the actual core handler and keeps its original unknown record', posix, async t => {
+  for (const failed of [false, true]) {
+  const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'management-close-real-handler-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  f.control.allowClose = true; f.control.closeFails = failed;
+  const store = new FileExecutionStore(directory), service = new ExecutionService(store, createExecutionRuntime({
+    observeSession: core.observeExecutionSessionGeneration, observeSessionSync: core.observeExecutionSessionGeneration,
+    observeNativeSessionsSync: core.observeExecutionNativeCreationScope,
+    async observeDone() { assert.fail('no completion proof'); },
+  }));
+  const request = { kind: 'delivery', delivery_id: '0e6e3674-8c76-40d5-9dcc-3ffdcba00402', target_session_id: f.name };
+  const original = await service.execute({ action: 'register', source_session_id: null, reservation: {
+    schema: 'aiterm.execution-reservation.v1', request, source: { launch: null, boundary: null },
+    target: { session_id: f.name, expected_launch_id: f.point.launch.launch_id } } });
+  await assert.rejects(service.invokeDeferred({ schema: 'aiterm.execution-ref.v1', request }, 'send', async issue => {
+    issue(); throw Error('synthetic original native failure');
+  }, f.name));
+  const before = await service.execute({ action: 'status', request });
+  const parent = { parentFromIngress: () => null, captureEndpointEvidence() { assert.fail('no parent source'); },
+    async bind() { assert.fail('no parent binding'); }, async submit() { assert.fail('no parent submission'); } };
+  const server = createAitermServer({ execution: server => ({ parentExecution: parent, parentStateRoot: join(directory, 'parent'),
+    parentDependencies: { processes: () => [], exists: () => true, async verify() {}, async observe() { assert.fail('no wait'); }, async answer() { assert.fail('no answer'); } },
+    dispatcher: createExecutionDispatcher({ service, nativeIdentity: { pid: 202, started_identity: '2026-10-21T09:00:03Z' },
+      sourceEnvironment: {}, initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration: core.observeExecutionSessionGeneration }),
+  }) });
+  registerExecutionTools(server, service);
+  const client = new Client({ name: 'bellteam', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide); await client.connect(clientSide);
+  try {
+    const result = await client.callTool({ name: 'pty_close', arguments: { session_id: f.name } });
+    assert.equal(f.control.closeCalls, 1); assert.equal(f.native.present, failed);
+    if (failed) {
+      assert.equal(result.isError, true, JSON.stringify(result));
+      assert.match(result.content[0].text, /synthetic close failure/);
+      assert.equal(store.snapshot().slots.length, 2);
+      assert.equal(JSON.parse(readFileSync(f.metadata)).launch_id, f.point.launch.launch_id);
+    } else {
+      assert.equal(result.isError, undefined, JSON.stringify(result)); assert.equal(result.structuredContent.outcome, 'closed');
+      assert.deepEqual(store.snapshot().slots, []);
+    }
+    assert.deepEqual(await service.execute({ action: 'status', request }), before);
+    assert.equal(before.operations.send, 'unknown');
+    assert.equal(original.operations.send, 'not_issued');
+  } finally { await client.close(); await server.close(); }
+  }
 });
 test('actual core Claude before_send reaches the real dispatcher binding without sourcing an operation/cursor from its output or arguments', posix, async t => {
   const f = fixture(t, 'claude'), directory = mkdtempSync(join(tmpdir(), 'claude-actual-send-boundary-'));

@@ -209,7 +209,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.61.2** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.61.3** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 
@@ -731,7 +731,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 `pty_send` はコマンドやpromptの意味を判定せず、指定された本文を端末へ送る。既定ではESC・ブラケットペースト終端などをサニタイズし、`pty_read`も制御文字を無害化して返す（`raw: true`はそのまま扱う）。コマンドの許可・拒否はshell、接続先、起動したharnessが所有する。
 
-1回の `pty_send` が受理する本文はUTF-8で最大64KiB。同一sessionへの送信はaiterm processをまたいで直列化し、chunk同士の混線を防ぐ。全OSで長いPTY入力の欠落を避けるためplatformのmultiplexerへUTF-8境界を壊さない256-byte単位でpasteし、chunk間に10msのdrain間隔を置く。POSIX shellまたはPowerShellが前面にいる時のsanitize済み複数行は、改行を含まない単一入力へ符号化する。POSIXは`eval`、PowerShellはUTF-8のBase64を復元したscriptblockのdot-sourceを使い、変数と作業場所を現在のshellに保つ。shellがscript全体を所有してから先頭行を実行するため、途中で起動したpager／REPLが後続行を対話キーとして奪わない。単一行、`raw:true`、非shell前面は従来どおり直接PTYへpasteする。agent dispatchは本文全体を`ESC[200~/201~`で1回だけ包み、包んだ全体を同じchunkで流す。agent TUIには1回の貼り付けに見えるので画像pathが貼り付けの間で切れず、chunk投入中のキー解釈による語中文字化け・submit取り落としも抑える。途中chunkが失敗した場合は部分送信済みであることを明示し、自動でEnterを押さない。送信processの異常終了でlockが残った場合は送信前にfail-closedする。`pty_list`で対象sessionを確認し、`pty_close`で閉じてから同じsession IDを作り直す。公開の一括停止toolは存在しない。
+1回の `pty_send` が受理する本文はUTF-8で最大64KiB。同一sessionへの送信はaiterm processをまたいで直列化し、chunk同士の混線を防ぐ。全OSで長いPTY入力の欠落を避けるためplatformのmultiplexerへUTF-8境界を壊さない256-byte単位でpasteし、chunk間に10msのdrain間隔を置く。POSIX shellまたはPowerShellが前面にいる時のsanitize済み複数行は、改行を含まない単一入力へ符号化する。POSIXは`eval`、PowerShellはUTF-8のBase64を復元したscriptblockのdot-sourceを使い、変数と作業場所を現在のshellに保つ。shellがscript全体を所有してから先頭行を実行するため、途中で起動したpager／REPLが後続行を対話キーとして奪わない。単一行、`raw:true`、非shell前面は従来どおり直接PTYへpasteする。agent dispatchは本文全体を`ESC[200~/201~`で1回だけ包み、包んだ全体を同じchunkで流す。agent TUIには1回の貼り付けに見えるので画像pathが貼り付けの間で切れず、chunk投入中のキー解釈による語中文字化け・submit取り落としも抑える。途中chunkが失敗した場合は部分送信済みであることを明示し、自動でEnterを押さない。送信processの異常終了でlockが残った場合は送信前にfail-closedする。`pty_list`で対象sessionを確認し、`pty_close`で閉じてから同じsession IDを作り直す。公開の一括停止toolは存在しない。 POSIXの明示native execution構成では、unknown sendになった対象1席も`pty_close`で閉じて再作成できる。元requestはunknownのまま保持し、再送しない。発行中の操作、管理close自体のunknown、native identityが不明な席は引き続き拒否する。
 
 ## 人が覗く
 

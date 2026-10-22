@@ -64,6 +64,20 @@ function fixture(options = {}) {
     async records() { return store.transaction(state => structuredClone(state.records), { readOnly: true }); },
   };
 }
+test('a native handler error retains its original error response and uncertainty without admitting a replay', { skip: posixCheckpoint }, async () => {
+  const f = fixture();
+  const original = { isError: true, content: [{ type: 'text', text: 'aiterm: synthetic native input failed after paste; Enter was not sent' }],
+    _meta: { synthetic: 'original handler evidence' } };
+  const call = () => f.dispatcher.dispatch('pty_send', { session_id: B.session_id }, { requestId: 801 }, async () => {
+    f.effect(); return original;
+  });
+  const result = await call();
+  assert.equal(result.isError, true); assert.deepEqual(result.content, original.content);
+  assert.equal(result._meta.synthetic, original._meta.synthetic);
+  assert.equal(result._meta[ERROR].code, 'EXECUTION_UNCONFIRMED'); assert.equal(result._meta[ERROR].effect, 'possible');
+  assert.equal((await f.records())[0].operations.send, 'unknown');
+  assert.equal((await call()).isError, true); assert.equal(f.effects(), 1);
+});
 test('direct stdio uses existing native process/request identity and binds the genuine dispatch receipt', { skip: posixCheckpoint }, async () => {
   const f = fixture(), input = { session_id: B.session_id, text: 'synthetic' };
   const result = await f.dispatcher.dispatch('pty_send', input, { requestId: 42 }, async (args, extra) => {

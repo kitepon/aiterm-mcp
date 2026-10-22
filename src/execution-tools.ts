@@ -11,7 +11,7 @@ import { executionActionSchema, executionFinishSchema, executionRecordSchema, ex
   EXECUTION_SOURCE_META_KEY, type ExecutionTransportSource,
   type ExecutionRecord } from "./execution-wire.js";
 import { ExecutionService } from "./execution-service.js";
-import { withExecutionEffectScope } from "./execution-effect.js";
+import { withExecutionEffectScope, bindExecutionManagementCloseTarget } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
 
 import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
@@ -156,7 +156,11 @@ async function runExecutionReceipt(service: ExecutionService, meta: unknown, sta
     const result = deferred
       ? await service.invokeDeferred(ref, stage, async (issue, prepare) => {
         let expectedServer: ExecutionNativeServer | undefined;
-        const action = await withExecutionEffectScope(targetSessionId!, issue, run, stage === "launch" ? {
+        const action = await withExecutionEffectScope(targetSessionId!, issue, () => {
+          const native = service.managementCloseNative(ref);
+          if (native) bindExecutionManagementCloseTarget(targetSessionId!, native);
+          return run();
+        }, stage === "launch" ? {
           prepare: () => { expectedServer = service.prepareCreation(ref); return expectedServer; },
           verifyServer: () => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED"); service.verifyCreationServer(ref, expectedServer); },
           native: (session, nativeId, serverPid) => { if (!expectedServer) throw new ExecutionError("EXECUTION_UNSUPPORTED");

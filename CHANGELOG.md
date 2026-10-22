@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.3] - 2026-10-22
+
+### Fixed
+
+- An unknown send in the opt-in POSIX native execution entry no longer permanently blocks an explicit `pty_close` of that one session. The close is pinned to its expected launch/native identity; only confirmed close and absence release the failed-send admission. The original request remains unknown and is never replayed. Issued work, unknown management operations, and uncertain identities stay blocked.
+- Native handler errors retain their original explanation alongside the typed execution error. A failed recovery close preserves the old launch metadata and reports the native failure.
+
 ## [0.61.2] - 2026-10-22
 
 ### 修正
@@ -2715,7 +2722,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...HEAD
+[0.61.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.1...v0.61.0

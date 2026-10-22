@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修正
+
+- tmuxがまだ起動しておらず、対象ソケットが存在しない時、新規実行の登録が`EXECUTION_UNCONFIRMED`で止まっていた。実行世代の観測でもソケット未作成を空状態として扱い、初回の席を起動できるようにした。別ソケットや権限・接続の異常は引き続き不明として止める。
+
 ## [0.61.1] - 2026-10-22
 
 ### Fixed

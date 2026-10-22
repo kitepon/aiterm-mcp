@@ -924,6 +924,10 @@ test('exact scoped no-server and never-created socket diagnostics are idle witho
   for (const stderr of [`no server running on ${SOCK}\n`, `error connecting to ${SOCK} (No such file or directory)\n`]) {
     f.control.listReply = { status: 1, stdout: '', stderr };
     assert.deepEqual(core.observeExecutionNativeSessions(), { state: 'known', sessions: [] });
+    assert.deepEqual(core.observeExecutionNativeCreationScope(), { state: 'known', sessions: [], server: null });
+    assert.deepEqual(core.observeExecutionSessionGeneration(f.name), {
+      schema: 'aiterm.pty-observe-result.v1', session_id: f.name, exists: false, launch_id: null,
+    });
     assert.deepEqual(core.interruptSessionNow(f.name), { session_id: f.name, outcome: 'idle' });
   }
   assert.deepEqual(f.keys, []);
@@ -943,6 +947,7 @@ test('unrelated socket, permission, transport, malformed and conflicting listing
   ]) {
     f.control.listReply = reply;
     assert.deepEqual(core.observeExecutionNativeSessions(), { state: 'unknown' });
+    assert.deepEqual(core.observeExecutionNativeCreationScope(), { state: 'unknown' });
     assert.throws(() => core.interruptSessionNow(f.name), error => error.code === 'EXECUTION_UNCONFIRMED');
   }
   assert.deepEqual(f.keys, []);

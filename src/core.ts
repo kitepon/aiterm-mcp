@@ -2220,6 +2220,15 @@ export function closeSessionResult(name: string): PtyCloseResult {
   };
 }
 
+// A never-started POSIX server has no socket yet. Only the exact scoped tmux
+// absence diagnostics prove that no native session exists.
+function absentExecutionServer(result: ReturnType<typeof tmux>): boolean {
+  const diagnostic = result.stderr.trim();
+  return result.code === 1 && result.stdout.trim() === ""
+    && (diagnostic === `no server running on ${SOCK}`
+      || (!isWin && diagnostic === `error connecting to ${SOCK} (No such file or directory)`));
+}
+
 /** Cascade-stop adapter only: caller must already own the shared issued close
  * slot across every serving mutation path. No graceful idle wait, name-only
  * kill, cleanup of a replacement's metadata, or retry. Not publicly mounted.
@@ -2227,13 +2236,7 @@ export function closeSessionResult(name: string): PtyCloseResult {
 export function observeExecutionNativeSessions(): ExecutionNativeSessions {
   const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
   if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
-  // A never-started POSIX server has no socket yet. Accept only the exact
-  // scoped tmux absence diagnostics; permission/transport/parse errors stay unknown.
-  const diagnostic = result.stderr.trim();
-  if (result.code === 1 && result.stdout.trim() === ""
-    && (diagnostic === `no server running on ${SOCK}`
-      || (!isWin && diagnostic === `error connecting to ${SOCK} (No such file or directory)`)))
-    return { state: "known", sessions: [] };
+  if (absentExecutionServer(result)) return { state: "known", sessions: [] };
   return { state: "unknown" };
 }
 
@@ -2245,7 +2248,7 @@ export function observeExecutionNativeCreationScope(): ExecutionNativeSessions {
   try {
     const read = () => tmux("list-sessions", "-F", "#{pid}\t#{session_id}\t#{session_name}");
     const first = read();
-    if (first.code !== 0) return /^no server running on /i.test(first.stderr.trim())
+    if (first.code !== 0) return absentExecutionServer(first)
       ? { state: "known", sessions: [], server: null } : { state: "unknown" };
     const rows = first.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => line.split("\t"));
     if (!rows.length) return { state: "known", sessions: [], server: null };

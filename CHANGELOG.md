@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native host `agent_auth` now admits automatic-name and explicit starts, authenticated no-op starts, session status/onboarding, absent-session receipts and cancellation through the existing v1 contract. Authentication PTYs retain their actual creation native/server identity and generation; only those proven PTYs accept ref-less host input/keys. The dispatcher uses the serving SDK RPC identity, without synthetic delivery references or read-only downgrade.
 - BellTeam model, effort and fast changes are admitted as native management RPCs bound to the existing session generation. Every native stage retains its normal stop/slot/generation checks, and partial failures retain possible effects. Fast-state metadata is revalidated before writing after asynchronous CLI observations.
 
 ## [0.61.6] - 2026-10-22

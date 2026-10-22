@@ -139,3 +139,14 @@ test('cold native constructor and immediate stop do not enroll or wait on an exi
   assert.equal(result.structuredContent.status,'sent');assert.deepEqual(keys,[A.session_id]);
   assert.equal(existsSync(join(p.store.directory,'relations.json')),false,'stop does not enroll/write graph');
 });
+
+test('injected native runtime without auth primitives refuses auth management before any default CLI or graph action', { skip: posixCheckpoint }, async t => {
+  const f = fixture(t), p = f.create(), client = new Client({ name: 'bellteam', version: 'fixture' });
+  const [a,b] = InMemoryTransport.createLinkedPair(); await p.server.connect(b); await client.connect(a); t.after(() => client.close());
+  for (const args of [{harness:'codex-cli',action:'start'}, {harness:'codex-cli',action:'start',session_id:A.session_id},
+    {harness:'codex-cli',action:'status',session_id:A.session_id}, {harness:'codex-cli',action:'cancel',session_id:A.session_id}]) {
+    const result = await client.callTool({name:'agent_auth',arguments:args});
+    assert.equal(result.isError, true); assert.equal(result._meta['aiterm/execution_error'].code, 'EXECUTION_UNSUPPORTED');
+  }
+  assert.deepEqual(p.store.snapshot().records, []); assert.deepEqual(p.store.snapshot().slots, []); assert.equal(f.keys(), 0);
+});

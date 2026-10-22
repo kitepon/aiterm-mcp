@@ -16,7 +16,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
-import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
+import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
@@ -1967,15 +1967,25 @@ export function observeExecutionSessionGeneration(name: string): Pick<SessionObs
   if (before.state !== "known") throw new ExecutionError("EXECUTION_UNCONFIRMED");
   const native = before.sessions.find(value => value.session_id === name);
   if (!native) return result(false, null);
-  const meta = tryLoadAgentMetadata(name), proof = meta?.execution_native;
+  const meta = tryLoadAgentMetadata(name) ?? readExecutionAuthMetadata(name), proof = meta?.execution_native;
   if (!meta || !proof || !before.server || proof.native_id !== native.native_id
     || !isDeepStrictEqual(proof.server, before.server)) return result(true, null);
-  const after = observeExecutionNativeCreationScope(), last = tryLoadAgentMetadata(name);
+  const after = observeExecutionNativeCreationScope(), last = tryLoadAgentMetadata(name) ?? readExecutionAuthMetadata(name);
   if (after.state !== "known" || !isDeepStrictEqual(after.server, proof.server)
     || after.sessions.find(value => value.session_id === name)?.native_id !== proof.native_id
-    || last?.launch_id !== meta.launch_id || !isDeepStrictEqual(last.execution_native, proof)) return result(true, null);
+    || last?.launch_id !== meta.launch_id || !isDeepStrictEqual(last?.execution_native, proof)) return result(true, null);
   return result(true, meta.launch_id);
 }
+
+/** Only native-stamped authentication PTYs qualify for host auth input. */
+export function observeExecutionAuthSessionGeneration(name: string): ReturnType<typeof observeExecutionSessionGeneration> {
+  const current = observeExecutionSessionGeneration(name), meta = readExecutionAuthMetadata(name);
+  return { ...current, launch_id: current.launch_id && current.launch_id === meta?.launch_id && !tryLoadAgentMetadata(name)
+    ? current.launch_id : null };
+}
+/** Allocate only a terminal name. The serving RPC then reserves it and the
+ * actual native creation receipt supplies its identity; no existing seat is enrolled. */
+export function selectExecutionAuthSessionName(): string { return "auth-" + randomBytes(12).toString("hex"); }
 
 /** Private source-provenance snapshot. It deliberately omits screen, argv,
  * environment and cached vendor_session_id. No public tool is added. The
@@ -5219,6 +5229,16 @@ function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata | nu
   return value;
 }
 
+function readExecutionAuthMetadata(name: string): (AgentAuthMetadata & { launch_id: string; execution_native: ReturnType<typeof executionCreatedNativeBinding> }) | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(authMetadataPath(name), "utf8"));
+    if (!["claude", "codex", "grok", "cursor"].includes(raw?.kind)) return null;
+    const meta = loadAuthMetadata(name, raw.kind), launch = executionLaunchSchema.shape.launch_id.safeParse(meta?.launch_id);
+    const native = executionNativeBindingSchema.safeParse(meta?.execution_native);
+    return meta && launch.success && native.success ? { ...meta, launch_id: launch.data, execution_native: native.data } : null;
+  } catch { return null; }
+}
+
 /** 一覧の取得失敗を端末の消失へ丸めず、正規PTY一覧で存在を確認する。 */
 function authSessionExists(name: string): boolean {
   return listSessionsResult().sessions.some(session => session.session_id === name);
@@ -5260,7 +5280,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!options.session_id) throw new AitermError("AGENT_AUTH_SESSION_REQUIRED: cancelにはsession_idが必要です。", 2);
     const meta = loadAuthMetadata(options.session_id, kind);
     if (!authSessionExists(options.session_id)) {
-      if (meta) fs.unlinkSync(authMetadataPath(options.session_id));
+      if (meta) withExecutionPreparation(options.session_id, () => fs.unlinkSync(authMetadataPath(options.session_id!)));
       return result("blocked", null, "認証sessionは既に終了または取消済みです。");
     }
     if (!meta) throw new AitermError("AGENT_AUTH_SESSION_NOT_FOUND: 指定sessionはAitermの認証sessionではありません。", 2);
@@ -5285,7 +5305,12 @@ export async function authenticateAgent(kind: AgentKind, options: {
     try {
       const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
       if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
-      writeJson0600(authMetadataPath(name), meta);
+      if (hasExecutionCreationScope()) {
+        meta.launch_id = randomBytes(16).toString("hex");
+        meta.execution_native = executionCreatedNativeBinding(name);
+      }
+      withExecutionPreparation(name, () => writeJson0600(authMetadataPath(name!), meta));
+      if (meta.launch_id && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: name, launch_id: meta.launch_id });
       launchAuthProcess(name, meta);
     } catch (error) { closeSession(name); throw error; }
   } else if (!name) {
@@ -5317,8 +5342,10 @@ export async function authenticateAgent(kind: AgentKind, options: {
       if (checked.status === "unauthenticated") return result("failed", session, "公式認証processは終了しましたが、公式statusは未認証です。");
       if (!checked.verify_onboarding) return result("authenticated", session, null);
       if (meta.phase === "onboarding") return result("blocked", session, "公式CLIの初回案内の完了を確認できません。");
-      meta.phase = "onboarding";
-      writeJson0600(authMetadataPath(session), meta);
+      withExecutionPreparation(session, () => {
+        meta.phase = "onboarding";
+        writeJson0600(authMetadataPath(session), meta);
+      });
       const restarted = tmux("respawn-pane", "-k", "-t", session, resolveWinPaneShell("bash"));
       if (restarted.code !== 0) return result("failed", session, "公式CLIの初回案内を起動できません。");
       launchAuthProcess(session, meta);

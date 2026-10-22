@@ -822,7 +822,7 @@ export class ExecutionService {
         || (expected !== null && targetPoint.launch.launch_id !== expected))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       const current = await this.runtime.observe(slot.session_id);
-      const closing = request.kind === "mcp" && request.tool === "pty_close";
+      const closing = request.kind === "mcp" && ["pty_close", "agent_auth.cancel"].includes(request.tool);
       if (closing ? current.state !== "absent" : current.state !== "present" || !same(current.launch, targetPoint.launch))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
       record.operations[stage] = "accepted";

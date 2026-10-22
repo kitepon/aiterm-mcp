@@ -801,6 +801,8 @@ On POSIX, the first `agent_launch` can create the tmux server when its socket do
 
 BellTeam model, effort and fast changes use a native management request bound to the existing session generation. Later stages stop if that generation, its admission slot or stop state changes. A partial change remains an uncertain effect and must not be blindly repeated.
 
+In the opt-in POSIX native entry, `agent_auth` also supports omitted session names, authenticated no-op starts and the normal v1 status/onboarding/cancel receipts. Authentication PTYs are bound to their actual native creator and generation. Ref-less BellTeam input or keys are allowed only for those proven authentication PTYs; ordinary agent messages still require their delivery reference. Legacy authentication metadata without creator proof is not automatically enrolled.
+
 ## Requirements
 
 - **Node.js >= 18**

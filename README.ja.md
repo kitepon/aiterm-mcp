@@ -736,6 +736,8 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 BellTeamのmodel・effort・fast変更も、既存session世代に結合したnative管理要求で受け付ける。途中で世代・受付枠・停止状態が変われば、それ以降の打鍵を止める。途中まで変更した結果は作用不明のまま保持し、自動でやり直さない。
 
+POSIXの明示native入口でも、`agent_auth`の名前なし開始、認証済みで何も起こさない開始、既存v1の確認・初回案内・取消を受け付ける。認証PTYは実際の作成元nativeと世代へ結合する。BellTeamの参照なし入力・キーは、この証拠がある認証PTYにだけ許可し、通常agentの本文には配送参照を引き続き必要とする。作成証拠のない旧認証metadataを自動登録しない。
+
 ## 人が覗く
 
 POSIXの明示native実行構成では、検証済みcallerへ通常メッセージが届く間も、そのcallerから別席への送信を継続できる。callerの世代や各requestのslotは書き換えない。agentの貼付け・Enterはmetadata mutexの競合を入力前に待ち、不明な操作・世代交代・停止では入力を止める。BellTeamは閉じた席をpromptなしの明示管理`agent_launch`で再作成できる。promptを送る呼出しには元の実行参照が必要である。

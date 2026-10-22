@@ -1,4 +1,5 @@
 // 認証receiptの共通形。資格情報と生のCLI出力は保存・公開しない。
+import type { ExecutionNativeBinding } from "./execution-close.js";
 import type { AgentHarness, AgentKind } from "./agent-shared.js";
 
 export interface AgentAuthResult {
@@ -33,6 +34,8 @@ export interface AgentAuthPane {
 }
 
 export interface AgentAuthMetadata {
+  launch_id?: string;
+  execution_native?: ExecutionNativeBinding;
   kind: AgentKind;
   bin: string;
   cwd: string;

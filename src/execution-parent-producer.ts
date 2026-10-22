@@ -2,7 +2,7 @@
 // aliases lacking current independent native proof remain unsupported.
 import path from "node:path";
 import type * as steer from "aiterm-steer-delivery";
-import { observeAgentDone, observeExecutionNativeCreationScope, closeExpectedAgentSession } from "./core.js";
+import { observeAgentDone, selectExecutionAuthSessionName, observeExecutionAuthSessionGeneration, observeExecutionNativeCreationScope, closeExpectedAgentSession } from "./core.js";
 import type { ExecutionLaunch, ExecutionPoint } from "./execution-contract.js";
 import { codexParentFromRequest } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest } from "./claude-parent-receiver.js";
@@ -30,6 +30,8 @@ export interface ParentProducerRuntime extends ParentWorkerRuntime {
   decodeParent(client: string, meta: unknown): unknown | null;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
   observeNativeSessions?(): unknown;
+  selectAuthSessionName?(): string;
+  observeAuthSessionGeneration?(session: string): unknown;
   // Synchronous product primitive only. An injected runtime with no primitive
   // remains unsupported; it must not call the default core by individual fallback.
   closeExpectedSession?(expected: ExecutionLaunch): void;
@@ -46,6 +48,8 @@ const localProducerRuntime: ParentProducerRuntime = {
     ?? cursorParentFromRequest(client, { hookRoot: path.join(stateRoot(), "cursor-parent-hooks") }),
   observeDone: observeAgentDone,
   observeNativeSessions: observeExecutionNativeCreationScope,
+  selectAuthSessionName: selectExecutionAuthSessionName,
+  observeAuthSessionGeneration: observeExecutionAuthSessionGeneration,
   closeExpectedSession: closeExpectedAgentSession,
 };
 export function createExecutionParentProducer(input: {
@@ -54,8 +58,9 @@ export function createExecutionParentProducer(input: {
   runtime?: ParentProducerRuntime; claudeRuntime?: Parameters<typeof steer.submitClaudeParentAnswer>[4];
 }) {
   const runtime = input.runtime ?? localProducerRuntime;
-  for (const name of ["observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner"] as const)
+  for (const name of ["selectAuthSessionName", "observeAuthSessionGeneration", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner"] as const)
     if (runtime[name] !== undefined && typeof runtime[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const selectAuthName = runtime.selectAuthSessionName?.bind(runtime), observeAuth = runtime.observeAuthSessionGeneration?.bind(runtime);
   const interruption = runtime.observeInterruptionSync?.bind(runtime);
   const selectInterruption = runtime.selectInterruptionSync?.bind(runtime), interruptKey = runtime.interruptKeySync?.bind(runtime);
   const observeActors = runtime.observeActors?.bind(runtime);
@@ -127,7 +132,10 @@ export function createExecutionParentProducer(input: {
   requireExecutionEffectScope(true);
   return { execution, parent, native, service, store, scope: structuredClone(scope), worker,
     inventory: () => store.inventory(typeof runtime.observeActors === "function" ? pids => { assertScope(); return runtime.observeActors!(pids); } : undefined),
-    startup: Object.freeze({ actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe,
+    startup: Object.freeze({
+      ...(selectAuthName ? { selectAuthSessionName: () => { assertScope(); return selectAuthName(); } } : {}),
+      ...(observeAuth ? { observeAuthSessionGeneration: (session: string) => { assertScope(); return observeAuth(session); } } : {}),
+      actor: Object.freeze({ ...actor }), sourceEnvironment, assertScope, observeSessionGeneration: observe,
       captureNativeParent: () => {
         assertScope(); const fixed = sourceEvidence.captureIngress();
         // Codex/Cursor keep only their existing hook provenance here. This

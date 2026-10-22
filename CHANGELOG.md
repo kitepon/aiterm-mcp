@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent startup waits asynchronously for the existing metadata mutex before checking pane ownership, restoring its terminal mode, or accepting startup-menu keys. A short concurrent writer after promptless native creation no longer turns an otherwise valid launch into `unknown`. Stops, uncertain slots, generation changes and the existing lock-acquisition deadline still refuse further effects; no launch or input is replayed.
+
 ## [0.61.5] - 2026-10-22
 
 ### Fixed

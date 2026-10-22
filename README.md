@@ -600,6 +600,7 @@ Owner start times are checked through `/proc` on Linux; elsewhere an existing PI
 
 `agent_launch({ harness, cwd, trust_project: true })` completes known workspace, project-hook, and project-MCP startup
 consent even without a prompt, then verifies input readiness and harness liveness before returning `startup.status="ready"`.
+Startup checks wait for concurrent metadata writers before continuing. Each terminal recovery or startup-menu key still checks the current generation and stop state; an uncertain native launch remains available for status inspection without automatic replay.
 For Claude Code's first-run text-style menu, it confirms the item already selected on screen before continuing startup.
 If the CLI then requests an account login method, the launch reports `vendor_onboarding_required`; complete that choice in the official interactive Claude Code CLI.
 The input-readiness wait is 30 seconds. Only when it expires while the agent has not drawn anything yet (a busy host), the launch

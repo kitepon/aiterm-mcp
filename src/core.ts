@@ -451,7 +451,10 @@ function paneTtyOf(name: string): string | null {
  * agent が tty 上に実在しない時は触らない（ready gate が入力受付不能として止める）。
  */
 export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): Promise<string[]> {
-  assertExecutionContext(name);
+  // Startup resumes after native creation/readiness awaits. A short metadata
+  // writer is not a reason to abandon that already created launch. Wait for
+  // admission, then run the unchanged source/target/generation checks.
+  await withExecutionNativeAdmission(name, () => assertExecutionContext(name));
   if (isWin) return [];
   const tty = paneTtyOf(name);
   if (!tty) return [];
@@ -468,9 +471,11 @@ export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): P
   if (state.toolForeground) return [];
   if (state.agentPresent && !state.agentForeground) {
     const wasStopped = state.agentStopped;
-    tmux("send-keys", "-t", name, "C-u");
-    tmux("send-keys", "-l", "-t", name, "fg");
-    tmux("send-keys", "-t", name, "Enter");
+    await withExecutionNativeAdmission(name, () => {
+      tmux("send-keys", "-t", name, "C-u");
+      tmux("send-keys", "-l", "-t", name, "fg");
+      tmux("send-keys", "-t", name, "Enter");
+    });
     const deadline = performance.now() + AGENT_FOREGROUND_RECOVERY_TIMEOUT_MS;
     for (;;) {
       await sleep(AGENT_FOREGROUND_RECOVERY_POLL_MS);
@@ -495,10 +500,12 @@ export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): P
       // stty is a native mutation outside tmux's command gate. Recheck the
       // captured device and the shared request generation/fence immediately
       // before dispatch; a replaced pane must not inherit the old tty repair.
-      beforeExecutionEffect(name, () => {
-        if (paneTtyOf(name) !== tty) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      const set = await withExecutionNativeAdmission(name, () => {
+        beforeExecutionEffect(name, () => {
+          if (paneTtyOf(name) !== tty) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+        });
+        return spawnSync("/bin/stty", [ttyFlag, tty, "raw", "-echo"], { encoding: "utf8", timeout: 5000, env: psEnv });
       });
-      const set = spawnSync("/bin/stty", [ttyFlag, tty, "raw", "-echo"], { encoding: "utf8", timeout: 5000, env: psEnv });
       if (set.status !== 0) {
         throw new AitermError(
           `AGENT_TTY_COOKED session=${name}\n` +
@@ -4873,7 +4880,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     handled.add(action.kind);
     const keys = action.selected ? action.keys.slice(0, -1) : action.keys;
     for (const key of keys) {
-      sendKey(name, key, { preserveAgentOperation: true });
+      await withExecutionNativeAdmission(name, () => sendKey(name, key, { preserveAgentOperation: true }));
       await sleep(AGENT_SUBMIT_DELAY_MS);
     }
     if (action.selected) {
@@ -4881,13 +4888,13 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
       let moved = await waitStartupSelection(name, action.selected);
       if (!moved && keys.length > 0) {
         for (const key of keys) {
-          sendKey(name, key, { preserveAgentOperation: true });
+          await withExecutionNativeAdmission(name, () => sendKey(name, key, { preserveAgentOperation: true }));
           await sleep(AGENT_SUBMIT_DELAY_MS);
         }
         moved = await waitStartupSelection(name, action.selected);
       }
       if (!moved) break;
-      sendKey(name, action.keys.at(-1)!, { preserveAgentOperation: true });
+      await withExecutionNativeAdmission(name, () => sendKey(name, action.keys.at(-1)!, { preserveAgentOperation: true }));
       await sleep(AGENT_SUBMIT_DELAY_MS);
     }
     ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);

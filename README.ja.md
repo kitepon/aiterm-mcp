@@ -559,6 +559,7 @@ MCPの本体を初めて使う時まで起こさない中継の後ろにAiterm�
 
 `agent_launch({ harness, cwd, trust_project: true })`はpromptなしでも既知のworkspace・project hooks・MCP初期同意を
 進め、入力受付とharness生存を確認して`startup.status="ready"`を返す。指定なしのpromptなし起動は`not_checked`。
+起動準備は競合するmetadata保存が終わるのを待って続行する。端末回復と起動メニューの各キーでは世代・停止状態を再確認し、native起動が未確認になった場合は自動再実行せず診断用に保持する。
 Claude Code初回起動の文字表示テーマ選択では、画面で選択済みの項目を確定して起動を続ける。
 続いてログイン方式の選択が出た場合は`vendor_onboarding_required`を返す。公式の対話型Claude Code CLIで初回設定を完了する。
 入力受付の待ちは30秒。混んだ端末でagentの画面がまだ描かれていない間に切れた時だけ、起動から50秒まで待つ。

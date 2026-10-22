@@ -29,6 +29,8 @@ POSIXのraw tty回復もnative作用であり、tmux打鍵と同じ受付を通�
 実stty直前にも同じdeviceを確認する。停止や世代/tty交代後に古いdeviceへ回復を発行しない。
 一つのRPCが複数のnative作用を発行するときも、各回に同じissued slotとsource/target世代・停止を再確認する。
 agentの貼付け・Enterの同期区間は、既存metadata mutexを非同期に取得してから実行する。
+native作成後に再開する起動準備も同じ非同期取得を通す。pane所有検査、fg/stty回復、
+起動メニューの各キーを短い同期区間で実行し、待機後の停止・世代・slot検査を省略しない。
 mutexをawait中へ持ち越さず、同じ同期stack内の各gateが発行記録を永続化してからnative作用へ進む。
 検証済みsourceと同世代への通常sendがissuedである間も、そのsourceの送信先が別ならoutgoing RPCは継続できる。
 incomingのslotを解放・書換・成功扱いせず、unknown・管理操作・世代不一致は従来どおり拒否する。

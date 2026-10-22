@@ -48,6 +48,7 @@ export function createNativeExecutionServer(input: {
       ?? provider.cursorParentFromRequest(profile, client, { hookRoot: path.join(expectedScope.state_root, "cursor-parent-hooks") }),
     observeDone: core.observeAgentDone,
     observeNativeSessions: core.observeExecutionNativeCreationScope,
+    observeCreatedLaunchSync: core.observeExecutionCreatedLaunch,
     closeExpectedSession: core.closeExpectedAgentSession, // explicit management only, never stop fallback
     observeInterruptionSync: core.observeExpectedAgentRunInterruption,
     selectInterruptionSync: core.selectExpectedAgentRunInterruption,

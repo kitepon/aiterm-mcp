@@ -734,6 +734,9 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 1回の `pty_send` が受理する本文はUTF-8で最大64KiB。同一sessionへの送信はaiterm processをまたいで直列化し、chunk同士の混線を防ぐ。全OSで長いPTY入力の欠落を避けるためplatformのmultiplexerへUTF-8境界を壊さない256-byte単位でpasteし、chunk間に10msのdrain間隔を置く。POSIX shellまたはPowerShellが前面にいる時のsanitize済み複数行は、改行を含まない単一入力へ符号化する。POSIXは`eval`、PowerShellはUTF-8のBase64を復元したscriptblockのdot-sourceを使い、変数と作業場所を現在のshellに保つ。shellがscript全体を所有してから先頭行を実行するため、途中で起動したpager／REPLが後続行を対話キーとして奪わない。単一行、`raw:true`、非shell前面は従来どおり直接PTYへpasteする。agent dispatchは本文全体を`ESC[200~/201~`で1回だけ包み、包んだ全体を同じchunkで流す。agent TUIには1回の貼り付けに見えるので画像pathが貼り付けの間で切れず、chunk投入中のキー解釈による語中文字化け・submit取り落としも抑える。途中chunkが失敗した場合は部分送信済みであることを明示し、自動でEnterを押さない。送信processの異常終了でlockが残った場合は送信前にfail-closedする。`pty_list`で対象sessionを確認し、`pty_close`で閉じてから同じsession IDを作り直す。公開の一括停止toolは存在しない。 POSIXの明示native execution構成では、unknown sendになった対象1席も`pty_close`で閉じて再作成できる。元requestはunknownのまま保持し、再送しない。発行中の操作、管理close自体のunknown、native identityが不明な席は引き続き拒否する。
 
+この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
+
+
 ## 人が覗く
 
 POSIXの明示native実行構成では、検証済みcallerへ通常メッセージが届く間も、そのcallerから別席への送信を継続できる。callerの世代や各requestのslotは書き換えない。agentの貼付け・Enterはmetadata mutexの競合を入力前に待ち、不明な操作・世代交代・停止では入力を止める。BellTeamは閉じた席をpromptなしの明示管理`agent_launch`で再作成できる。promptを送る呼出しには元の実行参照が必要である。

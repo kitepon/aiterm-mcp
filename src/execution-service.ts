@@ -7,7 +7,7 @@ import { assessExecutionSource, planCascadeStop, unfinishedExecutionRelations, c
   executionLaunchSchema,
   type ExecutionSourceEvidence } from "./execution-contract.js";
 import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, executionRootsRequestSchema, executionRootsResultSchema, ExecutionError,
-  type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish } from "./execution-wire.js";
+  type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish, type ExecutionReconcileLaunch } from "./execution-wire.js";
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
 import { withExecutionEffectScope, withExecutionInterruptEffectScope, type ExecutionPreparation } from "./execution-effect.js";
@@ -17,6 +17,7 @@ import { nativeInterruptionObservationSchema, interruptionIdentity, interruption
 import { interruptionKeyReference } from "./execution-interruption.js";
 import { isDeepStrictEqual } from "node:util";
 import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
+import { createdLaunchObservationSchema } from "./execution-launch-recovery.js";
 import { executionCheckpoint } from "./execution-checkpoint.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
@@ -27,6 +28,7 @@ export interface ExecutionRuntime {
   // makes deferred native admission unsupported, never an async fallback.
   observeSync?(sessionId: string): Observation;
   nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer | null };
+  observeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -501,6 +503,7 @@ export class ExecutionService {
     const args = executionActionSchema.parse(input);
     if (args.action === "register") return this.register(args, context);
     if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)), { readOnly: true });
+    if (args.action === "reconcile_launch") return this.reconcileLaunch(args);
     return this.finish(args);
   }
   async admitNative<T>(body: () => T): Promise<T> {
@@ -796,6 +799,8 @@ export class ExecutionService {
       let committed = false;
       try { await this.store.transaction(state => {
         const record = find(state, request);
+        const owned = state.slots.find(slot => same(slot.request, request));
+        if (!owned || owned.stage !== stage || record.operations[stage] !== "issued") return;
         record.operations[stage] = certain ? "not_sent" : "unknown";
         if (certain) {
           state.slots = state.slots.filter(slot => !same(slot.request, request));
@@ -850,6 +855,8 @@ export class ExecutionService {
       // bound/committed. Absence/replacement is not permission to replay it.
       try { await this.store.transaction(state => {
         const record = find(state, request);
+        const owned = state.slots.find(slot => same(slot.request, request));
+        if (!owned || owned.stage !== stage || record.operations[stage] !== "issued") return;
         record.operations[stage] = "unknown";
         record.relation.phase = "submitted_unknown";
         record.relation.completion = "unknown";
@@ -859,6 +866,39 @@ export class ExecutionService {
       throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
     });
     return { value: outcome.value, record };
+  }
+
+  /** Explicit present-generation reconciliation. It never replays the original
+   * launch or input, and does not claim to recover the lost RPC receipt. */
+  private async reconcileLaunch(args: ExecutionReconcileLaunch): Promise<ExecutionRecord> {
+    return this.store.transaction(state => {
+      const record = find(state, args.request), relation = record.relation;
+      if (record.operations.launch === "accepted" && same(relation.target?.launch, args.target)) return view(state, record);
+      if (record.operations.launch === "issued") throw new ExecutionError("EXECUTION_BUSY");
+      if (record.stopping || stopped(state, args.target) || stopped(state, relation.source?.launch)
+        || interruptionBlocksRequest(state, args.request)) throw new ExecutionError("EXECUTION_STOPPING");
+      const slots = state.slots.filter(slot => slot.session_id === args.target.session_id);
+      const slot = slots[0];
+      if (record.operations.launch !== "unknown" || record.operations.send !== "not_issued"
+        || relation.phase !== "submitted_unknown" || relation.completion !== "unknown" || relation.lifecycle !== "tracking"
+        || record.reservation.target.session_id !== args.target.session_id
+        || relation.target?.boundary != null || (relation.target && !same(relation.target.launch, args.target))
+        || (record.reservation.target.expected_launch_id !== null && record.reservation.target.expected_launch_id !== args.target.launch_id)
+        || slots.length !== 1 || !slot || !same(slot.request, args.request) || slot.stage !== "launch" || slot.state !== "unknown"
+        || !slot.created_native_id || !slot.created_server
+        || (slot.expected_launch_id !== null && slot.expected_launch_id !== args.target.launch_id)
+        || openParentEffect(state, args.request)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      if (!this.runtime.observeCreatedLaunchSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      const parsed = createdLaunchObservationSchema.safeParse(this.runtime.observeCreatedLaunchSync(args.target));
+      if (!parsed.success || !same(parsed.data.target, args.target)
+        || parsed.data.native.native_id !== slot.created_native_id
+        || !isDeepStrictEqual(parsed.data.native.server, slot.created_server)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      record.operations.launch = "accepted";
+      relation.target = { launch: args.target, boundary: null };
+      relation.phase = "invoked"; relation.completion = "open";
+      state.slots = state.slots.filter(value => value !== slot);
+      return view(state, record);
+    });
   }
 
   private async finish(args: ExecutionFinish): Promise<ExecutionRecord> {

@@ -48,7 +48,11 @@ export const executionFinishSchema = z.object({
     z.object({ kind: z.literal("interrupted"), target: executionLaunchSchema }).strict(),
   ]),
 }).strict();
-export const executionActionSchema = z.union([executionRegisterSchema, executionStatusSchema, executionFinishSchema]);
+export const executionReconcileLaunchSchema = z.object({
+  action: z.literal("reconcile_launch"), request: executionRequestSchema, target: executionLaunchSchema,
+}).strict();
+export const executionActionSchema = z.union([executionRegisterSchema, executionStatusSchema, executionFinishSchema, executionReconcileLaunchSchema]);
+export type ExecutionReconcileLaunch = z.infer<typeof executionReconcileLaunchSchema>;
 export type ExecutionAction = z.infer<typeof executionActionSchema>;
 export type ExecutionRegister = z.infer<typeof executionRegisterSchema>;
 export type ExecutionFinish = z.infer<typeof executionFinishSchema>;

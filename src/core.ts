@@ -16,7 +16,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
-import { executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
+import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
@@ -1975,6 +1975,32 @@ export function observeExecutionSessionGeneration(name: string): Pick<SessionObs
     || after.sessions.find(value => value.session_id === name)?.native_id !== proof.native_id
     || last?.launch_id !== meta.launch_id || !isDeepStrictEqual(last.execution_native, proof)) return result(true, null);
   return result(true, meta.launch_id);
+}
+
+/** Read-only proof for reconciling a created, empty launch. Inspect raw prompt
+ * state: legacy/default normalization must never prove that input was absent. */
+export function observeExecutionCreatedLaunch(target: ExecutionLaunch): unknown {
+  target = executionLaunchSchema.parse(target);
+  const unknown = () => { throw new ExecutionError("EXECUTION_UNCONFIRMED"); };
+  const generation = () => {
+    const value = observeExecutionSessionGeneration(target.session_id);
+    if (!value.exists || value.launch_id !== target.launch_id) unknown();
+  };
+  const read = () => {
+    let raw: Record<string, unknown>;
+    try { raw = JSON.parse(fs.readFileSync(agentMetadataPath(target.session_id, target.launch_id), "utf8")); }
+    catch { return unknown(); }
+    const proof = executionNativeBindingSchema.safeParse(raw.execution_native);
+    if (raw.aiterm_session !== target.session_id || raw.launch_id !== target.launch_id
+      || raw.initial_prompt !== "none" || raw.initial_prompt_delivery != null || !proof.success) return unknown();
+    return proof.data;
+  };
+  generation();
+  const native = read(), live = observeSession(target.session_id);
+  if (live.launch_id !== target.launch_id || live.harness_alive !== true || live.harness_process === null || live.state !== "idle") unknown();
+  generation();
+  if (!isDeepStrictEqual(read(), native)) unknown();
+  return { target, native, initial_prompt: "none", initial_prompt_delivery: null, harness_alive: true, ready: true };
 }
 
 /** Private source-provenance snapshot. It deliberately omits screen, argv,

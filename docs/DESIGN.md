@@ -442,6 +442,13 @@ unknown send枠を保持したまま既存core closeへ進み、native close成�
 旧callbackは未知/消失した元slotで拒否され、同IDの新launchへnative作用を発行できない。
 issued、管理close自体のunknown、親作用のslot、世代/native/serverの不明・交代は対象外。
 既存の送信・待機lockの拒否も維持し、他席やissuerの停止を復旧条件へ追加しない。
+空起動の結果不明は明示 `agent_execution/reconcile_launch` で既存世代へ結合できる（ADR 0128）。
+対象は返却済みunknown launch、send:not_issued、元native/server stamp付きの単独slotだけ。
+同じmetadata transaction内のprivate同期primitiveで現在のnative/managed世代、生のinitial_prompt:none・初期配送なし、
+harness生存とidleを照合する。既存recordのlaunchをaccepted、targetを当該世代へ結合し、該当slotだけを外す。
+これは現在世代の明示採用で、失われたRPC receiptの復元ではない。本文・初期prompt・claim・nativeには作用しない。
+issued、入力済み・不明、停止、別slot、世代/native/serverの不一致は拒否。後続sendは元source世代を含め通常受付を通る。
+遅着した元callbackはまだ所有するissued stage/slotがある時だけunknownを書け、照合後や別stageを上書きしない。
 native handlerのisErrorは元の本文を保持し、`aiterm/execution_error`のcode/effectを併記する。
 native作用後の不明はpossibleのままで、原因説明を再送可否や成功receiptへ変換しない。
 agent sessionへの送信1本を守る`<name>.agent-send.lock`は持つ時間が長いので、持ち主が終了した残骸を次の送信が片付ける。消す役を`<name>.agent-send.lock.reap`の排他作成で1つに絞り、

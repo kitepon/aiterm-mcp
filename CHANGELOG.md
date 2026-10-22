@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.5] - 2026-10-22
+
 ### Fixed
 
 - In the opt-in POSIX native entry, an ordinary incoming send to a verified caller no longer invalidates that caller's outgoing send between paste and Enter. The incoming slot remains owned by its original request; unknown input, management operations, stops and generation changes remain blockers. Reciprocal sends do not wait on each other.
@@ -2734,7 +2736,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.5...HEAD
+[0.61.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.4...v0.61.5
 [0.61.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...v0.61.4
 [0.61.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.1...v0.61.2

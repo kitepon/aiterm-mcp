@@ -20,7 +20,7 @@ function fixture(t) {
   return { home, root, socket, scope, providerFile, script, registration, provider, codexCalls,
     options: { registration, expectedScope: scope, providerFile, provider, codexBinary: join(home, 'fake codex') } };
 }
-test('native hook setup preserves scope/provider/mode, other hooks and normal MCP registration for all three hook clients', async t => {
+test('native hook setup preserves scope/provider/mode, other hooks and normal MCP registration for all three hook clients', { skip: process.platform === 'win32' ? 'POSIX native hook entry' : false }, async t => {
   const f = fixture(t); mkdirSync(join(f.home,'.claude')); mkdirSync(join(f.home,'.cursor'));
   const foreign = { matcher: 'independent', hooks: [{ type: 'command', command: 'other-owner-command' }] };
   writeFileSync(join(f.home,'.claude','settings.json'), JSON.stringify({ hooks: { PreToolUse: [foreign] }, unrelated: true }));
@@ -40,7 +40,7 @@ test('native hook setup preserves scope/provider/mode, other hooks and normal MC
   assert.equal(f.codexCalls.length,1); assert.equal(f.codexCalls[0].command,result.commands.codex);
   assert.deepEqual(f.registration,before); assert.deepEqual(result.registration,before);
 });
-test('native setup is idempotent and replaces owned legacy hook entries without duplicating or deleting foreign entries', async t => {
+test('native setup is idempotent and replaces owned legacy hook entries without duplicating or deleting foreign entries', { skip: process.platform === 'win32' ? 'POSIX native hook entry' : false }, async t => {
   const f=fixture(t); f.options.clients=['claude','cursor'];
   await configureNativeExecutionHooks(f.home,f.options);
   const paths=[join(f.home,'.claude','settings.json'),join(f.home,'.cursor','hooks.json')], before=paths.map(file=>readFileSync(file,'utf8'));
@@ -57,4 +57,11 @@ test('scope/provider mismatch, old entry/lazy relay or old provider capability r
     if(mode==='old')f.options.provider={...f.provider,DELIVERY_ADMISSION_CONTRACT:{...f.provider.DELIVERY_ADMISSION_CONTRACT,native_hook_args:false}};
     await assert.rejects(configureNativeExecutionHooks(f.home,f.options)); assert.equal(existsSync(join(f.home,'.claude')),false); assert.equal(f.codexCalls.length,0);
   }
+});
+
+test('Windows native hook registration refuses without creating home configuration', { skip: process.platform !== 'win32' }, async t => {
+  const f=fixture(t);
+  await assert.rejects(configureNativeExecutionHooks(f.home,f.options), error => error.code === 'EXECUTION_INVALID');
+  assert.equal(existsSync(join(f.home,'.claude')),false);assert.equal(existsSync(join(f.home,'.cursor')),false);
+  assert.equal(f.codexCalls.length,0);
 });

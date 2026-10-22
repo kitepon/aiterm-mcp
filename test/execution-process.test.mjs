@@ -1,5 +1,6 @@
 import './seat-env.mjs';
 import test from 'node:test';
+const posixCheckpoint = process.platform === 'win32' ? 'cross-process private graph requires POSIX directory fsync' : false;
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -74,7 +75,7 @@ test('storage scopes share only the same existing state and multiplexer identity
   assert.throws(() => executionStoreDirectory('relative', { kind: 'socket', key: scope }));
 });
 
-test('a different process cancels an unissued parent emit without waiting for its receiver', async t => {
+test('a different process cancels an unissued parent emit without waiting for its receiver', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   assert.equal((await seedParent(one)).error, undefined);
   const emit = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'emit' });
@@ -86,7 +87,7 @@ test('a different process cancels an unissued parent emit without waiting for it
   assert.equal(one.events.filter(value => value.event === 'native-effect').length, 0);
 });
 
-test('separate native receiver and stopper share an issued parent-phase slot and drain only that emission', async t => {
+test('separate native receiver and stopper share an issued parent-phase slot and drain only that emission', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   await seedParent(one);
   const emit = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'emit', issueBeforeGate: true });
@@ -99,7 +100,7 @@ test('separate native receiver and stopper share an issued parent-phase slot and
   assert.equal(one.events.filter(value => value.event === 'native-effect').length, 1);
 });
 
-test('loss of a native receiver keeps its old actor and unknown phase instead of replaying wake', async t => {
+test('loss of a native receiver keeps its old actor and unknown phase instead of replaying wake', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope);
   await seedParent(one);
   const wake = one.call('parentNative', { delivery: parentId, endpoint: parentEndpoint, stage: 'wake', issueBeforeGate: true });
@@ -113,7 +114,7 @@ test('loss of a native receiver keeps its old actor and unknown phase instead of
   assert.equal((await two.call('stop', { input: stop([B]) }).result).value.status, 'partial');
 });
 
-test('separate MCP processes share the fence, drain the issued effect and close its late target once', async t => {
+test('separate MCP processes share the fence, drain the issued effect and close its late target once', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   assert.equal(one.directory, two.directory);
   const record = (await one.call('execute', { input: register('ab') }).result).value;
@@ -133,7 +134,7 @@ test('separate MCP processes share the fence, drain the issued effect and close 
   assert.equal(one.events.filter(event => event.event === 'entered').length, 1);
 });
 
-test('a process lost after issuance remains unconfirmed after reconstruction and never resends', async t => {
+test('a process lost after issuance remains unconfirmed after reconstruction and never resends', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope);
   const record = (await one.call('execute', { input: register('lost-ab') }).result).value;
   const send = one.call('invoke', { ref: ref(record), target: point(B) });
@@ -151,7 +152,7 @@ test('a process lost after issuance remains unconfirmed after reconstruction and
   assert.equal(fresh.error.code, 'EXECUTION_UNCONFIRMED');
 });
 
-test('a different process cannot cross an issued configuration or erase its unknown response', async t => {
+test('a different process cannot cross an issued configuration or erase its unknown response', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   const change = one.call('change', { expected: B, reject: true });
   await until(() => one.events.some(event => event.event === 'entered' && event.id === change.id));
@@ -165,7 +166,7 @@ test('a different process cannot cross an issued configuration or erase its unkn
   assert.equal(two.events.filter(event => event.event === 'close').length, 0);
   assert.equal(state(two).slots[0].state, 'unknown');
 });
-test('a different MCP process cancels preparing work without waiting for its preflight or sending later', async t => {
+test('a different MCP process cancels preparing work without waiting for its preflight or sending later', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   const record = (await one.call('execute', { input: register('preparing-ab') }).result).value;
   const send = one.call('invokeDeferred', { ref: ref(record), target: point(B) });
@@ -177,7 +178,7 @@ test('a different MCP process cancels preparing work without waiting for its pre
   assert.equal((await send.result).error.effect, 'not_started');
   assert.equal(one.events.filter(event => event.event === 'native-effect').length, 0);
 });
-test('a different MCP process drains work that crossed its synchronous native gate', async t => {
+test('a different MCP process drains work that crossed its synchronous native gate', { skip: posixCheckpoint }, async t => {
   const { root, scope } = fixture(), one = await worker(t, root, scope), two = await worker(t, root, scope);
   const record = (await one.call('execute', { input: register('issued-ab') }).result).value;
   const send = one.call('invokeDeferred', { ref: ref(record), target: point(B), issueBeforeGate: true });

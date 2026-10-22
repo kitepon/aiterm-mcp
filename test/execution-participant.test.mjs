@@ -316,7 +316,7 @@ test('an injected async close cannot issue a late native effect outside its sync
   const p = f.create(), result = await p.service.closeCascade(stop([B]));
   assert.equal(result.targets[0].outcome, 'unknown'); assert.equal(effects, 0); assert.ok(f.live.has(B.session_id));
 });
-test('local native done cannot retire a composed branch without an invocation fence or complete participant evidence', { skip: posixCheckpoint }, async t => {
+test('reobserved native done seals the recorded call without claiming complete participant evidence', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), effects = enableClose(f);
   f.options.runtime.observeDone = async session_id => ({ schema: 'aiterm.agent-wait-result.v1', session_id,
     launch_id: B.launch_id, outcome: 'done', operation_id: null, turn_id: 'synthetic-native-turn' });
@@ -327,10 +327,10 @@ test('local native done cannot retire a composed branch without an invocation fe
   const binding = receipt._meta[BINDING];
   const finished = await p.service.execute({ action: 'finish', request: binding.request,
     evidence: { kind: 'completion', target: binding.target } });
-  assert.equal(finished.relation.completion, 'completed'); assert.equal(finished.relation.target_fence, 'unknown');
-  assert.equal(finished.relation.lifecycle, 'tracking');
+  assert.equal(finished.relation.completion, 'completed'); assert.equal(finished.relation.target_fence, 'closed');
+  assert.equal(finished.relation.lifecycle, 'retired');
   const stopped = await p.service.closeCascade(stop([A]));
-  assert.deepEqual(effects, [A, B]); assert.equal(stopped.status, 'partial');
+  assert.deepEqual(effects, [A]); assert.equal(stopped.status, 'partial');
 });
 test('a guarded participant refuses direct unframed core mutations before native probes, auth, locks or metadata preparation', { skip: posixCheckpoint }, async t => {
   const f = fixture(t); f.create();

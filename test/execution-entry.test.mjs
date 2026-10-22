@@ -16,8 +16,8 @@ for (const symlink of [false, true]) test(`isolated stdio entry initializes the 
     const direct = fileURLToPath(new URL('../dist/index.js', import.meta.url)), entry = symlink ? join(directory, 'synthetic-bin') : direct;
     if (symlink) symlinkSync(direct, entry);
     const transport = new StdioClientTransport({ command: process.execPath,
-      args: ['--import', fileURLToPath(new URL('./seat-env.mjs', import.meta.url)),
-        '--import', fileURLToPath(new URL('./fixtures/execution-block-native.mjs', import.meta.url)), entry],
+      args: ['--import', new URL('./seat-env.mjs', import.meta.url).href,
+        '--import', new URL('./fixtures/execution-block-native.mjs', import.meta.url).href, entry],
       cwd: directory, env: Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)), stderr: 'pipe' });
     const client = new Client({ name: 'synthetic-entry-client', version: 'synthetic' });
     let stderr = ''; transport.stderr.on('data', chunk => { stderr += chunk; });
@@ -26,6 +26,8 @@ for (const symlink of [false, true]) test(`isolated stdio entry initializes the 
       const tools = (await client.listTools()).tools;
       assert.equal(tools.length, 18); assert.equal(tools.some(tool => tool.name === 'agent_stop'), false);
       assert.ok(tools.some(tool => tool.name === 'agent_launch')); assert.ok(tools.some(tool => tool.name === 'pty_observe'));
+    } catch (error) {
+      throw new Error('isolated stdio startup failed: '+stderr, { cause: error });
     } finally {
       await client.close(); await transport.close(); rmSync(directory, { recursive: true, force: true });
     }

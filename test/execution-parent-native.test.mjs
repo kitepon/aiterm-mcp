@@ -22,7 +22,7 @@ const endpoint = { kind: 'synthetic-codex', thread_id: 'existing-native-thread' 
 const request = { kind: 'delivery', delivery_id: 'original-dispatch', target_session_id: B.session_id };
 const returning = { kind: 'delivery', delivery_id: id, target_session_id: A.session_id };
 const pause = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve }; };
-async function fixture() {
+async function fixture(drainTimeoutMs = 60) {
   const store = new FileExecutionStore(mkdtempSync(join(tmpdir(), 'parent-native-'))), live = new Map([A, B].map(value => [value.session_id, value]));
   let aliasValid = true;
   const observe = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
@@ -31,7 +31,7 @@ async function fixture() {
   const runtime = createExecutionRuntime({ sourceEnvironment: { AITERM_SESSION_ID: A.session_id, AITERM_AGENT_LAUNCH_ID: A.launch_id },
     observeSession: observe, observeSessionSync: observe, async observeDone() { throw Error('unused'); },
     async guardedClose(expected) { assert.deepEqual(live.get(expected.session_id), expected); live.delete(expected.session_id); } });
-  const service = new ExecutionService(store, runtime, 60);
+  const service = new ExecutionService(store, runtime, drainTimeoutMs);
   await service.execute({ action: 'register', source_session_id: A.session_id,
     reservation: { schema: 'aiterm.execution-reservation.v1', request,
       source: point(A), target: { session_id: B.session_id, expected_launch_id: B.launch_id } } });
@@ -119,7 +119,8 @@ test('escaped phase callbacks are bound to a finished frame and cannot act in an
   assert.throws(() => { escaped(); effects++; }); assert.equal(effects, 0);
 });
 test('one hook output joins multiple existing deliveries and keeps every child fence without a new batch ID', { skip: posixCheckpoint }, async () => {
-  const f = await fixture(), C = { session_id: 'bot-c', launch_id: 'c'.repeat(32) };
+  // The successful multi-child drain is not the 60ms timeout test.
+  const f = await fixture(5000), C = { session_id: 'bot-c', launch_id: 'c'.repeat(32) };
   const second = '00000000-0000-4000-8000-000000000002';
   const next = { kind: 'delivery', delivery_id: 'original-ac', target_session_id: C.session_id };
   f.live.set(C.session_id, C);
@@ -140,7 +141,14 @@ test('one hook output joins multiple existing deliveries and keeps every child f
   await assert.rejects(f.service.execute({ action: 'finish', request: { kind: 'delivery', delivery_id: second, target_session_id: A.session_id },
     evidence: { kind: 'not_sent' } }), error => error.code === 'EXECUTION_UNCONFIRMED');
   const stopping = f.service.closeCascade({ schema: 'aiterm.cascade-stop-request.v1', roots: [C] });
-  await new Promise(resolve => setTimeout(resolve, 2)); release.resolve();
+  // Wait for the actual durable stop fence instead of assuming a 2ms sleep
+  // schedules the stop before a loaded runner's fsync/commit work.
+  const deadline = Date.now() + 4000;
+  while (!f.store.snapshot().stopping.some(value => value.launch_id === C.launch_id)) {
+    assert.ok(Date.now() < deadline, 'stop fence was not persisted');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  release.resolve();
   assert.equal((await native).value, 'one-output'); assert.equal(effects, 1);
   assert.equal((await stopping).targets.every(value => value.outcome === 'closed'), true);
 });

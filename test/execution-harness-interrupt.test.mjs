@@ -16,7 +16,7 @@ import { ExecutionService } from '../dist/execution-service.js';
 import { createExecutionRuntime } from '../dist/execution-runtime.js';
 import { runDeferredBoundExecution } from '../dist/execution-tools.js';
 import { registerExecutionTools } from '../dist/execution-tools.js';
-import { SOCKDIR } from '../dist/tmux-runtime.js';
+import { SOCKDIR, SOCK } from '../dist/tmux-runtime.js';
 import { createExecutionDispatcher } from '../dist/execution-dispatch.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -81,6 +81,7 @@ function fixture(t, kind = 'codex') {
     if (args.length === 1 && args[0] === '-V') return ok('tmux synthetic');
     assert.equal(args[0], '-S'); const command = args.slice(2), format = command.at(-1);
     if (command[0] === 'list-sessions') {
+      if (control.listReply) return control.listReply;
       if (!native.present) return ok('');
       if (format === '#{session_id}\t#{session_name}') return ok(`${native.id}\t${name}\n`);
       if (format === '#{pid}\t#{session_id}\t#{session_name}') return ok(`4711\t${native.id}\t${name}\n`);
@@ -916,4 +917,33 @@ test('normal Ctrl+C is omitted for idle or unknown Cursor/Grok panes; failed key
 test('normal successful listing with absent session returns idle without a key or metadata prerequisite', posix, t => {
   const f=fixture(t);f.native.present=false;
   assert.deepEqual(core.interruptSessionNow(f.name),{session_id:f.name,outcome:'idle'});assert.deepEqual(f.keys,[]);
+});
+
+test('exact scoped no-server and never-created socket diagnostics are idle without any key', posix, t => {
+  const f = fixture(t);
+  for (const stderr of [`no server running on ${SOCK}\n`, `error connecting to ${SOCK} (No such file or directory)\n`]) {
+    f.control.listReply = { status: 1, stdout: '', stderr };
+    assert.deepEqual(core.observeExecutionNativeSessions(), { state: 'known', sessions: [] });
+    assert.deepEqual(core.interruptSessionNow(f.name), { session_id: f.name, outcome: 'idle' });
+  }
+  assert.deepEqual(f.keys, []);
+});
+test('unrelated socket, permission, transport, malformed and conflicting listing failures remain unknown', posix, t => {
+  const f = fixture(t), absent = `error connecting to ${SOCK} (No such file or directory)`;
+  for (const reply of [
+    { status: 1, stdout: '', stderr: 'error connecting to /other/socket (No such file or directory)' },
+    { status: 1, stdout: '', stderr: 'no server running on /other/socket' },
+    { status: 1, stdout: '', stderr: `error connecting to ${SOCK} (Permission denied)` },
+    { status: 1, stdout: '', stderr: `error connecting to ${SOCK} (Connection refused)` },
+    { status: 1, stdout: '', stderr: 'failed to connect: unknown' },
+    { status: 1, stdout: '', stderr: absent+'\nadditional diagnostic' },
+    { status: 2, stdout: '', stderr: absent },
+    { status: 1, stdout: '$9\tunexpected', stderr: absent },
+    { status: 0, stdout: 'malformed listing', stderr: '' },
+  ]) {
+    f.control.listReply = reply;
+    assert.deepEqual(core.observeExecutionNativeSessions(), { state: 'unknown' });
+    assert.throws(() => core.interruptSessionNow(f.name), error => error.code === 'EXECUTION_UNCONFIRMED');
+  }
+  assert.deepEqual(f.keys, []);
 });

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-10-22
+
+### Fixed
+
+- A first stop request before tmux has ever started now returns `idle` when the selected socket reports its exact ENOENT diagnostic. Permission errors, other sockets, malformed listings and conflicting output remain unconfirmed. No server, CLI, key, or graph checkpoint is created for this cold stop.
+
 ## [0.61.0] - 2026-10-22
 
 ### Added
@@ -2703,7 +2709,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.1...HEAD
+[0.61.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.1...v0.61.0
 [0.60.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.60.0...v0.60.1
 [0.60.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.59.1...v0.60.0

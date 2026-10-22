@@ -2227,8 +2227,13 @@ export function closeSessionResult(name: string): PtyCloseResult {
 export function observeExecutionNativeSessions(): ExecutionNativeSessions {
   const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
   if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
-  // A generic connection/list failure cannot prove absence.
-  if (/^no server running on /i.test(result.stderr.trim())) return { state: "known", sessions: [] };
+  // A never-started POSIX server has no socket yet. Accept only the exact
+  // scoped tmux absence diagnostics; permission/transport/parse errors stay unknown.
+  const diagnostic = result.stderr.trim();
+  if (result.code === 1 && result.stdout.trim() === ""
+    && (diagnostic === `no server running on ${SOCK}`
+      || (!isWin && diagnostic === `error connecting to ${SOCK} (No such file or directory)`)))
+    return { state: "known", sessions: [] };
   return { state: "unknown" };
 }
 

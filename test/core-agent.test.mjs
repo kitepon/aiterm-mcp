@@ -772,3 +772,17 @@ test("openAgent codex agent_done: agents discoveryは通常CODEX_HOMEを直接�
     }
   });
 });
+
+test("Codex keep-current recovery waits for the handled modal redraw without treating another dialog as ready", async () => {
+  const modal = ["Approaching rate limits", "Switch to gpt-6-luna for lower credit usage?", "  1. Switch to gpt-6-luna",
+    "› 2. Keep current model", "  3. Keep current model (never show again)", "Press enter to confirm or esc to go back"].join("\n");
+  const ready = "OpenAI Codex\n› Ask Codex to do anything\ngpt-5.6-terra high · ~/work\n";
+  const opts = { virtualClock: true, timeoutMs: 100, pollMs: 10, stableSamples: 2 };
+  assert.equal((await core.__testWaitAgentTuiReady('codex', [modal, ready], opts)).ready, false);
+  const recovered = await core.__testWaitAgentTuiReady('codex', [modal, modal, ready], { ...opts, codexRateLimitRecovery: true });
+  assert.equal(recovered.ready, true); assert.equal(recovered.samples, 4);
+  const stuck = await core.__testWaitAgentTuiReady('codex', [modal], { ...opts, codexRateLimitRecovery: true });
+  assert.equal(stuck.ready, false); assert.equal(stuck.samples, 11);
+  const unrelated = await core.__testWaitAgentTuiReady('codex', ['Error loading config.toml: synthetic invalid setting'], { ...opts, codexRateLimitRecovery: true });
+  assert.equal(unrelated.ready, false); assert.equal(unrelated.samples, 1);
+});

@@ -4326,6 +4326,7 @@ async function waitAgentTuiReadyImpl(
     turnSettled?: () => boolean;
     settledSamples?: number;
     settledPollMs?: number;
+    codexRateLimitRecovery?: boolean;
   } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const timeoutMs = opts.timeoutMs ?? AGENT_TUI_READY_TIMEOUT_MS;
@@ -4360,7 +4361,11 @@ async function waitAgentTuiReadyImpl(
     } else {
       readyStreak = 0;
       settledStreak = 0;
-      if (isAgentTuiActionRequired(kind, lastScreen)) return { ready: false, samples, lastScreen };
+      // The one keep-current key can be accepted before the TUI redraws.
+      // Wait for that exact handled modal to disappear; never resend its key.
+      const recoveringModal = opts.codexRateLimitRecovery && kind === "codex"
+        && codexRateLimitModelSwitchDialog(lastScreen) !== null;
+      if (isAgentTuiActionRequired(kind, lastScreen) && !recoveringModal) return { ready: false, samples, lastScreen };
     }
     if (now() >= deadline) {
       // TUIが一度も描かれていない間に切れた時だけ、決めた上限まで待ちを延ばす。描かれた後の画面は今までどおり扱う。
@@ -4393,13 +4398,13 @@ async function waitAgentTuiReady(
   name: string,
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
-  o: { settledTurn?: boolean } = {},
+  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const result = await waitAgentTuiReadyImpl(
     meta.kind,
     () => captureScreen(name, AGENT_TUI_READY_LINES),
     sleep,
-    { timeoutMs, launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
+    { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
   );
   if (result.ready) agentLaunchLines.delete(name);
   return result;
@@ -4680,7 +4685,7 @@ export async function __testWaitAgentTuiReady(
   samples: string[],
   opts: { timeoutMs?: number; pollMs?: number; stableSamples?: number; launchLine?: string; virtualClock?: boolean;
     // 画面を読むたびの「記録の上でturnが終わっているか」。足りない分は最後の値を使う。
-    settled?: boolean[]; settledSamples?: number; settledPollMs?: number } = {},
+    settled?: boolean[]; settledSamples?: number; settledPollMs?: number; codexRateLimitRecovery?: boolean } = {},
 ): Promise<AgentTuiReadyWaitResult & { sleeps: number[] }> {
   if (samples.length === 0) throw new AitermError("agent ready test samples が空です", 2);
   let i = 0;
@@ -5128,10 +5133,10 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
 ): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
   let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
   // 上限のmodalを閉じた直後は、画面が落ち着くのを11回の確かめで待つ。
-  let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? {} : o);
+  let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? { codexRateLimitRecovery: true } : o);
   if (!ready.ready && !codexRateLimitModelSwitch) {
     codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
-    if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs);
+    if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs, { codexRateLimitRecovery: true });
   }
   return { ready, codexRateLimitModelSwitch };
 }

@@ -37,7 +37,7 @@ const runtime = {
   },
   async coverage() { return 'complete'; },
 };
-const service = new ExecutionService(store, runtime, 150);
+const service = new ExecutionService(store, runtime, 2000);
 const observeNative = session_id => ({ schema: 'aiterm.pty-observe-result.v1', session_id,
   exists: !!readLive()[session_id], launch_id: readLive()[session_id]?.launch_id ?? null });
 const verifyEndpoint = (_, endpoint) => endpoint.thread_id === 'synthetic-existing-parent-thread';

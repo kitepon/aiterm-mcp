@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.6] - 2026-10-22
+
 ### Fixed
 
 - Agent startup waits asynchronously for the existing metadata mutex before checking pane ownership, restoring its terminal mode, or accepting startup-menu keys. A short concurrent writer after promptless native creation no longer turns an otherwise valid launch into `unknown`. Stops, uncertain slots, generation changes and the existing lock-acquisition deadline still refuse further effects; no launch or input is replayed.
@@ -2740,7 +2742,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.6...HEAD
+[0.61.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.5...v0.61.6
 [0.61.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.4...v0.61.5
 [0.61.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...v0.61.4
 [0.61.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...v0.61.3

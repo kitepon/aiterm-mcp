@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.4] - 2026-10-22
+
 ### 修正
 
 - POSIXのnative実行口で最初の`agent_launch`がtmuxソケット未作成時に`EXECUTION_UNSUPPORTED`で止まっていた。発行直前にも空状態を確かめ、最初の`new-session`自身が作ったserverのPID・開始識別子とsession IDを実receiptから照合して起動する。補助sessionや入力再送は作らず、読取不能・receipt不一致は未確認で止める。
@@ -2726,7 +2728,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.4...HEAD
+[0.61.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...v0.61.4
 [0.61.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.0...v0.61.1

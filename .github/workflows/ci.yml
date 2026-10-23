@@ -107,6 +107,10 @@ jobs:
             if ('${{ inputs.environment }}' -eq 'windows-startup-delayed') { $env:AITERM_STARTUP_PROBE_MODE = 'delayed' }
             node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-agent-startup-probe.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-registry-probe') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node diagnostic-harness/scripts/windows-registry-query-probe.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-payload-gate') {
             npm run build

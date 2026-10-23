@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.61.10] - 2026-10-23
 
+### Validation scope
+
+- This release is accepted for the owner-requested Linux image integration with passing Linux/macOS product suites and the SDK/MCP consumer contract. Hosted Windows validation remains unresolved: the full run reported 887 passed, 709 skipped and 8 failed; focused comparisons against the preceding public source also failed. Do not treat this release as a completed three-OS acceptance. No Windows support contract or native effect retry policy is changed.
+
 ### Fixed
 
 - Managed native session listings re-observe only an exact `server exited unexpectedly` failure for up to 500 ms. They still require scoped absence evidence or a valid native listing, retain unknown on ambiguous results, and preserve the existing issued slot and generation checks without repeating native effects.

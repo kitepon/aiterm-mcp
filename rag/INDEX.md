@@ -479,3 +479,5 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [psmux has-session live timeout registry fix](sources/backends/psmux-has-session-live-timeout-registry-fix.md) — upstream #622の一次diff。hostedでのserver消失との因果は未確定。
 
 - [psmux3.3.8 session registry](sources/backends/psmux-338-session-registry.md) — registryのschemaとcleanupの固定一次source。合成fixtureのlive条件を確認するための参照。
+
+- [psmux3.3.8 new-session readiness stress reference](sources/backends/psmux-338-new-session-readiness-stress.md) — 公式の起動準備race検証。大規模stressは実行せず、次の最小fixture設計の参照に限る。

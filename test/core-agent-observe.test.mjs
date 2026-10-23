@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
+  ARGV_FIXTURE_DONE, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
@@ -393,7 +393,7 @@ test("openAgent codex agent_done: model 上書きは共有 config を変更せ�
     const [sid, hint] = core.openAgent("codex", { model: "gpt-5.6-terra", agent_done: true });
     try {
       assert.equal(fs.readFileSync(configPath, "utf8"), before);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
       assert.match(out, /<arg>-m<\/arg>\s*<arg>gpt-5\.6-terra<\/arg>/);
       assert.match(hint, /共有 config/);
       assert.match(hint, /proactive 自動委譲/);
@@ -419,7 +419,7 @@ test("openAgent codex agent_done: model と effort は共有 config を変更せ
     });
     try {
       assert.equal(fs.readFileSync(configPath, "utf8"), before);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
       assert.match(out, /<arg>-m<\/arg>\s*<arg>gpt-5\.6-terra<\/arg>/);
       assert.match(out, /<arg>-c<\/arg>\s*<arg>model_reasoning_effort=high<\/arg>/);
     } finally {
@@ -444,7 +444,7 @@ test("openAgent codex agent_done: quoted top-level pin も共有したまま引�
     });
     try {
       assert.equal(fs.readFileSync(configPath, "utf8"), before);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
       assert.match(out, /<arg>-m<\/arg>\s*<arg>gpt-5\.6-terra<\/arg>/);
       assert.match(out, /<arg>-c<\/arg>\s*<arg>model_reasoning_effort=high<\/arg>/);
       assert.match(hint, /model=gpt-5\.6-terra（引数） effort=high（引数）/);

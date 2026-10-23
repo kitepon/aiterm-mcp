@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
+  ARGV_FIXTURE_DONE, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
@@ -590,7 +590,7 @@ test("target contract: Codexは通常CODEX_HOMEを共有しsub-agent lineageだ�
       assert.equal(meta.delegation_allowed, true);
       assert.match(meta.lineage, new RegExp(`^host-root>codex:${sid}$`));
       assert.equal(fs.readFileSync(configPath, "utf8"), configBefore, "通常configを書き換えない");
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
       assert.doesNotMatch(out, /CODEX_HOME=/, "通常CODEX_HOMEを置換しない");
       assert.match(out, /<arg>-c<\/arg>\s+<arg>check_for_update_on_startup=false<\/arg>/);
       assert.match(out, /developer_instructions=/);
@@ -633,7 +633,7 @@ test("target contract: Claudeは通常3 scopeを共有してlaunch固有hookとl
     assert.equal(meta.claude_mcp_config, undefined);
     assert.equal(meta.agent_role, "subagent");
     assert.equal(meta.delegation_depth, 1);
-    const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+    const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
     assert.match(out, /--setting-sources\s+user,project,local/);
     assert.match(out, /--settings/);
     assert.match(out, /--append-system-prompt/);

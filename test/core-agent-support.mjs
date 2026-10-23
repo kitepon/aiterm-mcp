@@ -27,12 +27,13 @@ process.env.HOME = fakeHome;
 // わざと起こす起動失敗を、利用者の実行時エラー記録へ書かない。XDGが設定された環境でも収集設定の無い場所を指す。
 process.env.XDG_CONFIG_HOME = path.join(fakeHome, ".config");
 process.env.XDG_STATE_HOME = path.join(fakeHome, ".local", "state");
+const ARGV_FIXTURE_DONE = "<<<AITERM_FAKE_ARGV_DONE>>>";
 const argvPrinterBin = path.join(process.env.TMPDIR, "print-argv.sh");
 const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");
 fs.writeFileSync(
     argvPrinterBin,
-    "#!/bin/sh\nprintf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\n",
+    "#!/bin/sh\nprintf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n",
     { mode: 0o700 },
   );
 fs.chmodSync(argvPrinterBin, 0o700);
@@ -46,6 +47,7 @@ fs.writeFileSync(
       "fi",
       "printf '%s ' \"$@\"",
       "printf '\\n'",
+      `printf '%s\\n' '${ARGV_FIXTURE_DONE}'`,
       "",
     ].join("\n"),
     { mode: 0o700 },
@@ -705,7 +707,7 @@ after(() => {
 });
 
 export {
-  hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
+  ARGV_FIXTURE_DONE, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, settledListSessions, readAgentMeta, writeAgentMeta, bindTranscriptTurn,

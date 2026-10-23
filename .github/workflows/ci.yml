@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, mac-argv-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -139,7 +139,7 @@ jobs:
           exit $LASTEXITCODE
 
   mac-focused:
-    if: inputs.environment == 'mac-focused'
+    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate'
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -150,6 +150,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
+      - name: Prepare isolated hosted native fixture backend
+        if: inputs.environment == 'mac-argv-gate'
+        run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
           test "$(git rev-parse HEAD)" = 7dddb508c2b75217644e4f7180d42d921ef1c87d
@@ -168,4 +171,8 @@ jobs:
           done
           npm run build
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
-          node --import ./test/seat-env.mjs --test test/tmux-runtime.test.mjs test/repository-contract.test.mjs
+          if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          else
+            node --import ./test/seat-env.mjs --test test/tmux-runtime.test.mjs test/repository-contract.test.mjs
+          fi

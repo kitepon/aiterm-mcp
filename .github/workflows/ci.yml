@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate'
+    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe'
     env:
       PRODUCT_SOURCE: 47674d4c942473a00117353a26d436feaf291bb5
       LANG: en_US.UTF-8
@@ -42,7 +42,7 @@ jobs:
           Write-Output "workflow_source=${{ github.sha }}"
           Write-Output "runner_image=$env:ImageOS/$env:ImageVersion"
       - name: Checkout diagnostic script
-        if: startsWith(inputs.environment, 'windows-startup-')
+        if: startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-registry-probe'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.sha }}
@@ -106,6 +106,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if ('${{ inputs.environment }}' -eq 'windows-startup-delayed') { $env:AITERM_STARTUP_PROBE_MODE = 'delayed' }
             node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-agent-startup-probe.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-registry-probe') {
+            node diagnostic-harness/scripts/windows-registry-query-probe.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-payload-gate') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

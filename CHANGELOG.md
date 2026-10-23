@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.9] - 2026-10-23
+
 ### Fixed
 
 - Asynchronous agent launches wait for graph admission before their initial checks and their synchronous create/metadata/CLI input segment. CLI validation and readiness waits stay outside that mutex. A short competing writer cannot strand a managed shell between generation binding and CLI input; native effects are never retried.
@@ -2768,7 +2770,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.8...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...HEAD
+[0.61.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.8...v0.61.9
 [0.61.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.7...v0.61.8
 [0.61.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.6...v0.61.7
 [0.61.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.5...v0.61.6

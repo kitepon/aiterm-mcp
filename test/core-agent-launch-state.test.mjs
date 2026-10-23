@@ -11,7 +11,7 @@ import {
   hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
-  withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
+  withGrokHomeWithoutAuth, agentStateFiles, settledListSessions, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
   writeCodexTranscript, appendCodexTranscript, appendCodexDone, scheduleCodexDone, writeGrokTranscript,
   sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
   makeBrokenThroughlineBin, FAKE_TUI_STRIP_PASTE_MARKERS, makeFakeGrokTuiBin, makeFakeGrokFooterOnlyTuiBin,
@@ -364,7 +364,8 @@ test("openAgent grok agent_done: OAuth auth 不在は session 残骸ゼロで拒
   delete process.env.XAI_API_KEY;
   try {
     await withGrokHomeWithoutAuth(async () => {
-      const beforeSessions = core.listSessions();
+      // 直前の試験が最後の席を閉じた直後。serverの片付けが終わるのを待ってから基準を取る。
+      const beforeSessions = await settledListSessions();
       const beforeFiles = agentStateFiles();
       assert.throws(
         () => core.openAgent("grok", { agent_done: true, prompt: "Reply READY." }),

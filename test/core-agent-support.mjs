@@ -166,6 +166,15 @@ function withGrokHomeWithoutAuth(fn) {
     });
 }
 
+// kill-sessionの受付の直後は、serverとsocketの片付けが終わる前の一覧が「server exited unexpectedly」で失敗する事がある
+// （macOS。直前の試験が最後の席を閉じた時。Macの全体試験で1件）。一覧が読める状態（known）になるまで待ってから、
+// 試験の基準を取る。unknownを空へ丸めず、待ち切れなければ今までどおり読んで誤りをそのまま出す。
+async function settledListSessions(timeoutMs = 2000) {
+  for (const deadline = performance.now() + timeoutMs; ; await new Promise((resolve) => setTimeout(resolve, 20))) {
+    if (core.observeExecutionNativeSessions().state === "known" || performance.now() >= deadline) return core.listSessions();
+  }
+}
+
 function agentStateFiles() {
   try {
     return fs.readdirSync(agentStateDir()).sort();
@@ -699,7 +708,7 @@ export {
   hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
-  withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
+  withGrokHomeWithoutAuth, agentStateFiles, settledListSessions, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
   writeCodexTranscript, appendCodexTranscript, appendCodexDone, scheduleCodexDone, writeGrokTranscript,
   sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
   makeBrokenThroughlineBin, FAKE_TUI_STRIP_PASTE_MARKERS, makeFakeGrokTuiBin, makeFakeGrokFooterOnlyTuiBin,

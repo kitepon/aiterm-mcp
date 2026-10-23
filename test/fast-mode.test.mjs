@@ -397,7 +397,11 @@ process.stdin.on("data", (chunk) => {
     log.push("❯ " + text);
     if (text === "/fast on") {
       if (options.refuseAtCommand) { log.push("  ⎿  Fast mode unavailable: Fast mode requires usage credits · /usage-credits to"); log.push("     turn them on"); }
-      else { rewrite((settings) => { settings.fastMode = true; }); fast = true; log.push("  ⎿  \\u21AF Fast mode ON · $8/$40 per Mtok"); }
+      else {
+        // 頼まれた間だけ結果の行を遅らせる（設定替えが結果を待っている間に、文を届けるため）。待つ間は命令の行だけが見える。
+        const apply = () => { rewrite((settings) => { settings.fastMode = true; }); fast = true; log.push("  ⎿  \\u21AF Fast mode ON · $8/$40 per Mtok"); draw(); };
+        if (options.resultDelayMs) setTimeout(apply, options.resultDelayMs); else apply();
+      }
     } else if (text === "/fast off") {
       rewrite((settings) => { delete settings.fastMode; }); fast = false; log.push("  ⎿  Fast mode OFF");
     } else log.push("  ⎿  PROMPT:" + text);
@@ -475,11 +479,13 @@ async function until(what, seen, timeoutMs = 10_000) {
 }
 
 test("Claude Codeの席: 設定替えの最中に届いた文は、替え終えてから席へ入る", { skip: ptySkip }, async () => {
-  await withFastClaude({ catalogDelayMs: 1500 }, async ({ sid, keys, catalogAsked }) => {
+  // 文を届ける時点は「/fast on を打った後、席が結果の行を出す前」。一覧を聞いている間を使わないのは、macOSでAquaの外
+  // （sshなど）から動く時、一覧の問い合わせがGUI側の同期呼出になり、その間は試験の時計が進まないため（Macの全体試験で、
+  // 一覧を聞いた印を見た時には /fast on が打たれていた）。どのOSでも同じ時点で届ける。
+  await withFastClaude({ resultDelayMs: 1500 }, async ({ sid, keys }) => {
     const configuring = core.configureAgent(sid, { fast: true });
-    await until("設定替えが一覧を聞く", catalogAsked);
-    // まだ /fast on を打っていない。ここで届いた文が先に入ると、その番は切り替えの前の速度で動く。
-    assert.equal(keys(), "");
+    await until("設定替えが /fast on を打つ", () => keys() === "/fast on⏎");
+    // 席はまだ替え終えていない（結果の行は遅らせてある）。ここで届いた文が先に入ると、その番は切り替えの前の速度で動く。
     const sent = await core.sendAgentMessage(sid, "AFTER_SWITCH");
     assert.equal(sent.schema, "aiterm.agent-dispatch.v1");
     assert.deepEqual(await configuring, configured(sid, true));

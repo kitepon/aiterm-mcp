@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -99,7 +99,16 @@ jobs:
             elseif ($LASTEXITCODE -eq 1) { Write-Output "git system ${key}: unset" }
             else { throw 'Unknown system git configuration' }
           }
-          if ('${{ inputs.environment }}' -like 'windows-startup-*') {
+          if ('${{ inputs.environment }}' -eq 'windows-startup-sequence') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --import ./diagnostic-harness/scripts/windows-startup-trace.mjs --test --test-name-pattern='^(配送記録の保存に失敗した初手とfollow-up|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs
+            $testCode = $LASTEXITCODE
+            Get-ChildItem -Filter 'startup-trace-*.jsonl' | ForEach-Object { Get-Content $_.FullName }
+            exit $testCode
+          } elseif ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs

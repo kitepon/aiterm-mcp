@@ -1,4 +1,4 @@
-name: Check Windows PATH and UTF-8 repair
+name: Full Windows gate for boundary repair
 
 on:
   workflow_dispatch:
@@ -76,7 +76,7 @@ jobs:
           npm --version
           npm run ci:dependencies
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Preflight then focused repair gates
+      - name: Product preflight and full gate for repaired source
         shell: pwsh
         run: |
           [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
@@ -91,11 +91,6 @@ jobs:
             elseif ($LASTEXITCODE -eq 1) { Write-Output "git system ${key}: unset" }
             else { throw 'Unknown system git configuration' }
           }
-          node scripts/clean-build.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node node_modules/typescript/bin/tsc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --import ./test/seat-env.mjs --test --test-name-pattern='^(複数行のshell適合|Windows pane|PowerShellの|send: shellへの複数行|send mark \+ read wait: PowerShell)' test/tmux-runtime.test.mjs test/powershell-pty.test.mjs test/core-tmux.test.mjs
+          $env:PRODUCT_CI_TEST_SCOPE = 'all'
+          node scripts/run-product-ci-tests.mjs
           exit $LASTEXITCODE

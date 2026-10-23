@@ -3,8 +3,9 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-// 公開本文64KiBをPowerShellの一括入力へBase64化した長さと構文・paste markerを含む。
-const MAX_PAYLOAD_BYTES = Math.ceil(64 * 1024 / 3) * 4 + 128;
+// 公開本文64KiBのBase64に加え、UTF-8初期化文・scriptblock構文・paste markerを含む。
+// 最大本文の変換増分は現在336byte。本文の公開上限は変えず、内部の包みを512byte確保する。
+const MAX_PAYLOAD_BYTES = Math.ceil(64 * 1024 / 3) * 4 + 512;
 const PTY_CHUNK_BYTES = 256;
 const MAX_FINAL_DRAIN_MS = 3_000;
 const SESSION_BASE_RE = /^[A-Za-z0-9_-]{1,160}$/;

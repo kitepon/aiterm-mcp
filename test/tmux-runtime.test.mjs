@@ -2,6 +2,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
   psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop } from "../dist/tmux-runtime.js";
@@ -67,6 +68,33 @@ test("Windows paneには呼出元PATHを渡し、明示指定は大文字小文�
   const launch = sessionEnvironmentLaunch("pwsh", ["AITERM_SESSION_ID=test"]);
   assert.deepEqual(launch.args, ["-e", "AITERM_SESSION_ID=test", "-e", `PATH=${process.env.PATH}`]);
   assert.deepEqual(sessionEnvironmentLaunch("pwsh", ["Path=explicit"]).args, ["-e", "Path=explicit"]);
+});
+
+test("Windows PowerShellの公開64KiB本文はUTF-8初期化後もworkerが受け取り、過大入力は作用前に拒否する", { skip: !isWin }, async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "psmux-payload-boundary-"));
+  const worker = fileURLToPath(new URL("../dist/psmux-send-worker.js", import.meta.url));
+  try {
+    // Endpointなしのfixtureで、上限本文が入力検査を通過して接続先の読取りまで進むことを確認。
+    // port/keyを置かないため、native serverへの接続や送信は起きない。
+    const accepted = spawnSync(process.execPath, [worker, "fixture"], {
+      input: atomicShellMultiline("x".repeat(64 * 1024), "pwsh"), encoding: "utf8",
+      env: { ...process.env, PSMUX_DATA_DIR: empty },
+    });
+    assert.equal(accepted.status, 1, accepted.stderr);
+    assert.match(accepted.stderr, /ENOENT/u);
+    assert.doesNotMatch(accepted.stderr, /payload exceeds/u);
+    const rejected = spawnSync(process.execPath, [worker, "fixture"], {
+      input: "x".repeat(128 * 1024), encoding: "utf8", env: { ...process.env, PSMUX_DATA_DIR: empty },
+    });
+    assert.equal(rejected.status, 1, rejected.stderr);
+    assert.match(rejected.stderr, /payload exceeds/u);
+    assert.deepEqual(fs.readdirSync(empty), []);
+  } finally {
+    fs.rmSync(empty, { recursive: true, force: true });
+  }
 });
 
 test("macOSのGUI側tmux起動jobは引数と環境を逐語でlaunchdへ渡し、終了コードを残す", { skip: isWin }, async () => {

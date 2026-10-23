@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, mac-argv-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, mac-argv-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -117,6 +117,12 @@ jobs:
             $testCode = $LASTEXITCODE
             Get-ChildItem -Filter 'startup-trace-*.jsonl' | ForEach-Object { Get-Content $_.FullName }
             exit $testCode
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-shell-boundary') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-shell-boundary-probe.mjs
           } elseif ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

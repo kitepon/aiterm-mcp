@@ -46,7 +46,7 @@ model/effort/fastの各stageは同じ既存世代・slot・source・停止のgat
 物理shell準備はnative IDへ固定し、未結合の同名世代を採用しない。冷間起動のための補助sessionや再送は作らない。
 作成時のnative ID/server ownerをmanaged metadataへ保存し、private runtimeの世代読取と期待closeでも再照合する。
 古いmetadataの欠測を現観測で補わず、既存席の自動登録は行わない。
-証拠の無い新server起動、Windows固有のserver作成、auto-name/通常PTY/auth等はまだunsupported。
+証拠の無い新server起動、Windows固有のserver作成、一般のauto-name/通常PTY等はまだunsupported。認証専用PTYはADR 0130の限定経路で受け付ける。
 実18 toolsのhandlerを作るconstructorは、private dispatcher/親execution callbackを明示注入して隔離SDKで検証できる。
 通常のstdio mainは注入せず、全参加process/全core作用口・native fenceが揃うまで公開有効化しない。
 private participant factoryはproducer/service/dispatcher/同process用worker profileを同じscopeとnative actorで組む。
@@ -408,6 +408,14 @@ shell、接続先、各harnessの公式CLIが所有する。
 ## Model catalog
 
 `agent_auth`の共通進行はcore、公式command・status・認証画面の解釈は`src/harnesses/`が所有する。CLIの認証processを通常HOMEのPTYへ一度だけ起動し、`remain-on-exit`と`pane_dead_status`で終了を観測する。credentialを読み取る状態管理や独自OAuthは持たず、Aitermが保存するのは認証sessionのharness・実行file・cwd・phase・引き継いだenvの名前だけである。取消と通常のPTY closeでこの相関記録を削除する。
+native明示入口のauth startは、既存SDK RPCのprocess/start/request identityへ結合し、session省略時は一意なPTY名だけを選んで先に予約する。
+認証済みno-opはPTY/serverを作らず元のv1/session_id:nullを返す。作成時は実new-session receiptからauth metadataへ
+native/server stampと新しいauth世代を保存・結合する。通常agent metadataや本文delivery refを捏造しない。
+既存authのstatus/onboarding・取消は同じ世代を各作用前に再検査する。消失済みはnative作用なしで既存v1 receiptを返す。
+BellTeamのrefなしpty_send/pty_keyは、この作成proofを保持するauth PTYにだけ許可し、通常Botの未登録本文には広げない。
+初回案内のrespawnも同じsession世代を保ち、phase保存は準備受付を通す。旧auth metadataの欠測を現nativeから補わず、
+不明な入力・世代・未返却RPCのslotをstatusだけで解除しない。credentialの保存・操作は公式CLIが所有する。
+
 
 PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。
 

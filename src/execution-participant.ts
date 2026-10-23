@@ -15,7 +15,7 @@ const functions = ["scope", "actor", "observeParentProcess", "observeSessionGene
 
 function snapshotRuntime(input: ParentProducerRuntime): ParentProducerRuntime {
   for (const name of functions) if (typeof input[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const optional = ["observeNativeSessions", "closeExpectedSession", "observeActors", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner"] as const;
+  const optional = ["selectAuthSessionName", "observeAuthSessionGeneration", "observeNativeSessions", "closeExpectedSession", "observeActors", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner"] as const;
   for (const name of optional) if (input[name] !== undefined && typeof input[name] !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   // Capture function references before construction; later replacement of an
@@ -70,7 +70,9 @@ export function createExecutionParticipant(input: ProducerOptions & { parentDepe
   const server = createAitermServer({ execution: server => {
     assertScope();
     dispatcher = createExecutionDispatcher({ service: producer.service, nativeIdentity: actor, sourceEnvironment,
-      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope, captureNativeParent });
+      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope, captureNativeParent,
+      ...(producer.startup.selectAuthSessionName ? { selectAuthSessionName: producer.startup.selectAuthSessionName } : {}),
+      ...(producer.startup.observeAuthSessionGeneration ? { observeAuthSessionGeneration: producer.startup.observeAuthSessionGeneration } : {}) });
     return { dispatcher, parentExecution: producer.execution, parentDependencies, parentStateRoot: producer.scope.state_root };
   } });
   producer.store.enroll(["mcp"]);

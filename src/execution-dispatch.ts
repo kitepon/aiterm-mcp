@@ -40,12 +40,12 @@ function routeFor(name: string, args: Arguments): Route | null {
   const nativeTool = executionRequestSchema.options[4].shape.tool.safeParse(tool);
   if (!nativeTool.success) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const target = launches.has(name) ? args.session_name : name === "pty_open" ? args.name : args.session_id;
-  // Automatic names are selected inside existing core today. Do not guess the
-  // future name or act before reserving it at the actual selection boundary.
+  // Generic automatic names remain unsupported. Auth start selects its name
+  // through the private allocator before this route reserves it.
   if (target === undefined || target === null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const session = executionLaunchSchema.shape.session_id.safeParse(target);
   if (!session.success) throw new ExecutionError("EXECUTION_INVALID");
-  return { tool: nativeTool.data, target: session.data, stage: launches.has(name) ? "launch" : "send" };
+  return { tool: nativeTool.data, target: session.data, stage: launches.has(name) || tool === "agent_auth.start" ? "launch" : "send" };
 }
 
 // The SDK signal belongs to this serving RPC, not to a whole CLI turn. Keep
@@ -89,6 +89,8 @@ export interface ExecutionDispatcherBindings {
   initializedClientName(): string | undefined;
   observeSessionGeneration(session: string): unknown | Promise<unknown>;
   assertParticipant?(): void;
+  selectAuthSessionName?(): string;
+  observeAuthSessionGeneration?(session: string): unknown;
   // Same-process private producer; no tool/meta argument can set this proof.
   captureNativeParent?(): unknown | null;
 }
@@ -98,6 +100,15 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
   dispatch(name: string, args: Arguments, extra: Extra,
     body: (fixedArgs: Arguments, fixedExtra: Extra) => Promise<ToolResult>): Promise<ToolResult>;
 } {
+  const selectAuthName = bindings.selectAuthSessionName, observeAuth = bindings.observeAuthSessionGeneration;
+  for (const fn of [selectAuthName, observeAuth]) if (fn !== undefined && typeof fn !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  const authGeneration = (session: string): ExecutionPoint | null => {
+    if (!observeAuth) return null;
+    const value = observeAuth(session) as Record<string, unknown> | null;
+    if (!value || value.schema !== "aiterm.pty-observe-result.v1" || value.session_id !== session || value.exists !== true) return null;
+    const launch = executionLaunchSchema.safeParse({ session_id: session, launch_id: value.launch_id });
+    return launch.success ? { launch: launch.data, boundary: null } : null;
+  };
   const captureNativeParent = bindings.captureNativeParent;
   if (captureNativeParent !== undefined && typeof captureNativeParent !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const environment = { ...bindings.sourceEnvironment };
@@ -143,6 +154,12 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName());
             return await body(args, fixedExtra);
           }
+          if (name === "agent_auth" && (args.action !== "status" || args.session_id !== undefined) && !observeAuth)
+            throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          if (name === "agent_auth" && args.action === "start" && args.session_id === undefined) {
+            if (!native || !selectAuthName) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            args.session_id = executionLaunchSchema.shape.session_id.parse(selectAuthName());
+          }
           const route = routeFor(name, args);
           if (!route) return await body(args, fixedExtra);
           const client = bindings.initializedClientName();
@@ -158,7 +175,11 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const hostLaunch = client === "bellteam" && route.tool === "agent_launch" && !supplied
             && args.prompt == null && args.throughline_source_session === undefined;
           const hostConfigure = client === "bellteam" && route.tool === "agent_configure" && !supplied;
-          const hostManagement = hostClose || hostLaunch || hostConfigure;
+          const authOperation = name === "agent_auth";
+          const authInput = (route.tool === "pty_send" || route.tool === "pty_key") && !supplied
+            && client === "bellteam" ? authGeneration(route.target) : null;
+          const hostAuth = client === "bellteam" && !supplied && authOperation;
+          const hostManagement = hostClose || hostLaunch || hostConfigure || hostAuth || !!authInput;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;
@@ -203,7 +224,13 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             // BellTeam must retain its existing delivery/room/call reference.
             if ((client === "bellteam" && !hostManagement) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             const current = await observe(route.target);
+            if (authOperation && route.tool !== "agent_auth.start") {
+              // A missing auth PTY returns the public v1 failed/already-cancelled
+              // receipt. There is no native effect or replacement creation.
+              if (!current.point) route.stage = "launch";
+            }
             if (route.stage === "send" && !current.point) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+            if (authInput && !same(authInput, current.point)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
             const request = directRequest;
             cancellation?.assert();
             await bindings.service.execute({ action: "register", source_session_id: source?.launch.session_id ?? directSeat,
@@ -237,7 +264,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             // must not turn a valid accepted action into permission to resend.
             let target: ExecutionPoint | null = null;
             try {
-              if (route.tool === "pty_close") target = expected ? { launch: expected, boundary: null } : null;
+              if (route.tool === "pty_close" || route.tool === "agent_auth.cancel") target = expected ? { launch: expected, boundary: null } : null;
               else {
                 const current = await observe(route.target);
                 target = current.point;

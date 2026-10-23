@@ -52,7 +52,8 @@ function fixture(options = {}) {
   const service = new ExecutionService(store, runtime, 30);
   const bindings = { service, sourceEnvironment: options.environment ?? env,
     nativeIdentity: { pid: 12345, started_identity: 'synthetic-existing-native-start' },
-    initializedClientName: () => clientName, observeSessionGeneration: observe, ...options.bindings };
+    initializedClientName: () => clientName, observeSessionGeneration: observe,
+    observeAuthSessionGeneration: session_id => ({ schema: "aiterm.pty-observe-result.v1", session_id, exists: false, launch_id: null }), ...options.bindings };
   const dispatcher = createExecutionDispatcher(bindings);
   const effect = (session = B.session_id) => {
     assert.deepEqual(guardTmuxExecution(['send-keys', '-t', session, 'synthetic-payload']),

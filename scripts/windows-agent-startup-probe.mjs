@@ -13,7 +13,7 @@ const quote = s => "'" + s.replaceAll('\\', '/').replaceAll("'", "'\\''") + "'";
 const marker = path.join(process.env.TMPDIR, 'fixture-invoked.txt');
 for (const file of [argvPrinterBin, fakeClaudeBin]) {
   const original = fs.readFileSync(file, 'utf8');
-  fs.writeFileSync(file, original.replace('#!/bin/sh\n', '#!/bin/sh\n' + `printf invoked > ${quote(marker)}\n`));
+  fs.writeFileSync(file, original.replace('#!/bin/sh\n', '#!/bin/sh\n' + `if [ -n "$AITERM_SESSION_ID" ]; then printf invoked > ${quote(marker)}; fi\n`));
 }
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 function observation(sid) {

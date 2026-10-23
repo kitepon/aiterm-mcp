@@ -299,7 +299,9 @@ test("openAgentWithInitialPrompt: prompt を shell argv に載せず pending eve
 test("portable fork: Codex TUIへThroughline contextをmissionより前に一度だけ送る", { skip: skipAgentDone }, async () => {
   const savedCodexBin = process.env.CODEX_BIN;
   const savedThroughlineBin = process.env.THROUGHLINE_BIN;
-  const fakeCodex = makeFakeCodexTuiBin();
+  const inputFile = path.join(process.env.TMPDIR, `portable-codex-input-${Date.now().toString(36)}.txt`);
+  fs.writeFileSync(inputFile, "");
+  const fakeCodex = makeFakeCodexTuiBin(false, false, inputFile);
   const fakeThroughline = makeFakeThroughlineBin();
   process.env.CODEX_BIN = fakeCodex;
   process.env.THROUGHLINE_BIN = fakeThroughline;
@@ -311,13 +313,18 @@ test("portable fork: Codex TUIへThroughline contextをmissionより前に一度
         prompt: "MISSION_MARKER を実行してください。",
         throughline_source_session: "source-session",
       });
-      const output = await core.readOutput(sid, {
-        wait: true,
-        until: "MISSION_MARKER",
-        timeout: 5,
-        full: true,
-        raw: true,
-      });
+      // Pane echo can insert ANSI paste frames in the middle of a marker,
+      // especially on psmux. Verify the line actually read by the fake CLI,
+      // retaining one-input, marker count and source-before-mission checks.
+      const deadline = Date.now() + 5000;
+      let received = "";
+      while (!(received = fs.readFileSync(inputFile, "utf8")).includes("MISSION_MARKER") && Date.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 25));
+      const lines = received.trim().split(/\r?\n/).filter(Boolean).map(line => line.replace(/\x1b\[20[01]~/g, ""));
+      assert.equal(lines.length, 1, received);
+      const output = lines[0];
+      assert.equal(output.split("SOURCE_CONTEXT_MARKER").length - 1, 1, output);
+      assert.equal(output.split("MISSION_MARKER").length - 1, 1, output);
       assert.ok(output.indexOf("SOURCE_CONTEXT_MARKER") < output.indexOf("MISSION_MARKER"), output);
       assert.match(output, /---\\n\\n## Portable fork mission/);
     });
@@ -328,6 +335,7 @@ test("portable fork: Codex TUIへThroughline contextをmissionより前に一度
     if (savedThroughlineBin === undefined) delete process.env.THROUGHLINE_BIN;
     else process.env.THROUGHLINE_BIN = savedThroughlineBin;
     fs.rmSync(fakeCodex, { force: true });
+    fs.rmSync(inputFile, { force: true });
     fs.rmSync(fakeThroughline, { force: true });
   }
 });

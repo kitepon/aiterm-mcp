@@ -265,7 +265,7 @@ function sessionLogPath(sid) {
   return path.join(process.env.TMPDIR, "claude-tmux-sockets", `${sid}.log`);
 }
 
-function makeFakeCodexTuiBin(busy = false, exitAfterReady = false) {
+function makeFakeCodexTuiBin(busy = false, exitAfterReady = false, inputFile = null) {
   const bin = path.join(process.env.TMPDIR, `fake-codex-tui-${Date.now().toString(36)}.sh`);
   fs.writeFileSync(
     bin,
@@ -274,6 +274,7 @@ function makeFakeCodexTuiBin(busy = false, exitAfterReady = false) {
       "printf 'OpenAI Codex\\n› ready\\n'",
       ...(exitAfterReady ? ["exit 0"] : []),
       "while IFS= read -r line; do",
+      ...(inputFile ? ["  printf '%s\\n' \"$line\" >> '" + inputFile.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'"] : []),
       "  printf '%s\\n' \"$line\"",
       ...(busy ? ["  printf '• Working (1s • esc to interrupt)\\n'"] : []),
       "done",

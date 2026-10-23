@@ -18,7 +18,16 @@ let trace;
 cp.spawnSync = (...args) => { const value = spawnSync(...args); trace?.(...args); return value; };
 syncBuiltinESMExports();
 const core = await import('../dist/core.js');
-test.after(() => { cp.spawnSync = spawnSync; syncBuiltinESMExports(); });
+test.after(() => {
+  trace = null;
+  // Both cases share this file's isolated socket. macOS can still be tearing
+  // down a killed server when the next case tries to start it on that socket.
+  // Keep the fixture server until both cases finish; never retry native input.
+  if (process.platform !== 'win32') {
+    try { cp.execFileSync('tmux', ['-S', localParentWorkerRuntime.scope().multiplexer.key, 'kill-server']); } catch {}
+  }
+  cp.spawnSync = spawnSync; syncBuiltinESMExports();
+});
 
 const options = {
   skip: process.platform === 'win32' ? 'POSIX native graph' : false, timeout: 15000,
@@ -37,7 +46,7 @@ async function runCase(t, scenario) {
   const source = scenario === 'source' ? { session_id: 'fixture-source', launch_id: 'a'.repeat(32) } : null;
   tmux('-f', '/dev/null', 'new-session', '-d', '-s', session, 'sh', script);
   if (source) tmux('new-session', '-d', '-s', source.session_id, 'sh', script);
-  t.after(() => { trace = null; try { tmux('kill-server'); } catch {} });
+  t.after(() => { trace = null; });
   // Wait for the fixture's busy TUI; no vendor CLI or credentials are used.
   const deadline = performance.now() + 3000;
   while (!tmux('capture-pane', '-p', '-t', session).includes('esc to interrupt')) {

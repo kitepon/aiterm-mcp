@@ -1,4 +1,4 @@
-name: Diagnose parent and pane environment and encoding
+name: Check Windows PATH and UTF-8 repair
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 jobs:
   windows-fixed-source:
     env:
-      PRODUCT_SOURCE: 0cf2d86ac9bdf5ec3c403ac0665fcaca7894ff10
+      PRODUCT_SOURCE: 13cfa01a1c47fa64d147d28ea4404e440a92effd
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -28,7 +28,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 0cf2d86ac9bdf5ec3c403ac0665fcaca7894ff10
+          ref: 13cfa01a1c47fa64d147d28ea4404e440a92effd
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -40,12 +40,6 @@ jobs:
           Write-Output "product_source=$head"
           Write-Output "workflow_source=${{ github.sha }}"
           Write-Output "runner_image=$env:ImageOS/$env:ImageVersion"
-      - name: Checkout diagnostic script at the workflow commit
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          ref: ${{ github.sha }}
-          path: diagnostic-harness
-          persist-credentials: false
       - name: Node runtime
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
@@ -82,7 +76,7 @@ jobs:
           npm --version
           npm run ci:dependencies
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Preflight then collect scalar boundary evidence
+      - name: Preflight then focused repair gates
         shell: pwsh
         run: |
           [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
@@ -103,5 +97,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-hosted-boundary-probe.mjs
+          node --import ./test/seat-env.mjs --test --test-name-pattern='^(複数行のshell適合|Windows pane|PowerShellの|send: shellへの複数行|send mark \+ read wait: PowerShell)' test/tmux-runtime.test.mjs test/powershell-pty.test.mjs test/core-tmux.test.mjs
           exit $LASTEXITCODE

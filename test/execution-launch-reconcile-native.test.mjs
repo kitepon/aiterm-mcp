@@ -11,6 +11,8 @@ import * as provider from 'aiterm-steer-delivery';
 import { createNativeExecutionServer } from '../dist/execution-native-server.js';
 import { localParentWorkerRuntime } from '../dist/execution-parent-worker.js';
 import { agentMetadataPath } from '../dist/agent-shared.js';
+import { installNativeTmuxCreationTrace } from './native-tmux-creation-trace.mjs';
+const creations = installNativeTmuxCreationTrace();
 const original = cp.spawnSync;
 let trace;
 cp.spawnSync = (...args) => { const value = original(...args); trace?.(...args); return value; };
@@ -19,6 +21,7 @@ const core = await import('../dist/core.js');
 test.after(() => { cp.spawnSync = original; syncBuiltinESMExports(); });
 test('native MCP reconciles an empty created launch without input or replacement and refuses raw unknown prompt state',
   { skip: process.platform === 'win32' ? 'POSIX native participant' : false, timeout: 20000 }, async t => {
+  creations.reset();
   const scope = localParentWorkerRuntime.scope(), socket = scope.multiplexer.key;
   mkdirSync(dirname(socket), { recursive: true });
   const tmux = (...args) => cp.execFileSync('tmux', ['-S', socket, ...args], { encoding: 'utf8' });
@@ -34,11 +37,10 @@ test('native MCP reconciles an empty created launch without input or replacement
   await p.service.execute({ action: 'register', source_session_id: null, reservation: {
     schema: 'aiterm.execution-reservation.v1', request, source: { launch: null, boundary: null },
     target: { session_id: session, expected_launch_id: null } } });
-  let creates = 0, inputs = 0, fail = true, writer;
+  let inputs = 0, fail = true, writer;
   trace = (bin,args) => {
     if (!args?.includes('-S') || args[args.indexOf('-S')+1] !== socket) return;
     const command = args[args.indexOf('-S')+2];
-    if (command === 'new-session') creates++;
     if (command === 'send-keys') { inputs++; if (fail && args.at(-1) === 'Enter') { fail = false; queueMicrotask(() => { writer = p.store.transaction(async state => { state.slots.find(row => row.session_id === session).state = 'unknown'; await new Promise(resolve => setTimeout(resolve, 80)); }); }); } }
   };
   const launched = await client.callTool({ name: 'agent_launch', arguments: {
@@ -53,7 +55,7 @@ test('native MCP reconciles an empty created launch without input or replacement
   for (let i = 0; i < 20; i++) { if (core.observeSession(session).state === 'idle') break; await new Promise(resolve => setTimeout(resolve, 50)); }
   const file = agentMetadataPath(session, target.launch_id), text = readFileSync(file, 'utf8'), raw = JSON.parse(text);
   assert.equal(raw.initial_prompt, 'none');
-  const counts = { creates, inputs }, action = { action: 'reconcile_launch', request, target };
+  const counts = { creates: creations.count(), inputs }, action = { action: 'reconcile_launch', request, target };
   for (const value of [undefined, 'sent']) {
     const bad = { ...raw, initial_prompt: value }; writeFileSync(file, JSON.stringify(bad));
     const denied = await client.callTool({ name: 'agent_execution', arguments: action });
@@ -66,7 +68,7 @@ test('native MCP reconciles an empty created launch without input or replacement
   assert.equal(result.structuredContent.operations.send, 'not_issued');
   assert.deepEqual(result.structuredContent.reservation, originalRecord.reservation);
   assert.deepEqual(result._meta['aiterm/execution_binding'].target, { launch: target, boundary: null });
-  assert.deepEqual(p.store.snapshot().slots, []); assert.deepEqual({ creates, inputs }, counts); assert.equal(creates, 1);
+  assert.deepEqual(p.store.snapshot().slots, []); assert.deepEqual({ creates: creations.count(), inputs }, counts); assert.equal(creations.count(), 1);
   assert.deepEqual(core.observeExecutionSessionGeneration(session), generation);
   assert.equal(readFileSync(file, 'utf8'), text);
 });

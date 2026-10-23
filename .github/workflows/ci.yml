@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    if: inputs.environment == 'windows-native' || inputs.environment == 'windows-startup-probe' || inputs.environment == 'windows-payload-gate'
+    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate'
     env:
       PRODUCT_SOURCE: 47674d4c942473a00117353a26d436feaf291bb5
       LANG: en_US.UTF-8
@@ -42,7 +42,7 @@ jobs:
           Write-Output "workflow_source=${{ github.sha }}"
           Write-Output "runner_image=$env:ImageOS/$env:ImageVersion"
       - name: Checkout diagnostic script
-        if: inputs.environment == 'windows-startup-probe'
+        if: startsWith(inputs.environment, 'windows-startup-')
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.sha }}
@@ -99,11 +99,12 @@ jobs:
             elseif ($LASTEXITCODE -eq 1) { Write-Output "git system ${key}: unset" }
             else { throw 'Unknown system git configuration' }
           }
-          if ('${{ inputs.environment }}' -eq 'windows-startup-probe') {
+          if ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ('${{ inputs.environment }}' -eq 'windows-startup-delayed') { $env:AITERM_STARTUP_PROBE_MODE = 'delayed' }
             node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-agent-startup-probe.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-payload-gate') {
             npm run build

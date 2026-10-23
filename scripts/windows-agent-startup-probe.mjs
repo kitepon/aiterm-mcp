@@ -55,6 +55,11 @@ async function run(label, kind, options) {
     if (sid) try { core.closeSession(sid); } catch (error) { row.cleanupError = error.message; }
   }
 }
+if (process.env.AITERM_STARTUP_PROBE_MODE === 'delayed') {
+  const body = fs.readFileSync(argvPrinterBin, 'utf8');
+  fs.writeFileSync(argvPrinterBin, body.replace("for arg do", "sleep 2\nfor arg do"));
+  await withFakeCodexHome(async () => { await run('codex-delayed-output', 'codex', { model: 'gpt-5.6-terra' }); });
+} else {
 await withFakeCodexHome(async () => {
   await run('codex-model', 'codex', { model: 'gpt-5.6-terra' });
   await run('codex-model-effort', 'codex', { model: 'gpt-5.6-terra', reasoning_effort: 'high' });
@@ -62,4 +67,5 @@ await withFakeCodexHome(async () => {
 });
 await run('claude-scopes', 'claude', {});
 await run('claude-hook-result-startup', 'claude', {});
+}
 console.log('AGENT_STARTUP_PROBE_RESULT=' + JSON.stringify(result));

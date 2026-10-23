@@ -8,7 +8,7 @@ import { withExecutionEffectScope, executionCreatedNativeBinding } from '../dist
 const skip = process.platform === 'win32' ? 'POSIX native serverの試験' :
   spawnSync('tmux', ['-V']).status !== 0 ? 'tmux 未インストール' : false;
 
-test('実tmuxの初回native作成は補助sessionなしで実receiptからserverを証明する', { skip }, () => {
+test('実tmuxの初回native作成は補助sessionなしで実receiptからserverを証明する', { skip }, async () => {
   const name = `cold_native_${process.pid}`;
   const empty = { state: 'known', sessions: [], server: null };
   assert.deepEqual(core.observeExecutionNativeCreationScope(), empty);
@@ -37,5 +37,14 @@ test('実tmuxの初回native作成は補助sessionなしで実receiptからserve
   } finally {
     if (opened) core.closeSession(name);
   }
-  assert.deepEqual(core.observeExecutionNativeCreationScope(), empty);
+  // kill-session acceptance may precede the server/socket finishing teardown.
+  // Keep unknown as unknown, and wait for the actual empty cold-server state.
+  const deadline = performance.now() + 2000;
+  let closed = core.observeExecutionNativeCreationScope();
+  while (closed.state !== 'known' || closed.sessions.length !== 0 || closed.server !== null) {
+    assert.ok(performance.now() < deadline, JSON.stringify(closed));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    closed = core.observeExecutionNativeCreationScope();
+  }
+  assert.deepEqual(closed, empty);
 });

@@ -475,3 +475,5 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [psmux3.3.8 ConPTY native spawn](sources/backends/psmux-338-conpty-spawn.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
 - [psmux3.3.8 environment block construction](sources/backends/psmux-338-command-environment.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
 - [psmux3.3.8 pane startup and shell selection](sources/backends/psmux-338-pane-start.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
+
+- [psmux has-session live timeout registry fix](sources/backends/psmux-has-session-live-timeout-registry-fix.md) — upstream #622の一次diff。hostedでのserver消失との因果は未確定。

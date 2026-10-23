@@ -56,6 +56,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
   `src/setup-integrations.ts`: AI別のMCP登録と読戻し。
 - `src/index.ts`: MCP toolとschema。
 - `src/core.ts`: PTY、入出力整形、出力削減、完了検出、harness共通進行。
+- `src/agent-screen-observation.ts`: sampleと時計を受け取るTUI準備・入力残存・画面安定の観測。打鍵やmetadata更新はcoreが持つ。
 - `src/harnesses/`: Claude／Codex／Grok／Cursor固有の起動、ready、完了、transcript、catalog。
   `src/model-catalog.ts`: `agent_models`のharness中立の形、effortの並び、形式検証。取得口と変換はadapterが持つ。
 - `src/harnesses/grok.ts`: Grok／Composerのfolder trust、入力受付、sandbox起動拒否の検出と原因付きエラーも所有する。

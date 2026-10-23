@@ -105,6 +105,11 @@ UTF-8のBase64を復元したscriptblockのdot-sourceを使う。変数と作業
 生LFをPowerShellへキー入力として流さないため、Windowsの`Ctrl+Enter`による行順の反転を防ぐ。
 単一行、`raw:true`、非shell前面は直接PTYへ送る。`enter:false`では後続のEnterまで実行しない。
 
+TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
+このmoduleはcoreをimportせず、既存harness adapterと渡されたsample・sleep・時計だけで判断する。
+coreはnative画面取得、打鍵、session/metadata、起動コマンドとの対応を所有する。
+公開core入口と観測結果、判定回数・期限、既存の送信方針は維持する。
+
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。

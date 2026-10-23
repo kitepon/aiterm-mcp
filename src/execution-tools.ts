@@ -9,10 +9,12 @@ import { executionActionSchema, executionFinishSchema, executionRecordSchema, ex
   executionRefFromMeta, executionErrorResult, ExecutionError,
   EXECUTION_BINDING_META_KEY, EXECUTION_ERROR_META_KEY,
   EXECUTION_SOURCE_META_KEY, type ExecutionTransportSource,
+  EXECUTION_CLOSED_LAUNCH_META_KEY,
   type ExecutionRecord } from "./execution-wire.js";
 import { ExecutionService } from "./execution-service.js";
 import { withExecutionEffectScope, bindExecutionManagementCloseTarget } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
+import type { ExecutionRequest } from "./execution-contract.js";
 
 import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
 
@@ -32,6 +34,7 @@ export function executionBindingMeta(record: ExecutionRecord): Record<string, un
 export interface ExecutionToolOptions {
   // Installed by the serving host adapter, not supplied as tool arguments.
   sourceContext?(extra: { _meta?: unknown }): ExecutionTransportSource | undefined;
+  closeManagementRequest?(extra: { requestId?: unknown; _meta?: unknown }, session: string): ExecutionRequest;
   // Explicit private host composition only. The default registration stays
   // read-only; neither wire args nor native callback presence enable keys.
   // A capable controller still reports missing abort/preservation/fence proof.
@@ -43,6 +46,7 @@ export interface ExecutionToolOptions {
 // standalone fake MCP handlers retain their existing explicit registration.
 export interface ExecutionControlRegistration {
   sourceContext: NonNullable<ExecutionToolOptions["sourceContext"]>;
+  closeManagementRequest: NonNullable<ExecutionToolOptions["closeManagementRequest"]>;
   activate(): void;
 }
 const controlRegistrars = new WeakMap<McpServer, (service: ExecutionService) => ExecutionControlRegistration>();
@@ -52,7 +56,7 @@ export function attachExecutionControlRegistrar(server: McpServer,
   controlRegistrars.set(server, register);
 }
 export function createExecutionToolHandlers(service: ExecutionService, options: ExecutionToolOptions = {}): {
-  agent_execution(input: unknown, extra?: { _meta?: unknown }): Promise<ToolResult>;
+  agent_execution(input: unknown, extra?: { requestId?: unknown; _meta?: unknown }): Promise<ToolResult>;
   agent_stop(input: unknown): Promise<ToolResult>;
   agent_execution_roots(input: unknown): Promise<ToolResult>;
 } {
@@ -71,6 +75,13 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
           && EXECUTION_SOURCE_META_KEY in extra._meta) throw new ExecutionError("EXECUTION_UNSUPPORTED");
         // Capture and detach before entering the shared-store transaction.
         const context = options.sourceContext?.(extra);
+        if (args.action === "close_launch") {
+          if (!options.closeManagementRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          const management = options.closeManagementRequest(extra, args.target.session_id);
+          const closed = await service.closeLaunch(args, management, context === undefined ? undefined : structuredClone(context));
+          return { content: [{ type: "text", text: JSON.stringify(closed.record) }], structuredContent: closed.record,
+            _meta: { ...executionBindingMeta(closed.record), [EXECUTION_CLOSED_LAUNCH_META_KEY]: closed.receipt } };
+        }
         const result = await service.execute(args, context === undefined ? undefined : structuredClone(context));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result,
           _meta: executionBindingMeta(result) };
@@ -96,12 +107,12 @@ export function createExecutionToolHandlers(service: ExecutionService, options: 
 export function registerExecutionTools(server: McpServer, service: ExecutionService, options: ExecutionToolOptions = {}): void {
   const registration = controlRegistrars.get(server)?.(service);
   const handlers = createExecutionToolHandlers(service, { ...options,
-    ...(registration ? { sourceContext: registration.sourceContext } : {}) });
+    ...(registration ? { sourceContext: registration.sourceContext, closeManagementRequest: registration.closeManagementRequest } : {}) });
   server.registerTool("agent_execution", {
-    description: "既存の実配送/実行参照を登録・照会・終了証拠で更新し、結果不明の空起動を同世代へ照合する。本文や再送queueは保存しない。",
+    description: "既存の実配送/実行参照を登録・照会・終了証拠で更新する。結果不明の空起動は元requestと期待世代を指定して照合、または終了済みCLIだけcloseする。本文や再送queueは保存しない。",
     // MCP accepts a raw object shape; the handler enforces the stricter action
     // union, including required fields and forbidden fields for each action.
-    inputSchema: { action: z.enum(["register", "status", "finish", "reconcile_launch"]),
+    inputSchema: { action: z.enum(["register", "status", "finish", "reconcile_launch", "close_launch"]),
       reservation: executionReservationSchema.optional(), source_session_id: z.string().nullable().optional(),
       request: executionRequestSchema.optional(), target: executionLaunchSchema.optional(), evidence: executionFinishSchema.shape.evidence.optional(),
       remote: z.never().optional() },

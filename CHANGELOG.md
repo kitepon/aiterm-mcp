@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Asynchronous agent launches wait for graph admission before their initial checks and their synchronous create/metadata/CLI input segment. CLI validation and readiness waits stay outside that mutex. A short competing writer cannot strand a managed shell between generation binding and CLI input; native effects are never retried.
 - Explicit native `pty_close` can recover a returned unknown launch only when the original native/server and managed generation still match, the raw initial prompt is absent, send remains unissued and the harness is confirmed exited. The close keeps the failed record and releases its slot only after native close and confirmed absence. Issued RPCs, live harnesses and uncertain input or identity remain blocked.
 
+### Added
+
+- The BellTeam native execution entry accepts explicit `agent_execution/close_launch` with the original request and exact target generation. It checks that expectation during admission and before close, uses the serving SDK management identity, and returns a versioned `_meta["aiterm/closed_launch"]` receipt only after close, confirmed absence and metadata commit. The original unknown record stays unchanged. Failed or uncertain closes return no closed receipt; later generations and historical receipts cannot authorize another close. The proof supports empty exited Claude Code and Codex launches.
+
 ## [0.61.8] - 2026-10-23
 
 ### Fixed

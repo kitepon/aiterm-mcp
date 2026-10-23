@@ -1,15 +1,12 @@
 // Synchronous expected-generation close. The serving adapter must already own
 // the shared issued close slot; this helper does not replace admission/drain.
-import { executionLaunchSchema, type ExecutionLaunch } from "./execution-contract.js";
+import { executionLaunchSchema, executionNativeBindingSchema, type ExecutionLaunch } from "./execution-contract.js";
+export { executionNativeBindingSchema } from "./execution-contract.js";
 import { ExecutionError } from "./execution-wire.js";
 import { z } from "zod";
 
 export type ExecutionNativeSession = { session_id: string; native_id: string };
 export type ExecutionNativeServer = { pid: number; started_identity: string };
-export const executionNativeBindingSchema = z.object({ schema: z.literal("aiterm.execution-native.v1"),
-  native_id: z.string().regex(/^\$\d+$/),
-  server: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict(),
-}).strict();
 export type ExecutionNativeBinding = z.infer<typeof executionNativeBindingSchema>;
 export type ExecutionNativeSessions = { state: "known"; sessions: ExecutionNativeSession[]; server?: ExecutionNativeServer | null } | { state: "unknown" };
 export interface ExecutionCloseBindings {

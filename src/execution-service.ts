@@ -4,13 +4,14 @@ import { z } from "zod";
 import { assessExecutionSource, planCascadeStop, unfinishedExecutionRelations, cascadeStopRequestSchema, cascadeStopResultSchema,
   cascadeInterruptRequestSchema, cascadeInterruptResultSchema,
   executionPointSchema, type ExecutionLaunch, type ExecutionPoint, type ExecutionRequest,
-  executionLaunchSchema,
+  executionLaunchSchema, executionRequestSchema,
   type ExecutionSourceEvidence } from "./execution-contract.js";
 import { executionActionSchema, executionRecordSchema, executionRefMetaSchema, executionRootsRequestSchema, executionRootsResultSchema, ExecutionError,
   type ExecutionAction, type ExecutionRecord, type ExecutionRegister, type ExecutionFinish, type ExecutionReconcileLaunch } from "./execution-wire.js";
 import type { ExecutionTransportSource } from "./execution-wire.js";
 import type { ExecutionState, ExecutionStore } from "./execution-store.js";
-import { withExecutionEffectScope, withExecutionInterruptEffectScope, type ExecutionPreparation } from "./execution-effect.js";
+import { withExecutionEffectScope, withExecutionInterruptEffectScope, withExecutionNativeAdmission,
+  bindExecutionManagementCloseTarget, type ExecutionPreparation } from "./execution-effect.js";
 import type { ExecutionNativeServer } from "./execution-close.js";
 import { nativeInterruptionObservationSchema, interruptionIdentity, interruptionBlocksLaunch, interruptionBlocksRequest,
   interruptionSlots, assertInterruptionSource, sameInterruptionRowRun } from "./execution-interruption.js";
@@ -19,6 +20,7 @@ import { isDeepStrictEqual } from "node:util";
 import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
 import { createdLaunchObservationSchema, exitedCreatedLaunchObservationSchema } from "./execution-launch-recovery.js";
 import { executionCheckpoint } from "./execution-checkpoint.js";
+import { executionCloseLaunchSchema, executionClosedLaunchSchema, type ExecutionCloseLaunch, type ExecutionClosedLaunch } from "./execution-wire.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
 export interface ExecutionRuntime {
@@ -30,6 +32,7 @@ export interface ExecutionRuntime {
   nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer | null };
   observeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   observeExitedCreatedLaunchSync?(target: ExecutionLaunch): unknown;
+  closeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -99,6 +102,16 @@ function recoverableCloseSlots(state: ExecutionState, request: ExecutionRequest,
 function targetBlocked(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null): boolean {
   const recoverable = recoverableCloseSlots(state, request, session, expected);
   return state.slots.some(slot => slot.session_id === session && !recoverable.includes(slot));
+}
+function assertCloseLaunchExpectation(state: ExecutionState, expected: ExecutionCloseLaunch, management: ExecutionRequest): void {
+  const original = find(state, expected.request), target = expected.target;
+  if (original.reservation.target.session_id !== target.session_id
+    || !same(original.relation.target?.launch, target)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  if (original.operations.launch === "issued" || original.operations.send === "issued") throw new ExecutionError("EXECUTION_BUSY");
+  const slots = state.slots.filter(slot => slot.session_id === target.session_id && !same(slot.request, management));
+  const candidates = recoverableCloseSlots(state, management, target.session_id, target.launch_id);
+  if (slots.length !== 1 || !same(slots[0].request, expected.request) || slots[0].stage !== "launch"
+    || !candidates.includes(slots[0])) throw new ExecutionError("EXECUTION_UNCONFIRMED");
 }
 function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
   return executionRecordSchema.parse({ ...record,
@@ -524,7 +537,50 @@ export class ExecutionService {
     if (args.action === "register") return this.register(args, context);
     if (args.action === "status") return this.store.transaction(state => view(state, find(state, args.request)), { readOnly: true });
     if (args.action === "reconcile_launch") return this.reconcileLaunch(args);
+    if (args.action === "close_launch") throw new ExecutionError("EXECUTION_UNSUPPORTED"); // serving SDK identity required
     return this.finish(args);
+  }
+  /** One explicit host RPC. The expectation is checked within registration,
+   * every effect admission and final commit; it never becomes a new source or
+   * rekeys the original failed request. No successful receipt survives a failed commit.
+   */
+  async closeLaunch(input: ExecutionCloseLaunch, managementInput: ExecutionRequest, context?: ExecutionTransportSource):
+    Promise<{ record: ExecutionRecord; receipt: ExecutionClosedLaunch }> {
+    const expected = executionCloseLaunchSchema.parse(input), management = executionRequestSchema.options[4].parse(managementInput);
+    if (management.tool !== "pty_close" || management.target_session_id !== expected.target.session_id
+      || same(management, expected.request) || !this.runtime.closeCreatedLaunchSync)
+      throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const source = context?.source ?? null;
+    await this.register({ action: "register", source_session_id: source?.launch.session_id ?? null,
+      reservation: { schema: "aiterm.execution-reservation.v1", request: management,
+        source: { launch: source?.launch ?? null, boundary: source?.boundary ?? null },
+        target: { session_id: expected.target.session_id, expected_launch_id: expected.target.launch_id } } }, context, expected);
+    const ref = { schema: "aiterm.execution-ref.v1", request: management };
+    const result = await this.invokeDeferred(ref, "send", (issue, prepare) =>
+      withExecutionEffectScope(expected.target.session_id, issue, async () => {
+        const native = await withExecutionNativeAdmission(expected.target.session_id, () => {
+          const id = this.managementCloseNative(ref);
+          if (!id) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          const binding = this.store.transactionSync!(state => {
+            assertCloseLaunchExpectation(state, expected, management);
+            const slot = state.slots.find(slot => same(slot.request, expected.request))!;
+            return { schema: "aiterm.execution-native.v1" as const, native_id: slot.created_native_id!, server: slot.created_server! };
+          }, { readOnly: true });
+          bindExecutionManagementCloseTarget(expected.target.session_id, id);
+          const closed = this.runtime.closeCreatedLaunchSync!(expected.target) as { then?: unknown } | null;
+          if (closed && typeof closed.then === "function") {
+            void Promise.resolve(closed).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED", "possible");
+          }
+          return binding;
+        });
+        return { value: native, target: { launch: expected.target, boundary: null } };
+      }, undefined, prepare, body => this.admitNative(body)), expected.target.session_id, undefined, expected);
+    return { record: result.record, receipt: executionClosedLaunchSchema.parse({
+      schema: "aiterm.closed-launch.v1", version: 1, action: "close_launch", outcome: "closed",
+      request: expected.request, target: expected.target, management_ref: management,
+      evidence: { native: result.value, initial_prompt: "none", initial_prompt_delivery: null,
+        harness_alive: false, absence_confirmed: true, metadata_committed: true },
+    }) };
   }
   async admitNative<T>(body: () => T): Promise<T> {
     if (!this.store.admitNative) throw new ExecutionError("EXECUTION_UNSUPPORTED");
@@ -588,8 +644,9 @@ export class ExecutionService {
     }, { readOnly: true });
   }
 
-  private async register(args: ExecutionRegister, context?: ExecutionTransportSource): Promise<ExecutionRecord> {
+  private async register(args: ExecutionRegister, context?: ExecutionTransportSource, closeExpectation?: ExecutionCloseLaunch): Promise<ExecutionRecord> {
     return this.store.transaction(async state => {
+      if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, args.reservation.request);
       const previous = state.records.find(record => same(record.reservation.request, args.reservation.request));
       if (previous) {
         if (!same(previous.reservation, args.reservation) || previous.source_session_id !== args.source_session_id)
@@ -647,18 +704,19 @@ export class ExecutionService {
    */
   async invokeDeferred<T>(metaInput: unknown, stage: "launch" | "send",
     body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string,
-    admission?: () => void): Promise<{ value: T; record: ExecutionRecord }> {
-    return this.invokeInternal(metaInput, stage, body, targetSessionId, true, admission);
+    admission?: () => void, closeExpectation?: ExecutionCloseLaunch): Promise<{ value: T; record: ExecutionRecord }> {
+    return this.invokeInternal(metaInput, stage, body, targetSessionId, true, admission, closeExpectation);
   }
 
   private async invokeInternal<T>(metaInput: unknown, stage: "launch" | "send",
     body: (issue: () => void, prepare: ExecutionPreparation) => Promise<{ value: T; target: ExecutionPoint | null }>, targetSessionId: string | undefined,
-    deferred: boolean, admission?: () => void): Promise<{ value: T; record: ExecutionRecord }> {
+    deferred: boolean, admission?: () => void, closeExpectation?: ExecutionCloseLaunch): Promise<{ value: T; record: ExecutionRecord }> {
     const { request } = executionRefMetaSchema.parse(metaInput);
     let expectedCloseNative: { native_id: string; server: ExecutionNativeServer } | undefined;
     if (deferred && (!this.store.transactionSync || !this.runtime.observeSync)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     await this.store.transaction(async state => {
       admission?.();
+      if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
       const record = find(state, request);
       const relation = record.relation;
       if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
@@ -724,6 +782,7 @@ export class ExecutionService {
         // wait between them. Owning its slot is not permission to ignore a
         // stop, uncertain slot or generation replacement after the first one.
         return this.store.transactionSync!(state => {
+          if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
           const record = find(state, request), relation = record.relation;
           if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
           assertInterruptionSource(state, relation.source, record.source_session_id);
@@ -763,6 +822,7 @@ export class ExecutionService {
         }, { readOnly: true });
       }
       const result = this.store.transactionSync!(state => {
+        if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
         const record = find(state, request), relation = record.relation;
         if (interruptionBlocksRequest(state, request)) throw new ExecutionError("EXECUTION_STOPPING");
         if (relation.lifecycle === "retired" || relation.phase === "unsent" || record.operations[stage] !== "preparing")
@@ -841,6 +901,7 @@ export class ExecutionService {
     // Parsed above after issuance; null is supported only for an unissued noop.
     const targetPoint = outcome.target!;
     const record = await this.store.transaction(async state => {
+      if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
       const record = find(state, request);
       const slot = state.slots.find(value => same(value.request, request));
       if (!slot || slot.stage !== stage || record.operations[stage] !== "issued")

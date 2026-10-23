@@ -457,6 +457,12 @@ issued、管理close自体のunknown、親作用のslot、世代/native/server�
 send:not_issuedで、harnessの終了を現在の同期primitiveが証明できる場合だけ、同じ明示管理closeを許す（ADR 0131）。
 受付時とnative作用直前にこの証拠を検査し、closeと不在確認後に該当slotを外す。元unknown recordを保ち、
 旧requestのlaunch/sendは再実行しない。生存harnessはreconcile_launchの対象として維持する。
+本体からの明示復旧には既存agent_executionのclose_launch actionを使う（ADR 0132）。元requestと
+target(session_id,launch_id)を原子的な期待条件として受付と作用直前に照合し、応答SDK自身の管理refで
+既存close primitiveへ進む。呼出元がobserveしたsessionだけをcloseする手順で代用しない。
+close・不在確認・metadata commit後だけ_meta["aiterm/closed_launch"]のversion1 receiptを返す。
+structuredContentは別管理requestのrecord、元unknown recordは不変。結果不明や保存失敗にはclosed証明なし。
+本体は元pending操作・stop/versionを別途照合し、後発不明を過去receiptで解除しない。
 非同期launcherはCLIの検証をgraph mutex外で行い、実create→metadata公開→世代結合→CLI入力の同期区間を
 一度のnative admission内で通す。起動準備のawaitをmutex内に持ち込まず、待機後には通常の世代・停止・slot検査を行う。
 空起動の結果不明は明示 `agent_execution/reconcile_launch` で既存世代へ結合できる（ADR 0128）。

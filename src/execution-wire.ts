@@ -2,12 +2,13 @@
 import { z } from "zod";
 import { executionLaunchSchema, executionBoundarySchema, executionPointSchema,
   executionRequestSchema, executionReservationSchema, executionRelationSchema, executionPhaseSchema,
-  cascadeStopRequestSchema, cascadeStopResultSchema } from "./execution-contract.js";
+  cascadeStopRequestSchema, cascadeStopResultSchema, executionNativeBindingSchema } from "./execution-contract.js";
 
 export const EXECUTION_REQUEST_META_KEY = "aiterm/execution";
 export const EXECUTION_BINDING_META_KEY = "aiterm/execution_binding";
 export const EXECUTION_ERROR_META_KEY = "aiterm/execution_error";
 export const EXECUTION_SOURCE_META_KEY = "aiterm/execution_source";
+export const EXECUTION_CLOSED_LAUNCH_META_KEY = "aiterm/closed_launch";
 export const executionTransportSourceSchema = z.object({
   schema: z.literal("aiterm.execution-source.v1"), source: executionPointSchema.nullable(),
 }).strict();
@@ -51,7 +52,24 @@ export const executionFinishSchema = z.object({
 export const executionReconcileLaunchSchema = z.object({
   action: z.literal("reconcile_launch"), request: executionRequestSchema, target: executionLaunchSchema,
 }).strict();
-export const executionActionSchema = z.union([executionRegisterSchema, executionStatusSchema, executionFinishSchema, executionReconcileLaunchSchema]);
+export const executionCloseLaunchSchema = z.object({
+  action: z.literal("close_launch"), request: executionRequestSchema, target: executionLaunchSchema,
+}).strict();
+export type ExecutionCloseLaunch = z.infer<typeof executionCloseLaunchSchema>;
+export const executionClosedLaunchSchema = z.object({
+  schema: z.literal("aiterm.closed-launch.v1"), version: z.literal(1), action: z.literal("close_launch"),
+  outcome: z.literal("closed"), request: executionRequestSchema, target: executionLaunchSchema,
+  management_ref: executionRequestSchema.options[4],
+  evidence: z.object({ native: executionNativeBindingSchema, initial_prompt: z.literal("none"),
+    initial_prompt_delivery: z.null(), harness_alive: z.literal(false), absence_confirmed: z.literal(true),
+    metadata_committed: z.literal(true) }).strict(),
+}).strict().superRefine((value, ctx) => {
+  if (value.management_ref.tool !== "pty_close" || value.management_ref.target_session_id !== value.target.session_id
+    || (value.request.kind === "aiterm" ? value.request.launch.session_id : value.request.target_session_id) !== value.target.session_id)
+    ctx.addIssue({ code: "custom", message: "close receipt must bind the same original target and management request" });
+});
+export type ExecutionClosedLaunch = z.infer<typeof executionClosedLaunchSchema>;
+export const executionActionSchema = z.union([executionRegisterSchema, executionStatusSchema, executionFinishSchema, executionReconcileLaunchSchema, executionCloseLaunchSchema]);
 export type ExecutionReconcileLaunch = z.infer<typeof executionReconcileLaunchSchema>;
 export type ExecutionAction = z.infer<typeof executionActionSchema>;
 export type ExecutionRegister = z.infer<typeof executionRegisterSchema>;

@@ -740,6 +740,10 @@ POSIXの明示native入口でも、`agent_auth`の名前なし開始、認証済
 
 この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。受付済みでも本文未発行なら、照合を繰り返すたびに現在世代・入力待ち・競合操作なしを再確認する。保存した受付結果だけで後の世代を確認済みとしない。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
 
+CLIが終了した結果不明の空起動には、BellTeam native入口の `agent_execution({action: "close_launch", request, target: {session_id, launch_id}})` を明示的に使う。元requestと期待世代を受付内とnative close直前で照合し、原native/server・managed世代一致、raw初期prompt `none`・初期配送なし・send未発行・現在CLI終了の正規probeがすべて必要になる。Claude CodeとCodexで同じ証明条件を使う。生存・issued・送信済み・欠測・世代交代は拒否し、sessionだけのcloseへの代用や自動再起動・再送はしない。旧版は新actionを拒否する。
+
+成功時の `structuredContent` は応答するSDKの別管理requestのExecutionRecordで、元unknown recordは変えない。`_meta["aiterm/closed_launch"]` に厳密なreceiptを返す。固定項目は `schema: "aiterm.closed-launch.v1"`、`version: 1`、`action: "close_launch"`、`outcome: "closed"`、元 `request`、正確な `target`、`management_ref`（応答SDKのMCP request、`tool: "pty_close"`）。`evidence` は原 `native` binding、`initial_prompt: "none"`、`initial_prompt_delivery: null`、`harness_alive: false`、`absence_confirmed: true`、`metadata_committed: true` を持つ。実close・不在確認・slot解放commitが揃った場合だけ返し、失敗や結果不明には返さない。本体が不明を解除する際は元pending操作と自身のstop/versionも照合する。過去receiptで後発の不明を解除しない。
+
 同じ明示入口で、返却済みunknown launchのCLIが終了している場合は、元native/server・managed世代とraw初期promptなし・本文未発行・harness終了を同期検証できた時だけ通常の`pty_close`で対象席を閉じられる。成功と不在を確認して該当枠だけを外し、元unknown requestを保持する。発行中RPC、生存harness、入力や世代の欠測は拒否する。旧requestを再実行せず、必要な後続は新しい通常要求として行う。
 
 

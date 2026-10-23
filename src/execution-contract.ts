@@ -9,6 +9,10 @@ export const executionLaunchSchema = z.object({
   session_id: sessionId, launch_id: launchId,
 }).strict();
 export type ExecutionLaunch = z.infer<typeof executionLaunchSchema>;
+export const executionNativeBindingSchema = z.object({ schema: z.literal("aiterm.execution-native.v1"),
+  native_id: z.string().regex(/^\$\d+$/),
+  server: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1).max(256) }).strict(),
+}).strict();
 
 // Existing references, normalized by the runtime adapter to an immutable run
 // boundary. A later native turn ID is an alias, not permission to rekey history.

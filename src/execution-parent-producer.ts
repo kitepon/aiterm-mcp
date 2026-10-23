@@ -98,6 +98,9 @@ export function createExecutionParentProducer(input: {
       assertScope(); return selectInterruption(expected, candidates); } } : {}),
     ...(interruptKey ? { interruptKeySync: (point: ExecutionPoint) => { assertScope(); return interruptKey(point); } } : {}),
     observeSession: observe, observeSessionSync: observe,
+    ...(runtime.closeExpectedSession ? { closeCreatedLaunchSync: (target: ExecutionLaunch) => {
+      assertScope(); return runtime.closeExpectedSession!(target);
+    } } : {}),
     ...(exitedLaunch ? { observeExitedCreatedLaunchSync: (target: ExecutionLaunch) => {
       assertScope(); return exitedLaunch(target);
     } } : {}),

@@ -1,0 +1,17 @@
+# ADR 0132: Close an empty exited unknown launch with an explicit original expectation
+
+## Decision
+
+Session-only management close cannot express which failed request and generation the host intends to resolve. Observing B before a later session-only close could instead close a replacement C. A persistent host transport can also legitimately fence its ordinary close while the original launch is uncertain.
+
+Extend the existing `agent_execution` action enum with `close_launch`, requiring the original `request` and exact `target: {session_id, launch_id}`. Older schemas reject this new action before native effects. The opt-in BellTeam native dispatcher supplies a distinct management reference derived from the serving SDK process/start identity and RPC request ID. Caller arguments cannot choose that management identity. The semantic management operation remains `pty_close`; no new tool, queue, task ID or session-only fallback is introduced.
+
+Check the original request, unknown launch slot and expected generation within registration, each effect gate and final commit. Admission requires exactly the original recoverable launch slot apart from the current management operation. Immediately before close, reuse the private runtime proof for original native/server and managed identity, raw `initial_prompt: none`, no initial delivery, send not_issued and harness_exited with harness_alive false. The probe is harness independent; isolated Claude Code and Codex fixtures exercise it. Missing evidence, sent input, issued work, live harnesses, unrelated unknown slots and generation replacement remain blockers. Reuse the existing synchronous expected-generation close primitive and existing stop/source/native gates.
+
+Only successful native close, observed absence and committed management result/slot release yield `_meta["aiterm/closed_launch"]`. The strict receipt schema is exported as `executionClosedLaunchSchema`: `schema: aiterm.closed-launch.v1`, `version: 1`, `action: close_launch`, `outcome: closed`, original `request`, exact `target`, distinct serving `management_ref`, and `evidence` with original native binding, initial_prompt none, initial_prompt_delivery null, harness_alive false, absence_confirmed true and metadata_committed true. `structuredContent` remains the existing management ExecutionRecord shape. Errors, uncertain results and failed commits return no closed receipt. The original unknown record is unchanged; no original launch or body is replayed.
+
+The host owns an explicit recovery entry and clearing only the matching original pending uncertainty after receipt validation and local stop/version checks. A historical receipt must not clear later uncertainty, even with the same request/cause. Receipt loss does not authorize replay. Product success and host end-to-end recovery require separate acceptance.
+
+## Verification
+
+Isolated real SDK/native/tmux and fake CLI exercise exact close, wrong original request/target, sent/missing raw prompt, initial delivery, wrong creator, issued and live refusals; original record preservation, unrelated-session survival, old-reference refusal and new reservation; Claude empty exited close; B-to-C replacement after metadata admission before native effect; and native close followed by injected metadata commit failure with no closed receipt and no replay. Real production seats and delivery bodies are not test targets.

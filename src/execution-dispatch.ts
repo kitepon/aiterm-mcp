@@ -136,6 +136,13 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
       if (service !== bindings.service) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       bindings.assertParticipant?.();
       return { sourceContext: extra => executionHostSourceFromMeta(extra._meta, bindings.initializedClientName()),
+        closeManagementRequest: (extra, session) => {
+          if (!registeredControls || !native || bindings.initializedClientName() !== "bellteam")
+            throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          return executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
+            process_started_identity: native.started_identity, request_id: extra.requestId,
+            tool: "pty_close", target_session_id: session });
+        },
         activate: () => { registeredControls = true; } };
     },
     async dispatch(name, input, extra, body) {

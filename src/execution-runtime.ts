@@ -52,6 +52,7 @@ export interface ExecutionRuntimeBindings {
   observeNativeSessionsSync?(): unknown;
   observeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   observeExitedCreatedLaunchSync?(target: ExecutionLaunch): unknown;
+  closeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   observeDone(session: string, options: { cursor: number; operation_id?: string; steer?: string; timeout: 0 }): Promise<unknown>;
   // For a direct stdio transport only. Read once at factory construction, never
   // reinterpret an env change or an incoming registration as caller context.
@@ -71,7 +72,7 @@ export interface ExecutionRuntimeBindings {
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): ExecutionRuntime {
-  for (const name of ["observeCreatedLaunchSync", "observeExitedCreatedLaunchSync", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync"] as const)
+  for (const name of ["observeCreatedLaunchSync", "observeExitedCreatedLaunchSync", "closeCreatedLaunchSync", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync"] as const)
     if (bindings[name] !== undefined && typeof bindings[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const interruption = bindings.observeInterruptionSync;
   const selectInterruption = bindings.selectInterruptionSync, interruptKey = bindings.interruptKeySync;
@@ -90,6 +91,7 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
   };
   const created = bindings.observeCreatedLaunchSync, exited = bindings.observeExitedCreatedLaunchSync;
   return {
+    ...(bindings.closeCreatedLaunchSync ? { closeCreatedLaunchSync: (target: ExecutionLaunch) => bindings.closeCreatedLaunchSync!(executionLaunchSchema.parse(target)) } : {}),
     ...(exited ? { observeExitedCreatedLaunchSync: (target: ExecutionLaunch) => exited(executionLaunchSchema.parse(target)) } : {}),
     ...(created ? { observeCreatedLaunchSync: (target: ExecutionLaunch) => created(executionLaunchSchema.parse(target)) } : {}),
     ...(interruption ? { interruptionSync: (point: ExecutionPoint) => interruption(executionPointSchema.parse(point)) } : {}),

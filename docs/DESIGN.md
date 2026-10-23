@@ -110,6 +110,18 @@ TUIの準備判定、送信文の入力欄への残存、完了後の画面安�
 coreはnative画面取得、打鍵、session/metadata、起動コマンドとの対応を所有する。
 公開core入口と観測結果、判定回数・期限、既存の送信方針は維持する。
 
+harness別の画面の読みの振り分け（`agentPaneObservation`）と動作中の判定（`isAgentTuiBusy`）は同じmoduleが1か所で持ち、
+coreの観測（`pty_observe`）・起動準備・送信口・停止は`kind`を渡して呼ぶ。以前はClaudeとCursorの動作中判定だけ別の
+正規表現が残り、Claudeは会話欄に残った「esc to interrupt」を動作中と読んで、止まった席の`agent_configure`が入力待ちを
+待ち切れなかった。同じ画面を2つの読みで判断しない。
+入力欄への投入は`submitAgentComposerText`の1つの順序（貼付→Cursorは本文の反映の実測・他は短い間→Enter）を、
+起動時prompt（と設定の命令）・dispatch・差し込みの3つの送信口が共有する。dispatchと差し込みはnative admissionの枠の中で
+打ち、起動時promptと設定の命令は起動の受付が返った後の打鍵なので枠に入れない（既存の受付・unknownの数え方を変えない）。
+送った後の残存の確かめと、Cursorの一度のEnter再送（`retryCursorSubmitIfResidue`）は、送信口ごとの順序で呼ぶ
+（差し込みは待ち行列の操作の後）。再送の判断を2か所に書かない。
+席へ渡すAitermの環境変数は`agentEnvEntries`の1つの一覧から、POSIXの前置き（`agentEnvPrefix`）とWindowsのPowerShell行
+（`cursorPwshLaunchLine`）の両方を作る。名前と値の一覧とshell別の引用を分け、同じ値を2度定義しない。
+
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。

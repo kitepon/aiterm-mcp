@@ -644,6 +644,12 @@ export const CURSOR_COMPOSER_CONTENT_MARKER_RE = /^\s*(?:->|>|→)(?:\s|$)/;
 const CURSOR_FOLLOWUP_MARKER_RE = /(?:^|\n)\s*(?:→|->)\s*Add a follow-up\b/im;
 const CURSOR_START_PROMPT_MARKER_RE = /(?:^|\n)\s*(?:→|->)\s*Plan,\s*search,\s*build anything\s*(?:\n|$)/im;
 
+// Cursorは番が動いている間、足元に「ctrl+c to stop」を出す（実機採取）。動作中の印はこの1つの読みを、
+// 入力欄の観測・上限とhook拒否の新旧の見分け・coreの動作中判定が共有する。
+export function cursorTuiBusy(screen: string): boolean {
+  return /ctrl\+c to stop/i.test(screen);
+}
+
 export function cursorTuiReady(screen: string): boolean {
   if (CURSOR_FOLLOWUP_MARKER_RE.test(screen)) return true;
   // 入力欄の案内（Plan, search, build anything）はCursorの入力欄だけが出す文なので、見出し（Cursor Agent）が画面の外へ流れた後も
@@ -664,7 +670,7 @@ export function cursorUsageLimit(screen: string): { message: string } | null {
   const heading = [...clean.matchAll(/^[ \t]*Error:[ \t]*(You'?ve hit your usage limit)[ \t]*$/gim)].at(-1);
   if (!heading) return null;
   const after = clean.slice(heading.index! + heading[0].length);
-  if (/ctrl\+c to stop/i.test(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after) || CURSOR_START_PROMPT_MARKER_RE.test(after)
+  if (cursorTuiBusy(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after) || CURSOR_START_PROMPT_MARKER_RE.test(after)
     || after.split("\n").some(line => CURSOR_COMPOSER_CONTENT_MARKER_RE.test(line))) return null;
   const detail: string[] = [];
   for (const line of after.split("\n").slice(1)) {
@@ -686,7 +692,7 @@ export function cursorHookBlocked(screen: string): { message: string } | null {
   if (!hit) return null;
   const after = clean.slice(hit.index! + hit[0].length);
   // 拒否の後に新しいturnが動いている画面は、古い表示の名残として数えない。
-  if (/ctrl\+c to stop/i.test(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after)) return null;
+  if (cursorTuiBusy(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after)) return null;
   const lines = [hit[1].trim()];
   for (const line of after.split("\n").slice(1)) {
     if (!line.trim()) break;
@@ -703,7 +709,7 @@ const CURSOR_SPINNER_WORKING_RE = /^[ \t]*[⠀-⣿]+[ \t]+Working\b/m;
 
 export function cursorPromptHooksRunning(screen: string): boolean {
   const tail = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split("\n").slice(-32).join("\n");
-  return CURSOR_SPINNER_WORKING_RE.test(tail) && CURSOR_START_PROMPT_MARKER_RE.test(tail) && !/ctrl\+c to stop/i.test(tail);
+  return CURSOR_SPINNER_WORKING_RE.test(tail) && CURSOR_START_PROMPT_MARKER_RE.test(tail) && !cursorTuiBusy(tail);
 }
 
 export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
@@ -711,7 +717,7 @@ export function cursorPaneObservation(screen: string): import("../agent-shared.j
   if (cursorUsageLimit(tail)) return { state: "blocked", reason: "rate_limited" };
   const hookBlocked = cursorHookBlocked(tail);
   if (hookBlocked) return { state: "blocked", reason: "user_hook_blocked", detail: hookBlocked.message };
-  if (/ctrl\+c to stop/i.test(tail)) return { state: "busy", reason: "turn_running" };
+  if (cursorTuiBusy(tail)) return { state: "busy", reason: "turn_running" };
   if (cursorTuiReady(tail)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "unrecognized_screen" };
 }

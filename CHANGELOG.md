@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `agent_configure` reads a Claude Code seat's busy state with the same harness judgment as `pty_observe` and the ready gate. A stale "esc to interrupt" left in the conversation area no longer keeps a stopped seat waiting as if a turn were running.
+
 ## [0.61.9] - 2026-10-23
 
 ### Fixed

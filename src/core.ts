@@ -1,5 +1,5 @@
 import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_READY_POLL_MS,
-  isAgentTuiReady, isAgentTuiBusy, isAgentTuiIdleReady, waitAgentTuiReadyImpl,
+  isAgentTuiReady, isAgentTuiBusy, isAgentTuiIdleReady, agentPaneObservation, waitAgentTuiReadyImpl,
   detectAgentSubmitResidueImpl, waitCursorPromptVisibleImpl, settleAgentDoneScreenImpl,
   type AgentScreenSample, type AgentScreenSettleResult, type AgentTuiReadyWaitResult,
   type AgentSubmitResidueResult, type CursorPromptVisibleResult } from "./agent-screen-observation.js";
@@ -1282,7 +1282,7 @@ export function interruptSessionNow(name: string, expectedLaunchId?: string): Pt
   // observation, never repeated Ctrl+C or kill as an escalation.
   if (key === "C-c") {
     const screen = captureScreen(name, AGENT_TUI_READY_LINES);
-    const state = (meta.kind === "cursor" ? cursorPaneObservation(screen) : grokPaneObservation(screen)).state;
+    const state = agentPaneObservation(meta.kind, screen).state;
     if (state === "idle") return { session_id: name, outcome: "idle" };
     if (state !== "busy") throw new ExecutionError("EXECUTION_UNCONFIRMED");
   }
@@ -1861,9 +1861,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   const screen = captured.stdout;
   result.token_hint = meta ? paneTokenHint(screen) : null;
   if (meta && agent) {
-    const observation = meta.kind === "grok" ? grokPaneObservation(screen)
-      : meta.kind === "codex" ? codexPaneObservation(screen)
-      : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
+    const observation = agentPaneObservation(meta.kind, screen);
     result.state = observation.state; result.reason = observation.reason;
     if (agent.stopped === true || processSubtree(rows, agent.pid).some(row =>
       row.process_group_id === agent.process_group_id && row.stopped === true)) {
@@ -4481,32 +4479,62 @@ export interface InitialAgentPromptOpts {
   after_ready?: (name: string, meta: AgentMetadata) => Promise<void>;
 }
 
-async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
-  // 起動時の文にも、包みになる長さなら出所の1行を包みの外へ出す（ADR 0116）。
-  const prefaced = kind === undefined ? { body: text } : splitAgentPreface(kind, null, text, { defaultForWrapped: true });
-  send(name, prefaced.body, {
-    enter: false,
-    force: true,
-    raw: false,
-    mark: false,
-    rtk: false,
-    preserveAgentOperation: true,
-    bracketedPaste: true,
-    typedPreface: prefaced.typedPreface,
+/**
+ * 入力欄へ本文を貼り、Enterで送る。起動時prompt（と設定の命令）・dispatch・差し込みの3つの送信口が、この1つの順序を使う。
+ * Cursorは貼った本文が入力欄へ現れた実測をEnterの条件にする（冷間起動ではbracketed pasteの反映が250msを超える。
+ * 未反映のままEnterだけを失う競合を作らない）。他のharnessは、貼付直後のEnterの取り落としを避ける短い間を置く。
+ * 送った後の残存の確かめとCursorの一度の再送は、送信口ごとの順序（差し込みは待ち行列の操作の後）で呼ぶ側が行う。
+ */
+async function submitAgentComposerText(name: string, kind: AgentKind | undefined, body: string, o: {
+  force?: boolean;
+  raw?: boolean;
+  typedPreface?: string;
+  preserveAgentOperation: boolean;
+  // 貼付とEnterを包む枠。dispatchと差し込みはnative admissionの枠の中で打つ。起動時promptと設定の命令は、
+  // 起動の受付が返った後の打鍵なので枠に入れない（既存の受付とunknownの数え方を変えない）。
+  admission: "native" | "none";
+  // 貼付と同じ枠の中で、貼付の直前に行う控え（dispatchの送信境界の控えとClaudeの番の予約）。
+  beforePaste?: () => void;
+  // Cursorの入力欄へ本文が現れなかった時の文言の主語。
+  subject: string;
+}): Promise<void> {
+  const admit = async <T>(effect: () => T): Promise<T> =>
+    o.admission === "native" ? withExecutionNativeAdmission(name, effect) : effect();
+  await admit(() => {
+    o.beforePaste?.();
+    send(name, body, {
+      enter: false,
+      force: o.force,
+      raw: o.raw,
+      mark: false,
+      rtk: false,
+      preserveAgentOperation: o.preserveAgentOperation,
+      bracketedPaste: true,
+      typedPreface: o.typedPreface,
+    });
   });
   if (kind === "cursor") {
-    const visible = await waitCursorPromptVisible(name, text);
+    const visible = await waitCursorPromptVisible(name, body);
     if (!visible.visible) {
       throw new AitermError(
         `vendor=cursor session=${name}\n` +
-          "送信promptがCursorのcomposerへ反映されたことを確認できないため、Enterは送信していません。",
+          `${o.subject}がCursorの入力欄へ反映されたことを確認できないため、Enterは送信していません。`,
         2,
       );
     }
   } else {
     await sleep(AGENT_SUBMIT_DELAY_MS);
   }
-  sendKey(name, "Enter", { preserveAgentOperation: true });
+  await admit(() => sendKey(name, "Enter", { preserveAgentOperation: o.preserveAgentOperation }));
+}
+
+async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
+  // 起動時の文にも、包みになる長さなら出所の1行を包みの外へ出す（ADR 0116）。
+  const prefaced = kind === undefined ? { body: text } : splitAgentPreface(kind, null, text, { defaultForWrapped: true });
+  await submitAgentComposerText(name, kind, prefaced.body, {
+    force: true, raw: false, typedPreface: prefaced.typedPreface, preserveAgentOperation: true,
+    admission: "none", subject: "送信prompt",
+  });
 }
 
 export interface InitialAgentPromptResult {
@@ -4578,12 +4606,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     }
     ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
   }
-  if (!ready.ready) {
-    const state = meta.kind === "grok" ? grokPaneObservation(ready.lastScreen)
-      : meta.kind === "codex" ? codexPaneObservation(ready.lastScreen)
-      : meta.kind === "claude" ? claudePaneObservation(ready.lastScreen) : cursorPaneObservation(ready.lastScreen);
-    return { status: "blocked", reason: state.reason };
-  }
+  if (!ready.ready) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
   const live = observeSession(name);
   if (live.harness_alive !== true || live.harness_process === null || live.state !== "idle")
     return { status: "blocked", reason: live.reason };
@@ -4656,26 +4679,16 @@ async function sendInitialAgentPromptInLock(
     throw e;
   }
   let residue = await detectAgentSubmitResidue(name, meta.kind, promptText);
-  // Cursor現行UIは長いbracketed pasteの直後のEnterを取り落とすことがある。
-  // 初回promptには先行turnが無いため、本文がcomposerへ残り続ける実測がある時だけ
-  // 同じEnterを一度再送できる。通常dispatchへ再送を広げない。
+  // Cursor現行UIは長いbracketed pasteの直後のEnterを取り落とすことがある。本文が入力欄へ残り続ける実測がある時だけ、
+  // dispatchと同じ一度の再送（同じEnter）を行う。再送後も残る時は、起動時promptの失敗として返す。
+  residue = await retryCursorSubmitIfResidue(name, meta.kind, promptText, residue);
   if (meta.kind === "cursor" && residue.residue === true) {
-    sendKey(name, "Enter", { preserveAgentOperation: true });
-    residue = await detectAgentSubmitResidue(name, meta.kind, promptText);
-    if (residue.residue === true) {
-      setInitialPromptState(meta, "failed");
-      throw new AitermError(
-        `initial_prompt=failed vendor=cursor harness=${agentHarness(meta.kind)}\n` +
-          `起動時promptがCursorのcomposerへ残り、Enter再送後もturnを開始できませんでした。`,
-        2,
-      );
-    }
-  }
-  try {
-    assertAgentSubmitDelivered(name, meta.kind, residue);
-  } catch (e) {
     setInitialPromptState(meta, "failed");
-    throw e;
+    throw new AitermError(
+      `initial_prompt=failed vendor=cursor harness=${agentHarness(meta.kind)}\n` +
+        `起動時promptがCursorのcomposerへ残り、Enter再送後もturnを開始できませんでした。`,
+      2,
+    );
   }
   let delivery: InitialPromptDelivery = { status: "submitted_unconfirmed", reason: "start_unconfirmed", turn_started: null };
   const deadline = performance.now() + 3000;
@@ -4683,9 +4696,7 @@ async function sendInitialAgentPromptInLock(
   let screen = "";
   do {
     screen = captureScreen(name, AGENT_TUI_READY_LINES);
-    const state = meta.kind === "grok" ? grokPaneObservation(screen)
-      : meta.kind === "codex" ? codexPaneObservation(screen)
-      : meta.kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
+    const state = agentPaneObservation(meta.kind, screen);
     if (state.state === "busy") {
       delivery = { status: "started", reason: "turn_running", turn_started: true }; break;
     }
@@ -6200,9 +6211,7 @@ async function dispatchAgentTurnInLock(
         );
       }
       // 待たずに断るのは、応答が要る既知の画面（承認・確認のmodal）の時。どの画面で断ったかを残す。
-      const state = meta.kind === "grok" ? grokPaneObservation(ready.lastScreen)
-        : meta.kind === "codex" ? codexPaneObservation(ready.lastScreen)
-        : meta.kind === "claude" ? claudePaneObservation(ready.lastScreen) : cursorPaneObservation(ready.lastScreen);
+      const state = agentPaneObservation(meta.kind, ready.lastScreen);
       throw new AitermError(
         `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。` +
           "少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。" +
@@ -6225,45 +6234,23 @@ async function dispatchAgentTurnInLock(
   prepareSendText(dispatchText, { raw: o.raw });
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
-  await withExecutionNativeAdmission(name, () => {
-    captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
-      event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
-    recordInterimBoundary(meta, startOffset, operationId);
-    if (meta.kind === "claude") {
-      // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
-      // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
-      prepareSendText(text, { raw: o.raw });
-      if (operationId) {
-        reserveClaudeOperation(meta, operationId);
-      } else reserveAnonymousClaudeTurn(meta);
-    }
-    send(name, dispatchText, {
-      enter: false,
-      force: o.force,
-      raw: o.raw,
-      mark: false,
-      rtk: false,
-      preserveAgentOperation: meta.kind === "claude",
-      bracketedPaste: true,
-      typedPreface: prefaced.typedPreface,
-    });
+  await submitAgentComposerText(name, meta.kind, dispatchText, {
+    force: o.force, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
+    admission: "native", subject: "送信prompt",
+    beforePaste: () => {
+      captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
+        event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
+      recordInterimBoundary(meta, startOffset, operationId);
+      if (meta.kind === "claude") {
+        // durable／anonymousを分岐する前に同じsend preflightを通す。拒否されるpromptの
+        // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
+        prepareSendText(text, { raw: o.raw });
+        if (operationId) {
+          reserveClaudeOperation(meta, operationId);
+        } else reserveAnonymousClaudeTurn(meta);
+      }
+    },
   });
-  // Cursorの冷間起動ではbracketed pasteの反映が250msを超えることがある。本文がcomposerへ
-  // 現れた実測をsubmit条件にし、未反映のままEnterだけを失う競合を作らない。
-  if (meta.kind === "cursor") {
-    const visible = await waitCursorPromptVisible(name, dispatchText);
-    if (!visible.visible) {
-      throw new AitermError(
-        `vendor=cursor session=${name}\n` +
-          "送信promptがCursorのcomposerへ反映されたことを確認できないため、Enterは送信していません。",
-        2,
-      );
-    }
-  } else {
-    // Codex TUI は literal text 投入直後の Enter を取り落とすことがある。agent 経路だけ submit を分離する。
-    await sleep(AGENT_SUBMIT_DELAY_MS);
-  }
-  await withExecutionNativeAdmission(name, () => sendKey(name, "Enter", { preserveAgentOperation: meta.kind === "claude" }));
   let residue = await detectAgentSubmitResidue(name, meta.kind, dispatchText);
   // Cursorはcomposerへの貼付反映後でも最初のEnterを取り落とすことがある。本文残留を
   // 陽性観測した場合だけ同じEnterを一度再送し、再検査後も残る時は失敗として返す。
@@ -6489,28 +6476,10 @@ async function steerRunningTurn(
     ...(o.follow ? { follow: recordSteerPosition(meta, text) } : {}),
   };
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
-  const preserveAgentOperation = meta.kind === "claude";
-  await withExecutionNativeAdmission(name, () => send(name, text, {
-    enter: false,
-    force: true,
-    raw: o.raw,
-    mark: false,
-    rtk: false,
-    preserveAgentOperation,
-    bracketedPaste: true,
-    typedPreface: prefaced.typedPreface,
-  }));
-  if (meta.kind === "cursor") {
-    const visible = await waitCursorPromptVisible(name, text);
-    if (!visible.visible) {
-      throw new AitermError(
-        `vendor=cursor session=${name}\n差し込む文がCursorの入力欄へ反映されたことを確認できないため、Enterは送信していません。`, 2,
-      );
-    }
-  } else {
-    await sleep(AGENT_SUBMIT_DELAY_MS);
-  }
-  await withExecutionNativeAdmission(name, () => sendKey(name, "Enter", { preserveAgentOperation }));
+  await submitAgentComposerText(name, meta.kind, text, {
+    force: true, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
+    admission: "native", subject: "差し込む文",
+  });
   // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
   // 完了通知が差し込み前の回答で届いてしまう。待ち行列へ入ったことを確かめ、標準の「今すぐ送る」で現在turnへ移す。
   const queued = meta.kind === "grok" ? grokSteerQueued
@@ -6709,12 +6678,16 @@ function agentVendorSessionEnv(meta: AgentMetadata): [string, string][] {
   return meta.vendor_session_id ? [["AITERM_AGENT_VENDOR_SESSION_ID", meta.vendor_session_id]] : [];
 }
 
-/** Cursor用のagent環境変数（名前と値）。Windowsでは引用規則の違うPowerShell paneへ渡す。 */
-function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string[] = []): [string, string][] {
+/**
+ * 席へ渡すAitermの環境変数（名前と値）の唯一の一覧。呼び手が指定した継承分を先に置き、席の控えが無い時は継承分だけ。
+ * shell別の引用はここでは付けず、POSIXの前置き（agentEnvPrefix）とWindowsのPowerShell行（cursorPwshLaunchLine）が同じ一覧から作る。
+ */
+function agentEnvEntries(meta: AgentMetadata | null, sid: string, envVars: string[] = []): [string, string][] {
   const inherited = envVars.flatMap((name): [string, string][] => {
     const value = process.env[name];
     return value === undefined ? [] : [[name, value]];
   });
+  if (!meta) return inherited;
   return [
     ...inherited,
     ["AITERM_AGENT_KIND", meta.kind],
@@ -6731,30 +6704,12 @@ function cursorAgentEnvEntries(meta: AgentMetadata, sid: string, envVars: string
   ];
 }
 
+/** POSIX shellの起動行に前置する環境変数。Grokは自分の認証の正本と自動更新停止の値を、共通の一覧の前に置く。 */
 function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string[] = []): string {
-  const inherited = envVars.flatMap((name) => {
-    const value = process.env[name];
-    return value === undefined ? [] : [`${name}=${shq(value)}`];
-  });
-  const tokens = (() => {
-    if (!meta) return inherited;
-    const common = [
-      ...inherited,
-      `AITERM_AGENT_KIND=${shq(meta.kind)}`,
-      `AITERM_SESSION_ID=${shq(sid)}`,
-      `AITERM_AGENT_SESSION_ID=${shq(sid)}`,
-      `AITERM_AGENT_LAUNCH_ID=${shq(meta.launch_id)}`,
-      ...agentVendorSessionEnv(meta).map(([name, value]) => `${name}=${shq(value)}`),
-      `AITERM_AGENT_ROLE=${shq(meta.agent_role ?? "subagent")}`,
-      `AITERM_AGENT_PARENT_SESSION_ID=${shq(meta.parent_session_id ?? "host-root")}`,
-      `AITERM_AGENT_DEPTH=${shq(String(meta.delegation_depth ?? 1))}`,
-      `AITERM_AGENT_LINEAGE=${shq(meta.lineage ?? `host-root>${meta.kind}:${sid}`)}`,
-      `AITERM_AGENT_DELEGATION_ALLOWED=${shq(meta.delegation_allowed === true ? "true" : "false")}`,
-      `AITERM_STATE_BASE=${shq(runtimeStateBase())}`,
-    ];
-    if (meta.kind === "claude" || meta.kind === "codex" || meta.kind === "cursor") return common;
-    return [...grokEnvTokens(meta), ...common];
-  })();
+  const tokens = [
+    ...(meta?.kind === "grok" ? grokEnvTokens(meta) : []),
+    ...agentEnvEntries(meta, sid, envVars).map(([name, value]) => `${name}=${shq(value)}`),
+  ];
   return tokens.length ? tokens.join(" ") + " " : "";
 }
 
@@ -7031,7 +6986,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       launchNote = buildAgentLaunchNote(kind, model, effort, meta);
       let full: string;
       if (paneShell === "pwsh" && meta) {
-        full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
+        full = cursorPwshLaunchLine(cwd, agentEnvEntries(meta, sid, envVars),
           cursorPwshArgv(cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast), () => resolveWinPaneShell("bash")));
       } else {
         const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);

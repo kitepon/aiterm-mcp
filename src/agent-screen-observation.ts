@@ -1,11 +1,11 @@
 // Screen observations use supplied samples and clocks. They never create a
 // session, send text/keys, or mutate agent metadata; core owns those effects.
-import type { AgentKind } from "./agent-shared.js";
+import type { AgentKind, HarnessPaneObservation } from "./agent-shared.js";
 import { AitermError } from "./errors.js";
 import { grokTuiReady, grokTuiBusy, grokPaneObservation, grokLaunchBlockingDialog, assertGrokSandboxNotRejected, GROK_COMPOSER_MARKER_RE } from "./harnesses/grok.js";
 import { codexTuiReady, codexTuiBusy, codexPaneObservation, codexRateLimitModelSwitchDialog, CODEX_COMPOSER_MARKER_RE } from "./harnesses/codex.js";
-import { claudeTuiReady, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
-import { cursorTuiReady, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
+import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
+import { cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
 
 
 const AGENT_DONE_SETTLE_MIN_MS = 250;
@@ -52,6 +52,17 @@ export interface AgentTuiReadyWaitResult {
 let agentTuiReadyStableSamplesTestOverride: number | null = null;
 
 
+/**
+ * harness別の画面の読みは、この振り分けだけが持つ。coreの観測・起動準備・送信口は`kind`を渡して呼び、
+ * どのharnessの関数を呼ぶかを自分で選ばない。読みの中身（入力欄・動作中・承認待ちの印）は各harness moduleが所有する。
+ */
+export function agentPaneObservation(kind: AgentKind, screen: string): HarnessPaneObservation {
+  if (kind === "claude") return claudePaneObservation(screen);
+  if (kind === "codex") return codexPaneObservation(screen);
+  if (kind === "cursor") return cursorPaneObservation(screen);
+  return grokPaneObservation(screen);
+}
+
 export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
   if (kind === "claude") return claudeTuiReady(screen);
   if (kind === "codex") return codexTuiReady(screen);
@@ -59,27 +70,20 @@ export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
   return grokTuiReady(screen);
 }
 
-// Codex/Claude は実行中に「(esc to interrupt)」、Cursor は「Working」＋
-// 「ctrl+c to stop」を表示する（いずれも実機採取）。startup 側の処理（MCP initialize 等）が
-// 走ったまま古い composer がscrollbackに残る画面は入力受付とみなさない。
-// Grok は実機で `Waiting for response` / `Responding…` / `[stop]` を表示する。
+// 動作中の印は各harnessの判定を使う（agentPaneObservationがbusyを返す読みと同じ）。以前はClaudeとCursorだけ、ここに
+// 別の正規表現があった。Claudeは会話欄に残った「esc to interrupt」を動作中と読み、止まった席の設定替え（agent_configure）
+// が入力待ちを待ち続けていた。同じ画面を2つの読みで判断しない。
 export function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
-  if (kind === "cursor") return /ctrl\+c to stop/i.test(screen);
+  if (kind === "claude") return claudeTuiBusy(screen);
   if (kind === "codex") return codexTuiBusy(screen);
-  if (kind === "claude") return /esc to interrupt/i.test(screen);
-  if (kind === "grok") {
-    return grokTuiBusy(screen);
-  }
-  return false;
+  if (kind === "cursor") return cursorTuiBusy(screen);
+  return grokTuiBusy(screen);
 }
 
 // ready gate 用: 入力欄マーカーがあっても busy 表示中は ready と数えない。
 // frontend 推定（inferAgentFrontend）は「agent TUI が前面か」を見るだけなので isAgentTuiReady のまま。
 export function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
-  const observation = kind === "grok" ? grokPaneObservation(screen)
-    : kind === "codex" ? codexPaneObservation(screen)
-    : kind === "claude" ? claudePaneObservation(screen) : cursorPaneObservation(screen);
-  return observation.state === "idle";
+  return agentPaneObservation(kind, screen).state === "idle";
 }
 
 // 起動側が明示応答すべき既知UI。ここで自動承認せず、ready timeoutを待たずに

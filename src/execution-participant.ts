@@ -15,7 +15,7 @@ const functions = ["scope", "actor", "observeParentProcess", "observeSessionGene
 
 function snapshotRuntime(input: ParentProducerRuntime): ParentProducerRuntime {
   for (const name of functions) if (typeof input[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const optional = ["selectAuthSessionName", "observeAuthSessionGeneration", "observeNativeSessions", "closeExpectedSession", "observeActors", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner", "observeCreatedLaunchSync"] as const;
+  const optional = ["selectAuthSessionName", "observeAuthSessionGeneration", "observeNativeSessions", "closeExpectedSession", "observeActors", "observeInterruptionSync", "selectInterruptionSync", "interruptKeySync", "observeOriginOwner", "observeCreatedLaunchSync", "observeExitedCreatedLaunchSync"] as const;
   for (const name of optional) if (input[name] !== undefined && typeof input[name] !== "function")
     throw new ExecutionError("EXECUTION_UNSUPPORTED");
   // Capture function references before construction; later replacement of an

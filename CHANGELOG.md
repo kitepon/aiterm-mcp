@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Asynchronous agent launches wait for graph admission before their initial checks and their synchronous create/metadata/CLI input segment. CLI validation and readiness waits stay outside that mutex. A short competing writer cannot strand a managed shell between generation binding and CLI input; native effects are never retried.
+- Explicit native `pty_close` can recover a returned unknown launch only when the original native/server and managed generation still match, the raw initial prompt is absent, send remains unissued and the harness is confirmed exited. The close keeps the failed record and releases its slot only after native close and confirmed absence. Issued RPCs, live harnesses and uncertain input or identity remain blocked.
+
 ## [0.61.8] - 2026-10-23
 
 ### Fixed

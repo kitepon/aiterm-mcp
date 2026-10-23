@@ -1990,6 +1990,14 @@ export function selectExecutionAuthSessionName(): string { return "auth-" + rand
 /** Read-only proof for reconciling a created, empty launch. Inspect raw prompt
  * state: legacy/default normalization must never prove that input was absent. */
 export function observeExecutionCreatedLaunch(target: ExecutionLaunch): unknown {
+  return observeEmptyCreatedLaunch(target, true);
+}
+/** Explicit management close only. No generation enrollment or acceptance of
+ * the failed launch; an unknown/missing harness proof remains a refusal. */
+export function observeExecutionExitedCreatedLaunch(target: ExecutionLaunch): unknown {
+  return observeEmptyCreatedLaunch(target, false);
+}
+function observeEmptyCreatedLaunch(target: ExecutionLaunch, alive: boolean): unknown {
   target = executionLaunchSchema.parse(target);
   const unknown = () => { throw new ExecutionError("EXECUTION_UNCONFIRMED"); };
   const generation = () => {
@@ -2007,10 +2015,12 @@ export function observeExecutionCreatedLaunch(target: ExecutionLaunch): unknown 
   };
   generation();
   const native = read(), live = observeSession(target.session_id);
-  if (live.launch_id !== target.launch_id || live.harness_alive !== true || live.harness_process === null || live.state !== "idle") unknown();
+  if (live.launch_id !== target.launch_id || live.harness_alive !== alive
+    || (alive ? live.harness_process === null || live.state !== "idle"
+      : live.harness_process !== null || live.state !== "dead" || live.reason !== "harness_exited")) unknown();
   generation();
   if (!isDeepStrictEqual(read(), native)) unknown();
-  return { target, native, initial_prompt: "none", initial_prompt_delivery: null, harness_alive: true, ready: true };
+  return { target, native, initial_prompt: "none", initial_prompt_delivery: null, harness_alive: alive, ready: alive };
 }
 
 /** Private source-provenance snapshot. It deliberately omits screen, argv,
@@ -5752,12 +5762,12 @@ async function launchKeepingUserDefaults<T extends [string, string]>(
     mustWrite: (before: Buffer | null) => boolean;
     ready: (screen: string) => boolean;
   },
-  launch: () => T,
+  launch: () => T | Promise<T>,
 ): Promise<T> {
   return withUserConfigLock(configPath, async () => {
     const before = readFileOrNull(configPath);
     const mustWrite = o.mustWrite(before);
-    const launched = launch();
+    const launched = await launch();
     const started = performance.now();
     const deadline = started + (mustWrite ? LAUNCH_DEFAULT_MUST_WRITE_WAIT_MS : LAUNCH_DEFAULT_WAIT_MS);
     let aliveCheckedAt = started;
@@ -7200,6 +7210,14 @@ export function openAgent(
   } = {},
 ): [string, string] {
   assertExecutionContext(opts.session_name);
+  return prepareAgentLaunch(kind, opts)();
+}
+
+/** Resolve and validate the CLI before taking native admission. Only the
+ * returned synchronous creation/metadata/CLI segment shares the graph mutex.
+ * Public synchronous openAgent retains its existing immediate refusal contract.
+ */
+function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[1] = {}): () => [string, string] {
   const label = agentLabel(kind);
   // 前提検証は session を作る前に全部済ませる（失敗の残骸 session を作らない）。
   // model/effort → bin → cwd の順: model/effort 検証は CLI 不在の端末でも同じ結果になる（テスト可能性）。
@@ -7289,7 +7307,7 @@ export function openAgent(
       });
   if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
     requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
-    return existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
+    return () => existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
   }
   if (kind === "claude") assertClaudeAuthenticationReady(bin);
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
@@ -7324,103 +7342,105 @@ export function openAgent(
     assertCursorModelAvailable(bin, cwd ?? process.cwd(), model, effort, cursorFast);
   }
 
-  let sid: string;
-  let hint: string;
-  // WindowsのCursorだけはPowerShell 7 paneから起動する（理由はcursorPwshLaunchLine）。
-  const paneShell = isWin && kind === "cursor" && agentDone ? "pwsh" : "bash";
-  try {
-    [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
-  } catch (error) {
-    if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
-      requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
-      return existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
-    }
-    throw error;
-  }
-  let launchNote = "";
-  try {
-    const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
-    if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
-    const meta = withExecutionPreparation(sid, () => {
-      const meta = agentDone
-        ? kind === "claude"
-          ? createClaudeAgentMetadata(
-              sid,
-              cwd,
-              opts.prompt ? "pending" : "none",
-              launchOperationId,
-              launchRequestDigest,
-              lineageContext,
-              model,
-              effort,
-            )
-          : kind === "codex"
-          ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
-          : kind === "cursor"
-            ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
-            : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
-        : null;
-      if (meta) {
-        // Metadata constructors publish their internally generated launch ID.
-        // Stamp its exact native creator before binding and any later input.
-        if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
-        meta.agent_executable = bin;
-        // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
-        meta.fast = opts.fast_state === true;
-        meta.model = opts.base_model !== undefined ? opts.base_model : model;
-        // The new physical shell is already pinned by its actual create receipt.
-        // Validate it before publishing metadata, then bind this internally
-        // generated managed launch. Model arguments cannot select this ID.
-        writeAgentMetadata(meta);
-        agentMetadataNegativeCache.delete(sid);
-      }
-      return meta;
-    });
-    if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
-    launchNote = buildAgentLaunchNote(kind, model, effort, meta);
-    let full: string;
-    if (paneShell === "pwsh" && meta) {
-      full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
-        cursorPwshArgv(cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast), () => resolveWinPaneShell("bash")));
-    } else {
-      const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
-      const envPrefix = agentEnvPrefix(meta, sid, envVars);
-      full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
-    }
-    if (meta) agentLaunchLines.set(sid, full);
-    // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて素送信する。
-    send(sid, full, {
-      enter: true,
-      mark: false,
-      force: true,
-      rtk: false,
-      raw: true,
-      preserveAgentOperation: meta?.kind === "claude",
-    });
-  } catch (e) {
-    const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
-    // 起動コマンドを投入できなかった session は空のまま残る＝残骸を作らない。片付けてから元エラーを伝える。
+  return () => {
+    let sid: string;
+    let hint: string;
+    // WindowsのCursorだけはPowerShell 7 paneから起動する（理由はcursorPwshLaunchLine）。
+    const paneShell = isWin && kind === "cursor" && agentDone ? "pwsh" : "bash";
     try {
-      closeSessionInternal(sid, false);
-    } catch {
-      /* 片付け失敗より元エラーの伝達を優先 */
+      [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
+    } catch (error) {
+      if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
+        requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
+        return existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
+      }
+      throw error;
     }
-    throw failure;
-  }
-  const driveHint =
-    agentDone
-      ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-        `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
-        `Stopが来ない場合の解除はpty_close(${sid})を使う。`
-      : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-        `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;
-  return [
-    sid,
-    `${label} を session ${sid} で起動した。${launchNote}${agentDone ? "agent_done 待機が有効。" : ""}` +
-      `${agentDone ? " 通常のproject／user環境を共有し、aiterm所有の完了相関とsub-agent lineageだけを加算。" : ""}\n${hint}\n` +
-      driveHint +
-      `起動直後に増分 pty_read すると空/半描画になり得るので screen:true を使う。`,
-  ];
+    let launchNote = "";
+    try {
+      const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
+      if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
+      const meta = withExecutionPreparation(sid, () => {
+        const meta = agentDone
+          ? kind === "claude"
+            ? createClaudeAgentMetadata(
+                sid,
+                cwd,
+                opts.prompt ? "pending" : "none",
+                launchOperationId,
+                launchRequestDigest,
+                lineageContext,
+                model,
+                effort,
+              )
+            : kind === "codex"
+            ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
+            : kind === "cursor"
+              ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
+              : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
+          : null;
+        if (meta) {
+          // Metadata constructors publish their internally generated launch ID.
+          // Stamp its exact native creator before binding and any later input.
+          if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
+          meta.agent_executable = bin;
+          // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
+          meta.fast = opts.fast_state === true;
+          meta.model = opts.base_model !== undefined ? opts.base_model : model;
+          // The new physical shell is already pinned by its actual create receipt.
+          // Validate it before publishing metadata, then bind this internally
+          // generated managed launch. Model arguments cannot select this ID.
+          writeAgentMetadata(meta);
+          agentMetadataNegativeCache.delete(sid);
+        }
+        return meta;
+      });
+      if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
+      launchNote = buildAgentLaunchNote(kind, model, effort, meta);
+      let full: string;
+      if (paneShell === "pwsh" && meta) {
+        full = cursorPwshLaunchLine(cwd, cursorAgentEnvEntries(meta, sid, envVars),
+          cursorPwshArgv(cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast), () => resolveWinPaneShell("bash")));
+      } else {
+        const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
+        const envPrefix = agentEnvPrefix(meta, sid, envVars);
+        full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+      }
+      if (meta) agentLaunchLines.set(sid, full);
+      // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて素送信する。
+      send(sid, full, {
+        enter: true,
+        mark: false,
+        force: true,
+        rtk: false,
+        raw: true,
+        preserveAgentOperation: meta?.kind === "claude",
+      });
+    } catch (e) {
+      const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
+      // 起動コマンドを投入できなかった session は空のまま残る＝残骸を作らない。片付けてから元エラーを伝える。
+      try {
+        closeSessionInternal(sid, false);
+      } catch {
+        /* 片付け失敗より元エラーの伝達を優先 */
+      }
+      throw failure;
+    }
+    const driveHint =
+      agentDone
+        ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
+          `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
+          `Stopが来ない場合の解除はpty_close(${sid})を使う。`
+        : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
+          `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;
+    return [
+      sid,
+      `${label} を session ${sid} で起動した。${launchNote}${agentDone ? "agent_done 待機が有効。" : ""}` +
+        `${agentDone ? " 通常のproject／user環境を共有し、aiterm所有の完了相関とsub-agent lineageだけを加算。" : ""}\n${hint}\n` +
+        driveHint +
+        `起動直後に増分 pty_read すると空/半描画になり得るので screen:true を使う。`,
+    ];
+  };
 }
 
 
@@ -7451,7 +7471,8 @@ export async function openAgentWithInitialPrompt(
     fast?: boolean | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
-  assertExecutionContext(opts.session_name);
+  if (opts.session_name) await withExecutionNativeAdmission(opts.session_name, () => assertExecutionContext(opts.session_name));
+  else assertExecutionContext(opts.session_name);
   const mission = opts.prompt ?? null;
   const sourceSessionId = opts.throughline_source_session ?? null;
   const supplementFile = opts.throughline_supplement_file ?? null;
@@ -7499,12 +7520,16 @@ export async function openAgentWithInitialPrompt(
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
   const launch = (): Promise<[string, string]> => {
+    const admitted = async (): Promise<[string, string]> => {
+      const create = prepareAgentLaunch(kind, openOptions);
+      return opts.session_name ? withExecutionNativeAdmission(opts.session_name, create) : create();
+    };
     if (kind === "grok") {
       const configPath = grokUserConfigPath(realGrokHome());
       // Grokは起動完了の直後に書く（入力待ちと読める頃には書き終えている）。
       return launchKeepingUserDefaults(configPath, {
         restore: restoreGrokDefaults(configPath), written: grokDefaultsWritten, mustWrite: () => false, ready: grokTuiReady,
-      }, () => openAgent(kind, openOptions));
+      }, admitted);
     }
     if (kind === "cursor" && openOptions.model) {
       const configPath = cursorUserConfigPath(realCursorHome());
@@ -7513,9 +7538,9 @@ export async function openAgentWithInitialPrompt(
         restore: restoreCursorDefaults(configPath), written: cursorDefaultsWritten,
         mustWrite: (before) => { const config = parseJsonObject(before); return config !== null && "selectedModel" in config; },
         ready: cursorTuiReady,
-      }, () => openAgent(kind, openOptions));
+      }, admitted);
     }
-    return Promise.resolve().then(() => openAgent(kind, openOptions));
+    return admitted();
   };
   // 入力待ちになった席を、その席の中でfastへ切り替える（Claude Code・Codex）。出来なかった訳は返りへ入れ、起動は続ける。
   const switchAfterReady = async (name: string, meta: AgentMetadata): Promise<void> => {

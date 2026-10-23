@@ -453,6 +453,12 @@ unknown send枠を保持したまま既存core closeへ進み、native close成�
 旧callbackは未知/消失した元slotで拒否され、同IDの新launchへnative作用を発行できない。
 issued、管理close自体のunknown、親作用のslot、世代/native/serverの不明・交代は対象外。
 既存の送信・待機lockの拒否も維持し、他席やissuerの停止を復旧条件へ追加しない。
+返却済みunknown launchも、元native/server・managed世代が一致し、raw initial_prompt:none・初期配送なし・
+send:not_issuedで、harnessの終了を現在の同期primitiveが証明できる場合だけ、同じ明示管理closeを許す（ADR 0131）。
+受付時とnative作用直前にこの証拠を検査し、closeと不在確認後に該当slotを外す。元unknown recordを保ち、
+旧requestのlaunch/sendは再実行しない。生存harnessはreconcile_launchの対象として維持する。
+非同期launcherはCLIの検証をgraph mutex外で行い、実create→metadata公開→世代結合→CLI入力の同期区間を
+一度のnative admission内で通す。起動準備のawaitをmutex内に持ち込まず、待機後には通常の世代・停止・slot検査を行う。
 空起動の結果不明は明示 `agent_execution/reconcile_launch` で既存世代へ結合できる（ADR 0128）。
 対象は返却済みunknown launch、send:not_issued、元native/server stamp付きの単独slotだけ。
 同じmetadata transaction内のprivate同期primitiveで現在のnative/managed世代、生のinitial_prompt:none・初期配送なし、

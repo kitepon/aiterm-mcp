@@ -740,6 +740,8 @@ POSIXの明示native入口でも、`agent_auth`の名前なし開始、認証済
 
 この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。受付済みでも本文未発行なら、照合を繰り返すたびに現在世代・入力待ち・競合操作なしを再確認する。保存した受付結果だけで後の世代を確認済みとしない。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
 
+同じ明示入口で、返却済みunknown launchのCLIが終了している場合は、元native/server・managed世代とraw初期promptなし・本文未発行・harness終了を同期検証できた時だけ通常の`pty_close`で対象席を閉じられる。成功と不在を確認して該当枠だけを外し、元unknown requestを保持する。発行中RPC、生存harness、入力や世代の欠測は拒否する。旧requestを再実行せず、必要な後続は新しい通常要求として行う。
+
 
 ## 人が覗く
 

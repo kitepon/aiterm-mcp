@@ -17,7 +17,7 @@ import { nativeInterruptionObservationSchema, interruptionIdentity, interruption
 import { interruptionKeyReference } from "./execution-interruption.js";
 import { isDeepStrictEqual } from "node:util";
 import { executionActorSchema, type ExecutionActor } from "./execution-inventory.js";
-import { createdLaunchObservationSchema } from "./execution-launch-recovery.js";
+import { createdLaunchObservationSchema, exitedCreatedLaunchObservationSchema } from "./execution-launch-recovery.js";
 import { executionCheckpoint } from "./execution-checkpoint.js";
 
 type Observation = { state: "absent" } | { state: "unknown" } | { state: "present"; launch: ExecutionLaunch | null };
@@ -29,6 +29,7 @@ export interface ExecutionRuntime {
   observeSync?(sessionId: string): Observation;
   nativeSessionSync?(sessionId: string): ({ state: "present"; native_id: string } | { state: "absent" | "unknown" }) & { server?: ExecutionNativeServer | null };
   observeCreatedLaunchSync?(target: ExecutionLaunch): unknown;
+  observeExitedCreatedLaunchSync?(target: ExecutionLaunch): unknown;
   completion(point: ExecutionPoint): Promise<{ state: "completed" | "interrupted" | "unknown"; fence: "closed" | "unknown" }>;
   close(expected: ExecutionLaunch): Promise<void>;
   // Only adapters covering the execution's actual admission paths may return
@@ -72,24 +73,31 @@ function find(state: ExecutionState, request: ExecutionRequest): ExecutionRecord
   return record;
 }
 const managementClose = (request: ExecutionRequest): boolean => request.kind === "mcp" && request.tool === "pty_close";
-/** Only a returned, unknown send may be displaced by an explicit close of
- * that exact launch. Issued work, management/parent slots and other generations
- * remain blockers. The record is never turned into accepted or not_sent.
+/** A returned unknown send, or an empty exited created launch with additional
+ * native proof, may be displaced by explicit close of that exact generation.
+ * Issued work and other generations remain blockers; failed records are kept.
  */
-function recoverableSends(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null) {
+function recoverableCloseSlots(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null) {
   if (!managementClose(request) || expected === null) return [];
   return state.slots.filter(slot => {
-    if (slot.session_id !== session || slot.expected_launch_id !== expected || slot.stage !== "send"
+    if (slot.session_id !== session || slot.expected_launch_id !== expected || !["send", "launch"].includes(slot.stage)
       || slot.state !== "unknown" || !slot.request || same(slot.request, request)) return false;
-    if (slot.request.kind === "mcp" && !["pty_send", "claude_turn.issue"].includes(slot.request.tool)) return false;
     const original = state.records.find(record => same(record.reservation.request, slot.request));
+    if (slot.stage === "launch") return !!original && !!slot.created_native_id && !!slot.created_server
+      && (slot.request.kind !== "mcp" || slot.request.tool === "agent_launch")
+      && original.operations.launch === "unknown" && original.operations.send === "not_issued"
+      && original.relation.phase === "submitted_unknown" && original.relation.completion === "unknown"
+      && original.relation.lifecycle === "tracking" && !openParentEffect(state, slot.request)
+      && original.relation.target?.boundary === null
+      && same(original.relation.target.launch, { session_id: session, launch_id: expected });
+    if (slot.request.kind === "mcp" && !["pty_send", "claude_turn.issue"].includes(slot.request.tool)) return false;
     return original?.operations.send === "unknown" && !["issued", "unknown"].includes(original.operations.launch)
       && original.relation.phase === "submitted_unknown" && original.relation.completion === "unknown"
       && same(original.relation.target?.launch, { session_id: session, launch_id: expected });
   });
 }
 function targetBlocked(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null): boolean {
-  const recoverable = recoverableSends(state, request, session, expected);
+  const recoverable = recoverableCloseSlots(state, request, session, expected);
   return state.slots.some(slot => slot.session_id === session && !recoverable.includes(slot));
 }
 function view(state: ExecutionState, record: ExecutionRecord): ExecutionRecord {
@@ -414,13 +422,25 @@ export class ExecutionService {
     if (!this.store.transactionSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return this.store.transactionSync(state => {
       const record = find(state, request), target = record.reservation.target;
-      if (!recoverableSends(state, request, target.session_id, target.expected_launch_id).length) return undefined;
+      if (!recoverableCloseSlots(state, request, target.session_id, target.expected_launch_id).length) return undefined;
       if (record.operations.send !== "preparing" || targetBlocked(state, request, target.session_id, target.expected_launch_id))
         throw new ExecutionError("EXECUTION_UNCONFIRMED");
       const native = this.runtime.nativeSessionSync?.(target.session_id);
       if (native?.state !== "present" || !native.server) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+      this.proveExitedLaunchClose(state, request, target.session_id, target.expected_launch_id, native);
       return native.native_id;
     }, { readOnly: true });
+  }
+  private proveExitedLaunchClose(state: ExecutionState, request: ExecutionRequest, session: string, expected: string | null,
+    native: { native_id: string; server?: ExecutionNativeServer | null }): void {
+    const launches = recoverableCloseSlots(state, request, session, expected).filter(slot => slot.stage === "launch");
+    if (!launches.length) return;
+    if (!expected || !this.runtime.observeExitedCreatedLaunchSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+    const target = { session_id: session, launch_id: expected };
+    const proof = exitedCreatedLaunchObservationSchema.safeParse(this.runtime.observeExitedCreatedLaunchSync(target));
+    if (!proof.success || !same(proof.data.target, target) || proof.data.native.native_id !== native.native_id
+      || !same(proof.data.native.server, native.server) || launches.some(slot => slot.created_native_id !== native.native_id
+        || !same(slot.created_server, native.server))) throw new ExecutionError("EXECUTION_UNCONFIRMED");
   }
   verifyCreationServer(metaInput: unknown, expected: ExecutionNativeServer | null): void {
     const { request } = executionRefMetaSchema.parse(metaInput);
@@ -654,11 +674,12 @@ export class ExecutionService {
         throw new ExecutionError("EXECUTION_UNCONFIRMED");
       if (deferred) {
         const target = record.reservation.target;
-        if (recoverableSends(state, request, target.session_id, target.expected_launch_id).length) {
+        if (recoverableCloseSlots(state, request, target.session_id, target.expected_launch_id).length) {
           if (targetBlocked(state, request, target.session_id, target.expected_launch_id)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
           this.expectTarget(await this.runtime.observe(target.session_id), target.expected_launch_id, target.session_id);
           const native = this.runtime.nativeSessionSync?.(target.session_id);
           if (native?.state !== "present" || !native.server) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          this.proveExitedLaunchClose(state, request, target.session_id, target.expected_launch_id, native);
           expectedCloseNative = { native_id: native.native_id, server: structuredClone(native.server) };
         }
         record.operations[stage] = "preparing";
@@ -721,6 +742,7 @@ export class ExecutionService {
           }
           const current = this.runtime.observeSync!(slot.session_id);
           checkCloseNative(slot.session_id);
+          if (expectedCloseNative) this.proveExitedLaunchClose(state, request, slot.session_id, slot.expected_launch_id, expectedCloseNative);
           if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
           if (slot.created_native_id) {
             const native = this.runtime.nativeSessionSync?.(slot.session_id);
@@ -757,6 +779,7 @@ export class ExecutionService {
         const current = this.runtime.observeSync!(target.session_id);
         this.expectTarget(current, expected, target.session_id);
         checkCloseNative(target.session_id);
+        if (expectedCloseNative) this.proveExitedLaunchClose(state, request, target.session_id, expected, expectedCloseNative);
         if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
         if ((stage === "launch" && current.state !== "absent") || (stage === "send" && current.state !== "present"))
           throw new ExecutionError("EXECUTION_CONFLICT");
@@ -845,7 +868,7 @@ export class ExecutionService {
         // Actual management close plus confirmed absence releases only these
         // failed send admissions. Old callbacks still fail their missing-slot
         // guard, and their records remain unknown and cannot be invoked again.
-        const recovered = recoverableSends(state, request, slot.session_id, expected);
+        const recovered = recoverableCloseSlots(state, request, slot.session_id, expected);
         state.slots = state.slots.filter(value => !recovered.includes(value));
         this.interruptRelations(state, targetPoint.launch);
       }

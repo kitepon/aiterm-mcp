@@ -7,3 +7,6 @@ export const createdLaunchObservationSchema = z.object({
   initial_prompt: z.literal("none"), initial_prompt_delivery: z.null(),
   harness_alive: z.literal(true), ready: z.literal(true),
 }).strict();
+export const exitedCreatedLaunchObservationSchema = createdLaunchObservationSchema.extend({
+  harness_alive: z.literal(false), ready: z.literal(false),
+});

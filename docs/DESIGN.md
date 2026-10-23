@@ -446,6 +446,10 @@ ADR 0074（repositoryの`docs/adr/0074-agent-model-catalog.md`）。
 境界失敗は明示errorにする。retry、別model、別harness、別backendへ自動fallbackしない。
 stale send lockは並行processとのABAを避けるため自動削除せず、公開APIでは対象sessionを`pty_close`して
 同じIDで再作成する。全session一括停止は公開しない。
+実行ラッパーの要求参照の検証とMCP receipt整形は`execution-tools.ts`、native作用の進行は
+`execution-invocation.ts`が所有する。実行・保存の判断は既存`ExecutionService`へ委ねる。
+receiptの観測は、通常経路ではbody返却直後、deferred経路ではnative frameの正常返却後に行う。
+その後の結合失敗でも観測済みreceiptを保持し、frame内のnative拒否を成功へ変換しない。
 POSIXの明示native execution構成では、返却済みsendのunknown枠が対象席の管理closeまで
 永久に拒否しないよう、通常`pty_close`だけを同じ期待launch/native IDで受付できる。
 unknown send枠を保持したまま既存core closeへ進み、native close成功と席の不在を確認した後だけ

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 // 公開本文64KiBのBase64に加え、UTF-8初期化文・scriptblock構文・paste markerを含む。
-// 最大本文の変換増分は現在336byte。本文の公開上限は変えず、内部の包みを512byte確保する。
+// 最大本文の変換増分は336byte以内。本文の公開上限は変えず、内部の包みを512byte確保する。
 const MAX_PAYLOAD_BYTES = Math.ceil(64 * 1024 / 3) * 4 + 512;
 const PTY_CHUNK_BYTES = 256;
 const MAX_FINAL_DRAIN_MS = 3_000;

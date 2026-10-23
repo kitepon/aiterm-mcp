@@ -648,6 +648,23 @@
       "fetched": "2026-10-23"
     },
     {
+      "slug": "psmux-338-session-registry",
+      "topic": "backends",
+      "title": "psmux v3.3.8 session registry and cleanup",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/v3.3.8/src/session.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-session-registry.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "registry"
+      ],
+      "summary": "Pinned registry ownership and cleanup source for synthetic fixture correctness.",
+      "relevance": "Identify the registry schema and scope of read-only query side effects without using real records.",
+      "chars": 103738,
+      "fetched": "2026-10-23"
+    },
+    {
       "slug": "psmux-features-doc",
       "topic": "backends",
       "title": "psmux features — server persistence, control mode, tmux compatibility",

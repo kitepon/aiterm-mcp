@@ -985,3 +985,22 @@ test("差し込み: GrokとCursorの待ち行列表示を画面末尾だけで�
   assert.equal(core.__testSteerQueued("cursor", cursorQueued), true);
   assert.equal(core.__testSteerQueued("cursor", " ⠘⠣ Working\n  → Add a follow-up\n  ctrl+c to stop\n  Auto · 5.8%"), false);
 });
+
+// 最後の席を閉じた直後のmacOSは、serverが片付けを終える前の一覧を「server exited unexpectedly」で返す（2026-10-23の全体試験で2件）。
+test("pty_list: server片付け中の一覧は短く読み直し、片付けが終われば空、読み直しても分からなければ今までどおり誤り", () => {
+  const exiting = { code: 1, stdout: "", stderr: "server exited unexpectedly" };
+  const gone = { code: 1, stdout: "", stderr: "no server running on /tmp/aiterm-test/default" };
+  let calls = 0;
+  const settles = () => { calls++; return calls < 3 ? exiting : gone; };
+  assert.deepEqual(core.listSessionsResult([], settles).sessions, []);
+  assert.equal(calls, 3, "片付けが終わった時点で読み直しを止める");
+  let stuck = 0;
+  assert.throws(() => core.listSessionsResult([], () => { stuck++; return exiting; }),
+    /セッション一覧を取得できません: server exited unexpectedly/u, "読み直しても分からなければ空へ丸めない");
+  assert.ok(stuck > 1 && stuck <= 30, `上限の中で読み直す: ${stuck}`);
+  const other = { code: 1, stdout: "", stderr: "error connecting to /tmp/aiterm-test/default (Permission denied)" };
+  let once = 0;
+  assert.throws(() => core.listSessionsResult([], () => { once++; return other; }), /Permission denied/u);
+  assert.equal(once, 1, "別の失敗は読み直さない");
+  assert.equal(core.listSessionsResult([], () => ({ code: 0, stdout: "s1\tbash\t0\t80\t24\n", stderr: "" })).sessions.length, 1);
+});

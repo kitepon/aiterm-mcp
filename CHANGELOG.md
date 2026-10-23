@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `agent_configure` reads a Claude Code seat's busy state with the same harness judgment as `pty_observe` and the ready gate. A stale "esc to interrupt" left in the conversation area no longer keeps a stopped seat waiting as if a turn were running.
+- `pty_list` and `pty_observe` re-read the tmux session listing for up to 500 ms when the server reports `server exited unexpectedly`, which macOS returns right after the last session closes and before the server finishes exiting. If the listing still cannot be read, the error is returned as before.
 
 ## [0.61.9] - 2026-10-23
 

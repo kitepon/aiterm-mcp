@@ -283,7 +283,9 @@ const MAX_SEND_BYTES = 64 * 1024;
 // UTF-8境界を守って小さいtmux client roundtripに分け、各回にserver event loopがPTYへdrainできる境界を作る。
 const PTY_PASTE_CHUNK_BYTES = 256;
 const PTY_PASTE_CHUNK_PAUSE_MS = 10;
-const PTY_PASTE_PAUSE_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+// 同期処理の中の短い間（paste chunkの間、server片付け中の一覧の読み直し）。eventループを進めずに待つ。
+const SYNC_PAUSE_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+function pauseSync(ms: number): void { Atomics.wait(SYNC_PAUSE_BUFFER, 0, 0, ms); }
 const SESSION_SEND_LOCK_WAIT_MS = isWin ? 130_000 : 10_000;
 const SESSION_SEND_LOCK_POLL_MS = 25;
 // 同じagent sessionへの送信が重なった時に、前の1通を待つ上限（ADR 0088）。
@@ -1180,14 +1182,14 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
           );
         }
         if (i + 1 < chunks.length) {
-          Atomics.wait(PTY_PASTE_PAUSE_BUFFER, 0, 0, PTY_PASTE_CHUNK_PAUSE_MS);
+          pauseSync(PTY_PASTE_CHUNK_PAUSE_MS);
         }
       }
     };
     if (o.typedPreface !== undefined) {
       // 前置きは貼り付けの印なしで入れる。本文は続けて貼る。前置きだけが入って本文が失敗した時は、入力欄に前置きが残る。
       writePty(o.typedPreface, false, "（前置き）");
-      Atomics.wait(PTY_PASTE_PAUSE_BUFFER, 0, 0, PTY_PASTE_CHUNK_PAUSE_MS);
+      pauseSync(PTY_PASTE_CHUNK_PAUSE_MS);
       try {
         writePty(text, !!o.bracketedPaste, "");
       } catch (error) {
@@ -1992,13 +1994,26 @@ export function observeExecutionParentProcess(name: string): unknown {
   });
 }
 
-export function listSessionsResult(envKeys: string[] = []): {
+// 最後の席を閉じた直後は、serverが自分の片付けを終える前に一覧を読むと「server exited unexpectedly」で返る
+// （macOS、2026-10-23の全体試験で2件。「no server running」になるのは片付けの後）。一覧は読むだけの観測なので、
+// この文言の時だけ短い間を置いて読み直す。読み直しても分からなければ、今までどおり誤りで返す（空へ丸めない）。
+const SESSION_LIST_EXITING_RETRY_MS = 500;
+const SESSION_LIST_EXITING_POLL_MS = 20;
+const SESSION_LIST_SERVER_EXITING_RE = /server exited unexpectedly/i;
+
+export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): {
   schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
 } {
   for (const key of envKeys) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_keysの環境変数名が不正です", 2);
   }
-  const r = tmux("list-sessions", "-F", "#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}");
+  const list = () => runTmux("list-sessions", "-F", "#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}");
+  let r = list();
+  for (const deadline = performance.now() + SESSION_LIST_EXITING_RETRY_MS;
+    r.code !== 0 && SESSION_LIST_SERVER_EXITING_RE.test(r.stderr) && performance.now() < deadline;) {
+    pauseSync(SESSION_LIST_EXITING_POLL_MS);
+    r = list();
+  }
   const sessions: ListedSession[] = [];
   if (r.code !== 0 && !/no server running|No such file or directory/i.test(r.stderr))
     throw new AitermError("セッション一覧を取得できません: " + r.stderr.trim(), 2);

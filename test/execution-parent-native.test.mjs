@@ -69,7 +69,8 @@ test('stop can finish while an emit is only preparing; its late callback cannot 
   release.resolve(); assert.equal((await pending).error.effect, 'not_started'); assert.equal(effects, 0);
 });
 test('stop drains an issued emit phase and finish cannot retire the relation while its native slot is open', { skip: posixCheckpoint }, async () => {
-  const f = await fixture(), entered = pause(), release = pause(); let effects = 0;
+  // The drain bound must outlive this test's own release; a loaded host (macOS, 2026-10-23) fired the 2ms check after the 60ms default had expired.
+  const f = await fixture(5000), entered = pause(), release = pause(); let effects = 0;
   const pending = f.native.run(id, 'emit', endpoint, async (_, issue) => {
     issue(); effects++; entered.resolve(); await release.promise; return 'emitted';
   });

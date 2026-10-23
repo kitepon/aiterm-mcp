@@ -8,7 +8,7 @@ const support = await fromRoot('test/core-agent-support.mjs');
 const runtime = await fromRoot('dist/tmux-runtime.js');
 const { core, withFakeCodexHome, argvPrinterBin, fakeClaudeBin, sessionLogPath } = support;
 assert.equal(process.platform, 'win32');
-const result = { schema: 'aiterm.windows-agent-startup-probe.v1', cases: [] };
+const result = { schema: 'aiterm.windows-agent-startup-probe.v1', mode: process.argv[2] ?? 'normal', cases: [] };
 const quote = s => "'" + s.replaceAll('\\', '/').replaceAll("'", "'\\''") + "'";
 const marker = path.join(process.env.TMPDIR, 'fixture-invoked.txt');
 for (const file of [argvPrinterBin, fakeClaudeBin]) {
@@ -55,7 +55,7 @@ async function run(label, kind, options) {
     if (sid) try { core.closeSession(sid); } catch (error) { row.cleanupError = error.message; }
   }
 }
-if (process.env.AITERM_STARTUP_PROBE_MODE === 'delayed') {
+if (process.argv[2] === 'windows-startup-delayed') {
   const body = fs.readFileSync(argvPrinterBin, 'utf8');
   fs.writeFileSync(argvPrinterBin, body.replace("for arg do", "sleep 2\nfor arg do"));
   await withFakeCodexHome(async () => { await run('codex-delayed-output', 'codex', { model: 'gpt-5.6-terra' }); });

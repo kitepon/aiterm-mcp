@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.7] - 2026-10-23
+
 ### Fixed
 
 - Native host `agent_auth` now admits automatic-name and explicit starts, authenticated no-op starts, session status/onboarding, absent-session receipts and cancellation through the existing v1 contract. Authentication PTYs retain their actual creation native/server identity and generation; only those proven PTYs accept ref-less host input/keys. The dispatcher uses the serving SDK RPC identity, without synthetic delivery references or read-only downgrade.
@@ -2751,7 +2753,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.7...HEAD
+[0.61.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.6...v0.61.7
 [0.61.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.5...v0.61.6
 [0.61.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.4...v0.61.5
 [0.61.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.3...v0.61.4

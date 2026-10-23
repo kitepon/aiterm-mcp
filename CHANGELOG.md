@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.10] - 2026-10-23
+
 ### Fixed
 
 - Managed native session listings re-observe only an exact `server exited unexpectedly` failure for up to 500 ms. They still require scoped absence evidence or a valid native listing, retain unknown on ambiguous results, and preserve the existing issued slot and generation checks without repeating native effects.
@@ -2776,7 +2778,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...HEAD
+[0.61.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...v0.61.10
 [0.61.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.8...v0.61.9
 [0.61.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.7...v0.61.8
 [0.61.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.6...v0.61.7

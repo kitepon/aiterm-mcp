@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -18,9 +18,9 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe'
+    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate'
     env:
-      PRODUCT_SOURCE: 47674d4c942473a00117353a26d436feaf291bb5
+      PRODUCT_SOURCE: 7dddb508c2b75217644e4f7180d42d921ef1c87d
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 47674d4c942473a00117353a26d436feaf291bb5
+          ref: 7dddb508c2b75217644e4f7180d42d921ef1c87d
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -117,6 +117,12 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test --test-name-pattern='Windows PowerShellの公開64KiB' test/tmux-runtime.test.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-argv-gate') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
           } else {
             $env:PRODUCT_CI_TEST_SCOPE = 'all'
             node scripts/run-product-ci-tests.mjs
@@ -130,14 +136,14 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 47674d4c942473a00117353a26d436feaf291bb5
+          ref: 7dddb508c2b75217644e4f7180d42d921ef1c87d
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = 47674d4c942473a00117353a26d436feaf291bb5
+          test "$(git rev-parse HEAD)" = 7dddb508c2b75217644e4f7180d42d921ef1c87d
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates

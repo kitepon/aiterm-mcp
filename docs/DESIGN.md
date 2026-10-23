@@ -458,6 +458,8 @@ issued、管理close自体のunknown、親作用のslot、世代/native/server�
 同じmetadata transaction内のprivate同期primitiveで現在のnative/managed世代、生のinitial_prompt:none・初期配送なし、
 harness生存とidleを照合する。既存recordのlaunchをaccepted、targetを当該世代へ結合し、該当slotだけを外す。
 これは現在世代の明示採用で、失われたRPC receiptの復元ではない。本文・初期prompt・claim・nativeには作用しない。
+同じaccepted targetへの再照合もsend:not_issuedなら現在のmanaged世代・生の未入力状態・入力待ちを再確認し、
+同じsessionへの競合slotや親の未確定作用があれば拒否する。保存済みacceptedを後の世代の不明解除の証拠にしない。
 issued、入力済み・不明、停止、別slot、世代/native/serverの不一致は拒否。後続sendは元source世代を含め通常受付を通る。
 遅着した元callbackはまだ所有するissued stage/slotがある時だけunknownを書け、照合後や別stageを上書きしない。
 native handlerのisErrorは元の本文を保持し、`aiterm/execution_error`のcode/effectを併記する。

@@ -873,7 +873,21 @@ export class ExecutionService {
   private async reconcileLaunch(args: ExecutionReconcileLaunch): Promise<ExecutionRecord> {
     return this.store.transaction(state => {
       const record = find(state, args.request), relation = record.relation;
-      if (record.operations.launch === "accepted" && same(relation.target?.launch, args.target)) return view(state, record);
+      if (record.operations.launch === "accepted" && same(relation.target?.launch, args.target)) {
+        // A saved accepted receipt is historical. Before a caller can use an
+        // empty launch to resume input, prove that this generation is still
+        // present and no later operation owns the same session slot.
+        if (record.operations.send === "not_issued") {
+          if (record.stopping || stopped(state, args.target) || stopped(state, relation.source?.launch)
+            || interruptionBlocksRequest(state, args.request)) throw new ExecutionError("EXECUTION_STOPPING");
+          if (state.slots.some(slot => slot.session_id === args.target.session_id) || openParentEffect(state, args.request))
+            throw new ExecutionError("EXECUTION_UNCONFIRMED");
+          if (!this.runtime.observeCreatedLaunchSync) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+          const parsed = createdLaunchObservationSchema.safeParse(this.runtime.observeCreatedLaunchSync(args.target));
+          if (!parsed.success || !same(parsed.data.target, args.target)) throw new ExecutionError("EXECUTION_UNCONFIRMED");
+        }
+        return view(state, record);
+      }
       if (record.operations.launch === "issued") throw new ExecutionError("EXECUTION_BUSY");
       if (record.stopping || stopped(state, args.target) || stopped(state, relation.source?.launch)
         || interruptionBlocksRequest(state, args.request)) throw new ExecutionError("EXECUTION_STOPPING");

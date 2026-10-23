@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Repeating empty-launch reconciliation now rechecks the current managed generation, no-input readiness and competing session operations before returning an accepted launch with an unissued send. A historical accepted receipt cannot authorize clearing a newer generation's launch uncertainty. Rejection preserves the existing graph and issues no native input.
+
 ## [0.61.7] - 2026-10-23
 
 ### Fixed

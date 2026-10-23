@@ -738,7 +738,7 @@ BellTeamのmodel・effort・fast変更も、既存session世代に結合したna
 
 POSIXの明示native入口でも、`agent_auth`の名前なし開始、認証済みで何も起こさない開始、既存v1の確認・初回案内・取消を受け付ける。認証PTYは実際の作成元nativeと世代へ結合する。BellTeamの参照なし入力・キーは、この証拠がある認証PTYにだけ許可し、通常agentの本文には配送参照を引き続き必要とする。作成証拠のない旧認証metadataを自動登録しない。
 
-この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
+この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。受付済みでも本文未発行なら、照合を繰り返すたびに現在世代・入力待ち・競合操作なしを再確認する。保存した受付結果だけで後の世代を確認済みとしない。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
 
 
 ## 人が覗く

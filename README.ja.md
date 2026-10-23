@@ -516,6 +516,7 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 登録していない値と未設定値はnull。
 一覧の`aiterm.pty-list-result.v1`は`observed_at`と`sessions`を持ち、各行に`session_id`、`current_command`、
 `attached`、`width`、`height`、`harness`、`environment`を返す。従来のtextも維持する。
+最後のsessionを閉じた直後は、終了中のserverの一覧を最長500msで再観測する場合がある。管理されたnative操作は、正常一覧または同socketの厳密な不在を確認できなければunknownを保つ。closeや送信は再実行しない。
 
 `pty_observe({ session_id, cursor? })`は`aiterm.pty-observe-result.v1`で`exists`、`observed_at`、
 `state`（busy／idle／blocked／dead／missing／unknown）、`reason`、`pane_alive`、`harness_alive`を返す。

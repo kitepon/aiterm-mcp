@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Managed native session listings re-observe only an exact `server exited unexpectedly` failure for up to 500 ms. They still require scoped absence evidence or a valid native listing, retain unknown on ambiguous results, and preserve the existing issued slot and generation checks without repeating native effects.
 - `agent_configure` reads a Claude Code seat's busy state with the same harness judgment as `pty_observe` and the ready gate. A stale "esc to interrupt" left in the conversation area no longer keeps a stopped seat waiting as if a turn were running.
 - `pty_list` and `pty_observe` re-read the tmux session listing for up to 500 ms when the server reports `server exited unexpectedly`, which macOS returns right after the last session closes and before the server finishes exiting. If the listing still cannot be read, the error is returned as before.
 

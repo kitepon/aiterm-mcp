@@ -81,7 +81,8 @@ function fixture(t, kind = 'codex') {
     if (args.length === 1 && args[0] === '-V') return ok('tmux synthetic');
     assert.equal(args[0], '-S'); const command = args.slice(2), format = command.at(-1);
     if (command[0] === 'list-sessions') {
-      if (control.listReply) return control.listReply;
+      const reply = typeof control.listReply === 'function' ? control.listReply(format) : control.listReply;
+      if (reply) return reply;
       if (!native.present) return ok('');
       if (format === '#{session_id}\t#{session_name}') return ok(`${native.id}\t${name}\n`);
       if (format === '#{pid}\t#{session_id}\t#{session_name}') return ok(`4711\t${native.id}\t${name}\n`);
@@ -649,7 +650,8 @@ test('actual core Codex steer traverses every repeated native admission and bind
   assert.ok(state.records[0].relation.target.boundary.steer_id);
 });
 test('real SDK BellTeam pty_close recovers one failed send through the actual core handler and keeps its original unknown record', posix, async t => {
-  for (const failed of [false, true]) {
+  for (const outcome of ['closed', 'close-failed', 'server-exit', 'server-exit-timeout']) {
+  const failed = outcome === 'close-failed';
   const f = fixture(t), directory = mkdtempSync(join(tmpdir(), 'management-close-real-handler-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   f.control.allowClose = true; f.control.closeFails = failed;
@@ -674,19 +676,36 @@ test('real SDK BellTeam pty_close recovers one failed send through the actual co
       sourceEnvironment: {}, initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration: core.observeExecutionSessionGeneration }),
   }) });
   registerExecutionTools(server, service);
+  let postCloseReads = 0;
+  if (outcome.startsWith('server-exit')) f.control.listReply = () => {
+    if (!f.control.closeCalls) return null;
+    postCloseReads++;
+    const slot = store.snapshot().slots.find(slot => slot.request?.tool === 'pty_close');
+    assert.equal(slot?.state, 'issued', 're-observation stays inside the same issued management slot');
+    return { status: 1, stdout: '', stderr: outcome === 'server-exit-timeout' || postCloseReads < 3
+      ? 'server exited unexpectedly' : `no server running on ${SOCK}` };
+  };
   const client = new Client({ name: 'bellteam', version: 'synthetic' }), [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide); await client.connect(clientSide);
   try {
     const result = await client.callTool({ name: 'pty_close', arguments: { session_id: f.name } });
     assert.equal(f.control.closeCalls, 1); assert.equal(f.native.present, failed);
-    if (failed) {
-      assert.equal(result.isError, true, JSON.stringify(result));
-      assert.match(result.content[0].text, /synthetic close failure/);
+    if (failed || outcome === 'server-exit-timeout') {
+      if (failed) {
+        assert.equal(result.isError, true, JSON.stringify(result));
+        assert.match(result.content[0].text, /synthetic close failure/);
+        assert.equal(JSON.parse(readFileSync(f.metadata)).launch_id, f.point.launch.launch_id);
+      } else {
+        assert.equal(result.isError, undefined, 'preserve the observed native close receipt');
+        assert.equal(result._meta['aiterm/execution_error'].effect, 'possible');
+        assert.ok(postCloseReads > 1);
+        assert.ok(store.snapshot().slots.some(slot => slot.request?.tool === 'pty_close' && slot.state === 'unknown'));
+      }
       assert.equal(store.snapshot().slots.length, 2);
-      assert.equal(JSON.parse(readFileSync(f.metadata)).launch_id, f.point.launch.launch_id);
     } else {
       assert.equal(result.isError, undefined, JSON.stringify(result)); assert.equal(result.structuredContent.outcome, 'closed');
       assert.deepEqual(store.snapshot().slots, []);
+      if (outcome === 'server-exit') assert.equal(postCloseReads, 3);
     }
     assert.deepEqual(await service.execute({ action: 'status', request }), before);
     assert.equal(before.operations.send, 'unknown');
@@ -1027,4 +1046,75 @@ test('unrelated socket, permission, transport, malformed and conflicting listing
     assert.throws(() => core.interruptSessionNow(f.name), error => error.code === 'EXECUTION_UNCONFIRMED');
   }
   assert.deepEqual(f.keys, []);
+});
+
+
+const nativeListingReaders = [core.observeExecutionNativeSessions, core.observeExecutionNativeCreationScope];
+test('native listing re-observes only an exiting server and requires exact scoped absence evidence', posix, t => {
+  const f = fixture(t), exiting = { status: 1, stdout: '', stderr: 'server exited unexpectedly' };
+  for (const read of nativeListingReaders) for (const stderr of [
+    `no server running on ${SOCK}`, `error connecting to ${SOCK} (No such file or directory)`,
+  ]) {
+    let calls = 0;
+    f.control.listReply = () => ++calls < 3 ? exiting : { status: 1, stdout: '', stderr };
+    const result = read();
+    assert.equal(result.state, 'known'); assert.deepEqual(result.sessions, []); assert.equal(calls, 3);
+    assert.deepEqual(f.keys, []); assert.equal(f.control.closeCalls, undefined);
+  }
+});
+test('native re-observation stops on ambiguous/other-socket evidence and never treats it as empty', posix, t => {
+  const f = fixture(t), exiting = { status: 1, stdout: '', stderr: 'server exited unexpectedly' };
+  for (const read of nativeListingReaders) for (const reply of [
+    { status: 1, stdout: '', stderr: 'no server running on /other/socket' },
+    { status: 1, stdout: '', stderr: `error connecting to ${SOCK} (Permission denied)` },
+    { status: 1, stdout: '', stderr: `no server running on ${SOCK}\nextra diagnostic` },
+    { status: 2, stdout: '', stderr: `no server running on ${SOCK}` },
+    { status: 1, stdout: '$9\tconflicting', stderr: `no server running on ${SOCK}` },
+    { status: 1, stdout: '', stderr: 'server exited unexpectedly\nother error' },
+    { status: 2, stdout: '', stderr: 'server exited unexpectedly' },
+    { status: 1, stdout: '$9\tconflicting', stderr: 'server exited unexpectedly' },
+    { status: 0, stdout: 'malformed', stderr: '' },
+  ]) {
+    let calls = 0;
+    f.control.listReply = () => ++calls === 1 ? exiting : reply;
+    assert.deepEqual(read(), { state: 'unknown' }); assert.equal(calls, 2);
+    calls = 0; f.control.listReply = () => { calls++; return reply; };
+    assert.deepEqual(read(), { state: 'unknown' }); assert.equal(calls, 1);
+  }
+  assert.deepEqual(f.keys, []); assert.equal(f.control.closeCalls, undefined);
+});
+test('native listing retains unknown after the bounded server-exit re-observation', posix, t => {
+  const f = fixture(t);
+  for (const read of nativeListingReaders) {
+    let calls = 0;
+    f.control.listReply = () => { calls++; return { status: 1, stdout: '', stderr: 'server exited unexpectedly' }; };
+    const start = performance.now();
+    assert.deepEqual(read(), { state: 'unknown' });
+    assert.ok(calls > 1); assert.ok(calls <= 26, '500ms with 20ms pauses limits native reads');
+    assert.ok(performance.now() - start >= 450);
+  }
+  assert.deepEqual(f.keys, []); assert.equal(f.control.closeCalls, undefined);
+});
+test('generation replaced during native re-observation refuses expected close without acting on replacement', posix, t => {
+  for (const replacement of ['managed', 'native', 'server']) {
+    const f = fixture(t); let detailedReads = 0;
+    f.control.listReply = format => {
+      if (format !== '#{pid}\t#{session_id}\t#{session_name}') return null;
+      detailedReads++;
+      if (detailedReads === 1) return { status: 1, stdout: '', stderr: 'server exited unexpectedly' };
+      if (detailedReads === 2) {
+        if (replacement === 'managed') writeFileSync(f.metadata, JSON.stringify({ ...f.meta, launch_id: 'f'.repeat(32) }));
+        if (replacement === 'native') f.native.id = '$10';
+        if (replacement === 'server') f.server.started_identity = 'Wed Oct 21 09:01:00 2026';
+      }
+      // Change native/server identity again between the two close snapshots.
+      if (detailedReads === 4 && replacement === 'native') f.native.id = '$11';
+      if (detailedReads === 3 && replacement === 'server') f.server.started_identity = 'Wed Oct 21 09:02:00 2026';
+      return null;
+    };
+    assert.throws(() => core.closeExpectedAgentSession(f.point.launch), error =>
+      ['EXECUTION_STALE_GENERATION', 'EXECUTION_UNCONFIRMED', 'EXECUTION_UNSUPPORTED'].includes(error.code));
+    assert.ok(detailedReads >= 2); assert.equal(f.control.closeCalls, undefined); assert.deepEqual(f.keys, []);
+    assert.equal(f.native.present, true);
+  }
 });

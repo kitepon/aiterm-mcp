@@ -467,6 +467,10 @@ stale send lockは並行processとのABAを避けるため自動削除せず、�
 `execution-invocation.ts`が所有する。実行・保存の判断は既存`ExecutionService`へ委ねる。
 receiptの観測は、通常経路ではbody返却直後、deferred経路ではnative frameの正常返却後に行う。
 その後の結合失敗でも観測済みreceiptを保持し、frame内のnative拒否を成功へ変換しない。
+native一覧は終了コード1・空stdout・単独の`server exited unexpectedly`だけを20ms間隔、最長500msで再観測する。
+再観測は呼出元の同じissued枠と世代検査の中で行う。不在の証拠は既存の同socket・終了コード1・空stdoutの
+厳密な診断に限定し、正常一覧は従来のnative/server識別検査を通す。上限・別error・曖昧な一覧はunknownを保つ。
+close・送信・その他native作用は再実行しない（ADR 0133）。
 POSIXの明示native execution構成では、返却済みsendのunknown枠が対象席の管理closeまで
 永久に拒否しないよう、通常`pty_close`だけを同じ期待launch/native IDで受付できる。
 unknown send枠を保持したまま既存core closeへ進み、native close成功と席の不在を確認した後だけ

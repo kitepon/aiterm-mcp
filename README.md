@@ -551,6 +551,7 @@ On top of that sits a productized layer a raw tmux bridge doesn't have: **token-
 `pty_list({ env_keys: ["JOB_OWNER"] })` returns only registered non-secret values in `environment`; unregistered and missing values are null.
 Its `aiterm.pty-list-result.v1` receipt contains `observed_at` and `sessions`, whose entries include `session_id`,
 `current_command`, `attached`, `width`, `height`, `harness`, and `environment`. Existing text remains available.
+After the last session closes, session listing may briefly re-observe an exiting server for up to 500 ms. Managed native operations retain unknown unless the listing or exact scoped absence can be confirmed; this never repeats a close or send.
 
 `pty_observe({ session_id, cursor? })` returns `aiterm.pty-observe-result.v1` with `exists`, `observed_at`, `state`
 (busy/idle/blocked/dead/missing/unknown), `reason`, `pane_alive`, and `harness_alive`. `pane_process` and `harness_process`

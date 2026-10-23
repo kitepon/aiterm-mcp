@@ -2255,12 +2255,26 @@ function absentExecutionServer(result: ReturnType<typeof tmux>): boolean {
       || (!isWin && diagnostic === `error connecting to ${SOCK} (No such file or directory)`));
 }
 
-/** Cascade-stop adapter only: caller must already own the shared issued close
- * slot across every serving mutation path. No graceful idle wait, name-only
- * kill, cleanup of a replacement's metadata, or retry. Not publicly mounted.
+// Read-only settling within the caller's existing issued slot. Re-observing
+// this exact teardown diagnostic never retries an effect or proves absence;
+// only absentExecutionServer or a valid native listing can do that.
+function readExecutionNativeSessionList(format: string): ReturnType<typeof tmux> {
+  const read = () => tmux("list-sessions", "-F", format);
+  let result = read();
+  for (const deadline = performance.now() + SESSION_LIST_EXITING_RETRY_MS;
+    result.code === 1 && result.stdout.trim() === "" && result.stderr.trim() === "server exited unexpectedly"
+    && performance.now() < deadline;) {
+    pauseSync(SESSION_LIST_EXITING_POLL_MS);
+    result = read();
+  }
+  return result;
+}
+
+/** Native listing only; does not grant mutation authority. Callers retain
+ * their existing admission and generation checks across re-observation.
  */
 export function observeExecutionNativeSessions(): ExecutionNativeSessions {
-  const result = tmux("list-sessions", "-F", "#{session_id}\t#{session_name}");
+  const result = readExecutionNativeSessionList("#{session_id}\t#{session_name}");
   if (result.code === 0) return parseExecutionNativeSessions(result.stdout);
   if (absentExecutionServer(result)) return { state: "known", sessions: [] };
   return { state: "unknown" };
@@ -2272,7 +2286,7 @@ export function observeExecutionNativeSessions(): ExecutionNativeSessions {
 export function observeExecutionNativeCreationScope(): ExecutionNativeSessions {
   if (isWin) return { state: "unknown" };
   try {
-    const read = () => tmux("list-sessions", "-F", "#{pid}\t#{session_id}\t#{session_name}");
+    const read = () => readExecutionNativeSessionList("#{pid}\t#{session_id}\t#{session_name}");
     const first = read();
     if (first.code !== 0) return absentExecutionServer(first)
       ? { state: "known", sessions: [], server: null } : { state: "unknown" };

@@ -31,7 +31,8 @@ function fixture(t) {
   const hook=join(root,'hook.js'); fs.writeFileSync(hook,'');
   const events=[]; let legacy=null; let rows=[];
   const runtime={platform:'darwin',directory:join(root,'state'),codex_home:home,node:process.execPath,hook,
-    findBinary:()=>'/official/codex',processes:()=>rows,legacy:()=>legacy,
+    // Synthetic PIDs must use a synthetic home lookup, never host process data.
+    findBinary:()=>'/official/codex',processes:()=>rows,codexHomeOf:()=>home,legacy:()=>legacy,
     disableLegacy:async()=>{events.push('disable');legacy={...legacy,enabled:false};return {status:'restart_required'};},
     verify:async(config,approve)=>{events.push(approve?'approve':'read'); const value=JSON.parse(fs.readFileSync(join(home,'hooks.json'),'utf8'));assert(value.hooks.Stop.some(group=>group.hooks.some(hook=>hook.command===config.command)));}};
   return {root,home,hook,runtime,events,setLegacy:value=>{legacy=value;},setProcesses:value=>{rows=value;}};
@@ -43,6 +44,18 @@ test('公式hookの承認と読戻しを終えてから旧中継を解除する'
   assert.deepEqual(f.events,['approve','disable']);
   assert.equal((await configureCodexSteer('status',f.runtime)).status,'restart_required');
   f.setProcesses([{pid:20,started_identity:'new',command:'/official/codex app-server'}]);
+  assert.equal((await configureCodexSteer('status',f.runtime)).status,'ready');
+});
+
+test('別CODEX_HOMEのprocessには再起動を求めず、同じhomeのprocessだけを待つ',async t=>{
+  const f=fixture(t);
+  const local={pid:20,started_identity:'local',command:'/official/codex app-server'};
+  const foreign={pid:21,started_identity:'foreign',command:'/official/codex app-server'};
+  f.setProcesses([local,foreign]);
+  f.runtime.codexHomeOf=pid=>pid===local.pid?f.home:join(f.root,'other-codex');
+  assert.equal((await configureCodexSteer('enable',f.runtime)).status,'restart_required');
+  assert.deepEqual(readCodexHookConfig(f.runtime.directory).stale_processes,[{pid:local.pid,started_identity:local.started_identity}]);
+  f.setProcesses([foreign]);
   assert.equal((await configureCodexSteer('status',f.runtime)).status,'ready');
 });
 

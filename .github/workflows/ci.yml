@@ -1,4 +1,4 @@
-name: Compare failed Windows boundaries with public baseline
+name: Diagnose parent and pane environment and encoding
 
 on:
   workflow_dispatch:
@@ -18,14 +18,8 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    strategy:
-      fail-fast: false
-      matrix:
-        source:
-          - d660bef11d01d3c2ea943c6f95912de252fdb9c2
-          - 1f1abc24e0cf54a0c2d84b40e119aeb35ada3013
     env:
-      PRODUCT_SOURCE: ${{ matrix.source }}
+      PRODUCT_SOURCE: 0cf2d86ac9bdf5ec3c403ac0665fcaca7894ff10
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -34,7 +28,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: ${{ matrix.source }}
+          ref: 0cf2d86ac9bdf5ec3c403ac0665fcaca7894ff10
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -46,6 +40,12 @@ jobs:
           Write-Output "product_source=$head"
           Write-Output "workflow_source=${{ github.sha }}"
           Write-Output "runner_image=$env:ImageOS/$env:ImageVersion"
+      - name: Checkout diagnostic script at the workflow commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: diagnostic-harness
+          persist-credentials: false
       - name: Node runtime
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
@@ -82,7 +82,7 @@ jobs:
           npm --version
           npm run ci:dependencies
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Preflight then compare only the eight failed boundaries
+      - name: Preflight then collect scalar boundary evidence
         shell: pwsh
         run: |
           [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
@@ -103,6 +103,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $pattern = '^openAgent codex agent_done: model|^openAgent codex agent_done: quoted top-level pin|^readAgentTranscript: Claude|^target contract: nested launcher|^openAgent codex agent_done: .+CODEX_HOME.+root transcript|^send: shell|^send mark \+ read wait: PowerShell|^PowerShell.+here-string'
-          node --import ./test/seat-env.mjs --test --test-name-pattern=$pattern test/core-agent-observe.test.mjs test/core-agent.test.mjs test/core-tmux.test.mjs test/powershell-pty.test.mjs
+          node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-hosted-boundary-probe.mjs
           exit $LASTEXITCODE

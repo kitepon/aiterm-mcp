@@ -1987,6 +1987,32 @@ export function observeExecutionAuthSessionGeneration(name: string): ReturnType<
  * actual native creation receipt supplies its identity; no existing seat is enrolled. */
 export function selectExecutionAuthSessionName(): string { return "auth-" + randomBytes(12).toString("hex"); }
 
+/** Read-only proof for reconciling a created, empty launch. Inspect raw prompt
+ * state: legacy/default normalization must never prove that input was absent. */
+export function observeExecutionCreatedLaunch(target: ExecutionLaunch): unknown {
+  target = executionLaunchSchema.parse(target);
+  const unknown = () => { throw new ExecutionError("EXECUTION_UNCONFIRMED"); };
+  const generation = () => {
+    const value = observeExecutionSessionGeneration(target.session_id);
+    if (!value.exists || value.launch_id !== target.launch_id) unknown();
+  };
+  const read = () => {
+    let raw: Record<string, unknown>;
+    try { raw = JSON.parse(fs.readFileSync(agentMetadataPath(target.session_id, target.launch_id), "utf8")); }
+    catch { return unknown(); }
+    const proof = executionNativeBindingSchema.safeParse(raw.execution_native);
+    if (raw.aiterm_session !== target.session_id || raw.launch_id !== target.launch_id
+      || raw.initial_prompt !== "none" || raw.initial_prompt_delivery != null || !proof.success) return unknown();
+    return proof.data;
+  };
+  generation();
+  const native = read(), live = observeSession(target.session_id);
+  if (live.launch_id !== target.launch_id || live.harness_alive !== true || live.harness_process === null || live.state !== "idle") unknown();
+  generation();
+  if (!isDeepStrictEqual(read(), native)) unknown();
+  return { target, native, initial_prompt: "none", initial_prompt_delivery: null, harness_alive: true, ready: true };
+}
+
 /** Private source-provenance snapshot. It deliberately omits screen, argv,
  * environment and cached vendor_session_id. No public tool is added. The
  * consumer proves its native serving MCP process descends from this unique

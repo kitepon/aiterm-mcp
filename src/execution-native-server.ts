@@ -50,6 +50,8 @@ export function createNativeExecutionServer(input: {
     observeNativeSessions: core.observeExecutionNativeCreationScope,
     selectAuthSessionName: core.selectExecutionAuthSessionName,
     observeAuthSessionGeneration: core.observeExecutionAuthSessionGeneration,
+
+    observeCreatedLaunchSync: core.observeExecutionCreatedLaunch,
     closeExpectedSession: core.closeExpectedAgentSession, // explicit management only, never stop fallback
     observeInterruptionSync: core.observeExpectedAgentRunInterruption,
     selectInterruptionSync: core.selectExpectedAgentRunInterruption,

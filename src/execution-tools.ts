@@ -2,7 +2,7 @@
 // it only after supplying the runtime evidence and mutation-path adapters.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { executionReservationSchema, executionRequestSchema, executionPointSchema, cascadeInterruptRequestSchema, cascadeInterruptResultObjectSchema,
+import { executionLaunchSchema, executionReservationSchema, executionRequestSchema, executionPointSchema, cascadeInterruptRequestSchema, cascadeInterruptResultObjectSchema,
   type ExecutionPoint } from "./execution-contract.js";
 import { executionActionSchema, executionFinishSchema, executionRecordSchema, executionBindingSchema,
   executionRootsRequestSchema, executionRootsResultObjectSchema,
@@ -98,12 +98,12 @@ export function registerExecutionTools(server: McpServer, service: ExecutionServ
   const handlers = createExecutionToolHandlers(service, { ...options,
     ...(registration ? { sourceContext: registration.sourceContext } : {}) });
   server.registerTool("agent_execution", {
-    description: "既存の実配送/実行参照を送信前に登録、照会、対応終了証拠で更新する。本文や再送queueは保存しない。",
+    description: "既存の実配送/実行参照を登録・照会・終了証拠で更新し、結果不明の空起動を同世代へ照合する。本文や再送queueは保存しない。",
     // MCP accepts a raw object shape; the handler enforces the stricter action
     // union, including required fields and forbidden fields for each action.
-    inputSchema: { action: z.enum(["register", "status", "finish"]),
+    inputSchema: { action: z.enum(["register", "status", "finish", "reconcile_launch"]),
       reservation: executionReservationSchema.optional(), source_session_id: z.string().nullable().optional(),
-      request: executionRequestSchema.optional(), evidence: executionFinishSchema.shape.evidence.optional(),
+      request: executionRequestSchema.optional(), target: executionLaunchSchema.optional(), evidence: executionFinishSchema.shape.evidence.optional(),
       remote: z.never().optional() },
     outputSchema: executionRecordSchema.shape,
   }, async (args, extra) => handlers.agent_execution(args, extra));

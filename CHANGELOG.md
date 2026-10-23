@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native host `agent_auth` now admits automatic-name and explicit starts, authenticated no-op starts, session status/onboarding, absent-session receipts and cancellation through the existing v1 contract. Authentication PTYs retain their actual creation native/server identity and generation; only those proven PTYs accept ref-less host input/keys. The dispatcher uses the serving SDK RPC identity, without synthetic delivery references or read-only downgrade.
 - BellTeam model, effort and fast changes are admitted as native management RPCs bound to the existing session generation. Every native stage retains its normal stop/slot/generation checks, and partial failures retain possible effects. Fast-state metadata is revalidated before writing after asynchronous CLI observations.
 
+### Added
+
+- The opt-in native execution entry can explicitly reconcile a returned unknown, empty launch against its original native/server identity and current ready managed generation through `agent_execution/reconcile_launch`. It preserves the existing request and generation, issues no native input and permits a later ordinary send only through its usual admission. Issued RPCs and uncertain input or generations remain blocked; late callbacks cannot overwrite the reconciled stage.
+
 ## [0.61.6] - 2026-10-22
 
 ### Fixed

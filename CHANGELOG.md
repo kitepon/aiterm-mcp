@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Native Windows panes retain runtime additions to the caller PATH instead of replacing them with registry PATH. Explicit PATH entries keep precedence.
+- Non-raw PowerShell shell submissions establish UTF-8 input, output and native pipeline encoding in the submitted script, including single-line commands. Profiles, psmux interactive initialization, deferred Enter and raw PTY input retain their existing behavior.
+
 ## [0.61.10] - 2026-10-23
 
 ### Validation scope

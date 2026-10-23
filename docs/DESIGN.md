@@ -103,6 +103,9 @@ sanitize済みの複数行は、POSIX shellでもPowerShellでもscript全体を
 `src/tmux-runtime.ts`が改行を持たない1回の入力へ適合させ、POSIXは`eval`、PowerShellは
 UTF-8のBase64を復元したscriptblockのdot-sourceを使う。変数と作業場所は現在のshellに残す。
 生LFをPowerShellへキー入力として流さないため、Windowsの`Ctrl+Enter`による行順の反転を防ぐ。
+WindowsのPowerShell shell向け非raw送信は単行もASCIIのBase64 wrapperを使い、本文の前に
+Console入力・出力とnative pipelineのencodingをUTF-8へ揃える。CP437で起動したConPTYでも
+文字を失わず、psmuxのprofile/PSReadLine/CWD初期化を置換しない。追加の送信やEnterは行わない。
 単一行、`raw:true`、非shell前面は直接PTYへ送る。`enter:false`では後続のEnterまで実行しない。
 
 TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
@@ -137,7 +140,9 @@ psmuxが出力した余分な環境値を返さない。通常PTYとagentへ`AIT
 全sessionへ配るので、`new-session`の間だけ`update-environment`を差し替えてclientの環境をsessionへ写し、
 共通環境にしか無い変数はsessionで消す。`AITERM_SESSION_ID`・`AITERM_AGENT_*`・`TMUX`・`TMUX_PANE`は継がない。
 sessionの表には環境が丸ごと入るので、名指しで登録した名前をsessionのoption `@aiterm_env_keys`に控え、
-`env_keys`はその名前だけを返す。psmuxは元から端末ごとに呼び出し元の環境を継ぐ。
+`env_keys`はその名前だけを返す。psmuxは端末ごとに呼び出し元の環境を継ぐが、3.3.8はPATHをregistry値で上書きする。
+Windowsでは呼出元PATHだけをnew-sessionの`-e`で明示し、実行時に追加したtoolの場所を保つ。
+明示済みPATHは大文字小文字を問わず優先し、他の環境値を引数へ追加しない。
 
 内部の`killAll`は終了するsocketのsession一覧と、そのsocketのログ等に残るsession名だけを対象にする。
 別socketが同じ`AITERM_STATE_BASE`を使っていても、他のsessionの登録・完了記録・待機lockを削除しない。

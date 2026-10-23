@@ -1118,7 +1118,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     if (o.mark) text = appendMarkSentinel(text, fg);
     assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
     const reportedText = text;
-    if (!o.raw && text.includes("\n")) {
+    if (!o.raw && (isWin || text.includes("\n"))) {
       text = atomicShellMultiline(text, fg || paneCurrentCommand(name));
     }
     if (o.mark) {

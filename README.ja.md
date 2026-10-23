@@ -434,6 +434,8 @@ MCP クライアントが aiterm を stdio 越しにプログラムから駆動�
 
 ## 仕組み
 
+Windows nativeのPowerShell shellへの非raw送信は、Console入出力とnative pipelineをUTF-8へ揃えます。実行時に追加した呼出元PATHは新しいpaneへ渡します。raw PTY入力は従来どおりです。
+
 ```mermaid
 flowchart LR
     AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]

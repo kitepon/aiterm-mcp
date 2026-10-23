@@ -63,6 +63,12 @@ test("旧tmuxにもsession識別を注入しnew-session -eを要求しない", {
     ["-e", "AITERM_SESSION_ID=modern"]);
 });
 
+test("Windows paneには呼出元PATHを渡し、明示指定は大文字小文字を問わず保持する", { skip: !isWin }, () => {
+  const launch = sessionEnvironmentLaunch("pwsh", ["AITERM_SESSION_ID=test"]);
+  assert.deepEqual(launch.args, ["-e", "AITERM_SESSION_ID=test", "-e", `PATH=${process.env.PATH}`]);
+  assert.deepEqual(sessionEnvironmentLaunch("pwsh", ["Path=explicit"]).args, ["-e", "Path=explicit"]);
+});
+
 test("macOSのGUI側tmux起動jobは引数と環境を逐語でlaunchdへ渡し、終了コードを残す", { skip: isWin }, async () => {
   const fs = await import("node:fs");
   const os = await import("node:os");

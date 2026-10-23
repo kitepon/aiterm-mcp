@@ -469,3 +469,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
+
+### Windows hosted境界診断の固定一次資料（2026-10-23）
+
+- [psmux3.3.8 ConPTY native spawn](sources/backends/psmux-338-conpty-spawn.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
+- [psmux3.3.8 environment block construction](sources/backends/psmux-338-command-environment.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
+- [psmux3.3.8 pane startup and shell selection](sources/backends/psmux-338-pane-start.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。

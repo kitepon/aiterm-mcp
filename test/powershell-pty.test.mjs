@@ -12,6 +12,22 @@ const skip = hasBackend && hasPowerShell ? undefined : "端末backendとPowerShe
 process.env.TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-powershell-test-"));
 const core = await import("../dist/core.js");
 
+test("PowerShellの単行もUnicode入出力とnative pipelineをUTF-8で保持する", { skip }, async () => {
+  const session = "powershell_unicode_singleline";
+  core.openSession(session, "pwsh");
+  try {
+    core.send(session, "$unicodeValue = '日本語'; [Console]::WriteLine('VALUE=' + $unicodeValue)", { mark: true });
+    const result = await core.readOutput(session, { wait: true, timeout: 5 });
+    assert.match(result, /VALUE=日本語/u, result);
+    assert.match(result, /is_complete=True via mark/u, result);
+    const nodePath = process.execPath.replaceAll("'", "''");
+    core.send(session, `\"$unicodeValue\" | & '${nodePath}' -e 'process.stdin.pipe(process.stdout)'`, { mark: true });
+    assert.match(await core.readOutput(session, { wait: true, timeout: 5 }), /日本語/u);
+  } finally {
+    core.closeSession(session);
+  }
+});
+
 test("PowerShellの複数行は記述順に実行し、完了印と変数を保持する", { skip }, async () => {
   const session = "powershell_multiline_order";
   core.openSession(session, "pwsh");

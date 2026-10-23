@@ -594,6 +594,60 @@
       "fetched": "2026-10-21"
     },
     {
+      "slug": "psmux-338-command-environment",
+      "topic": "backends",
+      "title": "psmux v3.3.8 crates/portable-pty-psmux/src/cmdbuilder.rs",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/v3.3.8/crates/portable-pty-psmux/src/cmdbuilder.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-command-environment.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "environment",
+        "encoding"
+      ],
+      "summary": "Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.",
+      "relevance": "Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.",
+      "chars": 26832,
+      "fetched": "2026-10-23"
+    },
+    {
+      "slug": "psmux-338-conpty-spawn",
+      "topic": "backends",
+      "title": "psmux v3.3.8 crates/portable-pty-psmux/src/win/conpty.rs",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/v3.3.8/crates/portable-pty-psmux/src/win/conpty.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-conpty-spawn.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "environment",
+        "encoding"
+      ],
+      "summary": "Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.",
+      "relevance": "Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.",
+      "chars": 8002,
+      "fetched": "2026-10-23"
+    },
+    {
+      "slug": "psmux-338-pane-start",
+      "topic": "backends",
+      "title": "psmux v3.3.8 src/pane.rs",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/v3.3.8/src/pane.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-pane-start.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "environment",
+        "encoding"
+      ],
+      "summary": "Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.",
+      "relevance": "Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.",
+      "chars": 127586,
+      "fetched": "2026-10-23"
+    },
+    {
       "slug": "psmux-features-doc",
       "topic": "backends",
       "title": "psmux features — server persistence, control mode, tmux compatibility",
@@ -2778,5 +2832,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-10-21"
+  "updated": "2026-10-23"
 }

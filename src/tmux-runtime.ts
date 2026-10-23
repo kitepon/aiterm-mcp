@@ -475,6 +475,13 @@ function tmuxHasSessionEnvironmentFlags(version?: string): boolean {
 export function sessionEnvironmentLaunch(shell: string, environment: string[], version?: string): {
   shell: string; args: string[]; register_after_start: boolean;
 } {
+  // psmux 3.3.8 rebuilds PATH from the registry when creating a pane. Preserve
+  // the caller's runtime additions (tool installs, activated environments),
+  // without copying other environment values into command arguments.
+  if (isWin && !environment.some(entry => /^path=/i.test(entry))) {
+    const callerPath = process.env.PATH;
+    if (callerPath !== undefined) environment = [...environment, `PATH=${callerPath}`];
+  }
   const modern = isWin || tmuxHasSessionEnvironmentFlags(version);
   if (modern) return { shell, args: environment.flatMap(entry => ["-e", entry]), register_after_start: false };
   // tmux <3.2はnew-session -eを持たない。子への継承とsession台帳への登録を製品内で完結する。
@@ -611,9 +618,16 @@ const POSIX_ATOMIC_SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
 // OSで仕組みを変えず、同じ一括入力を各shellの構文へ適合させる。
 export function atomicShellMultiline(text: string, foreground: string): string {
   if (POWERSHELL_COMMANDS.has(foreground)) {
-    const encoded = Buffer.from(text, "utf8").toString("base64");
+    // A ConPTY PowerShell can start at CP437 even when its parent uses UTF-8.
+    // Send ASCII until the submitted script establishes UTF-8; keep psmux's
+    // interactive/profile/CWD initialization and execute in the current scope.
+    const encoding = isWin
+      ? "[Console]::InputEncoding = [Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Text.UTF8Encoding]::new($false); "
+      : "";
+    const encoded = Buffer.from(encoding + text, "utf8").toString("base64");
     return `. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))))`;
   }
+  if (!text.includes("\n")) return text;
   if (!POSIX_ATOMIC_SHELLS.has(foreground)) return text;
   const quoted = text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n")
     .replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/'/g, `'"'"'`);

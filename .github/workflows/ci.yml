@@ -1,4 +1,4 @@
-name: Isolated Windows gate for adopted 1f1abc2
+name: Compare failed Windows boundaries with public baseline
 
 on:
   workflow_dispatch:
@@ -18,20 +18,30 @@ permissions:
 
 jobs:
   windows-fixed-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - d660bef11d01d3c2ea943c6f95912de252fdb9c2
+          - 1f1abc24e0cf54a0c2d84b40e119aeb35ada3013
+    env:
+      PRODUCT_SOURCE: ${{ matrix.source }}
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 1f1abc24e0cf54a0c2d84b40e119aeb35ada3013
+          ref: ${{ matrix.source }}
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
         shell: pwsh
         run: |
           $head = git rev-parse HEAD
-          if ($head -ne '1f1abc24e0cf54a0c2d84b40e119aeb35ada3013') { throw 'Unexpected product source' }
+          if ($head -ne $env:PRODUCT_SOURCE) { throw 'Unexpected product source' }
           if (git status --porcelain) { throw 'Product checkout is not clean' }
           Write-Output "product_source=$head"
           Write-Output "workflow_source=${{ github.sha }}"
@@ -54,6 +64,17 @@ jobs:
           if ($bins.Count -ne 1) { throw 'Expected one psmux binary' }
           $bins[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Output "psmux_archive_sha256=$digest"
+      - name: Install fixture-required ripgrep in checkout-local tools
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:GITHUB_WORKSPACE '.ci-tools'
+          $zip = Join-Path $tools 'ripgrep.zip'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1') { throw 'ripgrep archive hash mismatch' }
+          Expand-Archive $zip -DestinationPath (Join-Path $tools 'ripgrep')
+          $bins = @(Get-ChildItem (Join-Path $tools 'ripgrep') -Recurse -Filter rg.exe)
+          if ($bins.Count -ne 1) { throw 'Expected one ripgrep binary' }
+          $bins[0].DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install fixed lock dependencies
         shell: pwsh
         run: |
@@ -61,11 +82,27 @@ jobs:
           npm --version
           npm run ci:dependencies
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Product preflight and full Windows suite
+      - name: Preflight then compare only the eight failed boundaries
         shell: pwsh
-        env:
-          PRODUCT_CI_TEST_SCOPE: all
         run: |
-          $env:FACTORY_CI_JOBS = node -p "require('node:os').availableParallelism()"
-          node scripts/run-product-ci-tests.mjs
+          [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          $OutputEncoding = [Text.UTF8Encoding]::new($false)
+          chcp 65001
+          psmux -V
+          rg --version
+          foreach ($key in @('core.hooksPath', 'init.templateDir')) {
+            git config --system --get $key | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Output "git system ${key}: set" }
+            elseif ($LASTEXITCODE -eq 1) { Write-Output "git system ${key}: unset" }
+            else { throw 'Unknown system git configuration' }
+          }
+          node scripts/clean-build.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node node_modules/typescript/bin/tsc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $pattern = '^openAgent codex agent_done: model|^openAgent codex agent_done: quoted top-level pin|^readAgentTranscript: Claude|^target contract: nested launcher|^openAgent codex agent_done: .+CODEX_HOME.+root transcript|^send: shell|^send mark \+ read wait: PowerShell|^PowerShell.+here-string'
+          node --import ./test/seat-env.mjs --test --test-name-pattern=$pattern test/core-agent-observe.test.mjs test/core-agent.test.mjs test/core-tmux.test.mjs test/powershell-pty.test.mjs
           exit $LASTEXITCODE

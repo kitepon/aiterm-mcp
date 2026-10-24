@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { agentFixturePrint } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -764,7 +765,7 @@ async function markFakeAgentReady(sid, kind = "codex") {
   }
   const marker =
     kind === "codex" ? "OpenAI Codex\n› ready\n" : kind === "claude" ? "Claude Code\n❯ ready\n" : "Grok Build\n❯ ready\n";
-  core.send(sid, `printf '${marker.replace(/'/g, "'\\''").replace(/\n/g, "\\n")}'`, {
+  core.send(sid, agentFixturePrint(marker), {
     force: true,
     raw: true,
     preserveAgentOperation: true,

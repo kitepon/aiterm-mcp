@@ -122,8 +122,10 @@ import {
   grokTurnSettled,
   observeGrokDone,
   buildGrokAgentCmd,
+  grokAgentArgv,
   grokLaunchNote,
   grokEnvTokens,
+  grokEnvEntries,
   grokTuiReady,
   grokPaneObservation,
   GROK_INTERRUPT_KEY,
@@ -146,6 +148,7 @@ import {
   codexInterruptionRecord,
   observeCodexDone,
   buildCodexAgentCmd,
+  codexAgentArgv,
   codexLaunchNote,
   codexPaneObservation,
   CODEX_INTERRUPT_KEY,
@@ -186,6 +189,7 @@ import {
   claudeFastIndicatorShown,
   claudeFastResult,
   buildClaudeAgentCmd,
+  claudeAgentArgv,
   claudeLaunchNote,
   claudePaneObservation,
   CLAUDE_INTERRUPT_KEY,
@@ -223,8 +227,6 @@ import {
   realCursorHome,
   buildCursorAgentCmd,
   cursorAgentArgv,
-  cursorPwshArgv,
-  cursorPwshLaunchLine,
   cursorPromptWithLineage,
   createCursorAgentMetadata,
   cursorLaunchNote,
@@ -241,7 +243,7 @@ import { interimFromNow, readInterimWords, recordInterimBoundary } from "./inter
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
 import { codexSeatTurn, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
-import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell } from "./agent-resolver.js";
+import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
 export { tmuxSpawnEnv } from "./tmux-runtime.js";
 export { agentHarness } from "./agent-shared.js";
@@ -1016,6 +1018,8 @@ export interface SendOpts {
    * 前置きだけを印なしで入れると、前置きが包みの外へ出る（ADR 0099）。公開引数にはせず、agentの送信経路だけが立てる。
    */
   typedPreface?: string;
+  /** Internal owned-shell startup only; no foreground inference or TUI encoding. */
+  launchShell?: "pwsh" | "bash";
 }
 
 export const AGENT_PREFACE_MAX_CHARS = 200;
@@ -1113,7 +1117,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         2,
       );
     }
-    writeLastcmd(name, text); // read rtk の reducer 分類用（書換/mark 前の素のコマンド）
+    writeLastcmd(name, o.launchShell ? atomicShellMultiline(text, o.launchShell) : text);
     if (o.rtk) text = rtkRewrite(text);
     if (o.mark) text = appendMarkSentinel(text, fg);
     assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
@@ -1121,7 +1125,11 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     // Agent composer paste is literal text even if native foreground metadata
     // still reports the startup shell. Keep sanitization, but never encode TUI
     // text as an executable shell command.
-    if (!o.raw && !o.bracketedPaste && (isWin || text.includes("\n"))) {
+    if (o.launchShell) {
+      // Validate the original 64KiB text above, as for ordinary PowerShell
+      // submissions. The existing Windows worker also admits the Base64 wrap.
+      text = atomicShellMultiline(text, o.launchShell);
+    } else if (!o.raw && !o.bracketedPaste && (isWin || text.includes("\n"))) {
       text = atomicShellMultiline(text, fg || paneCurrentCommand(name));
     }
     if (o.mark) {
@@ -6712,7 +6720,7 @@ function agentVendorSessionEnv(meta: AgentMetadata): [string, string][] {
 
 /**
  * 席へ渡すAitermの環境変数（名前と値）の唯一の一覧。呼び手が指定した継承分を先に置き、席の控えが無い時は継承分だけ。
- * shell別の引用はここでは付けず、POSIXの前置き（agentEnvPrefix）とWindowsのPowerShell行（cursorPwshLaunchLine）が同じ一覧から作る。
+ * shell別の引用はここでは付けず、POSIXの前置き（agentEnvPrefix）とWindowsのPowerShell行（windowsAgentLaunchLine）が同じ一覧から作る。
  */
 function agentEnvEntries(meta: AgentMetadata | null, sid: string, envVars: string[] = []): [string, string][] {
   const inherited = envVars.flatMap((name): [string, string][] => {
@@ -6930,8 +6938,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   }
   if (kind === "claude") assertClaudeAuthenticationReady(bin);
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
-  // Windows の起動コマンドは native psmux pane の Git Bash で走る（WSL 橋・/mnt/c 変換は
-  // e3f5fc8 で全廃。bin/cwd は Windows パスの forward slash 形のまま渡す）。
+  // Windows agent launches run in a native PowerShell pane. Accepted shebang
+  // wrappers use noninteractive Git Bash in that pane; there is no WSL bridge.
   // 未検証リスク: npm グローバル導入の codex.cmd/.bat シムの対話 TUI 描画は実 Windows でしか確認
   // できない（CI 非対象。docs/03_audit-sweep-2026-07.md 参照）。native .exe の TUI 描画は
   // grok.exe で実測済み（2026-08-15）。
@@ -6964,8 +6972,9 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   return () => {
     let sid: string;
     let hint: string;
-    // WindowsのCursorだけはPowerShell 7 paneから起動する（理由はcursorPwshLaunchLine）。
-    const paneShell = isWin && kind === "cursor" && agentDone ? "pwsh" : "bash";
+    // Windows launches use native PowerShell input; never type an owned CLI
+    // command through MSYS interactive select/console-master input handling.
+    const paneShell = isWin ? "pwsh" : "bash";
     try {
       [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
     } catch (error) {
@@ -7017,9 +7026,16 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
       launchNote = buildAgentLaunchNote(kind, model, effort, meta);
       let full: string;
-      if (paneShell === "pwsh" && meta) {
-        full = cursorPwshLaunchLine(cwd, agentEnvEntries(meta, sid, envVars),
-          cursorPwshArgv(cursorAgentArgv(bin, model, effort, opts.prompt ?? null, meta, cursorFast), () => resolveWinPaneShell("bash")));
+      if (paneShell === "pwsh") {
+        const prompt = opts.prompt ?? null;
+        const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
+          : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
+          : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
+          : grokAgentArgv(kind, bin, model, effort, prompt, meta);
+        full = windowsAgentLaunchLine(cwd, [
+          ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
+        ],
+          windowsAgentArgv(argv, () => resolveWinPaneShell("bash")));
       } else {
         const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
         const envPrefix = agentEnvPrefix(meta, sid, envVars);
@@ -7029,9 +7045,9 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         // 対話shellの行編集が、埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。
         // agent TUIへの本文（bracketedPaste）は文字どおりのまま。argv・lineage・metadata・native
         // admission・receiptの契約は変えない。
-        full = atomicShellMultiline(command, "bash");
+        full = command;
       }
-      if (meta) agentLaunchLines.set(sid, full);
+      if (meta) agentLaunchLines.set(sid, atomicShellMultiline(full, paneShell));
       // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて、sanitizeせずに送る。
       send(sid, full, {
         enter: true,
@@ -7039,6 +7055,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         force: true,
         rtk: false,
         raw: true,
+        launchShell: paneShell,
         preserveAgentOperation: meta?.kind === "claude",
       });
     } catch (e) {

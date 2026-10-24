@@ -107,10 +107,13 @@ WindowsのPowerShell shell向け非raw送信は単行もASCIIのBase64 wrapper�
 Console入力・出力とnative pipelineのencodingをUTF-8へ揃える。CP437で起動したConPTYでも
 文字を失わず、psmuxのprofile/PSReadLine/CWD初期化を置換しない。追加の送信やEnterは行わない。
 単一行、`raw:true`、非shell前面は直接PTYへ送る。`enter:false`では後続のEnterまで実行しない。
-Aitermが自分で選んだbash paneへ渡すagent起動command（sub-agent instructionのLFと日本語を含む）は、
-`prepareAgentLaunch`が同じPOSIX適合で1物理行にしてから`raw:true`で送る。sanitizeはせず、対話shellが
-埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。`.lastcmd`と起動echoの照合
-（`agentLaunchLines`）は、その打った1物理行を持つ。argv・lineage・metadata・native admission・receiptは変えない。
+Aitermが所有するagent起動は、POSIXではbash、WindowsではPowerShell 7のpaneを使う。
+harnessは未引用のargvを一度組み立て、POSIXの従来の引用とWindowsのPowerShell単引用へ適合する。
+Windowsは既存のUTF-8 Base64 scriptblockへ包み、対話MSYS bashのselect/input-mutexへ起動行を打たない。
+受入済みshebang scriptだけは、既存のcontrol commandと同じGit Bashで非対話実行する。
+POSIXの複数行起動commandは既存のPOSIX適合で1物理行にする。いずれもsanitizeはしない。
+`.lastcmd`と`agentLaunchLines`は実際に打つ1物理行を持ち、公開64KiBは符号化前に検査する。
+argv・lineage・metadata・native admission・receipt・TUI本文は変えず、新queueや再送は作らない。
 
 TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
 このmoduleはcoreをimportせず、既存harness adapterと渡されたsample・sleep・時計だけで判断する。

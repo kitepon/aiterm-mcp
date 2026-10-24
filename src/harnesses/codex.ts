@@ -721,14 +721,14 @@ export async function observeCodexDone(
   }
 }
 
-export function buildCodexAgentCmd(
+export function codexAgentArgv(
   bin: string,
   model: string | null,
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null,
-): string {
-  const parts: string[] = [shq(bin)];
+): string[] {
+  const parts: string[] = [bin];
   // `codex --help` で確認した実在フラグ。read-only 宣言だけはCLI sandboxへ落とし、
   // launcher自身が実効能力壁を作る。パス説明はCodex CLIに同等のallowlist引数がないため宣言のまま残す。
   if (meta?.kind === "codex" && meta.write_scope === "read-only") parts.push("--sandbox", "read-only");
@@ -737,13 +737,29 @@ export function buildCodexAgentCmd(
   // ここへfastは渡さない: 後で/fastで戻しても、番ごとの補助の問い合わせが起動時の値のまま残る（0.162.1で確かめた）。
   if (meta?.kind === "codex") parts.push("-c", "service_tier=default");
   // model/effort は共有configを書き換えず、CLI引数で明示して起動単位に優先する。
-  if (model) parts.push("-m", shq(model));
-  if (effort) parts.push("-c", `model_reasoning_effort=${shq(effort)}`);
+  if (model) parts.push("-m", model);
+  if (effort) parts.push("-c", `model_reasoning_effort=${effort}`);
   if (meta?.kind === "codex" && meta.hook_route === "shared_codex_home") {
-    parts.push("-c", `developer_instructions=${shq(subagentInstruction(meta))}`);
+    parts.push("-c", `developer_instructions=${subagentInstruction(meta)}`);
   }
-  if (prompt) parts.push(shq(prompt)); // 初手プロンプト（任意）
-  return parts.join(" ");
+  if (prompt) parts.push(prompt); // 初手プロンプト（任意）
+  return parts;
+}
+
+export function buildCodexAgentCmd(
+  bin: string, model: string | null, effort: string | null,
+  prompt: string | null, meta: AgentMetadata | null,
+): string {
+  const argv = codexAgentArgv(bin, model, effort, prompt, meta);
+  return argv.map((arg, index) => {
+    if (index === 0 || argv[index - 1] === "-m" || (prompt && index === argv.length - 1)) return shq(arg);
+    if (argv[index - 1] === "-c") {
+      for (const key of ["model_reasoning_effort=", "developer_instructions="]) {
+        if (arg.startsWith(key)) return key + shq(arg.slice(key.length));
+      }
+    }
+    return arg;
+  }).join(" ");
 }
 
 // 起動応答にモデル/effort の実効値と出所を明示する。codex は端末 config のピン（model /

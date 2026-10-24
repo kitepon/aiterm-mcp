@@ -604,28 +604,7 @@ export function buildCursorAgentCmd(
  * hookへ渡すJSONの先頭にUTF-8 BOMを付け、BOMを読めない利用者hookが送信を止める（fox実測 2026-09-26:
  * Git Bash配下は全てprompt_historyだけ残りstore.dbが作られず、PowerShell 7 paneからは同じhookで通る）。
  */
-export function cursorPwshLaunchLine(cwd: string | null, env: [string, string][], argv: string[]): string {
-  const psq = (value: string) => `'${value.replace(/'/g, "''")}'`;
-  const parts: string[] = [];
-  if (cwd) parts.push(`Set-Location -LiteralPath ${psq(cwd)}`);
-  for (const [name, value] of env) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new AitermError("環境変数名が不正です", 2);
-    parts.push(`$env:${name}=${psq(value)}`);
-  }
-  parts.push(`& ${argv.map(psq).join(" ")}`);
-  return parts.join("; ");
-}
-
-/**
- * PowerShell 7のpaneで走らせるargv。PowerShellが自分のconsoleで走らせるのは .exe・.com・.cmd・.bat・.ps1 だけで、
- * それ以外（受入が許すshebangのscript。拡張子なしも含む）を `&` で呼ぶと、拡張子の関連付けでpaneの外の別の窓に開く
- * （fox実測 2026-10-14: `.sh` は `git-bash.exe` の窓で起き、席を閉じてもprocessが残った）。
- * scriptは、control commandと同じGit Bashをpaneの中で挟んで走らせる。
- */
-export function cursorPwshArgv(argv: string[], scriptShell: () => string): string[] {
-  if (/\.(?:exe|com|cmd|bat|ps1)$/i.test(argv[0])) return argv;
-  return [scriptShell(), argv[0].replace(/\\/g, "/"), ...argv.slice(1)];
-}
+export { windowsAgentLaunchLine as cursorPwshLaunchLine, windowsAgentArgv as cursorPwshArgv } from "../agent-resolver.js";
 
 export function cursorPromptWithLineage(meta: AgentMetadata, prompt: string): string {
   return `${subagentInstruction(meta)}\n\n${prompt}`;

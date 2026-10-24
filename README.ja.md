@@ -435,6 +435,7 @@ MCP クライアントが aiterm を stdio 越しにプログラムから駆動�
 ## 仕組み
 
 Windows nativeのPowerShell shellへの非raw送信は、Console入出力とnative pipelineをUTF-8へ揃えます。実行時に追加した呼出元PATHは新しいpaneへ渡します。raw PTY入力は従来どおりです。
+agentの起動はPowerShell 7のpaneでargvを渡して実行し、受入済みshebang wrapperだけは同じpane内でGit Bashを非対話実行します。Aitermが作る起動scriptはASCIIの1行にし、agent TUIへ渡す本文は文字どおりに保ちます。
 
 ```mermaid
 flowchart LR

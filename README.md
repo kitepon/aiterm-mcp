@@ -807,6 +807,7 @@ For a returned unknown launch whose harness has exited, the same native entry ad
 
 
 On native Windows, non-raw commands sent to a PowerShell shell use UTF-8 for Console input/output and native pipelines. Runtime additions to the caller PATH are passed to new panes; raw PTY input is unchanged.
+Agent launches use a PowerShell 7 pane and pass the harness argv directly; accepted shebang wrappers use noninteractive Git Bash in that same pane. The owned startup script is sent as one ASCII line, while agent TUI bodies retain their literal text.
 
 Sessions live on a shared tmux socket on POSIX or a shared psmux namespace on native Windows. The attach line printed by `pty_open` and `agent_launch` lets a human attach to the same terminal and intervene, including a Claude/Codex/Grok/Cursor harness session: `tmux -S … attach -t <id>` on POSIX, or `psmux -L <namespace> attach -t <id>` on native Windows.
 On POSIX, the first `agent_launch` can create the tmux server when its socket does not yet exist. Aiterm verifies the exact created session and server before accepting that launch; an uncertain result is reported without retrying the input.

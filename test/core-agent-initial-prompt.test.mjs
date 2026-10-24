@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { agentFixturePrint } from "./agent-fixture-shell.mjs";
 import {
   hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
@@ -752,7 +753,7 @@ test("sendAgentMessage: 実行中のCodexへは現在ターンへ差し込む", 
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
-      core.send(sid, "printf 'OpenAI Codex\\n• Working (1s • esc to interrupt)\\n'", {
+      core.send(sid, agentFixturePrint("OpenAI Codex\n• Working (1s • esc to interrupt)\n"), {
         force: true,
         raw: true,
         preserveAgentOperation: true,
@@ -778,7 +779,7 @@ test("sendAgentMessage: followを頼んだ差し込みは、打つ直前の位�
     const [sid] = core.openAgent("codex", { agent_done: true });
     let closed = false;
     try {
-      core.send(sid, "printf 'OpenAI Codex\\n• Working (1s • esc to interrupt)\\n'", {
+      core.send(sid, agentFixturePrint("OpenAI Codex\n• Working (1s • esc to interrupt)\n"), {
         force: true,
         raw: true,
         preserveAgentOperation: true,
@@ -816,7 +817,7 @@ test("sendAgentMessage: followを頼んだ差し込みは、打つ直前の位�
 test("sendAgentMessage: 実行中のClaudeへはturn相関を変えずに差し込む", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    core.send(sid, "printf 'Claude Code\\n* Herding… (3s · esc to interrupt)\\n'", {
+    core.send(sid, agentFixturePrint("Claude Code\n* Herding… (3s · esc to interrupt)\n"), {
       force: true,
       raw: true,
       preserveAgentOperation: true,
@@ -842,7 +843,7 @@ test("sendAgentMessage: 実行中のClaudeへはturn相関を変えずに差し�
 test("sendAgentMessage: Claudeのtool処理中に画面のbusy表示が消えても同じturnへ差し込む", { skip: skipAgentDone }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    core.send(sid, "printf 'Claude Code\\n❯\\n'", {
+    core.send(sid, agentFixturePrint("Claude Code\n❯\n"), {
       force: true,
       raw: true,
       preserveAgentOperation: true,
@@ -889,7 +890,7 @@ test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無けれ�
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     // Stop hookの実行中はturnの印が消えた後も実行中の表示が残る。
-    core.send(sid, "printf 'Claude Code\\n* Running stop hooks… (esc to interrupt)\\n'", {
+    core.send(sid, agentFixturePrint("Claude Code\n* Running stop hooks… (esc to interrupt)\n"), {
       force: true,
       raw: true,
       preserveAgentOperation: true,

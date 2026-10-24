@@ -1,4 +1,4 @@
-// エージェント CLI（claude / codex / grok / cursor-agent）・Throughline・pane shell（Windows は Git Bash）の
+// エージェント CLI（claude / codex / grok / cursor-agent）・Throughline・pane shell（Windows は PowerShell / Git Bash）の
 // 実行ファイルをどう見つけ、どう起動するかの所有者（OS 分岐の所有者。tmux とは独立）。
 import { spawn, spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import * as fs from "node:fs";
@@ -276,4 +276,27 @@ export function runThroughlineHandoffContext(
   return spawnSync(bin, args, {
     encoding: "utf8",
   });
+}
+
+/** Owned Windows agent launch: PowerShell uses argv, without interactive MSYS input. */
+export function windowsAgentLaunchLine(cwd: string | null, env: [string, string][], argv: string[]): string {
+  const psq = (value: string) => `'${value.replace(/'/g, "''")}'`;
+  const parts: string[] = [];
+  if (cwd) parts.push(`Set-Location -LiteralPath ${psq(cwd)}`);
+  for (const [name, value] of env) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new AitermError("環境変数名が不正です", 2);
+    parts.push(`$env:${name}=${psq(value)}`);
+  }
+  parts.push(`& ${argv.map(psq).join(" ")}`);
+  return parts.join("; ");
+}
+
+/**
+ * Keep accepted shebang wrappers in the same pane, as for control commands.
+ * Invoking .sh directly in PowerShell uses its file association and can open a
+ * separate Git Bash window whose process outlives the pane (fox, 2026-10-14).
+ */
+export function windowsAgentArgv(argv: string[], scriptShell: () => string): string[] {
+  if (/\.(?:exe|com|cmd|bat|ps1)$/i.test(argv[0])) return argv;
+  return [scriptShell(), argv[0].replace(/\\/g, "/"), ...argv.slice(1)];
 }

@@ -389,20 +389,20 @@ export async function observeGrokDone(
   }
 }
 
-export function buildGrokAgentCmd(
+export function grokAgentArgv(
   kind: "grok",
   bin: string,
   model: string | null,
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null,
-): string {
-  const parts: string[] = [shq(bin)];
+): string[] {
+  const parts: string[] = [bin];
   parts.push("--no-auto-update");
   // 無人起動の対象cwdはCLIの公式folder trust指定で登録し、確認画面にpromptを消費させない。
   if (meta?.kind === "grok") parts.push("--no-alt-screen", "--trust");
-  parts.push("--model", shq(model ?? GROK_MODEL_DEFAULTS[kind]));
-  if (effort) parts.push("--reasoning-effort", shq(effort));
+  parts.push("--model", model ?? GROK_MODEL_DEFAULTS[kind]);
+  if (effort) parts.push("--reasoning-effort", effort);
   if (meta?.kind === "grok" && meta.write_scope === "read-only") {
     // read-only は sandbox が実効書込み禁止を作るため、MCP ツール許可ダイアログの自動承認を
     // 付けても能力は増えない。無人 subagent が初回 MCP 使用の許可待ちで停止する実障害への対処。
@@ -410,11 +410,21 @@ export function buildGrokAgentCmd(
     parts.push("--sandbox", "read-only", "--always-approve");
   }
   if (meta?.kind === "grok" && meta.hook_route === "shared_grok_home") {
-    parts.push("--session-id", shq(meta.vendor_session_id ?? ""), "--rules", shq(subagentInstruction(meta)));
+    parts.push("--session-id", meta.vendor_session_id ?? "", "--rules", subagentInstruction(meta));
   }
   if (meta?.kind === "grok" && prompt) parts.push("--verbatim");
-  if (prompt) parts.push(shq(prompt)); // 初手プロンプト（任意）
-  return parts.join(" ");
+  if (prompt) parts.push(prompt); // 初手プロンプト（任意）
+  return parts;
+}
+
+export function buildGrokAgentCmd(
+  kind: "grok", bin: string, model: string | null, effort: string | null,
+  prompt: string | null, meta: AgentMetadata | null,
+): string {
+  const argv = grokAgentArgv(kind, bin, model, effort, prompt, meta);
+  const values = new Set(["--model", "--reasoning-effort", "--session-id", "--rules"]);
+  return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
+    ? shq(arg) : arg).join(" ");
 }
 
 export function grokLaunchNote(
@@ -433,10 +443,14 @@ export function grokLaunchNote(
 // grok: 検証済み auth 正本をそのままの path 形で渡す。Windows では native 強制により
 // harness は Windows process なので、Windows ドライブパスが正しい形（WSL 形への変換はしない）。
 export function grokEnvTokens(meta: AgentMetadata): string[] {
+  return grokEnvEntries(meta).map(([name, value]) => `${name}=${name === "GROK_AUTH_PATH" ? shq(value) : value}`);
+}
+
+export function grokEnvEntries(meta: AgentMetadata): [string, string][] {
   return [
-    ...(meta.grok_auth_path ? [`GROK_AUTH_PATH=${shq(meta.grok_auth_path)}`] : []),
-    "GROK_DISABLE_AUTOUPDATER=1",
-    "GROK_PRIVACY_NOTICE_ROLLOUT=0",
+    ...(meta.grok_auth_path ? [["GROK_AUTH_PATH", meta.grok_auth_path] as [string, string]] : []),
+    ["GROK_DISABLE_AUTOUPDATER", "1"],
+    ["GROK_PRIVACY_NOTICE_ROLLOUT", "0"],
   ];
 }
 

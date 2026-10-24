@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows agent launches use the existing native PowerShell 7 launch adaptation for all harnesses. One shared argv construction feeds POSIX quoting and Windows native invocation; accepted shebang wrappers run through noninteractive Git Bash in the same pane. Startup commands no longer depend on the interactive MSYS bash console input loop. The original text limit is checked before the existing ASCII Base64 adaptation; TUI bodies remain literal.
 - Native Windows panes retain runtime additions to the caller PATH instead of replacing them with registry PATH. Explicit PATH entries keep precedence.
 - Non-raw PowerShell shell submissions establish UTF-8 input, output and native pipeline encoding in the submitted script, including single-line commands. Profiles, psmux interactive initialization, deferred Enter and raw PTY input retain their existing behavior.
 - Agent composer pastes retain their sanitized literal text even when the native foreground query still reports a startup shell. Shell encoding is limited to shell submissions.

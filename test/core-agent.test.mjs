@@ -566,9 +566,11 @@ test("openAgent codex: 複数行日本語 prompt は argv に残り、shell cont
     // psmuxは入力中のshell bracketed-paste mode切替をCSIとして描画へ挟む。
     // argv本文ではない表示制御だけを除いて、実引数と起動行の表示を照合する。
     const visible = out.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-    // Aitermが選んだbashへの起動commandは1物理行に適合して打つ（src/core.ts prepareAgentLaunch）。
-    // 埋め込みLFごとの行受付と継続prompt（「> 」）に依存しないことを固定する。
-    assert.match(visible, /eval "\$\(command printf '%b' '/, `起動行は1物理行の既存shell適合: ${out}`);
+    // Aitermが選んだshellへ渡した実際の起動行を照合する。画面上の折返しには依存しない。
+    const { SOCKDIR } = await import("../dist/tmux-runtime.js");
+    const submitted = fs.readFileSync(path.join(SOCKDIR, `${sid}.lastcmd`), "utf8");
+    assert.doesNotMatch(submitted, /[\r\n]/u);
+    assert.match(submitted, process.platform === "win32" ? /^\. \(/u : /^eval "\$\(command printf '%b' '/u);
     assert.doesNotMatch(visible, /(?:^|\n)> 重点:/, `shell continuation 表示を出さない: ${out}`);
     assert.match(visible, /<arg>NoveLore リポジトリで、docs\/23_graph_upsert_tool_contract_plan\.md/, `prompt 先頭: ${out}`);
     assert.match(visible, /重点:\r?\n- 現行 graph_upsert inputSchema と必須\/任意の差分/, `prompt 本文: ${out}`);

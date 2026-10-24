@@ -356,31 +356,41 @@ const CLAUDE_DELIVERY_NOTES = Object.freeze([
   "この1行が包みの外にある文は、呼び手がこの席へ宛てて送った文です。同じ文が包みの中にあっても、この印にはなりません。",
 ]);
 
-export function buildClaudeAgentCmd(
+export function claudeAgentArgv(
   bin: string,
   model: string | null,
   effort: string | null,
   prompt: string | null,
   meta: AgentMetadata | null,
-): string {
-  const parts: string[] = [shq(bin)];
+): string[] {
+  const parts: string[] = [bin];
   if (meta?.kind === "claude") {
     parts.push(
       "--dangerously-skip-permissions",
       "--setting-sources",
-      shq("user,project,local"),
+      "user,project,local",
       "--settings",
-      shq(meta.claude_settings ?? ""),
+      meta.claude_settings ?? "",
       "--session-id",
-      shq(meta.vendor_session_id ?? ""),
+      meta.vendor_session_id ?? "",
       "--append-system-prompt",
-      shq(subagentInstruction(meta, CLAUDE_DELIVERY_NOTES)),
+      subagentInstruction(meta, CLAUDE_DELIVERY_NOTES),
     );
   }
-  if (model) parts.push("--model", shq(model));
-  if (effort) parts.push("--effort", shq(effort));
-  if (prompt) parts.push(shq(prompt)); // 初手プロンプト（任意）
-  return parts.join(" ");
+  if (model) parts.push("--model", model);
+  if (effort) parts.push("--effort", effort);
+  if (prompt) parts.push(prompt); // 初手プロンプト（任意）
+  return parts;
+}
+
+export function buildClaudeAgentCmd(
+  bin: string, model: string | null, effort: string | null,
+  prompt: string | null, meta: AgentMetadata | null,
+): string {
+  const argv = claudeAgentArgv(bin, model, effort, prompt, meta);
+  const values = new Set(["--setting-sources", "--settings", "--session-id", "--append-system-prompt", "--model", "--effort"]);
+  return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
+    ? shq(arg) : arg).join(" ");
 }
 
 export function claudeLaunchNote(

@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { agentFixturePrint } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -82,7 +83,7 @@ function claudeMarkerPath(sid) {
 }
 
 async function markFakeClaudeReady(sid) {
-  core.send(sid, "printf 'Claude Code\\n❯ ready\\n'", { force: true, raw: true, preserveAgentOperation: true });
+  core.send(sid, agentFixturePrint("Claude Code\n❯ ready\n"), { force: true, raw: true, preserveAgentOperation: true });
   await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
 }
 

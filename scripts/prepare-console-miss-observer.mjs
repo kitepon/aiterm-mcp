@@ -21,7 +21,7 @@ source = source.replace(marker, `
       const began = performance.now();
       const probe = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', ${JSON.stringify(helper)},
         '-PaneProcessId', String(pid), '-ServerProcessId', serverPid, '-ServerCreation', creation],
-        { encoding: 'utf8', timeout: 5000, windowsHide: true });
+        { encoding: 'utf8', timeout: 20000, windowsHide: true });
       diagnostic.console_probe = { milliseconds: Math.round(performance.now() - began), status: probe.status,
         error_code: probe.error?.code ?? null, stderr_present: !!probe.stderr,
         same_generation_after: expectedAnchor === anchor() && sameLaunch() };

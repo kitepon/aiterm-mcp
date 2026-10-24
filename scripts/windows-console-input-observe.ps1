@@ -62,8 +62,13 @@ public static class FixtureConsoleInputObservation {
       var processes = new uint[64];
       uint size = GetConsoleProcessList(processes, 64);
       row["console_process_count"] = size;
+      var ids = new List<uint>();
       bool contains = false;
-      for (int i=0; i<64 && (uint)i<size; i++) if (processes[i] == pid) contains = true;
+      for (int i=0; i<64 && (uint)i<size; i++) {
+        ids.Add(processes[i]);
+        if (processes[i] == pid) contains = true;
+      }
+      row["process_ids"] = ids;
       row["console_contains_target"] = contains;
       return row;
     } finally {
@@ -74,7 +79,28 @@ public static class FixtureConsoleInputObservation {
 }
 '@
   $row.console = [FixtureConsoleInputObservation]::Observe($PaneProcessId)
+  # Only processes witnessed in this fixture's console are candidates. A
+  # noninvasive debugger attach briefly freezes the fixture for its stack,
+  # then detaches; no key, retry, console-mode change, or foreign process.
+  $cdb = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Debuggers/x64/cdb.exe'
+  $row.debugger_available = Test-Path $cdb
+  $row.processes = @($row.console.process_ids | ForEach-Object {
+    $target = Get-Process -Id $_ -ErrorAction SilentlyContinue
+    if ($target -and $target.Id -ne $PID) {
+      $snapshot = [ordered]@{ name = $target.ProcessName; pid = $target.Id; cpu_ms = $target.TotalProcessorTime.TotalMilliseconds }
+      $snapshot.threads = @($target.Threads | ForEach-Object {
+        $thread = [ordered]@{ id = $_.Id; state = [string]$_.ThreadState; cpu_ms = $_.TotalProcessorTime.TotalMilliseconds }
+        if ($_.ThreadState -eq 'Wait') { $thread.wait_reason = [string]$_.WaitReason }
+        $thread
+      })
+      if ($row.debugger_available -and $target.ProcessName -eq 'bash') {
+        $snapshot.stack = (& $cdb -pv -p $target.Id -c '~* k;qd' 2>&1 | Out-String)
+      }
+      $snapshot
+    }
+  })
+  [void]$row.console.Remove('process_ids')
   $row.target_creation_unchanged = (Get-Process -Id $PaneProcessId).StartTime.ToUniversalTime().ToFileTimeUtc() -eq $paneCreation
   $row.server_creation_unchanged = (Get-Process -Id $ServerProcessId).StartTime.ToUniversalTime().ToFileTimeUtc() -eq $ServerCreation
 } catch { $row.error_type = $_.Exception.GetType().Name }
-$row | ConvertTo-Json -Compress -Depth 5
+$row | ConvertTo-Json -Compress -Depth 8

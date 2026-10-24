@@ -1118,7 +1118,10 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     if (o.mark) text = appendMarkSentinel(text, fg);
     assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
     const reportedText = text;
-    if (!o.raw && (isWin || text.includes("\n"))) {
+    // Agent composer paste is literal text even if native foreground metadata
+    // still reports the startup shell. Keep sanitization, but never encode TUI
+    // text as an executable shell command.
+    if (!o.raw && !o.bracketedPaste && (isWin || text.includes("\n"))) {
       text = atomicShellMultiline(text, fg || paneCurrentCommand(name));
     }
     if (o.mark) {

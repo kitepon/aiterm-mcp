@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Completion checks observe the original request boundary outside the shared metadata mutex, then revalidate the unchanged original record and all uncertainty/slot gates before committing. Slow transcript/native completion observation no longer blocks unrelated admission; unknown sends are never reconciled or replayed.
+
+### Fixed
+
 - Native execution participants retain their verified current-process identity instead of spawning another OS identity probe at every scope check. Foreign process, multiplexer, source/target generation and participant checks remain fresh. This reduces admission overhead; it does not reconcile unknown sends or establish recovery from a production mutex timeout.
 
 ## [0.61.13] - 2026-10-24

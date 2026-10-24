@@ -1000,6 +1000,7 @@ export class ExecutionService {
   }
 
   private async finish(args: ExecutionFinish): Promise<ExecutionRecord> {
+    if (args.evidence.kind === "completion") return this.finishCompletion(args.request, args.evidence.target);
     return this.store.transaction(async state => {
       const record = find(state, args.request);
       if (record.operations.launch === "issued" || record.operations.send === "issued"
@@ -1016,24 +1017,52 @@ export class ExecutionService {
       } else {
         const target = record.relation.target;
         if (!target) throw new ExecutionError("EXECUTION_CONFLICT");
-        if (args.evidence.kind === "completion") {
-          if (!target.boundary || !same(target, args.evidence.target)) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
-          if (record.relation.completion === "completed" && record.relation.target_fence === "closed") return view(state, record);
-          const observed = await this.runtime.completion(target);
-          if (observed.state === "unknown") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-          record.relation.completion = observed.state;
-          record.relation.target_fence = pendingParentReturn(state, args.request) ? "unknown"
-            : observed.state === "completed" ? "closed" : observed.fence;
-        } else {
-          if (!same(target.launch, args.evidence.target)) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
-          if (record.relation.completion === "interrupted" && record.relation.target_fence === "closed") return view(state, record);
-          const observed = await this.runtime.observe(target.launch.session_id);
-          if (observed.state !== "absent" || state.slots.some(slot => slot.session_id === target.launch.session_id))
-            throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-          record.relation.completion = "interrupted";
-          record.relation.target_fence = "closed";
-        }
+        if (!same(target.launch, args.evidence.target)) throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+        if (record.relation.completion === "interrupted" && record.relation.target_fence === "closed") return view(state, record);
+        const observed = await this.runtime.observe(target.launch.session_id);
+        if (observed.state !== "absent" || state.slots.some(slot => slot.session_id === target.launch.session_id))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+        record.relation.completion = "interrupted";
+        record.relation.target_fence = "closed";
       }
+      retireSettledBranches(state);
+      return view(state, record);
+    });
+  }
+
+  /** Completion evidence is for one fixed historical request/Point. Native
+   * transcript/generation observation must not hold the global writer mutex.
+   * Commit only if the original record and all uncertainty gates still match;
+   * an unrelated writer is allowed to progress while evidence is observed.
+   */
+  private async finishCompletion(request: ExecutionRequest, target: ExecutionPoint): Promise<ExecutionRecord> {
+    const eligible = (state: ExecutionState): ExecutionRecord => {
+      const record = find(state, request);
+      if ([record.operations.launch, record.operations.send].some(stage => stage === "issued" || stage === "unknown")
+        || state.slots.some(slot => slot.request && same(slot.request, request))
+        || openParentEffect(state, request)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      if (!record.relation.target) throw new ExecutionError("EXECUTION_CONFLICT");
+      if (!record.relation.target.boundary || !same(record.relation.target, target))
+        throw new ExecutionError("EXECUTION_CONFLICT", "possible");
+      return record;
+    };
+    const settled = (record: ExecutionRecord) => record.relation.completion === "completed" && record.relation.target_fence === "closed";
+    const initial = await this.store.transaction(state => {
+      const record = eligible(state);
+      return { record, result: view(state, record) };
+    }, { readOnly: true });
+    if (settled(initial.record)) return initial.result;
+    const observed = { ...await this.runtime.completion(executionPointSchema.parse(target)) };
+    if (observed.state === "unknown") throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+    return this.store.transaction(state => {
+      const record = eligible(state);
+      if (settled(record)) return view(state, record);
+      // Do not overwrite a concurrent cancellation, target rebinding, phase
+      // change or interruption with an earlier read's completion evidence.
+      if (!same(record, initial.record)) throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+      record.relation.completion = observed.state;
+      record.relation.target_fence = pendingParentReturn(state, request) ? "unknown"
+        : observed.state === "completed" ? "closed" : observed.fence;
       retireSettledBranches(state);
       return view(state, record);
     });

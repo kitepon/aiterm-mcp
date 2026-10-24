@@ -51,7 +51,8 @@ import {
   normalizePaneCommand,
   atomicShellMultiline,
   appendMarkSentinel,
-  markShellCommand,
+  paneShellForSubmission,
+  adaptShellSubmission,
   settlePaneLog,
   paneCwdArgument,
   sessionEnvironmentLaunch,
@@ -480,9 +481,7 @@ export async function ensureAgentOwnsPaneInput(name: string, kind: AgentKind): P
 }
 
 function paneCurrentCommandForMark(name: string): string {
-  const foreground = paneCurrentCommand(name);
-  if ((!isWin && foreground !== "ssh") || foreground === "powershell" || foreground === "pwsh") return foreground;
-  return markShellCommand(foreground, captureScreen(name, 4));
+  return paneShellForSubmission(name);
 }
 
 function pasteBufferSupportsNoSanitizeFlag(): boolean {
@@ -1125,13 +1124,11 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     // Agent composer paste is literal text even if native foreground metadata
     // still reports the startup shell. Keep sanitization, but never encode TUI
     // text as an executable shell command.
-    if (o.launchShell) {
-      // Validate the original 64KiB text above, as for ordinary PowerShell
-      // submissions. The existing Windows worker also admits the Base64 wrap.
-      text = atomicShellMultiline(text, o.launchShell);
-    } else if (!o.raw && !o.bracketedPaste && (isWin || text.includes("\n"))) {
-      text = atomicShellMultiline(text, fg || paneCurrentCommand(name));
-    }
+    // Original text is validated above. OS queries, stale foreground handling
+    // and shell encoding belong to the runtime; common send supplies intent.
+    text = adaptShellSubmission(name, text, {
+      raw: o.raw, literalPaste: o.bracketedPaste, launchShell: o.launchShell, shell: fg,
+    });
     if (o.mark) {
       try {
         fs.writeFileSync(markpath(name), "1"); // waitCompletion に sentinel 完了検出を有効化させる

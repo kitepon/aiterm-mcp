@@ -417,30 +417,30 @@ test("listSessions: agent 行だけに agent 情報を追加し、通常 session
   });
 });
 
-test("openAgent: write_scope をmetadataとpty_listへ記録し、Codex read-onlyにはsandboxを付与する", { skip: skipAgentDone }, async () => {
+test("openAgent: write_scope をmetadataとpty_listへ記録し、Codex read-onlyにはsandboxを付与する", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {
     const [sid, hint] = core.openAgent("codex", { agent_done: true, write_scope: "read-only" });
     try {
       assert.equal(readAgentMeta(sid).write_scope, "read-only");
       assert.match(core.listSessions(), new RegExp(`${sid}\\t.*write_scope=\\\"read-only\\\"`));
       assert.match(hint, /--sandbox read-only を付与し、書込みを実効禁止/);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
-      assert.match(out, /--sandbox read-only/, `codex read-only sandbox: ${out}`);
+      const out = await readArgvFixture(sid, t);
+      assert.match(out, /<arg>--sandbox<\/arg>\r?\n<arg>read-only<\/arg>/, `codex received sandbox argv: ${out}`);
     } finally {
       core.closeSession(sid);
     }
   });
 });
 
-test("openAgent: write_scope省略時はCodex起動argvとpty_list表記を変えない", { skip: skipAgentDone }, async () => {
+test("openAgent: write_scope省略時はCodex起動argvとpty_list表記を変えない", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {
     const [sid, hint] = core.openAgent("codex", { agent_done: true });
     try {
       assert.equal(readAgentMeta(sid).write_scope, undefined);
       assert.doesNotMatch(core.listSessions(), new RegExp(`${sid}\\t.*write_scope=`));
       assert.doesNotMatch(hint, /能力宣言/);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
-      assert.doesNotMatch(out, /--sandbox read-only/);
+      const out = await readArgvFixture(sid, t);
+      assert.doesNotMatch(out, /<arg>--sandbox<\/arg>/);
     } finally {
       core.closeSession(sid);
     }

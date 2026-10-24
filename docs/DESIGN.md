@@ -115,6 +115,11 @@ POSIXの複数行起動commandは既存のPOSIX適合で1物理行にする。�
 `.lastcmd`と`agentLaunchLines`は実際に打つ1物理行を持ち、公開64KiBは符号化前に検査する。
 argv・lineage・metadata・native admission・receipt・TUI本文は変えず、新queueや再送は作らない。
 
+通常送信もmark送信も、shellの取得・現在promptとの補正・構文への適合はtmux-runtimeの
+同じ入口へ渡す。共通sendはraw/TUI/startupという送信意図と符号化前の上限検査を所有し、
+Windowsの前面名だけから方言を決めない。psmuxのprocess snapshot/OSCが古い時は、
+現在のPowerShell又はGit Bash promptで双方向に補正する。過去のpromptは使わない。
+
 TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
 このmoduleはcoreをimportせず、既存harness adapterと渡されたsample・sleep・時計だけで判断する。
 coreはnative画面取得、打鍵、session/metadata、起動コマンドとの対応を所有する。

@@ -61,11 +61,14 @@ test("openAgent codex: 起動commandは1物理行で打たれ、argvは偽CLIの
   process.env.CODEX_BIN = launchArgvCodexBin;
   try {
     await withFakeCodexHome(async () => {
-      const [sid] = core.openAgent("codex", { agent_done: true, prompt: PROMPT });
+      const [sid] = core.openAgent("codex", { agent_done: true, prompt: PROMPT, write_scope: "read-only" });
       try {
         assertOnePhysicalLine(submittedLine(sid));
         await readArgvFixture(sid, t);
         const argv = receivedArgv(sid);
+        const sandbox = argv.indexOf("--sandbox");
+        assert.ok(sandbox >= 0);
+        assert.equal(argv[sandbox + 1], "read-only", "sandbox is a received argv pair, independent of shell echo");
         const instruction = shared.subagentInstruction(readAgentMeta(sid));
         assert.ok(argv.includes(`developer_instructions=${instruction}`), JSON.stringify(argv));
         assert.ok(argv.includes(PROMPT), JSON.stringify(argv));

@@ -74,6 +74,16 @@ test("markShellCommand: SSH先の現在のPowerShell promptを使い過去画面
   assert.equal(markShellCommand('pwsh', ''), 'pwsh');
 });
 
+test("Windows shell方言: 現在のGit Bash/PowerShell promptで前面名の取り違えを双方向に補正する", () => {
+  const bash = 'runneradmin@runner UCRT64 /d/a/project ((72e984b...))\n$ ';
+  assert.equal(markShellCommand('pwsh', bash, 'win32'), 'bash');
+  assert.equal(markShellCommand('powershell', 'PS D:\\old>\n' + bash, 'win32'), 'bash');
+  assert.equal(markShellCommand('bash', bash + 'pwsh\nPS D:\\a\\project> ', 'win32'), 'pwsh');
+  assert.equal(markShellCommand('pwsh', bash + 'echo pending\n', 'win32'), 'pwsh');
+  assert.equal(markShellCommand('pwsh', '', 'win32'), 'pwsh');
+  assert.equal(markShellCommand('pwsh', bash, 'linux'), 'pwsh', 'POSIX native foreground contract is unchanged');
+});
+
 test("旧tmuxにもsession識別を注入しnew-session -eを要求しない", { skip: isWin }, () => {
   const launch = sessionEnvironmentLaunch("/bin/sh", ["AITERM_SESSION_ID=legacy'quoted"], "tmux 3.1c");
   assert.deepEqual(launch.args, []);

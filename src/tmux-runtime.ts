@@ -635,12 +635,32 @@ export function atomicShellMultiline(text: string, foreground: string): string {
   return `eval "$(command printf '%b' '${quoted}')"`;
 }
 
-export function markShellCommand(foreground: string, screen: string): string {
-  if (POWERSHELL_COMMANDS.has(foreground)) return foreground;
-  if (!isWin && foreground !== "ssh") return foreground;
-  // psmux起動直後の古いprocess名も、SSH先も、現在の末尾promptだけを実効shellの証拠にする。
+export function markShellCommand(foreground: string, screen: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== "win32" && foreground !== "ssh") return foreground;
+  // psmuxの前面名はprocess snapshotやOSCの古い値を返しうる。
+  // 現在のpromptだけを使い、PowerShell→Git Bashと逆向きの両方を補正する。
   const current = screen.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trimEnd();
-  return /(?:^|\n)PS [^\r\n]*>$/.test(current) ? "pwsh" : foreground;
+  if (/(?:^|\n)PS [^\r\n]*>$/.test(current)) return "pwsh";
+  if (platform === "win32" && /(?:^|\n)[^\r\n]*\b(?:MINGW(?:32|64)|UCRT64|MSYS)\b[^\r\n]*\r?\n\$\s*$/.test(current)) return "bash";
+  return foreground;
+}
+
+/** The runtime owns platform foreground queries and shell-dialect reconciliation. */
+export function paneShellForSubmission(name: string): string {
+  const r = tmuxCommand(true, "display-message", "-p", "-t", name, "#{pane_current_command}");
+  const foreground = r.code === 0 ? normalizePaneCommand(r.stdout.trim()) : "";
+  if (!isWin && foreground !== "ssh") return foreground;
+  const screen = tmuxCommand(true, "capture-pane", "-p", "-J", "-t", name, "-S", "-4");
+  return markShellCommand(foreground, screen.code === 0 ? screen.stdout : "");
+}
+
+/** Common send code supplies intent; the runtime decides whether/how to encode it. */
+export function adaptShellSubmission(name: string, text: string, options: {
+  raw?: boolean; literalPaste?: boolean; launchShell?: string; shell?: string;
+} = {}): string {
+  if (options.launchShell) return atomicShellMultiline(text, options.launchShell);
+  if (options.raw || options.literalPaste || (!isWin && !text.includes("\n"))) return text;
+  return atomicShellMultiline(text, options.shell || paneShellForSubmission(name));
 }
 
 export function appendMarkSentinel(text: string, foreground: string): string {

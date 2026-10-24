@@ -20,21 +20,23 @@ public static class IsolatedBashStart {
   [DllImport("kernel32.dll")] public static extern uint ResumeThread(IntPtr thread);
   [DllImport("kernel32.dll")] public static extern uint WaitForSingleObject(IntPtr handle,uint ms);
   [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+  public static Process Start(string app) {
+    var si = new Startup();
+    si.cb = (uint)Marshal.SizeOf(typeof(Startup));
+    si.flags = 0x100;
+    si.input = GetStdHandle(-10); si.output = GetStdHandle(-11); si.error = GetStdHandle(-12);
+    Process pi;
+    var line = new StringBuilder("\"" + app + "\" --noprofile --norc -i");
+    if (!CreateProcess(app,line,IntPtr.Zero,IntPtr.Zero,true,4,IntPtr.Zero,null,ref si,out pi))
+      throw new Exception("fixture CreateProcess error " + Marshal.GetLastWin32Error());
+    return pi;
+  }
+
 }
 '@
-$si = [IsolatedBashStart+Startup]::new()
-$si.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][IsolatedBashStart+Startup])
-$si.flags = 0x100
-$si.input = [IsolatedBashStart]::GetStdHandle(-10)
-$si.output = [IsolatedBashStart]::GetStdHandle(-11)
-$si.error = [IsolatedBashStart]::GetStdHandle(-12)
-$pi = [IsolatedBashStart+Process]::new()
 $Bash = [IO.Path]::GetFullPath($Bash.Replace('/', '\'))
 if (-not [IO.File]::Exists($Bash)) { throw 'fixture Bash path does not exist' }
-$line = [Text.StringBuilder]::new(('"' + $Bash + '" --noprofile --norc -i'))
-if (-not [IsolatedBashStart]::CreateProcess($Bash,$line,[IntPtr]::Zero,[IntPtr]::Zero,$true,4,[IntPtr]::Zero,$null,[ref]$si,[ref]$pi)) {
-  throw ('fixture CreateProcess error ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
-}
+$pi = [IsolatedBashStart]::Start($Bash)
 $resumed = $false
 try {
   [IO.File]::WriteAllText($Ready,[string]$pi.pid)

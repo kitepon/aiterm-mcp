@@ -57,8 +57,8 @@ if (process.argv.includes('--direct-init')) {
                 while !std::path::Path::new(&format!("{}.release", gate)).exists() && std::time::Instant::now() < until {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                unsafe { ResumeThread(_main_thread.as_raw_handle() as _); }
-                let _ = std::fs::write(format!("{}.resumed", gate), "resumed");
+                let previous_suspend = unsafe { ResumeThread(_main_thread.as_raw_handle() as _) };
+                let _ = std::fs::write(format!("{}.resumed", gate), previous_suspend.to_string());
             });
         }
   `);

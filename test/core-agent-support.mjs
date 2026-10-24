@@ -324,6 +324,49 @@ function sessionLogPath(sid) {
 
 function makeFakeCodexTuiBin(busy = false, exitAfterReady = false, inputFile = null) {
   const bin = path.join(process.env.TMPDIR, `fake-codex-tui-${Date.now().toString(36)}.sh`);
+  if (inputFile) {
+    // A TUI submits a bracketed multiline paste on Enter, not once per LF.
+    // Record logical submissions directly; terminal echo is not the oracle.
+    const driver = bin + ".cjs";
+    fs.writeFileSync(driver, `const fs = require("node:fs");
+const { StringDecoder } = require("node:string_decoder");
+const output = ${JSON.stringify(inputFile)};
+const decoder = new StringDecoder("utf8");
+const start = "\\x1b[200~", end = "\\x1b[201~";
+let buffer = "", text = "", inPaste = false, pastes = 0;
+process.stdin.setRawMode(true);
+process.stdin.on("data", bytes => {
+  buffer += decoder.write(bytes);
+  for (;;) {
+    if (inPaste) {
+      const i = buffer.indexOf(end);
+      if (i < 0) return;
+      text += buffer.slice(0, i); buffer = buffer.slice(i + end.length);
+      inPaste = false; pastes++; continue;
+    }
+    if (!buffer) return;
+    if (buffer.startsWith(start)) { buffer = buffer.slice(start.length); inPaste = true; continue; }
+    if (start.startsWith(buffer)) return;
+    const c = buffer[0]; buffer = buffer.slice(1);
+    if (c === "\\r" || c === "\\n") {
+      if (text) {
+        fs.appendFileSync(output, JSON.stringify({ text, paste_frames: pastes }) + "\\n");
+        process.stdout.write(text + "\\n");
+        ${busy ? 'process.stdout.write("• Working (1s • esc to interrupt)\\n");' : ''}
+      }
+      text = ""; pastes = 0;
+    } else text += c;
+  }
+});
+process.stdin.resume();
+process.stdout.write("OpenAI Codex\\n› ready\\n");
+${exitAfterReady ? 'process.exit(0);' : ''}
+`, { mode: 0o600 });
+    const quote = value => "'" + value.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
+    // Keep the configured launcher visible while its synthetic TUI child runs.
+    fs.writeFileSync(bin, `#!/bin/sh\n${quote(process.execPath)} ${quote(driver)} "$@"\n`, { mode: 0o700 });
+    return bin;
+  }
   fs.writeFileSync(
     bin,
     [
@@ -331,7 +374,6 @@ function makeFakeCodexTuiBin(busy = false, exitAfterReady = false, inputFile = n
       "printf 'OpenAI Codex\\n› ready\\n'",
       ...(exitAfterReady ? ["exit 0"] : []),
       "while IFS= read -r line; do",
-      ...(inputFile ? ["  printf '%s\\n' \"$line\" >> '" + inputFile.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'"] : []),
       "  printf '%s\\n' \"$line\"",
       ...(busy ? ["  printf '• Working (1s • esc to interrupt)\\n'"] : []),
       "done",

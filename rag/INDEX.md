@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **143** 件 / 更新: 2026-10-21
+- 総数: **156** 件 / 更新: 2026-10-24
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -209,7 +209,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration> (docs, 17019 chars)
   - 効きどころ: WSL2上の対象環境そのもの。bashのPS0=133;C/PS1=133;A..B注入の実コードがあり、自前でマーカーを仕込む方式の雛形になる。
 
-## バックエンド (backends) — 23件
+## バックエンド (backends) — 36件
 
 - [Detach — GNU Screen User's Manual](sources/backends/gnu-screen-detach.md) — GNU screenのdetach仕様。C-a dで端末から切離しバックグラウンド化、接続喪失時のautodetach、-rでの再接続を解説。
   - 出典: <https://www.gnu.org/software/screen/manual/html_node/Detach.html> (docs, 1578 chars)
@@ -232,9 +232,48 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [psmux 3.3.8 exact parsed CLI flags](sources/backends/psmux-3-3-8-native-create-flags.md) — Pinned psmux command/flag reference distinguishes accepted new-session -P/-F from unsupported or ignored flags.
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/docs/tmux_args_reference.md> (official_flag_reference, 28003 chars)
   - 効きどころ: Flag availability alone does not prove a stable per-session creator/server identity. Guarded Windows creation remains unsupported until that independent adapter exists.
+- [psmux v3.3.8 crates/portable-pty-psmux/src/cmdbuilder.rs](sources/backends/psmux-338-command-environment.md) — Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/crates/portable-pty-psmux/src/cmdbuilder.rs> (official_source, 26832 chars)
+  - 効きどころ: Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.
+- [psmux pinned66cf conpty.rs](sources/backends/psmux-338-conpty-pipe-boundary.md) — Pinned portable PTY process creation and input pipe ownership.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/crates/portable-pty-psmux/src/win/conpty.rs> (official_source, 8002 chars)
+  - 効きどころ: Diagnostic first native Bash suspension distinguishes initial ConPTY attachment from a child under an existing PowerShell console; no product or backend minimum-version change.
+- [psmux pinned66cf psuedocon.rs](sources/backends/psmux-338-conpty-process-create.md) — Pinned portable PTY process creation and input pipe ownership.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/crates/portable-pty-psmux/src/win/psuedocon.rs> (official_source, 14067 chars)
+  - 効きどころ: Diagnostic first native Bash suspension distinguishes initial ConPTY attachment from a child under an existing PowerShell console; no product or backend minimum-version change.
+- [psmux v3.3.8 crates/portable-pty-psmux/src/win/conpty.rs](sources/backends/psmux-338-conpty-spawn.md) — Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/crates/portable-pty-psmux/src/win/conpty.rs> (official_source, 8002 chars)
+  - 効きどころ: Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.
+- [psmux 66cf613 native CLI bootstrap](sources/backends/psmux-338-native-cli-bootstrap.md) — Fixed native entry point for CLI session creation and readiness.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/main.rs> (official_source, 271476 chars)
+  - 効きどころ: Locate the actual top-level new-session execution path, rather than assuming the internal command handler is used.
+- [psmux 66cf613 native connection input dispatch](sources/backends/psmux-338-native-connection-input.md) — Exact source matching the attested psmux 3.3.8 binary for raw hex input and native Enter dispatch.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/server/connection.rs> (official_source, 225957 chars)
+  - 効きどころ: Determine whether UTF8 is preserved across authenticated send -H chunks and how input queues are acknowledged.
+- [psmux 66cf613 native input event loop](sources/backends/psmux-338-native-input-loop.md) — Exact native event consumer for queued SendBytes and SendKeys requests.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/server/mod.rs> (official_source, 393113 chars)
+  - 効きどころ: Check raw byte delivery and ordering after authenticated input acknowledgement.
+- [psmux 66cf613 raw byte write to native PTY](sources/backends/psmux-338-native-input-write.md) — Exact terminal input delivery functions.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/input.rs> (official_source, 188639 chars)
+  - 効きどころ: Check whether raw UTF8 chunks are decoded independently before PTY writes.
+- [psmux 66cf613 in-server session command and warm claim](sources/backends/psmux-338-native-session-command.md) — Fixed in-server command-string handler for new-session environment and initial command.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/commands.rs> (official_source, 127545 chars)
+  - 効きどころ: Read the internal command-string path separately from top-level native CLI bootstrap.
+- [psmux v3.3.8 new-session readiness stress fixture](sources/backends/psmux-338-new-session-readiness-stress.md) — Pinned official stress fixture for new-session readiness.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/tests/stress_new_session_readiness.ps1> (official_source, 13565 chars)
+  - 効きどころ: Prepare a minimal cold/warm shell readiness diagnosis after argv-until failed to resolve the full-run startup failures.
+- [psmux v3.3.8 src/pane.rs](sources/backends/psmux-338-pane-start.md) — Pinned native source for caller environment and ConPTY Unicode boundary diagnosis.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/src/pane.rs> (official_source, 127586 chars)
+  - 効きどころ: Distinguish the actual upstream spawn/encoding path from an Aiterm fixture or observed host configuration.
+- [psmux v3.3.8 session registry and cleanup](sources/backends/psmux-338-session-registry.md) — Pinned registry ownership and cleanup source for synthetic fixture correctness.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/src/session.rs> (official_source, 103738 chars)
+  - 効きどころ: Identify the registry schema and scope of read-only query side effects without using real records.
 - [psmux features — server persistence, control mode, tmux compatibility](sources\backends\psmux-features-doc.md) — psmuxの機能詳細。session serverはSSH切断・端末クラッシュを生存、warm sessionでバックグラウンドサーバ事前起動、psmux-resurrect/continuumプラグイン、send-keys/capture-pane/pipe-paneをCI/CD自動化向けと明記、control mode -C/-CCの%begin/%end framing、-L名前空間隔離、ConPTY利用。
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/master/docs/features.md> (docs, 14446 chars)
   - 効きどころ: Aitermがtmuxに要求する能力（detached永続・send/capture/pipe-pane・socket隔離）とpsmuxの対応を突合する一次資料。
+- [psmux #622 has-session preserves live registry on timeout](sources/backends/psmux-has-session-live-timeout-registry-fix.md) — Upstream has-session deleted .port after any connect failure; fix limits cleanup to refusal or dead PID.
+  - 出典: <https://github.com/psmux/psmux/commit/9f141d1dbeff38116dd3bb164167fcc97e495f59.patch> (official_source, 16412 chars)
+  - 効きどころ: Candidate explanation for disappearance between payload and Enter under hosted load; not proof that it caused the observed Aiterm failure.
 - [psmux — native tmux for Windows (README)](sources\backends\psmux-windows-native-tmux-readme.md) — Rust製のWindowsネイティブtmux実装。ConPTY+Win32 API、WSL/Cygwin不要。90+ tmux互換コマンド（send-keys/capture-pane/pipe-pane含む）、control mode -C/-CC、-Lサーバ名前空間、detachedセッション永続、warm session。repo作成2025-11-30、2026-08-15時点でpush継続、3,260 stars、MIT。
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/master/README.md> (github_readme, 8891 chars)
   - 効きどころ: AitermのWSL2非依存Windows基盤の最有力既製候補。tmuxと同じCLI契約（send-keys/capture-pane/pipe-pane/%begin framing）を名乗るため、既存tmux呼び出し層の移植先として直接評価対象。「tmux for Windows空白仮説」の反証の中核一次資料。
@@ -469,24 +508,3 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
-
-### Windows hosted境界診断の固定一次資料（2026-10-23）
-
-- [psmux3.3.8 ConPTY native spawn](sources/backends/psmux-338-conpty-spawn.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
-- [psmux3.3.8 environment block construction](sources/backends/psmux-338-command-environment.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
-- [psmux3.3.8 pane startup and shell selection](sources/backends/psmux-338-pane-start.md) — v3.3.8公式sourceの固定保存。親/paneの環境継承と入力・出力encoding診断の参照。
-
-- [psmux has-session live timeout registry fix](sources/backends/psmux-has-session-live-timeout-registry-fix.md) — upstream #622の一次diff。hostedでのserver消失との因果は未確定。
-
-- [psmux3.3.8 session registry](sources/backends/psmux-338-session-registry.md) — registryのschemaとcleanupの固定一次source。合成fixtureのlive条件を確認するための参照。
-
-- [psmux3.3.8 new-session readiness stress reference](sources/backends/psmux-338-new-session-readiness-stress.md) — 公式の起動準備race検証。大規模stressは実行せず、次の最小fixture設計の参照に限る。
-
-## Windows native input boundary, fixed psmux 3.3.8 (2026-10-24)
-
-- [Connection raw hex parsing](sources/backends/psmux-338-native-connection-input.md) — fixed 66cf613; send -H enqueues raw bytes.
-- [Server request dispatch](sources/backends/psmux-338-native-input-loop.md) — fixed 66cf613; SendBytes routes to input writer.
-- [Pane input write](sources/backends/psmux-338-native-input-write.md) — fixed 66cf613; incomplete UTF-8 chunks retain raw bytes, valid UTF-8 keeps normal input-mode semantics. This does not establish the cause of Windows argv failures.
-
-- [Top-level native CLI session bootstrap](sources/backends/psmux-338-native-cli-bootstrap.md) — fixed 66cf613; explicit initial command or environment bypasses warm claim, detached readiness checks an existing window and responding request loop. This is distinct from shell input readiness.
-- [In-server new-session command](sources/backends/psmux-338-native-session-command.md) — fixed 66cf613; keep this internal command-string path distinct from the top-level CLI.

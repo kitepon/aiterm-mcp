@@ -612,6 +612,42 @@
       "fetched": "2026-10-23"
     },
     {
+      "slug": "psmux-338-conpty-pipe-boundary",
+      "topic": "backends",
+      "title": "psmux pinned66cf conpty.rs",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/crates/portable-pty-psmux/src/win/conpty.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-conpty-pipe-boundary.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "ConPTY",
+        "native-input"
+      ],
+      "summary": "Pinned portable PTY process creation and input pipe ownership.",
+      "relevance": "Diagnostic first native Bash suspension distinguishes initial ConPTY attachment from a child under an existing PowerShell console; no product or backend minimum-version change.",
+      "chars": 8002,
+      "fetched": "2026-10-24"
+    },
+    {
+      "slug": "psmux-338-conpty-process-create",
+      "topic": "backends",
+      "title": "psmux pinned66cf psuedocon.rs",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/crates/portable-pty-psmux/src/win/psuedocon.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-conpty-process-create.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "ConPTY",
+        "native-input"
+      ],
+      "summary": "Pinned portable PTY process creation and input pipe ownership.",
+      "relevance": "Diagnostic first native Bash suspension distinguishes initial ConPTY attachment from a child under an existing PowerShell console; no product or backend minimum-version change.",
+      "chars": 14067,
+      "fetched": "2026-10-24"
+    },
+    {
       "slug": "psmux-338-conpty-spawn",
       "topic": "backends",
       "title": "psmux v3.3.8 crates/portable-pty-psmux/src/win/conpty.rs",

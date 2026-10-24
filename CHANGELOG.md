@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.16] - 2026-10-24
+
 ### Fixed
 
 - Registration and returned launch/send receipt binding perform asynchronous native observation outside the shared metadata mutex. Registration rechecks current admission before adding its record; receipt binding rechecks the exact original issued slot before accepting it. Slow observation no longer blocks unrelated room targets, and uncertain actions remain unreplayed.
@@ -2852,7 +2854,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.15...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.16...HEAD
+[0.61.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.15...v0.61.16
 [0.61.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.14...v0.61.15
 [0.61.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.13...v0.61.14
 [0.61.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...v0.61.13

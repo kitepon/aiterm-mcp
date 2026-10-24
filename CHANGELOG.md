@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.11] - 2026-10-24
+
+### Validation scope
+
+- Windows native validation uses GitHub-hosted Windows 2022, Node 22 and psmux 3.3.8. Linux/macOS acceptance combines previously passing full suites with focused checks of subsequent changes. Validation uses isolated CLI fixtures; commercial image and real CLI acceptance remain separate.
+
 ### Fixed
 
 - Native Windows panes retain runtime additions to the caller PATH instead of replacing them with registry PATH. Explicit PATH entries keep precedence.
 - Non-raw PowerShell shell submissions establish UTF-8 input, output and native pipeline encoding in the submitted script, including single-line commands. Profiles, psmux interactive initialization, deferred Enter and raw PTY input retain their existing behavior.
+
+### Tests
+
+- POSIX-only native test teardown also stays skipped on Windows. A file-level hook previously reached the psmux `tmux.exe` alias and stopped other fixture namespaces even when every test case was skipped. A native canary regression covers this boundary.
+- Argument fixtures wait for their final output marker within the existing deadline.
 
 ## [0.61.10] - 2026-10-23
 
@@ -2787,7 +2798,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...HEAD
+[0.61.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...v0.61.11
 [0.61.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...v0.61.10
 [0.61.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.8...v0.61.9
 [0.61.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.7...v0.61.8

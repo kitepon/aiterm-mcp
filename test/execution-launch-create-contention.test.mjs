@@ -22,7 +22,12 @@ syncBuiltinESMExports();
 const core = await import('../dist/core.js');
 test.after(() => {
   trace = null;
-  try { cp.execFileSync('tmux', ['-S', localParentWorkerRuntime.scope().multiplexer.key, 'kill-server']); } catch {}
+  // All cases are POSIX-only, but file-level after hooks still run when every
+  // case is skipped. On Windows tmux.exe can be psmux's alias: -S does not
+  // isolate a namespace and kill-server would stop other native test seats.
+  if (process.platform !== 'win32') {
+    try { cp.execFileSync('tmux', ['-S', localParentWorkerRuntime.scope().multiplexer.key, 'kill-server']); } catch {}
+  }
   cp.spawnSync = original; syncBuiltinESMExports();
 });
 

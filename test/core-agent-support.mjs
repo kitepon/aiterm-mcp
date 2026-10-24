@@ -29,11 +29,15 @@ process.env.XDG_CONFIG_HOME = path.join(fakeHome, ".config");
 process.env.XDG_STATE_HOME = path.join(fakeHome, ".local", "state");
 const ARGV_FIXTURE_DONE = "<<<AITERM_FAKE_ARGV_DONE>>>";
 const argvPrinterBin = path.join(process.env.TMPDIR, "print-argv.sh");
+const argvInvocationFile = path.join(process.env.TMPDIR, "argv-invocations.log");
+const quotedInvocationFile = "'" + argvInvocationFile.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
+const argvInvocation = phase => `printf '${phase} %s %s\\n' "$AITERM_SESSION_ID" "$AITERM_AGENT_LAUNCH_ID" >> ${quotedInvocationFile}\n`;
+
 const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");
 fs.writeFileSync(
     argvPrinterBin,
-    "#!/bin/sh\nprintf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n",
+    "#!/bin/sh\n" + argvInvocation("START") + "printf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n" + argvInvocation("END"),
     { mode: 0o700 },
   );
 fs.chmodSync(argvPrinterBin, 0o700);
@@ -88,6 +92,48 @@ const skipAgentDone = hasTmux ? undefined : "tmux 未インストール";
 // 同じ組立コードは POSIX 3 環境（macOS/Linux/WSL2）の同テストが検証する。
 const skipGrokFakeBin = process.platform === "win32" ? "Windows は native grok.exe 強制のため fake grok bin は起動不可" : skip;
 const agentStateDir = () => path.join(process.env.TMPDIR, `aiterm-mcp-${testUid()}`, "agents");
+
+
+// Observe the fake CLI's own complete argv output, never its shell command echo.
+// Keep the existing 5-second deadline. On a miss, collect scalars before the
+// caller's original cleanup without resending input or advancing a screen offset.
+async function readArgvFixture(sid, t) {
+  const launchId = readAgentMeta(sid).launch_id;
+  const runtime = await import("../dist/tmux-runtime.js");
+  const anchor = () => {
+    if (process.platform !== "win32") return null;
+    const registry = process.env.PSMUX_DATA_DIR || path.join(process.env.USERPROFILE || os.homedir(), ".psmux");
+    try { return fs.readFileSync(path.join(registry, `${runtime.WIN_NS}__${sid}.pid`), "utf8").trim(); }
+    catch { return null; }
+  };
+  const expectedAnchor = anchor();
+  const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
+  if (out.includes(ARGV_FIXTURE_DONE)) return out;
+  const stats = text => ({ bytes: Buffer.byteLength(text), argv: text.includes("<arg>"),
+    done: text.includes(ARGV_FIXTURE_DONE),
+    shell_prompt: /\$\s*$/.test(text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")),
+    syntax_error: /syntax error/i.test(text) });
+  const sameLaunch = () => { try { return readAgentMeta(sid).launch_id === launchId; } catch { return false; } };
+  const diagnostic = { schema: "aiterm.test-argv-miss.v1", session_id: sid, launch_id: launchId,
+    output: stats(out), log: null, offset: null, cli_started: null, cli_ended: null,
+    same_generation: null, pane: null };
+  try { diagnostic.log = stats(fs.readFileSync(sessionLogPath(sid), "utf8")); } catch {}
+  try { const n = Number(fs.readFileSync(path.join(runtime.SOCKDIR, sid + ".offset"), "utf8")); if (Number.isSafeInteger(n)) diagnostic.offset = n; } catch {}
+  try {
+    const phases = fs.readFileSync(argvInvocationFile, "utf8").split(/\r?\n/);
+    diagnostic.cli_started = phases.includes(`START ${sid} ${launchId}`);
+    diagnostic.cli_ended = phases.includes(`END ${sid} ${launchId}`);
+  } catch {}
+  if (expectedAnchor && expectedAnchor === anchor() && sameLaunch()) {
+    try {
+      const pane = await core.readOutput(sid, { screen: true, raw: true });
+      diagnostic.same_generation = expectedAnchor === anchor() && sameLaunch();
+      if (diagnostic.same_generation) diagnostic.pane = stats(pane);
+    } catch { diagnostic.same_generation = null; }
+  }
+  t.diagnostic(JSON.stringify(diagnostic));
+  assert.fail("fake CLI argv completion was not observed within the existing 5-second deadline");
+}
 
 function makeFakeCodexHome() {
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR, "fake-codex-home-"));
@@ -707,7 +753,7 @@ after(() => {
 });
 
 export {
-  ARGV_FIXTURE_DONE, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
+  ARGV_FIXTURE_DONE, readArgvFixture, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, settledListSessions, readAgentMeta, writeAgentMeta, bindTranscriptTurn,

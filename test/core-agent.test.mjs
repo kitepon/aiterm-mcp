@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  ARGV_FIXTURE_DONE, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
+  ARGV_FIXTURE_DONE, readArgvFixture, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
@@ -670,7 +670,7 @@ test("target contract: Grokは通常HOMEとGROK_HOMEを共有し既知session tr
   });
 });
 
-test("target contract: nested launcherはdepthとlineageを1段だけ進め、再委譲を許可する", { skip: skipAgentDone }, async () => {
+test("target contract: nested launcherはdepthとlineageを1段だけ進め、再委譲を許可する", { skip: skipAgentDone }, async (t) => {
   const saved = {
     role: process.env.AITERM_AGENT_ROLE,
     session: process.env.AITERM_AGENT_SESSION_ID,
@@ -692,8 +692,8 @@ test("target contract: nested launcherはdepthとlineageを1段だけ進め、�
         assert.equal(meta.delegation_depth, 2);
         assert.equal(meta.lineage, `host-root>claude:parent-session>codex:${sid}`);
         assert.equal(meta.delegation_allowed, true);
-        const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
-        assert.match(out, /AITERM_AGENT_DEPT\s*H='2'/);
+        const out = await readArgvFixture(sid, t);
+        assert.match(out, /agent_depth=2/);
         assert.match(out, /追加のsub-agentへ委譲してよい/);
         assert.doesNotMatch(out, /再委譲.*禁止/);
       } finally {
@@ -714,7 +714,7 @@ test("target contract: nested launcherはdepthとlineageを1段だけ進め、�
   }
 });
 
-test("openAgent codex agent_done: 通常CODEX_HOMEのroot transcriptだけを完了正本にする", { skip: skipAgentDone }, async () => {
+test("openAgent codex agent_done: 通常CODEX_HOMEのroot transcriptだけを完了正本にする", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async (fakeHome) => {
     const configBefore = fs.readFileSync(path.join(fakeHome, "config.toml"), "utf8");
     const [sid, hint] = core.openAgent("codex", { reasoning_effort: "high", agent_done: true });
@@ -737,7 +737,7 @@ test("openAgent codex agent_done: 通常CODEX_HOMEのroot transcriptだけを完
       assert.match(hint, /起動設定: model=test-model（端末config継承） effort=high（引数）/);
       assert.match(hint, /共有 config: mcp_servers 1 個継承 \/ approval_policy=never \/ sandbox_mode=danger-full-access/);
 
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await readArgvFixture(sid, t);
       assert.doesNotMatch(out, /--dangerously-bypass-hook-trust/, `不要なhook trust bypassを付けない: ${out}`);
       assert.match(out, /model_reasoning_effort=high/, `codex CLI effort: ${out}`);
     } finally {

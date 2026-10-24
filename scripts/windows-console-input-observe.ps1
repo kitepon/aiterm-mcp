@@ -80,12 +80,13 @@ public static class FixtureConsoleInputObservation {
 '@
   $row.console = [FixtureConsoleInputObservation]::Observe($PaneProcessId)
   # Only processes witnessed in this fixture's console are candidates. A
-  # noninvasive debugger attach briefly freezes the fixture for its stack,
-  # then detaches; no key, retry, console-mode change, or foreign process.
+  # noninvasive, nonsuspending debugger reads its stack and then detaches.
+  # No key, retry, console-mode change, or foreign process.
   $cdb = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Debuggers/x64/cdb.exe'
   $row.debugger_available = Test-Path $cdb
-  $row.processes = @($row.console.process_ids | ForEach-Object {
-    $target = Get-Process -Id $_ -ErrorAction SilentlyContinue
+  $row.processes = [Collections.Generic.List[object]]::new()
+  foreach ($consoleProcessId in $row.console.process_ids) {
+    $target = Get-Process -Id $consoleProcessId -ErrorAction SilentlyContinue
     if ($target -and $target.Id -ne $PID) {
       $snapshot = [ordered]@{ name = $target.ProcessName; pid = $target.Id; cpu_ms = $target.TotalProcessorTime.TotalMilliseconds }
       $snapshot.threads = @($target.Threads | ForEach-Object {
@@ -94,13 +95,45 @@ public static class FixtureConsoleInputObservation {
         $thread
       })
       if ($row.debugger_available -and $target.ProcessName -eq 'bash') {
-        $snapshot.stack = (& $cdb -pv -p $target.Id -c '~* k;qd' 2>&1 | Out-String)
+        try {
+          # FreeConsole above invalidates the native standard-handle slots.
+          # Give this child three fresh pipes instead of PowerShell's native
+          # invocation inheriting the detached slots.
+          $debugger = [Diagnostics.Process]::new()
+          $start = [Diagnostics.ProcessStartInfo]::new()
+          $start.FileName = $cdb
+          $start.UseShellExecute = $false
+          $start.CreateNoWindow = $true
+          $start.RedirectStandardInput = $true
+          $start.RedirectStandardOutput = $true
+          $start.RedirectStandardError = $true
+          foreach ($argument in @('-pvr', '-sins', '-y', $env:TEMP, '-p', [string]$target.Id, '-c', '~* k;qd')) {
+            [void]$start.ArgumentList.Add($argument)
+          }
+          $debugger.StartInfo = $start
+          [void]$debugger.Start()
+          $debugger.StandardInput.Close()
+          $stdout = $debugger.StandardOutput.ReadToEndAsync()
+          $stderr = $debugger.StandardError.ReadToEndAsync()
+          if (-not $debugger.WaitForExit(7000)) {
+            $debugger.Kill()
+            $debugger.WaitForExit()
+            $snapshot.debugger_timeout = $true
+          }
+          $snapshot.debugger_exit = $debugger.ExitCode
+          $snapshot.stack = $stdout.GetAwaiter().GetResult()
+          $snapshot.debugger_stderr = $stderr.GetAwaiter().GetResult()
+          $debugger.Dispose()
+        } catch {
+          $snapshot.debugger_error = $_.Exception.Message
+          $snapshot.debugger_error_type = $_.Exception.GetType().Name
+        }
       }
-      $snapshot
+      $row.processes.Add($snapshot)
     }
-  })
+  }
   [void]$row.console.Remove('process_ids')
   $row.target_creation_unchanged = (Get-Process -Id $PaneProcessId).StartTime.ToUniversalTime().ToFileTimeUtc() -eq $paneCreation
   $row.server_creation_unchanged = (Get-Process -Id $ServerProcessId).StartTime.ToUniversalTime().ToFileTimeUtc() -eq $ServerCreation
-} catch { $row.error_type = $_.Exception.GetType().Name }
+} catch { $row.error_type = $_.Exception.GetType().Name; $row.error = $_.Exception.Message }
 $row | ConvertTo-Json -Compress -Depth 8

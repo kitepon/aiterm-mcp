@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 const actual = cp.spawnSync;
+const markerOnly = process.argv.includes('--marker-only') || process.env.AITERM_DIAGNOSTIC_MARKER_ONLY === '1';
 const destination = path.join(process.cwd(), `startup-trace-${process.pid}.jsonl`);
 const actualWrite = fs.writeFileSync;
 const invocationLog = path.join(process.cwd(), `fixture-invocations-${process.pid}.log`).replaceAll('\\', '/').replaceAll("'", "'\\''");
@@ -36,14 +37,14 @@ cp.spawnSync = function(command, args = [], options) {
   const psmux = executable === 'psmux' || executable === 'psmux.exe';
   const worker = executable.startsWith('node') && String(args[0]).endsWith('psmux-send-worker.js');
   const namespace = psmux ? args[args.indexOf('-L') + 1] : worker ? String(args[1]).split('__')[0] : null;
-  if (!namespace || !/^aiterm-[0-9a-f]+$/.test(namespace)) return actual.call(this, command, args, options);
-  const before = snapshot(namespace);
+  if ((markerOnly && !worker) || !namespace || !/^aiterm-[0-9a-f]+$/.test(namespace)) return actual.call(this, command, args, options);
+  const before = markerOnly ? [] : snapshot(namespace);
   const started = performance.now();
   const result = actual.call(this, command, args, options);
   const event = { parent: process.pid, at: Math.round(started), elapsed: Math.round(performance.now() - started),
     operation: worker ? 'payload-worker' : args[args.indexOf('-L') + 2], namespace,
     status: result.status, errorCode: result.error?.code ?? null,
-    noServer: /no server running/i.test(String(result.stderr)), before, after: snapshot(namespace) };
+    noServer: /no server running/i.test(String(result.stderr)), before, after: markerOnly ? [] : snapshot(namespace) };
   if (worker) {
     const input = options?.input == null ? '' : Buffer.from(options.input).toString('utf8');
     event.launchId = /AITERM_AGENT_LAUNCH_ID=['"]?([0-9a-f]{32})/.exec(input)?.[1] ?? null;

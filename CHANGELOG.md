@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Registration and returned launch/send receipt binding perform asynchronous native observation outside the shared metadata mutex. Registration rechecks current admission before adding its record; receipt binding rechecks the exact original issued slot before accepting it. Slow observation no longer blocks unrelated room targets, and uncertain actions remain unreplayed.
+
 ## [0.61.15] - 2026-10-24
 
 ### Fixed

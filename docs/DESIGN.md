@@ -65,6 +65,11 @@ source/target世代の観測は保持せず、従来どおり各受付で再照�
 通常のcompletion終了確認は元request/Pointを共有lock内で固定し、native/transcript観測をlock外で行う。
 反映時に同じrecord全体・issued/unknown・元slot・親作用を再照合し、途中変更があれば反映しない。
 親返却のpending判定は反映時のstateで行い、元unknownの解除や送信の再実行には使わない。
+実行登録も同じrequestの既存予約を短い共有lock内で確認してから、source/targetの非同期観測をlock外で行う。
+登録反映時に同じ予約・取消・source/targetの受付条件を再確認し、実作用直前の同期世代gateは維持する。
+launch/sendの返却結果は元issued slotを固定してlock外で世代観測し、同じslotとissued状態だけに結合する。
+途中のunknown化・slot交代・観測した世代の不一致はpossibleとして保持し、元作用を再実行しない。
+遅延した要求取消は本物の受付結果を消さず、共有lock内へ非同期の観測待ちを戻さない。
 private producer/worker factoryを構築したprocessではnative effect scopeを必須にする。
 coreの公開変更入口も、打鍵や設定・認証・lock/metadata準備に入る前に対象のrequest contextを要求する。
 この入口確認はissuedへの昇格ではない。実作用時には既存の同期受付を別に通す。

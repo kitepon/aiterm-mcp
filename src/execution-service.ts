@@ -645,7 +645,7 @@ export class ExecutionService {
   }
 
   private async register(args: ExecutionRegister, context?: ExecutionTransportSource, closeExpectation?: ExecutionCloseLaunch): Promise<ExecutionRecord> {
-    return this.store.transaction(async state => {
+    const previous = (state: ExecutionState): ExecutionRecord | undefined => {
       if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, args.reservation.request);
       const previous = state.records.find(record => same(record.reservation.request, args.reservation.request));
       if (previous) {
@@ -654,19 +654,29 @@ export class ExecutionService {
         return view(state, previous); // idempotent lookup, never a second invocation
       }
       if (interruptionBlocksRequest(state, args.reservation.request)) throw new ExecutionError("EXECUTION_STOPPING");
-      const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args, context));
-      if (source.status === "stale") throw new ExecutionError("EXECUTION_STALE_GENERATION");
-      if (args.reservation.source.launch && source.status !== "verified") {
-        const currentSource = await this.runtime.observe(args.reservation.source.launch.session_id);
-        if (currentSource.state === "absent" || (currentSource.state === "present" && currentSource.launch
-          && !same(currentSource.launch, args.reservation.source.launch)))
-          throw new ExecutionError("EXECUTION_STALE_GENERATION");
-      }
+      return undefined;
+    };
+    const found = await this.store.transaction(previous, { readOnly: true });
+    if (found) return found;
+    // Registration has no native effect. Observe outside the shared writer
+    // mutex, then recheck current admission metadata before adding the record.
+    // Actual invocation still proves the generation at its effect gate.
+    const source = assessExecutionSource(args.reservation.source, await this.runtime.sourceEvidence(args, context));
+    if (source.status === "stale") throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    if (args.reservation.source.launch && source.status !== "verified") {
+      const currentSource = await this.runtime.observe(args.reservation.source.launch.session_id);
+      if (currentSource.state === "absent" || (currentSource.state === "present" && currentSource.launch
+        && !same(currentSource.launch, args.reservation.source.launch)))
+        throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    }
+    const target = args.reservation.target;
+    const current = structuredClone(await this.runtime.observe(target.session_id));
+    return this.store.transaction(state => {
+      const found = previous(state);
+      if (found) return found;
       sourceAdmission(state, source.point, args.source_session_id);
-      const target = args.reservation.target;
       if (targetBlocked(state, args.reservation.request, target.session_id, target.expected_launch_id))
         throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-      const current = await this.runtime.observe(target.session_id);
       this.expectTarget(current, target.expected_launch_id, target.session_id);
       if (current.state === "present" && stopped(state, current.launch)) throw new ExecutionError("EXECUTION_STOPPING");
       const record: ExecutionRecord = {
@@ -900,41 +910,53 @@ export class ExecutionService {
     }
     // Parsed above after issuance; null is supported only for an unissued noop.
     const targetPoint = outcome.target!;
-    const record = await this.store.transaction(async state => {
-      if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
-      const record = find(state, request);
-      const slot = state.slots.find(value => same(value.request, request));
-      if (!slot || slot.stage !== stage || record.operations[stage] !== "issued")
-        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-      const expected = slot.expected_launch_id;
-      if (targetPoint.launch.session_id !== slot.session_id
-        || (expected !== null && targetPoint.launch.launch_id !== expected))
-        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-      const current = await this.runtime.observe(slot.session_id);
-      const closing = request.kind === "mcp" && ["pty_close", "agent_auth.cancel"].includes(request.tool);
-      if (closing ? current.state !== "absent" : current.state !== "present" || !same(current.launch, targetPoint.launch))
-        throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
-      record.operations[stage] = "accepted";
-      // A launch with an initial prompt already performed this reference's
-      // send. Only an empty launch may be followed by a separate pty_send.
-      if (stage === "launch" && targetPoint.boundary) record.operations.send = "accepted";
-      record.relation.target = targetPoint;
-      record.relation.phase = "invoked";
-      record.relation.completion = closing ? "interrupted" : "open";
-      if (closing) record.relation.target_fence = "closed";
-      if (state.stopping.some(value => same(value, record.relation.source?.launch)) && !state.stopping.some(value => same(value, targetPoint.launch)))
-        state.stopping.push(targetPoint.launch);
-      state.slots = state.slots.filter(value => !same(value.request, request));
-      if (closing) {
-        // Actual management close plus confirmed absence releases only these
-        // failed send admissions. Old callbacks still fail their missing-slot
-        // guard, and their records remain unknown and cannot be invoked again.
-        const recovered = recoverableCloseSlots(state, request, slot.session_id, expected);
-        state.slots = state.slots.filter(value => !recovered.includes(value));
-        this.interruptRelations(state, targetPoint.launch);
-      }
-      return view(state, record);
-    }).catch(async () => {
+    const record = await (async () => {
+      const originalSlot = await this.store.transaction(state => {
+        const record = find(state, request);
+        const slot = state.slots.find(value => same(value.request, request));
+        if (!slot || slot.stage !== stage || record.operations[stage] !== "issued")
+          throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+        return slot;
+      }, { readOnly: true });
+      // A returned action must not monopolize all targets while its native
+      // generation is observed. Keep its exact issued slot until commit, and
+      // reject any concurrent uncertainty/replacement without replaying it.
+      const current = structuredClone(await this.runtime.observe(originalSlot.session_id));
+      return this.store.transaction(state => {
+        if (closeExpectation) assertCloseLaunchExpectation(state, closeExpectation, request);
+        const record = find(state, request);
+        const slot = state.slots.find(value => same(value.request, request));
+        if (!slot || !same(slot, originalSlot) || slot.stage !== stage || record.operations[stage] !== "issued")
+          throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+        const expected = slot.expected_launch_id;
+        if (targetPoint.launch.session_id !== slot.session_id
+          || (expected !== null && targetPoint.launch.launch_id !== expected))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+        const closing = request.kind === "mcp" && ["pty_close", "agent_auth.cancel"].includes(request.tool);
+        if (closing ? current.state !== "absent" : current.state !== "present" || !same(current.launch, targetPoint.launch))
+          throw new ExecutionError("EXECUTION_UNCONFIRMED", "possible");
+        record.operations[stage] = "accepted";
+        // A launch with an initial prompt already performed this reference's
+        // send. Only an empty launch may be followed by a separate pty_send.
+        if (stage === "launch" && targetPoint.boundary) record.operations.send = "accepted";
+        record.relation.target = targetPoint;
+        record.relation.phase = "invoked";
+        record.relation.completion = closing ? "interrupted" : "open";
+        if (closing) record.relation.target_fence = "closed";
+        if (state.stopping.some(value => same(value, record.relation.source?.launch)) && !state.stopping.some(value => same(value, targetPoint.launch)))
+          state.stopping.push(targetPoint.launch);
+        state.slots = state.slots.filter(value => !same(value.request, request));
+        if (closing) {
+          // Actual management close plus confirmed absence releases only these
+          // failed send admissions. Old callbacks still fail their missing-slot
+          // guard, and their records remain unknown and cannot be invoked again.
+          const recovered = recoverableCloseSlots(state, request, slot.session_id, expected);
+          state.slots = state.slots.filter(value => !recovered.includes(value));
+          this.interruptRelations(state, targetPoint.launch);
+        }
+        return view(state, record);
+      });
+    })().catch(async () => {
       // The side effect already returned, but its result could not be safely
       // bound/committed. Absence/replacement is not permission to replay it.
       try { await this.store.transaction(state => {

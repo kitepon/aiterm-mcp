@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, mac-argv-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, mac-argv-gate, mac-cleanup-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -20,7 +20,7 @@ jobs:
   windows-fixed-source:
     if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate'
     env:
-      PRODUCT_SOURCE: 4457f941f7cabce85c4ffc85dda90a0079a59329
+      PRODUCT_SOURCE: 27e67bd0a2ac2c4409baa06d84dc014b0d49f4ac
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 4457f941f7cabce85c4ffc85dda90a0079a59329
+          ref: 27e67bd0a2ac2c4409baa06d84dc014b0d49f4ac
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -141,6 +141,12 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-skipped-cleanup-probe.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-cleanup-gate') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/windows-native-cleanup-isolation.test.mjs test/execution-launch-create-contention.test.mjs
           } elseif ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -172,23 +178,23 @@ jobs:
           exit $LASTEXITCODE
 
   mac-focused:
-    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate'
+    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate'
     runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 4457f941f7cabce85c4ffc85dda90a0079a59329
+          ref: 27e67bd0a2ac2c4409baa06d84dc014b0d49f4ac
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
       - name: Prepare isolated hosted native fixture backend
-        if: inputs.environment == 'mac-argv-gate'
+        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate'
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = 4457f941f7cabce85c4ffc85dda90a0079a59329
+          test "$(git rev-parse HEAD)" = 27e67bd0a2ac2c4409baa06d84dc014b0d49f4ac
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates
@@ -206,6 +212,8 @@ jobs:
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          elif [ '${{ inputs.environment }}' = mac-cleanup-gate ]; then
+            node --import ./test/seat-env.mjs --test test/execution-launch-create-contention.test.mjs test/windows-native-cleanup-isolation.test.mjs
           else
             node --import ./test/seat-env.mjs --test test/tmux-runtime.test.mjs test/repository-contract.test.mjs
           fi

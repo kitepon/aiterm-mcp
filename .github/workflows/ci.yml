@@ -20,7 +20,7 @@ jobs:
   windows-fixed-source:
     if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate' || inputs.environment == 'windows-portable-gate' || inputs.environment == 'windows-launch-gate' || inputs.environment == 'windows-shell-gate' || inputs.environment == 'windows-participant-gate' || inputs.environment == 'windows-readiness-gate' || inputs.environment == 'windows-readiness-fixture-gate'
     env:
-      PRODUCT_SOURCE: 9db59e010729828702840c521a495073a8e32e49
+      PRODUCT_SOURCE: 4452f0ea4fceaae5989b5fd8102801237c729bd6
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 9db59e010729828702840c521a495073a8e32e49
+          ref: 4452f0ea4fceaae5989b5fd8102801237c729bd6
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -325,13 +325,13 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            node --import ./test/seat-env.mjs --test test/agent-send-serial.test.mjs test/core-agent-dispatch.test.mjs test/core-agent-initial-prompt.test.mjs
+            node --import ./test/seat-env.mjs --test test/execution-self-actor.test.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-readiness-gate') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            node --import ./test/seat-env.mjs --test test/agent-send-readiness.test.mjs test/agent-screen-observation.test.mjs test/agent-send-serial.test.mjs test/agent-preface.test.mjs test/claude-rate-limit-menu.test.mjs test/core-agent-dispatch.test.mjs test/core-agent-initial-prompt.test.mjs test/execution-send-contention.test.mjs test/execution-native-admission.test.mjs test/codex-running-by-record.test.mjs test/settled-turn-ready.test.mjs test/grok-unaccepted-prompt.test.mjs test/grok-rate-limit.test.mjs test/fast-mode.test.mjs test/cursor-agent.test.mjs test/release-metadata.test.mjs test/repository-contract.test.mjs
+            node --import ./test/seat-env.mjs --test test/execution-self-actor.test.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-participant-gate') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -371,7 +371,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 9db59e010729828702840c521a495073a8e32e49
+          ref: 4452f0ea4fceaae5989b5fd8102801237c729bd6
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
@@ -381,7 +381,7 @@ jobs:
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = 9db59e010729828702840c521a495073a8e32e49
+          test "$(git rev-parse HEAD)" = 4452f0ea4fceaae5989b5fd8102801237c729bd6
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates
@@ -400,7 +400,7 @@ jobs:
           if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
           elif [ '${{ inputs.environment }}' = mac-readiness-gate ]; then
-            node --import ./test/seat-env.mjs --test test/agent-send-readiness.test.mjs test/agent-screen-observation.test.mjs test/agent-send-serial.test.mjs test/agent-preface.test.mjs test/claude-rate-limit-menu.test.mjs test/core-agent-dispatch.test.mjs test/core-agent-initial-prompt.test.mjs test/execution-send-contention.test.mjs test/execution-native-admission.test.mjs test/codex-running-by-record.test.mjs test/settled-turn-ready.test.mjs test/grok-unaccepted-prompt.test.mjs test/grok-rate-limit.test.mjs test/fast-mode.test.mjs test/cursor-agent.test.mjs test/release-metadata.test.mjs test/repository-contract.test.mjs
+            node --import ./test/seat-env.mjs --test test/execution-self-actor.test.mjs
           elif [ '${{ inputs.environment }}' = mac-participant-gate ]; then
             node --import ./test/seat-env.mjs --test test/execution-participant.test.mjs test/execution-native-server.test.mjs test/execution-launch-create-contention.test.mjs test/execution-immediate-stop.test.mjs test/execution-native-admission.test.mjs test/execution-parent-manager.test.mjs test/execution-parent-worker.test.mjs test/release-metadata.test.mjs test/repository-contract.test.mjs
           elif [ '${{ inputs.environment }}' = mac-shell-gate ]; then

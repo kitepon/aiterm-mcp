@@ -75,7 +75,7 @@ if (process.argv[2] === '--sampler') {
   }
   try {
     let shell = 'bash';
-    if (temperature.startsWith('profile-') || temperature === 'pre-bash') {
+    if (temperature.startsWith('profile-') || temperature === 'pre-bash' || temperature === 'native-pre-bash') {
       const rc = path.join(process.env.TEMP, 'fixture.bashrc');
       const began = path.join(process.env.TEMP, 'profile-began');
       profileGate = path.join(process.env.TEMP, 'profile-release');
@@ -86,6 +86,13 @@ if (process.argv[2] === '--sampler') {
       if (temperature === 'pre-bash') {
         fs.appendFileSync(rc, `exec ${quote(bash)} --noprofile --norc -i\n`);
         shell = `"${bash}" --noprofile --norc "${rc.replaceAll('\\', '/')}"`;
+      }
+      if (temperature === 'native-pre-bash') {
+        const fixture = path.join(path.dirname(script), 'windows-suspended-bash-fixture.ps1');
+        const pwsh = resolver.resolveWinPaneShell('pwsh');
+        shell = [pwsh, '-NoLogo', '-NoProfile', '-File', fixture, '-Bash', bash, '-Ready', began, '-Release', profileGate]
+          .map(value => '"' + value.replaceAll('\\', '/') + '"').join(' ');
+        row.nativeSuspendedStart = true;
       }
       row.fixtureProfile = true;
       row.profileStartedFile = began;
@@ -136,7 +143,7 @@ if (process.argv[2] === '--sampler') {
     if (frame('before_input').anchor !== identity) throw Error('native_identity_changed_before_input');
     const marker = path.join(process.env.TEMP, 'shell-executed.txt').replaceAll('\\', '/').replaceAll("'", "'\\''");
     const padding = temperature.startsWith('reuse-') ? `; : '${'A'.repeat(3072)}'` : '';
-    const expected = profileGate ? `日本語の入力\n引用"two"と'$変数\nend${temperature === "pre-bash" ? "あ".repeat(300) : ""}` : 'executed';
+    const expected = profileGate ? `日本語の入力\n引用"two"と'$変数\nend${(temperature === "pre-bash" || temperature === "native-pre-bash") ? "あ".repeat(300) : ""}` : 'executed';
     const quotedPayload = "'" + expected.replaceAll("'", "'\\''") + "'";
     let command = `printf '%s' ${quotedPayload} > '${marker}'; printf '%s%s\\n' SHELL_BOUNDARY_ EXECUTED${padding}`;
     if (temperature === 'profile-atomic') command = runtime.atomicShellMultiline(command, 'bash');
@@ -168,12 +175,13 @@ if (process.argv[2] === '--sampler') {
   console.log('SHELL_BOUNDARY_CASE=' + JSON.stringify(row));
 } else {
   const rows = [];
-  const preBash = process.argv.includes('--pre-bash-only');
+  const nativePreBash = process.argv.includes('--native-pre-bash-only');
+  const preBash = process.argv.includes('--pre-bash-only') || nativePreBash;
   const profile = process.argv.includes('--profile-only') || preBash;
   for (const registry of (profile ? ['isolated'] : ['shared', 'isolated'])) {
     const cases = [];
     const reuse = process.argv.includes('--reuse-only');
-    for (const temperature of (preBash ? ['pre-bash'] : profile ? ['profile-raw', 'profile-atomic'] : reuse ? ['reuse-immediate', 'reuse-exited'] : ['cold', 'warm'])) for (const readiness of (reuse ? ['immediate'] : ['immediate', 'wait'])) {
+    for (const temperature of (nativePreBash ? ['native-pre-bash'] : preBash ? ['pre-bash'] : profile ? ['profile-raw', 'profile-atomic'] : reuse ? ['reuse-immediate', 'reuse-exited'] : ['cold', 'warm'])) for (const readiness of (reuse ? ['immediate'] : ['immediate', 'wait'])) {
       cases.push(new Promise(resolve => {
         const child = spawn(process.execPath, ['--import', './test/seat-env.mjs', script, '--child', registry, temperature, readiness], { stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '', stderr = '';

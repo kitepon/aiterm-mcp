@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.61.12] - 2026-10-24
 
+### Validation scope
+
+- Linux full validation passed (1579 passed, 46 skipped, 0 failed). The affected native execution path passed its focused macOS gate (110 passed, 0 failed). The same focused gate on hosted Windows passed 23 tests and skipped 87 POSIX-only cases; this patch does not enable POSIX execution checkpoints on Windows or replace the Windows full acceptance recorded for 0.61.11. All fixtures use isolated metadata and CLI substitutes, without production seats or delivery replay.
+
 ### Fixed
 
 - A newly connected participant in the opt-in POSIX native execution entry waits within the existing bounded metadata admission before committing its declared roles for its first asynchronous request. Previously, deferred enrollment tried a synchronous lock first and could return `EXECUTION_BUSY` while a concurrent metadata writer was about to finish. Scope and actor checks, synchronous refusal, removed-registration refusal and immediate-stop snapshots are preserved; no input or failed request is replayed.

@@ -13,19 +13,24 @@ export const immediateStopResultSchema = z.object({
 }).strict();
 type Relations = ReturnType<typeof unfinishedExecutionRelations>;
 export function interruptKnownSessions(input: unknown, dependencies: {
-  relations(): Relations;
+  relations?(): Relations;
+  children?(): { parent: string; child: string }[];
   currentLaunchId(sessionId: string): string | null;
   sendKey(sessionId: string, expectedLaunchId?: string): unknown;
 }) {
   const args = immediateStopInputSchema.parse(input), roots = [...new Set(args.session_ids ?? [args.session_id!])];
-  let relations: Relations = [], graphUnavailable = false;
-  try { relations = unfinishedExecutionRelations(dependencies.relations()); }
+  let relations: Relations = [], children: { parent: string; child: string }[] = [], graphUnavailable = false;
+  try {
+    if (dependencies.children) children = dependencies.children();
+    else if (dependencies.relations) relations = unfinishedExecutionRelations(dependencies.relations());
+  }
   catch { graphUnavailable = true; }
   const ordered: { session_id: string; launch_id?: string }[] = [], visited = new Set<string>(), sent = new Set<string>();
   const visit = (name: string, launchId?: string) => {
     const key = JSON.stringify([name, launchId]);
     if (visited.has(key)) return;
     visited.add(key);
+    for (const child of children) if (child.parent === name) visit(child.child);
     for (const edge of relations) if (edge.source?.launch.session_id === name
       && (!launchId || edge.source.launch.launch_id === launchId) && edge.target)
       visit(edge.target.launch.session_id, edge.target.launch.launch_id);

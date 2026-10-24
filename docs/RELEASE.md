@@ -117,10 +117,11 @@ dotagentsの導入・更新は不要である。
 利用環境は直前の正常npm versionを明示installして戻す。公開済みtagは動かさず、npm packageは上書きしない。
 state schemaやmigrationを変更するreleaseでは、旧versionへ戻せる条件をCHANGELOGへ明記してから公開する。
 
-### Native interrupt platform scope
+### Ordinary delivery and historical graph fixtures
 
-The opt-in `execution-native-server.js` socket/graph entry currently supports POSIX (Linux/macOS).
-Its private graph checkpoint requires directory fsync and explicitly rejects Windows before state writes.
-The Windows full gate continues to run the ordinary 18-tool product regression suite, portable graph planning/key dispatch tests,
-and the explicit unsupported checkpoint case. POSIX checkpoint/participant integration cases carry individual Windows skips;
-those skips do not establish native Windows interrupt support. Do not describe three-OS CI as four-harness/native Windows acceptance.
+The normal MCP entry and parent hooks do not construct the shared execution
+tracking runtime. The legacy native CLI serves ordinary delivery plus direct
+leaf-first stop, without graph registration or writer-lock admission.
+The retained experimental graph/checkpoint fixtures are historical POSIX-only
+library tests, not ordinary delivery or stop requirements. Their Windows skips
+do not establish native Windows interrupt support.

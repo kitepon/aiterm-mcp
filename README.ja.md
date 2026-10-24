@@ -742,20 +742,10 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 
 BellTeamのmodel・effort・fast変更も、既存session世代に結合したnative管理要求で受け付ける。途中で世代・受付枠・停止状態が変われば、それ以降の打鍵を止める。途中まで変更した結果は作用不明のまま保持し、自動でやり直さない。
 
-POSIXの明示native入口でも、`agent_auth`の名前なし開始、認証済みで何も起こさない開始、既存v1の確認・初回案内・取消を受け付ける。認証PTYは実際の作成元nativeと世代へ結合する。BellTeamの参照なし入力・キーは、この証拠がある認証PTYにだけ許可し、通常agentの本文には配送参照を引き続き必要とする。作成証拠のない旧認証metadataを自動登録しない。
-
-この明示入口では `agent_execution` の `reconcile_launch` に元の `request` と正確な `target: {session_id, launch_id}` を渡し、結果不明の空起動を既存世代へ結合できる。保存したnative/serverと現在のmanaged世代、raw状態で初期promptなし、生存して入力待ちのharnessをmetadata受付内で照合し、該当するunknown launch枠だけを解放する。受付済みでも本文未発行なら、照合を繰り返すたびに現在世代・入力待ち・競合操作なしを再確認する。保存した受付結果だけで後の世代を確認済みとしない。起動・打鍵・close・本文再送は行わない。issuedのRPC、入力状態不明、世代交代や世代未確認は拒否する。後続本文は元参照で通常のsend受付を通して一度だけ発行する。照合成功は失われた元RPC receiptの回収を意味しない。
-
-CLIが終了した結果不明の空起動には、BellTeam native入口の `agent_execution({action: "close_launch", request, target: {session_id, launch_id}})` を明示的に使う。元requestと期待世代を受付内とnative close直前で照合し、原native/server・managed世代一致、raw初期prompt `none`・初期配送なし・send未発行・現在CLI終了の正規probeがすべて必要になる。Claude CodeとCodexで同じ証明条件を使う。生存・issued・送信済み・欠測・世代交代は拒否し、sessionだけのcloseへの代用や自動再起動・再送はしない。旧版は新actionを拒否する。
-
-成功時の `structuredContent` は応答するSDKの別管理requestのExecutionRecordで、元unknown recordは変えない。`_meta["aiterm/closed_launch"]` に厳密なreceiptを返す。固定項目は `schema: "aiterm.closed-launch.v1"`、`version: 1`、`action: "close_launch"`、`outcome: "closed"`、元 `request`、正確な `target`、`management_ref`（応答SDKのMCP request、`tool: "pty_close"`）。`evidence` は原 `native` binding、`initial_prompt: "none"`、`initial_prompt_delivery: null`、`harness_alive: false`、`absence_confirmed: true`、`metadata_committed: true` を持つ。実close・不在確認・slot解放commitが揃った場合だけ返し、失敗や結果不明には返さない。本体が不明を解除する際は元pending操作と自身のstop/versionも照合する。過去receiptで後発の不明を解除しない。
-
-同じ明示入口で、返却済みunknown launchのCLIが終了している場合は、元native/server・managed世代とraw初期promptなし・本文未発行・harness終了を同期検証できた時だけ通常の`pty_close`で対象席を閉じられる。成功と不在を確認して該当枠だけを外し、元unknown requestを保持する。発行中RPC、生存harness、入力や世代の欠測は拒否する。旧requestを再実行せず、必要な後続は新しい通常要求として行う。
-
 
 ## 人が覗く
 
-POSIXの明示native実行構成では、検証済みcallerへ通常メッセージが届く間も、そのcallerから別席への送信を継続できる。callerの世代や各requestのslotは書き換えない。新しく接続した参加者も、初回の非同期要求で宣言済みの役割を保存する際は、既存の上限付きmetadata受付で競合を待つ。この待機は入力を再送しない。agentの貼付け・Enterはmetadata mutexの競合を入力前に待ち、不明な操作・世代交代・停止では入力を止める。BellTeamは閉じた席をpromptなしの明示管理`agent_launch`で再作成できる。promptを送る呼出しには元の実行参照が必要である。
+通常の配送と親への返答は、実行追跡用の共有lockを取得も待機もしない。旧native入口も通常配送と末端優先の`agent_stop`を提供し、`agent_execution`登録を要求しない。この入口を使う本体もExecutionBridgeの先行登録を外す。記録の失敗で配送を止めない。
 
 セッションは共有tmux socket（Windows nativeはpsmux namespace）上にある。`pty_open`／`agent_launch`の戻り値に表示されるattachコマンドで、人間がClaude／Codex／Grok／Cursor harnessの同じ端末へ入り、途中でキーボードを引き取れる。
 POSIXでは、tmuxのソケットがまだ無くても最初の`agent_launch`でserverを起動できる。Aitermは作成したsessionとserverを実際のreceiptから照合して受付を確定し、不明な結果を入力の再送で補わない。

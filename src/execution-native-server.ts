@@ -16,11 +16,38 @@ import { AITERM_PROFILE } from "./steer-profile.js";
 import { EXECUTION_SOURCE_ENV_NAMES, EXECUTION_SCOPE_ENV_NAMES } from "./execution-runtime.js";
 import { observeExecutionActor } from "./process-runtime.js";
 import { ExecutionError } from "./execution-wire.js";
+import { createAitermServer } from "./index.js";
+import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
+
+/** Ordinary delivery and leaf-first cancel keys have no execution-store
+ * registration, participant gate, shared transaction or graph write. */
+export function createNativeDeliveryServer(dependencies: {
+  children?: () => { parent: string; child: string }[];
+  currentLaunchId?: (session: string) => string | null;
+  sendKey?: (session: string, expectedLaunchId?: string) => unknown;
+} = {}) {
+  const server = createAitermServer();
+  server.registerTool("agent_stop", {
+    description: "指定sessionとその呼出先へ末端から通常の停止キーを送る。sentはキー送信結果であり終了の証明ではない。",
+    inputSchema: immediateStopInputSchema.shape,
+    outputSchema: immediateStopResultSchema.shape,
+  }, async args => {
+    const result = interruptKnownSessions(args, {
+      children: dependencies.children ?? core.agentSessionChildren,
+      currentLaunchId: dependencies.currentLaunchId ?? core.interruptionLaunchId,
+      sendKey: dependencies.sendKey ?? core.interruptSessionNow,
+    });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+  });
+  return server;
+}
 
 type ParticipantOptions = Parameters<typeof createExecutionParticipant>[0];
 export type NativeProvider = NonNullable<ParticipantOptions["provider"]> & Pick<typeof steer,
   "codexParentFromRequest" | "claudeParentFromRequest" | "cursorParentFromRequest"
   | "verifyCodexParent" | "verifyClaudeParent" | "verifyCursorParent">;
+/** Historical injected tracking composition. Normal CLI delivery does not
+ * construct this participant or register its execution controls. */
 export function createNativeExecutionServer(input: {
   interruptCurrentRun: true; expectedScope: ParticipantOptions["expectedScope"]; provider: NativeProvider;
   // Complete injected fake runtime only; missing primitives never use live OS.
@@ -95,6 +122,7 @@ function nativeParentDependencies(provider: NativeProvider, profile: steer.Produ
   },
     processes: readProcessIdentities, exists: nativeProcessExists, now: () => performance.now(), wall: () => Date.now() };
 }
+/** Historical injected worker; normal parent-hook CLI no longer uses it. */
 export function createNativeExecutionWorker(input: {
   interruptCurrentRun: true; expectedScope: ParticipantOptions["expectedScope"]; provider: NativeProvider;
   runtime?: ParentWorkerRuntime; codexHome?: string;
@@ -124,18 +152,17 @@ export function parseNativeExecutionArguments(args: string[]) {
 }
 async function main() {
   const options = parseNativeExecutionArguments(process.argv.slice(2));
-  const provider = await import(pathToFileURL(options.providerFile).href) as NativeProvider;
   if (options.mode === "mcp") {
-    const participant = createNativeExecutionServer({ interruptCurrentRun: true, expectedScope: options.expectedScope, provider });
-    await participant.server.connect(new StdioServerTransport());
+    await createNativeDeliveryServer().connect(new StdioServerTransport());
   } else {
+    const provider = await import(pathToFileURL(options.providerFile).href) as NativeProvider;
     const method = options.mode === "claude-hook" ? "runClaudeHookMain" : options.mode === "cursor-hook" ? "runCursorHookMain" : "runCodexHookMain";
     const hookProvider = provider as NativeProvider & Pick<typeof steer, "runClaudeHookMain" | "runCursorHookMain" | "runCodexHookMain">;
     if (typeof hookProvider[method] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    const worker = createNativeExecutionWorker({ interruptCurrentRun: true, expectedScope: options.expectedScope, provider, codexHome: options.codexHome });
-    if (options.mode === "claude-hook") await hookProvider.runClaudeHookMain(worker.profile, path.join(worker.scope.state_root, "claude-parent-hooks"));
-    else if (options.mode === "cursor-hook") await hookProvider.runCursorHookMain(worker.profile, path.join(worker.scope.state_root, "cursor-parent-hooks"));
-    else await hookProvider.runCodexHookMain(worker.profile, options.hookDirectory);
+    const profile = { ...AITERM_PROFILE, state_root: () => options.expectedScope.state_root };
+    if (options.mode === "claude-hook") await hookProvider.runClaudeHookMain(profile, path.join(options.expectedScope.state_root, "claude-parent-hooks"));
+    else if (options.mode === "cursor-hook") await hookProvider.runCursorHookMain(profile, path.join(options.expectedScope.state_root, "cursor-parent-hooks"));
+    else await hookProvider.runCodexHookMain(profile, options.hookDirectory);
   }
 }
 let entry = false;

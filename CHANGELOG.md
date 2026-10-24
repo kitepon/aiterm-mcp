@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Ordinary MCP delivery and parent-return hooks no longer enter the shared execution tracking dispatcher, participant enrollment or writer mutex. The legacy native MCP entry provides the standard delivery handlers plus direct leaf-first stop; hosts must remove mandatory ExecutionBridge registration.
+- Stop forwarding reads existing agent parent relationships and sends normal interruption keys without shared graph access or writes. A lineage read failure still forwards the explicit root command. Native hook setup migrates back to the standard parent hook scripts.
+
 ## [0.61.16] - 2026-10-24
 
 ### Fixed

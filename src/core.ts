@@ -2075,6 +2075,15 @@ export function listSessions(result = listSessionsResult()): string {
   return "(セッション無し)";
 }
 
+/** Existing agent lineage is enough to forward a stop from leaves to parent.
+ * This reads ordinary session metadata and never opens the execution graph. */
+export function agentSessionChildren(): { parent: string; child: string }[] {
+  return listSessionsResult().sessions.flatMap(({ session_id }) => {
+    const parent = tryLoadAgentMetadata(session_id)?.parent_session_id;
+    return parent ? [{ parent, child: session_id }] : [];
+  });
+}
+
 // factory diagnostics 用の安全な状態語彙。通常の未設定と、状態を安全に確定できない失敗を混同しない。
 export type DiagnosticStatus = "ready" | "not_applicable" | "unverified";
 

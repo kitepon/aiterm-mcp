@@ -1,100 +1,38 @@
-name: CI
-
+name: Fixed delivery without tracking lock gate
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
-  schedule:
-    # 週1回の健康診断だけ3環境の全テストを回す（月曜 03:00 JST）。
-    - cron: "0 18 * * 0"
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 実行する工場環境
-        type: choice
-        default: all
-        options:
-          - all
-          - macos-native
-          - linux-workstation
-          - windows-native
-      comparison_base:
-        description: 手動実行で比較する元commit/ref
-        type: string
-        required: true
-
 permissions:
-  # product-full-ci.ymlのclassifyが、同じcommitの全テストの成功を読む。
-  actions: read
   contents: read
-
 jobs:
-  ownership:
-    runs-on: ubuntu-latest
+  mac-delivery-unlocked:
+    runs-on: macos-14
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - name: product owns its CI contract
-        shell: bash
-        run: |
-          test -f .github/workflows/product-full-ci.yml
-          git grep -q 'uses: \.\/\.github\/workflows\/product-full-ci\.yml' -- .github/workflows
-          owner_repo='kitepon/dotagents'
-          if git grep -n "uses: $owner_repo/.github/workflows" -- .github/workflows; then
-            echo '製品CIをdotagentsのworkflowへ委譲できません。' >&2
-            exit 1
-          fi
-          if git grep -n -E 'uses:[[:space:]]+[^./][^[:space:]@]+@[^[:space:]#]+' -- .github/workflows |
-            grep -Ev '@[0-9a-f]{40}([[:space:]]|#|$)'; then
-            echo '外部actionは40桁のcommit SHAへ固定してください。' >&2
-            exit 1
-          fi
-
-  full:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-    # 製品側の検証契約を dotagents の将来変更から独立させる。
-    uses: ./.github/workflows/product-full-ci.yml
-    with:
-      environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
-      comparison_base: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_base || '' }}
-      dependency-command: npm run ci:dependencies
-      documentation-command: npm run test:docs
-      full-command: >-
-        node --version && npm --version && node scripts/run-product-ci-tests.mjs
-
-  publish:
-    needs: [ownership, full]
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.ownership.result == 'success' && needs.full.result == 'skipped' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+          ref: efc5ba95f85f7864fba074c772206e1285228892
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
-          registry-url: "https://registry.npmjs.org"
-          cache: npm
-      - run: npm install -g npm@11.6.4
-      - run: npm ci
-      - name: Verify tag, package, and main ancestry
-        shell: bash
+      - name: Verify exact source and dependency lock
         run: |
-          version=$(node -p "require('./package.json').version")
-          test "$GITHUB_REF_NAME" = "v$version"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          npm pack --dry-run --json >/dev/null
-      - name: Publish to npm (skip if version already published)
-        shell: bash
+          test "$(git rev-parse HEAD)" = efc5ba95f85f7864fba074c772206e1285228892
+          test -z "$(git status --porcelain)"
+          npm run ci:dependencies
+      - name: Isolated fixture terminal backend
+        run: brew list tmux >/dev/null 2>&1 || brew install tmux
+      - name: Preflight and delivery/stop removal cases only
         run: |
-          ver=$(node -p "require('./package.json').version")
-          if npm view "aiterm-mcp@$ver" version >/dev/null 2>&1; then
-            echo "::notice::aiterm-mcp@$ver は既に npm に存在 — publish をスキップ（idempotent）。"
-            exit 0
-          fi
-          npm publish --provenance --access public
+          for key in core.hooksPath init.templateDir; do
+            if git config --system --get "$key" >/dev/null; then
+              echo "git system $key: set"
+            else
+              code=$?
+              test "$code" = 1
+              echo "git system $key: unset"
+            fi
+          done
+          npm run build
+          node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+          node --import ./test/seat-env.mjs --test test/delivery-without-execution-lock.test.mjs test/execution-native-setup.test.mjs

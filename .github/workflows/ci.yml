@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-portable-gate, windows-launch-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, windows-startup-native-init-boundary, windows-startup-transport-probe, windows-startup-native-writer-trace, windows-startup-direct-native-init, windows-startup-direct-default-init, windows-startup-input-init-overlap, windows-startup-console-miss, windows-startup-stack-miss, windows-startup-stdin-probe, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate, mac-portable-gate, mac-launch-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-portable-gate, windows-launch-gate, windows-shell-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, windows-startup-native-init-boundary, windows-startup-transport-probe, windows-startup-native-writer-trace, windows-startup-direct-native-init, windows-startup-direct-default-init, windows-startup-input-init-overlap, windows-startup-console-miss, windows-startup-stack-miss, windows-startup-stdin-probe, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate, mac-portable-gate, mac-launch-gate, mac-shell-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -18,9 +18,9 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate' || inputs.environment == 'windows-portable-gate' || inputs.environment == 'windows-launch-gate'
+    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate' || inputs.environment == 'windows-portable-gate' || inputs.environment == 'windows-launch-gate' || inputs.environment == 'windows-shell-gate'
     env:
-      PRODUCT_SOURCE: 72e984ba89ed85467e9684f6960dc9315a178cb6
+      PRODUCT_SOURCE: cb3f89f20d87bc55fdac80353a4b7c67567ead80
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 72e984ba89ed85467e9684f6960dc9315a178cb6
+          ref: cb3f89f20d87bc55fdac80353a4b7c67567ead80
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -320,6 +320,12 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model \u3068 effort|quoted top|.*CODEX_HOME.*root transcript)|target contract: nested launcher)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-shell-gate') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/tmux-runtime.test.mjs test/agent-composer-payload.test.mjs test/agent-launch-line.test.mjs test/core-agent.test.mjs test/windows-shell-submission.test.mjs test/core-tmux.test.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-launch-gate') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -341,23 +347,23 @@ jobs:
           exit $LASTEXITCODE
 
   mac-focused:
-    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate' || inputs.environment == 'mac-launch-gate'
+    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate' || inputs.environment == 'mac-launch-gate' || inputs.environment == 'mac-shell-gate'
     runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 72e984ba89ed85467e9684f6960dc9315a178cb6
+          ref: cb3f89f20d87bc55fdac80353a4b7c67567ead80
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
       - name: Prepare isolated hosted native fixture backend
-        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate' || inputs.environment == 'mac-launch-gate'
+        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate' || inputs.environment == 'mac-launch-gate' || inputs.environment == 'mac-shell-gate'
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = 72e984ba89ed85467e9684f6960dc9315a178cb6
+          test "$(git rev-parse HEAD)" = cb3f89f20d87bc55fdac80353a4b7c67567ead80
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates
@@ -375,6 +381,8 @@ jobs:
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          elif [ '${{ inputs.environment }}' = mac-shell-gate ]; then
+            node --import ./test/seat-env.mjs --test test/tmux-runtime.test.mjs test/agent-composer-payload.test.mjs test/agent-launch-line.test.mjs test/core-agent.test.mjs test/windows-shell-submission.test.mjs test/core-tmux.test.mjs
           elif [ '${{ inputs.environment }}' = mac-launch-gate ]; then
             node --import ./test/seat-env.mjs --test test/agent-launch-line.test.mjs test/tmux-runtime.test.mjs test/agent-composer-payload.test.mjs test/core-pure.test.mjs test/cursor-agent.test.mjs test/agent-send-serial.test.mjs test/core-agent-initial-prompt.test.mjs test/core-agent-dispatch.test.mjs
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top|.*CODEX_HOME.*root transcript)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope|nested launcher|Grokは通常HOME)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs

@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-profile-boundary, mac-argv-gate, mac-cleanup-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-composer-gate, windows-startup-profile-boundary, mac-argv-gate, mac-cleanup-gate, mac-composer-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -20,7 +20,7 @@ jobs:
   windows-fixed-source:
     if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate'
     env:
-      PRODUCT_SOURCE: ab2c66b71469b3fefface3aadeaedbbaca861d50
+      PRODUCT_SOURCE: f99596a82ea5c1f3425bc753f22d29f34aef5a78
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: ab2c66b71469b3fefface3aadeaedbbaca861d50
+          ref: f99596a82ea5c1f3425bc753f22d29f34aef5a78
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -167,6 +167,12 @@ jobs:
             Get-ChildItem -Filter 'startup-trace-*.jsonl' | ForEach-Object { Get-Content $_.FullName }
             Get-ChildItem -Filter 'fixture-invocations-*.log' | ForEach-Object { Write-Output ('INVOCATION_FILE=' + $_.Name); Get-Content $_.FullName }
             exit $testCode
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-composer-gate') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^(agent composer |sendAgentMessage: .*Codex)' test/agent-composer-payload.test.mjs test/core-agent-initial-prompt.test.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-startup-profile-boundary') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -204,23 +210,23 @@ jobs:
           exit $LASTEXITCODE
 
   mac-focused:
-    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate'
+    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate'
     runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ab2c66b71469b3fefface3aadeaedbbaca861d50
+          ref: f99596a82ea5c1f3425bc753f22d29f34aef5a78
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
       - name: Prepare isolated hosted native fixture backend
-        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate'
+        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate'
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = ab2c66b71469b3fefface3aadeaedbbaca861d50
+          test "$(git rev-parse HEAD)" = f99596a82ea5c1f3425bc753f22d29f34aef5a78
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates
@@ -238,6 +244,8 @@ jobs:
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          elif [ '${{ inputs.environment }}' = mac-composer-gate ]; then
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^(agent composer |sendAgentMessage: .*Codex)' test/agent-composer-payload.test.mjs test/core-agent-initial-prompt.test.mjs
           elif [ '${{ inputs.environment }}' = mac-cleanup-gate ]; then
             node --import ./test/seat-env.mjs --test test/execution-launch-create-contention.test.mjs test/windows-native-cleanup-isolation.test.mjs
           else

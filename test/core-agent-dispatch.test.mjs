@@ -451,7 +451,8 @@ test("claude_approval: active operationと画面digestを結合して単発承�
   const operationId = `sha256:${"7".repeat(64)}`;
   try {
     const meta = readAgentMeta(sid);
-    await markFakeAgentReady(sid, "claude");
+    // This live fake TUI prints its own ready panel; do not inject a shell command into it.
+    await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
     await core.dispatchAgentTurn(
       sid,
       "printf '\\nThis command changes directory before running git.\\n\\nDo you want to proceed?\\n❯ 1. Yes\\n  2. No\\n'",
@@ -515,7 +516,8 @@ test("claude_approval: 恒久許可だけの選択肢を拒否する", { skip: s
   process.env.CLAUDE_BIN = fakeBin;
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
-    await markFakeAgentReady(sid, "claude");
+    // The running fake TUI is the receiver, rather than the owned startup shell.
+    await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
     await core.dispatchAgentTurn(sid, "printf 'Do you want to proceed?\\n1. Yes, and do not ask again\\n2. No\\n'");
     await core.readOutput(sid, { wait: true, until: "2. No", timeout: 5, raw: true });
     assert.throws(

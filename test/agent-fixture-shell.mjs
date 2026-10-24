@@ -5,5 +5,6 @@ export function agentFixturePrint(text) {
   if (process.platform === 'win32') {
     return `[Console]::Write([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(text).toString('base64')}')))`;
   }
-  return "printf '%s' '" + text.replaceAll("'", "'\\''") + "'";
+  const escaped = text.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
+  return "printf '%b' '" + escaped.replaceAll("'", "'\\''") + "'";
 }

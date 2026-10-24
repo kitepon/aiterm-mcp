@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-portable-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate, mac-portable-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -18,9 +18,9 @@ permissions:
 
 jobs:
   windows-fixed-source:
-    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate'
+    if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate' || inputs.environment == 'windows-portable-gate'
     env:
-      PRODUCT_SOURCE: 59f299c4c715965cc31a7f7fcf430d2b2509545b
+      PRODUCT_SOURCE: b868b15c69e594da5344b5c1a1cab36a1c9ac621
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: 59f299c4c715965cc31a7f7fcf430d2b2509545b
+          ref: b868b15c69e594da5344b5c1a1cab36a1c9ac621
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -213,6 +213,12 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test --test-name-pattern='Windows PowerShellの公開64KiB' test/tmux-runtime.test.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-portable-gate') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^portable fork: Codex TUI' test/core-agent-initial-prompt.test.mjs
           } elseif ('${{ inputs.environment }}' -eq 'windows-observation-gate') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -232,23 +238,23 @@ jobs:
           exit $LASTEXITCODE
 
   mac-focused:
-    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate'
+    if: inputs.environment == 'mac-focused' || inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate'
     runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 59f299c4c715965cc31a7f7fcf430d2b2509545b
+          ref: b868b15c69e594da5344b5c1a1cab36a1c9ac621
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22
       - name: Prepare isolated hosted native fixture backend
-        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate'
+        if: inputs.environment == 'mac-argv-gate' || inputs.environment == 'mac-cleanup-gate' || inputs.environment == 'mac-composer-gate' || inputs.environment == 'mac-observation-gate' || inputs.environment == 'mac-portable-gate'
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = 59f299c4c715965cc31a7f7fcf430d2b2509545b
+          test "$(git rev-parse HEAD)" = b868b15c69e594da5344b5c1a1cab36a1c9ac621
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates
@@ -266,6 +272,8 @@ jobs:
           node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
           if [ '${{ inputs.environment }}' = mac-argv-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model |quoted top)|target contract: (Codexは通常CODEX_HOME|Claudeは通常3 scope)|readAgentTranscript: Claudeはprivate transcript)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
+          elif [ '${{ inputs.environment }}' = mac-portable-gate ]; then
+            node --import ./test/seat-env.mjs --test --test-name-pattern='^portable fork: Codex TUI' test/core-agent-initial-prompt.test.mjs
           elif [ '${{ inputs.environment }}' = mac-observation-gate ]; then
             node --import ./test/seat-env.mjs --test --test-name-pattern='^(openAgent codex agent_done: (model \u3068 effort|quoted top|.*CODEX_HOME.*root transcript)|target contract: nested launcher)' test/core-agent-observe.test.mjs test/core-agent.test.mjs
           elif [ '${{ inputs.environment }}' = mac-composer-gate ]; then

@@ -630,6 +630,24 @@
       "fetched": "2026-10-23"
     },
     {
+      "slug": "psmux-338-native-cli-bootstrap",
+      "topic": "backends",
+      "title": "psmux 66cf613 native CLI bootstrap",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/main.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-native-cli-bootstrap.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "session",
+        "readiness"
+      ],
+      "summary": "Fixed native entry point for CLI session creation and readiness.",
+      "relevance": "Locate the actual top-level new-session execution path, rather than assuming the internal command handler is used.",
+      "chars": 271476,
+      "fetched": "2026-10-24"
+    },
+    {
       "slug": "psmux-338-native-connection-input",
       "topic": "backends",
       "title": "psmux 66cf613 native connection input dispatch",
@@ -681,6 +699,24 @@
       "summary": "Exact terminal input delivery functions.",
       "relevance": "Check whether raw UTF8 chunks are decoded independently before PTY writes.",
       "chars": 188639,
+      "fetched": "2026-10-24"
+    },
+    {
+      "slug": "psmux-338-native-session-command",
+      "topic": "backends",
+      "title": "psmux 66cf613 in-server session command and warm claim",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/commands.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-native-session-command.md",
+      "tags": [
+        "psmux",
+        "windows",
+        "session",
+        "readiness"
+      ],
+      "summary": "Fixed in-server command-string handler for new-session environment and initial command.",
+      "relevance": "Read the internal command-string path separately from top-level native CLI bootstrap.",
+      "chars": 127545,
       "fetched": "2026-10-24"
     },
     {

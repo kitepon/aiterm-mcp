@@ -487,3 +487,6 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Connection raw hex parsing](sources/backends/psmux-338-native-connection-input.md) — fixed 66cf613; send -H enqueues raw bytes.
 - [Server request dispatch](sources/backends/psmux-338-native-input-loop.md) — fixed 66cf613; SendBytes routes to input writer.
 - [Pane input write](sources/backends/psmux-338-native-input-write.md) — fixed 66cf613; incomplete UTF-8 chunks retain raw bytes, valid UTF-8 keeps normal input-mode semantics. This does not establish the cause of Windows argv failures.
+
+- [Top-level native CLI session bootstrap](sources/backends/psmux-338-native-cli-bootstrap.md) — fixed 66cf613; explicit initial command or environment bypasses warm claim, detached readiness checks an existing window and responding request loop. This is distinct from shell input readiness.
+- [In-server new-session command](sources/backends/psmux-338-native-session-command.md) — fixed 66cf613; keep this internal command-string path distinct from the top-level CLI.

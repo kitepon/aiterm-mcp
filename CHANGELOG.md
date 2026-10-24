@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.14] - 2026-10-24
+
 ### Fixed
 
 - Native execution participants retain their verified current-process identity instead of spawning another OS identity probe at every scope check. Foreign process, multiplexer, source/target generation and participant checks remain fresh. This reduces admission overhead; it does not reconcile unknown sends or establish recovery from a production mutex timeout.
@@ -2840,7 +2842,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.13...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.14...HEAD
+[0.61.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.13...v0.61.14
 [0.61.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...v0.61.13
 [0.61.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...v0.61.12
 [0.61.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...v0.61.11

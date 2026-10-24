@@ -20,7 +20,7 @@ jobs:
   windows-fixed-source:
     if: inputs.environment == 'windows-native' || startsWith(inputs.environment, 'windows-startup-') || inputs.environment == 'windows-payload-gate' || inputs.environment == 'windows-registry-probe' || inputs.environment == 'windows-argv-gate' || inputs.environment == 'windows-observation-gate' || inputs.environment == 'windows-portable-gate' || inputs.environment == 'windows-launch-gate'
     env:
-      PRODUCT_SOURCE: c92dceb902dba870d1d2e4e2239ccd9ba1952a1e
+      PRODUCT_SOURCE: 94a1bf9d6ac3a54dbeaed6f31c2626997219fe1c
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     runs-on: windows-2022
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout adopted product source, independent of workflow branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: c92dceb902dba870d1d2e4e2239ccd9ba1952a1e
+          ref: 94a1bf9d6ac3a54dbeaed6f31c2626997219fe1c
           fetch-depth: 1
           persist-credentials: false
       - name: Verify fixed source and clean checkout
@@ -347,7 +347,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: c92dceb902dba870d1d2e4e2239ccd9ba1952a1e
+          ref: 94a1bf9d6ac3a54dbeaed6f31c2626997219fe1c
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
@@ -357,7 +357,7 @@ jobs:
         run: brew list tmux >/dev/null 2>&1 || brew install tmux
       - name: Verify source and fixed lock
         run: |
-          test "$(git rev-parse HEAD)" = c92dceb902dba870d1d2e4e2239ccd9ba1952a1e
+          test "$(git rev-parse HEAD)" = 94a1bf9d6ac3a54dbeaed6f31c2626997219fe1c
           test -z "$(git status --porcelain)"
           npm run ci:dependencies
       - name: Preflight and platform runtime gates

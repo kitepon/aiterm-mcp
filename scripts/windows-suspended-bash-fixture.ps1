@@ -29,6 +29,8 @@ $si.input = [IsolatedBashStart]::GetStdHandle(-10)
 $si.output = [IsolatedBashStart]::GetStdHandle(-11)
 $si.error = [IsolatedBashStart]::GetStdHandle(-12)
 $pi = [IsolatedBashStart+Process]::new()
+$Bash = [IO.Path]::GetFullPath($Bash.Replace('/', '\'))
+if (-not [IO.File]::Exists($Bash)) { throw 'fixture Bash path does not exist' }
 $line = [Text.StringBuilder]::new(('"' + $Bash + '" --noprofile --norc -i'))
 if (-not [IsolatedBashStart]::CreateProcess($Bash,$line,[IntPtr]::Zero,[IntPtr]::Zero,$true,4,[IntPtr]::Zero,$null,[ref]$si,[ref]$pi)) {
   throw ('fixture CreateProcess error ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())

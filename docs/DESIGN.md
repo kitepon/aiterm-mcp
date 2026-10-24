@@ -107,6 +107,10 @@ WindowsのPowerShell shell向け非raw送信は単行もASCIIのBase64 wrapper�
 Console入力・出力とnative pipelineのencodingをUTF-8へ揃える。CP437で起動したConPTYでも
 文字を失わず、psmuxのprofile/PSReadLine/CWD初期化を置換しない。追加の送信やEnterは行わない。
 単一行、`raw:true`、非shell前面は直接PTYへ送る。`enter:false`では後続のEnterまで実行しない。
+Aitermが自分で選んだbash paneへ渡すagent起動command（sub-agent instructionのLFと日本語を含む）は、
+`prepareAgentLaunch`が同じPOSIX適合で1物理行にしてから`raw:true`で送る。sanitizeはせず、対話shellが
+埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。`.lastcmd`と起動echoの照合
+（`agentLaunchLines`）は、その打った1物理行を持つ。argv・lineage・metadata・native admission・receiptは変えない。
 
 TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
 このmoduleはcoreをimportせず、既存harness adapterと渡されたsample・sleep・時計だけで判断する。
@@ -125,7 +129,7 @@ coreの観測（`pty_observe`）・起動準備・送信口・停止は`kind`を
 席へ渡すAitermの環境変数は`agentEnvEntries`の1つの一覧から、POSIXの前置き（`agentEnvPrefix`）とWindowsのPowerShell行
 （`cursorPwshLaunchLine`）の両方を作る。名前と値の一覧とshell別の引用を分け、同じ値を2度定義しない。
 
-agent入力欄への`bracketedPaste`は、制御文字の除去後も本文のまま渡す。nativeの前面process名が起動shellを報告していてもshell実行文へ変換しない。shell用のUTF-8初期化・複数行適合は通常のshell送信だけに適用する。
+agent入力欄への`bracketedPaste`は、制御文字の除去後も本文のまま渡す。nativeの前面process名が起動shellを報告していてもshell実行文へ変換しない。shell用のUTF-8初期化・複数行適合はshell送信（利用者のshell送信と、Aiterm自身のbash起動command）だけに適用する。
 
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。

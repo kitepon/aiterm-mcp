@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
   psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop } from "../dist/tmux-runtime.js";
+import { shq } from "../dist/agent-shared.js";
+import { resolveWinPaneShell } from "../dist/agent-resolver.js";
 
 test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {
   const source = "文字列'\\\n2行目\r\n";
@@ -15,6 +17,26 @@ test("複数行のshell適合はhost OSによらず行を一括して渡す", ()
   for (const command of ["node", "ssh", "fish"]) {
     assert.equal(atomicShellMultiline(source, command), source, command);
   }
+});
+
+// Aitermが自分で選んだbash paneへ渡すagent起動commandは、この適合で1物理行にしてから打つ（src/core.ts prepareAgentLaunch）。
+// printf %bの復元が、引用符・backslashとliteralの\n・履歴展開の!・printfの%・展開しない$と``・tab・日本語・LFを
+// byteのまま返すことを、実際のbashで確かめる（対話shellの経路はtest/agent-launch-line.test.mjsが確かめる）。
+test("known-bash 1物理行適合: 起動commandの引数をbyteのまま復元する", () => {
+  const args = [
+    "A\\nB 'q' !x %s 50% $HOME `id`\t末尾\n2行目",
+    "developer_instructions=<aiterm_subagent_context>\nあなたはaitermから起動されたsub-agentであり、root agentではありません。\n</aiterm_subagent_context>",
+  ];
+  const command = `cd '/' && printf '%s\\0' ${args.map(shq).join(" ")}`;
+  const adapted = atomicShellMultiline(command, "bash");
+  assert.doesNotMatch(adapted, /[\r\n]/u, "1物理行");
+  assert.match(adapted, /^eval "\$\(command printf '%b' '/u);
+  const bash = isWin ? resolveWinPaneShell("bash") : "bash";
+  const result = spawnSync(bash, ["-c", adapted], { encoding: "buffer" });
+  assert.equal(result.status, 0, result.stderr?.toString("utf8"));
+  const received = result.stdout.toString("utf8").split("\0");
+  assert.equal(received.pop(), "");
+  assert.deepEqual(received, args);
 });
 
 test("appendMarkSentinel: POSIX形式は既存byte列を維持する", () => {

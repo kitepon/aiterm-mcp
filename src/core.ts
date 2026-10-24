@@ -7023,10 +7023,16 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       } else {
         const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
         const envPrefix = agentEnvPrefix(meta, sid, envVars);
-        full = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+        const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+        // このpaneのbashはAitermが自分で選んだ。sub-agent instructionのLFを含む起動commandは、
+        // 利用者のshell送信と同じknown-shell適合で1物理行にしてから打つ（sanitizeはしない）。
+        // 対話shellの行編集が、埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。
+        // agent TUIへの本文（bracketedPaste）は文字どおりのまま。argv・lineage・metadata・native
+        // admission・receiptの契約は変えない。
+        full = atomicShellMultiline(command, "bash");
       }
       if (meta) agentLaunchLines.set(sid, full);
-      // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて素送信する。
+      // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて、sanitizeせずに送る。
       send(sid, full, {
         enter: true,
         mark: false,

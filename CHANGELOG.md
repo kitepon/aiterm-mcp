@@ -18,12 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native Windows panes retain runtime additions to the caller PATH instead of replacing them with registry PATH. Explicit PATH entries keep precedence.
 - Non-raw PowerShell shell submissions establish UTF-8 input, output and native pipeline encoding in the submitted script, including single-line commands. Profiles, psmux interactive initialization, deferred Enter and raw PTY input retain their existing behavior.
 - Agent composer pastes retain their sanitized literal text even when the native foreground query still reports a startup shell. Shell encoding is limited to shell submissions.
+- Agent launch commands for Aiterm-owned bash panes are submitted as one physical line through the existing POSIX multiline adaptation, instead of one interactive line per embedded newline joined by continuation prompts. Argument bytes, lineage, metadata, native admission and receipts are unchanged, and the agent composer body remains literal.
 
 ### Tests
 
 - POSIX-only native test teardown also stays skipped on Windows. A file-level hook previously reached the psmux `tmux.exe` alias and stopped other fixture namespaces even when every test case was skipped. A native canary regression covers this boundary.
 - Argument fixtures wait for their final output marker within the existing deadline. Nested lineage assertions inspect child output instead of shell echo.
 - The portable-context fake TUI counts a bracketed multiline paste and its submit Enter as one input.
+- A bash round-trip check and a native launch regression compare the argv bytes a fake CLI received, through the CLI's own file, for quotes, backslashes, history characters, percent signs, Japanese text and newlines.
 
 ## [0.61.10] - 2026-10-23
 

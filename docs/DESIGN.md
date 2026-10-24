@@ -69,6 +69,9 @@ core入口の再確認と、managed metadata/hook生成・設定model保存は�
 native作用やawaitをcallbackへ入れず、停止・世代/actor/scope交代・RPC終了後の遅着を拒否する。
 これらの明示接続以外の設定復元や親配送metadata経路はまだ未了であり、既定mainへの有効化条件を満たさない。
 private factoryは同scopeの共有stateへ既存PID/開始identityと役割を宣言し、各受付の同じlock内で欠測を拒否する。
+遅延登録する参加者の最初の非同期要求は、既存の上限付きmetadata受付内で宣言を保存してから進む。
+待機後にもscope/actorを照合し、read-only要求でも宣言だけは独立して保存する。
+同期入口の即時拒否、登録削除後の拒否、停止snapshotの登録不要条件は変えず、入力や要求を再送しない。
 MCP/parent-effectの既存参照とnative identityを読むinventoryはread-onlyで、役割やenvから世代・終了を補完しない。
 開始identity交代や未登録actorを示しても旧slotを消さず、parent受付だけで参照を退役させない。
 全行のidentity一致でも参加者の全発見/native終了fence/全経路の接続を証明せず、coverage incompleteを維持する。

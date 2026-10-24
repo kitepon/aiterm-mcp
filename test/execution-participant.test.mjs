@@ -67,7 +67,7 @@ function fixture(t) {
     async observe() { assert.fail('no child waiter fixture'); }, async answer() { assert.fail('no answer fixture'); }, async verify() {} };
   const options = { runtime, provider, profile: { id: 'synthetic-participant', state_root: () => root },
     expectedScope: structuredClone(scope), parentDependencies: deps, claudeRuntime: { running: () => true } };
-  const create = () => { const p = createExecutionParticipant(options); participants.push(p); return p; };
+  const create = (deferEnrollment = false) => { const p = createExecutionParticipant({ ...options, deferEnrollment }); participants.push(p); return p; };
   const send = (participant, requestId = 1, beforeIssue = () => {}) => participant.dispatcher.dispatch('pty_key',
     { session_id: B.session_id, key: 'x' }, { requestId }, async () => {
       beforeIssue(); guardTmuxExecution(['send-keys', '-t', '=' + B.session_id + ':', 'x']); effects++; return accepted();
@@ -95,6 +95,82 @@ async function connect(t, participant, name = 'synthetic-native-client') {
   t.after(async () => { await client.close(); await participant.server.close(); await tick(); });
   return client;
 }
+async function holdMetadataWriter(store) {
+  let entered, release;
+  const acquired = new Promise(resolve => { entered = resolve; });
+  const held = new Promise(resolve => { release = resolve; });
+  const done = store.transaction(async () => { entered(); await held; });
+  await acquired;
+  return { release, done };
+}
+test('cold participant async dispatch waits for the held writer before explicit enrollment and issues once', { skip: posixCheckpoint }, async t => {
+  const f = fixture(t), p = f.create(true), raw = new FileExecutionStore(p.store.directory);
+  const held = await holdMetadataWriter(raw);
+  let enter;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const transaction = p.store.transaction.bind(p.store);
+  p.store.transaction = (...args) => { enter(); return transaction(...args); };
+  const pending = Promise.resolve(f.send(p, 'cold-enrollment')).then(value => ({ value }), error => ({ error }));
+  try { await entered; } finally { held.release(); await held.done; }
+  const result = await pending;
+  assert.ifError(result.error);
+  assert.equal(result.value.isError, undefined, JSON.stringify(result.value._meta));
+  assert.equal(f.effects(), 1);
+  const state = raw.snapshot();
+  assert.equal(state.participants.length, 1);
+  assert.deepEqual(state.participants[0].actor, f.actor);
+  assert.ok(state.participants[0].roles.includes('mcp'));
+  assert.equal(state.records.length, 1);
+  assert.equal(state.records[0].operations.send, 'accepted');
+  assert.deepEqual(state.slots, []);
+});
+test('cold async read persists the declared participant but leaves the read-only graph untouched', { skip: posixCheckpoint }, async t => {
+  const f = fixture(t), p = f.create(true), raw = new FileExecutionStore(p.store.directory);
+  const held = await holdMetadataWriter(raw);
+  let pending, callbacks = 0;
+  try {
+    assert.doesNotThrow(() => { pending = p.store.transaction(state => { callbacks++; return state.records.length; }, { readOnly: true }); });
+    assert.ok(pending instanceof Promise);
+    assert.equal(callbacks, 0);
+  } finally { held.release(); await held.done; }
+  assert.equal(await pending, 0);
+  const state = raw.snapshot();
+  assert.equal(callbacks, 1); assert.equal(state.participants.length, 1);
+  assert.deepEqual(state.records, []); assert.deepEqual(state.slots, []); assert.deepEqual(state.stopping, []);
+});
+test('concurrent first async calls enroll the same explicit actor once and each callback runs once', { skip: posixCheckpoint }, async t => {
+  const f = fixture(t), p = f.create(true), raw = new FileExecutionStore(p.store.directory);
+  const held = await holdMetadataWriter(raw);
+  const calls = [0, 0]; let pending;
+  try {
+    assert.doesNotThrow(() => { pending = [0, 1].map(i => p.store.transaction(() => ++calls[i])); });
+    assert.deepEqual(calls, [0, 0]);
+  } finally { held.release(); await held.done; }
+  assert.deepEqual(await Promise.all(pending), [1, 1]);
+  assert.equal(raw.snapshot().participants.length, 1);
+});
+test('cold enrollment rechecks scope and actor after waiting before any declaration or callback', { skip: posixCheckpoint }, async t => {
+  for (const change of ['scope', 'actor']) {
+    const f = fixture(t), p = f.create(true), raw = new FileExecutionStore(p.store.directory);
+    const held = await holdMetadataWriter(raw);
+    let callbacks = 0;
+    const pending = p.store.transaction(() => { callbacks++; }).then(value => ({ value }), error => ({ error }));
+    if (change === 'scope') f.scope.multiplexer.key += '-changed';
+    else f.actor.started_identity = '2026-10-21T11:01:00Z';
+    held.release(); await held.done;
+    const result = await pending;
+    assert.equal(result.error?.code, 'EXECUTION_UNSUPPORTED', change);
+    assert.equal(callbacks, 0); assert.equal(f.effects(), 0);
+    assert.deepEqual(raw.snapshot().participants, []);
+  }
+});
+test('a deferred participant removed after its first async commit is not silently enrolled again', { skip: posixCheckpoint }, async t => {
+  const f = fixture(t), p = f.create(true), raw = new FileExecutionStore(p.store.directory);
+  await p.store.transaction(() => undefined);
+  raw.transactionSync(state => { state.participants = []; });
+  await assert.rejects(p.store.transaction(() => assert.fail('removed participant callback')), code('EXECUTION_UNSUPPORTED'));
+  assert.deepEqual(raw.snapshot().participants, []);
+});
 test('one detached startup environment feeds real producer/service and dispatcher without a second supplier read', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create();
   f.env.AITERM_SESSION_ID = D.session_id; f.env.AITERM_AGENT_LAUNCH_ID = D.launch_id;

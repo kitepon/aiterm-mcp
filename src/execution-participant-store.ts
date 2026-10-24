@@ -48,8 +48,14 @@ export class ParticipantExecutionStore extends FileExecutionStore {
       return value;
     }, options);
   }
-  override transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
-    this.ensureEnrolled();
+  override async transaction<T>(body: (state: ExecutionState) => T | Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
+    if (this.deferEnrollment && !this.registered) {
+      this.assertScope();
+      // The first async request must not take a fail-fast synchronous lock
+      // before its bounded metadata wait. Commit the explicit declaration in
+      // the existing short admission; never hold it across an async callback.
+      await super.admitNative(() => this.ensureEnrolled());
+    }
     return super.transaction(async state => {
       if (!options.readOnly) this.assertScope();
       this.check(state); const value = await body(state); this.check(state);

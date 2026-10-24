@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.12] - 2026-10-24
+
+### Fixed
+
+- A newly connected participant in the opt-in POSIX native execution entry waits within the existing bounded metadata admission before committing its declared roles for its first asynchronous request. Previously, deferred enrollment tried a synchronous lock first and could return `EXECUTION_BUSY` while a concurrent metadata writer was about to finish. Scope and actor checks, synchronous refusal, removed-registration refusal and immediate-stop snapshots are preserved; no input or failed request is replayed.
+
+### Tests
+
+- Isolated cold-participant fixtures cover dispatch under a held writer, read-only registration, concurrent first requests, scope or actor changes while waiting, and refusal after registration removal. These reproduce and repair the product defect without assigning a cause to historical deliveries whose original native receipt was not retained.
+
 ## [0.61.11] - 2026-10-24
 
 ### Validation scope
@@ -2807,7 +2817,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...HEAD
+[0.61.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...v0.61.12
 [0.61.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...v0.61.11
 [0.61.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...v0.61.10
 [0.61.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.8...v0.61.9

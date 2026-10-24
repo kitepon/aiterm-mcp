@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.61.11** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.61.12** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -795,7 +795,7 @@ Each `pty_send` accepts at most 64 KiB of UTF-8 text. Sends to the same session 
 
 ## A human can watch
 
-In the opt-in POSIX native execution entry, an ordinary message arriving at a verified caller can overlap that caller's outgoing send. It does not replace the caller's generation or clear either request's slot. Agent paste/submit segments wait for metadata mutex contention before input; uncertain operations, generation changes and stops still prevent input. BellTeam may explicitly recreate a closed session with a promptless management `agent_launch`; sending a prompt still requires its original execution reference.
+In the opt-in POSIX native execution entry, an ordinary message arriving at a verified caller can overlap that caller's outgoing send. It does not replace the caller's generation or clear either request's slot. A newly connected participant also waits within the existing bounded metadata admission to commit its declared roles before its first asynchronous request; that wait never replays input. Agent paste/submit segments wait for metadata mutex contention before input; uncertain operations, generation changes and stops still prevent input. BellTeam may explicitly recreate a closed session with a promptless management `agent_launch`; sending a prompt still requires its original execution reference.
 
 An explicit `agent_execution` action `reconcile_launch` can bind an existing empty launch after a lost launch result in this opt-in entry. Supply the original `request` and exact `target: {session_id, launch_id}`. The server checks the original native/server identity, current managed generation, raw no-prompt state and a live ready harness under metadata admission, then releases only that unknown launch slot. Repeating an accepted empty launch before its send also rechecks the current generation, readiness and absence of competing session operations; a saved acceptance alone cannot confirm a later generation. It never launches, types, closes or resends. `issued` RPCs, unknown input and changed or unverified generations remain blocked. Any subsequent body uses the original reference through normal send admission once; a successful reconciliation does not prove the lost RPC receipt.
 

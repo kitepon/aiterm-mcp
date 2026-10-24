@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.13] - 2026-10-24
+
 ### Validation scope
 
 - Linux full validation passed (1591 passed, 46 skipped, 0 failed). The affected readiness and input paths passed the hosted macOS gate (196 passed, 0 skipped, 0 failed). Windows initially reported 114 passed, 49 skipped and 23 fixture failures: persistent fake CLI shells used sh while their screen renderer emitted PowerShell. Correcting only the Windows fixture shell left product runtime unchanged; all three affected files then passed (62 passed, 9 skipped, 0 failed), retaining the other successful Windows files. POSIX-only native fixtures remain skipped on Windows; this is not native Windows execution-checkpoint acceptance. Fixtures use isolated substitutes without production seats or delivery replay.
@@ -2834,7 +2836,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.13...HEAD
+[0.61.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...v0.61.13
 [0.61.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...v0.61.12
 [0.61.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.10...v0.61.11
 [0.61.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.9...v0.61.10

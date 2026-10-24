@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Validation scope
+
+- Linux full validation passed (1591 passed, 46 skipped, 0 failed). The affected readiness and input paths passed the hosted macOS gate (196 passed, 0 skipped, 0 failed). Windows initially reported 114 passed, 49 skipped and 23 fixture failures: persistent fake CLI shells used sh while their screen renderer emitted PowerShell. Correcting only the Windows fixture shell left product runtime unchanged; all three affected files then passed (62 passed, 9 skipped, 0 failed), retaining the other successful Windows files. POSIX-only native fixtures remain skipped on Windows; this is not native Windows execution-checkpoint acceptance. Fixtures use isolated substitutes without production seats or delivery replay.
+
 ### Fixed
 
 - Ordinary agent input that has not yet been issued can select the existing steer path when a live busy turn becomes visible during readiness waiting. It stays in the original request and per-session send lock; no native input is retried.

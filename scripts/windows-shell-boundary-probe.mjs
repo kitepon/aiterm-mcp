@@ -8,7 +8,27 @@ import { pathToFileURL } from 'node:url';
 assert.equal(process.platform, 'win32');
 const script = process.argv[1];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-if (process.argv[2] === '--child') {
+if (process.argv[2] === '--sampler') {
+  const [pidFile, previousPid, destination] = process.argv.slice(3);
+  let previous = '';
+  function sample() {
+    let anchor = null, pidExists = null;
+    try { anchor = fs.readFileSync(pidFile, 'utf8').trim(); } catch {}
+    try { process.kill(Number(previousPid), 0); pidExists = true; } catch (error) { if (error.code === 'ESRCH') pidExists = false; }
+    const point = { anchor, previousPidExists: pidExists, port: fs.existsSync(pidFile.slice(0, -4) + '.port') };
+    const signature = JSON.stringify(point);
+    if (signature !== previous) {
+      previous = signature;
+      fs.appendFileSync(destination, JSON.stringify({ at: Date.now(), ...point }) + '\n');
+    }
+  }
+  sample();
+  const timer = setInterval(sample, 10);
+  process.on('message', message => {
+    if (message === 'stop') { sample(); clearInterval(timer); process.disconnect(); }
+  });
+  process.send('ready');
+} else if (process.argv[2] === '--child') {
   const [registry, temperature, readiness] = process.argv.slice(3);
   if (registry === 'isolated') {
     process.env.PSMUX_DATA_DIR = path.join(process.env.TEMP, 'psmux-registry');
@@ -19,8 +39,10 @@ if (process.argv[2] === '--child') {
   const directory = process.env.PSMUX_DATA_DIR || path.join(process.env.USERPROFILE || os.homedir(), '.psmux');
   const name = 'shell_boundary', base = runtime.WIN_NS + '__' + name;
   const started = performance.now();
-  const row = { registry, temperature, readiness, sends: 0, observations: [] };
+  const row = { registry, temperature, readiness, sends: 0, startTimestamp: Date.now(), observations: [] };
   let opened = false, identity = null, unsafeCleanup = false;
+  let sampler = null;
+  const samples = path.join(process.env.TEMP, 'reuse-observations.jsonl');
   function anchor(target = base) {
     try { return fs.readFileSync(path.join(directory, target + '.pid'), 'utf8').trim(); } catch { return null; }
   }
@@ -40,7 +62,34 @@ if (process.argv[2] === '--child') {
     catch { return 0; }
   }
   const stripped = text => text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+  async function waitPrompt() {
+    const deadline = performance.now() + 5000;
+    for (;;) {
+      const pane = runtime.tmuxCommand(false, 'capture-pane', '-p', '-t', name);
+      if (pane.code === 0 && /\$\s*$/.test(stripped(pane.stdout))) return;
+      if (performance.now() >= deadline) throw Error('fixture_prompt_unconfirmed');
+      await pause(50);
+    }
+  }
   try {
+    if (temperature.startsWith('reuse-')) {
+      core.openSession(name, 'bash');
+      await waitPrompt();
+      row.previousAnchor = anchor();
+      if (!row.previousAnchor) throw Error('native_identity_unconfirmed_before_close');
+      const oldPid = Number(row.previousAnchor.split(':')[0]);
+      sampler = spawn(process.execPath, [script, '--sampler', path.join(directory, base + '.pid'), String(oldPid), samples], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+      await new Promise((resolve, reject) => { sampler.once('message', resolve); sampler.once('error', reject); });
+      try { core.closeSession(name); row.previousCloseReturned = true; } catch (error) { unsafeCleanup = true; throw error; }
+      const pidExists = () => { try { process.kill(oldPid, 0); return true; } catch (error) { return error.code === 'ESRCH' ? false : null; } };
+      row.previousPidExistsAfterClose = pidExists();
+      if (temperature === 'reuse-exited') {
+        const deadline = performance.now() + 5000;
+        while (pidExists() !== false && performance.now() < deadline) await pause(10);
+        if (pidExists() !== false) { unsafeCleanup = true; throw Error('previous_pid_exit_unconfirmed'); }
+      }
+      row.previousPidExistsBeforeReopen = pidExists();
+    }
     if (temperature === 'warm') {
       core.openSession('boundary_seed', 'bash');
       core.closeSession('boundary_seed');
@@ -56,17 +105,13 @@ if (process.argv[2] === '--child') {
     try { initial = fs.readFileSync(log, 'utf8'); } catch {}
     row.initialLogHasPrompt = /\$\s*$/.test(stripped(initial));
     if (readiness === 'wait') {
-      const deadline = performance.now() + 5000;
-      for (;;) {
-        const pane = runtime.tmuxCommand(false, 'capture-pane', '-p', '-t', name);
-        if (pane.code === 0 && /\$\s*$/.test(stripped(pane.stdout))) { row.promptObserved = true; break; }
-        if (performance.now() >= deadline) throw Error('fixture_prompt_unconfirmed');
-        await pause(50);
-      }
+      await waitPrompt(); row.promptObserved = true;
     }
     if (frame('before_input').anchor !== identity) throw Error('native_identity_changed_before_input');
     const marker = path.join(process.env.TEMP, 'shell-executed.txt').replaceAll('\\', '/').replaceAll("'", "'\\''");
-    const command = `printf executed > '${marker}'; printf '%s%s\\n' SHELL_BOUNDARY_ EXECUTED`;
+    const padding = temperature.startsWith('reuse-') ? `; : '${'A'.repeat(3072)}'` : '';
+    const command = `printf executed > '${marker}'; printf '%s%s\\n' SHELL_BOUNDARY_ EXECUTED${padding}`;
+    row.inputBytes = Buffer.byteLength(command);
     row.sends++;
     core.send(name, command, { raw: true, force: true });
     frame('send_returned');
@@ -75,20 +120,26 @@ if (process.argv[2] === '--child') {
     row.fileMarker = fs.existsSync(marker);
     frame('read_returned');
   } catch (error) {
-    row.error = /ECONNREFUSED|ETIMEDOUT|no server running|native_identity_\w+|fixture_prompt_unconfirmed/.exec(error.message)?.[0] || error.name;
+    row.error = /ECONNREFUSED|ETIMEDOUT|no server running|native_identity_\w+|fixture_prompt_unconfirmed|previous_pid_exit_unconfirmed/.exec(error.message)?.[0] || error.name;
     frame('error');
   } finally {
     if (opened && identity && anchor() === identity) {
       try { core.closeSession(name); row.closed = true; } catch { row.cleanupUnknown = true; unsafeCleanup = true; }
     } else if (opened) { row.cleanupUnknown = true; unsafeCleanup = true; }
     if (!unsafeCleanup) { try { core.killAll(); } catch { row.cleanupUnknown = true; } }
+    if (sampler?.connected) {
+      const closed = new Promise(resolve => sampler.once('close', resolve));
+      sampler.send('stop'); await closed;
+    }
+    if (fs.existsSync(samples)) row.samples = fs.readFileSync(samples, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   }
   console.log('SHELL_BOUNDARY_CASE=' + JSON.stringify(row));
 } else {
   const rows = [];
   for (const registry of ['shared', 'isolated']) {
     const cases = [];
-    for (const temperature of ['cold', 'warm']) for (const readiness of ['immediate', 'wait']) {
+    const reuse = process.argv.includes('--reuse-only');
+    for (const temperature of (reuse ? ['reuse-immediate', 'reuse-exited'] : ['cold', 'warm'])) for (const readiness of (reuse ? ['immediate'] : ['immediate', 'wait'])) {
       cases.push(new Promise(resolve => {
         const child = spawn(process.execPath, ['--import', './test/seat-env.mjs', script, '--child', registry, temperature, readiness], { stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '', stderr = '';

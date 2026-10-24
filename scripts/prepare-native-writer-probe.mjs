@@ -35,3 +35,33 @@ const helper = `fn native_writer_diagnostic(phase: &str, bytes: usize, ok: bool,
 source = source.slice(0, start) + helper + body + source.slice(end);
 fs.writeFileSync(file, source);
 console.log('native_writer_source=66cf61354c473b35d4f0c06c57384fc46d61ffdb+write-result-only-instrumentation');
+if (process.argv.includes('--direct-init')) {
+  const ptyFile = path.join(root, 'crates/portable-pty-psmux/src/win/psuedocon.rs');
+  let pty = fs.readFileSync(ptyFile, 'utf8').replaceAll('\r\n', '\n');
+  const prepare = 'let res = unsafe {\n            CreateProcessW(';
+  assert.equal(pty.split(prepare).length, 2);
+  pty = pty.replace(prepare, `let direct_init_gate = std::env::var("AITERM_TEST_NATIVE_START_GATE").ok()
+            .filter(|_| cmd_os.to_string_lossy().to_ascii_lowercase().contains("bash"));
+        let res = unsafe {
+            CreateProcessW(`);
+  const flags = 'EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,';
+  assert.equal(pty.split(flags).length, 2);
+  pty = pty.replace(flags, 'EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | if direct_init_gate.is_some() { 0x00000004 } else { 0 },');
+  const thread = 'let _main_thread = unsafe { OwnedHandle::from_raw_handle(pi.hThread as _) };';
+  assert.equal(pty.split(thread).length, 2);
+  pty = pty.replace(thread, thread + `
+        if let Some(gate) = direct_init_gate {
+            std::thread::spawn(move || {
+                let _ = std::fs::write(format!("{}.ready", gate), "suspended");
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                while !std::path::Path::new(&format!("{}.release", gate)).exists() && std::time::Instant::now() < until {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                unsafe { ResumeThread(_main_thread.as_raw_handle() as _); }
+                let _ = std::fs::write(format!("{}.resumed", gate), "resumed");
+            });
+        }
+  `);
+  fs.writeFileSync(ptyFile, pty);
+  console.log('native_direct_init_gate=fixture-only-CREATE_SUSPENDED-before-first-Bash');
+}

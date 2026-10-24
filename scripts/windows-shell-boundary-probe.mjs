@@ -75,7 +75,7 @@ if (process.argv[2] === '--sampler') {
   }
   try {
     let shell = 'bash';
-    if (temperature.startsWith('profile-') || temperature === 'pre-bash' || temperature === 'native-pre-bash') {
+    if (temperature.startsWith('profile-') || temperature === 'pre-bash' || temperature === 'native-pre-bash' || temperature === 'native-direct') {
       const rc = path.join(process.env.TEMP, 'fixture.bashrc');
       const began = path.join(process.env.TEMP, 'profile-began');
       profileGate = path.join(process.env.TEMP, 'profile-release');
@@ -95,8 +95,16 @@ if (process.argv[2] === '--sampler') {
         row.nativeSuspendedStart = true;
         row.fixtureErrorFile = began + ".error";
       }
+      if (temperature === 'native-direct') {
+        const gate = path.join(process.env.TEMP, 'direct-native-init');
+        process.env.AITERM_TEST_NATIVE_START_GATE = gate;
+        profileGate = gate + '.release';
+        row.profileStartedFile = gate + '.ready';
+        shell = `"${bash}" --noprofile --norc -i`;
+        row.directFirstBashSuspended = true;
+      }
       row.fixtureProfile = true;
-      row.profileStartedFile = began;
+      if (temperature !== 'native-direct') row.profileStartedFile = began;
     }
     if (temperature.startsWith('reuse-')) {
       core.openSession(name, 'bash');
@@ -144,7 +152,7 @@ if (process.argv[2] === '--sampler') {
     if (frame('before_input').anchor !== identity) throw Error('native_identity_changed_before_input');
     const marker = path.join(process.env.TEMP, 'shell-executed.txt').replaceAll('\\', '/').replaceAll("'", "'\\''");
     const padding = temperature.startsWith('reuse-') ? `; : '${'A'.repeat(3072)}'` : '';
-    const expected = profileGate ? `日本語の入力\n引用"two"と'$変数\nend${(temperature === "pre-bash" || temperature === "native-pre-bash") ? "あ".repeat(300) : ""}` : 'executed';
+    const expected = temperature === 'native-direct' ? 'A'.repeat(1000) : profileGate ? `日本語の入力\n引用"two"と'$変数\nend${(temperature === "pre-bash" || temperature === "native-pre-bash") ? "あ".repeat(300) : ""}` : 'executed';
     const quotedPayload = "'" + expected.replaceAll("'", "'\\''") + "'";
     let command = `printf '%s' ${quotedPayload} > '${marker}'; printf '%s%s\\n' SHELL_BOUNDARY_ EXECUTED${padding}`;
     if (temperature === 'profile-atomic') command = runtime.atomicShellMultiline(command, 'bash');
@@ -181,13 +189,14 @@ if (process.argv[2] === '--sampler') {
   console.log('SHELL_BOUNDARY_CASE=' + JSON.stringify(row));
 } else {
   const rows = [];
+  const directNative = process.argv.includes('--direct-native-only');
   const nativePreBash = process.argv.includes('--native-pre-bash-only');
-  const preBash = process.argv.includes('--pre-bash-only') || nativePreBash;
+  const preBash = process.argv.includes('--pre-bash-only') || nativePreBash || directNative;
   const profile = process.argv.includes('--profile-only') || preBash;
   for (const registry of (profile ? ['isolated'] : ['shared', 'isolated'])) {
     const cases = [];
     const reuse = process.argv.includes('--reuse-only');
-    for (const temperature of (nativePreBash ? ['native-pre-bash'] : preBash ? ['pre-bash'] : profile ? ['profile-raw', 'profile-atomic'] : reuse ? ['reuse-immediate', 'reuse-exited'] : ['cold', 'warm'])) for (const readiness of (reuse ? ['immediate'] : ['immediate', 'wait'])) {
+    for (const temperature of (directNative ? ['native-direct'] : nativePreBash ? ['native-pre-bash'] : preBash ? ['pre-bash'] : profile ? ['profile-raw', 'profile-atomic'] : reuse ? ['reuse-immediate', 'reuse-exited'] : ['cold', 'warm'])) for (const readiness of (reuse ? ['immediate'] : ['immediate', 'wait'])) {
       cases.push(new Promise(resolve => {
         const child = spawn(process.execPath, ['--import', './test/seat-env.mjs', script, '--child', registry, temperature, readiness], { stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '', stderr = '';

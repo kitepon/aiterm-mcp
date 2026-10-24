@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.15] - 2026-10-24
+
 ### Fixed
 
 - Completion checks observe the original request boundary outside the shared metadata mutex, then revalidate the unchanged original record and all uncertainty/slot gates before committing. Slow transcript/native completion observation no longer blocks unrelated admission; unknown sends are never reconciled or replayed.
@@ -2846,7 +2848,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.14...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.15...HEAD
+[0.61.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.14...v0.61.15
 [0.61.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.13...v0.61.14
 [0.61.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.12...v0.61.13
 [0.61.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.11...v0.61.12

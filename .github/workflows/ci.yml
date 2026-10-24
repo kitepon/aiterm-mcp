@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-portable-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, windows-startup-native-init-boundary, windows-startup-transport-probe, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate, mac-portable-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, windows-startup-marker-context, windows-startup-capture-missing, windows-startup-composer-gate, windows-observation-gate, windows-portable-gate, windows-startup-profile-boundary, windows-startup-pre-bash-boundary, windows-startup-native-init-boundary, windows-startup-transport-probe, windows-startup-native-writer-trace, mac-argv-gate, mac-cleanup-gate, mac-composer-gate, mac-observation-gate, mac-portable-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -84,6 +84,31 @@ jobs:
           npm --version
           npm run ci:dependencies
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Checkout exact backend source for write-result diagnosis
+        if: inputs.environment == 'windows-startup-native-writer-trace'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: psmux/psmux
+          ref: 66cf61354c473b35d4f0c06c57384fc46d61ffdb
+          path: native-writer-source
+          persist-credentials: false
+      - name: Build diagnostic backend with scalar write results
+        if: inputs.environment == 'windows-startup-native-writer-trace'
+        shell: pwsh
+        run: |
+          node diagnostic-harness/scripts/prepare-native-writer-probe.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:CARGO_HOME = Join-Path $env:GITHUB_WORKSPACE '.ci-tools/cargo-cache'
+          rustc --version
+          cargo --version
+          cargo build --locked --release --bin psmux --manifest-path native-writer-source/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $native = Join-Path $env:GITHUB_WORKSPACE 'native-writer-source/target/release'
+          Copy-Item (Join-Path $native 'psmux.exe') (Join-Path $native 'tmux.exe')
+          $exe = Join-Path $native 'psmux.exe'
+          Write-Output ('diagnostic_backend_sha256=' + (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant())
+          Add-Content $env:GITHUB_ENV ('AITERM_PSMUX=' + $exe)
+          Add-Content $env:GITHUB_PATH $native
       - name: Product preflight and full gate for repaired source
         shell: pwsh
         run: |
@@ -99,7 +124,18 @@ jobs:
             elseif ($LASTEXITCODE -eq 1) { Write-Output "git system ${key}: unset" }
             else { throw 'Unknown system git configuration' }
           }
-          if ('${{ inputs.environment }}' -eq 'windows-startup-sequence') {
+          if ('${{ inputs.environment }}' -eq 'windows-startup-native-writer-trace') {
+            $env:PRODUCT_CI_TEST_SCOPE = 'all'
+            $preload = Join-Path $env:GITHUB_WORKSPACE 'diagnostic-harness/scripts/windows-native-writer-preload.mjs'
+            $preloadUrl = node --input-type=module -e "import { pathToFileURL } from 'node:url'; process.stdout.write(pathToFileURL(process.argv[1]).href);" $preload
+            $env:NODE_OPTIONS = '--import=' + $preloadUrl
+            node scripts/run-product-ci-tests.mjs
+            $testCode = $LASTEXITCODE
+            Get-ChildItem -Path 'native-writer-source/target/release' -Filter 'diagnostic-writer-*.jsonl' | ForEach-Object { Get-Content $_.FullName }
+            Get-ChildItem -Path 'diagnostic-harness/scripts/.diagnostic-workers' -Filter 'transport-worker-*.jsonl' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
+            exit $testCode
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-sequence') {
+
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs

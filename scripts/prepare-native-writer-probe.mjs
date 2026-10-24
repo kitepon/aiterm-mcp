@@ -15,6 +15,15 @@ body = body.replace('if inner.write_all(&buf).is_err() {', `let outcome = inner.
                 if outcome.is_err() {`);
 body = body.replace('if broken {\n                    continue;', 'if broken {\n                    native_writer_diagnostic("discard", buf.len(), false, None);\n                    continue;');
 const helper = `fn native_writer_diagnostic(phase: &str, bytes: usize, ok: bool, os_error: Option<i32>) {
+    if phase == "write" && ok && bytes == 256 && std::env::var("AITERM_TEST_NATIVE_RESUME_AFTER_FIRST_WRITE").ok().as_deref() == Some("1") {
+        if let Ok(gate) = std::env::var("AITERM_TEST_NATIVE_START_GATE") {
+            if std::path::Path::new(&format!("{}.ready", gate)).exists() {
+                if std::fs::OpenOptions::new().write(true).create_new(true).open(format!("{}.trigger", gate)).is_ok() {
+                    let _ = std::fs::write(format!("{}.release", gate), "after-first-256-byte-write");
+                }
+            }
+        }
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let file = dir.join(format!("diagnostic-writer-{}.jsonl", std::process::id()));

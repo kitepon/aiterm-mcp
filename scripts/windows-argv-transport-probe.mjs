@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 assert.equal(process.platform, 'win32');
 const script = process.argv[1];
 if (process.argv[2] === '--child') {
+  const overlap = process.argv[4] === 'overlap';
   const worker = path.join(process.env.TEMP, 'transport-worker.mjs');
   let source = fs.readFileSync(path.join(process.cwd(), 'dist/psmux-send-worker.js'), 'utf8');
   const final = 'await sendCommand(port, key, `display-message -p ${completionMarker}`, completionMarker);';
@@ -56,11 +57,16 @@ if (process.argv[2] === '--child') {
   core.openSession('transport_seed', 'bash');
   core.closeSession('transport_seed');
   try {
-    for (let round = 0; round < 3; round++) {
-      for (const scenario of ['model-effort', 'normal-home']) {
+    for (let round = 0; round < (overlap ? 1 : 3); round++) {
+      for (const scenario of (overlap ? ['model-effort'] : ['model-effort', 'normal-home'])) {
         const row = { scenario, round, openCalls: 0, inputRetries: 0, miss: null };
         await withFakeCodexHome(async home => {
           if (scenario === 'model-effort') fs.writeFileSync(path.join(home, 'config.toml'), 'model = "pinned"\nmodel_reasoning_effort = "ultra"\nkeep_me = true\n\n[mcp_servers.x]\ncommand = "y"\n');
+          const gate = path.join(process.env.TEMP, 'argv-first-chunk-init');
+          if (overlap) {
+            process.env.AITERM_TEST_NATIVE_START_GATE = gate;
+            process.env.AITERM_TEST_NATIVE_RESUME_AFTER_FIRST_WRITE = '1';
+          }
           let sid, identity, launch;
           try {
             row.openCalls++;
@@ -72,6 +78,14 @@ if (process.argv[2] === '--child') {
             row.passed = true;
           } catch (error) { row.passed = false; row.error = error.code || error.name; }
           finally {
+            if (overlap) {
+              row.firstBashSuspended = fs.existsSync(gate + '.ready');
+              row.firstWriteTriggeredResume = fs.existsSync(gate + '.trigger');
+              try { row.resumePreviousSuspendCount = Number(fs.readFileSync(gate + '.resumed', 'utf8')); } catch {}
+              fs.writeFileSync(gate + '.release', 'cleanup-release');
+              delete process.env.AITERM_TEST_NATIVE_START_GATE;
+              delete process.env.AITERM_TEST_NATIVE_RESUME_AFTER_FIRST_WRITE;
+            }
             if (sid && identity && anchor(sid) === identity && readAgentMeta(sid).launch_id === launch) core.closeSession(sid);
           }
         });
@@ -84,8 +98,9 @@ if (process.argv[2] === '--child') {
   console.log('ARGV_TRANSPORT_CHILD=' + JSON.stringify({ cohort: process.argv[3], cases }));
   if (cases.some(row => !row.passed)) process.exitCode = 1;
 } else {
-  const results = await Promise.all([0, 1].map(cohort => new Promise(resolve => {
-    const child = cp.spawn(process.execPath, ['--import', './test/seat-env.mjs', script, '--child', String(cohort)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const overlap = process.argv.includes('--overlap-only');
+  const results = await Promise.all((overlap ? [0] : [0, 1]).map(cohort => new Promise(resolve => {
+    const child = cp.spawn(process.execPath, ['--import', './test/seat-env.mjs', script, '--child', String(cohort), overlap ? 'overlap' : 'bounded'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', data => { stdout += data; }); child.stderr.on('data', data => { stderr += data; });
     child.on('error', error => resolve({ cohort, error: error.code }));

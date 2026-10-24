@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { agentFixturePrint } from "./agent-fixture-shell.mjs";
+import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -36,7 +36,7 @@ fs.writeFileSync(
     "printf '\\n'",
     // Keep the declared fake harness alive while the fixture shell renders
     // controlled screens; an exited argv printer is no longer a send target.
-    "/bin/sh -i",
+    agentFixtureShellCommand,
     ":",
     "",
   ].join("\n"),

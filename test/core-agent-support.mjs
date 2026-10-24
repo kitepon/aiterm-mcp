@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { agentFixturePrint } from "./agent-fixture-shell.mjs";
+import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -38,7 +38,7 @@ const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");
 fs.writeFileSync(
     argvPrinterBin,
-    "#!/bin/sh\n" + argvInvocation("START") + "printf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n" + argvInvocation("END") + "/bin/sh -i\n:\n",
+    "#!/bin/sh\n" + argvInvocation("START") + "printf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n" + argvInvocation("END") + agentFixtureShellCommand + "\n:\n",
     { mode: 0o700 },
   );
 fs.chmodSync(argvPrinterBin, 0o700);
@@ -55,7 +55,7 @@ fs.writeFileSync(
       `printf '%s\\n' '${ARGV_FIXTURE_DONE}'`,
       // Dispatch fixtures render through a shell, with a real surviving fake
       // harness parent rather than metadata for an already exited printer.
-      "/bin/sh -i",
+      agentFixtureShellCommand,
       ":",
       "",
     ].join("\n"),

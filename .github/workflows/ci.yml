@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, mac-argv-gate, mac-cleanup-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, windows-startup-cleanup-gate, windows-startup-context-trace, mac-argv-gate, mac-cleanup-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -147,6 +147,16 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs --test test/windows-native-cleanup-isolation.test.mjs
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-context-trace') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --import ./diagnostic-harness/scripts/windows-startup-trace.mjs --test test/core-agent-observe.test.mjs test/core-agent.test.mjs
+            $testCode = $LASTEXITCODE
+            Get-ChildItem -Filter 'startup-trace-*.jsonl' | ForEach-Object { Get-Content $_.FullName }
+            Get-ChildItem -Filter 'fixture-invocations-*.log' | ForEach-Object { Write-Output ('INVOCATION_FILE=' + $_.Name); Get-Content $_.FullName }
+            exit $testCode
           } elseif ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

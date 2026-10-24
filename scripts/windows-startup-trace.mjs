@@ -6,6 +6,15 @@ import path from 'node:path';
 import os from 'node:os';
 const actual = cp.spawnSync;
 const destination = path.join(process.cwd(), `startup-trace-${process.pid}.jsonl`);
+const actualWrite = fs.writeFileSync;
+const invocationLog = path.join(process.cwd(), `fixture-invocations-${process.pid}.log`).replaceAll('\\', '/').replaceAll("'", "'\\''");
+fs.writeFileSync = function(file, data, ...options) {
+  if (typeof file === 'string' && ['print-argv.sh', 'fake-claude.sh'].includes(path.basename(file)) && typeof data === 'string' && data.startsWith('#!/bin/sh\n')) {
+    const record = phase => `if [ -n "$AITERM_SESSION_ID" ] && [ -n "$AITERM_AGENT_LAUNCH_ID" ]; then printf '%s %s %s\\n' '${phase}' "$AITERM_SESSION_ID" "$AITERM_AGENT_LAUNCH_ID" >> '${invocationLog}'; fi\n`;
+    data = data.replace('#!/bin/sh\n', '#!/bin/sh\n' + record('START')) + record('END');
+  }
+  return actualWrite.call(this, file, data, ...options);
+};
 function snapshot(namespace) {
   if (!/^aiterm-[0-9a-f]+$/.test(namespace)) return [];
   const dir = process.env.PSMUX_DATA_DIR || path.join(process.env.USERPROFILE || os.homedir(), '.psmux');
@@ -35,6 +44,11 @@ cp.spawnSync = function(command, args = [], options) {
     operation: worker ? 'payload-worker' : args[args.indexOf('-L') + 2], namespace,
     status: result.status, errorCode: result.error?.code ?? null,
     noServer: /no server running/i.test(String(result.stderr)), before, after: snapshot(namespace) };
+  if (worker) {
+    const input = options?.input == null ? '' : Buffer.from(options.input).toString('utf8');
+    event.launchId = /AITERM_AGENT_LAUNCH_ID=['"]?([0-9a-f]{32})/.exec(input)?.[1] ?? null;
+    event.inputBytes = Buffer.byteLength(input);
+  }
   fs.appendFileSync(destination, JSON.stringify(event) + '\n');
   return result;
 };

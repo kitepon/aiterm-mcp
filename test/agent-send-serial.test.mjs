@@ -209,6 +209,8 @@ test("入力受付のCodexへ2通が重なっても、1通ずつ別の行で届�
 test("起動時promptの準備中に届いた1通は、起動時promptを送り終えてから差し込みで届く", { skip }, async () => {
   // 1秒後に入力受付になり、届いた行をそのまま返す偽Claude。
   const slowClaudeBin = path.join(process.env.TMPDIR, "fake-claude-slow.sh");
+  const receivedFile = path.join(process.env.TMPDIR, "slow-claude-received.txt");
+  const receivedPath = "'" + receivedFile.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
   fs.writeFileSync(
     slowClaudeBin,
     [
@@ -220,6 +222,7 @@ test("起動時promptの準備中に届いた1通は、起動時promptを送り�
       "sleep 1",
       "printf 'Claude Code\\n❯ ready\\n'",
       "while IFS= read -r line; do",
+      `  printf '%s\\n' "$line" >> ${receivedPath}`,
       "  printf '%s\\n' \"$line\"",
       "done",
       "",
@@ -238,12 +241,22 @@ test("起動時promptの準備中に届いた1通は、起動時promptを送り�
     assert.equal(follow.status, "fulfilled", follow.reason?.message);
     assert.match(initial.value.text, /initial_prompt=pending/);
     assert.equal(follow.value.schema, "aiterm.agent-steer.v1");
-    const out = await core.readOutput(sid, { wait: true, until: "FOLLOW_BODY", timeout: 5, raw: true, full: true });
-    assert.ok(out.indexOf("INITIAL_BODY") >= 0 && out.indexOf("INITIAL_BODY") < out.lastIndexOf("FOLLOW_BODY"), out);
+    // ConPTY can insert redraw sequences between displayed characters. The
+    // receiver's own file proves order and content without trusting that echo.
+    const deadline = performance.now() + 5000;
+    let received = [];
+    do {
+      if (fs.existsSync(receivedFile)) received = fs.readFileSync(receivedFile, "utf8").trimEnd().split(/\r?\n/)
+        .map(line => line.replace(/\x1b\[(?:200|201)~/g, ""));
+      if (received.length >= 2) break;
+      await sleep(20);
+    } while (performance.now() < deadline);
+    assert.deepEqual(received, ["INITIAL_BODY", "FOLLOW_BODY"]);
   } finally {
     process.env.CLAUDE_BIN = fakeClaudeBin;
     core.closeSession(sid);
     fs.rmSync(slowClaudeBin, { force: true });
+    fs.rmSync(receivedFile, { force: true });
   }
 });
 

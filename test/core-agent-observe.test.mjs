@@ -381,7 +381,7 @@ test("openAgent grok: model 引数で既定モデルを上書きする", { skip:
   }
 });
 
-test("openAgent codex agent_done: model 上書きは共有 config を変更せずCLI引数へ載せる", { skip: skipAgentDone }, async () => {
+test("openAgent codex agent_done: model 上書きは共有 config を変更せずCLI引数へ載せる", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async (fakeHome) => {
     fs.writeFileSync(
       path.join(fakeHome, "config.toml"),
@@ -393,7 +393,7 @@ test("openAgent codex agent_done: model 上書きは共有 config を変更せ�
     const [sid, hint] = core.openAgent("codex", { model: "gpt-5.6-terra", agent_done: true });
     try {
       assert.equal(fs.readFileSync(configPath, "utf8"), before);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
+      const out = await readArgvFixture(sid, t);
       assert.match(out, /<arg>-m<\/arg>\s*<arg>gpt-5\.6-terra<\/arg>/);
       assert.match(hint, /共有 config/);
       assert.match(hint, /proactive 自動委譲/);

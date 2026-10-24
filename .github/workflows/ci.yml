@@ -7,7 +7,7 @@ on:
         description: Fixed Windows gate only
         type: choice
         default: windows-native
-        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, mac-argv-gate]
+        options: [windows-native, mac-focused, windows-startup-probe, windows-payload-gate, windows-startup-delayed, windows-registry-probe, windows-argv-gate, windows-startup-sequence, windows-startup-failures, windows-startup-shell-boundary, windows-startup-attestation, windows-startup-reuse-boundary, windows-startup-skipped-cleanup, mac-argv-gate]
       comparison_base:
         description: Retained dispatch interface; source is pinned below
         type: string
@@ -135,6 +135,12 @@ jobs:
             node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-shell-boundary-probe.mjs --reuse-only
+          } elseif ('${{ inputs.environment }}' -eq 'windows-startup-skipped-cleanup') {
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs --test test/seat-env.test.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node --import ./test/seat-env.mjs diagnostic-harness/scripts/windows-skipped-cleanup-probe.mjs
           } elseif ('${{ inputs.environment }}' -like 'windows-startup-*') {
             npm run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

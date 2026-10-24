@@ -32,7 +32,8 @@ test("known-bash 1物理行適合: 起動commandの引数をbyteのまま復元�
   assert.doesNotMatch(adapted, /[\r\n]/u, "1物理行");
   assert.match(adapted, /^eval "\$\(command printf '%b' '/u);
   const bash = isWin ? resolveWinPaneShell("bash") : "bash";
-  const result = spawnSync(bash, ["-c", adapted], { encoding: "buffer" });
+  // scriptは標準入力で渡す。Windowsの非MSYS親からの引数の引き渡しは `\\` を潰し、製品がpaneへ打つ経路とは別の変形が入る。
+  const result = spawnSync(bash, ["-s"], { input: adapted + "\n", encoding: "buffer" });
   assert.equal(result.status, 0, result.stderr?.toString("utf8"));
   const received = result.stdout.toString("utf8").split("\0");
   assert.equal(received.pop(), "");

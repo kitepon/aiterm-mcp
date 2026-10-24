@@ -481,3 +481,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [psmux3.3.8 session registry](sources/backends/psmux-338-session-registry.md) — registryのschemaとcleanupの固定一次source。合成fixtureのlive条件を確認するための参照。
 
 - [psmux3.3.8 new-session readiness stress reference](sources/backends/psmux-338-new-session-readiness-stress.md) — 公式の起動準備race検証。大規模stressは実行せず、次の最小fixture設計の参照に限る。
+
+## Windows native input boundary, fixed psmux 3.3.8 (2026-10-24)
+
+- [Connection raw hex parsing](sources/backends/psmux-338-native-connection-input.md) — fixed 66cf613; send -H enqueues raw bytes.
+- [Server request dispatch](sources/backends/psmux-338-native-input-loop.md) — fixed 66cf613; SendBytes routes to input writer.
+- [Pane input write](sources/backends/psmux-338-native-input-write.md) — fixed 66cf613; incomplete UTF-8 chunks retain raw bytes, valid UTF-8 keeps normal input-mode semantics. This does not establish the cause of Windows argv failures.

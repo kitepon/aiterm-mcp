@@ -1,5 +1,6 @@
 param([string]$Bash, [string]$Ready, [string]$Release)
 $ErrorActionPreference = 'Stop'
+trap { [IO.File]::WriteAllText($Ready + '.error', $_.ToString()); exit 1 }
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -22,7 +23,7 @@ public static class IsolatedBashStart {
 }
 '@
 $si = [IsolatedBashStart+Startup]::new()
-$si.cb = [Runtime.InteropServices.Marshal]::SizeOf($si)
+$si.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][IsolatedBashStart+Startup])
 $si.flags = 0x100
 $si.input = [IsolatedBashStart]::GetStdHandle(-10)
 $si.output = [IsolatedBashStart]::GetStdHandle(-11)

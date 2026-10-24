@@ -93,6 +93,7 @@ if (process.argv[2] === '--sampler') {
         shell = [pwsh, '-NoLogo', '-NoProfile', '-File', fixture, '-Bash', bash, '-Ready', began, '-Release', profileGate]
           .map(value => '"' + value.replaceAll('\\', '/') + '"').join(' ');
         row.nativeSuspendedStart = true;
+        row.fixtureErrorFile = began + ".error";
       }
       row.fixtureProfile = true;
       row.profileStartedFile = began;
@@ -158,6 +159,10 @@ if (process.argv[2] === '--sampler') {
     if (row.fileMarker) row.fileBytesMatch = fs.readFileSync(marker).equals(Buffer.from(expected));
     frame('read_returned');
   } catch (error) {
+    if (row.fixtureErrorFile) {
+      try { row.fixtureHelperError = fs.readFileSync(row.fixtureErrorFile, 'utf8').slice(0, 600); } catch {}
+      delete row.fixtureErrorFile;
+    }
     row.error = /ECONNREFUSED|ETIMEDOUT|no server running|native_identity_\w+|fixture_prompt_unconfirmed|fixture_profile_not_started|previous_pid_exit_unconfirmed/.exec(error.message)?.[0] || error.name;
     frame('error');
   } finally {
@@ -172,6 +177,7 @@ if (process.argv[2] === '--sampler') {
     }
     if (fs.existsSync(samples)) row.samples = fs.readFileSync(samples, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   }
+  delete row.fixtureErrorFile;
   console.log('SHELL_BOUNDARY_CASE=' + JSON.stringify(row));
 } else {
   const rows = [];

@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.61.14] - 2026-10-24
-
 ### Fixed
 
 - Completion checks observe the original request boundary outside the shared metadata mutex, then revalidate the unchanged original record and all uncertainty/slot gates before committing. Slow transcript/native completion observation no longer blocks unrelated admission; unknown sends are never reconciled or replayed.
+
+## [0.61.14] - 2026-10-24
 
 ### Fixed
 

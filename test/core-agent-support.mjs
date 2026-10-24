@@ -364,7 +364,7 @@ ${exitAfterReady ? 'process.exit(0);' : ''}
 `, { mode: 0o600 });
     const quote = value => "'" + value.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
     // Keep the configured launcher visible while its synthetic TUI child runs.
-    fs.writeFileSync(bin, `#!/bin/sh\n${quote(process.execPath)} ${quote(driver)} "$@"\n`, { mode: 0o700 });
+    fs.writeFileSync(bin, `#!/bin/sh\n${quote(process.execPath)} ${quote(driver)} "$@"\nexit $?\n`, { mode: 0o700 });
     return bin;
   }
   fs.writeFileSync(

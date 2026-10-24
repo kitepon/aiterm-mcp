@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tests
 
 - POSIX-only native test teardown also stays skipped on Windows. A file-level hook previously reached the psmux `tmux.exe` alias and stopped other fixture namespaces even when every test case was skipped. A native canary regression covers this boundary.
-- Argument fixtures wait for their final output marker within the existing deadline.
+- Argument fixtures wait for their final output marker within the existing deadline. Nested lineage assertions inspect child output instead of shell echo.
+- The portable-context fake TUI counts a bracketed multiline paste and its submit Enter as one input.
 
 ## [0.61.10] - 2026-10-23
 

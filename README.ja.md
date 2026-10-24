@@ -257,6 +257,8 @@ pty_read(id, { wait: true })       → 削減済みの出力を読む（完了�
 
 `aiterm.agent-launch-result.v1`は正規`harness`を返し、旧`provider`は互換fieldとして残す。同じ`harness`はagent dispatch、`aiterm-wait`、`agent_configure`、`pty_list`のagent行にも載り、旧vendor／provider／agent fieldは互換用に残る。Codexは通常rollout、Grok CLIは通常session event、Claudeはlaunch固有Stop hook、Cursorは通常agent transcript末尾の`turn_ended`を完了正本に使う。agent sessionへの送信は`pty_send`だけで行い、子の状態はAitermが送る時点の画面で見て振り分ける。Claudeは画面の実行中表示ではなくStopまで残るturnの印で判定する。子のturnが実行中なら各harness標準の操作で現在のturnへ差し込み（`mode=agent_steer`）、完了は差し込み後の作業の終わりに元の依頼へ1回だけ届く。新しい`event_cursor`と配送は作らない。それ以外は非ブロックdispatch（`mode=agent_dispatch`）で、vendor別完了境界を表すopaqueな整数`event_cursor`を返す。Codex親は選択に応じて公式Steerまたは受信キュー、Claude Code親は公式非同期hookで回答本文を自動受信する。それ以外の親は`aiterm-wait`を親のターンを塞がない別processで受ける。Cursorのsubmitキーはadapterが現行CLIのextended keyboard protocolへ変換する。送信textがCursorのcomposerへ残った場合は成功receiptを返さず失敗する。
 
+通常の送信は、本文をまだ発行していない入力待ちの間にbusyへ変わると、同じ呼出しの中で差し込みへ切り替える。確定したharness終了は入力待ちの上限まで待たずに拒否する。貼付後の終了は送信済みの可能性を保持し、同じ入力を再送しない。
+
 ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hookが発火しなくても次の`pty_send`を新しいturnとして扱う。現在のturn開始後のエラー記録だけを確認し、過去のエラーで実行中のturnを解除しない。上流の拒否はエラーのまま返す。
 
 Codexがサービスの誤りや通信の失敗でturnを打ち切った時は、完了待ちが`done`ではなく`error`を返す（`aiterm-wait`はexit 7、親への配送は`outcome=error`）。`error`は応答の本文とURLを落とした1行の文で、Codexが記録した種類（`internal_server_error`・`http_connection_failed`など）は`error_kind`に載る。利用上限は今までどおり`rate_limited`。誤りで終わった後の席は、次の`pty_send`を新しいturnとして受ける。

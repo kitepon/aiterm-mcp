@@ -242,6 +242,8 @@ Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの�
 それ以外は新しいturnとしてdispatchする。
 振り分けから送り終えるまでの間には、起動直後の入力受付待ちなどの待ちが挟まる。同じsessionへの送信（`pty_send`、`claude_turn issue`、起動時prompt）は1本ずつ通し、
 重なった後の1通は前の1通が終わってから振り分け直す。同じprocessの中は着いた順の待ち行列、別のprocessの間はsocketの置き場の`<name>.agent-send.lock`で排他する。
+通常の`pty_send`は、本文未発行の入力受付待ちに生存busyが見えた時、同じrequest・送信lock内で既存steerを選ぶ。起動・設定の待ちはsteerへ変えない。
+送信前、準備中の観測、貼付とEnterの各native受付内で元launchとharness生存を再確認する。確定した死亡は30秒待たずに断り、貼付後の死亡は作用可能性を保持する（ADR 0134）。
 待つ上限は、起動から最初の描画を待つ上限と貼り付けの上限の和で、越えたら`AGENT_SEND_BUSY`で未送信を返す。判断の記録はADR 0088（`docs/adr/0088-one-agent-send-per-session.md`）。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
 待ち行列の表示は5秒待ち、子のturnが続いている間だけ30秒まで延ばす（表示が遅い端末がある。turnが終わっていれば、文は新しいturnとして始まっている）。

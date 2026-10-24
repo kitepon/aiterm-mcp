@@ -54,7 +54,7 @@ async function runCase(t, scenario) {
   }
   const native = core.observeExecutionNativeCreationScope();
   const nativeId = native.sessions.find(value => value.session_id === session).native_id;
-  writeFileSync(agentMetadataPath(session, launch), JSON.stringify({ kind: 'codex', aiterm_session: session,
+  writeFileSync(agentMetadataPath(session, launch), JSON.stringify({ kind: 'codex', aiterm_session: session, agent_executable: script,
     launch_id: launch, event_file: agentEventPath(session, launch), created_at: new Date().toISOString(), cwd: process.cwd(),
     initial_prompt: 'none', agent_role: 'subagent', parent_session_id: 'fixture-parent', delegation_depth: 1,
     lineage: 'fixture-parent>codex:fixture', delegation_allowed: true,

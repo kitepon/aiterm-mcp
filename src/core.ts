@@ -4290,13 +4290,15 @@ async function waitAgentTuiReady(
   name: string,
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
-  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean } = {},
+  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean; checkInput?: () => void;
+    selectSteer?: (screen: string) => boolean } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const result = await waitAgentTuiReadyImpl(
     meta.kind,
-    () => captureScreen(name, AGENT_TUI_READY_LINES),
+    () => { o.checkInput?.(); return captureScreen(name, AGENT_TUI_READY_LINES); },
     sleep,
-    { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
+    { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, selectSteer: o.selectSteer,
+      launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
   );
   if (result.ready) agentLaunchLines.delete(name);
   return result;
@@ -4532,12 +4534,14 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
   admission: "native" | "none";
   // 貼付と同じ枠の中で、貼付の直前に行う控え（dispatchの送信境界の控えとClaudeの番の予約）。
   beforePaste?: () => void;
+  checkInput?: (inputStarted: boolean) => void;
   // Cursorの入力欄へ本文が現れなかった時の文言の主語。
   subject: string;
 }): Promise<void> {
   const admit = async <T>(effect: () => T): Promise<T> =>
     o.admission === "native" ? withExecutionNativeAdmission(name, effect) : effect();
   await admit(() => {
+    o.checkInput?.(false);
     o.beforePaste?.();
     send(name, body, {
       enter: false,
@@ -4562,7 +4566,10 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
   } else {
     await sleep(AGENT_SUBMIT_DELAY_MS);
   }
-  await admit(() => sendKey(name, "Enter", { preserveAgentOperation: o.preserveAgentOperation }));
+  await admit(() => {
+    o.checkInput?.(true);
+    sendKey(name, "Enter", { preserveAgentOperation: o.preserveAgentOperation });
+  });
 }
 
 async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
@@ -4876,14 +4883,15 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
   name: string,
   meta: AgentMetadata,
   timeoutMs: number,
-  o: { settledTurn?: boolean } = {},
+  o: { settledTurn?: boolean; checkInput?: () => void; selectSteer?: (screen: string) => boolean } = {},
 ): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
+  o.checkInput?.();
   let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
   // 上限のmodalを閉じた直後は、画面が落ち着くのを11回の確かめで待つ。
-  let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? { codexRateLimitRecovery: true } : o);
-  if (!ready.ready && !codexRateLimitModelSwitch) {
+  let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? { ...o, settledTurn: false, codexRateLimitRecovery: true } : o);
+  if (!ready.ready && !ready.steer && !codexRateLimitModelSwitch) {
     codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
-    if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs, { codexRateLimitRecovery: true });
+    if (codexRateLimitModelSwitch) ready = await waitAgentTuiReady(name, meta, timeoutMs, { ...o, settledTurn: false, codexRateLimitRecovery: true });
   }
   return { ready, codexRateLimitModelSwitch };
 }
@@ -6176,11 +6184,15 @@ export async function dispatchAgentTurn(
   return withAgentSendLock(name, () => dispatchAgentTurnInLock(name, text, o));
 }
 
+function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts): Promise<AgentDispatchReceipt>;
+function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts,
+  pendingSend: { follow?: boolean }): Promise<AgentSendReceipt>;
 async function dispatchAgentTurnInLock(
   name: string,
   text: string,
   o: AgentDispatchOpts,
-): Promise<AgentDispatchReceipt> {
+  pendingSend?: { follow?: boolean },
+): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
@@ -6231,10 +6243,16 @@ async function dispatchAgentTurnInLock(
   if (meta.kind !== "claude" || claudeColdStart) {
     // 上限のpanelを閉じた直後（Grok）は、画面が落ち着くのを11回の確かめで待つ。
     const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
-      name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, { settledTurn: !limitDialog },
+      name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, { settledTurn: !limitDialog,
+        ...(pendingSend ? { checkInput: () => assertAgentSendHarness(name, meta),
+          selectSteer: (screen: string) => agentPaneObservation(meta.kind, screen).state === "busy"
+            && agentSendTurnRunning(meta, screen) } : {}) },
     );
     codexRateLimitModelSwitch = recovery.codexRateLimitModelSwitch;
     const { ready } = recovery;
+    if (ready.steer && pendingSend) return steerRunningTurn(name, meta, text, {
+      raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: pendingSend.follow,
+    });
     if (!ready.ready) {
       if (codexRateLimitModelSwitch) {
         throw new AitermError(
@@ -6274,6 +6292,7 @@ async function dispatchAgentTurnInLock(
   await submitAgentComposerText(name, meta.kind, dispatchText, {
     force: o.force, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
     admission: "native", subject: "送信prompt",
+    ...(pendingSend ? { checkInput: (started: boolean) => assertAgentSendHarness(name, meta, started) } : {}),
     beforePaste: () => {
       captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
         event_cursor: startOffset, operation_id: operationId, turn_id: null, steer_id: null } });
@@ -6438,36 +6457,52 @@ async function sendAgentMessageInLock(
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
+  assertAgentSendHarness(name, meta);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
   if (meta.kind === "claude") paneInputRecovery.push(...await clearClaudeSelectMenuBeforeInput(name));
   const screen = captureScreen(name, AGENT_TUI_READY_LINES);
-  let running = isAgentTuiBusy(meta.kind, screen);
-  // Claudeのtool処理中は画面のbusy表示が消えることがある。Stopまで保持するturnの印を正とし、
-  // APIエラーでStopが来なかった印は、会話記録の終了時刻を確認して消す。
-  // 有効な印がある間は差し込み、終了後は画面にbusy表示が残っても新しいturnとして送る。
-  if (meta.kind === "claude") {
-    clearClaudeApiErrorOperation(meta);
-    running = readClaudeOperationMarker(meta) !== null;
-  }
-  // Cursorはturn_endedを記録へ書いたあとも、しばらく画面にbusy表示を残す。その間に差し込むと待ち行列へ入らず
-  // STEER_NOT_QUEUEDで失敗していた（実測 2026-09-28、完了通知の直後の送信で3回中2回）。記録の末尾がturn_endedなら
-  // turnは終わっているので新しいturnとして送る。dispatchは入力を受け付けるまで待ってから送る。
-  if (running && meta.kind === "cursor" && latestCursorCompletion(meta, readTranscriptLines) !== null) running = false;
+  let running = agentSendTurnRunning(meta, screen);
   // Codexは回答を流している間、画面に動作中の行を出さない。その間に届いた文を、Codexは動いているturnへ取り込む（ADR 0101）。
   if (!running && meta.kind === "codex" && await codexTurnRunningBehindIdleScreen(name, meta, screen)) running = true;
-  // Grokが前の文をまだ受け取っていない間は、差し込む先の番が無い。待ち行列へ入れても動かず、Grokが前の文を取り消した後も残る。
+  if (running) {
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow });
+  }
+  return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface }, { follow: o.follow });
+}
+
+// The same generation and existing process must still own this pending input.
+// Unknown native process observations remain unknown; only proven exit is a
+// death refusal. This check runs before waiting and inside each input admission.
+function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false): void {
+  const current = observeSession(name);
+  if (current.exists && current.launch_id !== meta.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  if (!current.exists || current.harness_alive === false) {
+    throw new AitermError(
+      (inputStarted ? `agent session '${name}' の ${agentLabel(meta.kind)} への入力完了を確認できません。本文を再送しないでください。`
+        : `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`) +
+        `\nstate=${current.state} reason=${current.reason}`, 2,
+    );
+  }
+}
+
+function agentSendTurnRunning(meta: AgentMetadata, screen: string): boolean {
+  // Claude's operation marker survives tool work without a busy indicator.
+  if (meta.kind === "claude") {
+    clearClaudeApiErrorOperation(meta);
+    return readClaudeOperationMarker(meta) !== null;
+  }
+  const running = isAgentTuiBusy(meta.kind, screen);
+  // An unaccepted Grok prompt has no running turn to receive another input.
   if (running && meta.kind === "grok" && grokPromptAwaitingAccept(screen)) {
     throw new AitermError(
-      `GROK_PROMPT_NOT_ACCEPTED_YET vendor=grok session=${name}\n` +
+      `GROK_PROMPT_NOT_ACCEPTED_YET vendor=grok session=${meta.aiterm_session}\n` +
         "Grokが前の文をまだ受け取っていません（画面の「Waiting for the agent to accept the prompt」）。文字列は送信していません。" +
         "前の文の完了待ちが終わってから送り直してください。Grokは120秒受け取れないと、前の文を自分から取り消します。", 2,
     );
   }
-  if (running) {
-    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow });
-  }
-  return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface });
+  // Cursor can retain a stale busy indicator after its recorded turn ended.
+  return running && (meta.kind !== "cursor" || latestCursorCompletion(meta, readTranscriptLines) === null);
 }
 
 /**
@@ -6516,6 +6551,7 @@ async function steerRunningTurn(
   await submitAgentComposerText(name, meta.kind, text, {
     force: true, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
     admission: "native", subject: "差し込む文",
+    checkInput: started => assertAgentSendHarness(name, meta, started),
   });
   // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
   // 完了通知が差し込み前の回答で届いてしまう。待ち行列へ入ったことを確かめ、標準の「今すぐ送る」で現在turnへ移す。

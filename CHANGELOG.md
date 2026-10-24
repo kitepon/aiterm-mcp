@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Ordinary agent input that has not yet been issued can select the existing steer path when a live busy turn becomes visible during readiness waiting. It stays in the original request and per-session send lock; no native input is retried.
+- Agent sends reject a confirmed exited harness before readiness waiting, recheck the captured generation and harness while preparing, and check again before paste and Enter. Exit after paste retains a possible effect and prevents replay.
+
+### Tests
+
+- Controlled native fixtures cover readiness-to-busy selection, initial busy input, startup and modal boundaries, exit before and during preparation, stop, source/target replacement, unrelated unknown slots, and exit between paste and Enter. Historical screen samples missing from reported deliveries are not reconstructed from these fixtures.
+
 ## [0.61.12] - 2026-10-24
 
 ### Validation scope

@@ -38,7 +38,7 @@ const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
 const fakeGrokBin = path.join(process.env.TMPDIR, "fake-grok.sh");
 fs.writeFileSync(
     argvPrinterBin,
-    "#!/bin/sh\n" + argvInvocation("START") + "printf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n" + argvInvocation("END"),
+    "#!/bin/sh\n" + argvInvocation("START") + "printf 'agent_role=%s\\nagent_depth=%s\\n' \"$AITERM_AGENT_ROLE\" \"$AITERM_AGENT_DEPTH\"\nfor arg do\n  printf '<arg>%s</arg>\\n' \"$arg\"\ndone\nprintf '%s\\n' '" + ARGV_FIXTURE_DONE + "'\n" + argvInvocation("END") + "/bin/sh -i\n:\n",
     { mode: 0o700 },
   );
 fs.chmodSync(argvPrinterBin, 0o700);
@@ -53,6 +53,10 @@ fs.writeFileSync(
       "printf '%s ' \"$@\"",
       "printf '\\n'",
       `printf '%s\\n' '${ARGV_FIXTURE_DONE}'`,
+      // Dispatch fixtures render through a shell, with a real surviving fake
+      // harness parent rather than metadata for an already exited printer.
+      "/bin/sh -i",
+      ":",
       "",
     ].join("\n"),
     { mode: 0o700 },

@@ -48,6 +48,8 @@ export interface AgentTuiReadyWaitResult {
   ready: boolean;
   samples: number;
   lastScreen: string;
+  // Only the ordinary send owner can select its still-unissued input for steer.
+  steer?: true;
 }
 let agentTuiReadyStableSamplesTestOverride: number | null = null;
 
@@ -135,6 +137,7 @@ export async function waitAgentTuiReadyImpl(
     settledSamples?: number;
     settledPollMs?: number;
     codexRateLimitRecovery?: boolean;
+    selectSteer?: (screen: string) => boolean;
   } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const timeoutMs = opts.timeoutMs ?? AGENT_TUI_READY_TIMEOUT_MS;
@@ -155,6 +158,7 @@ export async function waitAgentTuiReadyImpl(
     lastScreen = sample();
     samples++;
     if (kind === "grok") assertGrokSandboxNotRejected(lastScreen);
+    if (opts.selectSteer?.(lastScreen)) return { ready: false, samples, lastScreen, steer: true };
     if (isAgentTuiIdleReady(kind, lastScreen)) {
       readyStreak++;
       if (readyStreak >= stableSamples) return { ready: true, samples, lastScreen };

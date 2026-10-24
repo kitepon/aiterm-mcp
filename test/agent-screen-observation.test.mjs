@@ -3,7 +3,7 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentPaneObservation, isAgentTuiBusy, isAgentTuiIdleReady } from "../dist/agent-screen-observation.js";
+import { agentPaneObservation, isAgentTuiBusy, isAgentTuiIdleReady, waitAgentTuiReadyImpl } from "../dist/agent-screen-observation.js";
 import { claudePaneObservation, claudeTuiBusy } from "../dist/harnesses/claude.js";
 import { codexPaneObservation, codexTuiBusy } from "../dist/harnesses/codex.js";
 import { grokPaneObservation, grokTuiBusy } from "../dist/harnesses/grok.js";
@@ -31,6 +31,25 @@ const SCREENS = {
 };
 const HARNESS = { claude: claudePaneObservation, codex: codexPaneObservation, grok: grokPaneObservation, cursor: cursorPaneObservation };
 const BUSY = { claude: claudeTuiBusy, codex: codexTuiBusy, grok: grokTuiBusy, cursor: cursorTuiBusy };
+
+test("only a pending-send caller can select steer from readiness; ordinary launch/configuration waits retain their deadline", async () => {
+  for (const [kind, screens] of Object.entries(SCREENS)) {
+    let clock = 0;
+    const sleep = async ms => { clock += ms; };
+    const selected = await waitAgentTuiReadyImpl(kind, () => screens.busy, sleep, {
+      timeoutMs: 1000, now: () => clock,
+      selectSteer: screen => agentPaneObservation(kind, screen).state === "busy",
+    });
+    assert.equal(selected.steer, true, kind);
+    assert.equal(selected.ready, false, kind);
+    assert.equal(selected.samples, 1, kind);
+    assert.equal(clock, 0, kind);
+    const unchanged = await waitAgentTuiReadyImpl(kind, () => screens.busy, sleep, { timeoutMs: 1000, now: () => clock });
+    assert.equal(unchanged.steer, undefined, kind);
+    assert.equal(unchanged.ready, false, kind);
+    assert.equal(clock, 1000, kind);
+  }
+});
 
 test("agentPaneObservation: 4つのharnessの読みをkindで振り分け、各harnessの観測と同じ結果を返す", () => {
   for (const [kind, screens] of Object.entries(SCREENS)) {

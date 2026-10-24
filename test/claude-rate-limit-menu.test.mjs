@@ -102,7 +102,8 @@ fs.writeFileSync(bin, [
   "  printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'",
   "  exit 0",
   "fi",
-  `exec '${process.execPath}' '${fake}' '${received}' '${cue}'`,
+  // Keep the declared harness parent present for the ordinary-send live check.
+  `'${process.execPath}' '${fake}' '${received}' '${cue}'`,
   "",
 ].join("\n"), { mode: 0o700 });
 fs.chmodSync(bin, 0o700);

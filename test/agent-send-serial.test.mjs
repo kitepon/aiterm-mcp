@@ -34,6 +34,10 @@ fs.writeFileSync(
     "fi",
     "printf '%s ' \"$@\"",
     "printf '\\n'",
+    // Keep the declared fake harness alive while the fixture shell renders
+    // controlled screens; an exited argv printer is no longer a send target.
+    "/bin/sh -i",
+    ":",
     "",
   ].join("\n"),
   { mode: 0o700 },

@@ -24,6 +24,9 @@ test('Windows: POSIX試験の全件除外後も別namespaceのnative sessionを�
   // installed package did not put tmux.exe on PATH.
   fs.copyFileSync(executable, path.join(alias, 'tmux.exe'));
   const env = { ...process.env };
+  // A new runner must not inherit the enclosing file worker's internal mode:
+  // Node otherwise skips --test and exits successfully without a report.
+  delete env.NODE_TEST_CONTEXT;
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
   env[pathKey] = alias + path.delimiter + process.env.PATH;
   const name = 'cleanup_scope_canary';

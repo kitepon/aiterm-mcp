@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Validation scope
 
-- Windows native validation uses GitHub-hosted Windows 2022, Node 22 and psmux 3.3.8. Linux/macOS acceptance combines previously passing full suites with focused checks of subsequent changes. Validation uses isolated CLI fixtures; commercial image and real CLI acceptance remain separate.
+- Windows native full validation passed (908 passed, 709 skipped, 0 failed) on GitHub-hosted Windows 2022, Node 22 and psmux 3.3.8. Linux full validation passed (1574 passed, 46 skipped, 0 failed); macOS acceptance combines its previously passing full suite with the subsequent launch and shell-runtime focused gates. Validation uses isolated CLI fixtures; commercial image and real CLI acceptance remain separate.
 
 ### Fixed
 
@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent launch commands for Aiterm-owned bash panes are submitted as one physical line through the existing POSIX multiline adaptation, instead of one interactive line per embedded newline joined by continuation prompts. Argument bytes, lineage, metadata, native admission and receipts are unchanged, and the agent composer body remains literal.
 
 ### Tests
+
+- Real Windows Bash panes retain literal multiline file bytes and correct completion for ordinary and marked sends even when the backend foreground report is deliberately replaced with `pwsh`. Native argv fixtures also verify the received read-only sandbox pair without relying on the startup command echo.
 
 - POSIX-only native test teardown also stays skipped on Windows. A file-level hook previously reached the psmux `tmux.exe` alias and stopped other fixture namespaces even when every test case was skipped. A native canary regression covers this boundary.
 - Argument fixtures wait for their final output marker within the existing deadline. Nested lineage assertions inspect child output instead of shell echo.

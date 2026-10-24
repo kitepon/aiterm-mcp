@@ -29,9 +29,23 @@ export interface ParentWorkerRuntime {
   observeSessionGeneration(session: string): unknown;
 }
 export type ParentAdmissionProvider = { withDeliveryEffect?: unknown; DELIVERY_ADMISSION_CONTRACT?: unknown };
+let localActor: Readonly<{ pid: number; started_identity: string }> | undefined;
+function currentLocalActor(): ReturnType<ParentWorkerRuntime["actor"]> {
+  // This code is executing in the observed process. Its PID/start identity
+  // cannot change during its lifetime; another process has its own module.
+  // Keep only a verified self identity, never a server/parent/target sample.
+  // Missing/failed first reads remain failures and may be observed again.
+  if (!localActor || localActor.pid !== process.pid) {
+    const observed = readProcessIdentities([process.pid])[0];
+    if (!observed || observed.pid !== process.pid || !observed.started_identity
+      || !Number.isFinite(Date.parse(observed.started_identity))) return null;
+    localActor = Object.freeze({ pid: observed.pid, started_identity: observed.started_identity });
+  }
+  return { ...localActor };
+}
 export const localParentWorkerRuntime: ParentWorkerRuntime = {
   scope: () => ({ state_root: stateRoot(), multiplexer: isWin ? { kind: "namespace", key: WIN_NS } : { kind: "socket", key: SOCK } }),
-  actor: () => readProcessIdentities([process.pid])[0] ?? null,
+  actor: currentLocalActor,
   observeActors: readProcessIdentities,
   observeParentProcess: observeExecutionParentProcess, observeSessionGeneration: observeExecutionSessionGeneration,
 };

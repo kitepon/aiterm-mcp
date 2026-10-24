@@ -53,6 +53,10 @@ private participant factoryはproducer/service/dispatcher/同process用worker pr
 source環境の既存8名は一度だけ読み、必要な値だけを固定してproducerとdispatcherへ渡す。
 呼出側のprovider/profile/runtime methodの差替えは構築済みparticipantへ混入させず、現在のscope/actorの変化は作用前に拒否する。
 親managerの保存先とownerも同じscope/actorへ照合する。別processのhookはactorを流用せず、自分のworker factoryで接続する。
+native runtimeの自己actorは、現在実行中のprocessのPIDと開始identityを一度だけOSで確定して保持する。
+同processの生存中に開始identityは変わらないため、scope確認ごとの自己PID照会を行わない。
+初回の欠測・失敗は確定値として保持せず、返すobjectも複製する。注入runtimeのactor、他process・server・
+source/target世代の観測は保持せず、従来どおり各受付で再照合する。
 注入runtimeへ欠けたparent依存を既定OS処理で補わず、完全なfake依存を要求する。このfactoryも通常mainには未注入。
 同producer serviceの停止closeは、既存のissued close slotを持つ間だけ同期の期待世代primitiveへ渡す。
 実killの直前にもruntimeの同期世代読取を通し、scope/actor/期待launchの交代を拒否する。

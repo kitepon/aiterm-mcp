@@ -30,14 +30,19 @@ function stopPlan(input: unknown, dependencies: ImmediateStopDependencies) {
   }
   catch { graphUnavailable = true; }
   const ordered: { session_id: string; launch_id?: string }[] = [], visited = new Set<string>(), sent = new Set<string>();
+  const links: { parent: string; child: string }[] = [];
   const visit = (name: string, launchId?: string) => {
     const key = JSON.stringify([name, launchId]);
     if (visited.has(key)) return;
     visited.add(key);
-    for (const child of children) if (child.parent === name) visit(child.child);
+    for (const child of children) if (child.parent === name) {
+      links.push({ parent: name, child: child.child }); visit(child.child);
+    }
     for (const edge of relations) if (edge.source?.launch.session_id === name
-      && (!launchId || edge.source.launch.launch_id === launchId) && edge.target)
+      && (!launchId || edge.source.launch.launch_id === launchId) && edge.target) {
+      links.push({ parent: name, child: edge.target.launch.session_id });
       visit(edge.target.launch.session_id, edge.target.launch.launch_id);
+    }
     if (!sent.has(name)) { sent.add(name); ordered.push({ session_id: name, ...(launchId ? { launch_id: launchId } : {}) }); }
   };
   for (const name of roots) {
@@ -45,7 +50,7 @@ function stopPlan(input: unknown, dependencies: ImmediateStopDependencies) {
     try { launchId = dependencies.currentLaunchId(name); } catch { /* still send to the explicitly requested current session */ }
     visit(name, launchId ?? undefined);
   }
-  return { args, roots, ordered, graphUnavailable };
+  return { args, roots, ordered, links, graphUnavailable };
 }
 function sendStopTarget(target: { session_id: string; launch_id?: string }, plan: ReturnType<typeof stopPlan>, dependencies: ImmediateStopDependencies) {
     try {
@@ -83,14 +88,23 @@ export async function interruptKnownSessionsAndGoals(input: unknown, dependencie
   const plan = stopPlan(input, dependencies);
   if (!plan.args.pause_goals) return finishStop(plan, plan.ordered.map(target => sendStopTarget(target, plan, dependencies)));
   if (origin !== "user") throw new Error("GOAL_OWNER_ACTION_REQUIRED");
-  const targets: z.infer<typeof immediateStopResultSchema>["targets"] = [];
-  for (const target of plan.ordered) {
-    let pause: Awaited<ReturnType<typeof dependencies.pauseGoal>>;
-    try { pause = await dependencies.pauseGoal(target); pause.status = goalPauseStatusSchema.parse(pause.status); }
-    catch { pause = { status: "outcome_unknown", reason: "GOAL_PAUSE_UNCONFIRMED" }; }
-    // Preserve the explicit emergency key even when goal state is unavailable.
-    targets.push({ ...sendStopTarget(target, plan, dependencies), goal_pause: pause.status,
-      ...(pause.reason ? { goal_error: pause.reason } : {}) });
+  // A target waits only for its selected descendants. Independent roots do
+  // not inherit another root's native read/pause deadline. Existing DFS order
+  // breaks relation cycles; no new queue, identity, timer, or retry is added.
+  const positions = new Map(plan.ordered.map((target, index) => [target.session_id, index]));
+  const jobs: Promise<z.infer<typeof immediateStopResultSchema>["targets"][number]>[] = [];
+  for (const [index, target] of plan.ordered.entries()) {
+    const descendants = [...new Set(plan.links.filter(link => link.parent === target.session_id)
+      .map(link => positions.get(link.child)).filter((position): position is number => position !== undefined && position < index))];
+    jobs.push((async () => {
+      await Promise.all(descendants.map(position => jobs[position]));
+      let pause: Awaited<ReturnType<typeof dependencies.pauseGoal>>;
+      try { pause = await dependencies.pauseGoal(target); pause.status = goalPauseStatusSchema.parse(pause.status); }
+      catch { pause = { status: "outcome_unknown", reason: "GOAL_PAUSE_UNCONFIRMED" }; }
+      // Preserve the explicit emergency key even when goal state is unavailable.
+      return { ...sendStopTarget(target, plan, dependencies), goal_pause: pause.status,
+        ...(pause.reason ? { goal_error: pause.reason } : {}) };
+    })());
   }
-  return finishStop(plan, targets);
+  return finishStop(plan, await Promise.all(jobs));
 }

@@ -79,5 +79,29 @@ test('goal transport failure never retries and does not suppress other targets',
  const events=[];const result=await interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{currentLaunchId:name=>launches[name].launch_id,
   pauseGoal:async target=>{events.push('pause:'+target.session_id);if(target.session_id==='a')throw new Error('lost reply');return {status:'no_goal'};},
   sendKey:name=>{events.push('key:'+name);return receipt(name);}},'user');
- assert.deepEqual(events,['pause:a','key:a','pause:d','key:d']);assert.equal(result.status,'partial');assert.equal(result.targets[0].goal_pause,'outcome_unknown');
+ assert.equal(events.length,4);assert.ok(events.indexOf('pause:a')<events.indexOf('key:a'));
+ assert.ok(events.indexOf('pause:d')<events.indexOf('key:d'));assert.equal(result.status,'partial');assert.equal(result.targets[0].goal_pause,'outcome_unknown');
+});
+test('independent root key is not blocked by another root goal timeout',async()=>{
+ let releaseA, keyB;const waiting=new Promise(resolve=>releaseA=resolve), arrived=new Promise(resolve=>keyB=resolve), events=[];
+ const pending=interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{
+  currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);return target.session_id==='a'?waiting:{status:'paused'};},
+  sendKey:name=>{events.push('key:'+name);if(name==='d')keyB();return receipt(name);},
+ },'user');
+ let timer;try{await Promise.race([arrived,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('independent root key waited for unrelated goal')),2000);})]);}
+ finally{clearTimeout(timer);releaseA({status:'outcome_unknown'});await pending;}
+ const result=await pending;assert.equal(result.status,'partial');assert.ok(events.indexOf('key:d')<events.indexOf('key:a'));
+});
+test('parallel roots retain shared descendant order and issue each pause/key once',async()=>{
+ const events=[];const result=await interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{
+  children:()=>[{parent:'a',child:'b'},{parent:'d',child:'b'},{parent:'b',child:'c'}],
+  currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);return {status:'paused'};},
+  sendKey:name=>{events.push('key:'+name);return receipt(name);},
+ },'user');
+ assert.equal(result.status,'sent');assert.equal(events.length,8);
+ for(const name of ['a','b','c','d']){assert.equal(events.filter(x=>x==='pause:'+name).length,1);assert.equal(events.filter(x=>x==='key:'+name).length,1);}
+ assert.ok(events.indexOf('key:c')<events.indexOf('pause:b'));
+ assert.ok(events.indexOf('key:b')<events.indexOf('pause:a'));assert.ok(events.indexOf('key:b')<events.indexOf('pause:d'));
 });

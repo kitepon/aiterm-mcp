@@ -5229,16 +5229,38 @@ export async function authenticateAgent(kind: AgentKind, options: {
     meta = loaded;
   }
   const session = name as string;
-  const deadline = performance.now() + (options.action === "start" ? 3000 : 0);
+  const exitDeadline = performance.now() + 3000;
+  const deadline = options.action === "start" ? exitDeadline : performance.now();
+  const originalStat = fs.lstatSync(authMetadataPath(session));
+  let pendingExit = false;
+  const pendingExitRefusal = (): AgentAuthResult | null => {
+    if (!pendingExit) return null;
+    if (!authSessionExists(session)) return result("failed", null, "認証sessionが失われました。元の終了状態は未確認です。");
+    const current = loadAuthMetadata(session, kind);
+    const stat = current && fs.lstatSync(authMetadataPath(session));
+    return !current || !stat || (current.launch_id ?? null) !== (meta.launch_id ?? null)
+      || stat.dev !== originalStat.dev || stat.ino !== originalStat.ino || stat.birthtimeMs !== originalStat.birthtimeMs
+      ? result("failed", null, "認証sessionの世代が変わりました。元の終了状態は未確認です。") : null;
+  };
   for (;;) {
     if (!authSessionExists(session)) return result("failed", null, "認証sessionが失われました。agent_authのstartで開始してください。");
-    const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}");
+    const beforeExitRead = pendingExitRefusal();
+    if (beforeExitRead) return beforeExitRead;
+    const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}");
     if (observed.code !== 0) return result("failed", session, "認証processの終了状態を取得できません。");
-    const [dead, exit] = observed.stdout.trim().split("\t");
+    const [dead, exit, signal] = observed.stdout.trim().split("\t");
     const pane = authPane(meta, stripControl(captureScreen(session, 0)));
+    const afterExitRead = pendingExitRefusal();
+    if (afterExitRead) return afterExitRead;
+    if (pendingExit && dead === "0") return result("failed", null, "認証processが終了観測中に交代しました。元の終了状態は未確認です。");
     if (dead === "1") {
+      // tmux can close the PTY before waitpid publishes either status or signal.
+      if (!exit && !signal && performance.now() < exitDeadline) { pendingExit = true; await sleep(100); continue; }
+      if (signal) return result("failed", session, `公式認証processがsignalで終了しました（signal=${/^[A-Z0-9]+$/.test(signal) ? signal : "unknown"}）。`);
       if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
       const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      const afterOfficialStatus = pendingExitRefusal();
+      if (afterOfficialStatus) return afterOfficialStatus;
       if (checked.status === "failed") return result("failed", session, checked.message);
       if (checked.status === "unauthenticated") return result("failed", session, "公式認証processは終了しましたが、公式statusは未認証です。");
       if (!checked.verify_onboarding) return result("authenticated", session, null);

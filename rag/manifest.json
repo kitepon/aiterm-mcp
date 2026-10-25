@@ -966,6 +966,96 @@
       "fetched": "2026-10-21"
     },
     {
+      "slug": "tmux-36-exit-format-c",
+      "topic": "backends",
+      "title": "tmux 3.6 format.c pane exit state",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/format.c",
+      "source_type": "official_source",
+      "path": "sources/backends/tmux-36-exit-format-c.md",
+      "tags": [
+        "tmux",
+        "native",
+        "authentication",
+        "exit-state"
+      ],
+      "summary": "tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。",
+      "relevance": "Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。",
+      "chars": 132370,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "tmux-36-exit-server-c",
+      "topic": "backends",
+      "title": "tmux 3.6 server.c pane exit state",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/server.c",
+      "source_type": "official_source",
+      "path": "sources/backends/tmux-36-exit-server-c.md",
+      "tags": [
+        "tmux",
+        "native",
+        "authentication",
+        "exit-state"
+      ],
+      "summary": "tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。",
+      "relevance": "Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。",
+      "chars": 11823,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "tmux-36-exit-server-fn-c",
+      "topic": "backends",
+      "title": "tmux 3.6 server-fn.c pane EOF before child status",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/server-fn.c",
+      "source_type": "official_source",
+      "path": "sources/backends/tmux-36-exit-server-fn-c.md",
+      "tags": [
+        "tmux",
+        "native",
+        "authentication",
+        "exit-state"
+      ],
+      "summary": "tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。",
+      "relevance": "Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。",
+      "chars": 11251,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "tmux-36-exit-tmux-h",
+      "topic": "backends",
+      "title": "tmux 3.6 tmux.h pane exit state",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/tmux.h",
+      "source_type": "official_source",
+      "path": "sources/backends/tmux-36-exit-tmux-h.md",
+      "tags": [
+        "tmux",
+        "native",
+        "authentication",
+        "exit-state"
+      ],
+      "summary": "tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。",
+      "relevance": "Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。",
+      "chars": 113221,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "tmux-36-exit-window-c",
+      "topic": "backends",
+      "title": "tmux 3.6 window.c pane exit state",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/window.c",
+      "source_type": "official_source",
+      "path": "sources/backends/tmux-36-exit-window-c.md",
+      "tags": [
+        "tmux",
+        "native",
+        "authentication",
+        "exit-state"
+      ],
+      "summary": "tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。",
+      "relevance": "Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。",
+      "chars": 42547,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "tmux-continuum-readme",
       "topic": "backends",
       "title": "tmux-continuum README",

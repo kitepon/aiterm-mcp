@@ -515,6 +515,8 @@ Claude authのcurrent menuはharnessの単一parseがphase/rows/selected/入力�
 
 Authorization-code readback observes the same metadata generation for up to three seconds after one submission. A later redraw may establish a waiting or other recognized stage; it does not establish authenticated status by itself. An unchanged code prompt, replaced metadata generation or failed readback retains unknown without another input.
 
+Authentication process exit observation reads the native exit status and signal independently of PTY EOF. If EOF is visible before either terminal field is ready, the same metadata generation is observed for a three-second window; missing status at the deadline remains unconfirmed failure. Signals and nonzero exits stay failures. Exit0 still requires the official authentication status, with a generation recheck after that call. A disappeared or replaced session, including a pane returning live after EOF, is not adopted. Observation never restarts login or repeats input.
+
 ## CLI-owned goal adapter
 
 `agent-goal.ts` owns typed I/O, operation preconditions, host provenance, and result/readback distinctions. `harnesses/codex-goal.ts` maps these operations to the official goal protocol and verifies the loaded thread. `codex-goal-connection.ts` owns the POSIX native rendezvous alias checks; `codex-relay-client.ts` supplies the existing WebSocket request transport with explicit experimental opt-in. `core.agentGoal` binds the original session/launch/harness process and shares existing send admission. No goal state or continuation loop is stored by Aiterm.

@@ -553,3 +553,12 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [grok-pointer-string-width-7-2-0-package-json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
 
 - [grok-pointer-string-width-7-2-0-readme-md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+
+## tmux 3.6 authentication exit observation
+
+- [format.c](sources/backends/tmux-36-exit-format-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
+- [server.c](sources/backends/tmux-36-exit-server-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
+- [server-fn.c](sources/backends/tmux-36-exit-server-fn-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
+- [window.c](sources/backends/tmux-36-exit-window-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
+- [tmux.h](sources/backends/tmux-36-exit-tmux-h.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.

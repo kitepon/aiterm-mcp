@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.61.21] - 2026-10-26
 
+- Distinguish tmux PTY EOF from a confirmed authentication process exit: observe missing exit status/signal for a bounded interval, preserve signals and nonzero exits as failures, and reject replaced generations without restarting login.
 - Re-read the current Grok rate-limit panel once after an error event when waiting; preserve ordinary errors, one-shot reads, new turns and closed launches without replaying input.
 - Observe authorization-code redraws for up to three seconds after a single native submission. Preserve unknown outcomes at the deadline or on generation replacement, without resubmitting or claiming authentication success.
 - Recognize a current Cursor `prepaid_balance_exhausted` provider refusal without a new transcript user record as typed error only from a complete current error JSON object. Quoted diagnostic codes, malformed JSON, resumed composers and Codex 429 retries remain nonterminal; do not retry, close, or change credentials.

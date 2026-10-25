@@ -54,3 +54,13 @@ test('Grok native clear preserves occupied input and refuses a replaced goal or 
 test('Grok native clear never acknowledges a failure reply, retained goal, or missing fresh reply and never repeats Enter',async()=>{
  for(const options of [{reply:'Could not durably clear the goal.'},{retain:true},{replay:true}]){const p=nativePort(options);await assert.rejects(clearGrokGoal(session,goal,p),error=>!(error instanceof AgentGoalNotIssuedError));assert.equal(p.enters(),1);}
 });
+
+
+test('Grok current Active or detail views never advertise or submit clear despite an idle-looking composer',async()=>{
+ for(const current of [{...goal,native:{...state,status:'active'},current_status:{...goal.current_status,status:'Active'}},{...goal,current_status:{source:'goal detail',status:'Paused',phase:null,tokens_used:null,status_display:'Paused',phase_display:null,budget_display:'4.9k / 1 tokens (100%)',elapsed_display:'15s'}}]){
+  const f=fixture();f.runtime.read=async()=>({current});
+  assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},f.runtime)).capabilities.clear,false);
+  const result=await manageGrokAgentGoal(input,f.runtime,'user');assert.equal(result.mutation,'not_issued');assert.equal(f.calls(),0);
+  const p=nativePort();await assert.rejects(clearGrokGoal(session,current,p),error=>error instanceof AgentGoalNotIssuedError);assert.equal(p.enters(),0);assert.equal(p.pastes(),0);
+ }
+});

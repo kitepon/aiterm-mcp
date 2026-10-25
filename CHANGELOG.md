@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Clear an existing idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.
+- Clear an existing UserPaused/Idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.
 
 ### Added
 

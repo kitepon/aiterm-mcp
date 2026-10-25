@@ -201,10 +201,13 @@ export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort
 }
 export function grokGoalClearReady(ui:GoalNativeUi):boolean{return composer(ui.read())==='';}
 export async function clearGrokGoal(sessionId:string,expected:z.infer<typeof grokCurrentGoalSchema>,port:GrokGoalStatusPort):Promise<void>{
+  const status=expected.current_status;
+  if(expected.native.status!=='user_paused'||status.source!=='/goal status'||status.status!=='UserPaused'||status.phase!=='Idle')
+    throw new AgentGoalNotIssuedError('native_goal_clear_input_unconfirmed');
   let enterAttempted=false;
   const guard=()=>{
     const current=grokNativeGoalStateSchema.safeParse(port.state());
-    if(!current.success||current.data.goal_id!==expected.native.goal_id||current.data.objective!==expected.native.objective)
+    if(!current.success||current.data.status!=='user_paused'||current.data.goal_id!==expected.native.goal_id||current.data.objective!==expected.native.objective)
       throw new AgentGoalNotIssuedError('native_goal_changed_before_clear');
   };
   const ui:GoalNativeUi={...port.ui,keys:async(keys,row,confirm)=>{enterAttempted=true;await port.ui.keys(keys,row,confirm);}};

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.19] - 2026-10-26
+
 - Fix native Windows shell selection for current Git Bash prompts wrapped across pane columns, preserving unknown and historical prompt boundaries. Both ordinary and marked literal multiline sends retain the correct shell syntax.
 
 - Preserve typed Claude authentication preflight failures in ordinary MCP launch errors, distinguishing not authenticated, unconfirmed status and timeout without exposing the native status body or creating a session.
@@ -2872,7 +2874,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.19...HEAD
+[0.61.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...v0.61.19
 [0.61.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.17...v0.61.18
 [0.61.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.16...v0.61.17
 [0.61.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.15...v0.61.16

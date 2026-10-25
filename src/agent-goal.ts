@@ -139,8 +139,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
         const matches = input.action === "clear" ? after === null : after !== null
           && (input.objective === undefined || after.objective === input.objective)
           && (input.token_budget === undefined || after.tokenBudget === input.token_budget)
-          && (input.action !== "pause" || after.status === "paused")
-          && (input.action !== "resume" || after.status === "active");
+          && (params.status === undefined || after.status === params.status);
         return { ...result, outcome: matches ? "applied" : "outcome_unknown", readback: matches ? "confirmed" : "mismatch",
           reason: matches ? "native_goal_readback_confirmed" : "native_goal_changed_before_readback", observed_at: new Date().toISOString() };
       } catch {

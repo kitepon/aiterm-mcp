@@ -53,6 +53,20 @@ test('model provenance cannot mutate as user',async()=>{
 test('create refuses an existing goal',async()=>{
  const f=fixture();const result=await f.run('create',{objective:'Replacement'});assert.equal(result.reason,'goal_already_exists');assert.equal(f.calls.length,1);
 });
+test('create confirms requested active status and preserves a changed native readback',async()=>{
+ for(const status of ['active','paused','blocked','usageLimited','budgetLimited','complete']){
+  const f=fixture(null);let reads=0;let mutations=0;
+  f.runtime.connect=async(_target,run)=>run(async(method,params)=>{
+   if(method==='thread/goal/get')return {goal:++reads===1?null:{...goal(status),objective:'New objective'}};
+   mutations++;assert.equal(params.status,'active');return {goal:{...goal('active'),objective:'New objective'}};
+  });
+  const result=await f.run('create',{objective:'New objective'});
+  assert.equal(result.outcome,status==='active'?'applied':'outcome_unknown');
+  assert.equal(result.readback,status==='active'?'confirmed':'mismatch');
+  assert.equal(result.mutation,'acknowledged');assert.equal(result.goal.status,status);
+  assert.equal(mutations,1);assert.equal(reads,2);
+ }
+});
 test('resume accepts paused only, retaining limits and native counters',async()=>{
  for(const status of ['active','blocked','usageLimited','budgetLimited','complete']){
   const f=fixture(goal(status));const result=await f.run('resume');assert.equal(result.reason,'resume_requires_paused_goal');assert.equal(f.calls.length,1);

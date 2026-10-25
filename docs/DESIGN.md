@@ -502,3 +502,6 @@ transcript、path、credentialを保存・公開しない。
 The ordinary and native delivery server mount the same `agent_goal` tool. Host Owner authentication precedes the metadata `aiterm/goal: {origin:user}` on its existing local BellTeam connection; the marker only carries the host classification. The default model channel cannot mutate. The historical execution dispatcher recognizes the same action and retains its existing generation/effect gate without a separate ID or queue.
 
 The initial operational scope is a live original launch bound to its native thread. No cold Bot launch, native thread resume, arbitrary thread selection, or manual conversation-switch inference is performed. Missing current binding remains unavailable. Host global pause must control native continuation separately from denying incoming HTTP actions.
+
+
+The embedded CLI transport exposes inspect/pause/resume/clear only; unsupported create/edit never fall through to a competing native writer. Native readback compares every requested field, including create's active status. The explicit whole-application stop plan shares one job per selected target and awaits only earlier descendants from its existing snapshot. Independent roots proceed concurrently; selected descendants complete pause and one key before parents. No extra goal ledger, queue, timeout reduction, or replay is introduced.

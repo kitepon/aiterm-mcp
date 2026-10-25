@@ -1,9 +1,11 @@
 // 認証receiptの共通形。資格情報と生のCLI出力は保存・公開しない。
+import type { AuthUi, AuthPaneUi } from "./agent-auth-ui.js";
 import type { ExecutionNativeBinding } from "./execution-close.js";
 import type { AgentHarness, AgentKind } from "./agent-shared.js";
 
 export interface AgentAuthResult {
   schema: "aiterm.agent-auth-result.v1";
+  auth_ui?: AuthUi;
   harness: AgentHarness;
   status: "waiting" | "authenticated" | "blocked" | "failed";
   session_id: string | null;
@@ -25,6 +27,7 @@ export interface AgentAuthStatus {
 }
 
 export interface AgentAuthPane {
+  ui?: AuthPaneUi;
   url: string | null;
   user_code: string | null;
   input_required: boolean;

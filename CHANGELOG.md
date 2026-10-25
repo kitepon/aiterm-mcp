@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — authentication UI and dedicated response
+
+- Add typed native auth stages and generation-bound `agent_auth respond`; keep existing receipt fields. Authorization codes bypass lastcmd, normal turns and pane logs. Legacy launch UUIDs remain missing rather than synthesized.
+- Distinguish explicit Claude code/choice prompts, official device/browser stages, and unavailable input. Windows secret input remains unavailable until foreground ownership is accepted.
+
 All notable changes to **aiterm-mcp** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

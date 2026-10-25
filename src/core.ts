@@ -41,6 +41,7 @@ import {
   WIN_NS,
   tmuxSpawnEnv,
   tmuxCommand,
+  tmuxCommandWithInput,
   sendPsmuxPayload,
   loadPtyBufferChunk,
   pasteBufferBaseArgs,
@@ -101,6 +102,8 @@ import type {
   InitialPromptDelivery,
   AgentStartupResult,
 } from "./agent-shared.js";
+import { AuthResponseError, authUi, authPromptDigest, authBindingSchema, authResponseSchema, type AuthBinding, type AuthResponse } from "./agent-auth-ui.js";
+import { processStartIdentity } from "./runtime-error-os.js";
 import type { AgentAuthMetadata, AgentAuthResult, AgentAuthPlan, AgentAuthStatus, AgentAuthPane } from "./agent-auth.js";
 import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
 import { FastModeError, fastModeFailure, launchContinuesWithoutFast, type FastModeFailure } from "./fast-mode.js";
@@ -4990,6 +4993,110 @@ function authSessionEnvironment(name: string, keys: string[]): NodeJS.ProcessEnv
   return env;
 }
 
+/** Dedicated authentication panes never persist terminal output, including a CLI echo. */
+function disableAuthLogging(name: string): void {
+  if (tmux("pipe-pane", "-t", name).code !== 0)
+    throw new AitermError("AGENT_AUTH_LOGGING_UNCONFIRMED: 認証入力を送信していません。", 2);
+}
+
+function readAuthBinding(name: string, kind: AgentKind): AuthBinding | null {
+  const meta = loadAuthMetadata(name, kind);
+  if (!meta) return null;
+  const stat = fs.statSync(authMetadataPath(name));
+  const native = tmux("display-message", "-p", "-t", `=${name}:`, "#{pid}\t#{session_id}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
+  if (native.code !== 0) return null;
+  const [server, session, pane, pid, dead] = native.stdout.trim().split("\t");
+  if (dead !== "0" || !/^\$\d+$/.test(session ?? "") || !/^%\d+$/.test(pane ?? "")) return null;
+  const serverStarted = processStartIdentity(Number(server), process.platform);
+  const paneStarted = processStartIdentity(Number(pid), process.platform);
+  if (!serverStarted || !paneStarted) return null;
+  return authBindingSchema.parse({ session_id: name, launch_id: meta.launch_id ?? null,
+    metadata_identity: `${stat.dev}:${stat.ino}:${stat.birthtimeMs}:${stat.mtimeMs}`, native_id: session, pane_id: pane,
+    server_pid: Number(server), server_started: serverStarted, pane_pid: Number(pid), pane_started: paneStarted });
+}
+
+async function respondAgentAuth(kind: AgentKind, options: { session_id?: string; expected_binding?: AuthBinding; expected_prompt_digest?: string; response?: AuthResponse }): Promise<AgentAuthResult> {
+  const name = options.session_id;
+  const expected = authBindingSchema.safeParse(options.expected_binding);
+  const response = authResponseSchema.safeParse(options.response);
+  if (!name || !expected.success || !response.success || expected.data.session_id !== name || !/^[a-f0-9]{64}$/.test(options.expected_prompt_digest ?? ""))
+    throw new AuthResponseError("AGENT_AUTH_RESPONSE_INVALID", "not_issued", "入力と対象の指定が不正です。入力は未送信です。");
+  const release = acquireSessionSendFileLock(name);
+  let issued = false;
+  try {
+    const check = () => {
+      const binding = readAuthBinding(name, kind);
+      if (!binding || JSON.stringify(binding) !== JSON.stringify(expected.data))
+        throw new AitermError("AGENT_AUTH_STALE_BINDING: 認証の世代が一致しません。", 2);
+      // The current native process, not a shell/background job, must own the foreground tty.
+      if (!isWin) {
+        const checkedProcess = spawnSync("/bin/ps", ["-p", String(binding.pane_pid), "-o", "stat="], { encoding: "utf8", timeout: 1000 });
+        if (checkedProcess.status !== 0 || !checkedProcess.stdout.includes("+") || /^T/.test(checkedProcess.stdout.trim()))
+          throw new AitermError("AGENT_AUTH_INPUT_UNAVAILABLE: 公式認証processが端末の前面にありません。", 2);
+      } else {
+        // Native psmux transport exists, but foreground ownership has not yet been accepted on Windows.
+        throw new AitermError("AGENT_AUTH_INPUT_UNAVAILABLE: Windows認証入力の所有確認が未対応です。", 2);
+      }
+      return binding;
+    };
+    const binding = check();
+    const meta = loadAuthMetadata(name, kind)!;
+    let pane = authPane(meta, stripControl(captureScreen(name, 0)));
+    const answer = response.data;
+    if (authPromptDigest(pane) !== options.expected_prompt_digest)
+      throw new AitermError("AGENT_AUTH_STAGE_MISMATCH: 入力画面が変わりました。", 2);
+    if (answer.kind === "authorization_code" && pane.ui?.input !== "authorization_code")
+      throw new AitermError("AGENT_AUTH_STAGE_MISMATCH: 認証コードの入力待ちではありません。", 2);
+    if (answer.kind === "choice" && !pane.ui?.choices.some(choice => choice.id === answer.id))
+      throw new AitermError("AGENT_AUTH_STAGE_MISMATCH: 表示された選択肢と一致しません。", 2);
+    disableAuthLogging(binding.pane_id);
+    check();
+    if (answer.kind === "authorization_code") {
+      const buffer = `auth-${process.pid}-${randomBytes(8).toString("hex")}`;
+      try {
+        if (tmuxCommandWithInput(true, answer.value, "load-buffer", "-b", buffer, "-").code !== 0)
+          throw new AitermError("AGENT_AUTH_INPUT_UNAVAILABLE: 入力を準備できません。", 2);
+        check();
+        // Fresh phase and empty field immediately before the first native input effect.
+        pane = authPane(meta, stripControl(captureScreen(name, 0)));
+        if (pane.ui?.input !== "authorization_code" || authPromptDigest(pane) !== options.expected_prompt_digest) throw new AitermError("AGENT_AUTH_STAGE_MISMATCH: 入力段階が変わりました。", 2);
+        issued = true;
+        if (tmux("paste-buffer", "-d", "-r", "-b", buffer, "-t", binding.pane_id).code !== 0)
+          throw new Error("native input unconfirmed");
+        check();
+        if (tmux("send-keys", "-t", binding.pane_id, "Enter").code !== 0) throw new Error("native submit unconfirmed");
+      } finally { tmux("delete-buffer", "-b", buffer); }
+    } else {
+      // Move only over freshly observed choices. Never expose raw keys to the host UI.
+      for (let step = 0; step < 8; step++) {
+        check();
+        const screen = stripControl(captureScreen(name, 0));
+        pane = authPane(meta, screen);
+        if (authPromptDigest(pane) !== options.expected_prompt_digest || !pane.ui?.choices.some(choice => choice.id === answer.id)) throw new Error("native choice changed");
+        const current = /^\s*❯\s*([1-7])\./m.exec(screen)?.[1];
+        if (!current) throw new Error("native selection unknown");
+        issued = true;
+        if (tmux("send-keys", "-t", binding.pane_id, `option-${current}` === answer.id ? "Enter" : "Down").code !== 0)
+          throw new Error("native choice unconfirmed");
+        if (`option-${current}` === answer.id) break;
+        if (step === 7) throw new Error("native choice unconfirmed");
+        await sleep(80);
+      }
+    }
+  } catch (error) {
+    if (issued) throw new AuthResponseError("AGENT_AUTH_RESPONSE_UNKNOWN", "unknown", "入力後の結果を確認できません。自動再送しないでください。");
+    if (error instanceof AitermError) throw new AuthResponseError(/^AGENT_AUTH_[A-Z_]+/.exec(error.message)?.[0] ?? "AGENT_AUTH_RESPONSE_NOT_ISSUED", "not_issued", error.message);
+    throw new AuthResponseError("AGENT_AUTH_RESPONSE_NOT_ISSUED", "not_issued", "入力を送信できません。");
+  } finally { release(); }
+  await sleep(100);
+  try {
+    const result = await authenticateAgent(kind, { action: "status", session_id: name });
+    if (result.auth_ui?.input === "authorization_code" && response.data.kind === "authorization_code")
+      throw new Error("native input consumption unconfirmed");
+    return result;
+  } catch { throw new AuthResponseError("AGENT_AUTH_RESPONSE_UNKNOWN", "unknown", "入力後の状態を確認できません。自動再送しないでください。"); }
+}
+
 function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
   const plan = authPlan(meta.kind, meta.phase);
   const env = plan.env.map(([key, value]) => shq(`${key}=${value}`));
@@ -5003,13 +5110,21 @@ function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
  * （別のアカウントへ入り直す時と、期限切れを状態から見抜けない時のため）。資格情報を消すことはせず、置き換えは公式CLIが行う。
  */
 export async function authenticateAgent(kind: AgentKind, options: {
-  action: "start" | "status" | "cancel"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
+  action: "start" | "status" | "cancel" | "respond"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
+  expected_binding?: AuthBinding; expected_prompt_digest?: string; response?: AuthResponse;
 }): Promise<AgentAuthResult> {
   if (options.action !== "status" || options.session_id !== undefined) assertExecutionContext(options.session_id);
   const result = (status: AgentAuthResult["status"], session: string | null, message: string | null,
-    pane?: AgentAuthPane): AgentAuthResult => ({ schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind),
-      status, session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
-      input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null });
+    pane?: AgentAuthPane): AgentAuthResult => {
+    const receipt: AgentAuthResult = { schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind), status,
+      session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
+      input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null };
+    receipt.auth_ui = authUi(receipt, pane, session ? readAuthBinding(session, kind) : null);
+    if (isWin && receipt.auth_ui.input !== null) receipt.auth_ui = { ...receipt.auth_ui, stage: "unavailable", input: null, choices: [],
+      message: "Windowsの認証入力は端末の前面所有の受入が未完了です。入力は送信できません。" };
+    return receipt;
+  };
+  if (options.action === "respond") return respondAgentAuth(kind, options);
   if (options.action === "cancel") {
     if (!options.session_id) throw new AitermError("AGENT_AUTH_SESSION_REQUIRED: cancelにはsession_idが必要です。", 2);
     const meta = loadAuthMetadata(options.session_id, kind);
@@ -5039,8 +5154,9 @@ export async function authenticateAgent(kind: AgentKind, options: {
     try {
       const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
       if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
+      disableAuthLogging(name);
+      meta.launch_id = randomBytes(16).toString("hex");
       if (hasExecutionCreationScope()) {
-        meta.launch_id = randomBytes(16).toString("hex");
         meta.execution_native = executionCreatedNativeBinding(name);
       }
       withExecutionPreparation(name, () => writeJson0600(authMetadataPath(name!), meta));
@@ -5068,7 +5184,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}");
     if (observed.code !== 0) return result("failed", session, "認証processの終了状態を取得できません。");
     const [dead, exit] = observed.stdout.trim().split("\t");
-    const pane = authPane(meta, stripControl(captureScreen(session, 120)));
+    const pane = authPane(meta, stripControl(captureScreen(session, 0)));
     if (dead === "1") {
       if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
       const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));

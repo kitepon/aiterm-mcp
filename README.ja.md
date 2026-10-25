@@ -592,7 +592,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
-| `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?` |
+| `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |
 | `agent_models` | harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧からpromptを送らずに取得 | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | deprecated互換alias（`composer_agent`は0.41.0で削除。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
@@ -636,7 +636,10 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 - 返りの`fast`は、切り替えた後の実際の状態。`agent_models`のmodelごとの`fast`が、そのmodelで切り替えられるかを示す（GrokとCursorのfast版は別のmodelとして並ばず、元のmodelの`fast: true`になる）。最上位の`fast_unavailable`は、アカウントの都合でどのmodelでも使えない時の訳。
 - 断りは文の先頭の符号で分かる: `FAST_MODE_NOT_SUPPORTED`（そのmodelは対応していない）、`FAST_MODE_UNAVAILABLE`（アカウントや契約で使えない）、`FAST_MODE_MODEL_CONFLICT`（modelへfast版のIDを書いて`fast: false`を渡した）、`FAST_MODE_UNCONFIRMED`（切り替えた後の状態を確かめられない）。起動で`FAST_MODE_UNAVAILABLE`・`FAST_MODE_UNCONFIRMED`になった時は、起動を断らずに通常の速度で起こし、返りを`fast: false`、`fast_error: { code, message }`にする。
 
-`agent_auth({ harness, action:"start"|"status"|"cancel", session_id?, cwd?, env_vars?, relogin? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
+`agent_auth({ harness, action:"start"|"status"|"cancel"|"respond", session_id?, cwd?, env_vars?, relogin?, expected_binding?, response? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
+
+認証UIは追加の`auth_ui`を使う。`stage`は`open_url` / `device_code` / `paste_code` / `select` / `waiting` / `complete` / `failed` / `unavailable`。公式URL・表示code・具体的な選択ラベル・入力種別をNativeが返し、`input_required`だけから入力内容や端末キーを推測しない。`respond`は直近の`auth_ui.binding`を`expected_binding`へ渡し、`expected_prompt_digest`には同じ`auth_ui.prompt_digest`を渡す。`response:{kind:"authorization_code",value}`または`{kind:"choice",id}`を同じ認証flowへ送る。認証コードを`pty_send`へ渡さない。専用入力はlastcmd・通常turn・paneログ・argv・一時fileへコードを保存せず、CLIの画面echoもpaneログへ保存しない。未発行と入力後不明は構造化errorの`effect:not_issued|unknown`で区別し、自動再送しない。legacy flowの`launch_id:null`は実native識別情報で照合し、UUIDを補わない。Windowsの専用入力は前面所有確認が未受入のため`not_issued`で拒否する。
+
 
 `start`は、公式の状態が認証済みなら何も起こさず`authenticated`（`session_id:null`）を返す。`relogin:true`を付けると、認証済みに見えても公式ログインを開始し、`session_id`付きの結果を返す。別のアカウントへ入り直す時と、ログインの期限切れを状態から見抜けない時に使う。Aitermは資格情報を消さず、置き換えは公式CLIが行う。ただし、公式CLIがログインを始めた時点で元のログインを消す事がある（Codex 0.160.0の`codex login --device-auth`は、始めた時点で`auth.json`を消す。途中で`cancel`しても戻らない）。Claude CodeとCursorは、途中で`cancel`すれば元の資格情報が残る（無効な資格情報で確認）。
 
@@ -649,9 +652,9 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 | Grok | `grok models`（状態の命令は無い） | `blocked`（`You are not authenticated.`）。Grokは使えない資格情報を自分で消す |
 | Cursor | `cursor-agent status` | `failed`（`Logged in (unable to fetch user details)`。期限切れか通信できないかは区別できない）。`relogin:true`で入り直す |
 
-結果は`aiterm.agent-auth-result.v1`。`status`は`waiting`／`authenticated`／`blocked`／`failed`、`session_id`・`url`・`user_code`・`input_required`・`message`を返す。`start`のsession IDを保存して`status`へ渡す。公式HTTPS URLと明示device codeだけを返し、CLIの生出力・token・OAuth callback codeを結果へ載せない。`input_required:true`なら同じsessionの`pty_read(screen:true)`で公式画面を表示し、`pty_send`／`pty_key`で人の入力を中継する。
+結果は`aiterm.agent-auth-result.v1`。`status`は`waiting`／`authenticated`／`blocked`／`failed`、`session_id`・`url`・`user_code`・`input_required`・`message`を返す。`start`のsession IDを保存して`status`へ渡す。公式HTTPS URLと明示device codeだけを返し、CLIの生出力・token・OAuth callback codeを結果へ載せない。`auth_ui`の安全な案内だけを表示し、入力は同じbindingとprompt_digestを持つ専用respondへ渡す。生画面や通常PTY入力へ認証コードを中継しない。
 
-Grokには公式認証status commandが無いため、session付きの確認は公式loginのexit 0を正本にし、session無しの確認は`blocked`を返す。他harnessは公式statusも照合する。Claudeは認証後の公式初回案内を同じsessionで進め、選択待ちは`blocked`／`input_required:true`で返す。`authenticated`は認証結果であり、`agent_launch`の起動準備完了は別途確認する。`cancel`は指定した認証sessionだけを閉じ、資格情報を削除しない。
+Grokには公式認証status commandが無いため、session付きの確認は公式loginのexit 0を正本にし、session無しの確認は公式`models`の認証要求を照合し、不明なら成功扱いしない。他harnessは公式statusも照合する。Claudeは認証後の公式初回案内を同じsessionで進め、選択待ちは`blocked`／`input_required:true`で返す。`authenticated`は認証結果であり、`agent_launch`の起動準備完了は別途確認する。`cancel`は指定した認証sessionだけを閉じ、資格情報を削除しない。
 
 PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。
 

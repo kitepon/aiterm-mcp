@@ -203,7 +203,11 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics を含む 18 ツール公�
   assert.deepEqual(claudeApproval.outputSchema.properties.status.enum, ["approval_required", "submitted"]);
   assert.deepEqual(claudeApproval.outputSchema.properties.selected_choice.anyOf.flatMap((entry) => entry.enum ?? []), ["approve_once", "deny"]);
   const agentAuth = toolsResp.result.tools.find((t) => t.name === "agent_auth");
-  assert.deepEqual(agentAuth.inputSchema.properties.action.enum, ["start", "status", "cancel"]);
+  assert.deepEqual(agentAuth.inputSchema.properties.action.enum, ["start", "status", "cancel", "respond"]);
+  assert.ok(agentAuth.inputSchema.properties.expected_binding);
+  assert.ok(agentAuth.inputSchema.properties.expected_prompt_digest);
+  assert.ok(agentAuth.inputSchema.properties.response);
+  assert.ok(agentAuth.outputSchema.properties.auth_ui);
   assert.equal(agentAuth.outputSchema.properties.schema.const, "aiterm.agent-auth-result.v1");
   assert.deepEqual(agentAuth.outputSchema.properties.status.enum, ["waiting", "authenticated", "blocked", "failed"]);
   assert.ok(agentAuth.inputSchema.properties.remote, "agent_authも標準remote中継を使う");

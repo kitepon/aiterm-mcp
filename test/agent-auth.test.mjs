@@ -141,6 +141,7 @@ for (const kind of ["codex", "grok", "cursor"]) test(`${kind}: 公式ログイ�
   const start = await core.authenticateAgent(kind, { action: "start", cwd: home, env_vars: ["AITERM_AUTH_TEST_MARKER"] });
   sessions.push(start.session_id);
   assert.equal(start.status, "waiting");
+  assert.ok(["open_url", "device_code", "waiting"].includes(start.auth_ui.stage));
   assert.ok(start.url?.startsWith("https://"), await core.readOutput(start.session_id, { screen: true, raw: true }));
   assert.equal(start.user_code, kind === "cursor" ? null : "ABCD-EFGH");
   core.send(start.session_id, "ok");
@@ -169,7 +170,10 @@ test("認証session無しのGrokは、公式のmodelsの答えで状態を返す
   assert.deepEqual([before.status, before.session_id], ["blocked", null]);
   assert.match(before.message, /startで開始/);
   fs.writeFileSync(fixture.state, "yes");
-  assert.deepEqual(await core.authenticateAgent("grok", { action: "status" }),
+  const authenticated = await core.authenticateAgent("grok", { action: "status" });
+  assert.equal(authenticated.auth_ui.stage, "complete");
+  const { auth_ui, ...legacyAuthenticated } = authenticated;
+  assert.deepEqual(legacyAuthenticated,
     { schema: "aiterm.agent-auth-result.v1", harness: "grok-cli", status: "authenticated", session_id: null, url: null, user_code: null, input_required: false, message: null });
   // 2026-10-05 macbook: 生きているログインで、1回目だけ「未認証」と答えた（同じ時刻にauth.jsonが更新された）。1回では決めない。
   fs.writeFileSync(`${fixture.state}.stale`, "yes");
@@ -192,6 +196,7 @@ test("Codex: 期限が切れたログインを認証済みと返さず、start�
   assert.match(status.message, /期限が切れています/);
   const start = await core.authenticateAgent("codex", { action: "start", cwd: fixture.home }); sessions.push(start.session_id);
   assert.equal(start.status, "waiting");
+  assert.ok(["open_url", "device_code", "waiting"].includes(start.auth_ui.stage));
   assert.equal(start.user_code, "ABCD-EFGH");
   core.send(start.session_id, "ok");
   assert.equal((await until("codex", start.session_id, "authenticated")).session_id, start.session_id);
@@ -237,6 +242,7 @@ test("Cursor: ログインを確認できない時は認証済みと返さず、
   assert.deepEqual([plain.status, plain.session_id], ["failed", null]);
   const start = await core.authenticateAgent("cursor", { action: "start", cwd: fixture.home, relogin: true }); sessions.push(start.session_id);
   assert.equal(start.status, "waiting");
+  assert.ok(["open_url", "device_code", "waiting"].includes(start.auth_ui.stage));
   core.send(start.session_id, "ok");
   assert.equal((await until("cursor", start.session_id, "authenticated")).session_id, start.session_id);
 });
@@ -327,6 +333,7 @@ test("Claude: auth login終了後に同じ認証sessionで公式の初回案内�
   const fixture = cli("claude");
   const start = await core.authenticateAgent("claude", { action: "start", cwd: fixture.home }); sessions.push(start.session_id);
   assert.equal(start.status, "waiting");
+  assert.ok(["open_url", "device_code", "waiting"].includes(start.auth_ui.stage));
   core.send(start.session_id, "ok");
   const onboarding = await until("claude", start.session_id, "blocked");
   assert.equal(onboarding.input_required, true);

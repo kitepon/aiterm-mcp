@@ -832,9 +832,30 @@ export function claudeAuthPane(screen: string, onboarding = false): AgentAuthPan
   const url = claudeAuthorizationUrl(screen);
   const input = /Paste (?:the )?code|Enter (?:the )?(?:authorization )?code|Choose the text style|Select login method:|Press (?:Enter|Return)|do you trust|trust this folder/i.test(screen);
   const complete = onboarding && (claudeTuiReady(screen) || /Is this a project you created or one you trust/.test(screen));
+  // Only an empty, current code prompt is an authorization-code input field.
+  const codePrompt = screen.split("\n").map(line => line.trim()).filter(Boolean).at(-1);
+  let ui: AgentAuthPane["ui"];
+  if (codePrompt && /^(?:Paste (?:the )?code(?: here)?(?: if prompted)?|Enter (?:the )?(?:authorization )?code)\s*[:>]?\s*$/i.test(codePrompt)) {
+    ui = { stage: "paste_code", title: "公式ページの認証コードを入力", message: "公式ページを開いて認証し、表示されたコードをこの画面の伏せ字欄へ貼り付けてください。", input: "authorization_code", choices: [] };
+  } else {
+    const themeAt = screen.lastIndexOf("Choose the text style that looks best with your terminal");
+    const loginAt = screen.lastIndexOf("Select login method:");
+    const theme = themeAt > loginAt;
+    const login = loginAt >= 0 && !theme;
+    const menu = screen.slice(Math.max(0, themeAt, loginAt));
+    const rows = menu.split("\n").flatMap(line => {
+      const match = /^\s*(❯)?\s*([1-7])\.\s*(.+?)\s*$/.exec(line);
+      if (!match) return [];
+      const label = match[3];
+      const allowed = theme ? /^(?:Auto \(match terminal\)|(?:Dark|Light) mode(?: \([^\n]+\))?)$/ : /^(?:Claude account with subscription|Anthropic Console account|3rd-party platform)$/;
+      return allowed.test(label) ? [{ id: `option-${match[2]}`, label }] : [];
+    });
+    if ((theme || login) && rows.length && new Set(rows.map(row => row.id)).size === rows.length)
+      ui = { stage: "select", title: theme ? "表示テーマを選ぶ" : "Claudeのログイン方法を選ぶ", message: "公式CLIに表示された選択肢を選んでください。", input: "choice", choices: rows };
+  }
   return { url, user_code: null, input_required: input && !complete,
     message: complete ? null : input ? "Claude Codeの公式画面で入力または初回案内の選択を完了してください。" : null,
-    onboarding_complete: complete };
+    onboarding_complete: complete, ui };
 }
 
 // ---- ファスト。Claude Codeの `/fast on`・`/fast off` は、結果を1行で返す（2.1.296）。

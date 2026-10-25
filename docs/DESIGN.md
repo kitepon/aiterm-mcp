@@ -497,3 +497,10 @@ transcript、path、credentialを保存・公開しない。
 
 
 Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.
+
+
+### 認証画面と専用応答
+
+`agent-auth-ui.ts`が既v1 receiptに追加する`auth_ui`とrespondの型を所有する。Native harnessが公式URL・device code・空code欄・現在のラベル付き選択肢を識別し、Rootはキー列を作らない。不明な入力段階はunavailable。coreが既auth metadataのdev/ino/作成・更新時刻、native session/pane/server/PID開始識別を照合する。legacyのlaunch UUID欠測はnullのまま扱い、無関係なflowをadoptしない。新startは既launch_id欄を必ず設定する。
+
+respondは既session send lock内で現在の空欄/段階と世代を再検証し、専用auth paneのpipe loggingを入力前に停止する。新auth paneは公式CLI起動前にloggingを停止する。通常send・lastcmd・mark・turn・journalを通さず、POSIX tmux load-bufferへstdinで送り、immutable pane IDへpaste/Enterを一回送る。secretはargv/fileへ渡さずbufferを消す。CLIの独自資格保存はCLI所有で、Aitermの非保存保証とは区別する。入力前の拒否はnot_issued、入力開始後の所有/結果欠測はunknown。元画面へ勝手に戻す・再送する回復はしない。Windowsは既psmux送信だけで前面所有を証明できないため専用respondを未対応として拒否する。macOSはPOSIX経路のsource実装であり実OS受入は別gate。

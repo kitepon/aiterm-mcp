@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
+import { AgentAuthenticationPreflightError } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -144,7 +145,7 @@ function completionWait(delivery: DeliveryRequest | null, session: string, event
   return { wait_process: core.agentWaitProcess(session, eventCursor), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` };
 }
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
+type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown> };
 
 /**
  * dispatch 系の説明で共有する非ブロック規範。tool description は registerTool 時＝initialize 前に
@@ -179,6 +180,11 @@ function ok(s: string): ToolResult {
 }
 function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
+  if (e instanceof AgentAuthenticationPreflightError) return {
+    content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    structuredContent: { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: e.reasonCode,
+      phase: "authentication_preflight", effect: "not_issued", session_created: false, message: msg },
+  };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 

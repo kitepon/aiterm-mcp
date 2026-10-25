@@ -726,6 +726,8 @@ The result (`aiterm.agent-models.v1`) is `{ harness, source, harness_version, de
 
 The selected harness CLI must be installed and authenticated. Use each product owner's official installer and updater; Aiterm does not distribute alternate CLI tarballs. For Cursor Agent CLI, use `curl https://cursor.com/install -fsS | bash` on macOS/Linux/WSL or `irm 'https://cursor.com/install?win32=true' | iex` on native Windows, authenticate once with `agent login`, and update with `agent update`; Aiterm invokes the unambiguous `cursor-agent` binary. Missing binaries, invalid model/effort values, unavailable Grok catalog models, and nonexistent `cwd` fail before a session exists.
 
+Claude authentication preflight refusals retain the existing error text and add `structuredContent` with schema `aiterm.agent-launch-error.v1`, `harness:"claude-code"`, `phase:"authentication_preflight"`, `effect:"not_issued"`, and `session_created:false`. `code` distinguishes `CLAUDE_AUTH_NOT_AUTHENTICATED`, `CLAUDE_AUTH_STATUS_UNCONFIRMED`, and `CLAUDE_AUTH_STATUS_TIMEOUT`. These describe the official status check, not the cause of a credential failure or a confirmed login expiry. Native status bodies and stderr are omitted.
+
 Set `throughline_source_session` together with a non-empty mission in `prompt` to prepend
 Throughline's read-only handoff context. This optional route requires `throughline >= 0.9.0`,
 cannot be combined with `launch_operation_id`, and leaves the source session's database ownership

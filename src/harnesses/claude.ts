@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { AitermError } from "../errors.js";
+import { AitermError, AgentAuthenticationPreflightError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
@@ -331,18 +331,18 @@ export function assertClaudeAuthenticationReady(bin: string): void {
     !Array.isArray(status) &&
     (status as { loggedIn?: unknown }).loggedIn === false
   ) {
-    throw new AitermError(
+    throw new AgentAuthenticationPreflightError(
+      "CLAUDE_AUTH_NOT_AUTHENTICATED",
       "Claude Codeの認証を利用できません。sessionは作成していません。" +
         "通常端末で `claude doctor` を実行し、Keychain／credential storeを直してから一度だけ `claude auth login` を実行してください。" +
         "aiterm相関付きClaude session内で /login を繰り返さないでください。",
-      2,
     );
   }
   const timedOut = result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
-  throw new AitermError(
+  throw new AgentAuthenticationPreflightError(
+    timedOut ? "CLAUDE_AUTH_STATUS_TIMEOUT" : "CLAUDE_AUTH_STATUS_UNCONFIRMED",
     `Claude Codeの認証状態を起動前に確認できません${timedOut ? "（5秒でtimeout）" : ""}。sessionは作成していません。` +
       "`claude auth status --json` と `claude doctor` が成功することを通常端末で確認してください。",
-    2,
   );
 }
 

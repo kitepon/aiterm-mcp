@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Preserve typed Claude authentication preflight failures in ordinary MCP launch errors, distinguishing not authenticated, unconfirmed status and timeout without exposing the native status body or creating a session.
+
 ## [0.61.18] - 2026-10-25
 
 - Fix CURRENT-MENU-1: parse the current Claude auth phase, choices, cursor and occupied code field together; navigation consumes that same parse and rejects stale menus before keys.

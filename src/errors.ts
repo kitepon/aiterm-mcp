@@ -9,6 +9,15 @@ export class AitermError extends Error {
   }
 }
 
+/** A harness authentication check refused launch before any session creation.
+ * Keep the native CLI's status body and credential diagnostics out of the wire. */
+export class AgentAuthenticationPreflightError extends AitermError {
+  constructor(readonly reasonCode: "CLAUDE_AUTH_NOT_AUTHENTICATED" | "CLAUDE_AUTH_STATUS_UNCONFIRMED" | "CLAUDE_AUTH_STATUS_TIMEOUT", message: string) {
+    super(message, 2);
+    this.name = "AgentAuthenticationPreflightError";
+  }
+}
+
 export class TelemetryOwnedError extends AitermError {
   readonly telemetryCode: RuntimeErrorCode;
   constructor(message: string, code: number, telemetryCode: RuntimeErrorCode, cause?: unknown) {

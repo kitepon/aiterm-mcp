@@ -715,6 +715,8 @@ Cursor親（`clientInfo.name`が`cursor-vscode`）も同じ完了観測と本文
 Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
 
 
+Claudeの認証事前確認による起動拒否は従来のエラー文を保ち、`structuredContent`へ`schema:"aiterm.agent-launch-error.v1"`、`harness:"claude-code"`、`phase:"authentication_preflight"`、`effect:"not_issued"`、`session_created:false`を返す。`code`は`CLAUDE_AUTH_NOT_AUTHENTICATED`（公式statusが未認証）、`CLAUDE_AUTH_STATUS_UNCONFIRMED`（確認不能）、`CLAUDE_AUTH_STATUS_TIMEOUT`（確認が時間切れ）を区別する。資格情報の故障原因やログイン期限切れは断定せず、公式status本文・stderrは返さない。
+
 ### 別端末のagentを1回で起動する（`remote`）
 
 `agent_launch`に`remote`を付けると、SSHで入った別端末のAitermで同じ起動を行う。端末へ入る操作と現地のagentを起動する操作が1回で済み、親から見た完了の届き方はこの端末の子と同じになる。Linux・macOS・Windowsの端末へ同じ依頼を並行して投げる用途を想定している。

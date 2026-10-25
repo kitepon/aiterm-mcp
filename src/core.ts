@@ -5859,7 +5859,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, executable: meta.agent_executable,
       native_process: observed.harness_process };
   };
-  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, request => callback((method, params) => {
+  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {
       beforeExecutionEffect(input.session_id, () => {
@@ -5870,8 +5870,32 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       });
       return request(method, params);
     });
-  })) }, origin);
+  }, supported), async command => {
+    const current = resolve(), meta = tryLoadAgentMetadata(input.session_id);
+    if (!current || !meta || current.vendor_session_id !== target.vendor_session_id || current.launch_id !== target.launch_id)
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    await submitAgentComposerText(input.session_id, "codex", "/goal " + command, {
+      force: true, preserveAgentOperation: true, admission: "native", subject: "goal control",
+      checkInput: started => assertAgentSendHarness(input.session_id, meta, started),
+    });
+  }) }, origin);
   return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
+}
+
+/** Whole-app stop uses native goal state, not the host's displayed snapshot. */
+export async function pauseAgentGoalForStop(target: { session_id: string; launch_id?: string }): Promise<{
+  status: "paused" | "already_inactive" | "no_goal" | "unsupported" | "unavailable" | "outcome_unknown"; reason?: string;
+}> {
+  if (!target.launch_id) return { status: "unavailable", reason: "goal_launch_unavailable" };
+  const input = { session_id: target.session_id, launch_id: target.launch_id };
+  const before = await agentGoal({ ...input, action: "inspect" });
+  if (before.availability !== "available") return { status: before.availability, reason: before.reason };
+  if (before.goal === null) return { status: "no_goal" };
+  if (before.goal?.status === "paused" || before.goal?.status === "complete") return { status: "already_inactive" };
+  if (before.goal?.status !== "active") return { status: "unavailable", reason: "goal_not_explicitly_paused" };
+  const result = await agentGoal({ ...input, action: "pause", expected_thread_id: before.binding!.thread_id }, "user");
+  if (result.outcome === "applied" && result.readback === "confirmed" && result.goal?.status === "paused") return { status: "paused" };
+  return { status: result.availability === "unsupported" || result.outcome === "unsupported" ? "unsupported" : result.outcome === "outcome_unknown" ? "outcome_unknown" : "unavailable", reason: result.reason };
 }
 
 export async function configureAgent(

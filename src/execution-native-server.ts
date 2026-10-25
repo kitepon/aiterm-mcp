@@ -10,7 +10,8 @@ import * as core from "./core.js";
 import { localParentWorkerRuntime, createExecutionParentWorker, type ParentWorkerRuntime } from "./execution-parent-worker.js";
 import type { ParentProducerRuntime } from "./execution-parent-producer.js";
 import { createExecutionParticipant } from "./execution-participant.js";
-import { interruptKnownSessions } from "./execution-immediate-stop.js";
+import { interruptKnownSessions, interruptKnownSessionsAndGoals } from "./execution-immediate-stop.js";
+import { goalOriginFromHost } from "./agent-goal.js";
 import { registerExecutionTools } from "./execution-tools.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
 import { EXECUTION_SOURCE_ENV_NAMES, EXECUTION_SCOPE_ENV_NAMES } from "./execution-runtime.js";
@@ -26,18 +27,23 @@ export function createNativeDeliveryServer(dependencies: {
   currentLaunchId?: (session: string) => string | null;
   sendKey?: (session: string, expectedLaunchId?: string) => unknown;
   goalOrigin?: NonNullable<Parameters<typeof createAitermServer>[0]>["goalOrigin"];
+  pauseGoal?: Parameters<typeof interruptKnownSessionsAndGoals>[1]["pauseGoal"];
 } = {}) {
   const server = createAitermServer({ goalOrigin: dependencies.goalOrigin });
   server.registerTool("agent_stop", {
     description: "指定sessionとその呼出先へ末端から通常の停止キーを送る。sentはキー送信結果であり終了の証明ではない。",
     inputSchema: immediateStopInputSchema.shape,
     outputSchema: immediateStopResultSchema.shape,
-  }, async args => {
-    const result = interruptKnownSessions(args, {
+  }, async (args, extra) => {
+    const stop = {
       children: dependencies.children ?? core.agentSessionChildren,
       currentLaunchId: dependencies.currentLaunchId ?? core.interruptionLaunchId,
       sendKey: dependencies.sendKey ?? core.interruptSessionNow,
-    });
+    };
+    const result = args.pause_goals
+      ? await interruptKnownSessionsAndGoals(args, { ...stop, pauseGoal: dependencies.pauseGoal ?? core.pauseAgentGoalForStop },
+        dependencies.goalOrigin ? dependencies.goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta))
+      : interruptKnownSessions(args, stop);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
   });
   return server;

@@ -56,13 +56,14 @@ export interface GoalTarget {
   native_process?: { pid: number; started_identity: string };
 }
 export type GoalRequest = (method: string, params: unknown) => Promise<unknown>;
+export type GoalCapabilities = AgentGoalResult["capabilities"];
 export class AgentGoalConnectionError extends Error {
   constructor(readonly availability: "unsupported" | "unavailable", readonly reason: string) { super(reason); }
 }
 export interface AgentGoalRuntime {
   // Both functions come from the serving runtime, never from tool arguments.
   resolve(): GoalTarget | null;
-  connect<T>(target: GoalTarget, run: (request: GoalRequest) => Promise<T>): Promise<T>;
+  connect<T>(target: GoalTarget, run: (request: GoalRequest, supported?: GoalCapabilities) => Promise<T>): Promise<T>;
 }
 const capabilities = (enabled: boolean) => ({ inspect: enabled, create: enabled, edit: enabled, pause: enabled, resume: enabled, clear: enabled });
 
@@ -91,7 +92,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
   const threadId = target.vendor_session_id;
   let issued = false;
   try {
-    return await runtime.connect(target, async request => {
+    return await runtime.connect(target, async (request, supported = capabilities(true)) => {
       const read = async (): Promise<NativeGoal | null> => {
         const value = z.object({ goal: nativeGoalSchema.nullable() }).parse(await request("thread/goal/get", { threadId }));
         if (value.goal && value.goal.threadId !== threadId) throw new Error("goal_thread_mismatch");
@@ -100,10 +101,11 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       if (!same()) return { ...result, reason: "generation_replaced" };
       const before = await read();
       if (!same()) return { ...result, reason: "generation_replaced" };
-      Object.assign(result, { availability: "available", capabilities: capabilities(true), goal: before,
+      Object.assign(result, { availability: "available", capabilities: supported, goal: before,
         binding: { session_id: target.session_id, launch_id: target.launch_id, thread_id: threadId },
         readback: "confirmed", outcome: "observed", reason: "native_goal_observed" });
       if (input.action === "inspect") return result;
+      if (!supported[input.action]) return { ...result, outcome: "unsupported", reason: "native_goal_operation_unsupported" };
       // The host may establish user provenance at authenticated UI ingress.
       // Model tool arguments cannot select or upgrade their origin.
       const reject = (reason: string): AgentGoalResult => ({ ...result, outcome: "rejected", reason });

@@ -58,7 +58,7 @@ export type AgentGoalResult = z.infer<typeof agentGoalResultSchema>;
 export interface GoalTarget {
   session_id: string; launch_id: string; harness: AgentHarness;
   vendor_session_id: string | null; codex_home?: string; executable?: string;
-  native_process?: { pid: number; started_identity: string };
+  native_process?: { pid: number; started_identity: string; process_group_id?: number | null };
 }
 export type GoalRequest = (method: string, params: unknown) => Promise<unknown>;
 export type GoalCapabilities = AgentGoalResult["capabilities"];

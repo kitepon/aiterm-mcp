@@ -511,3 +511,6 @@ The embedded CLI transport exposes inspect/pause/resume/clear plus budget-only e
 
 
 Ordinary creation is a separate owner callback from objective editing. It sends bounded literal paste events below the official composer's attachment threshold, on the same guarded input channel. A native viewport can hide earlier rows; ordered input and current tail reflection establish readiness, while the full canonical objective and requested active status still determine success. Unsupported reserved objectives and budget-bearing creates never issue a placeholder goal or split an operation.
+
+
+Goal input ownership is a read-only native precondition, separate from the ordinary prompt sender's optional foreground/termios recovery. The original PID/process group must be foreground and unstopped on the pinned pane TTY, with explicitly observed raw/no-echo flags. `paneTtyInputOwnerReady` shares existing TTY process classification; the goal UI ports and internal `beforePtyWrite` callback repeat this proof before input boundaries. Known refusal before input refreshes readback as not issued; ownership loss after input starts stays unknown. The goal path never sends fg, changes termios or erases another draft to satisfy the precondition.

@@ -22,7 +22,7 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
-import { manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
+import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
@@ -400,6 +400,27 @@ export function classifyPaneTtyProcesses(psOutput: string, agentPattern: RegExp 
 export function termiosIsCooked(sttyOutput: string): boolean {
   const tokens = sttyOutput.split(/[\s;]+/);
   return tokens.includes("icanon") || tokens.includes("echo");
+}
+
+/** Read-only ownership proof. A matching screen or another foreground CLI is
+ * not evidence that this original process owns the pane input. */
+export function paneTtyInputOwnerReady(psOutput: string, expectedPid: number, expectedGroup: number,
+  sttyOutput: string, agentPattern: RegExp = AGENT_COMMAND_PATTERNS.codex): boolean {
+  if (!Number.isSafeInteger(expectedPid) || expectedPid < 1 || !Number.isSafeInteger(expectedGroup) || expectedGroup < 1) return false;
+  const rows: { pid: number; group: number; stat: string; command: string }[] = [];
+  for (const line of psOutput.split("\n").filter(value => value.trim())) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/u.exec(line);
+    if (!match) return false;
+    rows.push({ pid: Number(match[1]), group: Number(match[2]), stat: match[3], command: match[4] });
+  }
+  const owners = rows.filter(row => row.pid === expectedPid);
+  if (owners.length !== 1 || owners[0].group !== expectedGroup || !owners[0].stat.includes("+")
+    || /[TtZ]/u.test(owners[0].stat) || rows.some(row => row.stat.includes("+") && row.group !== expectedGroup)) return false;
+  const state = classifyPaneTtyProcesses(rows.filter(row => row.group === expectedGroup)
+    .map(row => `${row.stat} ${row.command}`).join("\n"), agentPattern);
+  const flags = new Set(sttyOutput.split(/[\s;]+/u));
+  return state.agentPresent && state.agentForeground && !state.agentStopped
+    && flags.has("-icanon") && flags.has("-echo") && !termiosIsCooked(sttyOutput);
 }
 
 function paneTtyOf(name: string): string | null {
@@ -1006,6 +1027,8 @@ export interface SendOpts {
   raw?: boolean;
   /** agent operation markerを保つ内部送信境界。MCPの公開引数にはしない。 */
   preserveAgentOperation?: boolean;
+  /** Internal input-owner check; never accepted from MCP arguments. */
+  beforePtyWrite?: () => void;
   /**
    * ready gate通過済みagent TUIへ、本文全体を1回だけ明示ESC[200~/201~で包んで原子化する
    * （POSIX tmux・Windows psmuxとも）。chunkごとに包むとTUIは別々の貼り付けと読む。
@@ -1119,6 +1142,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         2,
       );
     }
+    o.beforePtyWrite?.();
     writeLastcmd(name, o.launchShell ? atomicShellMultiline(text, o.launchShell) : text);
     if (o.rtk) text = rtkRewrite(text);
     if (o.mark) text = appendMarkSentinel(text, fg);
@@ -1150,6 +1174,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     // server commandでpayload全体を単一SendBytesへ変換し、別processとの交差を構造的に防ぐ。
     const writePty = (payload: string, bracketedPaste: boolean, what: string): void => {
       if (isWin) {
+        o.beforePtyWrite?.();
         const sent = sendPsmuxPayload(true, name, payload, bracketedPaste);
         if (sent.code !== 0) {
           throw new AitermError(
@@ -1183,6 +1208,8 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         const pasteArgs = pasteBufferBaseArgs();
         if (pasteSupportsNoSanitize) pasteArgs.push("-S");
         pasteArgs.push("-b", bufferName, "-t", name);
+        try { o.beforePtyWrite?.(); }
+        catch (error) { tmuxCleanup("delete-buffer", "-b", bufferName); throw error; }
         const pasted = tmux(...pasteArgs);
         if (pasted.code !== 0) {
           tmuxCleanup("delete-buffer", "-b", bufferName);
@@ -1211,6 +1238,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
       }
     } else writePty(text, !!o.bracketedPaste, "");
     if (enter) {
+      o.beforePtyWrite?.();
       const entered = tmux("send-keys", "-t", name, "Enter");
       if (entered.code !== 0) {
         throw new AitermError(
@@ -5861,16 +5889,33 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       native_process: observed.harness_process };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
+    let inputStarted = false;
+    let pinnedTty: string | null = null;
     const check = () => {
       const current = resolve();
       if (!current || current.vendor_session_id !== target.vendor_session_id
         || JSON.stringify(current.native_process) !== JSON.stringify(target.native_process))
         throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      const tty = paneTtyOf(input.session_id);
+      const owner = target.native_process;
+      const rejectOwner = (): never => {
+        if (!inputStarted) throw new AgentGoalNotIssuedError("goal_input_owner_unavailable");
+        throw new Error("Goal input owner changed after input began");
+      };
+      if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
+      const ps = spawnSync("/bin/ps", ["-t", tty!.replace(/^\/dev\//u, ""), "-o", "pid=,pgid=,stat=,command="],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
+      const stty = spawnSync("/bin/stty", [process.platform === "linux" ? "-F" : "-f", tty!, "-a"],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
+      if (ps.error || stty.error || ps.status !== 0 || stty.status !== 0 || paneTtyOf(input.session_id) !== tty
+        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout)) rejectOwner();
+      pinnedTty = tty;
     };
     return {
       read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
-      async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true }); }); },
-      async keys(keys) { await withExecutionNativeAdmission(input.session_id, () => { check(); const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
+      async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true,
+        beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
+      async keys(keys) { await withExecutionNativeAdmission(input.session_id, () => { check(); inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
       pause: sleep,
     };
   };

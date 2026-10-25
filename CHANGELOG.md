@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Goal TUI input requires original foreground process-group ownership and explicit raw/no-echo TTY state at each input boundary. Invalid ownership refuses before any input; loss after input preserves unknown results without terminal recovery or replay.
 - Goal creation requires its requested active status to match the native readback; concurrent native status changes retain the observed state and an unknown result.
 - Explicit whole-application goal stops wait only for selected descendants, so one native timeout does not delay independent roots. Ordinary interruption and partial goal receipts remain unchanged.
 

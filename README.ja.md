@@ -209,7 +209,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.61.19** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.61.20** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 
@@ -819,7 +819,7 @@ Claude認証は公式claude.com/cai/oauth/authorizeのPKCE要求と非秘密のc
 
 `agent_goal` は `session_id`、元の32桁 `launch_id`、`action: inspect|create|edit|pause|resume|clear` を受ける。`expected_thread_id` は既存の結合の照合用で、別threadを選ぶ引数ではない。createはobjective必須、editはobjective又は正の整数token_budgetを指定する。他の操作には目的や予算を付けない。
 
-最初のadapterはPOSIXの既存Codex control socketへ接続し、同じthreadが読み込まれていることを確認する。workerの起動・保存threadのresumeは行わない。元launchのharnessが生存し識別できることが必要。Grok/CursorのadapterとWindows native Codex接続は未対応、結合・設定・接続が確認できない時は取得不能を返す。
+最初のadapterはPOSIXの既存Codex control socketへ接続し、同じthreadが読み込まれていることを確認する。workerの起動・保存threadのresumeは行わない。元launchのharnessが生存し識別できることが必要。CursorのadapterとWindows native Codex接続は未対応、結合・設定・接続が確認できない時は取得不能を返す。
 
 元のCLIが外部接続口のないembedded workerを使う場合、公式の読取専用native APIで取得し、一時停止・再開・削除は同じCLI自身へ一回だけ送る。この経路は予算だけの編集も公式goal serviceで扱う。capabilitiesはcreate:true/edit:true、createのfieldはobjective:true/token_budget:false。作成は既存goal/既存draft/制御文字、clear/edit/pause/resumeへ完全一致する予約語（大小文字を区別しない）を未発行で拒否する。予算付き作成では、予算を落としたgoalを作らない。大きいpasteがnative fileへ変わらないよう小さいliteral pasteを順番に渡し、完全な目的文とactiveの正規読戻しを必須にする。既存のliteral目的文ならfield_capabilities.editはobjective:true/token_budget:true/combined:false。目的文だけの編集は現在CLIのnative editorへ渡し、予約語や複数行もliteralとして扱う。native file参照の目的文は目的文編集を無効のまま保持する。目的文と予算の複合要求は両方とも発行せず拒否し、clientは自動分割しない。clientは操作とfieldの両capabilityに従い、旧serverでfield省略時だけ従来の操作全体、combined省略時だけ従来のfield全体の意味を適用する。元PID/process groupが同じTTYの前面にありraw/no-echoであることを読取りで確認する。停止/背面/cooked/所有不明は入力前に拒否し、入力開始後の所有喪失はunknownを保持。fg復帰・端末設定変更・下書き消去で条件を通さない。装飾付きplaceholderと実入力を区別し、空欄・貼付反映を確認してEnterを一回送る。既存draftへ送らず、確定した未発行拒否は新しいnative読戻しを伴うnot_issued、送信/取消し不明はunknownを保って再送しない。予約語・native editor・予算指定を完全なnative APIと同じ対応範囲にしない。
 
@@ -838,4 +838,4 @@ Claude作成/目的文編集はcomposerとnative goal dialogの全行を確認�
 
 Claudeのgoal入力は公式PID別の現在session記録も確認し、native session ID・process開始tick・PID namespaceを各入力境界で照合する。会話切替はgoal入力前に拒否し、入力後の所有喪失はunknownを保持する。会話を勝手に切り戻さない。この開始形式は現在Linuxで検証済みで、未検証OS/記録はunavailableとする。
 
-Grok 1.0.70のLinux読取は公式active_sessions.jsonのPID・開始tick・cwd・会話を元のTUIへ結ぶ。入力欄がidleなら、同じ会話への新しい公式status応答から「ゴールなし」又は既存goalを確認する。goal.nativeは保存snapshot、goal.current_statusは元workerの新しい状態・phase・token数・経過表示であり、保存phaseや会計を現在値へ代入しない。既にfullscreenのTUIなら、元workerを止めずに公式Goal詳細を開閉して実行中の状態も読む。current_status.sourceはgoal detail、正確なphaseとtokens_usedはnullとし、phase_display/status_display/budget_displayへ丸めを含むUI原文を保持する。画面モードを勝手に替えず、空の入力欄を保つ。minimalのbusy時は命令をキューへ積まず取得不能。ユーザー由来のclearだけは、同じ元workerの公式statusがUserPaused/Idleで空の入力欄で公式local命令を一回送る。新しいdurable clear応答・native state消失に加え、続く新しいstatusのgoalなしを確認する。作用が不明なら再送やGoal復元をせずunknownとする。他の変更操作は未対応。通常launcherからのmetadata結合は手修正なしで確認済み。他OSは未受入で、この未公開adapterをGrok全対応とはしない。
+Grok 1.0.70のLinux読取は公式active_sessions.jsonのPID・開始tick・cwd・会話を元のTUIへ結ぶ。入力欄がidleなら、同じ会話への新しい公式status応答から「ゴールなし」又は既存goalを確認する。goal.nativeは保存snapshot、goal.current_statusは元workerの新しい状態・phase・token数・経過表示であり、保存phaseや会計を現在値へ代入しない。既にfullscreenのTUIなら、元workerを止めずに公式Goal詳細を開閉して実行中の状態も読む。current_status.sourceはgoal detail、正確なphaseとtokens_usedはnullとし、phase_display/status_display/budget_displayへ丸めを含むUI原文を保持する。画面モードを勝手に替えず、空の入力欄を保つ。minimalのbusy時は命令をキューへ積まず取得不能。ユーザー由来のclearだけは、同じ元workerの公式statusがUserPaused/Idleで空の入力欄で公式local命令を一回送る。新しいdurable clear応答・native state消失に加え、続く新しいstatusのgoalなしを確認する。作用が不明なら再送やGoal復元をせずunknownとする。他の変更操作は未対応。通常launcherからのmetadata結合は手修正なしで確認済み。他OSはnative登録と入力所有が未受入のため取得不能とし、Grok全対応とはしない。

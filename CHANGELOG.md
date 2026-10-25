@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.20] - 2026-10-26
+
 - Clear an existing UserPaused/Idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.
 
 ### Added
@@ -17,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; objective creation/editing use the same CLI with exact native readback and per-field constraints; pause/resume remain unsupported.
 - Recognize the current official Claude PKCE authorization URL without exposing callback codes or tokens.
 
-- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Grok/Cursor adapters report explicit unsupported status; missing native connections report unavailable.
+- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Cursor adapters report explicit unsupported status; missing native connections report unavailable.
 
 - Goal results expose optional field capabilities. Ordinary embedded Codex supports budget-only edits through the official service; unsupported objective or mixed edits issue no mutation.
 
@@ -2898,7 +2900,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.19...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.20...HEAD
+[0.61.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.19...v0.61.20
 [0.61.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...v0.61.19
 [0.61.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.17...v0.61.18
 [0.61.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.16...v0.61.17

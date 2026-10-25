@@ -2,9 +2,16 @@
 export interface GoalNativeUi {
   read(): string;
   paste(text: string): Promise<void>;
-  keys(keys: string[]): Promise<void>;
+  keys(keys: string[], expectedRow?: { row: number; text: string }): Promise<void>;
+  click?(column: number, row: number, confirm: (screen: string) => boolean): Promise<void>;
   pause(ms: number): Promise<void>;
   now?(): number;
+}
+
+export function nativeGoalClickBytes(column: number, row: number, columns: number, rows: number): string {
+  if (![column, row, columns, rows].every(value => Number.isSafeInteger(value) && value > 0 && value <= 10000)
+    || column > columns || row > rows) throw new Error("Goal pointer outside pane");
+  return `\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`;
 }
 
 export interface NativeGoalCell { text: string; dim: boolean; decorated: boolean; inverse: boolean }

@@ -2348,6 +2348,23 @@
       "fetched": "2026-10-25"
     },
     {
+      "slug": "grok-native-prompt-keys",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official app/agent_view/prompt.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/prompt.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-prompt-keys.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 93284,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "grok-native-session-state",
       "topic": "grok-goal-worker-binding",
       "title": "Grok official session state extension",
@@ -2433,6 +2450,23 @@
       "fetched": "2026-10-25"
     },
     {
+      "slug": "grok-native-ui-panes",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official app/agent_view/panes.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/panes.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-ui-panes.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 65538,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "grok-native-ui-router",
       "topic": "grok-goal-worker-binding",
       "title": "Grok official app/dispatch/router.rs",
@@ -2447,6 +2481,42 @@
       "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
       "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
       "chars": 78659,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-pointer-string-width-7-2-0-package-json",
+      "topic": "grok-goal-worker-binding",
+      "title": "string-width 7.2.0 package.json",
+      "source_url": "https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/package.json",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md",
+      "tags": [
+        "unicode",
+        "terminal",
+        "width",
+        "node18"
+      ],
+      "summary": "表示cell幅とGoal表示の位置を既存libraryで取得する。",
+      "relevance": "Unicodeのcwd/branchを含む現在headerのクリック位置を、native pane座標へ正しく結合する。",
+      "chars": 1139,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-pointer-string-width-7-2-0-readme-md",
+      "topic": "grok-goal-worker-binding",
+      "title": "string-width 7.2.0 readme.md",
+      "source_url": "https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md",
+      "tags": [
+        "unicode",
+        "terminal",
+        "width",
+        "node18"
+      ],
+      "summary": "表示cell幅とGoal表示の位置を既存libraryで取得する。",
+      "relevance": "Unicodeのcwd/branchを含む現在headerのクリック位置を、native pane座標へ正しく結合する。",
+      "chars": 1935,
       "fetched": "2026-10-25"
     },
     {

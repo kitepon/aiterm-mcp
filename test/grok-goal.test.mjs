@@ -2,7 +2,8 @@ import './seat-env.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import fs from 'node:fs';
-import {grokCurrentSessionOwner,readFreshGrokGoal} from '../dist/harnesses/grok-goal.js';
+import {grokCurrentSessionOwner,readFreshGrokGoal,grokGoalFromDetail} from '../dist/harnesses/grok-goal.js';
+import {nativeGoalClickBytes} from '../dist/agent-goal-ui.js';
 import {manageGrokAgentGoal,agentGoalWireResultSchema} from '../dist/agent-goal-native-result.js';
 const session='439cd90a-b8a4-436d-b093-63f0d8ce5096';
 const other='01a17417-49a3-7883-86d6-9036387b75a6';
@@ -70,4 +71,44 @@ test('Grok v2 keeps unsupported mutation capabilities false and rejects foreign 
   assert.equal(observed.goal,null);assert.equal(observed.capabilities.inspect,true);assert.equal(observed.capabilities.pause,false);
   const foreign=await manageGrokAgentGoal({...input,expected_thread_id:other},runtime);assert.equal(foreign.reason,'thread_binding_mismatch');assert.ok(!('goal' in foreign));
   const create=await manageGrokAgentGoal({...input,action:'create',objective:'not sent'},runtime);assert.equal(create.mutation,'not_issued');assert.equal(create.outcome,'unsupported');assert.equal(reads,1);
+});
+
+const full=JSON.parse(fs.readFileSync(new URL('./fixtures/grok-full-goal-screens.json',import.meta.url),'utf8'));
+function fullPort({root=full.activeRoot,detail=full.activeDetail,closed=full.activeClosed,replacement=false,move=false,closeFails=false}={}){
+  let screen=root,clock=0,reads=0;const events=[];
+  const ui={read:()=>screen,paste:async()=>{throw Error('Must not enqueue a slash command');},
+    click:async(column,row,confirm)=>{
+      if(!confirm(move?screen.replace('Goal:','moved Goal:'):screen))throw Error('native_goal_ui_changed');
+      events.push({click:[column,row]});screen=detail;
+    },
+    keys:async(keys,expected)=>{assert.deepEqual(keys,['g']);assert.equal(screen.split('\n')[expected.row-1],expected.text);events.push({keys});if(!closeFails)screen=closed;},
+    pause:async ms=>{clock+=ms;},now:()=>clock};
+  return {ui,rows:()=>[],state:()=>replacement&&reads++>0?{...full.state,goal_id:other}:full.state,events};
+}
+test('Grok current full-screen Goal detail preserves rounded displays and unknown native phase',async()=>{
+  const p=fullPort(),result=await readFreshGrokGoal(session,p);
+  assert.equal(result.current.current_status.source,'goal detail');
+  assert.equal(result.current.current_status.status,'Active');
+  assert.equal(result.current.current_status.phase,null);
+  assert.equal(result.current.current_status.tokens_used,null);
+  assert.equal(result.current.current_status.phase_display,'Planning');
+  assert.match(result.current.current_status.budget_display,/4\.9k \/ 1 tokens/);
+  assert.equal(result.current.native.phase,full.state.phase);
+  assert.equal(p.events.length,2);assert.deepEqual(p.events[1],{keys:['g']});
+  const wide=fullPort({root:full.activeRoot.replace('ma…','開発🧪')});
+  await readFreshGrokGoal(session,wide);assert.equal(wide.events[0].click[0],p.events[0].click[0]+3);
+});
+test('Grok Goal detail rejects occupied, replaced, truncated, unknown or moved views without typing',async()=>{
+  for(const root of [full.activeRoot.replace('│ ❯ ', '│ ❯ owner draft'),full.activeRoot+'\n ┌─ Permission ─┐']){
+    const p=fullPort({root});await assert.rejects(readFreshGrokGoal(session,p));assert.deepEqual(p.events,[]);
+  }
+  const moved=fullPort({move:true});await assert.rejects(readFreshGrokGoal(session,moved));assert.deepEqual(moved.events,[]);
+  await assert.rejects(readFreshGrokGoal(session,fullPort({replacement:true})),/identity_changed/);
+  await assert.rejects(readFreshGrokGoal(session,fullPort({detail:full.activeDetail.replace(full.state.objective,'Artificial…'.padEnd(full.state.objective.length))})),/detail_mismatch/);
+  await assert.rejects(readFreshGrokGoal(session,fullPort({detail:full.activeDetail.replace('Status: Active','Status: Bogus!')})),/detail_unverified/);
+  await assert.rejects(readFreshGrokGoal(session,fullPort({closeFails:true})),/close_unconfirmed/);
+});
+test('Native Goal pointer encodes one bounded press/release and refuses invalid pane coordinates',()=>{
+  assert.equal(nativeGoalClickBytes(19,2,80,24),'\x1b[<0;19;2M\x1b[<0;19;2m');
+  for(const args of [[0,2,80,24],[-1,2,80,24],[81,2,80,24],[19,25,80,24],[19,2,0,24],[1.5,2,80,24],[Infinity,2,80,24],[19,2,10001,24]])assert.throws(()=>nativeGoalClickBytes(...args));
 });

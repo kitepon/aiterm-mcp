@@ -540,3 +540,11 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [grok-native-ui-input](sources/grok-goal-worker-binding/grok-native-ui-input.md) — Grok公式の元worker・現在UI・入力経路の責務。
 
 - [grok-native-ui-router](sources/grok-goal-worker-binding/grok-native-ui-router.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-prompt-keys](sources/grok-goal-worker-binding/grok-native-prompt-keys.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-native-ui-panes](sources/grok-goal-worker-binding/grok-native-ui-panes.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-pointer-string-width-7-2-0-package-json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-pointer-string-width-7-2-0-readme-md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。

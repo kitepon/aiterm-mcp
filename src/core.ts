@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
 import {grokCurrentSessionOwner,readFreshGrokGoal} from './harnesses/grok-goal.js';
+import {nativeGoalClickBytes} from './agent-goal-ui.js';
 import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
@@ -5939,11 +5940,28 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
         || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout, AGENT_COMMAND_PATTERNS[target.harness === "claude-code" ? "claude" : target.harness==='grok-cli'?'grok':"codex"])) rejectOwner();
       pinnedTty = tty;
     };
+    const checkRow = (row: number, text: string) => {
+      if (!Number.isSafeInteger(row) || row < 1 || row > 10000) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+      const screen = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+      if (screen.code !== 0 || screen.stdout.split('\n')[row - 1] !== text) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+    };
     return {
       read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
       async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true,
         raw: true, beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
-      async keys(keys) { await withExecutionNativeAdmission(input.session_id, () => { check(); inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
+      async keys(keys, expectedRow) { await withExecutionNativeAdmission(input.session_id, () => { check(); if (expectedRow) { checkRow(expectedRow.row, expectedRow.text); check(); } inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
+      async click(column, row, confirm) { await withExecutionNativeAdmission(input.session_id, () => {
+        check();
+        const size = tmux('display-message', '-p', '-t', input.session_id, '#{pane_width} #{pane_height}');
+        if (size.code !== 0 || !/^\d+ \d+$/u.test(size.stdout.trim())) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        const [columns, rows] = size.stdout.trim().split(' ').map(Number);
+        const bytes = nativeGoalClickBytes(column, row, columns, rows);
+        const current = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+        if (current.code !== 0 || !confirm(current.stdout)) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        check(); inputStarted = true;
+        const sent = tmux('send-keys', '-t', input.session_id, '-H', ...Array.from(Buffer.from(bytes), byte => byte.toString(16).padStart(2, '0')));
+        if (sent.code !== 0) throw new Error('Goal pointer input unconfirmed');
+      }); },
       pause: sleep,
     };
   };

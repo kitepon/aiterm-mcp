@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.21] - 2026-10-26
+
 - Observe authorization-code redraws for up to three seconds after a single native submission. Preserve unknown outcomes at the deadline or on generation replacement, without resubmitting or claiming authentication success.
 - Recognize a current Cursor `prepaid_balance_exhausted` provider refusal without a new transcript user record as typed error only from a complete current error JSON object. Quoted diagnostic codes, malformed JSON, resumed composers and Codex 429 retries remain nonterminal; do not retry, close, or change credentials.
 
@@ -2903,7 +2905,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.20...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.21...HEAD
+[0.61.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.20...v0.61.21
 [0.61.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.19...v0.61.20
 [0.61.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...v0.61.19
 [0.61.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.17...v0.61.18

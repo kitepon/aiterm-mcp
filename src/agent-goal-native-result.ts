@@ -21,26 +21,49 @@ export const agentGoalOutputSchema = agentGoalResultSchema.extend({
     context.addIssue({code:"custom",path:["goal"],message:"native goal kind must match bound harness"});
 });
 export type AgentGoalWireResult = z.infer<typeof agentGoalWireResultSchema>;
-export async function inspectClaudeAgentGoal(input: AgentGoalInput, runtime: {
+export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
   resolve(): GoalTarget|null;
   read(target: GoalTarget): Promise<Pick<ClaudeGoalObservation,"current"|"history">>;
-}): Promise<z.infer<typeof agentGoalNativeResultSchema>> {
+  clear?(target: GoalTarget): Promise<void>;
+}, origin: "user"|"automatic"="automatic"): Promise<z.infer<typeof agentGoalNativeResultSchema>> {
   input=agentGoalInputSchema.parse(input);
   const result:z.infer<typeof agentGoalNativeResultSchema>={schema:"aiterm.agent-goal-result.v2",session_id:input.session_id,launch_id:input.launch_id,harness:"claude-code",binding:null,
     availability:"unavailable",capabilities:{inspect:false,create:false,edit:false,pause:false,resume:false,clear:false},
     field_capabilities:{create:{objective:false,token_budget:false},edit:{objective:false,token_budget:false,combined:false}},
     outcome:"unavailable",mutation:input.action==="inspect"?"not_requested":"not_issued",readback:"not_attempted",reason:"binding_unavailable",observed_at:new Date().toISOString()};
+  let issued=false;
   try{
     const target=runtime.resolve();
     if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||target.harness!=="claude-code"||!target.vendor_session_id)return result;
     if(input.expected_thread_id!==undefined&&input.expected_thread_id!==target.vendor_session_id)return {...result,reason:"thread_binding_mismatch"};
-    if(input.action!=="inspect")return {...result,availability:"unsupported",outcome:"unsupported",reason:"native_goal_operation_unsupported"};
+    if(input.action!=="inspect" && (input.action!=="clear" || !runtime.clear))return {...result,availability:"unsupported",outcome:"unsupported",reason:"native_goal_operation_unsupported"};
+    if(input.action!=="inspect"&&origin!=="user")return {...result,outcome:"rejected",reason:"user_authorization_required"};
     const observed=await runtime.read(target);
     if(!sameGoalTarget(runtime.resolve(),target))return {...result,reason:"generation_replaced_after_status",readback:"failed"};
-    return agentGoalNativeResultSchema.parse({...result,availability:"available",capabilities:{...result.capabilities,inspect:true},
+    const snapshot = (value: Pick<ClaudeGoalObservation,"current"|"history">) => ({goal:value.current,...(value.history?{native_history:value.history}:{})});
+    Object.assign(result,{availability:"available",capabilities:{...result.capabilities,inspect:true,clear:!!runtime.clear},
       binding:{session_id:target.session_id,launch_id:target.launch_id,thread_id:target.vendor_session_id},
-      goal:observed.current,...(observed.history?{native_history:observed.history}:{}),outcome:"observed",readback:"confirmed",reason:"native_goal_observed",observed_at:new Date().toISOString()});
+      ...snapshot(observed),outcome:"observed",readback:"confirmed",reason:"native_goal_observed",observed_at:new Date().toISOString()});
+    if(input.action==="inspect")return agentGoalNativeResultSchema.parse(result);
+    if(!sameGoalTarget(runtime.resolve(),target))return {...result,availability:"unavailable",outcome:"unavailable",reason:"generation_replaced"};
+    issued=true;delete result.goal;delete result.native_history;result.readback="not_attempted";
+    try{await runtime.clear!(target);}catch(error){
+      if(!(error instanceof AgentGoalNotIssuedError))throw error;
+      issued=false;
+      try{
+        const fresh=await runtime.read(target);
+        if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced");
+        return {...result,...snapshot(fresh),outcome:error.outcome,mutation:"not_issued",readback:"confirmed",reason:error.reason};
+      }catch{return {...result,outcome:error.outcome,mutation:"not_issued",readback:"failed",reason:error.reason};}
+    }
+    if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_clear");
+    const after=await runtime.read(target);
+    if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_readback");
+    const cleared=after.current===null && (observed.current===null || (after.history?.terminal==="cleared"&&after.history.native.condition===observed.current.native.condition));
+    return agentGoalNativeResultSchema.parse({...result,...snapshot(after),mutation:cleared?"acknowledged":"outcome_unknown",outcome:cleared?"applied":"outcome_unknown",readback:cleared?"confirmed":"mismatch",reason:cleared?"native_goal_readback_confirmed":"native_goal_changed_before_readback",observed_at:new Date().toISOString()});
+
   }catch(error){
+    if(issued)return {...result,outcome:"outcome_unknown",mutation:"outcome_unknown",readback:"failed",reason:"native_goal_mutation_unconfirmed"};
     const reasons=new Set(["native_goal_status_input_unconfirmed","native_goal_fresh_dialog_unavailable","native_goal_dialog_changed","native_goal_binding_mismatch"]);
     const reason=error instanceof AgentGoalNotIssuedError?error.reason:error instanceof Error&&reasons.has(error.message)?error.message:"native_goal_fresh_status_unavailable";
     return {...result,reason,readback:"failed"};

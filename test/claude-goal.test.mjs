@@ -2,7 +2,7 @@ import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {observeClaudeGoalStatus,readFreshClaudeGoal,observeClaudeGoalDialog,claudeGoalComposerEmpty} from '../dist/harnesses/claude-goal.js';
-import {inspectClaudeAgentGoal,agentGoalWireResultSchema,agentGoalOutputSchema} from '../dist/agent-goal-native-result.js';
+import {manageClaudeAgentGoal,agentGoalWireResultSchema,agentGoalOutputSchema} from '../dist/agent-goal-native-result.js';
 const session='official-native-session';
 const native={type:'goal_status',condition:'Artificial condition',met:false,sentinel:true};
 const attachment=payload=>({type:'attachment',uuid:'event-native',attachment:payload,sessionId:session,isSidechain:false,version:'2.1.310'});
@@ -45,13 +45,13 @@ test('Claude inspect uses native v2; unsupported mutation and mismatched binding
  const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};let reads=0;
  const runtime={resolve:()=>target,read:async()=>{reads++;return {current:null};}};
  const input={session_id:'a',launch_id:target.launch_id,action:'inspect'};
- const r=agentGoalWireResultSchema.parse(await inspectClaudeAgentGoal(input,runtime));assert.equal(r.schema,'aiterm.agent-goal-result.v2');assert.equal(r.goal,null);assert.equal(r.capabilities.inspect,true);assert.equal(r.capabilities.clear,false);assert.equal(reads,1);
- for(const other of [{action:'clear'},{expected_thread_id:'other'}]){const r=await inspectClaudeAgentGoal({...input,...other},runtime);assert.equal(r.mutation,other.action?'not_issued':'not_requested');assert.equal('goal' in r,false);}assert.equal(reads,1);
+ const r=agentGoalWireResultSchema.parse(await manageClaudeAgentGoal(input,runtime));assert.equal(r.schema,'aiterm.agent-goal-result.v2');assert.equal(r.goal,null);assert.equal(r.capabilities.inspect,true);assert.equal(r.capabilities.clear,false);assert.equal(reads,1);
+ for(const other of [{action:'clear'},{expected_thread_id:'other'}]){const r=await manageClaudeAgentGoal({...input,...other},runtime);assert.equal(r.mutation,other.action?'not_issued':'not_requested');assert.equal('goal' in r,false);}assert.equal(reads,1);
 });
 test('failed fresh read and changed native owner never fabricate current null',async()=>{
  const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};
  for(const mode of ['failure','changed']){
-  let after=false;const r=await inspectClaudeAgentGoal({session_id:'a',launch_id:target.launch_id,action:'inspect'},{resolve:()=>after?{...target,vendor_session_id:'changed'}:target,read:async()=>{if(mode==='failure')throw Error('no status');after=true;return {current:null};}});
+  let after=false;const r=await manageClaudeAgentGoal({session_id:'a',launch_id:target.launch_id,action:'inspect'},{resolve:()=>after?{...target,vendor_session_id:'changed'}:target,read:async()=>{if(mode==='failure')throw Error('no status');after=true;return {current:null};}});
   assert.equal(r.availability,'unavailable');assert.equal('goal' in r,false);
  }
 });
@@ -59,4 +59,28 @@ test('failed fresh read and changed native owner never fabricate current null',a
 test('MCP object output validates native tags and preserves the existing Codex v1 branch',()=>{
  const envelope={schema:'aiterm.agent-goal-result.v2',session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',binding:null,availability:'available',capabilities:{inspect:true,create:false,edit:false,pause:false,resume:false,clear:false},outcome:'observed',mutation:'not_requested',readback:'confirmed',goal:{kind:'claude-code',phase:'active',native},reason:'native_goal_observed',observed_at:new Date().toISOString()};
  assert.ok(agentGoalOutputSchema.safeParse(envelope).success);assert.equal(agentGoalOutputSchema.safeParse({...envelope,schema:'aiterm.agent-goal-result.v1'}).success,false);assert.equal(agentGoalOutputSchema.safeParse({...envelope,harness:'codex-cli'}).success,false);
+});
+
+function clearRuntime(options={}) {
+ const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};let currentTarget=target,reads=0,clears=0;
+ const before={current:{kind:'claude-code',phase:'active',native}};
+ const after={current:null,history:{kind:'claude-code',terminal:'cleared',native:{...native,met:true,sentinel:true}}};
+ const runtime={resolve:()=>currentTarget,read:async()=>{reads++;if(reads===1)return before;if(options.readFails)throw Error('read disconnected');return options.after??after;},clear:async()=>{clears++;if(options.clearFails)throw Error('write disconnected');if(options.changed)currentTarget={...target,vendor_session_id:'other'};}};
+ return {input:{session_id:'a',launch_id:target.launch_id,action:'clear'},runtime,counts:()=>({reads,clears})};
+}
+test('Owner clear requires the same live native binding and fresh empty plus matching cleared history',async()=>{
+ const f=clearRuntime();const r=await manageClaudeAgentGoal(f.input,f.runtime,'user');assert.equal(r.outcome,'applied');assert.equal(r.mutation,'acknowledged');assert.equal(r.goal,null);assert.equal(r.native_history.terminal,'cleared');assert.deepEqual(f.counts(),{reads:2,clears:1});
+});
+test('model metadata cannot clear a Claude goal or issue native UI input',async()=>{
+ const f=clearRuntime();const r=await manageClaudeAgentGoal(f.input,f.runtime,'automatic');assert.equal(r.reason,'user_authorization_required');assert.equal(r.mutation,'not_issued');assert.deepEqual(f.counts(),{reads:0,clears:0});
+});
+test('uncertain Claude clear is never retried or restored from a prior goal',async()=>{
+ for(const option of [{clearFails:true},{readFails:true},{changed:true}]){const f=clearRuntime(option);const r=await manageClaudeAgentGoal(f.input,f.runtime,'user');assert.equal(r.outcome,'outcome_unknown');assert.equal(r.mutation,'outcome_unknown');assert.equal('goal'in r,false);assert.equal(f.counts().clears,1);}
+});
+test('empty after achievement or another condition is not proof of the requested clear',async()=>{
+ for(const history of [{kind:'claude-code',terminal:'achieved',native:{...native,met:true,sentinel:undefined}},{kind:'claude-code',terminal:'cleared',native:{...native,met:true,condition:'Other goal'}}]){const f=clearRuntime({after:{current:null,history}});const r=await manageClaudeAgentGoal(f.input,f.runtime,'user');assert.equal(r.outcome,'outcome_unknown');assert.equal(r.readback,'mismatch');assert.equal(r.goal,null);assert.equal(f.counts().clears,1);}
+});
+test('a proven refusal at the clear input owner refreshes status and never replays clear',async()=>{
+ const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');const f=clearRuntime();let calls=0;f.runtime.clear=async()=>{calls++;throw new AgentGoalNotIssuedError('goal_input_owner_unavailable');};
+ const r=await manageClaudeAgentGoal(f.input,f.runtime,'user');assert.equal(r.outcome,'rejected');assert.equal(r.mutation,'not_issued');assert.equal(r.readback,'confirmed');assert.equal(r.goal,null);assert.equal(calls,1);assert.equal(f.counts().reads,2);
 });

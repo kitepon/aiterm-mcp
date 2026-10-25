@@ -125,19 +125,32 @@ export function observeClaudeGoalDialog(screen: string, rows: unknown[], session
   if (body.length !== 2 || !/^running .+ · .+ tokens$/u.test(body[0]) || body[1] !== "Goal: " + current.condition) return null;
   return {current:{kind:"claude-code",phase:"active",native:{...current,met:false}},...(history?{history}:{})};
 }
-export async function readClaudeGoalDialog(sessionId: string, ui: GoalNativeUi, readRows: () => unknown[]): Promise<Pick<ClaudeGoalObservation,"current"|"history">> {
+export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: "/goal" | "/goal clear"): Promise<void> {
   if (!claudeGoalComposerEmpty(ui.read())) throw new AgentGoalNotIssuedError("goal_input_not_empty_or_ready");
-  await ui.paste("/goal");
+  await ui.paste(command);
   const now=ui.now??(()=>performance.now());
   let until=now()+1500, ready=false;
   do {
     const lines=plain(ui.read()).split("\n");
-    if(lines.some((line,i)=>/^\s*❯\s+\/goal\s*$/u.test(line)&&/^\s*─{8,}\s*$/u.test(lines[i-1]??"")&&/^\s*─{8,}\s*$/u.test(lines[i+1]??""))){ready=true;break;}
+    if(lines.some((line,i)=>/^\s*❯\s+/u.test(line)&&line.replace(/^\s*❯\s+/u,"").trimEnd()===command&&/^\s*─{8,}\s*$/u.test(lines[i-1]??"")&&/^\s*─{8,}\s*$/u.test(lines[i+1]??""))){ready=true;break;}
     await ui.pause(40);
   } while(now()<until);
   if(!ready)throw new Error("native_goal_status_input_unconfirmed");
   await ui.keys(["Enter"]);
-  until=now()+2000;
+}
+export async function clearClaudeGoal(ui: GoalNativeUi): Promise<void> {
+  await submitClaudeGoalCommand(ui,"/goal clear");
+  const now=ui.now??(()=>performance.now()), until=now()+1500;
+  do {
+    if(claudeGoalComposerEmpty(ui.read()))return;
+    await ui.pause(40);
+  }while(now()<until);
+  throw new Error("native_goal_clear_command_unconfirmed");
+}
+export async function readClaudeGoalDialog(sessionId: string, ui: GoalNativeUi, readRows: () => unknown[]): Promise<Pick<ClaudeGoalObservation,"current"|"history">> {
+  await submitClaudeGoalCommand(ui,"/goal");
+  const now=ui.now??(()=>performance.now());
+  let until=now()+2000;
   do {
     const observation=observeClaudeGoalDialog(ui.read(),readRows(),sessionId);
     if(observation){

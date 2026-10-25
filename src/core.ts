@@ -22,8 +22,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
-import { inspectClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
-import { readClaudeGoalDialog } from "./harnesses/claude-goal.js";
+import { manageClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
+import { readClaudeGoalDialog, clearClaudeGoal } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -5921,7 +5921,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       pause: sleep,
     };
   };
-  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => inspectClaudeAgentGoal(input, {resolve,
+  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);
       if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
@@ -5929,7 +5929,8 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       if (!file || !fs.existsSync(file)) return [];
       return readTranscriptLines(file).filter(line=>line.trim()).map(line=>JSON.parse(line));
     }),
-  }));
+    clear: target => clearClaudeGoal(goalUi(target)),
+  }, origin));
   const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {

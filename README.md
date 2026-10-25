@@ -305,6 +305,8 @@ Grokの無人起動は公式`--trust`で指定された作業フォルダを信�
 
 Grokで終了済みターンのweekly-limitパネルが残っている場合、次の通常`pty_send`が`Shift+X`で一度閉じ、入力受付を確認して今回の本文を送る。同じsessionと会話を保ち、receiptの`pane_input_recovery`に`grok_rate_limit_dialog_dismissed`を記録する。ターン未終了・harness不在は`GROK_RATE_LIMIT_RECOVERY_BLOCKED`、解除後の入力受付失敗は`GROK_RATE_LIMIT_RECOVERY_FAILED`となり、本文は未送信。上限の継続は`rate_limited`として返し、過去promptは再送しない。Grokの上限観測には現在の画面だけを使う。Claude Codeの上限は現在の画面の入力欄の下に出る知らせで、Codexの上限はturnを終えた記録（`task_complete`の`codex_error_info: "usage_limit_exceeded"`）で見分ける。pane logや道具の出力に残る上限の文字では判定しない。
 
+Grokの待機中にerror eventが先に現れた場合は、見回り一回分後に現在の上限panelを読み直す。上限が無ければ元のerrorを返し、次turnや消失したlaunchへ古いerrorを結び付けない。timeout=0の即時照会は待たず、入力やAPI要求は再送しない。
+
 When a Cursor pre-submit hook (`beforeSubmitPrompt`, or a Claude Code `UserPromptSubmit` hook that Cursor loads for compatibility) rejects the prompt, Cursor drops it and no turn or completion follows. Aiterm recognizes the rejection: an initial prompt returns `initial_prompt=failed`, and `pty_send` returns an error instead of a success receipt, both with `USER_HOOK_BLOCKED` and the hook's output. A rejection that comes after the 3-second start check is reported by the completion wait as `outcome=error` (`aiterm-wait` exit 7).
 
 A current Cursor `Error:` containing a complete JSON object with `error.code` equal to `prepaid_balance_exhausted` ends the wait as `outcome=error` with that `error_kind`, even without a new user record. Quoted diagnostic codes, malformed JSON and old errors followed by a composer or busy display do not establish this terminal. Aiterm does not resend or close the session.

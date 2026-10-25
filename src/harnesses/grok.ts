@@ -302,6 +302,7 @@ export async function observeGrokDone(
   let initializedBoundary = false;
   let turnStarted = false;
   let unacceptedSeen = 0;
+  let pendingError: { event: AgentDoneEvent; until: number } | null = null;
   const deadline = performance.now() + timeout * 1000;
   const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
   const observation = (
@@ -361,18 +362,27 @@ export async function observeGrokDone(
           }
           try {
             const record = JSON.parse(line);
-            if (record?.type === "turn_started") turnStarted = true;
+            if (record?.type === "turn_started") { turnStarted = true; pendingError = null; }
             const done = grokCompletionEvent(meta, record);
             if (done) {
               const limited = done.done_status === "turn_error"
                 ? detectRateLimit(meta.kind, meta.aiterm_session) : null;
-              return observation(limited ? "rate_limited" : done.done_status === "turn_error" ? "error" : "done", done, limited);
+              if (done.done_status === "turn_error" && !limited && timeout > 0 && performance.now() < deadline)
+                pendingError = { event: done, until: Math.min(deadline, performance.now() + AGENT_DONE_POLL_MS) };
+              else return observation(limited ? "rate_limited" : done.done_status === "turn_error" ? "error" : "done", done, limited);
             }
           } catch {
             malformedEvents++;
           }
         }
       }
+    }
+    if (pendingError) {
+      const remaining = pendingError.until - performance.now();
+      // shortcut: settle one existing poll after the error event; extend only with evidence of a longer native redraw.
+      if (remaining > 0) { await sleep(remaining); continue; }
+      const limited = detectRateLimit(meta.kind, meta.aiterm_session);
+      return observation(limited ? "rate_limited" : "error", pendingError.event, limited);
     }
     // 質問カードの確認は画面を読む（tmuxを起動する）。完了の見回りより間隔を空け、最初の周回では必ず見る。
     if (rateLimitDue()) {

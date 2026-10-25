@@ -467,6 +467,7 @@ Grokの終了済みerrorターンにweekly-limit質問カードが残る場合�
 `grokRateLimitDialog`が見出しと操作footerの組を所有し、過去logや後続UIのあるカードは採用しない。
 privacy案内は現在の枠付きcomposerとmodel footerが見える場合だけ入力受付を妨げない。
 完了観測は成功eventを優先し、今回のerror eventと現在のカードが揃えばturn情報付きの`rate_limited`を返す。
+Grokのerror eventが先に見え、上限panelがまだ無い場合、待機呼出しは既存の見回り一回分だけ後に現在panelを再確認する。上限が無ければ元のerrorを保ち、途中の次turn開始や元launch消失を再検査する。timeout=0の即時照会は待たない。遅い全描画の成功を保証せず、入力・provider要求を再送しない。
 完了の見回りは100msで、画面を読む確認（利用上限の知らせ、Cursorのhook拒否の表示）は別の間隔で行う。画面を読むたびにtmuxを1回起動するため。
 Claude・Grokは2秒、Cursorは1秒に1回で、待ちに入った最初の周回では必ず読む（ADR 0085）。
 新turnの完了前に古いlogだけで上限を返さない。購入・再認証・過去prompt再送・定期再試行は行わない。

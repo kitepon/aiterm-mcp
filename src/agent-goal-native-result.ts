@@ -42,7 +42,8 @@ export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{
     if(input.action==='clear'&&(input.objective!==undefined||input.token_budget!==undefined))return {...result,outcome:'unsupported',reason:'native_goal_field_unsupported'};
     const observed=await runtime.read(target);
     if(!sameGoalTarget(runtime.resolve(),target))return {...result,reason:'generation_replaced_after_status',readback:'failed'};
-    const ready=!!runtime.clear&&observed.current!==null&&runtime.canClear?.(target)===true;
+    const clearStatus=observed.current?.current_status;
+    const ready=!!runtime.clear&&observed.current?.native.status==='user_paused'&&clearStatus?.source==='/goal status'&&clearStatus.status==='UserPaused'&&clearStatus.phase==='Idle'&&runtime.canClear?.(target)===true;
     Object.assign(result,{binding:{session_id:target.session_id,launch_id:target.launch_id,thread_id:target.vendor_session_id},availability:'available',capabilities:{...result.capabilities,inspect:true,clear:ready},goal:observed.current,outcome:'observed',readback:'confirmed',reason:'native_goal_observed'});
     if(input.action==='inspect')return agentGoalNativeResultSchema.parse(result);
     if(observed.current===null)return {...result,outcome:'rejected',reason:'goal_missing'};

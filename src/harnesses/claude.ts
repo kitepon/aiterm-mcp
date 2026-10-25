@@ -828,34 +828,53 @@ export function claudeAuthorizationUrl(screen: string): string | null {
   return null;
 }
 
+/** One current-phase parse owns UI choices, selected item and composer occupancy. */
+export function claudeAuthInput(screen: string): Pick<AgentAuthPane, "ui" | "native_input"> {
+  const lines = screen.split("\n");
+  let phase: { kind: "theme" | "login" | "code" | "unknown"; at: number } | null = null;
+  for (const [at, line] of lines.entries()) {
+    if (line.includes("Choose the text style that looks best with your terminal")) phase = { kind: "theme", at };
+    else if (line.includes("Select login method:")) phase = { kind: "login", at };
+    else if (/^\s*(?:Paste (?:the )?code|Enter (?:the )?(?:authorization )?code)/i.test(line)) phase = { kind: "code", at };
+    else if (/Press (?:Enter|Return)|do you trust|trust this folder/i.test(line)) phase = { kind: "unknown", at };
+  }
+  if (!phase || phase.kind === "unknown") return {};
+  if (phase.kind === "code") {
+    const empty = /^(?:Paste (?:the )?code(?: here)?(?: if prompted)?|Enter (?:the )?(?:authorization )?code)\s*[:>]?\s*$/i.test(lines[phase.at].trim())
+      && lines.slice(phase.at + 1).every(line => !line.trim());
+    return { native_input: { kind: "authorization_code", empty }, ...(empty ? { ui: {
+      stage: "paste_code" as const, title: "公式ページの認証コードを入力", message: "公式ページを開いて認証し、表示されたコードをこの画面の伏せ字欄へ貼り付けてください。",
+      input: "authorization_code" as const, choices: [],
+    } } : {}) };
+  }
+  const theme = phase.kind === "theme";
+  const rows: { id: string; label: string; cursor: boolean }[] = [];
+  for (const line of lines.slice(phase.at + 1)) {
+    const match = /^\s*(❯)?\s*([1-7])\.\s*(.+?)\s*$/.exec(line);
+    if (!match) {
+      // A later composer/cursor or unrecognised numbered row is not this menu.
+      if (/^\s*❯|^\s*\d+[.)]/.test(line)) return {};
+      continue;
+    }
+    const allowed = theme ? /^(?:Auto \(match terminal\)|(?:Dark|Light) mode(?: \([^\n]+\))?)$/ : /^(?:Claude account with subscription|Anthropic Console account|3rd-party platform)$/;
+    if (!allowed.test(match[3])) return {};
+    rows.push({ id: `option-${match[2]}`, label: match[3], cursor: !!match[1] });
+  }
+  const selected = rows.filter(row => row.cursor);
+  if (!rows.length || selected.length !== 1 || new Set(rows.map(row => row.id)).size !== rows.length) return {};
+  return { native_input: { kind: "choice", selected_id: selected[0].id }, ui: {
+    stage: "select", title: theme ? "表示テーマを選ぶ" : "Claudeのログイン方法を選ぶ", message: "公式CLIに表示された選択肢を選んでください。",
+    input: "choice", choices: rows.map(({ id, label }) => ({ id, label })),
+  } };
+}
+
 export function claudeAuthPane(screen: string, onboarding = false): AgentAuthPane {
   const url = claudeAuthorizationUrl(screen);
   const input = /Paste (?:the )?code|Enter (?:the )?(?:authorization )?code|Choose the text style|Select login method:|Press (?:Enter|Return)|do you trust|trust this folder/i.test(screen);
   const complete = onboarding && (claudeTuiReady(screen) || /Is this a project you created or one you trust/.test(screen));
-  // Only an empty, current code prompt is an authorization-code input field.
-  const codePrompt = screen.split("\n").map(line => line.trim()).filter(Boolean).at(-1);
-  let ui: AgentAuthPane["ui"];
-  if (codePrompt && /^(?:Paste (?:the )?code(?: here)?(?: if prompted)?|Enter (?:the )?(?:authorization )?code)\s*[:>]?\s*$/i.test(codePrompt)) {
-    ui = { stage: "paste_code", title: "公式ページの認証コードを入力", message: "公式ページを開いて認証し、表示されたコードをこの画面の伏せ字欄へ貼り付けてください。", input: "authorization_code", choices: [] };
-  } else {
-    const themeAt = screen.lastIndexOf("Choose the text style that looks best with your terminal");
-    const loginAt = screen.lastIndexOf("Select login method:");
-    const theme = themeAt > loginAt;
-    const login = loginAt >= 0 && !theme;
-    const menu = screen.slice(Math.max(0, themeAt, loginAt));
-    const rows = menu.split("\n").flatMap(line => {
-      const match = /^\s*(❯)?\s*([1-7])\.\s*(.+?)\s*$/.exec(line);
-      if (!match) return [];
-      const label = match[3];
-      const allowed = theme ? /^(?:Auto \(match terminal\)|(?:Dark|Light) mode(?: \([^\n]+\))?)$/ : /^(?:Claude account with subscription|Anthropic Console account|3rd-party platform)$/;
-      return allowed.test(label) ? [{ id: `option-${match[2]}`, label }] : [];
-    });
-    if ((theme || login) && rows.length && new Set(rows.map(row => row.id)).size === rows.length)
-      ui = { stage: "select", title: theme ? "表示テーマを選ぶ" : "Claudeのログイン方法を選ぶ", message: "公式CLIに表示された選択肢を選んでください。", input: "choice", choices: rows };
-  }
   return { url, user_code: null, input_required: input && !complete,
     message: complete ? null : input ? "Claude Codeの公式画面で入力または初回案内の選択を完了してください。" : null,
-    onboarding_complete: complete, ui };
+    onboarding_complete: complete, ...(complete ? {} : claudeAuthInput(screen)) };
 }
 
 // ---- ファスト。Claude Codeの `/fast on`・`/fast off` は、結果を1行で返す（2.1.296）。

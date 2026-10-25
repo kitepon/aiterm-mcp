@@ -27,6 +27,8 @@ export interface AgentAuthStatus {
 }
 
 export interface AgentAuthPane {
+  /** Current harness-owned input parse. Never expose terminal cursor parsing to core. */
+  native_input?: { kind: "choice"; selected_id: string } | { kind: "authorization_code"; empty: boolean };
   ui?: AuthPaneUi;
   url: string | null;
   user_code: string | null;

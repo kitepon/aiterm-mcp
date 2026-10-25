@@ -2,6 +2,8 @@
 
 ## Unreleased — authentication UI and dedicated response
 
+- Fix CURRENT-MENU-1: parse the current Claude auth phase, choices, cursor and occupied code field together; navigation consumes that same parse and rejects stale menus before keys.
+
 - Add typed native auth stages and generation-bound `agent_auth respond`; keep existing receipt fields. Authorization codes bypass lastcmd, normal turns and pane logs. Legacy launch UUIDs remain missing rather than synthesized.
 - Distinguish explicit Claude code/choice prompts, official device/browser stages, and unavailable input. Windows secret input remains unavailable until foreground ownership is accepted.
 

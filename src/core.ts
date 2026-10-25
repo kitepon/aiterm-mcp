@@ -5073,12 +5073,12 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
         const screen = stripControl(captureScreen(name, 0));
         pane = authPane(meta, screen);
         if (authPromptDigest(pane) !== options.expected_prompt_digest || !pane.ui?.choices.some(choice => choice.id === answer.id)) throw new Error("native choice changed");
-        const current = /^\s*❯\s*([1-7])\./m.exec(screen)?.[1];
+        const current = pane.native_input?.kind === "choice" ? pane.native_input.selected_id : null;
         if (!current) throw new Error("native selection unknown");
         issued = true;
-        if (tmux("send-keys", "-t", binding.pane_id, `option-${current}` === answer.id ? "Enter" : "Down").code !== 0)
+        if (tmux("send-keys", "-t", binding.pane_id, current === answer.id ? "Enter" : "Down").code !== 0)
           throw new Error("native choice unconfirmed");
-        if (`option-${current}` === answer.id) break;
+        if (current === answer.id) break;
         if (step === 7) throw new Error("native choice unconfirmed");
         await sleep(80);
       }

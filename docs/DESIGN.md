@@ -504,3 +504,6 @@ Claude authentication URL receipts recognize the official claude.com/cai/oauth/a
 `agent-auth-ui.ts`が既v1 receiptに追加する`auth_ui`とrespondの型を所有する。Native harnessが公式URL・device code・空code欄・現在のラベル付き選択肢を識別し、Rootはキー列を作らない。不明な入力段階はunavailable。coreが既auth metadataのdev/ino/作成・更新時刻、native session/pane/server/PID開始識別を照合する。legacyのlaunch UUID欠測はnullのまま扱い、無関係なflowをadoptしない。新startは既launch_id欄を必ず設定する。
 
 respondは既session send lock内で現在の空欄/段階と世代を再検証し、専用auth paneのpipe loggingを入力前に停止する。新auth paneは公式CLI起動前にloggingを停止する。通常send・lastcmd・mark・turn・journalを通さず、POSIX tmux load-bufferへstdinで送り、immutable pane IDへpaste/Enterを一回送る。secretはargv/fileへ渡さずbufferを消す。CLIの独自資格保存はCLI所有で、Aitermの非保存保証とは区別する。入力前の拒否はnot_issued、入力開始後の所有/結果欠測はunknown。元画面へ勝手に戻す・再送する回復はしない。Windowsは既psmux送信だけで前面所有を証明できないため専用respondを未対応として拒否する。macOSはPOSIX経路のsource実装であり実OS受入は別gate。
+
+
+Claude authのcurrent menuはharnessの単一parseがphase/rows/selected/入力占有を所有する。古いthemeと新loginが同viewportに残っても最後の現在phaseだけを採り、coreはそのselected_idでnavigateする。code欄が現在phaseならoccupied状態から古いmenu UIへ戻さない。cursor欠測/複数cursor/未知row/後続の未知promptは入力前拒否。Native内部の入力観測は公開auth_uiへ直接返さず、公開schemaを拡張しない。

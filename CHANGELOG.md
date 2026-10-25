@@ -1,18 +1,18 @@
 # Changelog
 
-## Unreleased — authentication UI and dedicated response
-
-- Fix CURRENT-MENU-1: parse the current Claude auth phase, choices, cursor and occupied code field together; navigation consumes that same parse and rejects stale menus before keys.
-
-- Add typed native auth stages and generation-bound `agent_auth respond`; keep existing receipt fields. Authorization codes bypass lastcmd, normal turns and pane logs. Legacy launch UUIDs remain missing rather than synthesized.
-- Distinguish explicit Claude code/choice prompts, official device/browser stages, and unavailable input. Windows secret input remains unavailable until foreground ownership is accepted.
-
 All notable changes to **aiterm-mcp** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.61.18] - 2026-10-25
+
+- Fix CURRENT-MENU-1: parse the current Claude auth phase, choices, cursor and occupied code field together; navigation consumes that same parse and rejects stale menus before keys.
+
+- Add typed native auth stages and generation-bound `agent_auth respond`; keep existing receipt fields. Authorization codes bypass lastcmd, normal turns and pane logs. Legacy launch UUIDs remain missing rather than synthesized.
+- Distinguish explicit Claude code/choice prompts, official device/browser stages, and unavailable input. Windows secret input remains unavailable until foreground ownership is accepted.
 
 ## [0.61.17] - 2026-10-24
 
@@ -2868,7 +2868,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.17...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...HEAD
+[0.61.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.17...v0.61.18
 [0.61.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.16...v0.61.17
 [0.61.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.15...v0.61.16
 [0.61.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.14...v0.61.15

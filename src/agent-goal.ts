@@ -37,7 +37,7 @@ export const nativeGoalSchema = z.object({
 export type NativeGoal = z.infer<typeof nativeGoalSchema>;
 const goalFieldCapabilitiesSchema = z.object({
   create: z.object({ objective: z.boolean(), token_budget: z.boolean() }).strict(),
-  edit: z.object({ objective: z.boolean(), token_budget: z.boolean() }).strict(),
+  edit: z.object({ objective: z.boolean(), token_budget: z.boolean(), combined: z.boolean().optional() }).strict(),
 }).strict();
 export const agentGoalResultSchema = z.object({
   schema: z.literal("aiterm.agent-goal-result.v1"),
@@ -66,6 +66,10 @@ export type GoalFieldCapabilities = z.infer<typeof goalFieldCapabilitiesSchema>;
 export type GoalConnectionRun<T> = (request: GoalRequest, supported?: GoalCapabilities, fields?: GoalFieldCapabilities) => Promise<T>;
 export class AgentGoalConnectionError extends Error {
   constructor(readonly availability: "unsupported" | "unavailable", readonly reason: string) { super(reason); }
+}
+/** Raised only by a trusted input owner that proved no goal submission. */
+export class AgentGoalNotIssuedError extends Error {
+  constructor(readonly reason: string, readonly outcome: "rejected" | "unsupported" = "rejected") { super(reason); }
 }
 export interface AgentGoalRuntime {
   // Both functions come from the serving runtime, never from tool arguments.
@@ -120,7 +124,9 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       if (input.action === "create" || input.action === "edit") {
         const supportedFields = result.field_capabilities[input.action];
         if ((input.objective !== undefined && !supportedFields.objective)
-          || (input.token_budget !== undefined && !supportedFields.token_budget))
+          || (input.token_budget !== undefined && !supportedFields.token_budget)
+          || (input.action === "edit" && input.objective !== undefined && input.token_budget !== undefined
+            && result.field_capabilities.edit.combined === false))
           return { ...result, outcome: "unsupported", reason: "native_goal_field_unsupported" };
       }
       // The host may establish user provenance at authenticated UI ingress.
@@ -141,7 +147,21 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       issued = true;
       delete result.goal;
       result.readback = "not_attempted";
-      const response = await request(method, params);
+      let response: unknown;
+      try { response = await request(method, params); }
+      catch (error) {
+        if (!(error instanceof AgentGoalNotIssuedError)) throw error;
+        issued = false;
+        result.mutation = "not_issued";
+        // UI preparation may have taken time. Do not restore a stale snapshot.
+        try {
+          const current = await read();
+          if (!same()) throw new Error("generation_replaced");
+          return { ...result, goal: current, outcome: error.outcome, readback: "confirmed", reason: error.reason };
+        } catch {
+          return { ...result, outcome: error.outcome, readback: "failed", reason: error.reason };
+        }
+      }
       if (input.action === "clear") z.object({ cleared: z.boolean() }).parse(response);
       else {
         const ack = z.object({ goal: nativeGoalSchema }).parse(response);

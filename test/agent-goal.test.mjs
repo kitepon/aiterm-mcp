@@ -104,3 +104,13 @@ test('cross-thread and malformed native replies never enable mutation',async()=>
   const result=await f.run('clear');assert.equal(result.outcome,'unavailable');assert.equal(result.mutation,'not_issued');
  }
 });
+test('proven no-submission input refusal reads fresh native state',async()=>{
+ const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');
+ const f=fixture();let reads=0;
+ f.runtime.connect=async(_target,run)=>run(async method=>{
+  if(method==='thread/goal/get')return {goal:++reads===1?goal():{...goal(),objective:'Concurrent native change'}};
+  throw new AgentGoalNotIssuedError('goal_input_not_empty_or_ready');
+ });
+ const r=await f.run('clear');assert.equal(r.mutation,'not_issued');assert.equal(r.outcome,'rejected');
+ assert.equal(r.readback,'confirmed');assert.equal(r.goal.objective,'Concurrent native change');assert.equal(reads,2);
+});

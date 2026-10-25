@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
+import { editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
@@ -5859,6 +5860,20 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, executable: meta.agent_executable,
       native_process: observed.harness_process };
   };
+  const goalUi = (target: GoalTarget): CodexGoalUi => {
+    const check = () => {
+      const current = resolve();
+      if (!current || current.vendor_session_id !== target.vendor_session_id
+        || JSON.stringify(current.native_process) !== JSON.stringify(target.native_process))
+        throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    };
+    return {
+      read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
+      async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true }); }); },
+      async keys(keys) { await withExecutionNativeAdmission(input.session_id, () => { check(); const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
+      pause: sleep,
+    };
+  };
   const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {
@@ -5870,15 +5885,8 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       });
       return request(method, params);
     });
-  }, supported, fields), async command => {
-    const current = resolve(), meta = tryLoadAgentMetadata(input.session_id);
-    if (!current || !meta || current.vendor_session_id !== target.vendor_session_id || current.launch_id !== target.launch_id)
-      throw new ExecutionError("EXECUTION_STALE_GENERATION");
-    await submitAgentComposerText(input.session_id, "codex", "/goal " + command, {
-      force: true, preserveAgentOperation: true, admission: "native", subject: "goal control",
-      checkInput: started => assertAgentSendHarness(input.session_id, meta, started),
-    });
-  }) }, origin);
+  }, supported, fields), command => submitCodexGoalCommand(goalUi(target), command),
+  (before, objective) => editCodexGoalObjective(goalUi(target), before, objective)) }, origin);
   return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
 }
 

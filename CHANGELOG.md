@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Goal results expose optional field capabilities. Ordinary embedded Codex supports budget-only edits through the official service; unsupported objective or mixed edits issue no mutation.
 
+- Ordinary Codex objective-only edits use its native editor with literal reserved/multiline input, draft preservation, and fresh readback on proven no-submission refusals. Field capabilities distinguish independent fields from combined edits; file-backed objectives and combined edits remain disabled.
+
 ### Fixed
 
 - Goal creation requires its requested active status to match the native readback; concurrent native status changes retain the observed state and an unknown result.

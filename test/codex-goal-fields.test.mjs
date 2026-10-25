@@ -21,7 +21,7 @@ function state(){return {calls:[],keys:[],goal:structuredClone(original),fail:fa
 test('ordinary inspection advertises edit fields without promising objective or create',async()=>{
  const f=state();const r=await run(f,'inspect');
  assert.equal(r.capabilities.edit,true);assert.equal(r.capabilities.create,false);
- assert.deepEqual(r.field_capabilities,{create:{objective:false,token_budget:false},edit:{objective:false,token_budget:true}});
+ assert.deepEqual(r.field_capabilities,{create:{objective:false,token_budget:false},edit:{objective:false,token_budget:true,combined:false}});
  assert.deepEqual(f.calls.map(c=>c.method),['thread/goal/get']);
 });
 test('budget-only edit uses official service once, preserves usage and reads back',async()=>{
@@ -54,4 +54,14 @@ test('ordinary request adapter rejects cross-thread, automatic, and combined wri
    await assert.rejects(request('thread/goal/set',params));
  });
  assert.equal(calls.length,0);
+});
+test('individually supported objective and budget fields do not imply a combined edit',async()=>{
+ const calls=[];let editorCalls=0;
+ const runtime={resolve:()=>target,connect:(_target,run)=>withOrdinaryCodexGoal(async(method,params)=>{
+  calls.push({method,params});assert.equal(method,'thread/goal/get');return {goal:original};
+ },thread,run,undefined,async()=>{editorCalls++;})};
+ const r=await manageAgentGoal({session_id:target.session_id,launch_id:target.launch_id,action:'edit',objective:'Changed',token_budget:100},runtime,'user');
+ assert.deepEqual(r.field_capabilities.edit,{objective:true,token_budget:true,combined:false});
+ assert.equal(r.reason,'native_goal_field_unsupported');assert.equal(r.mutation,'not_issued');
+ assert.equal(calls.length,1);assert.equal(editorCalls,0);
 });

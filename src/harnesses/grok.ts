@@ -382,6 +382,11 @@ export async function observeGrokDone(
       // shortcut: settle one existing poll after the error event; extend only with evidence of a longer native redraw.
       if (remaining > 0) { await sleep(remaining); continue; }
       const limited = detectRateLimit(meta.kind, meta.aiterm_session);
+      if (!fs.existsSync(metadataFile)) return observation("closed");
+      if (safeStatSize(transcript) !== cursor) {
+        if (performance.now() >= deadline) return observation("timeout");
+        continue;
+      }
       return observation(limited ? "rate_limited" : "error", pendingError.event, limited);
     }
     // 質問カードの確認は画面を読む（tmuxを起動する）。完了の見回りより間隔を空け、最初の周回では必ず見る。

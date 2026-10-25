@@ -49,3 +49,22 @@ test('removing the original launch during panel settlement returns closed',()=>f
  let reads=0;const result=await grok.observeGrokDone(meta,1,0,()=>{if(++reads===1)queueMicrotask(()=>fs.rmSync(metadata));return null;});
  assert.equal(result.outcome,'closed');assert.equal(reads,1);
 }));
+
+test('new turn recorded while the fresh panel read is in flight invalidates the old error',()=>fixture(async({meta,transcript})=>{
+ let reads=0;
+ const result=await grok.observeGrokDone(meta,0.15,0,()=>{
+  if(++reads===2){fs.appendFileSync(transcript,'{"type":"turn_started","turn_number":2}\n');return message;}
+  return null;
+ });
+ console.log(JSON.stringify({case:'new turn during fresh panel callback',reads,result}));
+ assert.equal(result.outcome,'timeout');assert.equal(result.turn_id,null);
+}));
+test('original launch removed while the fresh panel read is in flight stays closed',()=>fixture(async({meta,metadata})=>{
+ let reads=0;
+ const result=await grok.observeGrokDone(meta,1,0,()=>{
+  if(++reads===2){fs.rmSync(metadata);return message;}
+  return null;
+ });
+ console.log(JSON.stringify({case:'launch removed during fresh panel callback',reads,result}));
+ assert.equal(result.outcome,'closed');
+}));

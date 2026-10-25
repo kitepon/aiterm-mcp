@@ -298,6 +298,8 @@ export async function observeCursorDone(
     // 最初の周回では必ず読む（timeout=0の照会も1回は読む）。
     if (screenDue()) {
       const screen = readScreen(meta.aiterm_session);
+      const providerFailure = cursorProviderFailure(screen);
+      if (providerFailure) return observation("error", null, null, providerFailure.message, providerFailure.kind);
       const limited = cursorUsageLimit(screen)?.message ?? null;
       if (limited) return observation("rate_limited", null, limited);
       // 拒否されたpromptのturnは始まらず、完了も来ない。拒否の表示は数秒で消えるので、見えている間に終わらせる。
@@ -637,6 +639,22 @@ export function cursorTuiReady(screen: string): boolean {
   return /Cursor Agent/i.test(screen) && CURSOR_COMPOSER_MARKER_RE.test(screen);
 }
 
+/** Current official billing refusal, not an idle/completed turn or an authentication error. */
+export function cursorProviderFailure(screen: string): { kind: "prepaid_balance_exhausted"; message: string } | null {
+  const clean = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  const heading = [...clean.matchAll(/^[ \t]*Error:[ \t]*[^\n]*/gim)].at(-1);
+  if (!heading) return null;
+  const current = clean.slice(heading.index!);
+  const after = clean.slice(heading.index! + heading[0].length);
+  if (cursorTuiBusy(after) || CURSOR_FOLLOWUP_MARKER_RE.test(after) || CURSOR_START_PROMPT_MARKER_RE.test(after)
+    || after.split("\n").some(line => CURSOR_COMPOSER_CONTENT_MARKER_RE.test(line))) return null;
+  try {
+    const payload = JSON.parse(current.slice(current.indexOf(":") + 1).trim());
+    if (payload?.error?.code !== "prepaid_balance_exhausted") return null;
+  } catch { return null; }
+  return { kind: "prepaid_balance_exhausted", message: "Cursor: prepaid_balance_exhausted" };
+}
+
 // 利用上限に達したCursorは、入力欄も戻さずに説明を出して止まる（2026.09.26-dd393fe、macOSで実測）。
 // transcriptには、user turnを残さずにturn_ended（status "error"）だけを書く事がある（実記録で8件）。その時は完了の条件
 // （user turnが増えている）に当たらないので、画面で見る。user turnがある時は、完了待ちが記録から読む（cursorTurnError）。
@@ -693,6 +711,8 @@ export function cursorPromptHooksRunning(screen: string): boolean {
 
 export function cursorPaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
+  const providerFailure = cursorProviderFailure(tail);
+  if (providerFailure) return { state: "blocked", reason: providerFailure.kind, detail: providerFailure.message };
   if (cursorUsageLimit(tail)) return { state: "blocked", reason: "rate_limited" };
   const hookBlocked = cursorHookBlocked(tail);
   if (hookBlocked) return { state: "blocked", reason: "user_hook_blocked", detail: hookBlocked.message };

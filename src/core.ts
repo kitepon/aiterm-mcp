@@ -5124,12 +5124,20 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
     if (error instanceof AitermError) throw new AuthResponseError(/^AGENT_AUTH_[A-Z_]+/.exec(error.message)?.[0] ?? "AGENT_AUTH_RESPONSE_NOT_ISSUED", "not_issued", error.message);
     throw new AuthResponseError("AGENT_AUTH_RESPONSE_NOT_ISSUED", "not_issued", "入力を送信できません。");
   } finally { release(); }
-  await sleep(100);
   try {
-    const result = await authenticateAgent(kind, { action: "status", session_id: name });
-    if (result.auth_ui?.input === "authorization_code" && response.data.kind === "authorization_code")
-      throw new Error("native input consumption unconfirmed");
-    return result;
+    const deadline = performance.now() + 3000;
+    do {
+      await sleep(100);
+      const current = loadAuthMetadata(name, kind);
+      const stat = fs.lstatSync(authMetadataPath(name));
+      if (!current || (current.launch_id ?? null) !== expected.data.launch_id
+        || !expected.data.metadata_identity.startsWith(`${stat.dev}:${stat.ino}:${stat.birthtimeMs}:`))
+        throw new Error("native authentication generation changed");
+      const result = await authenticateAgent(kind, { action: "status", session_id: name });
+      if (result.auth_ui?.input !== "authorization_code" || response.data.kind !== "authorization_code") return result;
+      // Native input and its redraw are asynchronous; observe without submitting again.
+    } while (performance.now() < deadline);
+    throw new Error("native input consumption unconfirmed");
   } catch { throw new AuthResponseError("AGENT_AUTH_RESPONSE_UNKNOWN", "unknown", "入力後の状態を確認できません。自動再送しないでください。"); }
 }
 

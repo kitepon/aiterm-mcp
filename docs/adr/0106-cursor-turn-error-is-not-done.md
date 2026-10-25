@@ -48,3 +48,12 @@ Cursorは、turnが誤りで終わると、記録（agent transcript）の`turn_
 - `test/cursor-agent.test.mjs`: 実物の4種類の文で、`error`と種類、`rate_limited`と文、止めたturnの`done`が返る事。
   誤りで終わった後の次のturnが`done`で返る事。文の整え方（改行、URL、長さ、文が無い時）。
 - 普通のturnは、3台の実物のCursorの席で、起動から完了まで流す。
+
+
+## 2026-10-25 追加: prepaid拒否の画面
+
+現在のError blockに公式machine code `prepaid_balance_exhausted`がある場合、user recordの増加が無くてもerror/error_kindを返す。次のcomposer/ctrl+c to stopが後続する旧表示は採用しない。Rootの通常waitUntilDoneがerrorを受けてjob completionを終えれば、idleを待つ後続の構成変更を進められる。これはprovider残高の解消や、実席のrestartを行うものではない。Codexの429再接続中は現在のbusy/非終端を維持する。
+
+今回の実Frのstop EXECUTION_UNCONFIRMEDには旧Native source/version/effectのexact結合が未収集。Ctrl+Cを送らない非busy保全を一律に緩めず、このstop失敗の原因確定/必要修理は別に保持する。新fixtureは報告machine codeを使う人工形式であり、旧実画面のexact excerptは未所持。実Bot/currentflow/資格/追加close操作0。
+
+現在Error以降の完全なJSONを読み、error.codeが一致する場合だけ終端にする。別errorの診断文中のcodeや壊れたJSONは確認済みのprovider拒否にしない。表示の折返し・付加文でJSONが確定できない場合も未確認を保持する。

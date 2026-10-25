@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Observe authorization-code redraws for up to three seconds after a single native submission. Preserve unknown outcomes at the deadline or on generation replacement, without resubmitting or claiming authentication success.
+- Recognize a current Cursor `prepaid_balance_exhausted` provider refusal without a new transcript user record as typed error only from a complete current error JSON object. Quoted diagnostic codes, malformed JSON, resumed composers and Codex 429 retries remain nonterminal; do not retry, close, or change credentials.
+
 ## [0.61.20] - 2026-10-26
 
 - Clear an existing UserPaused/Idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.

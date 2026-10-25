@@ -440,6 +440,7 @@ Codexが書いた種類は`error_kind`で返す。失敗を空の回答の完了
 Cursorは、誤りで終わったturnを、記録の`turn_ended`へ`status: "error"`と文で書く。完了待ちは、利用上限の文を`rate_limited`、
 席で止めたturn（`User aborted request`）を今までどおり`done`、ほかを`error`で返す。`error`は1行の文、文の頭の角括弧の名前は
 `error_kind`で返す（ADR 0106）。判定と文の整え方は`src/harnesses/cursor.ts`が所有する。
+Cursorの現在Error表示も同じharnessで解析し、完全なJSONの`error.code`が`prepaid_balance_exhausted`ならuser記録を待たずerrorへ進める。説明文のcodeや壊れたJSON、後続composer/busyを持つ旧表示は採用しない。stopの非busy保全は変更しない。
 
 Grokのread-only sandbox起動拒否は、`src/harnesses/grok.ts`の
 `assertGrokSandboxNotRejected`がCLIのエラー表示から検出する。`src/core.ts`の共通入力受付待機は
@@ -510,6 +511,8 @@ respondは既session send lock内で現在の空欄/段階と世代を再検証�
 
 
 Claude authのcurrent menuはharnessの単一parseがphase/rows/selected/入力占有を所有する。古いthemeと新loginが同viewportに残っても最後の現在phaseだけを採り、coreはそのselected_idでnavigateする。code欄が現在phaseならoccupied状態から古いmenu UIへ戻さない。cursor欠測/複数cursor/未知row/後続の未知promptは入力前拒否。Native内部の入力観測は公開auth_uiへ直接返さず、公開schemaを拡張しない。
+
+Authorization-code readback observes the same metadata generation for up to three seconds after one submission. A later redraw may establish a waiting or other recognized stage; it does not establish authenticated status by itself. An unchanged code prompt, replaced metadata generation or failed readback retains unknown without another input.
 
 ## CLI-owned goal adapter
 

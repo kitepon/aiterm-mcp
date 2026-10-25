@@ -307,6 +307,8 @@ Grokで終了済みターンのweekly-limitパネルが残っている場合、�
 
 When a Cursor pre-submit hook (`beforeSubmitPrompt`, or a Claude Code `UserPromptSubmit` hook that Cursor loads for compatibility) rejects the prompt, Cursor drops it and no turn or completion follows. Aiterm recognizes the rejection: an initial prompt returns `initial_prompt=failed`, and `pty_send` returns an error instead of a success receipt, both with `USER_HOOK_BLOCKED` and the hook's output. A rejection that comes after the 3-second start check is reported by the completion wait as `outcome=error` (`aiterm-wait` exit 7).
 
+A current Cursor `Error:` containing a complete JSON object with `error.code` equal to `prepaid_balance_exhausted` ends the wait as `outcome=error` with that `error_kind`, even without a new user record. Quoted diagnostic codes, malformed JSON and old errors followed by a composer or busy display do not establish this terminal. Aiterm does not resend or close the session.
+
 Grokがread-only sandboxの適用を拒否した場合、prompt送信時に`GROK_SANDBOX_STARTUP_FAILED`とCLIの原因を返す。hookパスのシンボリックリンクなど、CLIが示した原因を設定の管理元で修正し、対象sessionを`pty_close`して起動し直す。Aitermはsandboxを解除したりhookをコピーしたりしない。
 
 この判定はGrok専用アダプターが所有する。初回prompt付きの`agent_launch`と通常の`pty_send`で、入力受付待ち中に拒否を検出すると未送信のエラーを返す。promptなし・`trust_project`指定なしの起動応答は入力受付を保証しない。`trust_project:true`では入力受付まで確認し、`startup.status`を返す。Grokのprivacy notice起動設定も同アダプターが所有する。実装の責務分担は[DESIGN](docs/DESIGN.md#failure-and-recovery)を参照。
@@ -683,6 +685,8 @@ Claude Codeの席では、`/model`の選ぶ画面の`s`（use this session only�
 `agent_auth({ harness, action:"start"|"status"|"cancel"|"respond", session_id?, cwd?, env_vars?, relogin?, expected_binding?, response? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
 
 認証UIは追加の`auth_ui`を使う。`stage`は`open_url` / `device_code` / `paste_code` / `select` / `waiting` / `complete` / `failed` / `unavailable`。公式URL・表示code・具体的な選択ラベル・入力種別をNativeが返し、`input_required`だけから入力内容や端末キーを推測しない。`respond`は直近の`auth_ui.binding`を`expected_binding`へ渡し、`expected_prompt_digest`には同じ`auth_ui.prompt_digest`を渡す。`response:{kind:"authorization_code",value}`または`{kind:"choice",id}`を同じ認証flowへ送る。認証コードを`pty_send`へ渡さない。専用入力はlastcmd・通常turn・paneログ・argv・一時fileへコードを保存せず、CLIの画面echoもpaneログへ保存しない。未発行と入力後不明は構造化errorの`effect:not_issued|unknown`で区別し、自動再送しない。legacy flowの`launch_id:null`は実native識別情報で照合し、UUIDを補わない。Windowsの専用入力は前面所有確認が未受入のため`not_issued`で拒否する。
+
+コード入力後は同じ認証世代の状態を最大3秒確認する。画面更新後のwaitingは処理待ちで、認証成功を意味しない。入力待ちが変わらない・世代が変わる・状態を読めない場合はunknownを保ち、入力を再送しない。
 
 
 `start`は、公式の状態が認証済みなら何も起こさず`authenticated`（`session_id:null`）を返す。`relogin:true`を付けると、認証済みに見えても公式ログインを開始し、`session_id`付きの結果を返す。別のアカウントへ入り直す時と、ログインの期限切れを状態から見抜けない時に使う。Aitermは資格情報を消さず、置き換えは公式CLIが行う。ただし、公式CLIがログインを始めた時点で元のログインを消す事がある（Codex 0.160.0の`codex login --device-auth`は、始めた時点で`auth.json`を消す。途中で`cancel`しても戻らない）。Claude CodeとCursorは、途中で`cancel`すれば元の資格情報が残る（無効な資格情報で確認）。

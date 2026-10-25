@@ -263,6 +263,7 @@ ClaudeがAPIエラーや安全判定の拒否で終了した時は、Stop hook�
 
 Codexがサービスの誤りや通信の失敗でturnを打ち切った時は、完了待ちが`done`ではなく`error`を返す（`aiterm-wait`はexit 7、親への配送は`outcome=error`）。`error`は応答の本文とURLを落とした1行の文で、Codexが記録した種類（`internal_server_error`・`http_connection_failed`など）は`error_kind`に載る。利用上限は今までどおり`rate_limited`。誤りで終わった後の席は、次の`pty_send`を新しいturnとして受ける。
 Cursorが誤りでturnを終えた時（記録の`turn_ended`が`status: "error"`）も同じで、完了待ちは`error`を返し、文の頭の角括弧の名前（`unavailable`など）を`error_kind`に載せる。利用上限の文は`rate_limited`、席で止めたturn（`User aborted request`）は今までどおり`done`。
+現在の`Error:`以降が完全なJSONで、`error.code`が`prepaid_balance_exhausted`なら、新しいuser記録が無くても同じ種類の`error`を返す。説明文中のcode、壊れたJSON、後続の入力欄や実行中表示がある旧エラーでは終端にしない。自動再送や席の閉鎖は行わない。
 
 agent配送だけを期待する連携では、`pty_send`に`require_agent:true`を指定する。agent登録が無ければ、打鍵前に`AGENT_SESSION_REQUIRED`と「文字列は送信していません」を返す。省略時は通常PTY送信を維持する。`force:true`との併用は未送信で拒否する。
 
@@ -639,6 +640,8 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 `agent_auth({ harness, action:"start"|"status"|"cancel"|"respond", session_id?, cwd?, env_vars?, relogin?, expected_binding?, response? })`は、各harnessの公式CLIで認証を進める。Claudeは`claude auth login`、CodexとGrokは`login --device-auth`、Cursorは`NO_OPEN_BROWSER=1 cursor-agent login`を使い、資格情報は各CLIだけが保存する。Aitermは資格情報を読取り・copy・編集せず、独自OAuthも実装しない。`remote`は他toolと同じ標準対応。
 
 認証UIは追加の`auth_ui`を使う。`stage`は`open_url` / `device_code` / `paste_code` / `select` / `waiting` / `complete` / `failed` / `unavailable`。公式URL・表示code・具体的な選択ラベル・入力種別をNativeが返し、`input_required`だけから入力内容や端末キーを推測しない。`respond`は直近の`auth_ui.binding`を`expected_binding`へ渡し、`expected_prompt_digest`には同じ`auth_ui.prompt_digest`を渡す。`response:{kind:"authorization_code",value}`または`{kind:"choice",id}`を同じ認証flowへ送る。認証コードを`pty_send`へ渡さない。専用入力はlastcmd・通常turn・paneログ・argv・一時fileへコードを保存せず、CLIの画面echoもpaneログへ保存しない。未発行と入力後不明は構造化errorの`effect:not_issued|unknown`で区別し、自動再送しない。legacy flowの`launch_id:null`は実native識別情報で照合し、UUIDを補わない。Windowsの専用入力は前面所有確認が未受入のため`not_issued`で拒否する。
+
+コード入力後は同じ認証世代の状態を最大3秒確認する。画面更新後のwaitingは処理待ちで、認証成功を意味しない。入力待ちが変わらない・世代が変わる・状態を読めない場合はunknownを保ち、入力を再送しない。
 
 
 `start`は、公式の状態が認証済みなら何も起こさず`authenticated`（`session_id:null`）を返す。`relogin:true`を付けると、認証済みに見えても公式ログインを開始し、`session_id`付きの結果を返す。別のアカウントへ入り直す時と、ログインの期限切れを状態から見抜けない時に使う。Aitermは資格情報を消さず、置き換えは公式CLIが行う。ただし、公式CLIがログインを始めた時点で元のログインを消す事がある（Codex 0.160.0の`codex login --device-auth`は、始めた時点で`auth.json`を消す。途中で`cancel`しても戻らない）。Claude CodeとCursorは、途中で`cancel`すれば元の資格情報が残る（無効な資格情報で確認）。

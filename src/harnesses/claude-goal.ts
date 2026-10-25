@@ -85,15 +85,29 @@ export async function readFreshClaudeGoal(nativeSessionId: string, port: ClaudeG
   throw new Error("native_goal_fresh_status_unavailable");
 }
 
-import type { GoalNativeUi } from "../agent-goal-ui.js";
+import { nativeGoalStyledRows, type GoalNativeUi } from "../agent-goal-ui.js";
 import { AgentGoalNotIssuedError } from "../agent-goal.js";
 function plain(screen: string): string { return screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, ""); }
-export function claudeGoalComposerEmpty(screen: string): boolean {
+export function claudeGoalComposer(screen: string): { text: string; columns: number; rows: number } | null {
   const lines = plain(screen).split("\n");
-  let at = lines.length - 1;
-  while (at >= 0 && !/^\s*❯/u.test(lines[at])) at--;
-  return at > 0 && /^\s*─{8,}\s*$/u.test(lines[at - 1]) && /^\s*❯\s*$/u.test(lines[at])
-    && /^\s*─{8,}\s*$/u.test(lines[at + 1] ?? "");
+  let at=lines.length-1;
+  while(at>=0&&!/^\s*❯/u.test(lines[at]))at--;
+  const rule=/^\s*─{8,}\s*$/u;
+  if(at<1||!rule.test(lines[at-1]))return null;
+  const end=lines.findIndex((line,i)=>i>at&&rule.test(line));
+  if(end<0)return null;
+  const first=/^\s*❯[ \u00a0]?(.*)$/u.exec(lines[at]);
+  if(!first)return null;
+  const continuation=lines.slice(at+1,end);
+  if(continuation.some(line=>!line.startsWith("  ")))return null;
+  const prefix=/^\s*❯[ \u00a0]?/u.exec(lines[at])![0];
+  const styled=nativeGoalStyledRows(screen)[at]?.slice([...prefix].length).filter(cell=>cell.text.trim())??[];
+  const placeholder=continuation.length===0&&first[1].trimEnd()==="Press up to edit queued messages"
+    &&styled.length>0&&styled.some(cell=>cell.dim)&&styled.every(cell=>cell.dim||cell.inverse);
+  return {text:placeholder?"":[first[1].trimEnd(),...continuation.map(line=>line.slice(2).trimEnd())].join("\n"),columns:lines[at-1].trim().length,rows:lines.length};
+}
+export function claudeGoalComposerEmpty(screen: string): boolean {
+  return claudeGoalComposer(screen)?.text==="";
 }
 export function observeClaudeGoalDialog(screen: string, rows: unknown[], sessionId: string): Pick<ClaudeGoalObservation,"current"|"history"> | null {
   const lines = plain(screen).split("\n").map(line => line.trim());
@@ -122,21 +136,44 @@ export function observeClaudeGoalDialog(screen: string, rows: unknown[], session
   const body = lines.slice(header + 1,end).filter(Boolean);
   // Wrapped/truncated conditions are not a canonical match. Keep the native
   // original and refuse this viewport rather than inventing a normalized goal.
-  if (body.length !== 2 || !/^running .+ · .+ tokens$/u.test(body[0]) || body[1] !== "Goal: " + current.condition) return null;
+  const conditionLines=current.condition.split("\n");
+  // Exact native newlines are supported; no guessed wrapping/whitespace.
+  if(conditionLines.some(line=>!line||line!==line.trim()))return null;
+  if (!/^running .+ · .+ tokens$/u.test(body[0]) || JSON.stringify(body.slice(1)) !== JSON.stringify(["Goal: "+conditionLines[0],...conditionLines.slice(1)])) return null;
   return {current:{kind:"claude-code",phase:"active",native:{...current,met:false}},...(history?{history}:{})};
 }
-export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: "/goal" | "/goal clear"): Promise<void> {
+export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: "/goal" | `/goal ${string}`): Promise<void> {
   if (!claudeGoalComposerEmpty(ui.read())) throw new AgentGoalNotIssuedError("goal_input_not_empty_or_ready");
   await ui.paste(command);
   const now=ui.now??(()=>performance.now());
   let until=now()+1500, ready=false;
   do {
-    const lines=plain(ui.read()).split("\n");
-    if(lines.some((line,i)=>/^\s*❯\s+/u.test(line)&&line.replace(/^\s*❯\s+/u,"").trimEnd()===command&&/^\s*─{8,}\s*$/u.test(lines[i-1]??"")&&/^\s*─{8,}\s*$/u.test(lines[i+1]??""))){ready=true;break;}
+    if(claudeGoalComposer(ui.read())?.text===command){ready=true;break;}
     await ui.pause(40);
   } while(now()<until);
   if(!ready)throw new Error("native_goal_status_input_unconfirmed");
   await ui.keys(["Enter"]);
+}
+/** A bounded, fully visible literal objective. Native wrapping and file
+ * folding remain unsupported before submission rather than being normalized. */
+export function validateClaudeGoalObjective(objective: string, screen: string): void {
+  if(objective.trim().toLowerCase()==="clear")throw new AgentGoalNotIssuedError("native_goal_objective_reserved","unsupported");
+  const lines=objective.split("\n"), composer=claudeGoalComposer(screen);
+  if(!composer||composer.text!=="")throw new AgentGoalNotIssuedError("goal_input_not_empty_or_ready");
+  if(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u.test(objective)||lines.some(line=>!line||line!==line.trim()))
+    throw new AgentGoalNotIssuedError("native_goal_objective_not_representable","unsupported");
+  // This is a conservative upper bound, not a Unicode width approximation:
+  // ASCII occupies one cell; every other point is allowed up to two cells.
+  const boundedWidth=(line:string)=>[...line].reduce((n,c)=>n+(c.codePointAt(0)!<=0x7e?1:2),0);
+  if(lines.length+10>composer.rows||lines.some(line=>boundedWidth(line)+10>composer.columns))
+    throw new AgentGoalNotIssuedError("native_goal_objective_exceeds_viewport","unsupported");
+}
+export async function setClaudeGoalObjective(ui: GoalNativeUi, objective: string): Promise<void> {
+  validateClaudeGoalObjective(objective,ui.read());
+  await submitClaudeGoalCommand(ui,`/goal ${objective}`);
+  const now=ui.now??(()=>performance.now()),until=now()+1500;
+  do{if(claudeGoalComposerEmpty(ui.read()))return;await ui.pause(40);}while(now()<until);
+  throw new Error("native_goal_set_command_unconfirmed");
 }
 export async function clearClaudeGoal(ui: GoalNativeUi): Promise<void> {
   await submitClaudeGoalCommand(ui,"/goal clear");

@@ -23,7 +23,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
-import { readClaudeGoalDialog, clearClaudeGoal } from "./harnesses/claude-goal.js";
+import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -5930,6 +5930,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       return readTranscriptLines(file).filter(line=>line.trim()).map(line=>JSON.parse(line));
     }),
     clear: target => clearClaudeGoal(goalUi(target)),
+    setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
   }, origin));
   const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; create/edit/pause/resume remain unsupported.
+- Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; objective creation/editing use the same CLI with exact native readback and per-field constraints; pause/resume remain unsupported.
 - Recognize the current official Claude PKCE authorization URL without exposing callback codes or tokens.
 
 - `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Grok/Cursor adapters report explicit unsupported status; missing native connections report unavailable.

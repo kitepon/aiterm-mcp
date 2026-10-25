@@ -84,3 +84,40 @@ test('a proven refusal at the clear input owner refreshes status and never repla
  const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');const f=clearRuntime();let calls=0;f.runtime.clear=async()=>{calls++;throw new AgentGoalNotIssuedError('goal_input_owner_unavailable');};
  const r=await manageClaudeAgentGoal(f.input,f.runtime,'user');assert.equal(r.outcome,'rejected');assert.equal(r.mutation,'not_issued');assert.equal(r.readback,'confirmed');assert.equal(r.goal,null);assert.equal(calls,1);assert.equal(f.counts().reads,2);
 });
+
+test('native dim queued placeholder is empty while the same literal draft remains protected',async()=>{
+ const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
+ const border='─'.repeat(80),text='Press up to edit queued messages';
+ const native=`${border}\n❯\u00a0\x1b[7mP\x1b[0;2m${text.slice(1)}\x1b[0m\n${border}`;
+ const draft=`${border}\n❯\u00a0\x1b[7mP\x1b[0m${text.slice(1)}\n${border}`;
+ assert.equal(claudeGoalComposerEmpty(native),true);assert.equal(claudeGoalComposerEmpty(draft),false);assert.equal(claudeGoalComposer(draft).text,text);
+});
+test('multiline native composer and goal dialog preserve exact newlines',async()=>{
+ const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
+ const border='─'.repeat(80),condition='日本語🧪\n二行目';
+ assert.equal(claudeGoalComposer(`${border}\n❯\u00a0/goal 日本語🧪\n  二行目\n${border}`).text,'/goal '+condition);
+ const dialog=active.replace('Goal: Artificial condition','Goal: 日本語🧪\n         二行目');
+ const r=observeClaudeGoalDialog(dialog,[attachment({...native,condition})],session);assert.equal(r.current.native.condition,condition);
+ assert.equal(observeClaudeGoalDialog(dialog.replace('         二行目','         異なる行'),[attachment({...native,condition})],session),null);
+});
+test('unsupported native objective forms are refused before any paste',async()=>{
+ const {validateClaudeGoalObjective}=await import('../dist/harnesses/claude-goal.js');
+ const screen='\n'.repeat(15)+'─'.repeat(80)+'\n❯\n'+'─'.repeat(80);
+ for(const objective of ['clear','CLEAR','a'.repeat(200),'a\n\nb','a\n  indented','a\u001bb','a\u0085b'])assert.throws(()=>validateClaudeGoalObjective(objective,screen));
+ for(const objective of ['pause','resume','status','日本語🧪\n二行目','Literal --budget 1'])assert.doesNotThrow(()=>validateClaudeGoalObjective(objective,screen));
+});
+function objectiveRuntime(initial){
+ const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};let current=initial,calls=0;
+ return {input:{session_id:'a',launch_id:target.launch_id},runtime:{resolve:()=>target,read:async()=>({current}),setObjective:async(_target,objective)=>{calls++;current={kind:'claude-code',phase:'active',native:{type:'goal_status',condition:objective,met:false,sentinel:true}};}},calls:()=>calls};
+}
+test('create and objective edit share the native setter but enforce existence and per-field capability',async()=>{
+ const f=objectiveRuntime(null);let r=await manageClaudeAgentGoal({...f.input,action:'edit',objective:'missing'},f.runtime,'user');assert.equal(r.reason,'goal_missing');assert.equal(f.calls(),0);
+ r=await manageClaudeAgentGoal({...f.input,action:'create',objective:'最初\n二行目'},f.runtime,'user');assert.equal(r.outcome,'applied');assert.equal(r.goal.native.condition,'最初\n二行目');assert.equal(r.field_capabilities.create.objective,true);assert.equal(r.field_capabilities.create.token_budget,false);assert.equal(r.field_capabilities.edit.combined,false);assert.equal(f.calls(),1);
+ r=await manageClaudeAgentGoal({...f.input,action:'create',objective:'replace'},f.runtime,'user');assert.equal(r.reason,'goal_already_exists');assert.equal(f.calls(),1);
+ for(const fields of [{token_budget:1},{objective:'must not split',token_budget:1}]){r=await manageClaudeAgentGoal({...f.input,action:'edit',...fields},f.runtime,'user');assert.equal(r.mutation,'not_issued');assert.equal(r.reason,'native_goal_field_unsupported');assert.equal(r.goal.native.condition,'最初\n二行目');}assert.equal(f.calls(),1);
+ r=await manageClaudeAgentGoal({...f.input,action:'edit',objective:'pause'},f.runtime,'user');assert.equal(r.outcome,'applied');assert.equal(r.goal.native.condition,'pause');assert.equal(r.goal.phase,'active');assert.equal(f.calls(),2);
+});
+test('new objective requires complete canonical active readback; native whitespace changes are not normalized',async()=>{
+ const f=objectiveRuntime(null);let reads=0;f.runtime.read=async()=>++reads===1?{current:null}:{current:{kind:'claude-code',phase:'active',native:{...native,condition:'alpha beta'}}};
+ const r=await manageClaudeAgentGoal({...f.input,action:'create',objective:'alpha\nbeta'},f.runtime,'user');assert.equal(r.outcome,'outcome_unknown');assert.equal(r.readback,'mismatch');assert.equal(r.goal.native.condition,'alpha beta');assert.equal(f.calls(),1);
+});

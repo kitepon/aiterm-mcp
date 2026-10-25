@@ -3084,3 +3084,6 @@ prototype (preserved under `prototype/python/` as the porting source and referen
 [0.3.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kitepon/aiterm-mcp/releases/tag/v0.1.0
+
+
+Native Claude goal input also verifies the official per-PID current-session registration, including native session ID, process birth ticks and PID namespace before each input boundary. A switched conversation is refused before goal input; ownership loss after input remains unknown. No conversation is switched back automatically. This registration birth format is currently verified on Linux; unverified OS/registry data remains unavailable.

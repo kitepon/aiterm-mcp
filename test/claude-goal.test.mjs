@@ -121,3 +121,21 @@ test('new objective requires complete canonical active readback; native whitespa
  const f=objectiveRuntime(null);let reads=0;f.runtime.read=async()=>++reads===1?{current:null}:{current:{kind:'claude-code',phase:'active',native:{...native,condition:'alpha beta'}}};
  const r=await manageClaudeAgentGoal({...f.input,action:'create',objective:'alpha\nbeta'},f.runtime,'user');assert.equal(r.outcome,'outcome_unknown');assert.equal(r.readback,'mismatch');assert.equal(r.goal.native.condition,'alpha beta');assert.equal(f.calls(),1);
 });
+
+test('official current-session registry binds the native PID birth and namespace, not just the same TTY process',async()=>{
+ const {claudeCurrentSessionOwner}=await import('../dist/harnesses/claude-goal.js');
+ const expected={pid:123,sessionId:'01234567-1234-4567-8123-0123456789ab',procStart:'456',pidDomain:'linux::pid:[99]'};
+ const row={...expected,sessionId:expected.sessionId,version:'2.1.310',kind:'interactive'};
+ assert.equal(claudeCurrentSessionOwner(row,expected),'match');
+ assert.equal(claudeCurrentSessionOwner({...row,sessionId:'fedcba98-1234-4567-8123-0123456789ab'},expected),'mismatch');
+ for(const fields of [{pid:124},{procStart:'457'},{pidDomain:'linux::pid:[100]'},{version:'future'},{kind:'print'}])assert.equal(claudeCurrentSessionOwner({...row,...fields},expected),'unavailable');
+ assert.equal(claudeCurrentSessionOwner(null,expected),'unavailable');
+});
+test('shared OS birth identity keeps the runtime-store API and gives the same live Linux registration ticks',async t=>{
+ const {processStartIdentity}=await import('../dist/process-start.js');
+ const {processStartIdentity:compat}=await import('../dist/runtime-error-os.js');
+ assert.equal(compat,processStartIdentity);
+ const {readLinuxProcessRegistrationIdentity}=await import('../dist/process-runtime.js');
+ if(process.platform!=='linux'){assert.equal(readLinuxProcessRegistrationIdentity(process.pid),null);return;}
+ const value=readLinuxProcessRegistrationIdentity(process.pid);assert.equal('linux:'+value.procStart,processStartIdentity(process.pid,'linux'));assert.match(value.pidDomain,/^linux::pid:\[\d+\]$/);assert.equal(readLinuxProcessRegistrationIdentity(-1),null);
+});

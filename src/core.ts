@@ -23,7 +23,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
-import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective } from "./harnesses/claude-goal.js";
+import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -35,7 +35,7 @@ import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -5900,10 +5900,22 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
         throw new ExecutionError("EXECUTION_STALE_GENERATION");
       const tty = paneTtyOf(input.session_id);
       const owner = target.native_process;
-      const rejectOwner = (): never => {
-        if (!inputStarted) throw new AgentGoalNotIssuedError("goal_input_owner_unavailable");
+      const rejectOwner = (reason="goal_input_owner_unavailable"): never => {
+        if (!inputStarted) throw new AgentGoalNotIssuedError(reason);
         throw new Error("Goal input owner changed after input began");
       };
+      if(target.harness==="claude-code"){
+        const generation=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        let registration:unknown;
+        try{
+          const file=path.join(claudeConfigDir(),"sessions",`${owner?.pid}.json`);
+          const st=fs.lstatSync(file);
+          if(!st.isFile()||st.isSymbolicLink()||st.size>64*1024)throw new Error("native registration unavailable");
+          registration=JSON.parse(fs.readFileSync(file,"utf8"));
+        }catch{rejectOwner("goal_native_session_unavailable");}
+        const ownership=generation&&owner?claudeCurrentSessionOwner(registration,{pid:owner.pid,sessionId:target.vendor_session_id!,...generation}):"unavailable";
+        if(ownership!=="match")rejectOwner(ownership==="mismatch"?"goal_native_session_mismatch":"goal_native_session_unavailable");
+      }
       if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
       const ps = spawnSync("/bin/ps", ["-t", tty!.replace(/^\/dev\//u, ""), "-o", "pid=,pgid=,stat=,command="],
         { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });

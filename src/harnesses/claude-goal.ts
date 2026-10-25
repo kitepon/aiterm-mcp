@@ -1,6 +1,12 @@
 // Claude owns goal state. A fresh local status command, never a historical
 // attachment alone, establishes current state for the bound native session.
 import { z } from "zod";
+const currentSessionSchema=z.object({pid:z.number().int().positive(),sessionId:z.string().uuid(),procStart:z.string().regex(/^\d+$/u),pidDomain:z.string(),version:z.literal("2.1.310"),kind:z.literal("interactive")});
+export function claudeCurrentSessionOwner(record:unknown,expected:{pid:number;sessionId:string;procStart:string;pidDomain:string}):"match"|"mismatch"|"unavailable" {
+  const parsed=currentSessionSchema.safeParse(record);
+  if(!parsed.success||parsed.data.pid!==expected.pid||parsed.data.procStart!==expected.procStart||parsed.data.pidDomain!==expected.pidDomain)return "unavailable";
+  return parsed.data.sessionId===expected.sessionId?"match":"mismatch";
+}
 export const claudeNativeGoalStatusSchema = z.object({
   type: z.literal("goal_status"), condition: z.string().min(1), met: z.boolean(),
   sentinel: z.boolean().optional(), reason: z.string().optional(),

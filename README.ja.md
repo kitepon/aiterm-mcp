@@ -824,3 +824,6 @@ Claude公式claude.com/cai/oauth/authorizeのPKCE認証要求と非秘密code=tr
 Claude clearはnative /goal clearを一回送り、新しい空dialogと、元active goalの条件に一致するnative cleared履歴を確認する。進行中のモデル要求を中断せずgoalの次の継続を解除する。入力所有/世代喪失や読戻し欠測、別goalの終了はunknownで再送しない。未発行が確定した拒否もstatusを新しく取り、古いgoalを復元しない。
 
 Claude作成/目的文編集はcomposerとnative goal dialogの全行を確認できるliteral入力に対応する。空/字下げ/末尾空白の内側行、制御文字、viewportを超える目的、大小を区別しないclear予約語は送信前に未対応として拒否する。pause/resume/status/--budgetは通常の目的文字列。createは既存goalを拒否しeditは存在を必要とする。両field.objective:true/token_budget:false、combined:falseで、予算要求を部分実行しない。nativeの改行と完全な目的を照合する。薄い入力案内と同文の実draftは装飾で区別して保護する。
+
+
+Claudeのgoal入力は公式PID別の現在session記録も確認し、native session ID・process開始tick・PID namespaceを各入力境界で照合する。会話切替はgoal入力前に拒否し、入力後の所有喪失はunknownを保持する。会話を勝手に切り戻さない。この開始形式は現在Linuxで検証済みで、未検証OS/記録はunavailableとする。

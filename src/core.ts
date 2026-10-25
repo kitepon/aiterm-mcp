@@ -22,7 +22,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
-import { manageClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
+import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
+import {grokCurrentSessionOwner,readFreshGrokGoal} from './harnesses/grok-goal.js';
 import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
@@ -123,6 +124,7 @@ import {
   grokModelDefaultsFromBody,
   restoreGrokModelDefaults,
   grokEventsTranscript,
+  grokSessionDirectory,
   grokCompletionEvent,
   latestGrokCompletion,
   grokTurnSettled,
@@ -5887,7 +5889,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     const observed = observeSession(input.session_id);
     if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
-      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, executable: meta.agent_executable,
+      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
       native_process: observed.harness_process };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
@@ -5916,13 +5918,25 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
         const ownership=generation&&owner?claudeCurrentSessionOwner(registration,{pid:owner.pid,sessionId:target.vendor_session_id!,...generation}):"unavailable";
         if(ownership!=="match")rejectOwner(ownership==="mismatch"?"goal_native_session_mismatch":"goal_native_session_unavailable");
       }
+      if(target.harness==='grok-cli'){
+        const identity=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        let record:unknown;
+        try{
+          if(!target.grok_home)throw Error('native home unavailable');
+          const file=path.join(target.grok_home,'active_sessions.json'),st=fs.lstatSync(file);
+          if(!st.isFile()||st.isSymbolicLink()||st.size>1024*1024)throw Error('native registration unavailable');
+          record=JSON.parse(fs.readFileSync(file,'utf8'));
+        }catch{rejectOwner('goal_native_session_unavailable');}
+        const ownership=identity&&owner?grokCurrentSessionOwner(record,{pid:owner.pid,procStart:identity.procStart,sessionId:target.vendor_session_id!,cwd:target.cwd!}):'unavailable';
+        if(ownership!=='match')rejectOwner(ownership==='mismatch'?'goal_native_session_mismatch':'goal_native_session_unavailable');
+      }
       if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
       const ps = spawnSync("/bin/ps", ["-t", tty!.replace(/^\/dev\//u, ""), "-o", "pid=,pgid=,stat=,command="],
         { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
       const stty = spawnSync("/bin/stty", [process.platform === "linux" ? "-F" : "-f", tty!, "-a"],
         { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
       if (ps.error || stty.error || ps.status !== 0 || stty.status !== 0 || paneTtyOf(input.session_id) !== tty
-        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout, AGENT_COMMAND_PATTERNS[target.harness === "claude-code" ? "claude" : "codex"])) rejectOwner();
+        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout, AGENT_COMMAND_PATTERNS[target.harness === "claude-code" ? "claude" : target.harness==='grok-cli'?'grok':"codex"])) rejectOwner();
       pinnedTty = tty;
     };
     return {
@@ -5933,6 +5947,22 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       pause: sleep,
     };
   };
+  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,read:target=>{
+    const ui=goalUi(target);
+    const read=(relative:string,optional=false)=>{
+      ui.read();
+      const meta=tryLoadAgentMetadata(input.session_id);
+      if(!meta||meta.launch_id!==target.launch_id||meta.vendor_session_id!==target.vendor_session_id)throw Error('generation_replaced');
+      const directory=grokSessionDirectory(meta);
+      if(!directory)throw Error('native session directory unavailable');
+      const file=path.join(directory,relative);
+      let st:fs.Stats;
+      try{st=fs.lstatSync(file);}catch(error){if(optional&&(error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+      if(!st.isFile()||st.isSymbolicLink()||st.size>4*1024*1024)throw Error('native state unavailable');
+      return fs.readFileSync(file,'utf8');
+    };
+    return readFreshGrokGoal(target.vendor_session_id!,{ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}});
+  }}));
   if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);

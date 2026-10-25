@@ -827,3 +827,5 @@ Claude作成/目的文編集はcomposerとnative goal dialogの全行を確認�
 
 
 Claudeのgoal入力は公式PID別の現在session記録も確認し、native session ID・process開始tick・PID namespaceを各入力境界で照合する。会話切替はgoal入力前に拒否し、入力後の所有喪失はunknownを保持する。会話を勝手に切り戻さない。この開始形式は現在Linuxで検証済みで、未検証OS/記録はunavailableとする。
+
+Grok 1.0.70の初期Linux読取は公式active_sessions.jsonのPID・開始tick・cwd・会話を元のTUIへ結ぶ。同じ会話への新しい公式status応答だけで「ゴールなし」を確認し、旧応答やstateファイル欠測だけでnullを作らない。active状態の読取と全変更操作は未受入のためunavailable/unsupportedを保持する。これは未公開prototypeの制限であり、Grok goal全対応とはしない。

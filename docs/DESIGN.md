@@ -526,3 +526,5 @@ Claude objective changes reuse the native /goal setter after checking the curren
 
 
 Native Claude goal input also verifies the official per-PID current-session registration, including native session ID, process birth ticks and PID namespace before each input boundary. A switched conversation is refused before goal input; ownership loss after input remains unknown. No conversation is switched back automatically. This registration birth format is currently verified on Linux; unverified OS/registry data remains unavailable.
+
+Grok 1.0.70 inspection first verifies its native active_sessions.json against the original TUI PID, Linux birth ticks, cwd and vendor session. A fresh local /goal status update on that same session can establish current null only when the native goal state file is absent. Old updates or missing files alone cannot establish null. The composer is anchored to its layout rather than to a completion-menu cursor. This initial adapter leaves active-state display and every mutation unavailable or unsupported; persisted state is never sufficient to enable them. No leader, worker or conversation is created or resumed by inspection.

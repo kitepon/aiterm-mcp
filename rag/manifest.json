@@ -2161,6 +2161,125 @@
       "fetched": "2026-07-26"
     },
     {
+      "slug": "crates-codegen-xai-grok-pager-src-slash-commands-session_info",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-pager-src-slash-commands-session_info.md",
+      "tags": [
+        "grok",
+        "goal",
+        "worker"
+      ],
+      "summary": "Grok公式元workerとsessionへの接続・goal操作の責務を確認する。",
+      "relevance": "新workerを起こさず既sessionへ接続するadapterの根拠を調べる。",
+      "chars": 749,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-leader-client",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/leader/client.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/client.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-client.md",
+      "tags": [
+        "grok",
+        "goal",
+        "worker"
+      ],
+      "summary": "Grok公式元workerとsessionへの接続・goal操作の責務を確認する。",
+      "relevance": "新workerを起こさず既sessionへ接続するadapterの根拠を調べる。",
+      "chars": 47249,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-leader-lock",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/leader/lock.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/lock.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-lock.md",
+      "tags": [
+        "grok",
+        "goal",
+        "worker"
+      ],
+      "summary": "Grok公式元workerとsessionへの接続・goal操作の責務を確認する。",
+      "relevance": "新workerを起こさず既sessionへ接続するadapterの根拠を調べる。",
+      "chars": 25572,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-leader-protocol",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/leader/protocol.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/protocol.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-protocol.md",
+      "tags": [
+        "grok",
+        "goal",
+        "worker"
+      ],
+      "summary": "Grok公式元workerとsessionへの接続・goal操作の責務を確認する。",
+      "relevance": "新workerを起こさず既sessionへ接続するadapterの根拠を調べる。",
+      "chars": 46057,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal.md",
+      "tags": [
+        "grok",
+        "goal",
+        "worker"
+      ],
+      "summary": "Grok公式元workerとsessionへの接続・goal操作の責務を確認する。",
+      "relevance": "新workerを起こさず既sessionへ接続するadapterの根拠を調べる。",
+      "chars": 99255,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-session-goal_tracker",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/session/goal_tracker.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/goal_tracker.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "公式goal statusの形式とcurrent session所有の根拠。",
+      "relevance": "別CLIの状態型へ変換せずnative readbackを確認する。",
+      "chars": 54212,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "crates-codegen-xai-grok-shell-src-session-slash_commands",
+      "topic": "grok-goal-worker-binding",
+      "title": "crates/codegen/xai-grok-shell/src/session/slash_commands.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/slash_commands.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-slash_commands.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "公式goal statusの形式とcurrent session所有の根拠。",
+      "relevance": "別CLIの状態型へ変換せずnative readbackを確認する。",
+      "chars": 62759,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "homebrew-opt-prefix",
       "topic": "installation",
       "title": "HomebrewのCellarとopt prefix",
@@ -3011,5 +3130,5 @@
       "fetched": "2026-09-19"
     }
   ],
-  "updated": "2026-10-24"
+  "updated": "2026-10-25"
 }

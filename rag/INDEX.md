@@ -508,3 +508,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
+
+## grok-goal-worker-binding
+
+- [crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/client.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-client.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/lock.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-lock.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/protocol.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-protocol.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-pager-src-slash-commands-session_info.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/session/slash_commands.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-slash_commands.md) — 公式goal statusの形式とcurrent session所有の根拠。
+- [crates/codegen/xai-grok-shell/src/session/goal_tracker.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md) — 公式goal statusの形式とcurrent session所有の根拠。
+
+公式main sourceは2bdd1d6aへ固定した調査資料であり、実CLI1.0.70/f50904eaとのsource同一性は主張しない。現在TUI/PID登録/statusは隔離した実CLIで別に確認する。

@@ -57,13 +57,13 @@ export const agentGoalResultSchema = z.object({
 export type AgentGoalResult = z.infer<typeof agentGoalResultSchema>;
 export interface GoalTarget {
   session_id: string; launch_id: string; harness: AgentHarness;
-  vendor_session_id: string | null; codex_home?: string; executable?: string;
+  vendor_session_id: string | null; codex_home?: string; grok_home?: string; cwd?: string; executable?: string;
   native_process?: { pid: number; started_identity: string; process_group_id?: number | null };
 }
 export function sameGoalTarget(current: GoalTarget|null, target: GoalTarget|null): boolean {
   return !!current && !!target && current.session_id===target.session_id && current.launch_id===target.launch_id
     && current.harness===target.harness && current.vendor_session_id===target.vendor_session_id
-    && current.codex_home===target.codex_home && current.executable===target.executable
+    && current.codex_home===target.codex_home && current.grok_home===target.grok_home && current.cwd===target.cwd && current.executable===target.executable
     && JSON.stringify(current.native_process)===JSON.stringify(target.native_process);
 }
 export type GoalRequest = (method: string, params: unknown) => Promise<unknown>;

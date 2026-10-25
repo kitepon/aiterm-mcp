@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { sameGoalTarget, AgentGoalNotIssuedError, agentGoalResultSchema, nativeGoalSchema, agentGoalInputSchema, type AgentGoalInput, type GoalTarget } from "./agent-goal.js";
 import { claudeCurrentGoalSchema, claudeGoalHistorySchema, type ClaudeGoalObservation } from "./harnesses/claude-goal.js";
+import {grokCurrentGoalSchema} from './harnesses/grok-goal.js';
 export const agentGoalNativeResultSchema = agentGoalResultSchema.extend({
   schema: z.literal("aiterm.agent-goal-result.v2"),
   goal: z.discriminatedUnion("kind", [
-    z.object({kind:z.literal("codex-cli"),native:nativeGoalSchema}).strict(),claudeCurrentGoalSchema,
+    z.object({kind:z.literal("codex-cli"),native:nativeGoalSchema}).strict(),claudeCurrentGoalSchema,grokCurrentGoalSchema,
   ]).nullable().optional(), native_history:claudeGoalHistorySchema.optional(),
 }).strict();
 export const agentGoalWireResultSchema = z.discriminatedUnion("schema", [agentGoalResultSchema, agentGoalNativeResultSchema]);
@@ -21,6 +22,20 @@ export const agentGoalOutputSchema = agentGoalResultSchema.extend({
     context.addIssue({code:"custom",path:["goal"],message:"native goal kind must match bound harness"});
 });
 export type AgentGoalWireResult = z.infer<typeof agentGoalWireResultSchema>;
+export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{resolve():GoalTarget|null;read(target:GoalTarget):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>}):Promise<z.infer<typeof agentGoalNativeResultSchema>>{
+  input=agentGoalInputSchema.parse(input);
+  const result:z.infer<typeof agentGoalNativeResultSchema>={schema:'aiterm.agent-goal-result.v2',session_id:input.session_id,launch_id:input.launch_id,harness:'grok-cli',binding:null,
+    availability:'unavailable',capabilities:{inspect:false,create:false,edit:false,pause:false,resume:false,clear:false},outcome:'unavailable',mutation:input.action==='inspect'?'not_requested':'not_issued',readback:'not_attempted',reason:'binding_unavailable',observed_at:new Date().toISOString()};
+  try{
+    const target=runtime.resolve();
+    if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||target.harness!=='grok-cli'||!target.vendor_session_id)return result;
+    if(input.expected_thread_id!==undefined&&input.expected_thread_id!==target.vendor_session_id)return {...result,reason:'thread_binding_mismatch'};
+    if(input.action!=='inspect')return {...result,availability:'unsupported',outcome:'unsupported',reason:'native_goal_operation_unsupported'};
+    const observed=await runtime.read(target);
+    if(!sameGoalTarget(runtime.resolve(),target))return {...result,reason:'generation_replaced_after_status',readback:'failed'};
+    return agentGoalNativeResultSchema.parse({...result,binding:{session_id:target.session_id,launch_id:target.launch_id,thread_id:target.vendor_session_id},availability:'available',capabilities:{...result.capabilities,inspect:true},goal:observed.current,outcome:'observed',readback:'confirmed',reason:'native_goal_observed'});
+  }catch(error){return {...result,reason:error instanceof AgentGoalNotIssuedError?error.reason:'native_goal_fresh_status_unavailable',readback:'failed'};}
+}
 export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
   resolve(): GoalTarget|null;
   read(target: GoalTarget): Promise<Pick<ClaudeGoalObservation,"current"|"history">>;

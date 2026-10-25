@@ -898,3 +898,5 @@ Claude objective creation and replacement accept literal lines that can be fully
 
 
 Native Claude goal input also verifies the official per-PID current-session registration, including native session ID, process birth ticks and PID namespace before each input boundary. A switched conversation is refused before goal input; ownership loss after input remains unknown. No conversation is switched back automatically. This registration birth format is currently verified on Linux; unverified OS/registry data remains unavailable.
+
+The initial Linux Grok 1.0.70 inspector binds its native current-session registry to the original PID, birth ticks, cwd and conversation. A fresh local status reply can confirm no goal; an old reply or a missing state file cannot. Active-state inspection and all mutations remain unaccepted and return unavailable or unsupported. This is an unpublished prototype limitation, not full Grok goal support.

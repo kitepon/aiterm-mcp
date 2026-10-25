@@ -875,3 +875,6 @@ started the persistent multiplexer server (since 0.50.0). Every harness still ac
 ## License
 
 MIT
+
+
+Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.

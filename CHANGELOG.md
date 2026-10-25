@@ -3065,3 +3065,6 @@ prototype (preserved under `prototype/python/` as the porting source and referen
 [0.3.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kitepon/aiterm-mcp/releases/tag/v0.1.0
+
+
+Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.

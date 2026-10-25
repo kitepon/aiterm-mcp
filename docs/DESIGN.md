@@ -494,3 +494,6 @@ transcript、path、credentialを保存・公開しない。
 公開schema、完了境界、state ownership、platform backendを変える時は、原因の最小再現、focused test、
 関連ADR、日英README、CHANGELOGを同じ変更で同期する。現行制御から外れた完了・棄却・中断・失効・置換済みの設計planはcurrentへ残さずarchiveへ移す。
 旧設計draftは[`archive/01_design-plan.md`](https://github.com/kitepon/aiterm-mcp/blob/main/docs/archive/01_design-plan.md)に保存する。
+
+
+Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.

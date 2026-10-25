@@ -804,3 +804,6 @@ aiterm が、あなたの AI に別のエージェントへ仕事を渡させた
 ## ライセンス
 
 MIT
+
+
+Claude認証は公式claude.com/cai/oauth/authorizeのPKCE要求と非秘密のcode=true表示flagを認証URLとして返す。callback認可codeやtokenは除外し、共通URL credential filterは変更しない。この認証専用差分にnative goal機能は含まない。

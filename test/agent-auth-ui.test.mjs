@@ -18,12 +18,16 @@ after(()=>{for(const session of sessions)core.closeSession(session);fs.rmSync(ro
 const native={skip:process.platform==='win32'||spawnSync('tmux',['-V']).status!==0};
 function fixture(){
  const dir=fs.mkdtempSync(path.join(root,'cli-')); const bin=path.join(dir,'claude');
+ // macOS has no stock GNU sha256sum. A failing sentinel makes accidental reuse visible.
+ fs.writeFileSync(path.join(dir,'sha256sum'),'#!/bin/sh\nexit 99\n',{mode:0o755});
+ process.env.PATH=dir+path.delimiter+process.env.PATH;
+ const node="'"+process.execPath.replaceAll("'","'\\''")+"'";
  fs.writeFileSync(bin,`#!/bin/bash
 if [ "$1" = auth ] && [ "$2" = status ]; then printf '{"loggedIn":false}\\n'; exit 1; fi
 printf 'Paste code here if prompted >\\n'
 IFS= read -r reply
 printf 'CLI echo: %s\\n' "$reply"
-printf '%s' "$reply" | sha256sum > '${dir}/digest'
+printf '%s' "$reply" | ${node} -e 'let value="";process.stdin.on("data",chunk=>value+=chunk);process.stdin.on("end",()=>console.log(require("node:crypto").createHash("sha256").update(value).digest("hex")+"  -"))' > '${dir}/digest'
 printf '\\033[2J\\033[HWaiting for official response\\n'
 sleep 30
 `,{mode:0o755}); process.env.CLAUDE_BIN=bin; return dir;

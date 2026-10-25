@@ -35,6 +35,10 @@ export const nativeGoalSchema = z.object({
   timeUsedSeconds: z.number().nonnegative(), createdAt: z.number().nonnegative(), updatedAt: z.number().nonnegative(),
 }).strict();
 export type NativeGoal = z.infer<typeof nativeGoalSchema>;
+const goalFieldCapabilitiesSchema = z.object({
+  create: z.object({ objective: z.boolean(), token_budget: z.boolean() }).strict(),
+  edit: z.object({ objective: z.boolean(), token_budget: z.boolean() }).strict(),
+}).strict();
 export const agentGoalResultSchema = z.object({
   schema: z.literal("aiterm.agent-goal-result.v1"),
   session_id: z.string(), launch_id: z.string(),
@@ -42,6 +46,7 @@ export const agentGoalResultSchema = z.object({
   binding: z.object({ ...executionLaunchSchema.shape, thread_id: z.string().min(1) }).nullable(),
   availability: z.enum(["available", "unsupported", "unavailable"]),
   capabilities: z.object({ inspect: z.boolean(), create: z.boolean(), edit: z.boolean(), pause: z.boolean(), resume: z.boolean(), clear: z.boolean() }),
+  field_capabilities: goalFieldCapabilitiesSchema.optional(),
   outcome: z.enum(["observed", "applied", "rejected", "outcome_unknown", "unavailable", "unsupported"]),
   mutation: z.enum(["not_requested", "not_issued", "acknowledged", "rejected", "outcome_unknown"]),
   readback: z.enum(["confirmed", "not_attempted", "failed", "mismatch"]),
@@ -57,13 +62,15 @@ export interface GoalTarget {
 }
 export type GoalRequest = (method: string, params: unknown) => Promise<unknown>;
 export type GoalCapabilities = AgentGoalResult["capabilities"];
+export type GoalFieldCapabilities = z.infer<typeof goalFieldCapabilitiesSchema>;
+export type GoalConnectionRun<T> = (request: GoalRequest, supported?: GoalCapabilities, fields?: GoalFieldCapabilities) => Promise<T>;
 export class AgentGoalConnectionError extends Error {
   constructor(readonly availability: "unsupported" | "unavailable", readonly reason: string) { super(reason); }
 }
 export interface AgentGoalRuntime {
   // Both functions come from the serving runtime, never from tool arguments.
   resolve(): GoalTarget | null;
-  connect<T>(target: GoalTarget, run: (request: GoalRequest, supported?: GoalCapabilities) => Promise<T>): Promise<T>;
+  connect<T>(target: GoalTarget, run: GoalConnectionRun<T>): Promise<T>;
 }
 const capabilities = (enabled: boolean) => ({ inspect: enabled, create: enabled, edit: enabled, pause: enabled, resume: enabled, clear: enabled });
 
@@ -92,7 +99,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
   const threadId = target.vendor_session_id;
   let issued = false;
   try {
-    return await runtime.connect(target, async (request, supported = capabilities(true)) => {
+    return await runtime.connect(target, async (request, supported = capabilities(true), fields) => {
       const read = async (): Promise<NativeGoal | null> => {
         const value = z.object({ goal: nativeGoalSchema.nullable() }).parse(await request("thread/goal/get", { threadId }));
         if (value.goal && value.goal.threadId !== threadId) throw new Error("goal_thread_mismatch");
@@ -104,8 +111,18 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       Object.assign(result, { availability: "available", capabilities: supported, goal: before,
         binding: { session_id: target.session_id, launch_id: target.launch_id, thread_id: threadId },
         readback: "confirmed", outcome: "observed", reason: "native_goal_observed" });
+      result.field_capabilities = fields ?? {
+        create: { objective: supported.create, token_budget: supported.create },
+        edit: { objective: supported.edit, token_budget: supported.edit },
+      };
       if (input.action === "inspect") return result;
       if (!supported[input.action]) return { ...result, outcome: "unsupported", reason: "native_goal_operation_unsupported" };
+      if (input.action === "create" || input.action === "edit") {
+        const supportedFields = result.field_capabilities[input.action];
+        if ((input.objective !== undefined && !supportedFields.objective)
+          || (input.token_budget !== undefined && !supportedFields.token_budget))
+          return { ...result, outcome: "unsupported", reason: "native_goal_field_unsupported" };
+      }
       // The host may establish user provenance at authenticated UI ingress.
       // Model tool arguments cannot select or upgrade their origin.
       const reject = (reason: string): AgentGoalResult => ({ ...result, outcome: "rejected", reason });

@@ -31,6 +31,14 @@ fs.writeFileSync(seat, [
   "import fs from 'node:fs';",
   "const [log, mode] = process.argv.slice(2);",
   "const note = line => fs.appendFileSync(log, `${Date.now()} ${line}\\n`);",
+  "const audit = detail => fs.appendFileSync(log + '.lifecycle', JSON.stringify({at:Date.now(),pid:process.pid,ppid:process.ppid,...detail}) + '\\n');",
+  "audit({event:'started'});",
+  // Monitor only: preserve native error/exit behavior while keeping evidence
+  // outside the pane log that closeSession owns and removes.
+  "process.on('uncaughtExceptionMonitor', e => audit({event:'uncaught',code:e.code,message:e.message}));",
+  "process.on('exit', code => audit({event:'exit',code}));",
+  "process.stdin.on('close', () => audit({event:'stdin.close'}));",
+  "process.stdin.on('end', () => audit({event:'stdin.end'}));",
   "let busy = mode === 'busy';",
   // 実物と同じく、動作中の行をその場で描き直して入力欄へ戻す（画面を流さない）。
   "const idle = () => process.stdout.write('\\x1b[1A\\x1b[2K❯ ready\\n');",
@@ -45,7 +53,7 @@ fs.writeFileSync(seat, [
   "  armed = Date.now();",
   "  process.stdout.write('  Press Ctrl-C again to exit\\n');",
   "} });",
-  "process.on('SIGHUP', () => { note('SIGHUP'); process.exit(0); });",
+  "process.on('SIGHUP', () => { audit({event:'SIGHUP'}); note('SIGHUP'); process.exit(0); });",
   // 画面は、鍵と切断の合図の受け口を付けた後に描く。先に描くと、試験が画面を見て席を閉じた時に、合図の受け口がまだ無い事がある
   // （受け口の無いSIGHUPはprocessを黙って終わらせ、記録が残らない。混んだmacOSで1回、2026-10-11）。
   "process.stdout.write(busy ? 'Claude Code\\n● working\\n✻ Musing… (esc to interrupt)\\n' : 'Claude Code\\n❯ ready\\n');",
@@ -71,6 +79,10 @@ function fakeClaude(name, mode) {
 const events = (name) => {
   try { return fs.readFileSync(seatLog(name), "utf8").split("\n").filter(Boolean).map(line => line.replace(/^\d+ /, "")); }
   catch { return []; }
+};
+const lifecycle = (name) => {
+  try { return fs.readFileSync(seatLog(name) + '.lifecycle', 'utf8'); }
+  catch { return 'lifecycle unavailable'; }
 };
 /** 止められた席が切断の合図（SIGHUP）を記録するまで待つ。席のprocessが書くので、閉じた直後にはまだ無い事がある（混んだmacOSで0.3秒を超えた）。 */
 async function eventsAfterHangup(name) {
@@ -170,7 +182,7 @@ test("鍵で終わらない席は、待った後に今までどおり止める",
     const took = Date.now() - started;
     assert.ok(took >= 4000 && took < 8000, `終わるのを待つ上限（4秒）の後に止める: ${took}ms`);
     assert.equal(core.observeSession(sid).exists, false);
-    assert.deepEqual(await eventsAfterHangup("deaf"), ["C-c", "C-c", "SIGHUP"]);
+    assert.deepEqual(await eventsAfterHangup("deaf"), ["C-c", "C-c", "SIGHUP"], lifecycle("deaf"));
   } finally { core.__testSetClaudeExitBeforeClose(null); try { core.closeSession(sid); } catch { /* noop */ } }
 });
 

@@ -811,7 +811,7 @@ MIT
 
 最初のadapterはPOSIXの既存Codex control socketへ接続し、同じthreadが読み込まれていることを確認する。workerの起動・保存threadのresumeは行わない。元launchのharnessが生存し識別できることが必要。他CLIのadapterとWindows native接続は未対応、結合・設定・接続が確認できない時は取得不能を返す。
 
-元のCLIが外部接続口のないembedded workerを使う場合、公式の読取専用native APIで取得し、一時停止・再開・削除は同じCLI自身へ一回だけ送る。この経路はinspect/pause/resume/clearだけを有効にし、create/editは無効のまま。予約語・native editor・予算指定を完全なnative APIと同じ対応範囲にしない。
+元のCLIが外部接続口のないembedded workerを使う場合、公式の読取専用native APIで取得し、一時停止・再開・削除は同じCLI自身へ一回だけ送る。この経路は予算だけの編集も公式goal serviceで扱う。capabilitiesはcreate:false/edit:true、field_capabilities.editはobjective:false/token_budget:true。目的文付き又は目的文と予算の複合編集は、どちらの変更も発行せず拒否する。clientは操作とfieldの両capabilityに従い、旧serverでfield省略時だけ従来の操作全体の意味を適用する。予約語・native editor・予算指定を完全なnative APIと同じ対応範囲にしない。
 
 Owner認証済みの本体だけが、既存のローカルbellteam MCP接続に `_meta: {"aiterm/goal":{"origin":"user"}}` を付ける。席からの変更を拒否しOwnerを認証する責任は本体が持つ。この由来情報を新しい認証と扱わない。モデルの引数や他クライアントのmetadataでは利用者操作へ昇格しない。組み込みhostはserver constructorへ厳密なgoalOrigin resolverを渡せる。
 

@@ -5859,7 +5859,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, executable: meta.agent_executable,
       native_process: observed.harness_process };
   };
-  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported) => callback((method, params) => {
+  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {
       beforeExecutionEffect(input.session_id, () => {
@@ -5870,7 +5870,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       });
       return request(method, params);
     });
-  }, supported), async command => {
+  }, supported, fields), async command => {
     const current = resolve(), meta = tryLoadAgentMetadata(input.session_id);
     if (!current || !meta || current.vendor_session_id !== target.vendor_session_id || current.launch_id !== target.launch_id)
       throw new ExecutionError("EXECUTION_STALE_GENERATION");

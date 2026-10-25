@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Prepare macOS Grok no-goal inspection with exact kernel process birth identity; refuse existing goals and ambiguous same-PID registrations before input. Keep all Mac mutations disabled.
+- Bundle both locked Darwin Koffi prebuilds into MCPB independently of the builder OS.
+
 ## [0.61.20] - 2026-10-26
 
 - Clear an existing UserPaused/Idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.

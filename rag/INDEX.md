@@ -560,3 +560,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Process resource identity](sources/grok-goal-worker-binding/grok-native-process-resources.md) — OS-specific telemetry start times, distinct from the TUI registration contract.
 - [Lifecycle exec registry](sources/grok-goal-worker-binding/grok-native-active-registry.md) — A separate exec handler table, not the active_sessions TUI registry.
 - [Agent session registry client](sources/grok-goal-worker-binding/grok-native-session-registry-client.md) — Separate agent registry transport; not proof of attachment to the current TUI worker.
+
+## Native Goal OS identity
+
+- [Apple proc_bsdinfo](sources/goal-native-os-identity/apple-proc-bsdinfo.md) — pinned xnu f6217f89; exact PID/start seconds/microseconds layout.
+- [Apple libproc API](sources/goal-native-os-identity/apple-libproc-api.md) — bounded proc_pidinfo read; no process control.
+- [Koffi 3.3.4 overview](sources/goal-native-os-identity/koffi-3-overview.md), [library API](sources/goal-native-os-identity/koffi-3-load.md), [pointers](sources/goal-native-os-identity/koffi-3-pointers.md) — npm-published docs fetched through CDN and checked byte-for-byte against the pinned npm package; Node16+ includes Node18 support.

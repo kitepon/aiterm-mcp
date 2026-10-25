@@ -189,7 +189,8 @@ async function localGoalCommand(sessionId:string,port:GrokGoalStatusPort,command
   throw Error('native_goal_fresh_status_unavailable');
 }
 
-export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>{
+export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort,options:{emptyOnly?:boolean}={}):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>{
+  if(options.emptyOnly&&port.state()!==null)throw new AgentGoalNotIssuedError('native_goal_existing_state_unverified');
   const initial=port.ui.read();
   if(fullHeader(initial))return readGrokGoalDetail(port,port.state(),initial);
   const observed=await localGoalCommand(sessionId,port,'/goal status');

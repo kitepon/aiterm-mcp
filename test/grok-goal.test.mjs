@@ -12,7 +12,7 @@ const registration={session_id:session,pid:123,pid_start:456,cwd:'/private/proje
 test('Grok current-session registry binds PID birth and cwd and rejects a manual same-PID switch',()=>{
   assert.equal(grokCurrentSessionOwner([registration],expected),'match');
   assert.equal(grokCurrentSessionOwner([{...registration,session_id:other}],expected),'mismatch');
-  for(const value of [[{...registration,pid_start:455}],[registration,registration],[{...registration,cwd:'/other'}],[]])assert.equal(grokCurrentSessionOwner(value,expected),'unavailable');
+  for(const value of [[{...registration,pid_start:455}],[registration,registration],[registration,{...registration,session_id:other}],[{...registration,cwd:'/other'}],[]])assert.equal(grokCurrentSessionOwner(value,expected),'unavailable');
 });
 const row=(kind,text)=>({method:'session/update',params:{sessionId:session,update:{sessionUpdate:kind,content:{type:'text',text},_meta:{hostTurn:true}}}});
 const empty='No goal is currently set. Use /goal <objective> to start one.';
@@ -111,4 +111,10 @@ test('Grok Goal detail rejects occupied, replaced, truncated, unknown or moved v
 test('Native Goal pointer encodes one bounded press/release and refuses invalid pane coordinates',()=>{
   assert.equal(nativeGoalClickBytes(19,2,80,24),'\x1b[<0;19;2M\x1b[<0;19;2m');
   for(const args of [[0,2,80,24],[-1,2,80,24],[81,2,80,24],[19,25,80,24],[19,2,0,24],[1.5,2,80,24],[Infinity,2,80,24],[19,2,10001,24]])assert.throws(()=>nativeGoalClickBytes(...args));
+});
+
+
+test('an empty-only native backend refuses existing persisted goals before any input or view change',async()=>{
+ const p=port({state:{goal_id:session}});await assert.rejects(readFreshGrokGoal(session,p,{emptyOnly:true}),error=>error.reason==='native_goal_existing_state_unverified');assert.equal(p.text(),'');assert.deepEqual(p.keys,[]);
+ const emptyPort=port();assert.deepEqual(await readFreshGrokGoal(session,emptyPort,{emptyOnly:true}),{current:null});assert.deepEqual(emptyPort.keys,['Enter']);
 });

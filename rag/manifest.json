@@ -2161,6 +2161,93 @@
       "fetched": "2026-07-26"
     },
     {
+      "slug": "apple-libproc-api",
+      "topic": "goal-native-os-identity",
+      "title": "apple-libproc-api",
+      "source_url": "https://raw.githubusercontent.com/apple-oss-distributions/xnu/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/libsyscall/wrappers/libproc/libproc.h",
+      "source_type": "official_source",
+      "path": "sources/goal-native-os-identity/apple-libproc-api.md",
+      "tags": [
+        "macos",
+        "process",
+        "goal",
+        "identity"
+      ],
+      "summary": "Apple kernel process出生と所有の読取りAPI。",
+      "relevance": "Grokの実pid_startとkernel microsecond出生を照合する。",
+      "chars": 7579,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "apple-proc-bsdinfo",
+      "topic": "goal-native-os-identity",
+      "title": "apple-proc-bsdinfo",
+      "source_url": "https://raw.githubusercontent.com/apple-oss-distributions/xnu/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/sys/proc_info.h",
+      "source_type": "official_source",
+      "path": "sources/goal-native-os-identity/apple-proc-bsdinfo.md",
+      "tags": [
+        "macos",
+        "process",
+        "goal",
+        "identity"
+      ],
+      "summary": "Apple kernel process出生と所有の読取りAPI。",
+      "relevance": "Grokの実pid_startとkernel microsecond出生を照合する。",
+      "chars": 31681,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "koffi-3-load",
+      "topic": "goal-native-os-identity",
+      "title": "koffi-3-load",
+      "source_url": "https://unpkg.com/koffi@3.3.4/doc/load.md",
+      "source_type": "official_source",
+      "path": "sources/goal-native-os-identity/koffi-3-load.md",
+      "tags": [
+        "koffi",
+        "native",
+        "ffi"
+      ],
+      "summary": "公式npm koffi3.3.4掲載のAPI資料。CDN取得bytesを固定npm内容と照合。",
+      "relevance": "Node18以上のAPI呼出しとMCPBのDarwin prebuilt同梱。",
+      "chars": 7521,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "koffi-3-overview",
+      "topic": "goal-native-os-identity",
+      "title": "koffi-3-overview",
+      "source_url": "https://unpkg.com/koffi@3.3.4/README.md",
+      "source_type": "official_source",
+      "path": "sources/goal-native-os-identity/koffi-3-overview.md",
+      "tags": [
+        "koffi",
+        "native",
+        "ffi"
+      ],
+      "summary": "公式npm koffi3.3.4掲載のAPI資料。CDN取得bytesを固定npm内容と照合。",
+      "relevance": "Node18以上のAPI呼出しとMCPBのDarwin prebuilt同梱。",
+      "chars": 2833,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "koffi-3-pointers",
+      "topic": "goal-native-os-identity",
+      "title": "koffi-3-pointers",
+      "source_url": "https://unpkg.com/koffi@3.3.4/doc/pointers.md",
+      "source_type": "official_source",
+      "path": "sources/goal-native-os-identity/koffi-3-pointers.md",
+      "tags": [
+        "koffi",
+        "native",
+        "ffi"
+      ],
+      "summary": "公式npm koffi3.3.4掲載のAPI資料。CDN取得bytesを固定npm内容と照合。",
+      "relevance": "Node18以上のAPI呼出しとMCPBのDarwin prebuilt同梱。",
+      "chars": 15050,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "crates-codegen-xai-grok-pager-src-slash-commands-session_info",
       "topic": "grok-goal-worker-binding",
       "title": "crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs",

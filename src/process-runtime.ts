@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import {processStartIdentity} from "./process-start.js";
+import {readDarwinProcessBirth} from "./darwin-process-birth.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -290,4 +291,11 @@ export function readLinuxProcessRegistrationIdentity(pid:number): {procStart:str
     if(!start?.startsWith("linux:")||!/^pid:\[\d+\]$/u.test(domain))return null;
     return {procStart:start.slice(6),pidDomain:`linux::${domain}`};
   }catch{return null;}
+}
+
+/** Current native registry birth format, with each OS proved independently. */
+export function readProcessRegistrationStart(pid:number):string|null{
+  if(process.platform==='linux')return readLinuxProcessRegistrationIdentity(pid)?.procStart??null;
+  if(process.platform==='darwin')return readDarwinProcessBirth(pid);
+  return null;
 }

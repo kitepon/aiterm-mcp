@@ -37,7 +37,7 @@ import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readProcessRegistrationStart, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -6036,7 +6036,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
         if(ownership!=="match")rejectOwner(ownership==="mismatch"?"goal_native_session_mismatch":"goal_native_session_unavailable");
       }
       if(target.harness==='grok-cli'){
-        const identity=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        const registrationStart=owner?readProcessRegistrationStart(owner.pid):null;
         let record:unknown;
         try{
           if(!target.grok_home)throw Error('native home unavailable');
@@ -6044,7 +6044,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
           if(!st.isFile()||st.isSymbolicLink()||st.size>1024*1024)throw Error('native registration unavailable');
           record=JSON.parse(fs.readFileSync(file,'utf8'));
         }catch{rejectOwner('goal_native_session_unavailable');}
-        const ownership=identity&&owner?grokCurrentSessionOwner(record,{pid:owner.pid,procStart:identity.procStart,sessionId:target.vendor_session_id!,cwd:target.cwd!}):'unavailable';
+        const ownership=registrationStart&&owner?grokCurrentSessionOwner(record,{pid:owner.pid,procStart:registrationStart,sessionId:target.vendor_session_id!,cwd:target.cwd!}):'unavailable';
         if(ownership!=='match')rejectOwner(ownership==='mismatch'?'goal_native_session_mismatch':'goal_native_session_unavailable');
       }
       if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
@@ -6107,9 +6107,14 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
   if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
-    read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
-    canClear:target=>grokGoalClearReady(grokPort(target).ui),
-    clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
+    read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target),{emptyOnly:process.platform==='darwin'}),
+    ...(process.platform==='linux'?{
+      canClear:(target:GoalTarget)=>grokGoalClearReady(grokPort(target).ui),
+      clear:(target:GoalTarget,before:NonNullable<Extract<AgentGoalWireResult,{schema:'aiterm.agent-goal-result.v2'}>['goal']>)=>{
+        if(before.kind!=='grok-cli')throw new AgentGoalNotIssuedError('native_goal_binding_mismatch');
+        return clearGrokGoal(target.vendor_session_id!,before,grokPort(target));
+      },
+    }:{}),
   },origin));
   if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add an initial Linux Grok current-session guard and fresh local no-goal inspection. Active-state inspection and mutations remain unavailable or unsupported until their own native acceptance is complete.
+- Add Linux Grok current-session binding and fresh idle-composer goal inspection. Keep the persisted native snapshot separate from current_status, reject replaced goals and busy-worker queries before input, and leave all mutations unsupported.
 
 - Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; objective creation/editing use the same CLI with exact native readback and per-field constraints; pause/resume remain unsupported.
 - Recognize the current official Claude PKCE authorization URL without exposing callback codes or tokens.

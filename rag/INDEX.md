@@ -520,3 +520,23 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [crates/codegen/xai-grok-shell/src/session/goal_tracker.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md) — 公式goal statusの形式とcurrent session所有の根拠。
 
 公式main sourceは2bdd1d6aへ固定した調査資料であり、実CLI1.0.70/f50904eaとのsource同一性は主張しない。現在TUI/PID登録/statusは隔離した実CLIで別に確認する。
+
+- [Grok official current worker accounting](sources/grok-goal-worker-binding/grok-native-goal-support.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [Grok official local goal status/pause/clear](sources/grok-goal-worker-binding/grok-native-slash-exec.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [Grok official elapsed display](sources/grok-goal-worker-binding/grok-native-goal-orchestrator.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [grok-native-goal-detail](sources/grok-goal-worker-binding/grok-native-goal-detail.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-minimal-api](sources/grok-goal-worker-binding/grok-native-minimal-api.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-session-state](sources/grok-goal-worker-binding/grok-native-session-state.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-acp-command](sources/grok-goal-worker-binding/grok-native-ui-acp-command.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-goal-tests](sources/grok-goal-worker-binding/grok-native-ui-goal-tests.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-input](sources/grok-goal-worker-binding/grok-native-ui-input.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-router](sources/grok-goal-worker-binding/grok-native-ui-router.md) — Grok公式の元worker・現在UI・入力経路の責務。

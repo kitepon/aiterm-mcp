@@ -16,7 +16,7 @@ export function grokCurrentSessionOwner(record:unknown,expected:{pid:number;proc
 }
 
 export const grokNativeGoalStateSchema=z.object({
-  goal_id:z.string().uuid(),objective:z.string().min(1),status:z.enum(['active','user_paused']),phase:z.literal('Executing'),
+  goal_id:z.string().uuid(),objective:z.string().min(1),status:z.enum(['active','user_paused']),phase:z.enum(['Idle','Planning','Executing']),
   token_budget:z.number().int().positive(),elapsed_ms:z.number().int().nonnegative(),created_at:z.string().datetime({offset:true}),
   current_subagent_id:z.string().nullable(),current_subagent_role:z.string().nullable(),
   total_worker_rounds:z.number().int().nonnegative(),total_verify_rounds:z.number().int().nonnegative(),
@@ -24,7 +24,24 @@ export const grokNativeGoalStateSchema=z.object({
   history:z.array(z.object({timestamp:z.string().datetime({offset:true}),event:z.string(),detail:z.string().optional()}).strict()),
   evaluator_blocked_streak:z.number().int().nonnegative(),verifier_id:z.string().min(1),classifier_runs_attempted:z.number().int().nonnegative(),rounds_since_verify:z.number().int().nonnegative(),classifier_stall_count:z.number().int().nonnegative(),consecutive_not_achieved:z.number().int().nonnegative(),last_strategist_fired_at:z.number().int().nonnegative(),strategist_cap_bonus:z.number().int().nonnegative(),
 }).strict();
-export const grokCurrentGoalSchema=z.object({kind:z.literal('grok-cli'),native:grokNativeGoalStateSchema}).strict();
+export const grokCurrentStatusSchema=z.object({
+  source:z.literal('/goal status'),status:z.enum(['Active','UserPaused']),phase:z.enum(['Idle','Planning','Executing']),
+  tokens_used:z.number().int().nonnegative().safe(),elapsed_display:z.string().max(64).regex(/^(?:\d+s|\d+m[0-5]\ds|\d+h[0-5]\dm)$/u),
+}).strict();
+// Keep the persisted native snapshot distinct from the current worker's
+// fresh status. Resuming a worker can reset its in-memory phase without
+// rewriting that snapshot; never present the stored phase as current.
+export const grokCurrentGoalSchema=z.object({kind:z.literal('grok-cli'),native:grokNativeGoalStateSchema,current_status:grokCurrentStatusSchema}).strict();
+
+export function grokGoalFromFreshStatus(text:string,before:unknown,after:unknown):z.infer<typeof grokCurrentGoalSchema>{
+  const first=grokNativeGoalStateSchema.parse(before),native=grokNativeGoalStateSchema.parse(after);
+  if(first.goal_id!==native.goal_id||first.objective!==native.objective)throw Error('native_goal_identity_changed');
+  const prefix=`Goal: ${native.objective}\nStatus: `;
+  if(!text.startsWith(prefix))throw Error('native_goal_status_mismatch');
+  const match=text.slice(prefix.length).match(/^(Active|UserPaused) \| Phase: (Idle|Planning|Executing)\nGoal tokens used: (\d+)\nElapsed: ([^\r\n]+)$/u);
+  if(!match)throw Error('native_goal_active_status_unverified');
+  return grokCurrentGoalSchema.parse({kind:'grok-cli',native,current_status:{source:'/goal status',status:match[1],phase:match[2],tokens_used:Number(match[3]),elapsed_display:match[4]}});
+}
 
 function composer(screen:string):string|null{
   const plain=screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu,'');
@@ -48,6 +65,7 @@ export interface GrokGoalStatusPort {
 }
 export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>{
   const before=port.rows();
+  const beforeState=port.state();
   if(composer(port.ui.read())!=='')throw new AgentGoalNotIssuedError('native_goal_status_input_unconfirmed');
   await port.ui.paste('/goal status');
   const now=port.ui.now??(()=>performance.now());
@@ -78,10 +96,7 @@ export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort
       if(state!==null)throw Error('native_goal_status_mismatch');
       return {current:null};
     }
-    // Current active-state display has not yet been accepted against this
-    // CLI version. A known persisted snapshot alone cannot satisfy a query.
-    grokNativeGoalStateSchema.parse(state);
-    throw Error('native_goal_active_status_unverified');
+    return {current:grokGoalFromFreshStatus(text,beforeState,state)};
   }
   throw Error('native_goal_fresh_status_unavailable');
 }

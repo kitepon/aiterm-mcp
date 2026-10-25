@@ -2280,6 +2280,176 @@
       "fetched": "2026-10-25"
     },
     {
+      "slug": "grok-native-goal-detail",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official views/goal_detail.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/views/goal_detail.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-goal-detail.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 91046,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-goal-orchestrator",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official goal elapsed display",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-goal-orchestrator.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 17641,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-goal-support",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official goal_support.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal_support.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-goal-support.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 79305,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-minimal-api",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official minimal/api.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/minimal/api.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-minimal-api.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 32135,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-session-state",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official session state extension",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/extensions/session_state.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-session-state.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 13523,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-slash-exec",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official slash_exec.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/slash_exec.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-slash-exec.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 49707,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-ui-acp-command",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official slash/acp_command.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/slash/acp_command.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-ui-acp-command.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 13896,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-ui-goal-tests",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official app/acp_handler/tests/goals.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/acp_handler/tests/goals.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-ui-goal-tests.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 28540,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-ui-input",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official app/agent_view/input.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/input.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-ui-input.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 112434,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-ui-router",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok official app/dispatch/router.rs",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/dispatch/router.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-ui-router.md",
+      "tags": [
+        "grok",
+        "goal",
+        "status"
+      ],
+      "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
+      "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
+      "chars": 78659,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "homebrew-opt-prefix",
       "topic": "installation",
       "title": "HomebrewのCellarとopt prefix",

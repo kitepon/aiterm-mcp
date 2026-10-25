@@ -1,6 +1,7 @@
 import './seat-env.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import fs from 'node:fs';
 import {grokCurrentSessionOwner,readFreshGrokGoal} from '../dist/harnesses/grok-goal.js';
 import {manageGrokAgentGoal,agentGoalWireResultSchema} from '../dist/agent-goal-native-result.js';
 const session='439cd90a-b8a4-436d-b093-63f0d8ce5096';
@@ -14,9 +15,9 @@ test('Grok current-session registry binds PID birth and cwd and rejects a manual
 });
 const row=(kind,text)=>({method:'session/update',params:{sessionId:session,update:{sessionUpdate:kind,content:{type:'text',text},_meta:{hostTurn:true}}}});
 const empty='No goal is currently set. Use /goal <objective> to start one.';
-function port({draft='',append=true,state=null,old=[],menu=''}={}){
+function port({draft='',append=true,state=null,old=[],menu='',reply=empty}={}){
   let text=draft,clock=0,rows=[...old];const keys=[];
-  const ui={read:()=>`Grok Build v1.0.70\nminimal · /help\n❯ ${text}\n${text&&menu?menu:'Grok 4.6 (high)'}`,paste:async value=>{text+=value;},keys:async values=>{keys.push(...values);text='';if(append)rows.push(row('user_message_chunk','/goal status'),row('agent_message_chunk',empty));},pause:async ms=>{clock+=ms;},now:()=>clock};
+  const ui={read:()=>`Grok Build v1.0.70\nminimal · /help\n❯ ${text}\n${text&&menu?menu:'Grok 4.6 (high)'}`,paste:async value=>{text+=value;},keys:async values=>{keys.push(...values);text='';if(append)rows.push(row('user_message_chunk','/goal status'),row('agent_message_chunk',reply));},pause:async ms=>{clock+=ms;},now:()=>clock};
   return {ui,rows:()=>[...rows],state:()=>state,keys,text:()=>text};
 }
 test('Grok fresh bound local status alone proves current null; a missing file or old response does not',async()=>{
@@ -24,6 +25,31 @@ test('Grok fresh bound local status alone proves current null; a missing file or
   const replay=port({append:false,old:[row('user_message_chunk','/goal status'),row('agent_message_chunk',empty)]});
   await assert.rejects(readFreshGrokGoal(session,replay),/fresh_status_unavailable/);
   await assert.rejects(readFreshGrokGoal(session,port({state:{status:'active'}})),/status_mismatch/);
+});
+test('Grok fresh current status remains distinct from a persisted phase and native token snapshot',async()=>{
+  const state=JSON.parse(fs.readFileSync(new URL('./fixtures/grok-goal-paused-snapshot.json',import.meta.url),'utf8'));
+  state.phase='Executing';
+  const reply=`Goal: ${state.objective}\nStatus: UserPaused | Phase: Idle\nGoal tokens used: 4906\nElapsed: 14s`;
+  const result=await readFreshGrokGoal(session,port({state,reply}));
+  assert.equal(result.current.native.phase,'Executing');
+  assert.deepEqual(result.current.current_status,{source:'/goal status',status:'UserPaused',phase:'Idle',tokens_used:4906,elapsed_display:'14s'});
+  await assert.rejects(readFreshGrokGoal(session,port({state,append:false,old:[row('user_message_chunk','/goal status'),row('agent_message_chunk',reply)]})),/fresh_status_unavailable/);
+  await assert.rejects(readFreshGrokGoal(session,port({state,reply:reply.replace(state.objective,'another goal')})),/status_mismatch/);
+  await assert.rejects(readFreshGrokGoal(session,port({state,reply:reply.replace('UserPaused','MysteryPaused')})),/active_status_unverified/);
+  await assert.rejects(readFreshGrokGoal(session,port({state,reply:reply.replace('4906','9007199254740992')})));
+});
+test('Grok current status refuses a goal replacement during the fresh query',async()=>{
+  const state=JSON.parse(fs.readFileSync(new URL('./fixtures/grok-goal-paused-snapshot.json',import.meta.url),'utf8'));
+  const reply=`Goal: ${state.objective}\nStatus: UserPaused | Phase: Idle\nGoal tokens used: 4906\nElapsed: 14s`;
+  const p=port({state,reply});let reads=0;
+  p.state=()=>reads++===0?state:{...state,goal_id:other};
+  await assert.rejects(readFreshGrokGoal(session,p),/identity_changed/);
+});
+test('Grok executing worker does not enqueue a status command or adopt its active snapshot',async()=>{
+  const p=port();
+  p.ui.read=()=> '❯ /goal resume\n◆ Subagent running: “goal plan writer” · Waiting for response… (grok-4.6)\n⠴ Waiting for subagent… 0.5s\n❯\nGrok 4.6 (high) · 1.3K / 500K (0%) · ctrl+o transcript\n';
+  await assert.rejects(readFreshGrokGoal(session,p),error=>error.reason==='native_goal_status_input_unconfirmed');
+  assert.equal(p.text(),'');assert.deepEqual(p.keys,[]);
 });
 test('Grok inspect preserves an occupied composer before paste or Enter',async()=>{
   const p=port({draft:'owner draft'});

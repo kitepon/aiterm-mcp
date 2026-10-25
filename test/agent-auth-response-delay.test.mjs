@@ -19,7 +19,7 @@ async function scenario(transition,replace=false){
  fs.writeFileSync(bin,`#!/bin/bash
 if [ "$1" = auth ] && [ "$2" = status ]; then printf '{"loggedIn":false}\\n'; exit 1; fi
 stty -echo
-printf 'Paste code here if prompted >\\n'
+printf '\\nPaste code here if prompted >\\n'
 IFS= read -r reply
 printf x >> ${quote(path.join(dir,'count'))}
 ${transition?"sleep 0.8\nprintf '\\033[2J\\033[HWaiting for official response\\n'":""}
@@ -62,7 +62,7 @@ test('official onboarding transition keeps the same auth launch after metadata r
 if [ "$1" = auth ] && [ "$2" = status ]; then printf '{"loggedIn":true}\\n'; exit 0; fi
 if [ "$#" = 0 ]; then printf 'Choose the text style that looks best with your terminal\\n❯ 1. Dark mode\\n'; sleep 30; exit 0; fi
 stty -echo
-printf 'Paste code here if prompted >\\n'
+printf '\\nPaste code here if prompted >\\n'
 IFS= read -r reply
 printf x >> ${quote(count)}
 exit 0

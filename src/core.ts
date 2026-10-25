@@ -23,7 +23,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
-import {grokCurrentSessionOwner,readFreshGrokGoal} from './harnesses/grok-goal.js';
+import {grokCurrentSessionOwner,readFreshGrokGoal,clearGrokGoal,grokGoalClearReady} from './harnesses/grok-goal.js';
 import {nativeGoalClickBytes} from './agent-goal-ui.js';
 import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
@@ -5949,7 +5949,16 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
       async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true,
         raw: true, beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
-      async keys(keys, expectedRow) { await withExecutionNativeAdmission(input.session_id, () => { check(); if (expectedRow) { checkRow(expectedRow.row, expectedRow.text); check(); } inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
+      async keys(keys, expectedRow, confirm) { await withExecutionNativeAdmission(input.session_id, () => {
+        check();
+        if (expectedRow) checkRow(expectedRow.row, expectedRow.text);
+        if (confirm) {
+          const screen = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+          if (screen.code !== 0 || !confirm(screen.stdout)) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        }
+        if (expectedRow || confirm) check();
+        inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed");
+      }); },
       async click(column, row, confirm) { await withExecutionNativeAdmission(input.session_id, () => {
         check();
         const size = tmux('display-message', '-p', '-t', input.session_id, '#{pane_width} #{pane_height}');
@@ -5965,7 +5974,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       pause: sleep,
     };
   };
-  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,read:target=>{
+  const grokPort=(target:GoalTarget)=>{
     const ui=goalUi(target);
     const read=(relative:string,optional=false)=>{
       ui.read();
@@ -5979,8 +5988,13 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       if(!st.isFile()||st.isSymbolicLink()||st.size>4*1024*1024)throw Error('native state unavailable');
       return fs.readFileSync(file,'utf8');
     };
-    return readFreshGrokGoal(target.vendor_session_id!,{ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}});
-  }}));
+    return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
+  };
+  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
+    read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
+    canClear:target=>grokGoalClearReady(grokPort(target).ui),
+    clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
+  },origin));
   if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);

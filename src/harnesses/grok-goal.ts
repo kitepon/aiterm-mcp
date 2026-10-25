@@ -49,9 +49,8 @@ export function grokGoalFromFreshStatus(text:string,before:unknown,after:unknown
   return grokCurrentGoalSchema.parse({kind:'grok-cli',native,current_status:{source:'/goal status',status:match[1],phase:match[2],tokens_used:Number(match[3]),elapsed_display:match[4]}});
 }
 
-function composer(screen:string):string|null{
+function composer(screen:string,command:'/goal status'|'/goal clear'='/goal status'):string|null{
   const plain=screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu,'');
-  if(grokPaneObservation(plain).state!=='idle')return null;
   const lines=plain.split('\n');
   let anchor=-1;
   for(let i=lines.length-1;i>=0;i--)if(/^minimal\s+·\s/u.test(lines[i])){anchor=i;break;}
@@ -60,8 +59,17 @@ function composer(screen:string):string|null{
   const row=anchor>=0?lines[anchor+1]:lines.filter(line=>/^\s*│\s*[❯>]/u.test(line)).at(-1);
   if(row===undefined||!/^\s*(?:│\s*)?[❯>]/u.test(row))return null;
   const tail=anchor>=0?lines.slice(anchor+2):[];
-  if(tail.some(line=>line.includes('↑/↓ navigate'))&&tail.filter(line=>/^❯/u.test(line)).join('\n')!=='❯ status Show the goal')return null;
-  return row===undefined?null:row.replace(/^\s*(?:│\s*)?[❯>]\s?/u,'').replace(/\s*│\s*$/u,'').trimEnd();
+  const value=row.replace(/^\s*(?:│\s*)?[❯>]\s?/u,'').replace(/\s*│\s*$/u,'').trimEnd();
+  const menu=tail.some(line=>line.includes('↑/↓ navigate'));
+  const expected=command==='/goal status'?'❯ status Show the goal':'❯ clear Clear the goal';
+  const knownMenu=menu&&tail.filter(line=>/^❯/u.test(line)).map(line=>line.trimEnd()).join('\n')===expected
+    &&/^\s*↑\/↓ navigate · enter confirm · esc cancel\s*$/u.test(tail.filter(line=>line.trim()).at(-1)??'');
+  if(menu&&!knownMenu)return null;
+  const observation=grokPaneObservation(plain);
+  // Minimal completion replaces the model footer. Only this exact command's
+  // current anchored menu establishes input readiness when that footer is gone.
+  if(observation.state!=='idle'&&!(observation.state==='unknown'&&anchor>=0&&knownMenu&&value===command))return null;
+  return value;
 }
 
 export interface GrokGoalStatusPort {
@@ -144,20 +152,21 @@ async function readGrokGoalDetail(port:GrokGoalStatusPort,before:unknown,initial
     }
   }
 }
-export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>{
+async function localGoalCommand(sessionId:string,port:GrokGoalStatusPort,command:'/goal status'|'/goal clear',guard?:()=>void):Promise<{text:string;before:unknown;after:unknown}>{
   const before=port.rows();
   const beforeState=port.state();
   const initial=port.ui.read();
-  if(fullHeader(initial))return readGrokGoalDetail(port,beforeState,initial);
   if(composer(initial)!=='')throw new AgentGoalNotIssuedError('native_goal_status_input_unconfirmed');
-  await port.ui.paste('/goal status');
+  guard?.();
+  await port.ui.paste(command);
   const now=port.ui.now??(()=>performance.now());
   let pasted=false;
   for(const until=now()+2000;now()<until;await port.ui.pause(30)){
-    if(composer(port.ui.read())==='/goal status'){pasted=true;break;}
+    if(composer(port.ui.read(),command)===command){pasted=true;break;}
   }
   if(!pasted)throw new AgentGoalNotIssuedError('native_goal_status_input_unconfirmed');
-  await port.ui.keys(['Enter']);
+  guard?.();
+  await port.ui.keys(['Enter'],undefined,screen=>{guard?.();return composer(screen,command)===command;});
   for(const until=now()+2000;now()<until;await port.ui.pause(30)){
     port.ui.read(); // current native session and foreground ownership guard
     const rows=port.rows();
@@ -165,7 +174,7 @@ export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort
     const tail=rows.slice(before.length) as any[];
     const query=tail.flatMap((row,i)=>row?.method==='session/update'&&row.params?.sessionId===sessionId
       &&row.params.update?.sessionUpdate==='user_message_chunk'&&row.params.update?._meta?.hostTurn===true
-      &&row.params.update.content?.type==='text'&&row.params.update.content?.text==='/goal status'?[i]:[]);
+      &&row.params.update.content?.type==='text'&&row.params.update.content?.text===command?[i]:[]);
     if(query.length>1)throw Error('native_goal_status_ambiguous');
     if(query.length!==1)continue;
     const replies=tail.slice(query[0]+1).filter(row=>row?.method==='session/update'&&row.params?.sessionId===sessionId
@@ -175,11 +184,38 @@ export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort
     if(replies.length!==1)continue;
     const text=replies[0].params.update.content.text;
     const state=port.state();
-    if(text==='No goal is currently set. Use /goal <objective> to start one.'){
-      if(state!==null)throw Error('native_goal_status_mismatch');
-      return {current:null};
-    }
-    return {current:grokGoalFromFreshStatus(text,beforeState,state)};
+    return {text,before:beforeState,after:state};
   }
   throw Error('native_goal_fresh_status_unavailable');
+}
+
+export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>{
+  const initial=port.ui.read();
+  if(fullHeader(initial))return readGrokGoalDetail(port,port.state(),initial);
+  const observed=await localGoalCommand(sessionId,port,'/goal status');
+  if(observed.text==='No goal is currently set. Use /goal <objective> to start one.'){
+    if(observed.after!==null)throw Error('native_goal_status_mismatch');
+    return {current:null};
+  }
+  return {current:grokGoalFromFreshStatus(observed.text,observed.before,observed.after)};
+}
+export function grokGoalClearReady(ui:GoalNativeUi):boolean{return composer(ui.read())==='';}
+export async function clearGrokGoal(sessionId:string,expected:z.infer<typeof grokCurrentGoalSchema>,port:GrokGoalStatusPort):Promise<void>{
+  let enterAttempted=false;
+  const guard=()=>{
+    const current=grokNativeGoalStateSchema.safeParse(port.state());
+    if(!current.success||current.data.goal_id!==expected.native.goal_id||current.data.objective!==expected.native.objective)
+      throw new AgentGoalNotIssuedError('native_goal_changed_before_clear');
+  };
+  const ui:GoalNativeUi={...port.ui,keys:async(keys,row,confirm)=>{enterAttempted=true;await port.ui.keys(keys,row,confirm);}};
+  let observed:Awaited<ReturnType<typeof localGoalCommand>>;
+  try{observed=await localGoalCommand(sessionId,{...port,ui},'/goal clear',guard);}
+  catch(error){if(!enterAttempted&&!(error instanceof AgentGoalNotIssuedError))throw new AgentGoalNotIssuedError('native_goal_clear_input_unconfirmed');throw error;}
+  if(observed.text!=='Goal cleared.'||observed.after!==null)throw Error('native_goal_clear_unconfirmed');
+  const now=port.ui.now??(()=>performance.now());
+  for(const until=now()+2000;now()<until;await port.ui.pause(30)){
+    const screen=port.ui.read();
+    if(!fullHeader(screen)&&composer(screen)==='')return;
+  }
+  throw Error('native_goal_clear_ui_unconfirmed');
 }

@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Clear an existing idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.
+
 ### Added
 
-- Add Linux Grok current-session binding and fresh idle-composer goal inspection. Keep the persisted native snapshot separate from current_status, reject replaced goals and busy minimal-view commands before input, and leave all mutations unsupported.
+- Add Linux Grok current-session binding and fresh idle-composer goal inspection. Keep the persisted native snapshot separate from current_status, reject replaced goals and busy minimal-view commands before input, and leave unverified mutations unsupported.
 - Inspect live fullscreen Grok Goal detail on the original worker without queuing a slash command or stopping it. Validate the current hit target and modal before each input; keep rounded display values distinct from exact native fields.
 
 - Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; objective creation/editing use the same CLI with exact native readback and per-field constraints; pause/resume remain unsupported.

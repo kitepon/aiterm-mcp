@@ -2,7 +2,7 @@
 export interface GoalNativeUi {
   read(): string;
   paste(text: string): Promise<void>;
-  keys(keys: string[], expectedRow?: { row: number; text: string }): Promise<void>;
+  keys(keys: string[], expectedRow?: { row: number; text: string }, confirm?: (screen: string) => boolean): Promise<void>;
   click?(column: number, row: number, confirm: (screen: string) => boolean): Promise<void>;
   pause(ms: number): Promise<void>;
   now?(): number;

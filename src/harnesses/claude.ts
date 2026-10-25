@@ -807,8 +807,29 @@ export function claudeAuthStatus(bin: string, cwd: string, env = process.env): A
   return { status: "failed", message: "Claude Codeの公式認証状態の確認に失敗しました。" };
 }
 
+/** Current official Claude authorization request. `code=true` requests a
+ * displayed authorization code; a callback's `code=<credential>` remains
+ * private. Keep this exception at the vendor owner, not the shared filter. */
+export function claudeAuthorizationUrl(screen: string): string | null {
+  const legacy = authUrl(screen, ["claude.ai", "console.anthropic.com", "platform.claude.com"]);
+  if (legacy) return legacy;
+  for (const match of screen.matchAll(/https:\/\/[^\s<>"']+/gu)) {
+    const candidate = match[0].replace(/[).,;]+$/u, "");
+    let url: URL;
+    try { url = new URL(candidate); } catch { continue; }
+    if (url.hostname !== "claude.com" || url.pathname !== "/cai/oauth/authorize"
+      || url.searchParams.getAll("code").length !== 1 || url.searchParams.get("code") !== "true"
+      || url.searchParams.get("response_type") !== "code"
+      || url.searchParams.get("code_challenge_method") !== "S256"
+      || !/^[A-Za-z0-9_-]{43}$/u.test(url.searchParams.get("code_challenge") ?? "")) continue;
+    url.searchParams.delete("code");
+    if (authUrl(url.href, ["claude.com"]) !== null) return candidate;
+  }
+  return null;
+}
+
 export function claudeAuthPane(screen: string, onboarding = false): AgentAuthPane {
-  const url = authUrl(screen, ["claude.ai", "console.anthropic.com", "platform.claude.com"]);
+  const url = claudeAuthorizationUrl(screen);
   const input = /Paste (?:the )?code|Enter (?:the )?(?:authorization )?code|Choose the text style|Select login method:|Press (?:Enter|Return)|do you trust|trust this folder/i.test(screen);
   const complete = onboarding && (claudeTuiReady(screen) || /Is this a project you created or one you trust/.test(screen));
   return { url, user_code: null, input_required: input && !complete,

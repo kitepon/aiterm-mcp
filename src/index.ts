@@ -16,6 +16,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
+import { agentGoalWireResultSchema, agentGoalOutputSchema } from "./agent-goal-native-result.js";
+import { agentGoalInputSchema, goalOriginFromHost } from "./agent-goal.js";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
@@ -55,8 +57,14 @@ export interface AitermServerExecution {
  * private execution factory until runtime/participant coverage is complete.
  * Importing this module neither connects stdio nor runs diagnostics/reporters.
  */
-export function createAitermServer(options: { execution?: (server: McpServer) => AitermServerExecution } = {}): McpServer {
+export function createAitermServer(options: {
+  execution?: (server: McpServer) => AitermServerExecution;
+  // Authenticated host ingress supplies provenance. No tool argument can set it.
+  goalOrigin?: (extra: { _meta?: unknown; requestId?: unknown }) => "user" | "automatic";
+} = {}): McpServer {
 const server = new McpServer({ name: "aiterm", version: pkg.version });
+const goalOrigin = options.goalOrigin;
+if (goalOrigin !== undefined && typeof goalOrigin !== "function") throw new Error("Invalid trusted goal provenance adapter");
 const supplied = options.execution?.(server);
 if (options.execution && (!supplied || typeof supplied.dispatcher?.dispatch !== "function"
   || typeof supplied.parentExecution?.bind !== "function" || typeof supplied.parentExecution?.submit !== "function"
@@ -1002,6 +1010,20 @@ const fastModeDesc =
   "（fastに対応していないmodelでもfalseは受ける）。切り替えは席だけに留め、harnessが利用者の既定へ書いた分は切り替えの直前の値へ戻す。" +
   "断りは文の先頭の符号で分かる: FAST_MODE_NOT_SUPPORTED（そのmodelは対応していない）、FAST_MODE_UNAVAILABLE（アカウントや契約で使えない）、" +
   "FAST_MODE_MODEL_CONFLICT（modelへfast版のIDを書いてfalseを渡した）、FAST_MODE_UNCONFIRMED（切り替えた後の状態を確かめられない）。";
+
+server.registerTool("agent_goal", {
+  description: "Read or manage the CLI's real goal for an exact session/launch. clear removes the goal without stopping its turn; resume requires a paused goal. Editing objective resets native usage accounting. User mutations require trusted host provenance. No goal store or worker is created.",
+  inputSchema: agentGoalInputSchema,
+  outputSchema: agentGoalOutputSchema,
+}, async (args, extra) => {
+  try {
+    const origin = goalOrigin ? goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta);
+    if (origin !== "user" && origin !== "automatic") throw new Error("Invalid trusted goal provenance");
+    const result = agentGoalWireResultSchema.parse(await core.agentGoal(agentGoalInputSchema.parse(args), origin));
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result },
+      ...(["rejected", "outcome_unknown", "unavailable", "unsupported"].includes(result.outcome) ? { isError: true } : {}) };
+  } catch (error) { return fail(error); }
+});
 
 registerRemoteAwareTool(
   "agent_configure",

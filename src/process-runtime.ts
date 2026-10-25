@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import {processStartIdentity} from "./process-start.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -276,4 +278,16 @@ export function backgroundProcesses(rows: RuntimeProcess[], root: RuntimeProcess
     if (!Number.isFinite(started)) throw new AitermError("process開始時刻を解釈できません", 2);
     return started - rootStart >= 60_000;
   });
+}
+
+/** Official native registries use Linux boot ticks and a PID namespace.
+ * Other OS registry birth formats require their own accepted adapter. */
+export function readLinuxProcessRegistrationIdentity(pid:number): {procStart:string;pidDomain:string}|null {
+  if(process.platform!=="linux")return null;
+  try{
+    const start=processStartIdentity(pid,"linux");
+    const domain=fs.readlinkSync(`/proc/${pid}/ns/pid`);
+    if(!start?.startsWith("linux:")||!/^pid:\[\d+\]$/u.test(domain))return null;
+    return {procStart:start.slice(6),pidDomain:`linux::${domain}`};
+  }catch{return null;}
 }

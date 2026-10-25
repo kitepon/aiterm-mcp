@@ -513,3 +513,43 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 
 - [string-width 7.2.0 package.json](sources/windows-wrapped-shell-prompt/string-width-7-2-0-package-json.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
+
+## grok-goal-worker-binding
+
+- [crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/client.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-client.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/lock.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-lock.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/leader/protocol.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-protocol.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-pager-src-slash-commands-session_info.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+- [crates/codegen/xai-grok-shell/src/session/slash_commands.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-slash_commands.md) — 公式goal statusの形式とcurrent session所有の根拠。
+- [crates/codegen/xai-grok-shell/src/session/goal_tracker.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md) — 公式goal statusの形式とcurrent session所有の根拠。
+
+公式main sourceは2bdd1d6aへ固定した調査資料であり、実CLI1.0.70/f50904eaとのsource同一性は主張しない。現在TUI/PID登録/statusは隔離した実CLIで別に確認する。
+
+- [Grok official current worker accounting](sources/grok-goal-worker-binding/grok-native-goal-support.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [Grok official local goal status/pause/clear](sources/grok-goal-worker-binding/grok-native-slash-exec.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [Grok official elapsed display](sources/grok-goal-worker-binding/grok-native-goal-orchestrator.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
+
+- [grok-native-goal-detail](sources/grok-goal-worker-binding/grok-native-goal-detail.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-minimal-api](sources/grok-goal-worker-binding/grok-native-minimal-api.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-session-state](sources/grok-goal-worker-binding/grok-native-session-state.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-acp-command](sources/grok-goal-worker-binding/grok-native-ui-acp-command.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-goal-tests](sources/grok-goal-worker-binding/grok-native-ui-goal-tests.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-input](sources/grok-goal-worker-binding/grok-native-ui-input.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-ui-router](sources/grok-goal-worker-binding/grok-native-ui-router.md) — Grok公式の元worker・現在UI・入力経路の責務。
+
+- [grok-native-prompt-keys](sources/grok-goal-worker-binding/grok-native-prompt-keys.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-native-ui-panes](sources/grok-goal-worker-binding/grok-native-ui-panes.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-pointer-string-width-7-2-0-package-json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+- [grok-pointer-string-width-7-2-0-readme-md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。

@@ -67,7 +67,7 @@ test('partial injected runtime never inherits default native interruption functi
 test('regular SDK entry lists controls and routes v2 through the shared controller/key slot while key receipt stays unconfirmed', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(); const client = new Client({ name: 'synthetic-owner', version: 'test' });
   const [a,b] = InMemoryTransport.createLinkedPair(); await p.server.connect(b); await client.connect(a); t.after(() => client.close());
-  const list = await client.listTools(); assert.equal(list.tools.length, 21);
+  const list = await client.listTools(); assert.equal(list.tools.length, 22);
   for (const name of ['agent_stop','agent_execution','agent_execution_roots']) assert.ok(list.tools.some(tool => tool.name === name));
   const receipt = await client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
   assert.equal(receipt.isError, undefined); assert.equal(f.keys(), 1); assert.equal(f.selections(), 1);

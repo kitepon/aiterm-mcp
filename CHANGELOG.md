@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Clear an existing idle Grok goal on the original worker through one user-origin native command, with fresh durable acknowledgement and authoritative no-goal readback. Refuse busy input, drafts and replaced bindings; preserve unknown effects without retry.
+
+### Added
+
+- Add Linux Grok current-session binding and fresh idle-composer goal inspection. Keep the persisted native snapshot separate from current_status, reject replaced goals and busy minimal-view commands before input, and leave unverified mutations unsupported.
+- Inspect live fullscreen Grok Goal detail on the original worker without queuing a slash command or stopping it. Validate the current hit target and modal before each input; keep rounded display values distinct from exact native fields.
+
+- Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude clear preserves the current turn and confirms fresh native empty/cleared state; objective creation/editing use the same CLI with exact native readback and per-field constraints; pause/resume remain unsupported.
+- Recognize the current official Claude PKCE authorization URL without exposing callback codes or tokens.
+
+- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Grok/Cursor adapters report explicit unsupported status; missing native connections report unavailable.
+
+- Goal results expose optional field capabilities. Ordinary embedded Codex supports budget-only edits through the official service; unsupported objective or mixed edits issue no mutation.
+
+- Ordinary Codex objective-only edits use its native editor with literal reserved/multiline input, draft preservation, and fresh readback on proven no-submission refusals. Field capabilities distinguish independent fields from combined edits; file-backed objectives and combined edits remain disabled.
+
+- Ordinary Codex creates literal goals through its existing CLI with bounded ordered paste input and complete native readback. Reserved controls and budget-bearing creation are explicitly unsupported before any goal is issued; existing goals and drafts are preserved.
+
+### Fixed
+
+- Goal TUI input requires original foreground process-group ownership and explicit raw/no-echo TTY state at each input boundary. Invalid ownership refuses before any input; loss after input preserves unknown results without terminal recovery or replay.
+- Goal creation requires its requested active status to match the native readback; concurrent native status changes retain the observed state and an unknown result.
+- Explicit whole-application goal stops wait only for selected descendants, so one native timeout does not delay independent roots. Ordinary interruption and partial goal receipts remain unchanged.
+
 ## [0.61.19] - 2026-10-26
 
 - Fix native Windows shell selection for current Git Bash prompts wrapped across pane columns, preserving unknown and historical prompt boundaries. Both ordinary and marked literal multiline sends retain the correct shell syntax.
@@ -3083,3 +3107,5 @@ prototype (preserved under `prototype/python/` as the porting source and referen
 
 
 Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.
+
+Native Claude goal input also verifies the official per-PID current-session registration, including native session ID, process birth ticks and PID namespace before each input boundary. A switched conversation is refused before goal input; ownership loss after input remains unknown. No conversation is switched back automatically. This registration birth format is currently verified on Linux; unverified OS/registry data remains unavailable.

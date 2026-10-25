@@ -149,7 +149,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-18ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+19ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_goal`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧起動ツールは同じ実装へ流れる互換alias。
 
@@ -441,7 +441,7 @@ agentの起動はPowerShell 7のpaneでargvを渡して実行し、受入済みs
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 19 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>再起動を跨ぐ"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -813,4 +813,29 @@ aiterm が、あなたの AI に別のエージェントへ仕事を渡させた
 MIT
 
 
-Claude認証は公式claude.com/cai/oauth/authorizeのPKCE要求と非秘密のcode=true表示flagを認証URLとして返す。callback認可codeやtokenは除外し、共通URL credential filterは変更しない。この認証専用差分にnative goal機能は含まない。
+Claude認証は公式claude.com/cai/oauth/authorizeのPKCE要求と非秘密のcode=true表示flagを認証URLとして返す。callback認可codeやtokenは除外し、共通URL credential filterは変更しない。
+
+## CLIの実ゴール
+
+`agent_goal` は `session_id`、元の32桁 `launch_id`、`action: inspect|create|edit|pause|resume|clear` を受ける。`expected_thread_id` は既存の結合の照合用で、別threadを選ぶ引数ではない。createはobjective必須、editはobjective又は正の整数token_budgetを指定する。他の操作には目的や予算を付けない。
+
+最初のadapterはPOSIXの既存Codex control socketへ接続し、同じthreadが読み込まれていることを確認する。workerの起動・保存threadのresumeは行わない。元launchのharnessが生存し識別できることが必要。Grok/CursorのadapterとWindows native Codex接続は未対応、結合・設定・接続が確認できない時は取得不能を返す。
+
+元のCLIが外部接続口のないembedded workerを使う場合、公式の読取専用native APIで取得し、一時停止・再開・削除は同じCLI自身へ一回だけ送る。この経路は予算だけの編集も公式goal serviceで扱う。capabilitiesはcreate:true/edit:true、createのfieldはobjective:true/token_budget:false。作成は既存goal/既存draft/制御文字、clear/edit/pause/resumeへ完全一致する予約語（大小文字を区別しない）を未発行で拒否する。予算付き作成では、予算を落としたgoalを作らない。大きいpasteがnative fileへ変わらないよう小さいliteral pasteを順番に渡し、完全な目的文とactiveの正規読戻しを必須にする。既存のliteral目的文ならfield_capabilities.editはobjective:true/token_budget:true/combined:false。目的文だけの編集は現在CLIのnative editorへ渡し、予約語や複数行もliteralとして扱う。native file参照の目的文は目的文編集を無効のまま保持する。目的文と予算の複合要求は両方とも発行せず拒否し、clientは自動分割しない。clientは操作とfieldの両capabilityに従い、旧serverでfield省略時だけ従来の操作全体、combined省略時だけ従来のfield全体の意味を適用する。元PID/process groupが同じTTYの前面にありraw/no-echoであることを読取りで確認する。停止/背面/cooked/所有不明は入力前に拒否し、入力開始後の所有喪失はunknownを保持。fg復帰・端末設定変更・下書き消去で条件を通さない。装飾付きplaceholderと実入力を区別し、空欄・貼付反映を確認してEnterを一回送る。既存draftへ送らず、確定した未発行拒否は新しいnative読戻しを伴うnot_issued、送信/取消し不明はunknownを保って再送しない。予約語・native editor・予算指定を完全なnative APIと同じ対応範囲にしない。
+
+Owner認証済みの本体だけが、既存のローカルbellteam MCP接続に `_meta: {"aiterm/goal":{"origin":"user"}}` を付ける。席からの変更を拒否しOwnerを認証する責任は本体が持つ。この由来情報を新しい認証と扱わない。モデルの引数や他クライアントのmetadataでは利用者操作へ昇格しない。組み込みhostはserver constructorへ厳密なgoalOrigin resolverを渡せる。
+
+結果は正本のbinding、capabilities、availability、outcome、mutation、readbackを分ける。goal省略は未確認、availableかつgoal:nullだけが「ゴールなし」。createのactiveを含む明示要求fieldは全て正規読戻しとの一致を確認する。変化した状態は観測値を残して結果不明とし、再送しない。clearは現在turnの停止ではなく、resumeはpausedから、目的を変える編集はCodexの使用量を初期化する。Ownerの明示的な全体停止だけ、native delivery入口のagent_stopへpause_goals:trueと同じuser metadataを渡す。子のgoal一時停止と停止キー一回を親より先に完了し、独立rootは並行する。goal未確認はキー送信済みでもpartialを保持。通常の一Bot中断のwireは維持し、AI ONでgoalを暗黙に再開しない。
+
+Claude Code 2.1.310は同じ生存TUIへのinspectと利用者由来create・目的文edit・clearに対応する。空のcomposerと元TTY所有を確認し、新しいnative goal dialogと同native root sessionのattachmentを照合し、確認したdialogだけを閉じる。draftは消さず、未知/切れた表示はunavailable。Claude結果はaiterm.agent-goal-result.v2で、goalはnull又は{kind:claude-code,phase:active,native,reported_turns?}。達成と明示clearは別native_historyへ保持し、欠測会計は作らない。Codexのv1は維持。Claude pause/resumeは未対応で、全体停止でもactive goalのpause未確認を保持する。
+
+Claude公式claude.com/cai/oauth/authorizeのPKCE認証要求と非秘密code=true表示flagを認識する。callbackの認可codeやtokenは公開しない。
+
+Claude clearはnative /goal clearを一回送り、新しい空dialogと、元active goalの条件に一致するnative cleared履歴を確認する。進行中のモデル要求を中断せずgoalの次の継続を解除する。入力所有/世代喪失や読戻し欠測、別goalの終了はunknownで再送しない。未発行が確定した拒否もstatusを新しく取り、古いgoalを復元しない。
+
+Claude作成/目的文編集はcomposerとnative goal dialogの全行を確認できるliteral入力に対応する。空/字下げ/末尾空白の内側行、制御文字、viewportを超える目的、大小を区別しないclear予約語は送信前に未対応として拒否する。pause/resume/status/--budgetは通常の目的文字列。createは既存goalを拒否しeditは存在を必要とする。両field.objective:true/token_budget:false、combined:falseで、予算要求を部分実行しない。nativeの改行と完全な目的を照合する。薄い入力案内と同文の実draftは装飾で区別して保護する。
+
+
+Claudeのgoal入力は公式PID別の現在session記録も確認し、native session ID・process開始tick・PID namespaceを各入力境界で照合する。会話切替はgoal入力前に拒否し、入力後の所有喪失はunknownを保持する。会話を勝手に切り戻さない。この開始形式は現在Linuxで検証済みで、未検証OS/記録はunavailableとする。
+
+Grok 1.0.70のLinux読取は公式active_sessions.jsonのPID・開始tick・cwd・会話を元のTUIへ結ぶ。入力欄がidleなら、同じ会話への新しい公式status応答から「ゴールなし」又は既存goalを確認する。goal.nativeは保存snapshot、goal.current_statusは元workerの新しい状態・phase・token数・経過表示であり、保存phaseや会計を現在値へ代入しない。既にfullscreenのTUIなら、元workerを止めずに公式Goal詳細を開閉して実行中の状態も読む。current_status.sourceはgoal detail、正確なphaseとtokens_usedはnullとし、phase_display/status_display/budget_displayへ丸めを含むUI原文を保持する。画面モードを勝手に替えず、空の入力欄を保つ。minimalのbusy時は命令をキューへ積まず取得不能。ユーザー由来のclearだけは、同じ元workerの空でidleな入力欄で公式local命令を一回送る。新しいdurable clear応答・native state消失に加え、続く新しいstatusのgoalなしを確認する。作用が不明なら再送やGoal復元をせずunknownとする。他の変更操作は未対応。通常launcherからのmetadata結合は手修正なしで確認済み。他OSは未受入で、この未公開adapterをGrok全対応とはしない。

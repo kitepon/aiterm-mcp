@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { interruptKnownSessions, immediateStopInputSchema } from '../dist/execution-immediate-stop.js';
+import { interruptKnownSessions, interruptKnownSessionsAndGoals, immediateStopInputSchema } from '../dist/execution-immediate-stop.js';
 import { FileExecutionStore } from '../dist/execution-store.js';
 const launches = Object.fromEntries(['a','b','c','d'].map(x => [x, {session_id:x,launch_id:x.repeat(32)}]));
 const point = x => ({launch:launches[x],boundary:{event_cursor:0,turn_id:null,operation_id:null,steer_id:null}});
@@ -52,4 +52,56 @@ test('snapshot reads do not wait for held writer lock or change graph bytes',{ s
 test('session request is strict: no legacy proof or mixed forms accepted',()=>{
  for(const args of [{},{session_ids:[]},{session_id:'a',session_ids:['b']},{session_id:'a',roots:[]},{schema:'aiterm.cascade-stop-request.v2',mode:'interrupt',roots:[launches.a]}])
   assert.throws(()=>immediateStopInputSchema.parse(args));
+});
+test('explicit whole-app stop pauses native goals before one leaf-first key',async()=>{
+ const events=[];const result=await interruptKnownSessionsAndGoals({session_id:'a',pause_goals:true},{
+  children:()=>[{parent:'a',child:'b'}],currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);return {status:'paused'};},
+  sendKey:name=>{events.push('key:'+name);return receipt(name);},
+ },'user');
+ assert.deepEqual(events,['pause:b','key:b','pause:a','key:a']);assert.equal(result.status,'sent');
+ assert.ok(result.targets.every(x=>x.goal_pause==='paused'));
+});
+test('whole-app goal pause cannot be selected by model arguments alone',async()=>{
+ let effects=0;await assert.rejects(interruptKnownSessionsAndGoals({session_id:'a',pause_goals:true},{
+  currentLaunchId:()=>launches.a.launch_id,pauseGoal:async()=>{effects++;return {status:'paused'};},sendKey:()=>{effects++;return receipt('a');},
+ },'automatic'),/GOAL_OWNER_ACTION_REQUIRED/);assert.equal(effects,0);
+ assert.throws(()=>interruptKnownSessions({session_id:'a',pause_goals:true},{currentLaunchId:()=>null,sendKey:()=>{effects++;}}),/TRUSTED_ASYNC/);
+});
+test('unconfirmed goal pause preserves the emergency key and whole-app partial result without retry',async()=>{
+ for(const status of ['unsupported','unavailable','outcome_unknown']){
+  const events=[];const result=await interruptKnownSessionsAndGoals({session_id:'a',pause_goals:true},{currentLaunchId:()=>launches.a.launch_id,
+   pauseGoal:async()=>{events.push('pause');return {status,reason:'native-unconfirmed'};},sendKey:name=>{events.push('key');return receipt(name);}},'user');
+  assert.deepEqual(events,['pause','key']);assert.equal(result.status,'partial');assert.equal(result.targets[0].status,'sent');assert.equal(result.targets[0].goal_pause,status);
+ }
+});
+test('goal transport failure never retries and does not suppress other targets',async()=>{
+ const events=[];const result=await interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);if(target.session_id==='a')throw new Error('lost reply');return {status:'no_goal'};},
+  sendKey:name=>{events.push('key:'+name);return receipt(name);}},'user');
+ assert.equal(events.length,4);assert.ok(events.indexOf('pause:a')<events.indexOf('key:a'));
+ assert.ok(events.indexOf('pause:d')<events.indexOf('key:d'));assert.equal(result.status,'partial');assert.equal(result.targets[0].goal_pause,'outcome_unknown');
+});
+test('independent root key is not blocked by another root goal timeout',async()=>{
+ let releaseA, keyB;const waiting=new Promise(resolve=>releaseA=resolve), arrived=new Promise(resolve=>keyB=resolve), events=[];
+ const pending=interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{
+  currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);return target.session_id==='a'?waiting:{status:'paused'};},
+  sendKey:name=>{events.push('key:'+name);if(name==='d')keyB();return receipt(name);},
+ },'user');
+ let timer;try{await Promise.race([arrived,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('independent root key waited for unrelated goal')),2000);})]);}
+ finally{clearTimeout(timer);releaseA({status:'outcome_unknown'});await pending;}
+ const result=await pending;assert.equal(result.status,'partial');assert.ok(events.indexOf('key:d')<events.indexOf('key:a'));
+});
+test('parallel roots retain shared descendant order and issue each pause/key once',async()=>{
+ const events=[];const result=await interruptKnownSessionsAndGoals({session_ids:['a','d'],pause_goals:true},{
+  children:()=>[{parent:'a',child:'b'},{parent:'d',child:'b'},{parent:'b',child:'c'}],
+  currentLaunchId:name=>launches[name].launch_id,
+  pauseGoal:async target=>{events.push('pause:'+target.session_id);return {status:'paused'};},
+  sendKey:name=>{events.push('key:'+name);return receipt(name);},
+ },'user');
+ assert.equal(result.status,'sent');assert.equal(events.length,8);
+ for(const name of ['a','b','c','d']){assert.equal(events.filter(x=>x==='pause:'+name).length,1);assert.equal(events.filter(x=>x==='key:'+name).length,1);}
+ assert.ok(events.indexOf('key:c')<events.indexOf('pause:b'));
+ assert.ok(events.indexOf('key:b')<events.indexOf('pause:a'));assert.ok(events.indexOf('key:b')<events.indexOf('pause:d'));
 });

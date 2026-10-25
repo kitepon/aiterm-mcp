@@ -2,7 +2,7 @@
 
 ## 通常配送と停止
 
-通常MCPの18 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、
+通常MCPの19 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、
 shared writer lockの取得・待機を配送条件にしない。記録の欠測や旧lock fileで本文を拒否しない。
 旧execution-native-serverのMCP互換入口も標準の配送handlerを使い、agent_stopだけを追加する。
 agent_executionとagent_execution_rootsをこの入口へ登録しない。本体は旧ExecutionBridgeの先行登録を要求しない。
@@ -497,7 +497,7 @@ transcript、path、credentialを保存・公開しない。
 旧設計draftは[`archive/01_design-plan.md`](https://github.com/kitepon/aiterm-mcp/blob/main/docs/archive/01_design-plan.md)に保存する。
 
 
-Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged. This auth-only patch contains no native goal feature.
+Claude authentication URL receipts recognize the official claude.com/cai/oauth/authorize PKCE authorization request and its nonsecret code=true display flag. Callback authorization codes and tokens remain excluded; the common URL credential filter is unchanged.
 
 
 ### 認証画面と専用応答
@@ -510,3 +510,39 @@ respondは既session send lock内で現在の空欄/段階と世代を再検証�
 
 
 Claude authのcurrent menuはharnessの単一parseがphase/rows/selected/入力占有を所有する。古いthemeと新loginが同viewportに残っても最後の現在phaseだけを採り、coreはそのselected_idでnavigateする。code欄が現在phaseならoccupied状態から古いmenu UIへ戻さない。cursor欠測/複数cursor/未知row/後続の未知promptは入力前拒否。Native内部の入力観測は公開auth_uiへ直接返さず、公開schemaを拡張しない。
+
+## CLI-owned goal adapter
+
+`agent-goal.ts` owns typed I/O, operation preconditions, host provenance, and result/readback distinctions. `harnesses/codex-goal.ts` maps these operations to the official goal protocol and verifies the loaded thread. `codex-goal-connection.ts` owns the POSIX native rendezvous alias checks; `codex-relay-client.ts` supplies the existing WebSocket request transport with explicit experimental opt-in. `core.agentGoal` binds the original session/launch/harness process and shares existing send admission. No goal state or continuation loop is stored by Aiterm.
+
+The ordinary and native delivery server mount the same `agent_goal` tool. Host Owner authentication precedes the metadata `aiterm/goal: {origin:user}` on its existing local BellTeam connection; the marker only carries the host classification. The default model channel cannot mutate. The historical execution dispatcher recognizes the same action and retains its existing generation/effect gate without a separate ID or queue.
+
+The initial operational scope is a live original launch bound to its native thread. No cold Bot launch, native thread resume, arbitrary thread selection, or manual conversation-switch inference is performed. Missing current binding remains unavailable. Host global pause must control native continuation separately from denying incoming HTTP actions.
+
+
+The embedded CLI transport exposes inspect/pause/resume/clear plus budget-only editing. Optional field capabilities distinguish objective support from budget support; unsupported objective/mixed edits stop before any effect. A strict budget-only user request uses the official goal service, whose canonical budget is enforced by the original CLI worker. Objective/status mutations never fall through to a competing rollout writer. Native readback compares every requested field, including create's active status. The explicit whole-application stop plan shares one job per selected target and awaits only earlier descendants from its existing snapshot. Independent roots proceed concurrently; selected descendants complete pause and one key before parents. No extra goal ledger, queue, timeout reduction, or replay is introduced.
+
+
+`harnesses/codex-goal-editor.ts` owns the native goal prompt state machine and styled-placeholder observations; core supplies only the existing PTY/read/key/admission ports. Native command preparation rejects an existing draft. Editor preparation confirms a cleared textarea, literal paste, then one Enter. A trusted no-submission error is used only before goal submission or after positively confirmed cancellation, and the goal manager refreshes native readback instead of restoring an earlier snapshot. Objective-only and budget-only fields are independent capabilities; combined updates remain disabled in the embedded transport.
+
+
+Ordinary creation is a separate owner callback from objective editing. It sends bounded literal paste events below the official composer's attachment threshold, on the same guarded input channel. A native viewport can hide earlier rows; ordered input and current tail reflection establish readiness, while the full canonical objective and requested active status still determine success. Unsupported reserved objectives and budget-bearing creates never issue a placeholder goal or split an operation.
+
+
+Goal input ownership is a read-only native precondition, separate from the ordinary prompt sender's optional foreground/termios recovery. The original PID/process group must be foreground and unstopped on the pinned pane TTY, with explicitly observed raw/no-echo flags. `paneTtyInputOwnerReady` shares existing TTY process classification; the goal UI ports and internal `beforePtyWrite` callback repeat this proof before input boundaries. Known refusal before input refreshes readback as not issued; ownership loss after input starts stays unknown. The goal path never sends fg, changes termios or erases another draft to satisfy the precondition.
+
+
+Claude native goal inspection owns its TUI state machine and native attachment parsing in harnesses/claude-goal.ts. agent-goal-ui.ts supplies only the core-owned input ports; both native managers share exact original binding comparison. A fresh TUI dialog is authoritative; the stream CLI's local-command transcript is a separate native contract and is never presumed to exist in a TUI. Historical attachments alone cannot establish current null. The v2 branch carries the harness's native data; v1 Codex remains compatible. The MCP output has an object root and validates the tagged branch, retaining structured errors. Unsupported Claude pause/resume never query or mutate the TUI. No separate goal record or identifier is stored.
+
+Claude's authorization-request code=true exception is vendor-owned and requires the official authorization path, response_type=code and S256 PKCE challenge. The common credential filter continues rejecting code parameters and tokens.
+
+Claude clear uses the same host provenance and original binding comparison as Codex, with no delegated token or replacement worker. The harness owns one native command submission and composer readiness; the manager owns single-attempt mutation, fresh canonical dialog plus matching clear event, and unknown outcomes. The existing turn interruption path is not called by clear. Global stop continues reporting unsupported native Claude pause separately from the one existing stop-key receipt.
+
+Claude objective changes reuse the native /goal setter after checking the current goal and trusted host origin. They do not emulate Codex pause/resume or numeric accounting. Representation checks bound the objective to a completely visible composer/dialog and reject reserved clear and ambiguous whitespace before submission. The shared native cell decoder preserves dim/inverse styling, letting each harness distinguish its own placeholders; Claude input interpretation and native state remain harness-owned. The same literal queued-input hint as a real draft is never considered empty solely by text.
+
+
+Native Claude goal input also verifies the official per-PID current-session registration, including native session ID, process birth ticks and PID namespace before each input boundary. A switched conversation is refused before goal input; ownership loss after input remains unknown. No conversation is switched back automatically. This registration birth format is currently verified on Linux; unverified OS/registry data remains unavailable.
+
+Grok 1.0.70 inspection verifies active_sessions.json against the original TUI PID, Linux birth ticks, cwd and vendor session. A fresh local /goal status update on that same session establishes null only with an absent state file, or an existing goal whose ID and exact objective remain stable across the query. The native persisted snapshot remains in goal.native; goal.current_status carries the separately parsed current status, phase, safe integer token count and original elapsed display. Resuming can leave persisted phase different from the live worker. Neither an old reply nor the snapshot supplies current values. A busy TUI queues the local slash command. The adapter does not send it on busy minimal views. An already fullscreen root view with a known Goal header and empty boxed composer instead permits native Goal-detail inspection. Core validates pane coordinates and the harness-provided current viewport predicate immediately before the bounded SGR pointer press/release, under the existing generation, PID-birth, current-session, TTY foreground/raw and native-admission checks. The harness uses string-width 7.2.0 display cells, requires the exact untruncated objective and stable native goal ID across the observation, then closes only its recognized modal with a current-row-checked key and confirms the empty composer. It neither switches modes nor stops a turn. The UI has rounded budget text and a phase label rather than an exact native phase/counter: the goal-detail current_status variant preserves those display strings while phase and tokens_used are null. Unknown views, existing drafts, moved hit targets and unavailable native ownership never trigger another input or a query through another leader. No leader, worker or conversation is created or resumed by product inspection.
+
+Grok clear uses the existing host-origin contract and only an empty idle composer on the same original worker. The native manager advertises clear only with a freshly observed existing goal and confirmed input readiness. The harness verifies the same goal ID/objective before paste and immediately before Enter, and accepts only the current anchored completion menu for the exact command when minimal mode hides its model footer. Core repeats current viewport and native ownership checks under input admission. A single /goal clear requires a fresh same-session host-turn reply of Goal cleared. plus absent native state; the manager then reads a separate fresh no-goal status. A known pre-Enter refusal remains not_issued; uncertain input or missing/replaced readback removes the goal and capabilities and reports outcome_unknown. It never retries, restores a goal, interrupts a turn or routes to another worker. Other Grok mutations remain unsupported.

@@ -22,6 +22,13 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
+import {grokCurrentSessionOwner,readFreshGrokGoal,clearGrokGoal,grokGoalClearReady} from './harnesses/grok-goal.js';
+import {nativeGoalClickBytes} from './agent-goal-ui.js';
+import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
+import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
+import { withCodexGoal } from "./harnesses/codex-goal.js";
+import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
@@ -30,7 +37,7 @@ import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -121,6 +128,7 @@ import {
   grokModelDefaultsFromBody,
   restoreGrokModelDefaults,
   grokEventsTranscript,
+  grokSessionDirectory,
   grokCompletionEvent,
   latestGrokCompletion,
   grokTurnSettled,
@@ -400,6 +408,27 @@ export function classifyPaneTtyProcesses(psOutput: string, agentPattern: RegExp 
 export function termiosIsCooked(sttyOutput: string): boolean {
   const tokens = sttyOutput.split(/[\s;]+/);
   return tokens.includes("icanon") || tokens.includes("echo");
+}
+
+/** Read-only ownership proof. A matching screen or another foreground CLI is
+ * not evidence that this original process owns the pane input. */
+export function paneTtyInputOwnerReady(psOutput: string, expectedPid: number, expectedGroup: number,
+  sttyOutput: string, agentPattern: RegExp = AGENT_COMMAND_PATTERNS.codex): boolean {
+  if (!Number.isSafeInteger(expectedPid) || expectedPid < 1 || !Number.isSafeInteger(expectedGroup) || expectedGroup < 1) return false;
+  const rows: { pid: number; group: number; stat: string; command: string }[] = [];
+  for (const line of psOutput.split("\n").filter(value => value.trim())) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/u.exec(line);
+    if (!match) return false;
+    rows.push({ pid: Number(match[1]), group: Number(match[2]), stat: match[3], command: match[4] });
+  }
+  const owners = rows.filter(row => row.pid === expectedPid);
+  if (owners.length !== 1 || owners[0].group !== expectedGroup || !owners[0].stat.includes("+")
+    || /[TtZ]/u.test(owners[0].stat) || rows.some(row => row.stat.includes("+") && row.group !== expectedGroup)) return false;
+  const state = classifyPaneTtyProcesses(rows.filter(row => row.group === expectedGroup)
+    .map(row => `${row.stat} ${row.command}`).join("\n"), agentPattern);
+  const flags = new Set(sttyOutput.split(/[\s;]+/u));
+  return state.agentPresent && state.agentForeground && !state.agentStopped
+    && flags.has("-icanon") && flags.has("-echo") && !termiosIsCooked(sttyOutput);
 }
 
 function paneTtyOf(name: string): string | null {
@@ -1006,6 +1035,8 @@ export interface SendOpts {
   raw?: boolean;
   /** agent operation markerを保つ内部送信境界。MCPの公開引数にはしない。 */
   preserveAgentOperation?: boolean;
+  /** Internal input-owner check; never accepted from MCP arguments. */
+  beforePtyWrite?: () => void;
   /**
    * ready gate通過済みagent TUIへ、本文全体を1回だけ明示ESC[200~/201~で包んで原子化する
    * （POSIX tmux・Windows psmuxとも）。chunkごとに包むとTUIは別々の貼り付けと読む。
@@ -1119,6 +1150,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         2,
       );
     }
+    o.beforePtyWrite?.();
     writeLastcmd(name, o.launchShell ? atomicShellMultiline(text, o.launchShell) : text);
     if (o.rtk) text = rtkRewrite(text);
     if (o.mark) text = appendMarkSentinel(text, fg);
@@ -1150,6 +1182,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     // server commandでpayload全体を単一SendBytesへ変換し、別processとの交差を構造的に防ぐ。
     const writePty = (payload: string, bracketedPaste: boolean, what: string): void => {
       if (isWin) {
+        o.beforePtyWrite?.();
         const sent = sendPsmuxPayload(true, name, payload, bracketedPaste);
         if (sent.code !== 0) {
           throw new AitermError(
@@ -1183,6 +1216,8 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
         const pasteArgs = pasteBufferBaseArgs();
         if (pasteSupportsNoSanitize) pasteArgs.push("-S");
         pasteArgs.push("-b", bufferName, "-t", name);
+        try { o.beforePtyWrite?.(); }
+        catch (error) { tmuxCleanup("delete-buffer", "-b", bufferName); throw error; }
         const pasted = tmux(...pasteArgs);
         if (pasted.code !== 0) {
           tmuxCleanup("delete-buffer", "-b", bufferName);
@@ -1211,6 +1246,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
       }
     } else writePty(text, !!o.bracketedPaste, "");
     if (enter) {
+      o.beforePtyWrite?.();
       const entered = tmux("send-keys", "-t", name, "Enter");
       if (entered.code !== 0) {
         throw new AitermError(
@@ -5957,6 +5993,167 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
       message: `FAST_MODE_UNCONFIRMED: 起動の後の切り替えで失敗しました: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/** Goal operations share the existing seat admission and original launch ID. */
+export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic"): Promise<AgentGoalWireResult> {
+  assertSessionName(input.session_id);
+  if (input.action !== "inspect") assertExecutionContext(input.session_id);
+  const resolve = (): GoalTarget | null => {
+    const generation = observeSessionGeneration(input.session_id);
+    const meta = tryLoadAgentMetadata(input.session_id);
+    if (!generation.exists || generation.launch_id !== input.launch_id || meta?.launch_id !== input.launch_id) return null;
+    const observed = observeSession(input.session_id);
+    if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
+    return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
+      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
+      native_process: observed.harness_process };
+  };
+  const goalUi = (target: GoalTarget): CodexGoalUi => {
+    let inputStarted = false;
+    let pinnedTty: string | null = null;
+    const check = () => {
+      const current = resolve();
+      if (!current || current.vendor_session_id !== target.vendor_session_id
+        || JSON.stringify(current.native_process) !== JSON.stringify(target.native_process))
+        throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      const tty = paneTtyOf(input.session_id);
+      const owner = target.native_process;
+      const rejectOwner = (reason="goal_input_owner_unavailable"): never => {
+        if (!inputStarted) throw new AgentGoalNotIssuedError(reason);
+        throw new Error("Goal input owner changed after input began");
+      };
+      if(target.harness==="claude-code"){
+        const generation=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        let registration:unknown;
+        try{
+          const file=path.join(claudeConfigDir(),"sessions",`${owner?.pid}.json`);
+          const st=fs.lstatSync(file);
+          if(!st.isFile()||st.isSymbolicLink()||st.size>64*1024)throw new Error("native registration unavailable");
+          registration=JSON.parse(fs.readFileSync(file,"utf8"));
+        }catch{rejectOwner("goal_native_session_unavailable");}
+        const ownership=generation&&owner?claudeCurrentSessionOwner(registration,{pid:owner.pid,sessionId:target.vendor_session_id!,...generation}):"unavailable";
+        if(ownership!=="match")rejectOwner(ownership==="mismatch"?"goal_native_session_mismatch":"goal_native_session_unavailable");
+      }
+      if(target.harness==='grok-cli'){
+        const identity=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        let record:unknown;
+        try{
+          if(!target.grok_home)throw Error('native home unavailable');
+          const file=path.join(target.grok_home,'active_sessions.json'),st=fs.lstatSync(file);
+          if(!st.isFile()||st.isSymbolicLink()||st.size>1024*1024)throw Error('native registration unavailable');
+          record=JSON.parse(fs.readFileSync(file,'utf8'));
+        }catch{rejectOwner('goal_native_session_unavailable');}
+        const ownership=identity&&owner?grokCurrentSessionOwner(record,{pid:owner.pid,procStart:identity.procStart,sessionId:target.vendor_session_id!,cwd:target.cwd!}):'unavailable';
+        if(ownership!=='match')rejectOwner(ownership==='mismatch'?'goal_native_session_mismatch':'goal_native_session_unavailable');
+      }
+      if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
+      const ps = spawnSync("/bin/ps", ["-t", tty!.replace(/^\/dev\//u, ""), "-o", "pid=,pgid=,stat=,command="],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
+      const stty = spawnSync("/bin/stty", [process.platform === "linux" ? "-F" : "-f", tty!, "-a"],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
+      if (ps.error || stty.error || ps.status !== 0 || stty.status !== 0 || paneTtyOf(input.session_id) !== tty
+        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout, AGENT_COMMAND_PATTERNS[target.harness === "claude-code" ? "claude" : target.harness==='grok-cli'?'grok':"codex"])) rejectOwner();
+      pinnedTty = tty;
+    };
+    const checkRow = (row: number, text: string) => {
+      if (!Number.isSafeInteger(row) || row < 1 || row > 10000) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+      const screen = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+      if (screen.code !== 0 || screen.stdout.split('\n')[row - 1] !== text) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+    };
+    return {
+      read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
+      async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true,
+        raw: true, beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
+      async keys(keys, expectedRow, confirm) { await withExecutionNativeAdmission(input.session_id, () => {
+        check();
+        if (expectedRow) checkRow(expectedRow.row, expectedRow.text);
+        if (confirm) {
+          const screen = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+          if (screen.code !== 0 || !confirm(screen.stdout)) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        }
+        if (expectedRow || confirm) check();
+        inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed");
+      }); },
+      async click(column, row, confirm) { await withExecutionNativeAdmission(input.session_id, () => {
+        check();
+        const size = tmux('display-message', '-p', '-t', input.session_id, '#{pane_width} #{pane_height}');
+        if (size.code !== 0 || !/^\d+ \d+$/u.test(size.stdout.trim())) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        const [columns, rows] = size.stdout.trim().split(' ').map(Number);
+        const bytes = nativeGoalClickBytes(column, row, columns, rows);
+        const current = tmux('capture-pane', '-e', '-p', '-J', '-t', input.session_id);
+        if (current.code !== 0 || !confirm(current.stdout)) throw new AgentGoalNotIssuedError('native_goal_ui_changed');
+        check(); inputStarted = true;
+        const sent = tmux('send-keys', '-t', input.session_id, '-H', ...Array.from(Buffer.from(bytes), byte => byte.toString(16).padStart(2, '0')));
+        if (sent.code !== 0) throw new Error('Goal pointer input unconfirmed');
+      }); },
+      pause: sleep,
+    };
+  };
+  const grokPort=(target:GoalTarget)=>{
+    const ui=goalUi(target);
+    const read=(relative:string,optional=false)=>{
+      ui.read();
+      const meta=tryLoadAgentMetadata(input.session_id);
+      if(!meta||meta.launch_id!==target.launch_id||meta.vendor_session_id!==target.vendor_session_id)throw Error('generation_replaced');
+      const directory=grokSessionDirectory(meta);
+      if(!directory)throw Error('native session directory unavailable');
+      const file=path.join(directory,relative);
+      let st:fs.Stats;
+      try{st=fs.lstatSync(file);}catch(error){if(optional&&(error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+      if(!st.isFile()||st.isSymbolicLink()||st.size>4*1024*1024)throw Error('native state unavailable');
+      return fs.readFileSync(file,'utf8');
+    };
+    return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
+  };
+  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
+    read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
+    canClear:target=>grokGoalClearReady(grokPort(target).ui),
+    clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
+  },origin));
+  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
+    read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
+      const meta=tryLoadAgentMetadata(input.session_id);
+      if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
+      const file=claudeSessionTranscriptPath(meta);
+      if (!file || !fs.existsSync(file)) return [];
+      return readTranscriptLines(file).filter(line=>line.trim()).map(line=>JSON.parse(line));
+    }),
+    clear: target => clearClaudeGoal(goalUi(target)),
+    setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
+  }, origin));
+  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
+    if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
+    return withExecutionNativeAdmission(input.session_id, () => {
+      beforeExecutionEffect(input.session_id, () => {
+        const current = resolve();
+        if (!current || current.vendor_session_id !== target.vendor_session_id || current.codex_home !== target.codex_home
+          || JSON.stringify(current.native_process) !== JSON.stringify(target.native_process))
+          throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      });
+      return request(method, params);
+    });
+  }, supported, fields), command => submitCodexGoalCommand(goalUi(target), command),
+  (before, objective) => editCodexGoalObjective(goalUi(target), before, objective),
+  objective => createCodexGoalObjective(goalUi(target), objective)) }, origin);
+  return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
+}
+
+/** Whole-app stop uses native goal state, not the host's displayed snapshot. */
+export async function pauseAgentGoalForStop(target: { session_id: string; launch_id?: string }): Promise<{
+  status: "paused" | "already_inactive" | "no_goal" | "unsupported" | "unavailable" | "outcome_unknown"; reason?: string;
+}> {
+  if (!target.launch_id) return { status: "unavailable", reason: "goal_launch_unavailable" };
+  const input = { session_id: target.session_id, launch_id: target.launch_id };
+  const before = await agentGoal({ ...input, action: "inspect" });
+  if (before.availability !== "available") return { status: before.availability, reason: before.reason };
+  if (before.goal === null) return { status: "no_goal" };
+  if (before.schema === "aiterm.agent-goal-result.v2") return {status:"unsupported",reason:"native_goal_pause_unsupported"};
+  if (before.goal?.status === "paused" || before.goal?.status === "complete") return { status: "already_inactive" };
+  if (before.goal?.status !== "active") return { status: "unavailable", reason: "goal_not_explicitly_paused" };
+  const result = await agentGoal({ ...input, action: "pause", expected_thread_id: before.binding!.thread_id }, "user");
+  if (result.outcome === "applied" && result.readback === "confirmed" && result.schema === "aiterm.agent-goal-result.v1" && result.goal?.status === "paused") return { status: "paused" };
+  return { status: result.availability === "unsupported" || result.outcome === "unsupported" ? "unsupported" : result.outcome === "outcome_unknown" ? "outcome_unknown" : "unavailable", reason: result.reason };
 }
 
 export async function configureAgent(

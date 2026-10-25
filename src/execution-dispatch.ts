@@ -27,6 +27,7 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 
 function routeFor(name: string, args: Arguments): Route | null {
   if (reads.has(name)) return null;
+  if (name === "agent_goal" && args.action === "inspect") return null;
   if ((name === "agent_approval" || name === "claude_approval") && args.action === "inspect") return null;
   if (name === "claude_turn" && args.action === "recover") return null;
   if (name === "agent_auth" && args.action === "status" && args.session_id === undefined) return null;
@@ -186,7 +187,8 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const authInput = (route.tool === "pty_send" || route.tool === "pty_key") && !supplied
             && client === "bellteam" ? authGeneration(route.target) : null;
           const hostAuth = client === "bellteam" && !supplied && authOperation;
-          const hostManagement = hostClose || hostLaunch || hostConfigure || hostAuth || !!authInput;
+          const hostGoal = client === "bellteam" && route.tool === "agent_goal" && !supplied;
+          const hostManagement = hostClose || hostLaunch || hostConfigure || hostGoal || hostAuth || !!authInput;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;

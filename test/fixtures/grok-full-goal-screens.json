@@ -1,0 +1,67 @@
+{
+  "activeRoot": "\n  ma… ◆ 1 │ [: Goal: Planning]  4.9k/1 tokens  26s │ 1.3K / 500K │ [Dashboard]\n\n     ▾ Subagents 1                                          \n     : Subagent goal plan writer · Waiting for respons… grok-4.6 0.1s [↗][✗]\n\n                                                                            \n     ❯ /goal resume                                                  7:38 PM\n                                                    \n                                                                            \n     ◆ Subagent running: “goal plan writer” · Waiting for response… (grok-4.\n                                                      \n                                                                               █\n                                                                                \n    ⠙ Waiting for subagent… 0.1s                            0.1s ⇣1.34k [stop]  \n                                                                                \n   Tight on space? Try /compact-mode                                            \n                                                                              \n  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯                                                                        │\n  ╰──────────────────────────────────────────────────────── Grok 4.6 (high) ─╯\n\n  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts                       \n\n",
+  "activeDetail": "\n  ma… ◆ 1 │ [⁙ Goal: Planning]  4.9k/1 tokens  26s │ 1.3K / 500K │ [Dashboard]\n\n    ┌─ Goal ───────────────────────────────────────────────────────── [✗] ─┐\n    │  Artificial native goal contract                                     │\n    │──────────────────────────────────────────────────────────────────────│\n    │                                                                      │\n    │  Status: Active ⁙ · Planning                                         │\n    │  Budget: 4.9k / 1 tokens (100%)                                      │\n    │  Elapsed: 26s                                                        │\n    │  [██████████████████████████████] 100%                               │\n    │                                                                      │\n    │  No progress items yet                                               │    \n    │                                                                      │    \n    │  Recent History:                                                     │   █\n    │    just now  Resumed                                                 │    \n    │                                                                      │p]  \n    │     Esc close  |  /goal resume  |  /goal pause  |  /goal status      │  \n  ╭─│                             /goal clear                              │─╮\n  │ └──────────────────────────────────────────────────────────────────────┘ │\n  ╰──────────────────────────────────────────────────────── Grok 4.6 (high) ─╯\n\n  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts                       \n\n",
+  "activeClosed": "\n  ma… ◆ 1 │ [⋅ Goal: Planning]  4.9k/1 tokens  26s │ 1.3K / 500K │ [Dashboard]\n\n     ▾ Subagents 1                                                          \n     ⋅ Subagent goal plan writer · Waiting for respons… grok-4.6 0.4s [↗][✗]\n                                                                            \n                                                                            \n     ❯ /goal resume                                                  7:38 PM\n                                                                            \n                                                                            \n     ◆ Subagent running: “goal plan writer” · Waiting for response… (grok-4.\n                                                                            \n                                                                               █\n                                                                                \n    ⠼ Waiting for subagent… 0.4s                            0.5s ⇣1.34k [stop]  \n                                                                                \n   Tight on space? Try /compact-mode                                            \n                                                                              \n  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯                                                                        │\n  ╰──────────────────────────────────────────────────────── Grok 4.6 (high) ─╯\n\n  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts                       \n\n",
+  "pausedRoot": "\n  main /s/b/b/… [Goal: Paused]  4.9k/1 tokens  26s │ 1.3K / 500K │ [Dashboard]\n\n                                                            \n\n     ❯ /goal status                                                  7:15 PM\n                                                                  \n                                                                  \n     Goal: Artificial native goal contract Status: UserPaused |      7:15 PM\n     Phase: Idle Goal tokens used: 4906 Elapsed: 15s              \n\n     Worked for 0.0s\n\n     ◆ Subagent cancelled in 1.3s: “goal plan writer”                          █\n                                                                               █\n\n   Tight on space? Try /compact-mode\n\n  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯                                                                        │\n  ╰──────────────────────────────────────────────────────── Grok 4.6 (high) ─╯\n\n  Shift+Tab:mode  │  Ctrl+x:shortcuts                                         \n\n",
+  "pausedDetail": "\n  main /s/b/b/… [Goal: Paused]  4.9k/1 tokens  26s │ 1.3K / 500K │ [Dashboard]\n\n    ┌─ Goal ───────────────────────────────────────────────────────── [✗] ─┐\n    │  Artificial native goal contract                                     │\n    │──────────────────────────────────────────────────────────────────────│\n    │                                                                      │\n    │  Status: Paused                                                      │\n    │  Status: Paused. Type /goal resume to continue                       │\n    │  Budget: 4.9k / 1 tokens (100%)                                      │\n    │  Elapsed: 26s                                                        │\n    │  [██████████████████████████████] 100%                               │\n    │                                                                      │\n    │  No progress items yet                                               │    \n    │                                                                      │   █\n    │  Recent History:                                                     │   █\n    │    19m ago  Resumed                                                  │   █\n    │                                                                      │\n  ╭─│     Esc close  |  /goal resume  |  /goal pause  |  /goal status      │─╮\n  │ │                             /goal clear                              │ │\n  ╰─└──────────────────────────────────────────────────────────────────────┘─╯\n\n  Shift+Tab:mode  │  Ctrl+x:shortcuts                                         \n\n",
+  "state": {
+    "goal_id": "b9fbb12a-4f0c-424d-978a-124fffea3ac0",
+    "objective": "Artificial native goal contract",
+    "status": "user_paused",
+    "phase": "Idle",
+    "token_budget": 1,
+    "elapsed_ms": 15009,
+    "created_at": "2026-10-25T10:59:39.498679548+00:00",
+    "current_subagent_id": null,
+    "current_subagent_role": null,
+    "total_worker_rounds": 0,
+    "total_verify_rounds": 0,
+    "token_baseline": 1339,
+    "tokens_used_high_water": 4906,
+    "parent_tokens_spent": 0,
+    "last_session_tokens_seen": 1339,
+    "history": [
+      {
+        "timestamp": "2026-10-25T10:59:39.500244686+00:00",
+        "event": "goal_created"
+      },
+      {
+        "timestamp": "2026-10-25T10:59:54.497729662+00:00",
+        "event": "goal_paused",
+        "detail": "user"
+      },
+      {
+        "timestamp": "2026-10-25T19:03:34.707340819+00:00",
+        "event": "goal_resumed"
+      },
+      {
+        "timestamp": "2026-10-25T19:04:59.356770268+00:00",
+        "event": "goal_resumed"
+      },
+      {
+        "timestamp": "2026-10-25T19:05:57.531089145+00:00",
+        "event": "goal_resumed"
+      },
+      {
+        "timestamp": "2026-10-25T19:08:22.998700944+00:00",
+        "event": "goal_resumed"
+      },
+      {
+        "timestamp": "2026-10-25T19:15:51.621455788+00:00",
+        "event": "goal_resumed"
+      },
+      {
+        "timestamp": "2026-10-25T19:37:33.817708902+00:00",
+        "event": "goal_resumed"
+      }
+    ],
+    "evaluator_blocked_streak": 0,
+    "verifier_id": "3df1ee118292",
+    "classifier_runs_attempted": 0,
+    "rounds_since_verify": 0,
+    "classifier_stall_count": 0,
+    "consecutive_not_achieved": 0,
+    "last_strategist_fired_at": 0,
+    "strategist_cap_bonus": 0
+  }
+}

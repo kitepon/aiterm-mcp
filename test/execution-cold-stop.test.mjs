@@ -29,11 +29,11 @@ test('native SDK stop is idle before any tmux server or socket has ever existed'
   const client = new Client({ name: 'own-cold-stop-fixture', version: 'test' });
   t.after(async () => { await client.close(); await transport.close(); });
   await client.connect(transport);
-  // The ordinary native entry publishes the existing 18 tools plus agent_stop.
+  // The ordinary native entry publishes the existing 19 tools plus agent_stop.
   // Retired execution graph tools are deliberately absent (DESIGN: 通常配送と停止).
   const names = (await client.listTools()).tools.map(tool => tool.name).sort();
   assert.deepEqual(names, ["pty_open", "pty_send", "pty_read", "pty_key", "pty_close", "pty_list", "pty_observe",
-    "agent_launch", "claude_agent", "codex_agent", "grok_agent", "agent_models", "agent_configure", "agent_auth",
+    "agent_launch", "claude_agent", "codex_agent", "grok_agent", "agent_models", "agent_configure", "agent_goal", "agent_auth",
     "agent_approval", "claude_turn", "claude_approval", "diagnostics", "agent_stop"].sort());
   const result = await client.callTool({ name: 'agent_stop', arguments: { session_id: 'cold-never-started' } });
   assert.equal(result.isError, undefined);

@@ -43,7 +43,7 @@ export const executionRequestSchema = z.discriminatedUnion("kind", [
     process_started_identity: referenceId,
     request_id: z.union([referenceId, z.number().int().safe()]),
     tool: z.enum(["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_open", "pty_send", "pty_key", "pty_close",
-      "agent_configure", "agent_auth.start", "agent_auth.status", "agent_auth.cancel", "agent_approval.respond",
+      "agent_configure", "agent_goal", "agent_auth.start", "agent_auth.status", "agent_auth.cancel", "agent_approval.respond",
       "claude_approval.respond", "claude_turn.issue"]), target_session_id: sessionId }).strict(),
 ]);
 export type ExecutionRequest = z.infer<typeof executionRequestSchema>;

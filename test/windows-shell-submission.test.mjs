@@ -17,7 +17,8 @@ if(available){fs.mkdirSync(workingDirectory);process.chdir(workingDirectory);}
 const core = await import("../dist/core.js");
 const { shq } = await import("../dist/agent-shared.js");
 const actualSpawn = cp.spawnSync;
-test.after(() => { if (available) {core.killAll();process.chdir(originalCwd);fs.rmSync(workingDirectory,{recursive:true,force:true});} });
+// seat-env owns removal of the isolated TEMP tree after native handles close.
+test.after(() => { if (available) {core.killAll();process.chdir(originalCwd);} });
 
 for (const mark of [false, true]) {
   test(`Windows actual Bash + stale pwsh metadata: literal multiline file bytes and mark=${mark}`, { skip: !available }, async () => {

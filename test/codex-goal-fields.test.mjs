@@ -65,3 +65,14 @@ test('individually supported objective and budget fields do not imply a combined
  assert.equal(r.reason,'native_goal_field_unsupported');assert.equal(r.mutation,'not_issued');
  assert.equal(calls.length,1);assert.equal(editorCalls,0);
 });
+test('ordinary create uses the owning CLI and complete canonical readback; budget is not silently dropped',async()=>{
+ let goal=null,creates=0;const calls=[];
+ const runtime={resolve:()=>target,connect:(_target,run)=>withOrdinaryCodexGoal(async(method,params)=>{
+  calls.push({method,params});assert.equal(method,'thread/goal/get');return {goal};
+ },thread,run,undefined,undefined,async objective=>{creates++;goal={...original,objective,status:'active',tokensUsed:0};})};
+ const input={session_id:target.session_id,launch_id:target.launch_id,action:'create',objective:'New original-worker objective'};
+ const unsupported=await manageAgentGoal({...input,token_budget:10},runtime,'user');assert.equal(unsupported.mutation,'not_issued');assert.equal(creates,0);
+ const created=await manageAgentGoal(input,runtime,'user');assert.equal(created.outcome,'applied');assert.equal(created.goal.objective,input.objective);assert.equal(creates,1);
+ assert.deepEqual(created.field_capabilities.create,{objective:true,token_budget:false});
+ const existing=await manageAgentGoal(input,runtime,'user');assert.equal(existing.reason,'goal_already_exists');assert.equal(creates,1);
+});

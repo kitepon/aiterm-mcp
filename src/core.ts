@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
-import { editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
+import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
@@ -5886,7 +5886,8 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       return request(method, params);
     });
   }, supported, fields), command => submitCodexGoalCommand(goalUi(target), command),
-  (before, objective) => editCodexGoalObjective(goalUi(target), before, objective)) }, origin);
+  (before, objective) => editCodexGoalObjective(goalUi(target), before, objective),
+  objective => createCodexGoalObjective(goalUi(target), objective)) }, origin);
   return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
 }
 

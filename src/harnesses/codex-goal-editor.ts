@@ -55,12 +55,12 @@ export function codexGoalUiState(raw: string): { kind: 'composer' | 'editor' | '
   const end = body.findIndex(line => {
     const value = plain(line);
     return line.some(c => c.decorated && c.text.trim())
-      && (/\? for shortcuts|⚠.*warnings|\s·\s/u.test(value));
+      && (/^\s*\? for shortcuts|^\s*⚠\s*\d+ warnings|^\s*\S+\s+(?:default|minimal|low|medium|high|xhigh|ultra)\s*·\s/u.test(value));
   });
   const content = (end < 0 ? body : body.slice(0, end));
   const cells = content.flat().filter(c => c.text.trim());
   return { kind: 'composer', empty: cells.every(c => c.dim),
-    text: cells.every(c => c.dim) ? '' : content.map(plain).map(line => line.trimEnd()).join('\n').trim() };
+    text: cells.every(c => c.dim) ? '' : content.map((line, i) => plain(line).slice(i === 0 ? 1 : 2).trimEnd()).join('\n').trim() };
 }
 async function wait(ui: CodexGoalUi, predicate: (s: ReturnType<typeof codexGoalUiState>) => boolean): Promise<boolean> {
   const now = ui.now ?? (() => performance.now());
@@ -79,6 +79,38 @@ export async function submitCodexGoalCommand(ui: CodexGoalUi, command: string): 
 export function editableCodexGoal(goal: NativeGoal | null): boolean {
   return !!goal && !goal.objective.startsWith('Read the Codex goal objective file at ')
     && !/[\u0000-\u0009\u000b-\u001f\u007f]/u.test(goal.objective);
+}
+export async function createCodexGoalObjective(ui: CodexGoalUi, objective: string): Promise<void> {
+  if (['clear', 'edit', 'pause', 'resume'].includes(objective.trim().toLowerCase()))
+    throw new AgentGoalNotIssuedError('native_goal_create_objective_reserved', 'unsupported');
+  if (/[\u0000-\u0009\u000b-\u001f\u007f]/u.test(objective))
+    throw new AgentGoalNotIssuedError('native_goal_objective_not_representable', 'unsupported');
+  const before = codexGoalUiState(ui.read());
+  if (before.kind !== 'composer' || !before.empty) throw new AgentGoalNotIssuedError('goal_input_not_empty_or_ready');
+  // The official composer folds an individual paste above 1000 characters
+  // into an attachment. Complete bounded literal paste events avoid that
+  // transformation; core preserves their order on the same input channel.
+  const text = '/goal ' + objective;
+  let chunk = '';
+  for (const character of text) {
+    chunk += character;
+    if ([...chunk].length >= 128 || character === '\n') {
+      await ui.paste(chunk); chunk = ''; await ui.pause(40);
+      if (codexGoalUiState(ui.read()).kind !== 'composer') throw new Error('Goal creation input owner changed');
+    }
+  }
+  if (chunk) await ui.paste(chunk);
+  const expected = text.split('\n').map(line => line.trimEnd()).join('\n').trim();
+  if (!await wait(ui, state => {
+    if (state.kind !== 'composer' || state.empty || /\[Pasted (?:Content|Text)/u.test(state.text)) return false;
+    if (state.text === expected) return true;
+    // A native viewport can hide earlier rows. The last visible row must
+    // finish the ordered literal input; canonical readback still compares
+    // the complete objective, never a suffix or a display approximation.
+    const tail = state.text.split('\n').filter(line => line.trim()).at(-1)?.trim() ?? '';
+    return tail.length > 0 && expected.endsWith(tail);
+  })) throw new Error('Goal creation input unconfirmed');
+  await ui.keys(['Enter']);
 }
 export async function editCodexGoalObjective(ui: CodexGoalUi, before: NativeGoal, objective: string): Promise<void> {
   if (!editableCodexGoal(before) || /[\u0000-\u0009\u000b-\u001f\u007f]/u.test(objective))

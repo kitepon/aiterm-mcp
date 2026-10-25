@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ordinary Codex objective-only edits use its native editor with literal reserved/multiline input, draft preservation, and fresh readback on proven no-submission refusals. Field capabilities distinguish independent fields from combined edits; file-backed objectives and combined edits remain disabled.
 
+- Ordinary Codex creates literal goals through its existing CLI with bounded ordered paste input and complete native readback. Reserved controls and budget-bearing creation are explicitly unsupported before any goal is issued; existing goals and drafts are preserved.
+
 ### Fixed
 
 - Goal creation requires its requested active status to match the native readback; concurrent native status changes retain the observed state and an unknown result.

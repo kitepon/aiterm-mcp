@@ -508,3 +508,6 @@ The embedded CLI transport exposes inspect/pause/resume/clear plus budget-only e
 
 
 `harnesses/codex-goal-editor.ts` owns the native goal prompt state machine and styled-placeholder observations; core supplies only the existing PTY/read/key/admission ports. Native command preparation rejects an existing draft. Editor preparation confirms a cleared textarea, literal paste, then one Enter. A trusted no-submission error is used only before goal submission or after positively confirmed cancellation, and the goal manager refreshes native readback instead of restoring an earlier snapshot. Objective-only and budget-only fields are independent capabilities; combined updates remain disabled in the embedded transport.
+
+
+Ordinary creation is a separate owner callback from objective editing. It sends bounded literal paste events below the official composer's attachment threshold, on the same guarded input channel. A native viewport can hide earlier rows; ordered input and current tail reflection establish readiness, while the full canonical objective and requested active status still determine success. Unsupported reserved objectives and budget-bearing creates never issue a placeholder goal or split an operation.

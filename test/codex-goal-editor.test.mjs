@@ -52,3 +52,20 @@ test('native file objectives and terminal control text refuse before input',asyn
   assert.equal(port.events.length,0);
  }
 });
+test('create sends bounded ordered literal pastes and one submit, including viewport clipping',async()=>{
+ const {createCodexGoalObjective}=await import('../dist/harnesses/codex-goal-editor.js');
+ for(const objective of ['A normal objective','日本語 🧪\n二行目','Long '+('目的'.repeat(1900))+' end']){
+  let draft='',submits=0,clock=0;const pasted=[];
+  const port={read:()=>draft?main(draft.slice(-50).replaceAll('\n','\n  ')):screens.mainEmpty,now:()=>clock,pause:async ms=>{clock+=ms;},
+   paste:async text=>{pasted.push(text);draft+=text;},keys:async keys=>{assert.deepEqual(keys,['Enter']);submits++;}};
+  await createCodexGoalObjective(port,objective);
+  assert.equal(pasted.join(''),'/goal '+objective);assert.ok(pasted.every(p=>[...p].length<=128));assert.equal(submits,1);
+ }
+});
+test('reserved/control creation inputs refuse without a placeholder goal or any key',async()=>{
+ const {createCodexGoalObjective}=await import('../dist/harnesses/codex-goal-editor.js');
+ for(const objective of ['pause','CLEAR','edit','resume','bad\x00text']){
+  const port=ui();await assert.rejects(createCodexGoalObjective(port,objective),e=>e instanceof AgentGoalNotIssuedError&&e.outcome==='unsupported');
+  assert.equal(port.events.length,0);
+ }
+});

@@ -22,6 +22,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
+import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
@@ -5841,6 +5843,35 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
       message: `FAST_MODE_UNCONFIRMED: 起動の後の切り替えで失敗しました: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/** Goal operations share the existing seat admission and original launch ID. */
+export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic"): Promise<AgentGoalResult> {
+  assertSessionName(input.session_id);
+  if (input.action !== "inspect") assertExecutionContext(input.session_id);
+  const resolve = (): GoalTarget | null => {
+    const generation = observeSessionGeneration(input.session_id);
+    const meta = tryLoadAgentMetadata(input.session_id);
+    if (!generation.exists || generation.launch_id !== input.launch_id || meta?.launch_id !== input.launch_id) return null;
+    const observed = observeSession(input.session_id);
+    if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
+    return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
+      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, executable: meta.agent_executable,
+      native_process: observed.harness_process };
+  };
+  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, request => callback((method, params) => {
+    if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
+    return withExecutionNativeAdmission(input.session_id, () => {
+      beforeExecutionEffect(input.session_id, () => {
+        const current = resolve();
+        if (!current || current.vendor_session_id !== target.vendor_session_id || current.codex_home !== target.codex_home
+          || JSON.stringify(current.native_process) !== JSON.stringify(target.native_process))
+          throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      });
+      return request(method, params);
+    });
+  })) }, origin);
+  return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
 }
 
 export async function configureAgent(

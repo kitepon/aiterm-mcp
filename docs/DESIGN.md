@@ -2,7 +2,7 @@
 
 ## 通常配送と停止
 
-通常MCPの18 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、
+通常MCPの19 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、
 shared writer lockの取得・待機を配送条件にしない。記録の欠測や旧lock fileで本文を拒否しない。
 旧execution-native-serverのMCP互換入口も標準の配送handlerを使い、agent_stopだけを追加する。
 agent_executionとagent_execution_rootsをこの入口へ登録しない。本体は旧ExecutionBridgeの先行登録を要求しない。
@@ -494,3 +494,11 @@ transcript、path、credentialを保存・公開しない。
 公開schema、完了境界、state ownership、platform backendを変える時は、原因の最小再現、focused test、
 関連ADR、日英README、CHANGELOGを同じ変更で同期する。現行制御から外れた完了・棄却・中断・失効・置換済みの設計planはcurrentへ残さずarchiveへ移す。
 旧設計draftは[`archive/01_design-plan.md`](https://github.com/kitepon/aiterm-mcp/blob/main/docs/archive/01_design-plan.md)に保存する。
+
+## CLI-owned goal adapter
+
+`agent-goal.ts` owns typed I/O, operation preconditions, host provenance, and result/readback distinctions. `harnesses/codex-goal.ts` maps these operations to the official goal protocol and verifies the loaded thread. `codex-goal-connection.ts` owns the POSIX native rendezvous alias checks; `codex-relay-client.ts` supplies the existing WebSocket request transport with explicit experimental opt-in. `core.agentGoal` binds the original session/launch/harness process and shares existing send admission. No goal state or continuation loop is stored by Aiterm.
+
+The ordinary and native delivery server mount the same `agent_goal` tool. Host Owner authentication precedes the metadata `aiterm/goal: {origin:user}` on its existing local BellTeam connection; the marker only carries the host classification. The default model channel cannot mutate. The historical execution dispatcher recognizes the same action and retains its existing generation/effect gate without a separate ID or queue.
+
+The initial operational scope is a live original launch bound to its native thread. No cold Bot launch, native thread resume, arbitrary thread selection, or manual conversation-switch inference is performed. Missing current binding remains unavailable. Host global pause must control native continuation separately from denying incoming HTTP actions.

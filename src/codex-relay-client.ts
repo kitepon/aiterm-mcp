@@ -7,7 +7,8 @@ import { windowsSocketConnection } from "./windows-codex-connection.js";
 export type RelayRequest = (method: string, params: unknown) => Promise<any>;
 
 /** 公式受付へ追加接続する。Desktopへの承認要求や通知には応答しない。 */
-export async function withCodexRelay<T>(socketPath: string, action: (request: RelayRequest) => Promise<T>, timeout = 15_000): Promise<T> {
+export async function withCodexRelay<T>(socketPath: string, action: (request: RelayRequest) => Promise<T>, timeout = 15_000,
+  options: { experimentalApi?: boolean } = {}): Promise<T> {
   let connection: { url: string; options: WebSocket.ClientOptions };
   try {
     if (process.platform === "win32") connection = windowsSocketConnection(socketPath);
@@ -62,7 +63,8 @@ export async function withCodexRelay<T>(socketPath: string, action: (request: Re
       socket.once("error", () => reject(new CodexDeliveryError("CODEX_RELAY_UNAVAILABLE", "公式App Serverへ接続できません")));
       socket.once("close", () => reject(new CodexDeliveryError("CODEX_RELAY_UNAVAILABLE", "公式App Serverが接続を閉じました")));
     });
-    await request("initialize", { clientInfo: { name: "aiterm_parent_delivery", version: "1" } });
+    await request("initialize", { clientInfo: { name: "aiterm_parent_delivery", version: "1" },
+      ...(options.experimentalApi ? { capabilities: { experimentalApi: true } } : {}) });
     socket.send(JSON.stringify({ method: "initialized" }));
     return await action(request);
   } finally {

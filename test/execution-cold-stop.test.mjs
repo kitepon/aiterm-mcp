@@ -29,7 +29,10 @@ test('native SDK stop is idle before any tmux server or socket has ever existed'
   const client = new Client({ name: 'own-cold-stop-fixture', version: 'test' });
   t.after(async () => { await client.close(); await transport.close(); });
   await client.connect(transport);
-  assert.equal((await client.listTools()).tools.length, 21);
+  const names = (await client.listTools()).tools.map(tool => tool.name);
+  assert.equal(names.length, 20); // 19 public tools plus the .17 direct leaf stop.
+  assert.ok(names.includes('agent_goal')); assert.ok(names.includes('agent_stop'));
+  assert.equal(names.includes('agent_execution'), false); assert.equal(names.includes('agent_execution_roots'), false);
   const result = await client.callTool({ name: 'agent_stop', arguments: { session_id: 'cold-never-started' } });
   assert.equal(result.isError, undefined);
   assert.deepEqual(result.structuredContent, { session_id: 'cold-never-started', status: 'idle',

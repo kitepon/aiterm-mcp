@@ -25,8 +25,9 @@ export function createNativeDeliveryServer(dependencies: {
   children?: () => { parent: string; child: string }[];
   currentLaunchId?: (session: string) => string | null;
   sendKey?: (session: string, expectedLaunchId?: string) => unknown;
+  goalOrigin?: NonNullable<Parameters<typeof createAitermServer>[0]>["goalOrigin"];
 } = {}) {
-  const server = createAitermServer();
+  const server = createAitermServer({ goalOrigin: dependencies.goalOrigin });
   server.registerTool("agent_stop", {
     description: "指定sessionとその呼出先へ末端から通常の停止キーを送る。sentはキー送信結果であり終了の証明ではない。",
     inputSchema: immediateStopInputSchema.shape,

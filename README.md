@@ -155,7 +155,7 @@ Aiterm and is not a runtime dependency.
 
 **Measured, not claimed:** in the recorded 203-test benchmark, a `pty_read` puts **~7.1× fewer tokens** in your context than the raw log — and the pass/fail verdict survives the fold. → [When to reach for it vs. the built-in shell](#when-to-reach-for-it-vs-the-built-in-shell)
 
-18 tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; three deprecated launcher aliases kept for migration; `agent_models`; `agent_configure`; `agent_auth`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
+19 tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; three deprecated launcher aliases kept for migration; `agent_models`; `agent_configure`; `agent_goal`; `agent_auth`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
 **v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is one of Cursor's models, not a harness and not a Grok model: use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old launcher tools are thin compatibility aliases over the same implementation.
 
@@ -428,7 +428,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm should show as connected, exposing 18 tools
+/mcp        # aiterm should show as connected, exposing 19 tools
 ```
 
 Your first session — four calls, one persistent terminal:
@@ -472,7 +472,7 @@ The terminal is real and shared, so a human *can* jump in ([A human can watch](#
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>legacy launcher aliases · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 19 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>survive restarts"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -875,3 +875,13 @@ started the persistent multiplexer server (since 0.50.0). Every harness still ac
 ## License
 
 MIT
+
+## Native agent goals
+
+`agent_goal` accepts `session_id`, the original 32-character `launch_id`, and `action`: `inspect`, `create`, `edit`, `pause`, `resume`, or `clear`. `expected_thread_id` compares a previously observed native binding; it never selects a different thread. `create` requires `objective`; `edit` requires `objective` or a positive integer `token_budget`. Other actions do not accept those fields.
+
+The first adapter attaches to an existing Codex native control socket on POSIX and verifies the thread is loaded there. It never starts a worker or resumes a stored thread to make an unavailable Bot appear running. The launch must still have an identifiable live harness. Other harness adapters and native Windows transport return explicit unsupported status; a missing binding, disabled feature, or missing connection returns unavailable.
+
+Only an authenticated host action may stamp MCP metadata `{"aiterm/goal":{"origin":"user"}}` on the existing local `bellteam` client connection. BellTeam must reject seat-origin changes and authenticate the Owner before stamping this provenance. This metadata is not a new authentication mechanism. Other clients and missing provenance remain automatic and cannot mutate a goal. Embedded hosts may supply a stricter `goalOrigin` resolver to the server constructor.
+
+`aiterm.agent-goal-result.v1` includes native binding, per-action capabilities, availability, operation outcome, mutation acknowledgment, and readback status. A missing goal field is unknown; `available` with `goal:null` is an authoritative empty goal. Unknown mutations are never retried. `clear` does not interrupt a running turn, `resume` requires `paused`, and a new objective resets Codex usage accounting. Global application pause policy is owned by the host and must also account for native automatic continuation.

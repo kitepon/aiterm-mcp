@@ -290,9 +290,9 @@ test('another socket cannot join the requested state, and malformed source envir
     assert.throws(f.create, code('EXECUTION_UNSUPPORTED'));
   }
 });
-test('actual SDK exposes the unchanged 18 tools and native ingress keeps the fixed process/source context', { skip: posixCheckpoint }, async t => {
+test('actual SDK exposes the 19 tools and native ingress keeps the fixed process/source context', { skip: posixCheckpoint }, async t => {
   const f = fixture(t), p = f.create(), client = await connect(t, p);
-  assert.equal((await client.listTools()).tools.length, 18);
+  assert.equal((await client.listTools()).tools.length, 19);
   let ingress;
   const result = await p.dispatcher.dispatch('pty_key', { session_id: B.session_id }, { requestId: 'existing-sdk-request' }, async () => {
     ingress = structuredClone(currentExecutionIngress());

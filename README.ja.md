@@ -149,7 +149,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-18ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+19ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_goal`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧起動ツールは同じ実装へ流れる互換alias。
 
@@ -441,7 +441,7 @@ agentの起動はPowerShell 7のpaneでargvを渡して実行し、受入済みs
 
 ```mermaid
 flowchart LR
-    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 18 tools"]
+    AI["AI / MCP client<br/>(the orchestrator)"] -->|"pty_send · pty_observe · agent_launch · agent_models · agent_configure · agent_auth · agent_approval · claude_turn · claude_approval<br/>旧launcher alias · diagnostics"| S["aiterm-mcp<br/>stdio MCP · 19 tools"]
     S -->|"pty_read<br/>token-reduced"| AI
     S -->|"tmux / psmux<br/>send · capture"| P["persistent PTYs<br/>再起動を跨ぐ"]
     P -->|"ssh · docker · repl"| R["nested<br/>remote · container · REPL"]
@@ -804,3 +804,13 @@ aiterm が、あなたの AI に別のエージェントへ仕事を渡させた
 ## ライセンス
 
 MIT
+
+## CLIの実ゴール
+
+`agent_goal` は `session_id`、元の32桁 `launch_id`、`action: inspect|create|edit|pause|resume|clear` を受ける。`expected_thread_id` は既存の結合の照合用で、別threadを選ぶ引数ではない。createはobjective必須、editはobjective又は正の整数token_budgetを指定する。他の操作には目的や予算を付けない。
+
+最初のadapterはPOSIXの既存Codex control socketへ接続し、同じthreadが読み込まれていることを確認する。workerの起動・保存threadのresumeは行わない。元launchのharnessが生存し識別できることが必要。他CLIのadapterとWindows native接続は未対応、結合・設定・接続が確認できない時は取得不能を返す。
+
+Owner認証済みの本体だけが、既存のローカルbellteam MCP接続に `_meta: {"aiterm/goal":{"origin":"user"}}` を付ける。席からの変更を拒否しOwnerを認証する責任は本体が持つ。この由来情報を新しい認証と扱わない。モデルの引数や他クライアントのmetadataでは利用者操作へ昇格しない。組み込みhostはserver constructorへ厳密なgoalOrigin resolverを渡せる。
+
+結果は正本のbinding、capabilities、availability、outcome、mutation、readbackを分ける。goal省略は未確認、availableかつgoal:nullだけが「ゴールなし」。変更結果不明は再送しない。clearは現在turnの停止ではなく、resumeはpausedから、目的を変える編集はCodexの使用量を初期化する。アプリ全体の停止とnative自動継続の整合はhostが所有する。

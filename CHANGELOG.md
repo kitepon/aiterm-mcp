@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Other CLI adapters report explicit unsupported status; missing native connections report unavailable.
+
 ## [0.61.17] - 2026-10-24
 
 ### Changed

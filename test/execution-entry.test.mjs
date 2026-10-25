@@ -10,7 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 // The only child is this isolated Node MCP, with all native/network effects
 // blocked at preload. No PTY, harness CLI, live MCP or runtime default factory.
-for (const symlink of [false, true]) test(`isolated stdio entry initializes the legacy 18-tool surface through ${symlink ? 'a canonicalized bin symlink' : 'its direct path'}`,
+for (const symlink of [false, true]) test(`isolated stdio entry initializes the 19-tool surface through ${symlink ? 'a canonicalized bin symlink' : 'its direct path'}`,
   { skip: symlink && process.platform === 'win32' ? 'POSIX bin symlink fixture' : false, timeout: 10000 }, async () => {
     const directory = mkdtempSync(join(tmpdir(), 'execution-entry-'));
     const direct = fileURLToPath(new URL('../dist/index.js', import.meta.url)), entry = symlink ? join(directory, 'synthetic-bin') : direct;
@@ -24,7 +24,7 @@ for (const symlink of [false, true]) test(`isolated stdio entry initializes the 
     try {
       await client.connect(transport);
       const tools = (await client.listTools()).tools;
-      assert.equal(tools.length, 18); assert.equal(tools.some(tool => tool.name === 'agent_stop'), false);
+      assert.equal(tools.length, 19); assert.equal(tools.some(tool => tool.name === 'agent_stop'), false);
       assert.ok(tools.some(tool => tool.name === 'agent_launch')); assert.ok(tools.some(tool => tool.name === 'pty_observe'));
     } catch (error) {
       throw new Error('isolated stdio startup failed: '+stderr, { cause: error });

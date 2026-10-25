@@ -5125,11 +5125,14 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
     throw new AuthResponseError("AGENT_AUTH_RESPONSE_NOT_ISSUED", "not_issued", "入力を送信できません。");
   } finally { release(); }
   try {
-    const checkReadbackGeneration = () => {
+    const initialMeta = loadAuthMetadata(name, kind);
+    const checkReadbackGeneration = (result?: AgentAuthResult) => {
       const current = loadAuthMetadata(name, kind);
       const stat = fs.lstatSync(authMetadataPath(name));
+      const sameOnboardingLaunch = expected.data.launch_id !== null && initialMeta?.phase === "login" && current?.phase === "onboarding"
+        && result?.status === "waiting" && result.auth_ui?.binding?.launch_id === expected.data.launch_id;
       if (!current || (current.launch_id ?? null) !== expected.data.launch_id
-        || !expected.data.metadata_identity.startsWith(`${stat.dev}:${stat.ino}:${stat.birthtimeMs}:`))
+        || !sameOnboardingLaunch && !expected.data.metadata_identity.startsWith(`${stat.dev}:${stat.ino}:${stat.birthtimeMs}:`))
         throw new Error("native authentication generation changed");
     };
     const deadline = performance.now() + 3000;
@@ -5137,7 +5140,7 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
       await sleep(100);
       checkReadbackGeneration();
       const result = await authenticateAgent(kind, { action: "status", session_id: name });
-      checkReadbackGeneration();
+      checkReadbackGeneration(result);
       if (result.auth_ui?.input !== "authorization_code" || response.data.kind !== "authorization_code") return result;
       // Native input and its redraw are asynchronous; observe without submitting again.
     } while (performance.now() < deadline);

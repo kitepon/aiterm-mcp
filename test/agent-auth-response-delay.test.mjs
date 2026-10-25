@@ -56,3 +56,27 @@ sleep 30
 test('delayed native auth redraw is observed after a single code submission',native,()=>scenario(true));
 test('unchanged auth input remains unknown at the observation deadline without resubmission',native,()=>scenario(false));
 test('auth generation replacement during delayed readback stays unknown on the original submission',native,()=>scenario(true,true));
+test('official onboarding transition keeps the same auth launch after metadata replacement',native,async()=>{
+ const dir=fs.mkdtempSync(path.join(root,'onboard-')),bin=path.join(dir,'claude'),count=path.join(dir,'count');
+ fs.writeFileSync(bin,`#!/bin/bash
+if [ "$1" = auth ] && [ "$2" = status ]; then printf '{"loggedIn":true}\\n'; exit 0; fi
+if [ "$#" = 0 ]; then printf 'Choose the text style that looks best with your terminal\\n❯ 1. Dark mode\\n'; sleep 30; exit 0; fi
+stty -echo
+printf 'Paste code here if prompted >\\n'
+IFS= read -r reply
+printf x >> ${quote(count)}
+exit 0
+`,{mode:0o755});
+ const client=new Client({name:'auth-onboarding-test',version:'1'});
+ const transport=new StdioClientTransport({command:process.execPath,args:[path.resolve('dist/index.js')],env:{...process.env,CLAUDE_BIN:bin},stderr:'pipe'});
+ let session;
+ try{
+  await client.connect(transport);
+  const start=await client.callTool({name:'agent_auth',arguments:{harness:'claude-code',action:'start',cwd:dir,relogin:true}});
+  assert.ok(!start.isError,JSON.stringify(start));const current=start.structuredContent;session=current.session_id;
+  const response=await client.callTool({name:'agent_auth',arguments:{harness:'claude-code',action:'respond',session_id:session,expected_binding:current.auth_ui.binding,expected_prompt_digest:current.auth_ui.prompt_digest,response:{kind:'authorization_code',value:'ARTIFICIAL_ONBOARDING_CODE'}}});
+  assert.ok(!response.isError,JSON.stringify(response));assert.equal(response.structuredContent.status,'waiting');
+  assert.equal(response.structuredContent.auth_ui.binding.launch_id,current.auth_ui.binding.launch_id);
+  assert.equal(fs.readFileSync(count,'utf8'),'x');
+ }finally{if(session)await client.callTool({name:'pty_close',arguments:{session_id:session}});await client.close();}
+});

@@ -120,6 +120,14 @@ test("Grok実機のverification_uri_completeからuser_codeを読む", () => {
   assert.throws(() => grokAuthPane("https://auth.x.ai/device?user_code=invalid_value"), /AGENT_AUTH_CHALLENGE_INVALID/);
 });
 
+test("Claude official PKCE authorization flag is public, callback credentials remain private", () => {
+  const url = "https://claude.com/cai/oauth/authorize?code=true&response_type=code&code_challenge=" + "A".repeat(43) + "&code_challenge_method=S256&state=public-challenge";
+  assert.equal(claudeAuthPane("Opening browser: " + url + "\nPaste code here if prompted >").url, url);
+  for (const privateUrl of [url.replace("code=true", "code=secret"), url + "&code=secret", url + "&access_token=secret", url + "#secret", url.replace("/cai/oauth/authorize", "/oauth/callback"), url.replace("claude.com", "claude.com.evil.example"), url.replace("https://", "https://u:p@")])
+    assert.equal(claudeAuthPane(privateUrl).url, null);
+  assert.equal(authUrl(url, ["claude.com"]), null, "shared code credential filter stays strict");
+});
+
 test("Claudeの初回案内と通常composerを区別する", () => {
   const pane = claudeAuthPane("Claude Code\nSelect login method:\n❯ 1. Claude account with subscription", true);
   assert.equal(pane.input_required, true);

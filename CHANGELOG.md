@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Other CLI adapters report explicit unsupported status; missing native connections report unavailable.
+- Native Claude Code goal inspection uses a fresh dialog on the original live TUI and native attachments; v2 preserves Claude native data and clear/achievement history without invented Codex accounting. Codex v1 remains supported. Claude goal changes remain unsupported.
+- Recognize the current official Claude PKCE authorization URL without exposing callback codes or tokens.
+
+- `agent_goal` reads and manages the real Codex thread goal through an existing native control socket. Operations bind the original session/launch generation, require host-established user provenance for changes, and distinguish acknowledged changes, readback, and an unknown result without retrying. Grok/Cursor adapters report explicit unsupported status; missing native connections report unavailable.
 
 - Goal results expose optional field capabilities. Ordinary embedded Codex supports budget-only edits through the official service; unsupported objective or mixed edits issue no mutation.
 

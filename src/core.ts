@@ -22,6 +22,8 @@ import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
+import { inspectClaudeAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
+import { readClaudeGoalDialog } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -5875,7 +5877,7 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
 }
 
 /** Goal operations share the existing seat admission and original launch ID. */
-export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic"): Promise<AgentGoalResult> {
+export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic"): Promise<AgentGoalWireResult> {
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
@@ -5908,17 +5910,26 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
       const stty = spawnSync("/bin/stty", [process.platform === "linux" ? "-F" : "-f", tty!, "-a"],
         { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });
       if (ps.error || stty.error || ps.status !== 0 || stty.status !== 0 || paneTtyOf(input.session_id) !== tty
-        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout)) rejectOwner();
+        || !paneTtyInputOwnerReady(ps.stdout, owner!.pid, owner!.process_group_id!, stty.stdout, AGENT_COMMAND_PATTERNS[target.harness === "claude-code" ? "claude" : "codex"])) rejectOwner();
       pinnedTty = tty;
     };
     return {
       read() { check(); const value = tmux("capture-pane", "-e", "-p", "-J", "-t", input.session_id); if (value.code !== 0) throw new Error("Goal input observation unavailable"); return value.stdout; },
       async paste(text) { await withExecutionNativeAdmission(input.session_id, () => { check(); send(input.session_id, text, { enter: false, force: true, mark: false, rtk: false, bracketedPaste: true, preserveAgentOperation: true,
-        beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
+        raw: true, beforePtyWrite: () => { check(); inputStarted = true; } }); }); },
       async keys(keys) { await withExecutionNativeAdmission(input.session_id, () => { check(); inputStarted = true; const sent = tmux("send-keys", "-t", input.session_id, ...keys); if (sent.code !== 0) throw new Error("Goal input key unconfirmed"); }); },
       pause: sleep,
     };
   };
+  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => inspectClaudeAgentGoal(input, {resolve,
+    read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
+      const meta=tryLoadAgentMetadata(input.session_id);
+      if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
+      const file=claudeSessionTranscriptPath(meta);
+      if (!file || !fs.existsSync(file)) return [];
+      return readTranscriptLines(file).filter(line=>line.trim()).map(line=>JSON.parse(line));
+    }),
+  }));
   const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {
@@ -5945,10 +5956,11 @@ export async function pauseAgentGoalForStop(target: { session_id: string; launch
   const before = await agentGoal({ ...input, action: "inspect" });
   if (before.availability !== "available") return { status: before.availability, reason: before.reason };
   if (before.goal === null) return { status: "no_goal" };
+  if (before.schema === "aiterm.agent-goal-result.v2") return {status:"unsupported",reason:"native_goal_pause_unsupported"};
   if (before.goal?.status === "paused" || before.goal?.status === "complete") return { status: "already_inactive" };
   if (before.goal?.status !== "active") return { status: "unavailable", reason: "goal_not_explicitly_paused" };
   const result = await agentGoal({ ...input, action: "pause", expected_thread_id: before.binding!.thread_id }, "user");
-  if (result.outcome === "applied" && result.readback === "confirmed" && result.goal?.status === "paused") return { status: "paused" };
+  if (result.outcome === "applied" && result.readback === "confirmed" && result.schema === "aiterm.agent-goal-result.v1" && result.goal?.status === "paused") return { status: "paused" };
   return { status: result.availability === "unsupported" || result.outcome === "unsupported" ? "unsupported" : result.outcome === "outcome_unknown" ? "outcome_unknown" : "unavailable", reason: result.reason };
 }
 

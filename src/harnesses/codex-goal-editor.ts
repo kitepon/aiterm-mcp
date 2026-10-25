@@ -1,13 +1,8 @@
 // Official TUI input lives here; core owns the existing PTY and admission.
 import { codexPaneObservation } from "./codex.js";
 import { AgentGoalNotIssuedError, type NativeGoal } from "../agent-goal.js";
-export interface CodexGoalUi {
-  read(): string;
-  paste(text: string): Promise<void>;
-  keys(keys: string[]): Promise<void>;
-  pause(ms: number): Promise<void>;
-  now?(): number;
-}
+import type { GoalNativeUi } from "../agent-goal-ui.js";
+export type CodexGoalUi = GoalNativeUi;
 interface Cell { text: string; dim: boolean; decorated: boolean }
 function rows(raw: string): Cell[][] {
   let dim = false, bold = false, color = false;

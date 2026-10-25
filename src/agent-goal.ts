@@ -60,6 +60,12 @@ export interface GoalTarget {
   vendor_session_id: string | null; codex_home?: string; executable?: string;
   native_process?: { pid: number; started_identity: string; process_group_id?: number | null };
 }
+export function sameGoalTarget(current: GoalTarget|null, target: GoalTarget|null): boolean {
+  return !!current && !!target && current.session_id===target.session_id && current.launch_id===target.launch_id
+    && current.harness===target.harness && current.vendor_session_id===target.vendor_session_id
+    && current.codex_home===target.codex_home && current.executable===target.executable
+    && JSON.stringify(current.native_process)===JSON.stringify(target.native_process);
+}
 export type GoalRequest = (method: string, params: unknown) => Promise<unknown>;
 export type GoalCapabilities = AgentGoalResult["capabilities"];
 export type GoalFieldCapabilities = z.infer<typeof goalFieldCapabilitiesSchema>;
@@ -87,13 +93,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
     readback: "not_attempted", reason: "binding_unavailable", observed_at: new Date().toISOString() };
   let target: GoalTarget | null;
   try { target = runtime.resolve(); } catch { return result; }
-  const same = () => {
-    const current = runtime.resolve();
-    return !!current && current.session_id === input.session_id && current.launch_id === input.launch_id
-      && current.harness === target?.harness && current.vendor_session_id === target?.vendor_session_id
-      && current.codex_home === target?.codex_home && current.executable === target?.executable
-      && JSON.stringify(current.native_process) === JSON.stringify(target?.native_process);
-  };
+  const same = () => sameGoalTarget(runtime.resolve(),target);
   if (!target || target.session_id !== input.session_id || target.launch_id !== input.launch_id) return result;
   result.harness = target.harness;
   if (target.harness !== "codex-cli") return { ...result, availability: "unsupported", outcome: "unsupported", reason: "native_goal_adapter_not_implemented" };

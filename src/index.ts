@@ -14,7 +14,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
-import { agentGoalInputSchema, agentGoalResultSchema, goalOriginFromHost } from "./agent-goal.js";
+import { agentGoalWireResultSchema, agentGoalOutputSchema } from "./agent-goal-native-result.js";
+import { agentGoalInputSchema, goalOriginFromHost } from "./agent-goal.js";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
@@ -996,12 +997,12 @@ const fastModeDesc =
 server.registerTool("agent_goal", {
   description: "Read or manage the CLI's real goal for an exact session/launch. clear removes the goal without stopping its turn; resume requires a paused goal. Editing objective resets native usage accounting. User mutations require trusted host provenance. No goal store or worker is created.",
   inputSchema: agentGoalInputSchema,
-  outputSchema: agentGoalResultSchema.shape,
+  outputSchema: agentGoalOutputSchema,
 }, async (args, extra) => {
   try {
     const origin = goalOrigin ? goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta);
     if (origin !== "user" && origin !== "automatic") throw new Error("Invalid trusted goal provenance");
-    const result = agentGoalResultSchema.parse(await core.agentGoal(agentGoalInputSchema.parse(args), origin));
+    const result = agentGoalWireResultSchema.parse(await core.agentGoal(agentGoalInputSchema.parse(args), origin));
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result },
       ...(["rejected", "outcome_unknown", "unavailable", "unsupported"].includes(result.outcome) ? { isError: true } : {}) };
   } catch (error) { return fail(error); }

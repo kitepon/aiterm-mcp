@@ -514,3 +514,8 @@ Ordinary creation is a separate owner callback from objective editing. It sends 
 
 
 Goal input ownership is a read-only native precondition, separate from the ordinary prompt sender's optional foreground/termios recovery. The original PID/process group must be foreground and unstopped on the pinned pane TTY, with explicitly observed raw/no-echo flags. `paneTtyInputOwnerReady` shares existing TTY process classification; the goal UI ports and internal `beforePtyWrite` callback repeat this proof before input boundaries. Known refusal before input refreshes readback as not issued; ownership loss after input starts stays unknown. The goal path never sends fg, changes termios or erases another draft to satisfy the precondition.
+
+
+Claude native goal inspection owns its TUI state machine and native attachment parsing in harnesses/claude-goal.ts. agent-goal-ui.ts supplies only the core-owned input ports; both native managers share exact original binding comparison. A fresh TUI dialog is authoritative; the stream CLI's local-command transcript is a separate native contract and is never presumed to exist in a TUI. Historical attachments alone cannot establish current null. The v2 branch carries the harness's native data; v1 Codex remains compatible. The MCP output has an object root and validates the tagged branch, retaining structured errors. Unsupported Claude changes never query or mutate the TUI. No separate goal record or identifier is stored.
+
+Claude's authorization-request code=true exception is vendor-owned and requires the official authorization path, response_type=code and S256 PKCE challenge. The common credential filter continues rejecting code parameters and tokens.

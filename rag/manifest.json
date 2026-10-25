@@ -2280,6 +2280,42 @@
       "fetched": "2026-10-25"
     },
     {
+      "slug": "grok-native-active-registry",
+      "topic": "grok-goal-worker-binding",
+      "title": "grok-native-active-registry",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-lifecycle/src/registry.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-active-registry.md",
+      "tags": [
+        "grok",
+        "goal",
+        "native-session",
+        "os-identity"
+      ],
+      "summary": "元session registryのOS別process出生形式の一次実装。実binary同一性は別検証。",
+      "relevance": "必要Mac/Windows元worker所有guardの設計資料。",
+      "chars": 4965,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-active-session-identity",
+      "topic": "grok-goal-worker-binding",
+      "title": "Grok active_sessions PID birth identity by OS",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-active-sessions/src/lib.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-active-session-identity.md",
+      "tags": [
+        "grok",
+        "goal",
+        "native-session",
+        "os-identity"
+      ],
+      "summary": "公式active_sessionsのOS別PID出生照合。実binary同一性は別検証。",
+      "relevance": "必要Mac/Windows元worker所有guardの設計資料。",
+      "chars": 9175,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "grok-native-goal-detail",
       "topic": "grok-goal-worker-binding",
       "title": "Grok official views/goal_detail.rs",
@@ -2348,6 +2384,24 @@
       "fetched": "2026-10-25"
     },
     {
+      "slug": "grok-native-process-resources",
+      "topic": "grok-goal-worker-binding",
+      "title": "grok-native-process-resources",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-tty-utils/src/process_resources.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-process-resources.md",
+      "tags": [
+        "grok",
+        "goal",
+        "native-session",
+        "os-identity"
+      ],
+      "summary": "元session registryのOS別process出生形式の一次実装。実binary同一性は別検証。",
+      "relevance": "必要Mac/Windows元worker所有guardの設計資料。",
+      "chars": 16009,
+      "fetched": "2026-10-25"
+    },
+    {
       "slug": "grok-native-prompt-keys",
       "topic": "grok-goal-worker-binding",
       "title": "Grok official app/agent_view/prompt.rs",
@@ -2362,6 +2416,24 @@
       "summary": "元workerのfresh goal statusとpause/clearの公式処理。",
       "relevance": "保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。",
       "chars": 93284,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "grok-native-session-registry-client",
+      "topic": "grok-goal-worker-binding",
+      "title": "grok-native-session-registry-client",
+      "source_url": "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/agent/session_registry_client.rs",
+      "source_type": "official_source",
+      "path": "sources/grok-goal-worker-binding/grok-native-session-registry-client.md",
+      "tags": [
+        "grok",
+        "goal",
+        "native-session",
+        "os-identity"
+      ],
+      "summary": "元session registryのOS別process出生形式の一次実装。実binary同一性は別検証。",
+      "relevance": "必要Mac/Windows元worker所有guardの設計資料。",
+      "chars": 26910,
       "fetched": "2026-10-25"
     },
     {

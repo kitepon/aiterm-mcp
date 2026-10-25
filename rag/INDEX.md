@@ -553,3 +553,10 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [grok-pointer-string-width-7-2-0-package-json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
 
 - [grok-pointer-string-width-7-2-0-readme-md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
+
+## Grok OS identity follow-up
+
+- [Pinned active session registry](sources/grok-goal-worker-binding/grok-native-active-session-identity.md) — Source2bdd has PID/cwd/opened_at but no pid_start; it does not establish the birth format observed in binary1.0.70. Do not infer Mac or Windows identity from it.
+- [Process resource identity](sources/grok-goal-worker-binding/grok-native-process-resources.md) — OS-specific telemetry start times, distinct from the TUI registration contract.
+- [Lifecycle exec registry](sources/grok-goal-worker-binding/grok-native-active-registry.md) — A separate exec handler table, not the active_sessions TUI registry.
+- [Agent session registry client](sources/grok-goal-worker-binding/grok-native-session-registry-client.md) — Separate agent registry transport; not proof of attachment to the current TUI worker.

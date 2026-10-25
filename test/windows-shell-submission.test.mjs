@@ -9,10 +9,15 @@ import path from "node:path";
 
 const available = process.platform === "win32" && cp.spawnSync("psmux", ["-V"]).status === 0;
 process.env.TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "at-shell-dialect-"));
+const originalCwd=process.cwd();
+// Reproduce a wrapped native prompt independently of the CI checkout's
+// directory and branch name; a short cwd cannot cover the stale-shell bug.
+const workingDirectory=path.join(process.env.TMPDIR,'native-shell-working-directory-with-a-prompt-that-crosses-one-hundred-and-twenty-columns');
+if(available){fs.mkdirSync(workingDirectory);process.chdir(workingDirectory);}
 const core = await import("../dist/core.js");
 const { shq } = await import("../dist/agent-shared.js");
 const actualSpawn = cp.spawnSync;
-test.after(() => { if (available) core.killAll(); });
+test.after(() => { if (available) {core.killAll();process.chdir(originalCwd);fs.rmSync(workingDirectory,{recursive:true,force:true});} });
 
 for (const mark of [false, true]) {
   test(`Windows actual Bash + stale pwsh metadata: literal multiline file bytes and mark=${mark}`, { skip: !available }, async () => {

@@ -7,6 +7,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import stringWidth from 'string-width';
 import { AitermError, ptyDependencyError } from "./errors.js";
 import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
@@ -635,13 +636,27 @@ export function atomicShellMultiline(text: string, foreground: string): string {
   return `eval "$(command printf '%b' '${quoted}')"`;
 }
 
-export function markShellCommand(foreground: string, screen: string, platform: NodeJS.Platform = process.platform): string {
+export function markShellCommand(foreground: string, screen: string, platform: NodeJS.Platform = process.platform, columns?: number): string {
   if (platform !== "win32" && foreground !== "ssh") return foreground;
   // psmuxの前面名はprocess snapshotやOSCの古い値を返しうる。
   // 現在のpromptだけを使い、PowerShell→Git Bashと逆向きの両方を補正する。
   const current = screen.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trimEnd();
   if (/(?:^|\n)PS [^\r\n]*>$/.test(current)) return "pwsh";
   if (platform === "win32" && /(?:^|\n)[^\r\n]*\b(?:MINGW(?:32|64)|UCRT64|MSYS)\b[^\r\n]*\r?\n\$\s*$/.test(current)) return "bash";
+  if (platform === "win32" && columns !== undefined && Number.isSafeInteger(columns) && columns > 0 && columns <= 10000) {
+    const lines = current.split(/\r?\n/u);
+    if (/^\$\s*$/u.test(lines.at(-1) ?? "")) {
+      let at = lines.length - 2, header = lines[at] ?? "";
+      // psmux may retain soft wraps even with capture-pane -J. Reconstruct
+      // only this trailing prompt's full-width rows, stopping at any prior
+      // command/prompt boundary. Never join arbitrary old output lines.
+      while (at > 0 && !/\b(?:MINGW(?:32|64)|UCRT64|MSYS)\b/u.test(header)) {
+        if ([lines[at], lines[at - 1]].some(line => /^\s*(?:[$>#❯]|PS\s)/u.test(line) || /[\x00-\x1f\x7f]/u.test(line)) || stringWidth(lines[at - 1]) !== columns) break;
+        header = lines[--at] + header;
+      }
+      if (/^[^\r\n]*\b(?:MINGW(?:32|64)|UCRT64|MSYS)\b[^\r\n]*$/u.test(header)) return "bash";
+    }
+  }
   return foreground;
 }
 
@@ -651,7 +666,12 @@ export function paneShellForSubmission(name: string): string {
   const foreground = r.code === 0 ? normalizePaneCommand(r.stdout.trim()) : "";
   if (!isWin && foreground !== "ssh") return foreground;
   const screen = tmuxCommand(true, "capture-pane", "-p", "-J", "-t", name, "-S", "-4");
-  return markShellCommand(foreground, screen.code === 0 ? screen.stdout : "");
+  const text = screen.code === 0 ? screen.stdout : "";
+  const selected = markShellCommand(foreground, text);
+  if (!isWin || selected !== foreground || selected === "bash" || !/(?:^|\n)\$\s*$/u.test(text.trimEnd())) return selected;
+  const width = tmuxCommand(true, "display-message", "-p", "-t", name, "#{pane_width}");
+  const columns = width.code === 0 && /^\d+\s*$/u.test(width.stdout) ? Number(width.stdout.trim()) : undefined;
+  return markShellCommand(foreground, text, "win32", columns);
 }
 
 /** Common send code supplies intent; the runtime decides whether/how to encode it. */

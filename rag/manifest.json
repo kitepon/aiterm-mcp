@@ -3009,7 +3009,43 @@
       "relevance": "隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。",
       "chars": 104301,
       "fetched": "2026-09-19"
+    },
+    {
+      "slug": "string-width-7-2-0-package-json",
+      "topic": "windows-wrapped-shell-prompt",
+      "title": "string-width 7.2.0 package.json",
+      "source_url": "https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/package.json",
+      "source_type": "official_source",
+      "path": "sources/windows-wrapped-shell-prompt/string-width-7-2-0-package-json.md",
+      "tags": [
+        "unicode",
+        "terminal",
+        "width",
+        "node18"
+      ],
+      "summary": "Node18対応の表示セル数を取得する既存libraryの固定一次資料。",
+      "relevance": "psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。",
+      "chars": 1139,
+      "fetched": "2026-10-25"
+    },
+    {
+      "slug": "string-width-7-2-0-readme-md",
+      "topic": "windows-wrapped-shell-prompt",
+      "title": "string-width 7.2.0 readme.md",
+      "source_url": "https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md",
+      "source_type": "official_source",
+      "path": "sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md",
+      "tags": [
+        "unicode",
+        "terminal",
+        "width",
+        "node18"
+      ],
+      "summary": "Node18対応の表示セル数を取得する既存libraryの固定一次資料。",
+      "relevance": "psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。",
+      "chars": 1935,
+      "fetched": "2026-10-25"
     }
   ],
-  "updated": "2026-10-24"
+  "updated": "2026-10-25"
 }

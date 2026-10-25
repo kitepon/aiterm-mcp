@@ -508,3 +508,8 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
+
+## windows-wrapped-shell-prompt
+
+- [string-width 7.2.0 package.json](sources/windows-wrapped-shell-prompt/string-width-7-2-0-package-json.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
+- [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。

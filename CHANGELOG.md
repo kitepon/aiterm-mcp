@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Fix native Windows shell selection for current Git Bash prompts wrapped across pane columns, preserving unknown and historical prompt boundaries. Both ordinary and marked literal multiline sends retain the correct shell syntax.
+
 - Preserve typed Claude authentication preflight failures in ordinary MCP launch errors, distinguishing not authenticated, unconfirmed status and timeout without exposing the native status body or creating a session.
 
 ## [0.61.18] - 2026-10-25

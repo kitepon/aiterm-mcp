@@ -63,6 +63,7 @@ argv・lineage・metadata・native admission・receipt・TUI本文は変えず�
 同じ入口へ渡す。共通sendはraw/TUI/startupという送信意図と符号化前の上限検査を所有し、
 Windowsの前面名だけから方言を決めない。psmuxのprocess snapshot/OSCが古い時は、
 現在のPowerShell又はGit Bash promptで双方向に補正する。過去のpromptは使わない。
+psmuxが`capture-pane -J`でも現在のGit Bash promptを折り返す場合は、実測したpane列数とUnicode表示セル数が一致する連続行だけを現在promptへ接続する。入力済みの`$ command`・別prompt・制御文字を跨がず、列数が不明/不一致なら補正しない。表示幅はNode18対応string-width 7.2.0へ委ね、文字数で日本語/emojiの幅を代用しない。通常の未折返しpromptやPOSIXのshell判定に追加の列数照会は行わない。
 
 TUIの準備判定、送信文の入力欄への残存、完了後の画面安定待ちは`agent-screen-observation.ts`が所有する。
 このmoduleはcoreをimportせず、既存harness adapterと渡されたsample・sleep・時計だけで判断する。

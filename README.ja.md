@@ -694,6 +694,8 @@ handoff contextを前置きできる。この任意経路は`throughline >= 0.9.
 
 SSH先がPowerShellの場合、`mark:true`は現在の標準`PS ...>`プロンプトから方言を判定する。Aiterm自身がmacOS・Linux上でもPowerShell構文を送り、過去の出力に残ったプロンプトは判定に使わない。
 
+Windows nativeで現在のGit Bashプロンプトが折り返されている時は、実pane列数と一致する表示幅の連続行だけを接続して方言を補正する。過去の入力済みcommand・別prompt・未知の幅を根拠にBashへ切り替えず、通常送信とmark送信が同じruntimeの判定を使う。
+
 `pty_read({ wait: true })`は通常PTYを、process終了／`mark:true` sentinel／`until`一致／shell復帰を伴う出力静止／timeoutの5層で判定する。agent sessionは第6の正確な層を使い、Codexは通常rollout、Grokは通常session event、Claudeはlaunch相関Stop event、Cursorは通常agent transcriptの`turn_ended`を`aiterm-wait --cursor`が観測する。親はブロックもポーリングもしない。
 
 ### Codex／Claude Code／Cursor親への回答自動配送

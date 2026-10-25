@@ -84,6 +84,32 @@ test("Windows shell方言: 現在のGit Bash/PowerShell promptで前面名の取
   assert.equal(markShellCommand('pwsh', bash, 'linux'), 'pwsh', 'POSIX native foreground contract is unchanged');
 });
 
+test('Windows shell dialect: wrapped current Git Bash prompt uses the observed pane columns',()=>{
+  const head='u MINGW64 /'+'x'.repeat(109);
+  assert.equal(head.length,120);
+  const screen=head+'\ncontinued-directory\n$\n\n';
+  assert.equal(markShellCommand('pwsh',screen,'win32',120),'bash');
+  assert.equal(markShellCommand('pwsh',screen,'win32',119),'pwsh');
+  assert.equal(markShellCommand('pwsh',head+'\n'+'x'.repeat(120)+'\nend\n$','win32',120),'bash');
+  assert.equal(markShellCommand('pwsh',head+'\ncontinued\u0000\n$','win32',120),'pwsh');
+  assert.equal(markShellCommand('pwsh',screen,'win32'),'pwsh');
+  assert.equal(markShellCommand('pwsh',head+'\nprocessing\nnot a prompt','win32',120),'pwsh');
+  assert.equal(markShellCommand('pwsh',head+'\ncontinued\n$ owner draft','win32',120),'pwsh');
+  const command='$ echo historical output'.padEnd(120,'x');
+  assert.equal(markShellCommand('pwsh',head+'\n'+command+'\n'+'output'.padEnd(120,'x')+'\n$','win32',120),'pwsh');
+  assert.equal(markShellCommand('pwsh','$ echo MINGW64 history'.padEnd(120,'x')+'\noutput\n$','win32',120),'pwsh');
+  assert.equal(markShellCommand('bash',screen+'PS C:\\project> ','win32',120),'pwsh');
+});
+
+test('Windows wrapped prompt counts Japanese and emoji display cells without changing POSIX selection',()=>{
+  for(const cell of ['あ','🧪']){
+    const head='u MINGW64 /'+'x'+cell.repeat(54);
+    const screen=head+'\n続き-directory\n$';
+    assert.equal(markShellCommand('pwsh',screen,'win32',120),'bash');
+    assert.equal(markShellCommand('pwsh',screen,'linux',120),'pwsh');
+  }
+});
+
 test("旧tmuxにもsession識別を注入しnew-session -eを要求しない", { skip: isWin }, () => {
   const launch = sessionEnvironmentLaunch("/bin/sh", ["AITERM_SESSION_ID=legacy'quoted"], "tmux 3.1c");
   assert.deepEqual(launch.args, []);

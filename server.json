@@ -6,13 +6,13 @@
     "url": "https://github.com/kitepon/aiterm-mcp",
     "source": "github"
   },
-  "version": "0.61.22",
+  "version": "0.61.23",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "aiterm-mcp",
-      "version": "0.61.22",
+      "version": "0.61.23",
       "transport": {
         "type": "stdio"
       }

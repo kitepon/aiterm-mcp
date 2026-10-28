@@ -434,6 +434,10 @@ test("read wait: 短命コマンドは quiescent で完了", { skip }, async () 
   const q = "selftest_q";
   core.openSession(q);
   try {
+    // Git prompt helpers are foreground processes too; this test needs a plain, idle bash.
+    core.send(q, "unset PROMPT_COMMAND; PS1='$ '", { mark: true });
+    assert.match(await core.readOutput(q, { wait: true, timeout: 5 }), /is_complete=True via mark/);
+    assert.ok(await waitForForeground(q, "bash"), "plain bash is not in the foreground");
     core.send(q, "echo QUIET_OK");
     const out = await core.readOutput(q, { wait: true, timeout: 5 });
     assert.ok(out.includes("QUIET_OK"));

@@ -1001,11 +1001,17 @@ export function codexEffortChoice(screen: string, effort: string): string | null
   };
   const wanted = labels[effort.toLowerCase()];
   if (!wanted) return null;
-  for (const line of screen.split("\n")) {
+  for (const line of screen.slice(Math.max(0, screen.lastIndexOf("Select Reasoning Level"), screen.lastIndexOf("Advanced Reasoning"))).split("\n")) {
     const match = line.match(/^\s*(?:›\s*)?(\d+)\.\s+(.+?)\s{2,}/);
     if (match && wanted.test(match[2])) return match[1];
   }
   return null;
+}
+
+export function codexCurrentEffort(screen: string): string | null {
+  const current = screen.slice(Math.max(0, screen.lastIndexOf("Select Reasoning Level"), screen.lastIndexOf("Advanced Reasoning"))).split("\n").filter(line => line.includes("(current)"));
+  if (current.length !== 1) return null;
+  return ["low", "medium", "high", "xhigh", "max", "ultra"].find(effort => codexEffortChoice(current[0], effort) !== null) ?? null;
 }
 
 export function codexModelChangeNotices(screen: string, model: string | null, effort: string | null): string[] {

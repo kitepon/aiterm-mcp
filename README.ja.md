@@ -631,6 +631,8 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
 
+Codexでmodelだけを変更する場合は、標準の選択画面から現在のeffortを読み、同じ値を明示的に選びます。現在値を読めない場合や変更先で選べない場合は、別の値へ置き換えず失敗します。
+
 長寿命Codexでは状態footerの空白入りモデル表示名も認識し、起動headerが画面外へ流れた後も入力欄の受付を維持する。
 
 model IDは各harnessの正規catalogを使う。ClaudeのaliasとCodexのIDと異なるpicker名はcatalogの表示名へ結び、Cursorは完成ID又はそのIDに対応するeffortの組だけを認める。固定のモデル許可表や別modelへの置換は加えない。Codexの成功には指定ID・effortに一致する新しいnative変更通知が必要。

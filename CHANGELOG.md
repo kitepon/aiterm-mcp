@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserve Codex’s actual reasoning effort when changing only the model; reject unreadable or unsupported current effort and require a matching model/effort notice.
+
 ## [0.61.23] - 2026-10-28
 
 - Recognize native Codex model display names containing spaces in long-lived status footers, keeping input readiness after the launch header scrolls away while preserving busy, modal, and unknown-screen boundaries.

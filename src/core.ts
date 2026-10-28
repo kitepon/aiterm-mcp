@@ -171,6 +171,7 @@ import {
   codexModelChoice,
   codexModelChangeNotices,
   codexEffortChoice,
+  codexCurrentEffort,
   codexMoreReasoningChoice,
   codexTranscriptText,
   createCodexAgentMetadata,
@@ -6454,7 +6455,28 @@ async function configureCodexModel(name: string, model: string | null, effort: s
 async function chooseCodexModel(name: string, model: string | null, effort: string | null, beforeChange: () => void): Promise<void> {
   const beforeCounts = lineCounts(captureScreen(name, AGENT_TUI_READY_LINES));
   await sendAgentPromptText(name, "/model");
-  const modelScreen = await waitForScreenText(name, "Select Model and Effort");
+  let modelScreen = await waitForScreenText(name, "Select Model and Effort");
+  if (model && !effort) {
+    sendMenuChoice(name, "Enter");
+    let currentScreen = await waitForScreenText(name, "Select Reasoning Level");
+    let advanced = false;
+    if (/More reasoning[^\n]*\(current\)/.test(currentScreen)) {
+      const more = codexMoreReasoningChoice(currentScreen);
+      if (more) {
+        sendMenuChoice(name, more);
+        currentScreen = await waitForScreenText(name, "Advanced Reasoning");
+        advanced = true;
+      }
+    }
+    effort = codexCurrentEffort(currentScreen);
+    if (!effort) throw new AitermError("CODEX_CURRENT_EFFORT_UNKNOWN: 現在のeffortを確認できません。設定は変えていません。", 2);
+    if (advanced) {
+      sendMenuChoice(name, "Escape");
+      await waitForScreenText(name, "Select Reasoning Level");
+    }
+    sendMenuChoice(name, "Escape");
+    modelScreen = await waitForScreenText(name, "Select Model and Effort");
+  }
   if (model) {
     let choice = codexModelChoice(modelScreen, model);
     if (!choice) {
@@ -6469,10 +6491,8 @@ async function chooseCodexModel(name: string, model: string | null, effort: stri
       }
     }
     if (!choice) throw new AitermError(`Codexの/modelに ${model} がありません`, 2);
-    beforeChange();
     sendMenuChoice(name, choice);
   } else {
-    beforeChange();
     sendMenuChoice(name, "Enter");
   }
 
@@ -6488,8 +6508,10 @@ async function chooseCodexModel(name: string, model: string | null, effort: stri
       }
     }
     if (!choice) throw new AitermError(`Codexの/modelに reasoning_effort=${effort} がありません`, 2);
+    beforeChange();
     sendMenuChoice(name, choice);
   } else {
+    beforeChange();
     sendMenuChoice(name, "Enter");
   }
   for (const deadline = performance.now() + 3_000; performance.now() < deadline; await sleep(100)) {

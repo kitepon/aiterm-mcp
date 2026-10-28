@@ -604,3 +604,17 @@ test("Grok: 足元のmodelの表示の名前だけを読む（一覧を引かず
   assert.equal(grok.grokFooterModelName("  ╰──── Grok 4.6 (medium) · always-approve ─╯"), "Grok 4.6");
   assert.equal(grok.grokFooterModelName("   Switched to Grok 4.7 Fast (high effort)\n  │ ❯ │"), null);
 });
+
+test("Codex current effort requires one explicit current marker", () => {
+  for (const [label, effort] of [["Low", "low"], ["Medium", "medium"], ["High", "high"], ["Extra high", "xhigh"], ["Max", "max"], ["Ultra", "ultra"]]) {
+    assert.equal(codex.codexCurrentEffort(`  1. Low (default)  Fast\n› 3. ${label} (current)  Reasoning`), effort);
+  }
+  assert.equal(codex.codexCurrentEffort("› 1. Low (default)  Fast"), null);
+  assert.equal(codex.codexCurrentEffort("1. High (current)  Deep\n2. Low (current)  Fast"), null);
+  assert.equal(codex.codexCurrentEffort("› 1. Future (current)  Unknown"), null);
+});
+
+ test("Codex current effort ignores older reasoning menus", () => {
+   assert.equal(codex.codexCurrentEffort("Select Reasoning Level\n1. Low (current)  Fast\nSelect Reasoning Level\n2. High (current)  Deep"), "high");
+   assert.equal(codex.codexCurrentEffort("Select Reasoning Level\n1. High (current)  Deep\nAdvanced Reasoning\n1. Max (current)  Deep"), "max");
+ });

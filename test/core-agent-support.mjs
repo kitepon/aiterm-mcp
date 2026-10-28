@@ -418,7 +418,7 @@ const footer = ${JSON.stringify(version === "0.157.0" ? "  enter select · esc b
 const modal = () => process.stdout.write(["Approaching rate limits", "Switch to " + luna + " for lower credit usage?", ...[1, 2, 3].map(i => (i === cursor ? "› " : "  ") + i + ". " + (i === 1 ? "Switch to " + luna + "                 Fast and affordable agentic coding\\n                                            model." : i === 2 ? "Keep current model" : "Keep current model (never show again)  Hide future rate limit reminders\\n                                            about switching models.")), footer].join("\\n") + "\\n");
 const ready = () => process.stdout.write("OpenAI Codex\\n› Ask Codex to do anything\\ngpt-5.6-terra high · ~/work\\n");
 const model = () => process.stdout.write("Select Model and Effort\\n› 1. " + (mode.startsWith("catalog-label") ? "Custom Model" : "gpt-5.6-sol") + "\\n  2. gpt-5.6-terra\\n");
-const effort = () => process.stdout.write("Select Reasoning Level\\n› 1. Low  Fast responses\\n  2. High  Greater reasoning depth\\n");
+const effort = () => process.stdout.write("Select Reasoning Level\\n› 1. Low  Fast responses\\n  5. More reasoning…  Advanced\\n  2. " + (mode.endsWith("unsupported") ? "Medium" : "High") + "  Greater reasoning depth\\n");
 let phase = "modal";
 process.stdin.setRawMode(true); process.stdin.resume(); modal();
 process.stdin.on("data", chunk => {
@@ -426,6 +426,15 @@ process.stdin.on("data", chunk => {
   fs.appendFileSync(input, JSON.stringify({ phase, text }) + "\\n");
   if (phase === "modal" && text === "2") { if (mode === "stuck") return; phase = "ready"; ready(); return; }
   if (phase === "ready" && text.includes("/model")) { phase = "model"; model(); return; }
+  if (mode === "preserve-effort-max" && phase === "model" && text === "\\r") { phase = "current-max"; process.stdout.write("Select Reasoning Level\\n› 5. More reasoning… (current)  Advanced\\n"); return; }
+  if (mode === "preserve-effort-max" && phase === "current-max" && text === "5") { phase = "advanced-current"; process.stdout.write("Advanced Reasoning\\n› 1. Max (current)  Deep\\n  enter default · esc back\\n"); return; }
+  if (mode === "preserve-effort-max" && phase === "advanced-current" && text === "\\u001b") { phase = "current-max"; process.stdout.write("Select Reasoning Level\\n› 5. More reasoning… (current)  Advanced\\n"); return; }
+  if (mode === "preserve-effort-max" && phase === "current-max" && text === "\\u001b") { phase = "model"; model(); return; }
+  if (mode === "preserve-effort-max" && phase === "effort" && text === "5") { phase = "advanced-target"; process.stdout.write("Advanced Reasoning\\n  1. Max  Deep\\n"); return; }
+  if (mode === "preserve-effort-max" && phase === "advanced-target" && text === "1") { phase = "ready"; process.stdout.write("Model changed to gpt-5.6-sol max\\n"); ready(); return; }
+  if (mode.startsWith("preserve-effort") && phase === "model" && text === "\\r") { phase = "current-effort"; process.stdout.write("Select Reasoning Level\\n  1. Low (default)  Fast\\n› 2. High " + (mode.endsWith("unknown") ? "" : "(current)") + "  Deep\\n  enter default · esc back\\n"); return; }
+  if (mode.startsWith("preserve-effort") && phase === "current-effort" && text === "\\u001b") { phase = "model"; model(); return; }
+  if (mode.startsWith("preserve-effort") && phase === "effort" && text === "2") { phase = "ready"; process.stdout.write("Model changed to gpt-5.6-sol " + (mode.endsWith("wrong") ? "low" : "high") + "\\n"); ready(); return; }
   if (phase === "model" && text === "1") { phase = "effort"; effort(); return; }
   if (phase === "effort" && text === "1") { phase = "ready"; process.stdout.write("Model changed to " + (mode === "catalog-label" ? "account-model-42" : "gpt-5.6-sol") + " low\\n"); ready(); }
 });

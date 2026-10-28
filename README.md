@@ -674,6 +674,8 @@ enables collection on that host.
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
 
+Codex model-only changes explicitly preserve the current reasoning effort read from the native picker. Unreadable or unsupported current effort fails without selecting another value.
+
 Long-lived Codex sessions recognize native model display names containing spaces in the status footer, so a ready composer remains available after the launch header scrolls away.
 
 Model IDs come from each harness's native catalog. Claude aliases and differing Codex picker labels use that catalog's display name; Cursor matches complete native IDs or their exact supported effort variants. No model allowlist or alternate-model fallback is added. Codex success requires a fresh native change notice matching the requested ID and effort.

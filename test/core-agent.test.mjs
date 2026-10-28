@@ -292,6 +292,71 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
   }
 });
 
+test("agent_configure: Codex modelのみ変更は現在highを保持する", { skip: skipAgentDone }, async () => {
+  for (const mode of ["preserve-effort", "preserve-effort-max"]) {
+    const savedBin = process.env.CODEX_BIN;
+    const fake = makeFakeCodexRateLimitTuiBin(3, mode);
+    const sid = `codex_rate_limit_configure_${Date.now().toString(36)}`;
+    process.env.CODEX_BIN = fake.bin;
+    const model = mode === "catalog-label" ? "account-model-42" : "gpt-5.6-sol";
+    try {
+      await withFakeCodexHome(async () => {
+        const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+        const result = await core.configureAgent(actualSid, { model });
+        assert.deepEqual(result, {
+          schema: "aiterm.agent-configure-result.v1",
+          session_id: actualSid,
+          provider: "codex",
+          harness: "codex-cli",
+          model,
+          reasoning_effort: null,
+          fast: false,
+        });
+        assert.match(core.listSessions(), new RegExp(`(^|\\n)${actualSid}\\t`), "同じsessionを保つ");
+        const input = readFakeTuiInput(fake.input);
+        assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
+        assert.ok(input.some((entry) => entry.phase === "ready" && entry.text.includes("/model")));
+        assert.equal(input.filter(entry => entry.method === "model/list").length, mode === "catalog-label" ? 1 : 0, "native catalogを一回読み表示名へ結ぶ");
+        assert.deepEqual(input.filter(entry => entry.phase === "model" && /^\d+$/.test(entry.text)).map(entry => entry.text), ["1"]);
+      });
+    } finally {
+      try { core.closeSession(sid); } catch {}
+      if (savedBin === undefined) delete process.env.CODEX_BIN;
+      else process.env.CODEX_BIN = savedBin;
+      fs.rmSync(fake.bin, { force: true });
+      fs.rmSync(fake.driverDir, { recursive: true, force: true });
+      fs.rmSync(fake.input, { force: true });
+    }
+  }
+});
+
+test("agent_configure: Codex modelのみ変更は保持不能と通知不一致を区別する", { skip: skipAgentDone }, async () => {
+  for (const mode of ["preserve-effort-unknown", "preserve-effort-unsupported", "preserve-effort-wrong"]) {
+    const savedBin = process.env.CODEX_BIN;
+    const fake = makeFakeCodexRateLimitTuiBin(3, mode);
+    const sid = `codex_rate_limit_configure_${Date.now().toString(36)}`;
+    process.env.CODEX_BIN = fake.bin;
+    const model = mode === "catalog-label" ? "account-model-42" : "gpt-5.6-sol";
+    try {
+      await withFakeCodexHome(async () => {
+        const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
+        await assert.rejects(core.configureAgent(actualSid, { model }), error => {
+          assert.match(error.message, mode.endsWith("unknown") ? /CURRENT_EFFORT_UNKNOWN/ : mode.endsWith("unsupported") ? /reasoning_effort=high/ : /SWITCH_UNCONFIRMED/);
+          assert.equal(error.configurationFailure.outcome, mode.endsWith("wrong") ? "outcome_unknown" : "not_applied");
+          return true;
+        });
+      });
+    } finally {
+      try { core.closeSession(sid); } catch {}
+      if (savedBin === undefined) delete process.env.CODEX_BIN;
+      else process.env.CODEX_BIN = savedBin;
+      fs.rmSync(fake.bin, { force: true });
+      fs.rmSync(fake.driverDir, { recursive: true, force: true });
+      fs.rmSync(fake.input, { force: true });
+    }
+  }
+});
+
 test("agent_configure: Codexが別modelの通知を返した時は変更後unknownを保持する", { skip: skipAgentDone }, async () => {
   const savedBin = process.env.CODEX_BIN;
   const fake = makeFakeCodexRateLimitTuiBin(3, "catalog-label-wrong-result");

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.24] - 2026-10-28
+
 ### Fixed
 - Preserve Codex’s actual reasoning effort when changing only the model; reject unreadable or unsupported current effort and require a matching model/effort notice.
 
@@ -2920,7 +2922,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.23...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...HEAD
+[0.61.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.23...v0.61.24
 [0.61.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.22...v0.61.23
 [0.61.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.21...v0.61.22
 [0.61.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.20...v0.61.21

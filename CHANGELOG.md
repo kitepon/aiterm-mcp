@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.22] - 2026-10-28
+
 - Resolve Codex model picker labels through the native model catalog when display names differ from model IDs, including names containing spaces. Keep exact row matching and reject ambiguous labels without choosing another model.
 - Resolve Claude catalog aliases and custom IDs through their native display names instead of choosing the first model in a family; require exact Cursor base IDs and their supported effort variants. Preserve Grok's exact native-ID controls.
 - Require a fresh Codex model-change notice matching the requested model and effort. Return typed configuration errors for all four harnesses, distinguishing requests refused before a change from possibly applied or partially applied changes, without retrying them.
@@ -2911,7 +2913,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.21...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.22...HEAD
+[0.61.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.21...v0.61.22
 [0.61.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.20...v0.61.21
 [0.61.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.19...v0.61.20
 [0.61.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.18...v0.61.19

@@ -188,9 +188,10 @@ function ok(s: string): ToolResult {
 }
 function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
-  if (e instanceof AitermError && e.configurationFailure) return {
+  const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
+  if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { ...e.configurationFailure },
+    structuredContent: { ...configurationFailure },
   };
   if (e instanceof AgentAuthenticationPreflightError) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,

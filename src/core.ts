@@ -6241,9 +6241,9 @@ export async function configureAgent(
       await sleep(AGENT_TUI_READY_POLL_MS);
     }
   } catch (error) {
-    const failure = error instanceof AitermError ? error : new AitermError(error instanceof Error ? error.message : String(error), 2);
-    failure.configurationFailure = { schema: "aiterm.agent-configure-error.v1", session_id: name,
-      outcome: mayHaveChanged ? "outcome_unknown" : "not_applied", effect: mayHaveChanged ? "possible" : "not_started" };
+    const failure = error instanceof Error ? error : new AitermError(String(error), 2);
+    Object.assign(failure, { configurationFailure: { schema: "aiterm.agent-configure-error.v1", session_id: name,
+      outcome: mayHaveChanged ? "outcome_unknown" : "not_applied", effect: mayHaveChanged ? "possible" : "not_started" } });
     throw failure;
   }
 }

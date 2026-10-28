@@ -805,7 +805,7 @@ export function codexTuiReady(screen: string): boolean {
   // 起動直後は製品header、長寿命sessionでは常駐footerがCodex TUIの識別子になる。
   // capture-paneは直近45行だけなので、会話が進むとheaderは正常に画面外へ流れる。表示名の空白は行内で受ける。
   const codexFrontend = screen.includes("OpenAI Codex")
-    || /^[ \t]*\S[^\r\n]*?[ \t]+(?:default|low|medium|high|xhigh|max|ultra)(?:[ \t]+fast)?[ \t]+·[ \t]+\S[^\r\n]*$/m.test(screen);
+    || /^[ \t]*\S[^\r\n]*?[ \t]+(?:default|low|medium|high|xhigh|max|ultra)(?:[ \t]+fast)?[ \t]+·[ \t]+\S[^\r\n]*\r?$/m.test(screen);
   return codexFrontend && new RegExp(CODEX_COMPOSER_LINE).test(screen);
 }
 

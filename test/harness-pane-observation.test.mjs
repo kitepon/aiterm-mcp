@@ -582,6 +582,7 @@ test("Codex long-lived composer accepts spaced native display names and keeps ob
       const footer = `  ${label} ${effort} · /tmp/project`;
       const screen = `• Finished work\n› Ask Codex to do anything\n${footer}`;
       assert.equal(codexTuiReady(screen), true, `${label} ${effort}`);
+      assert.equal(codexTuiReady(screen.replaceAll("\n", "\r\n")), true, `${label} ${effort} CRLF`);
       assert.deepEqual(codexPaneObservation(screen), { state: "idle", reason: "composer_ready" });
       assert.equal(codexTuiReady(footer), false);
       assert.equal(codexPaneObservation(`${screen}\n• Working (5s • esc to interrupt)`).state, "busy");

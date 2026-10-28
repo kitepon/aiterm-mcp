@@ -10,7 +10,6 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildWindowsLauncher } from "../dist/windows-codex-setup.js";
 import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
@@ -87,6 +86,7 @@ process.env.GROK_BIN = fakeGrokBin;
 process.env.CLAUDE_BIN = fakeClaudeBin;
 const core = await import("../dist/core.js");
 const codexHarness = await import("../dist/harnesses/codex.js");
+const { buildWindowsLauncher } = process.platform === "win32" ? await import("../dist/windows-codex-setup.js") : {};
 core.__testSetAgentTuiReadyStableSamples(1);
 const skip = hasTmux ? undefined : "tmux 未インストール";
 // 製品側 currentUid()（src/core.ts）と同じ規則。Windows(native) は getuid を持たないので 0。

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Recognize native Codex model display names containing spaces in long-lived status footers, keeping input readiness after the launch header scrolls away while preserving busy, modal, and unknown-screen boundaries.
+
 ## [0.61.22] - 2026-10-28
 
 - Resolve Codex model picker labels through the native model catalog when display names differ from model IDs, including names containing spaces. Keep exact row matching and reject ambiguous labels without choosing another model.

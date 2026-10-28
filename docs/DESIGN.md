@@ -168,6 +168,8 @@ harnessがagent loop、認証、hook、session、transcript、model catalogを�
 project／user環境を置換せず、launch相関と完了回収に必要なstateだけを加える。
 Throughlineの補足記憶はpathを透過搬送するだけで、内容、project束縛、context予算はThroughlineが所有する。
 
+長寿命Codexのfrontend識別は、モデル表示名・effort・区切り・pathが同じfooter行にあることとcomposerの併存で判定する。表示名の空白は許すが、改行をまたぐ断片は結合しない。busyとmodalの優先順位は維持する。
+
 設定変更もnative catalogと標準入力操作を使う。Claudeのaliasと任意IDはcatalogの表示名へ結び、CodexはID表記がpickerに無い時に同じ公式catalogの表示名を使う。名前のprefixや任意の空白置換で別modelを選ばない。Cursorの素ID判定は既存effort variantの解析と一致させ、Grokの完成IDはそのまま渡す。
 
 4harness共通の`agent_configure`は、変更を発行し得る境界に達したかを要求内で保持する。失敗は`aiterm.agent-configure-error.v1`の`not_applied/not_started`又は`outcome_unknown/possible`で返し、後者には部分適用を含む。これは要求単位の保守的な分類で、以前の実設定や他要求の状態は証明しない。成功型は維持し、Codexの完了は指定ID・effortに一致する新規native通知を確認する。別modelの通知や残画面では成功にしない。

@@ -575,3 +575,20 @@ test("Codexのturnエラーの文は、応答の本文とURLを落とした1行�
   assert.equal(long.length, 200);
   assert.ok(long.endsWith("…"));
 });
+
+test("Codex long-lived composer accepts spaced native display names and keeps observation boundaries", () => {
+  for (const label of ["GPT-6.1 Terra", "Account Custom Model", "GPT-6.1-Terra"]) {
+    for (const effort of ["default", "high", "high fast"]) {
+      const footer = `  ${label} ${effort} · /tmp/project`;
+      const screen = `• Finished work\n› Ask Codex to do anything\n${footer}`;
+      assert.equal(codexTuiReady(screen), true, `${label} ${effort}`);
+      assert.deepEqual(codexPaneObservation(screen), { state: "idle", reason: "composer_ready" });
+      assert.equal(codexTuiReady(footer), false);
+      assert.equal(codexPaneObservation(`${screen}\n• Working (5s • esc to interrupt)`).state, "busy");
+      assert.equal(codexPaneObservation(`${screen}\nWould you like to run the following command?\nPress enter to confirm or esc to cancel`).state, "blocked");
+    }
+  }
+  for (const footer of ["GPT-6.1 Terra\nhigh · /tmp/project", "GPT-6.1 Terra unknown · /tmp/project", "high · /tmp/project"]) {
+    assert.equal(codexTuiReady(`› Ask Codex to do anything\n${footer}`), false, footer);
+  }
+});

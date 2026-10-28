@@ -631,6 +631,8 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
 
+長寿命Codexでは状態footerの空白入りモデル表示名も認識し、起動headerが画面外へ流れた後も入力欄の受付を維持する。
+
 model IDは各harnessの正規catalogを使う。ClaudeのaliasとCodexのIDと異なるpicker名はcatalogの表示名へ結び、Cursorは完成ID又はそのIDに対応するeffortの組だけを認める。固定のモデル許可表や別modelへの置換は加えない。Codexの成功には指定ID・effortに一致する新しいnative変更通知が必要。
 
 全4harnessの設定変更失敗は、`isError: true`と元エラー文を保ち、`structuredContent: { schema: "aiterm.agent-configure-error.v1", session_id, outcome, effect }`を返す。`not_applied`／`not_started`は当該要求のmodel・effort・fast変更を発行し得る前の拒否。`outcome_unknown`／`possible`は変更を発行した可能性があり、一部変更後の別項目失敗も含むので自動再送しない。以前の実設定の証明や別要求の不確定解除には使わない。この型付き結果を持たない旧serverの失敗は未確認として扱う。成功の`aiterm.agent-configure-result.v1`は維持する。

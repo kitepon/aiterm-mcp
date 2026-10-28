@@ -544,6 +544,10 @@ test("read screen+wait: wait を尊重し完了後の画面＋is_complete を返
   const sw = "selftest_sw";
   core.openSession(sw);
   try {
+    // This completion check requires idle bash, without foreground Git prompt helpers.
+    core.send(sw, "unset PROMPT_COMMAND; PS1='$ '", { mark: true });
+    assert.match(await core.readOutput(sw, { wait: true, timeout: 5 }), /is_complete=True via mark/);
+    assert.ok(await waitForForeground(sw, "bash"), "plain bash is not in the foreground");
     core.send(sw, "echo SCREENWAIT_OK");
     // 従来 screen は wait ブロックの手前で return し完了検出が黙殺されていた。今は待ってから撮る。
     const out = await core.readOutput(sw, { screen: true, wait: true, timeout: 5 });

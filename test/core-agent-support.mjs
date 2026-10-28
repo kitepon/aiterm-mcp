@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { buildWindowsLauncher } from "../dist/windows-codex-setup.js";
 import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
 
 const hasTmux =
@@ -433,6 +434,20 @@ process.stdin.on("data", chunk => {
   fs.writeFileSync(bin, `#!/bin/sh
 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(driver)} "$@"
 `, { mode: 0o700 });
+  if (process.platform === "win32" && mode.startsWith("catalog-label")) {
+    // App Server uses native spawn, while the TUI's older shell fixture runs through Git Bash.
+    const native = buildWindowsLauncher(driverDir, `using System; using System.Diagnostics;
+class Fixture {
+  static int Main(string[] args) {
+    var start = new ProcessStartInfo(${JSON.stringify(process.execPath)}, ${JSON.stringify('"' + driver + '"')} +
+      (Array.IndexOf(args, "app-server") >= 0 ? " app-server" : ""));
+    start.UseShellExecute = false;
+    using (var child = Process.Start(start)) { child.WaitForExit(); return child.ExitCode; }
+  }
+}`);
+    fs.rmSync(bin);
+    return { bin: native, input, driverDir };
+  }
   return { bin, input, driverDir };
 }
 

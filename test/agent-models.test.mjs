@@ -8,8 +8,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { agentModelsResult, checkedCatalog, sortEfforts } from "../dist/model-catalog.js";
-import { cursorCatalogFromLines } from "../dist/harnesses/cursor.js";
-import { grokCatalogFromInitialize, grokModelChoices } from "../dist/harnesses/grok.js";
+import { cursorCatalogFromLines, assertCursorModelAvailable } from "../dist/harnesses/cursor.js";
+import { grokCatalogFromInitialize, grokModelChoices, assertGrokModelAvailable } from "../dist/harnesses/grok.js";
 import { claudeCatalogFromInitialize, claudeModelChoices } from "../dist/harnesses/claude.js";
 import { codexCatalogFromPages, codexModelChoices } from "../dist/harnesses/codex.js";
 
@@ -82,6 +82,25 @@ const grokModel = (modelId, efforts, defaultEffort = "high", extra = {}) => ({
 const grokInitialize = (models, current = models[0]?.modelId) => JSON.stringify({
   jsonrpc: "2.0", id: 1,
   result: { protocolVersion: 1, _meta: { agentVersion: "1.0.41", modelState: { currentModelId: current, availableModels: models } } },
+});
+
+test("Grok/Cursor: native IDと空白表示名を分け、別IDのprefixを許可しない", posixOnly, async t => {
+  const dir = tempDir(t);
+  const native = { ...grokModel("account-native-42", ["high"]), name: "Custom Model Label" };
+  const grok = fakeCli(dir, "grok", `
+if (process.argv[2] === "models") console.log("Available models:\\n  - account-native-42");
+else require("node:readline").createInterface({ input: process.stdin }).once("line", () => console.log(${JSON.stringify(grokInitialize([native]))}));`);
+  const catalog = await grokModelChoices(grok, dir);
+  assert.equal(catalog.models[0].id, "account-native-42");
+  assert.equal(catalog.models[0].display_name, "Custom Model Label");
+  assert.doesNotThrow(() => assertGrokModelAvailable(grok, dir, "account-native-42"));
+  assert.throws(() => assertGrokModelAvailable(grok, dir, "Custom Model Label"), /model catalog/);
+  const cursor = fakeCli(dir, "cursor", 'console.log("Available models\\naccount-native-high - Custom Model Label High\\naccount-native-pro - Another Model")');
+  assert.doesNotThrow(() => assertCursorModelAvailable(cursor, dir, "account-native", "high"));
+  assert.doesNotThrow(() => assertCursorModelAvailable(cursor, dir, "account-native", null));
+  assert.doesNotThrow(() => assertCursorModelAvailable(cursor, dir, "account-native-pro", null));
+  assert.throws(() => assertCursorModelAvailable(cursor, dir, "account", null), /正規IDが存在しない/);
+  assert.throws(() => assertCursorModelAvailable(cursor, dir, "Custom Model Label", null), /正規IDが存在しない/);
 });
 
 test("Grokはinitializeの_meta.modelStateからmodelごとのeffortを読む", () => {
@@ -284,4 +303,8 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
   const bad = (await wait(3)).result;
   assert.equal(bad.isError, true);
   assert.match(bad.content[0].text, /絶対パス/);
+  send({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "agent_configure", arguments: { session_id: "absent", model: "invalid\nmodel" } } });
+  const configureError = (await wait(4)).result;
+  assert.equal(configureError.isError, true);
+  assert.deepEqual(configureError.structuredContent, { schema: "aiterm.agent-configure-error.v1", session_id: "absent", outcome: "not_applied", effect: "not_started" });
 });

@@ -577,6 +577,28 @@ test("Codex: /model の選ぶ画面は表示名で並ぶ。一覧のIDを、大�
   assert.equal(codex.codexModelChoice(screen, "gpt-9"), null);
 });
 
+test("Codex: catalogの表示名を完全なpicker行へ対応させ、空白名・任意ID・曖昧な行を区別する", () => {
+  const screen = ["Select Model and Effort", "› 1. GPT-6.1-Sol (current)  Workhorse",
+    "  2. GPT-6.1 Terra  Coding model", "  3. GPT-6.1 Terra Pro  Other model",
+    "  4. Custom Model (current)  Account-specific model", "enter select · esc back"].join("\n");
+  assert.equal(codex.codexModelChoice(screen, "gpt-6.1-terra", "GPT-6.1 Terra"), "2");
+  assert.equal(codex.codexModelChoice(screen, "account-model-42", "Custom Model"), "4");
+  assert.equal(codex.codexModelChoice(screen, "gpt-6.1-terra"), null, "空白とhyphenの推測変換はしない");
+  assert.equal(codex.codexModelChoice(screen, "missing", "GPT-6.1"), null, "名前のprefixで選ばない");
+  assert.equal(codex.codexModelChoice(screen, "missing", "Coding model"), null, "説明文で選ばない");
+  assert.equal(codex.codexModelChoice(screen + "\nSelect Model and Effort\n  1. Another model", "gpt-6.1-terra", "GPT-6.1 Terra"), null);
+  assert.equal(codex.codexModelChoice(screen + "\n  5. GPT-6.1 Terra  Duplicate", "gpt-6.1-terra", "GPT-6.1 Terra"), null);
+});
+
+test("Codex: 変更通知は指定IDとeffortを照合し、他modelや説明文を成功にしない", () => {
+  const notice = "• Model changed to gpt-6.1-terra high standard for this session only";
+  assert.deepEqual(codex.codexModelChangeNotices(notice, "gpt-6.1-terra", "high"), [notice]);
+  assert.deepEqual(codex.codexModelChangeNotices(notice, "gpt-6.1-sol", "high"), []);
+  assert.deepEqual(codex.codexModelChangeNotices(notice, "gpt-6.1-terra", "low"), []);
+  assert.deepEqual(codex.codexModelChangeNotices("Earlier notice: " + notice, "gpt-6.1-terra", "high"), []);
+  assert.deepEqual(codex.codexModelChangeNotices("Model changed to gpt-6.1-terra-pro high", "gpt-6.1-terra", "high"), []);
+});
+
 test("Grok: 足元のmodelの表示の名前だけを読む（一覧を引かずに、今がfast版かを見るため）", () => {
   assert.equal(grok.grokFooterModelName("  ╰──────── Grok 4.7 Fast (high) ─╯\n  Shift+Tab:mode"), "Grok 4.7 Fast");
   assert.equal(grok.grokFooterModelName("  ╰──── Grok 4.6 (medium) · always-approve ─╯"), "Grok 4.6");

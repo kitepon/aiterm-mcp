@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Resolve Codex model picker labels through the native model catalog when display names differ from model IDs, including names containing spaces. Keep exact row matching and reject ambiguous labels without choosing another model.
+- Resolve Claude catalog aliases and custom IDs through their native display names instead of choosing the first model in a family; require exact Cursor base IDs and their supported effort variants. Preserve Grok's exact native-ID controls.
+- Require a fresh Codex model-change notice matching the requested model and effort. Return typed configuration errors for all four harnesses, distinguishing requests refused before a change from possibly applied or partially applied changes, without retrying them.
+
 ## [0.61.21] - 2026-10-26
 
 - Distinguish tmux PTY EOF from a confirmed authentication process exit: observe missing exit status/signal for a bounded interval, preserve signals and nonzero exits as failures, and reject replaced generations without restarting login.

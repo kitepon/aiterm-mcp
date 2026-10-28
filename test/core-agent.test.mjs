@@ -256,19 +256,19 @@ test("Codex上限接近modal: readyへ戻らなければ本文を送らずtyped 
 
 test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで設定する", { skip: skipAgentDone }, async () => {
   const savedBin = process.env.CODEX_BIN;
-  const fake = makeFakeCodexRateLimitTuiBin(3, "recover");
+  const fake = makeFakeCodexRateLimitTuiBin(3, "catalog-label");
   const sid = `codex_rate_limit_configure_${Date.now().toString(36)}`;
   process.env.CODEX_BIN = fake.bin;
   try {
     await withFakeCodexHome(async () => {
       const [actualSid] = core.openAgent("codex", { session_name: sid, agent_done: true });
-      const result = await core.configureAgent(actualSid, { model: "gpt-5.6-sol", reasoning_effort: "low" });
+      const result = await core.configureAgent(actualSid, { model: "account-model-42", reasoning_effort: "low" });
       assert.deepEqual(result, {
         schema: "aiterm.agent-configure-result.v1",
         session_id: actualSid,
         provider: "codex",
         harness: "codex-cli",
-        model: "gpt-5.6-sol",
+        model: "account-model-42",
         reasoning_effort: "low",
         fast: false,
       });
@@ -276,6 +276,8 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
       const input = readFakeTuiInput(fake.input);
       assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
       assert.ok(input.some((entry) => entry.phase === "ready" && entry.text.includes("/model")));
+      assert.equal(input.filter(entry => entry.method === "model/list").length, 1, "native catalogを一回読み表示名へ結ぶ");
+      assert.deepEqual(input.filter(entry => entry.phase === "model" && /^\d+$/.test(entry.text)).map(entry => entry.text), ["1"]);
     });
   } finally {
     try { core.closeSession(sid); } catch {}
@@ -284,6 +286,28 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
     fs.rmSync(fake.bin, { force: true });
     fs.rmSync(fake.driverDir, { recursive: true, force: true });
     fs.rmSync(fake.input, { force: true });
+  }
+});
+
+test("agent_configure: Codexが別modelの通知を返した時は変更後unknownを保持する", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CODEX_BIN;
+  const fake = makeFakeCodexRateLimitTuiBin(3, "catalog-label-wrong-result");
+  process.env.CODEX_BIN = fake.bin;
+  let sid;
+  try {
+    await withFakeCodexHome(async () => {
+      [sid] = core.openAgent("codex", { agent_done: true });
+      await assert.rejects(core.configureAgent(sid, { model: "account-model-42", reasoning_effort: "low" }), error => {
+        assert.match(error.message, /CODEX_MODEL_SWITCH_UNCONFIRMED/);
+        assert.deepEqual(error.configurationFailure, { schema: "aiterm.agent-configure-error.v1", session_id: sid, outcome: "outcome_unknown", effect: "possible" });
+        return true;
+      });
+      assert.equal(readFakeTuiInput(fake.input).filter(entry => entry.phase === "effort" && entry.text === "1").length, 1, "不明でも選択を再送しない");
+    });
+  } finally {
+    if (sid) core.closeSession(sid);
+    if (savedBin === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = savedBin;
+    fs.rmSync(fake.bin, { force: true }); fs.rmSync(fake.driverDir, { recursive: true, force: true }); fs.rmSync(fake.input, { force: true });
   }
 });
 

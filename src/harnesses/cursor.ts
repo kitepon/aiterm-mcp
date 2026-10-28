@@ -518,7 +518,7 @@ export function assertCursorModelAvailable(bin: string, cwd: string, model: stri
     throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
       `Cursor の一覧に ${JSON.stringify(effective)} がありません（model=${model}${effort ? `、reasoning_effort=${effort}` : ""} のfast版）。起動していません。`);
   }
-  const available = effort || fast ? models.includes(effective) : models.includes(model) || models.some((id) => id.startsWith(`${model}-`));
+  const available = effort || fast ? models.includes(effective) : models.includes(model) || models.some(id => cursorBaseModel(id)?.base === model);
   if (!available) {
     throw new AitermError(
       `Cursor model catalog に ${JSON.stringify(effective)} がありません。` +

@@ -169,6 +169,7 @@ import {
   codexApprovalDialog,
   codexStartupAction,
   codexModelChoice,
+  codexModelChangeNotices,
   codexEffortChoice,
   codexMoreReasoningChoice,
   codexTranscriptText,
@@ -5323,7 +5324,9 @@ async function configureClaudeForSessionOnly(
   meta: AgentMetadata,
   model: string | null,
   effort: string | null,
+  beforeChange: () => void,
 ): Promise<void> {
+  let selectionIssued = false;
   const screen = () => captureScreen(name, AGENT_TUI_READY_LINES);
   const until = async <T>(read: () => T | null | undefined, timeoutMs: number): Promise<T | null> => {
     const deadline = performance.now() + timeoutMs;
@@ -5342,7 +5345,8 @@ async function configureClaudeForSessionOnly(
       sendMenuChoice(name, "Escape");
       await sleep(300);
     }
-    throw new AitermError(`${code} vendor=claude session=${name}\n${reason}。modelとreasoning_effortは変えていません。`, 2);
+    throw new AitermError(`${code} vendor=claude session=${name}\n${reason}。` +
+      (selectionIssued ? "設定が変わった可能性があります。再送しないでください。" : "modelとreasoning_effortは変えていません。"), 2);
   };
   const picker = (): ClaudeModelPicker | null => claudeModelPicker(screen());
   const cursorOf = (p: ClaudeModelPicker | null) => p?.rows.find((row) => row.cursor) ?? null;
@@ -5399,7 +5403,19 @@ async function configureClaudeForSessionOnly(
       if (seen.has(at)) break;
       seen.add(at);
     }
-    const target = claudeModelPickerRow([...known.values()], model);
+    let target = claudeModelPickerRow([...known.values()], model);
+    if (!target || /^[a-z]+$/iu.test(model)) {
+      const bin = meta.agent_executable ?? resolveAgentBin("claude");
+      if (!bin) return refuse("CLAUDE_MODEL_NOT_IN_PICKER", "Claude CodeのCLIが見つかりません");
+      let catalog: AgentModelCatalog;
+      try { catalog = await claudeModelChoices(bin, meta.cwd ?? process.cwd()); }
+      catch (error) { return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", error instanceof Error ? error.message : String(error)); }
+      const native = catalog.models.find(item => item.id.toLowerCase() === model.toLowerCase());
+      // The native alias can resolve to an older model; picker order is not alias authority.
+      const label = native?.display_name ?? native?.id ?? model;
+      const matching = [...known.values()].filter(row => row.label.toLowerCase() === label.toLowerCase());
+      target = matching.length === 1 ? matching[0] : null;
+    }
     if (!target) {
       const names = [...known.values()].sort((a, b) => a.index - b.index).map((row) => row.label).join(", ");
       return refuse("CLAUDE_MODEL_NOT_IN_PICKER", `Claude Codeの /model の選ぶ画面に ${model} がありません（選べる機種: ${names}）`);
@@ -5445,6 +5461,8 @@ async function configureClaudeForSessionOnly(
     || (effort && last.effort !== effort)) {
     return refuse("CLAUDE_MODEL_PICKER_UNREADABLE", "選ぶ直前の画面が、選んだ行・effortと合いません");
   }
+  beforeChange();
+  selectionIssued = true;
   sendMenuChoice(name, "s");
 
   let confirmed = false;
@@ -6197,27 +6215,36 @@ export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null; fast?: boolean | null },
 ): Promise<AgentConfigureResult> {
-  assertExecutionContext(name);
-  assertSessionName(name);
-  const model = opts.model?.trim() || null;
-  const effort = opts.reasoning_effort?.trim() || null;
-  const fast = opts.fast ?? null;
-  if (!model && !effort && fast === null) throw new AitermError("model、reasoning_effort、fast のいずれかを指定してください", 2);
-  if ((model && /[\r\n]/.test(model)) || (effort && /[\r\n]/.test(effort))) {
-    throw new AitermError("model／reasoning_effort に改行を含められません", 2);
-  }
-  if (fast === false && modelIsFastVariant(loadAgentMetadata(name).kind, model)) {
-    throw new FastModeError("FAST_MODE_MODEL_CONFLICT",
-      `model=${model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。設定は変えていません。`);
-  }
-  // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
-  // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
-  const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
-  for (;;) {
-    const result = await withAgentSendLock(name, () => configureAgentInLock(name, model, effort, fast), AGENT_CONFIGURE_UNCHANGED);
-    if (result) return result;
-    if (performance.now() >= deadline) throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
-    await sleep(AGENT_TUI_READY_POLL_MS);
+  let mayHaveChanged = false;
+  const beforeChange = () => { mayHaveChanged = true; };
+  try {
+    assertExecutionContext(name);
+    assertSessionName(name);
+    const model = opts.model?.trim() || null;
+    const effort = opts.reasoning_effort?.trim() || null;
+    const fast = opts.fast ?? null;
+    if (!model && !effort && fast === null) throw new AitermError("model、reasoning_effort、fast のいずれかを指定してください", 2);
+    if ((model && /[\r\n]/.test(model)) || (effort && /[\r\n]/.test(effort))) {
+      throw new AitermError("model／reasoning_effort に改行を含められません", 2);
+    }
+    if (fast === false && modelIsFastVariant(loadAgentMetadata(name).kind, model)) {
+      throw new FastModeError("FAST_MODE_MODEL_CONFLICT",
+        `model=${model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。設定は変えていません。`);
+    }
+    // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
+    // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
+    const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
+    for (;;) {
+      const result = await withAgentSendLock(name, () => configureAgentInLock(name, model, effort, fast, beforeChange), AGENT_CONFIGURE_UNCHANGED);
+      if (result) return result;
+      if (performance.now() >= deadline) throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
+      await sleep(AGENT_TUI_READY_POLL_MS);
+    }
+  } catch (error) {
+    const failure = error instanceof AitermError ? error : new AitermError(error instanceof Error ? error.message : String(error), 2);
+    failure.configurationFailure = { schema: "aiterm.agent-configure-error.v1", session_id: name,
+      outcome: mayHaveChanged ? "outcome_unknown" : "not_applied", effect: mayHaveChanged ? "possible" : "not_started" };
+    throw failure;
   }
 }
 
@@ -6227,6 +6254,7 @@ async function configureAgentInLock(
   model: string | null,
   effort: string | null,
   fast: boolean | null,
+  beforeChange: () => void,
 ): Promise<AgentConfigureResult | null> {
   // 席の控えは、行列の順番が来てから読む（前の送信が書いた分を、古い控えで上書きしない）。
   const meta = loadAgentMetadata(name);
@@ -6293,14 +6321,15 @@ async function configureAgentInLock(
     if (effort && !level && effort !== "ultracode") {
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
-    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level);
+    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange);
     if (effort && !level) {
+      beforeChange();
       await sendAgentPromptText(name, `/effort ${effort}`);
       const effortReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!effortReady.ready) throw new AitermError(`Claudeのeffort変更完了を確認できません`, 2);
     }
     rememberModel();
-    if (fast !== null) recordAgentFast(meta, await switchClaudeFast(name, meta, fast, fastVerified));
+    if (fast !== null) { beforeChange(); recordAgentFast(meta, await switchClaudeFast(name, meta, fast, fastVerified)); }
     else await dropFastIfUnsupported();
     return configured();
   }
@@ -6325,6 +6354,7 @@ async function configureAgentInLock(
     // parameter editorで選び、同じsessionと会話contextを保つ。
     // Cursorは選んだmodelとパラメータを、利用者の既定（cli-config.json）へも書く版がある。席だけの替えにするため、直前の値へ戻す。
     if (model) await keepingCursorDefaults(meta, async () => {
+      beforeChange();
       await sendAgentPromptText(name, `/model ${model}`, meta.kind);
       const modelReady = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
       if (!modelReady.ready) throw new AitermError("Cursorのmodel変更完了を確認できません", 2);
@@ -6356,7 +6386,7 @@ async function configureAgentInLock(
       if (!effortReady.ready) throw new AitermError("Cursorのreasoning effort変更完了を確認できません", 2);
     });
     rememberModel();
-    if (fast !== null) recordAgentFast(meta, await switchCursorFast(name, meta, fast));
+    if (fast !== null) { beforeChange(); recordAgentFast(meta, await switchCursorFast(name, meta, fast)); }
     else if (model) {
       // modelを替えた後の実際の状態を、見出しのmodelの表示で読む。
       const shown = cursorHeaderShowsFast(captureScreen(name, AGENT_TUI_READY_LINES));
@@ -6383,31 +6413,32 @@ async function configureAgentInLock(
     }
     if (model || effort) {
       // `/model` はGrokが利用者の既定（[models].default）へも書くので、切り替えの直前の値へ戻す。
+      beforeChange();
       await sendGrokModelCommand(name, meta, next ? `/model ${next}${effort ? ` ${effort}` : ""}` : `/effort ${effort}`, next, effort);
       if (model) {
         rememberModel();
         recordAgentFast(meta, next !== model || modelIsFastVariant("grok", model));
       }
     }
-    if (!model && fast !== null) recordAgentFast(meta, await switchGrokFast(name, meta, fast));
+    if (!model && fast !== null) { beforeChange(); recordAgentFast(meta, await switchGrokFast(name, meta, fast)); }
     return configured();
   }
 
   // `/model` の選択は、利用者のconfig.tomlへ model と model_reasoning_effort を既定として保存する。席だけの替えにするため、直前の値へ戻す。
   if (model || effort) {
     await keepingCodexDefaults(meta.agent_executable ?? resolveAgentBin("codex"), meta.codex_home ?? realCodexHome(),
-      ["model", "model_reasoning_effort"], () => configureCodexModel(name, model, effort));
+      ["model", "model_reasoning_effort"], () => configureCodexModel(name, model, effort, beforeChange));
   }
   rememberModel();
-  if (fast !== null) recordAgentFast(meta, await switchCodexFast(name, meta, fast, fastVerified));
+  if (fast !== null) { beforeChange(); recordAgentFast(meta, await switchCodexFast(name, meta, fast, fastVerified)); }
   else await dropFastIfUnsupported();
   return configured();
 }
 
 /** Codexの `/model` の選ぶ画面で、modelとreasoning effortを替える。 */
-async function configureCodexModel(name: string, model: string | null, effort: string | null): Promise<void> {
+async function configureCodexModel(name: string, model: string | null, effort: string | null, beforeChange: () => void): Promise<void> {
   try {
-    await chooseCodexModel(name, model, effort);
+    await chooseCodexModel(name, model, effort, beforeChange);
   } catch (error) {
     // 選べずに断る時は、開いた選ぶ画面を閉じてから断る（開いたままだと、席は次の文を受け付けない）。
     for (let i = 0; i < 3; i++) {
@@ -6420,14 +6451,28 @@ async function configureCodexModel(name: string, model: string | null, effort: s
   }
 }
 
-async function chooseCodexModel(name: string, model: string | null, effort: string | null): Promise<void> {
+async function chooseCodexModel(name: string, model: string | null, effort: string | null, beforeChange: () => void): Promise<void> {
+  const beforeCounts = lineCounts(captureScreen(name, AGENT_TUI_READY_LINES));
   await sendAgentPromptText(name, "/model");
   const modelScreen = await waitForScreenText(name, "Select Model and Effort");
   if (model) {
-    const choice = codexModelChoice(modelScreen, model);
+    let choice = codexModelChoice(modelScreen, model);
+    if (!choice) {
+      const meta = loadAgentMetadata(name);
+      const bin = meta.agent_executable ?? resolveAgentBin("codex");
+      if (!bin) throw new AitermError("Codex の CLI が見つかりません", 2);
+      const catalog = await codexModelChoices(bin, true);
+      const target = catalog.models.find(item => item.id.toLowerCase() === model.toLowerCase());
+      const displayName = target?.display_name;
+      if (displayName && catalog.models.filter(item => item.display_name?.toLowerCase() === displayName.toLowerCase()).length === 1) {
+        choice = codexModelChoice(modelScreen, model, displayName);
+      }
+    }
     if (!choice) throw new AitermError(`Codexの/modelに ${model} がありません`, 2);
+    beforeChange();
     sendMenuChoice(name, choice);
   } else {
+    beforeChange();
     sendMenuChoice(name, "Enter");
   }
 
@@ -6447,7 +6492,12 @@ async function chooseCodexModel(name: string, model: string | null, effort: stri
   } else {
     sendMenuChoice(name, "Enter");
   }
-  await waitForScreenText(name, "Model changed to");
+  for (const deadline = performance.now() + 3_000; performance.now() < deadline; await sleep(100)) {
+    const screen = captureScreen(name, AGENT_TUI_READY_LINES);
+    const counts = lineCounts(screen);
+    if (codexModelChangeNotices(screen, model, effort).some(line => (counts.get(line) ?? 0) > (beforeCounts.get(line) ?? 0))) return;
+  }
+  throw new AitermError("CODEX_MODEL_SWITCH_UNCONFIRMED: 指定したmodel／effortの新しい変更通知を確認できません。設定が変わった可能性があります。再送しないでください。", 2);
 }
 
 export function __testCodexConfigureChoices(screen: string, model: string, effort: string): {

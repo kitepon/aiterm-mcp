@@ -674,6 +674,10 @@ enables collection on that host.
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
 
+Model IDs come from each harness's native catalog. Claude aliases and differing Codex picker labels use that catalog's display name; Cursor matches complete native IDs or their exact supported effort variants. No model allowlist or alternate-model fallback is added. Codex success requires a fresh native change notice matching the requested ID and effort.
+
+Configuration failures keep `isError: true` and the original error text, with `structuredContent: { schema: "aiterm.agent-configure-error.v1", session_id, outcome, effect }` for all four harnesses. `not_applied` / `not_started` means this request failed before a model, effort, or fast change could be issued. `outcome_unknown` / `possible` means a change may have been issued, including partial application before a later failure; do not replay it automatically. This receipt does not certify the session's previous configuration or clear unrelated uncertainty. Older servers without this receipt must be treated as unconfirmed on failure. Successful results retain `aiterm.agent-configure-result.v1`.
+
 **ファスト（`fast`）。** 各harnessの、費用や利用量を多く払って応答を速くする切り替え（Claude Codeの`/fast`、Codexの速度の段、GrokとCursorのfast版のmodel）を、席ごとに切り替える（ADR 0114）。
 
 - 席は必ず通常の速度で起きる。`agent_launch`の`fast`を省いた時とfalseは同じで、利用者の設定にファストが残っていても通常で始まる。`fast: true`は通常で起こしてから、その席を切り替える。

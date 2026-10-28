@@ -978,13 +978,16 @@ export function codexLaunchBlockingDialog(screen: string): string | null {
   return null;
 }
 
-export function codexModelChoice(screen: string, model: string): string | null {
+export function codexModelChoice(screen: string, model: string, displayName: string | null = null): string | null {
+  const choices: string[] = [];
   for (const line of screen.slice(screen.lastIndexOf("Select Model and Effort")).split("\n")) {
-    const match = line.match(/^\s*(?:›\s*)?(\d+)\.\s+(\S+)/);
-    // 選ぶ画面は表示名（GPT-6.1-Sol）で並ぶ。一覧のID（gpt-6.1-sol）とは大文字と小文字だけが違う（0.162.1）。
-    if (match?.[2].toLowerCase() === model.toLowerCase()) return match[1];
+    const match = line.match(/^\s*(?:›\s*)?(\d+)\.\s+(.+?)\s*$/);
+    if (!match) continue;
+    // Native labels can contain spaces; descriptions and the current marker are not part of the label.
+    const label = match[2].split(/\s{2,}/)[0].replace(/\s+\(current\)$/, "");
+    if ([model, displayName].some(name => name !== null && label.toLowerCase() === name.toLowerCase())) choices.push(match[1]);
   }
-  return null;
+  return choices.length === 1 ? choices[0] : null;
 }
 
 export function codexEffortChoice(screen: string, effort: string): string | null {
@@ -1003,6 +1006,13 @@ export function codexEffortChoice(screen: string, effort: string): string | null
     if (match && wanted.test(match[2])) return match[1];
   }
   return null;
+}
+
+export function codexModelChangeNotices(screen: string, model: string | null, effort: string | null): string[] {
+  return screen.split("\n").map(line => line.trim()).filter(line => {
+    const match = line.match(/^(?:[•◦]\s*)?Model changed to (\S+)(?: (none|minimal|low|medium|high|xhigh|max|ultra)\b)?/);
+    return match !== null && (!model || match[1].toLowerCase() === model.toLowerCase()) && (!effort || match[2] === effort);
+  });
 }
 
 export function codexMoreReasoningChoice(screen: string): string | null {

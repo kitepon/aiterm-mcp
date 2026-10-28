@@ -402,11 +402,21 @@ const fs = require("node:fs");
 const input = ${JSON.stringify(input)};
 const cursor = ${JSON.stringify(cursor)};
 const mode = ${JSON.stringify(mode)};
+if (mode.startsWith("catalog-label") && process.argv.includes("app-server")) {
+  require("node:readline").createInterface({ input: process.stdin }).on("line", line => {
+    const message = JSON.parse(line);
+    fs.appendFileSync(input, JSON.stringify({ method: message.method }) + "\\n");
+    if (message.id === undefined) return;
+    const result = message.method === "model/list" ? { data: [{ id: "account-model-42", displayName: "Custom Model",
+      supportedReasoningEfforts: [{ reasoningEffort: "low" }], defaultReasoningEffort: "low" }], nextCursor: null } : {};
+    process.stdout.write(JSON.stringify({ id: message.id, result }) + "\\n");
+  });
+} else {
 const luna = ${JSON.stringify(version === "0.157.0" ? "gpt-6-luna" : "gpt-5.6-luna")};
 const footer = ${JSON.stringify(version === "0.157.0" ? "  enter select · esc back" : "Press enter to confirm or esc to go back")};
 const modal = () => process.stdout.write(["Approaching rate limits", "Switch to " + luna + " for lower credit usage?", ...[1, 2, 3].map(i => (i === cursor ? "› " : "  ") + i + ". " + (i === 1 ? "Switch to " + luna + "                 Fast and affordable agentic coding\\n                                            model." : i === 2 ? "Keep current model" : "Keep current model (never show again)  Hide future rate limit reminders\\n                                            about switching models.")), footer].join("\\n") + "\\n");
 const ready = () => process.stdout.write("OpenAI Codex\\n› Ask Codex to do anything\\ngpt-5.6-terra high · ~/work\\n");
-const model = () => process.stdout.write("Select Model and Effort\\n› 1. gpt-5.6-sol\\n  2. gpt-5.6-terra\\n");
+const model = () => process.stdout.write("Select Model and Effort\\n› 1. " + (mode.startsWith("catalog-label") ? "Custom Model" : "gpt-5.6-sol") + "\\n  2. gpt-5.6-terra\\n");
 const effort = () => process.stdout.write("Select Reasoning Level\\n› 1. Low  Fast responses\\n  2. High  Greater reasoning depth\\n");
 let phase = "modal";
 process.stdin.setRawMode(true); process.stdin.resume(); modal();
@@ -416,11 +426,12 @@ process.stdin.on("data", chunk => {
   if (phase === "modal" && text === "2") { if (mode === "stuck") return; phase = "ready"; ready(); return; }
   if (phase === "ready" && text.includes("/model")) { phase = "model"; model(); return; }
   if (phase === "model" && text === "1") { phase = "effort"; effort(); return; }
-  if (phase === "effort" && text === "1") { phase = "ready"; process.stdout.write("Model changed to gpt-5.6-sol\\n"); ready(); }
+  if (phase === "effort" && text === "1") { phase = "ready"; process.stdout.write("Model changed to " + (mode === "catalog-label" ? "account-model-42" : "gpt-5.6-sol") + " low\\n"); ready(); }
 });
+}
 `, { mode: 0o700 });
   fs.writeFileSync(bin, `#!/bin/sh
-exec ${JSON.stringify(process.execPath)} ${JSON.stringify(driver)}
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(driver)} "$@"
 `, { mode: 0o700 });
   return { bin, input, driverDir };
 }

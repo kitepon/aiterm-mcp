@@ -3,6 +3,12 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 
 export class AitermError extends Error {
   code: number;
+  configurationFailure?: {
+    schema: "aiterm.agent-configure-error.v1";
+    session_id: string;
+    outcome: "not_applied" | "outcome_unknown";
+    effect: "not_started" | "possible";
+  };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;

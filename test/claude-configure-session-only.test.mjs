@@ -151,6 +151,15 @@ if (args[0] === "auth" && args[1] === "status" && args[2] === "--json") {
   console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }));
   process.exit(0);
 }
+if (args.includes("--input-format")) {
+  require("node:readline").createInterface({ input: process.stdin }).on("line", line => {
+    const request = JSON.parse(line);
+    const models = [{ value: "default", displayName: "Default (recommended)" },
+      { value: "opus", displayName: ${JSON.stringify(options.aliasOlder ? "Opus 5" : "Opus 5.5")} },
+      { value: "sonnet", displayName: "Sonnet 5.5" }, { value: "native-choice-42", displayName: "Fable 5.1" }];
+    process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: request.request_id, response: { models } } }) + "\\n");
+  });
+} else {
 fs.writeFileSync(${JSON.stringify(path.join(dir, "session-id"))}, args[args.indexOf("--session-id") + 1] ?? "");
 const options = ${JSON.stringify(options)};
 const ALL = ["low", "medium", "high", "xhigh", "max"];
@@ -230,6 +239,7 @@ process.stdin.on("data", (chunk) => {
   else if (key === "\\x1b") { log.push("  ⎿  Kept model as " + rows[current][0]); mode = "composer"; }
   draw();
 });
+}
 `, { mode: 0o700 });
   const savedBin = process.env.CLAUDE_BIN;
   process.env.CLAUDE_BIN = bin;
@@ -252,6 +262,16 @@ const done = (sid, model, reasoning_effort) => ({
   schema: "aiterm.agent-configure-result.v1", session_id: sid, provider: "claude", harness: "claude-code", model, reasoning_effort,
   // 席は通常の速度で起きる。fastを渡さない設定替えは、その状態を変えない（ADR 0114）。
   fast: false,
+});
+
+test("agent_configure: Claude native catalogの任意IDとaliasを表示名へ結び、先頭の同系列へ置換しない", { skip: ptySkip }, async () => {
+  await withPickerClaude({ aliasOlder: true }, async ({ sid, screen, saved }) => {
+    assert.deepEqual(await core.configureAgent(sid, { model: "native-choice-42" }), done(sid, "native-choice-42", null));
+    assert.match(await screen(), /Set model to Fable 5\.1 for this session only/u);
+    assert.deepEqual(await core.configureAgent(sid, { model: "opus" }), done(sid, "opus", null));
+    assert.match(await screen(), /Set model to Opus 5 for this session only/u);
+    assert.equal(saved(), false);
+  });
 });
 
 test("agent_configure: Claude Codeの席は、選ぶ画面の s（この会話だけ）で替え、既定として保存しない", { skip: ptySkip }, async () => {
@@ -314,7 +334,11 @@ test("agent_configure: 選べない時は、選ぶ画面をEscで閉じて、何
 test("agent_configure: 「この会話だけ」の選び方が無いClaude Codeでは、既定を書き換える選び方へ落ちずに断る", { skip: ptySkip }, async () => {
   await withPickerClaude({ noSessionOnly: true }, async ({ sid, keys, saved }) => {
     await assert.rejects(core.configureAgent(sid, { model: "opus", reasoning_effort: "high" }),
-      /CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE vendor=claude[\s\S]*端末の既定を書き換える選び方は使いません。modelとreasoning_effortは変えていません。/u);
+      error => {
+        assert.match(error.message, /CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE vendor=claude[\s\S]*端末の既定を書き換える選び方は使いません。modelとreasoning_effortは変えていません。/u);
+        assert.deepEqual(error.configurationFailure, { schema: "aiterm.agent-configure-error.v1", session_id: sid, outcome: "not_applied", effect: "not_started" });
+        return true;
+      });
     assert.equal(saved(), false);
     assert.equal(keys(), "/model⏎⎋");
     assert.equal(core.observeSession(sid).state, "idle");

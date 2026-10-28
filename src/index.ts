@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
-import { AgentAuthenticationPreflightError } from "./errors.js";
+import { AitermError, AgentAuthenticationPreflightError } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -188,6 +188,10 @@ function ok(s: string): ToolResult {
 }
 function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
+  if (e instanceof AitermError && e.configurationFailure) return {
+    content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    structuredContent: { ...e.configurationFailure },
+  };
   if (e instanceof AgentAuthenticationPreflightError) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     structuredContent: { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: e.reasonCode,

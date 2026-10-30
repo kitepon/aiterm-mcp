@@ -9,6 +9,7 @@ import { AitermError } from "../errors.js";
 import { checkedCatalog, catalogInvalid, catalogUnavailable, type AgentModelCatalog } from "../model-catalog.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
 import { liveNodeExecutable } from "../live-node.js";
+import { powershellInvocation } from "../windows-powershell.js";
 import { agentEventPath, agentLineageFields, agentsDir, createEmpty0600, readFileRange, safeStatSize, shq, writeAgentMetadata, writeJson0600, type AgentMetadata, type AgentLineageContext, type InitialPromptState, type HarnessPaneObservation, type AgentDoneEvent, type StartupAction } from "../agent-shared.js";
 import { authUrl, type AgentAuthPane, type AgentAuthStatus } from "../agent-auth.js";
 
@@ -115,14 +116,18 @@ export function antigravityPaneObservation(screen: string): HarnessPaneObservati
   if (/esc to dismiss/.test(screen)) return { state: "blocked", reason: "vendor_notice" };
   if (/Select login method|authorization code|Choose your color scheme|Terms of Service|Do you trust|ask_permission|Always Allow|Allow for this session/i.test(screen))
     return { state: "blocked", reason: "vendor_action_required" };
-  if (/Generating(?:\.{3}|…)|esc to interrupt/i.test(screen)) return { state: "busy", reason: "vendor_generating" };
+  if (/(?:Generating|Working)(?:\.{3}|…)|esc to interrupt/i.test(screen)) return { state: "busy", reason: "vendor_generating" };
   if (/\? for shortcuts/.test(screen) && /^\s*>\s*$/m.test(screen)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "vendor_state_unknown" };
 }
 
 export function antigravityStartupAction(screen: string, trust: boolean, cwd: string | null): StartupAction | null {
   if (/esc to dismiss/.test(screen)) return { kind: "antigravity_notice", keys: ["Escape"] };
-  if (trust && cwd && screen.includes(cwd) && /Do you trust the contents of this project\?/.test(screen))
+  const heading = screen.indexOf("Do you trust the contents of this project?");
+  const lines = heading < 0 ? [] : screen.slice(0, heading).trimEnd().split("\n");
+  const normalize = (value: string) => value.replace(/\\/g, "/");
+  const matches = cwd && lines.some((_, at) => normalize(lines.slice(at).map(line => line.trim()).join("")) === normalize(cwd));
+  if (trust && matches)
     return { kind: "antigravity_trust", keys: ["Enter"], selected: /^>\s*Yes, I trust this folder/ };
   return null;
 }
@@ -143,9 +148,13 @@ export function mergeAntigravityHooks(file = antigravityHookFile(), node = liveN
   const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
   let current: Record<string, unknown> = {};
   if (fs.existsSync(target)) current = z.record(z.string(), z.unknown()).parse(JSON.parse(fs.readFileSync(target, "utf8")));
-  const quote = (s: string) => process.platform === "win32" ? `"${s.replace(/"/g, '\\"')}"` : shq(s);
-  const command = `${quote(node)} ${quote(script)}`;
-  const entry = { SessionStart: [{ type: "command", command: `${command} SessionStart`, timeout: 10 }], Stop: [{ type: "command", command: `${command} Stop`, timeout: 10 }] };
+  const previous = current["aiterm-native"];
+  if (previous && typeof previous === "object" && (previous as Record<string, unknown>).enabled === false)
+    throw new AitermError("ANTIGRAVITY_HOOK_DISABLED: aiterm-native hookは利用者が無効にしています", 2);
+  const command = (event: string) => process.platform === "win32"
+    ? `pwsh.exe ${powershellInvocation(node, [script, event]).join(" ")}`
+    : [node, script, event].map(shq).join(" ");
+  const entry = { SessionStart: [{ type: "command", command: command("SessionStart"), timeout: 10 }], Stop: [{ type: "command", command: command("Stop"), timeout: 10 }] };
   if (isDeepStrictEqual(current["aiterm-native"], entry)) return "unchanged";
   fs.mkdirSync(path.dirname(target), { recursive: true });
   if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.aiterm-backup`);
@@ -166,7 +175,7 @@ export function createAntigravityAgentMetadata(name: string, cwd: string | null,
 }
 
 export function antigravityAgentArgv(bin: string, model: string | null, effort: string | null, prompt: string | null): string[] {
-  return [bin, "--dangerously-skip-permissions", ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...(prompt ? ["--prompt-interactive", prompt] : [])];
+  return [bin, "--dangerously-skip-permissions", "--settings", '{"queuedMessages":"send-immediately"}', ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...(prompt ? ["--prompt-interactive", prompt] : [])];
 }
 
 export function antigravityBindingFile(meta: AgentMetadata): string {
@@ -191,30 +200,36 @@ export function bindAntigravitySession(meta: AgentMetadata): void {
 }
 
 export function antigravityResultPath(meta: AgentMetadata, turn: string): string {
-  if (!/^\d{1,15}$/.test(turn)) throw new AitermError("ANTIGRAVITY_TURN_INVALID", 2);
+  if (!/^\d{1,15}-\d{1,15}$/.test(turn)) throw new AitermError("ANTIGRAVITY_TURN_INVALID", 2);
   return path.join(agentsDir(), `${meta.aiterm_session}.${meta.launch_id}.antigravity-result-${turn}.json`);
 }
 
 export function antigravityTranscriptText(meta: AgentMetadata, done: AgentDoneEvent): string {
-  const body = z.object({ text: z.string(), conversation_id: z.uuid(), execution: z.number().int().nonnegative() }).strict()
+  const body = z.object({ text: z.string(), conversation_id: z.uuid(), user_step: z.number().int().nonnegative(), execution: z.number().int().nonnegative() }).strict()
     .parse(JSON.parse(fs.readFileSync(antigravityResultPath(meta, done.turn_id ?? ""), "utf8")));
-  if (body.conversation_id !== done.vendor_session_id || String(body.execution) !== done.turn_id || Buffer.byteLength(body.text) !== done.result_bytes
+  if (body.conversation_id !== done.vendor_session_id || `${body.user_step}-${body.execution}` !== done.turn_id || Buffer.byteLength(body.text) !== done.result_bytes
     || createHash("sha256").update(body.text).digest("hex") !== done.result_digest) throw new AitermError("ANTIGRAVITY_RESULT_MISMATCH", 2);
   return body.text;
 }
 
-export function antigravityFinalText(file: string): string {
+export function antigravityTurn(file: string, requireAnswer: boolean): { user_step: number; text: string } {
   const size = safeStatSize(file), limit = 4 * 1024 * 1024;
   if (!size) throw new AitermError("ANTIGRAVITY_TRANSCRIPT_UNAVAILABLE", 2);
   let text = readFileRange(file, Math.max(0, size - limit), size).toString("utf8");
   if (size > limit) text = text.slice(text.indexOf("\n") + 1);
   const lines = text.split("\n");
   if (lines.pop()?.trim()) throw new AitermError("ANTIGRAVITY_TRANSCRIPT_INCOMPLETE", 2);
+  let answer: { step: number; text: string } | null = null;
   for (const line of lines.reverse()) {
     if (!line.trim()) continue;
     const row = JSON.parse(line);
-    if (row.type === "USER_INPUT") break;
-    if (row.type === "PLANNER_RESPONSE" && row.status === "DONE" && typeof row.content === "string") return row.content;
+    if (row.type === "USER_INPUT") {
+      if (!Number.isSafeInteger(row.step_index) || row.step_index < 0 || (answer && answer.step <= row.step_index)) break;
+      if (requireAnswer && !answer) break;
+      return { user_step: row.step_index, text: requireAnswer ? answer!.text : "" };
+    }
+    if (!answer && row.type === "PLANNER_RESPONSE" && row.status === "DONE" && typeof row.content === "string"
+      && Number.isSafeInteger(row.step_index)) answer = { step: row.step_index, text: row.content };
   }
   throw new AitermError("ANTIGRAVITY_FINAL_RESPONSE_UNAVAILABLE", 2);
 }

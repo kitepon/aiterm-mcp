@@ -1,4 +1,4 @@
-> **From any MCP client, launch Claude Code, Codex CLI, Grok CLI, or Cursor Agent CLI through one harness API inside a persistent interactive TUI.**
+> **From any MCP client, launch Claude Code, Codex CLI, Grok CLI, Cursor Agent CLI, or Antigravity CLI through one harness API inside a persistent interactive TUI.**
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/kitepon/aiterm-mcp/main/.github/og.png" alt="Aiterm — a shared forest observatory where different intelligences work in one persistent execution space" width="100%">
@@ -28,7 +28,7 @@ Built and maintained by [Quo at kitepon.dev](https://kitepon.dev/en).
 
 ## Install in your MCP client
 
-検出したClaude Code・Codex・Grok・Cursorのユーザー設定へ登録する標準入口:
+検出したClaude Code・Codex・Grok・Cursor・Antigravityのユーザー設定へ登録する標準入口:
 
 ```bash
 npm install -g aiterm-mcp@latest
@@ -341,6 +341,9 @@ The canonical harness choices are:
 | `codex-cli` | Codex CLI | OpenAI model and effort controls; durable rollout completion |
 | `grok-cli` | Grok Build CLI | Grok model selected with `model`; live catalog check |
 | `cursor-cli` | Cursor Agent CLI | GPT, Claude, Grok, or another Cursor catalog model; normal transcript completion |
+| `antigravity-cli` | Google Antigravity CLI (`agy`) | Exact IDs from `agy models`; correlated native TUI hooks |
+
+Antigravity CLI 1.4.10 uses its normal user authentication and project configuration. Install and sign in with the official `agy` CLI before launching. Model IDs include their effort; pass the exact catalog ID. Configuration changes keep the same conversation and restore the user default model. Its global MCP file is `~/.gemini/config/mcp_config.json`; Aiterm adds its named completion hooks in `~/.gemini/config/hooks.json`. A session-only `queuedMessages: "send-immediately"` override gives running-turn sends the native immediate-send behavior. An Antigravity parent uses the returned `wait_process` and `pty_read(agent_transcript:true)`. Native `/boost` is a separate multi-agent workflow, not the `fast` speed switch. `agent_goal` currently returns `native_goal_adapter_not_implemented`; this does not mean the CLI lacks `/goal`. Forced relogin is refused without issuing input because official `/logout` purges shared credentials and cache.
 
 A new terminal gets the environment of the MCP process that opened it (since 0.50.0, ADR 0081).
 Values from another caller that happened to start the tmux server first no longer appear in it.

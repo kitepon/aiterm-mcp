@@ -1,4 +1,4 @@
-> **任意のMCPクライアントから、Claude Code・Codex CLI・Grok CLI・Cursor Agent CLIを単一のharness APIで永続対話TUIへ起動する。**
+> **任意のMCPクライアントから、Claude Code・Codex CLI・Grok CLI・Cursor Agent CLI・Antigravity CLIを単一のharness APIで永続対話TUIへ起動する。**
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/kitepon/aiterm-mcp/main/.github/og.png" alt="Aiterm — 異なる知性が一つの持続する実行現場を共有する森の観測拠点" width="100%">
@@ -28,7 +28,7 @@
 
 ## MCPクライアントへ導入
 
-検出したClaude Code・Codex・Grok・Cursorのユーザー設定へ登録する標準入口:
+検出したClaude Code・Codex・Grok・Cursor・Antigravityのユーザー設定へ登録する標準入口:
 
 ```bash
 npm install -g aiterm-mcp@latest
@@ -312,6 +312,9 @@ $ aiterm-wait --session codex1 --cursor <event_cursor>   # exit 0=done / 3=timeo
 | `codex-cli` | Codex CLI | OpenAI model／effort |
 | `grok-cli` | Grok Build CLI | Grok model、live catalog照合 |
 | `cursor-cli` | Cursor Agent CLI | Cursor catalog上のGPT／Claude／Grok等 |
+| `antigravity-cli` | Google Antigravity CLI (`agy`) | `agy models`の完成ID、TUIと公式hookの完了相関 |
+
+Antigravity CLI 1.4.10は通常ユーザーの認証とproject設定を使う。公式の`agy`を導入・認証してから起動する。modelはeffortを含むcatalogの完成IDを渡す。起動中の設定変更は同じ会話を保ち、端末の既定modelは変更前へ戻す。グローバルMCP設定は`~/.gemini/config/mcp_config.json`、Aitermの完了hookは`~/.gemini/config/hooks.json`の名前付き項目へ加算する。実行中の送信には、その席だけの`queuedMessages: "send-immediately"`設定を使う。Antigravityが親の時は返りの`wait_process`と`pty_read(agent_transcript:true)`で回収する。`/boost`は多エージェント実行であり`fast`切替ではない。`agent_goal`は現在`native_goal_adapter_not_implemented`を返す（CLIの`/goal`自体が無いという意味ではない）。強制再認証は、公式`/logout`が共有資格とcacheを消すため、入力せず拒否する。
 
 Cursorの`model`は`gpt-5.6-luna`のようなbase model、`reasoning_effort`は`high`のように別指定する。adapterは現行`model-effort` IDを`cursor-agent models`へ照合し、起動中変更はCursor標準model pickerのparameter editorを使う。不在時は別modelへfallbackしない。
 

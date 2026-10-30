@@ -9,11 +9,8 @@ import { ensureWinPsmux, resolveTmux } from "./tmux-runtime.js";
 import { SetupError } from "aiterm-steer-delivery";
 export { SetupError };
 
-export function powershellInvocation(command: string, args: string[]): string[] {
-  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
-  const script = `& ${[command, ...args].map(literal).join(" ")}; if ($null -eq $LASTEXITCODE) { exit 1 }; exit $LASTEXITCODE`;
-  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
-}
+import { powershellInvocation } from "./windows-powershell.js";
+export { powershellInvocation } from "./windows-powershell.js";
 
 export type SetupRun = (command: string, args: string[]) => string;
 export const runSetupCommand: SetupRun = (command, args) => {

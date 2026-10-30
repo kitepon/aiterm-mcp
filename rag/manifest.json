@@ -17,6 +17,23 @@
       "fetched": "2026-10-30"
     },
     {
+      "slug": "antigravity-boost-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI boost",
+      "source_url": "https://antigravity.google/docs/boost/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-boost-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli",
+        "boost"
+      ],
+      "summary": "公式のネイティブ機能と制御契約",
+      "relevance": "agent_goalとfast能力を推測せず判定",
+      "chars": 16622,
+      "fetched": "2026-10-30"
+    },
+    {
       "slug": "antigravity-cli-settings-20261030",
       "topic": "agent-launchers",
       "title": "Antigravity CLI settings and keybindings",
@@ -30,6 +47,23 @@
       "summary": "公式の設定scope/操作契約",
       "relevance": "NativeハーネスとMCP登録/設定・停止の実装",
       "chars": 11572,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-goal-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI goal",
+      "source_url": "https://antigravity.google/docs/commands/goal/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-goal-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli",
+        "goal"
+      ],
+      "summary": "公式のネイティブ機能と制御契約",
+      "relevance": "agent_goalとfast能力を推測せず判定",
+      "chars": 12860,
       "fetched": "2026-10-30"
     },
     {
@@ -78,6 +112,38 @@
       "summary": "公式の設定scope/操作契約",
       "relevance": "NativeハーネスとMCP登録/設定・停止の実装",
       "chars": 30177,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-reference-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI reference",
+      "source_url": "https://antigravity.google/docs/cli/reference/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-reference-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式CLI引数とqueuedMessages設定",
+      "relevance": "実行中送信を次turn queueへ誤配送しない",
+      "chars": 29392,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-settings-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI settings",
+      "source_url": "https://antigravity.google/docs/settings/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-settings-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式CLI引数とqueuedMessages設定",
+      "relevance": "実行中送信を次turn queueへ誤配送しない",
+      "chars": 48529,
       "fetched": "2026-10-30"
     },
     {

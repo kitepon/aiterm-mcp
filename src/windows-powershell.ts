@@ -8,6 +8,12 @@ export const WINDOWS_POWERSHELL_7_COMMAND = "pwsh.exe";
 export const WINDOWS_POWERSHELL_7_INSTALL = "winget install --id Microsoft.PowerShell --source winget";
 export const WINDOWS_POWERSHELL_7_FIXTURE = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
 
+export function powershellInvocation(command: string, args: string[]): string[] {
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const script = `& ${[command, ...args].map(literal).join(" ")}; if ($null -eq $LASTEXITCODE) { exit 1 }; exit $LASTEXITCODE`;
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
+}
+
 export type WindowsPowerShellProbe = (command: string, args: readonly string[]) => {
   status: number | null;
   stdout?: string | null;

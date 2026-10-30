@@ -21,9 +21,10 @@
   },
   "pty_list_fields": ["access", "status", "session_count"],
   "runtime_error_store_fields": ["status", "collection", "record_count", "unacknowledged_count"],
-  "vendor_keys": ["claude", "codex", "cursor", "grok"],
+  "vendor_keys": ["antigravity", "claude", "codex", "cursor", "grok"],
   "vendor_fields": ["status", "optional", "required_for"],
   "vendor_required_for": {
+    "antigravity": ["agent_launch"],
     "claude": ["claude_agent"],
     "codex": ["codex_agent"],
     "cursor": ["agent_launch"],

@@ -1,0 +1,30 @@
+[
+  {
+    "url": "https://antigravity.google/docs/commands/goal/",
+    "slug": "antigravity-goal-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity CLI goal",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli",
+      "goal"
+    ],
+    "summary": "公式のネイティブ機能と制御契約",
+    "relevance": "agent_goalとfast能力を推測せず判定"
+  },
+  {
+    "url": "https://antigravity.google/docs/boost/",
+    "slug": "antigravity-boost-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity CLI boost",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli",
+      "boost"
+    ],
+    "summary": "公式のネイティブ機能と制御契約",
+    "relevance": "agent_goalとfast能力を推測せず判定"
+  }
+]

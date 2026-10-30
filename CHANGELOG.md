@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add Google Antigravity CLI as the fifth native harness (`antigravity-cli`), with live model catalog, official authentication UI, same-conversation configuration, correlated TUI completion, and standard PTY lifecycle. Preserve existing harness IDs and tools.
+
 ## [0.61.24] - 2026-10-28
 
 ### Fixed

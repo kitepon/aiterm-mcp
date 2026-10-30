@@ -594,6 +594,8 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-mcp.json") ||
           f.endsWith(".claude-result.json") ||
           f.endsWith(".cursor-result.json") ||
+          f.endsWith(".antigravity-session.json") ||
+          /\.antigravity-result-\d+-\d+\.json$/.test(f) ||
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-approval.json") ||
           f.endsWith(".claude-dispatch") ||
@@ -1330,7 +1332,7 @@ export function interruptSessionNow(name: string, expectedLaunchId?: string): Pt
   const meta = readInterruptionTarget(name);
   if (!meta || !["codex", "claude", "cursor", "grok", "antigravity"].includes(meta.kind)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const key = meta.kind === "codex" ? CODEX_INTERRUPT_KEY : meta.kind === "claude" ? CLAUDE_INTERRUPT_KEY
-    : meta.kind === "cursor" ? CURSOR_INTERRUPT_KEY : GROK_INTERRUPT_KEY;
+    : meta.kind === "cursor" ? CURSOR_INTERRUPT_KEY : meta.kind === "antigravity" ? "C-c" : GROK_INTERRUPT_KEY;
   // A normal Ctrl+C can quit an idle CLI. Use its existing immediate pane
   // observation, never repeated Ctrl+C or kill as an escalation.
   if (key === "C-c") {
@@ -5218,6 +5220,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
     const bin = resolveAgentBin(kind);
     if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
+    if (kind === "antigravity" && options.relogin) return result("failed", null,
+      "AGENT_AUTH_RELOGIN_UNSUPPORTED: Antigravityの再認証は公式TUIの /logout が必要で、共有の資格情報とcacheを消します。Aitermからは開始していません。");
     // reloginは今の状態を聞かない。状態を確認できない時（failed）でも、入り直しは始められる。
     const before: AgentAuthStatus = options.relogin ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd);
     if (before.status === "failed") return result("failed", null, before.message);
@@ -5639,7 +5643,7 @@ async function planLaunchFast(
     assertCursorModelAvailable(bin, cwd, o.model, o.effort, true);
     return { ...plan, cursor_fast: true, state: true };
   }
-  if (kind === "antigravity") throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにfast切替の公式契約はありません。起動していません。");
+  if (kind === "antigravity") throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIに低遅延fast切替の公式契約はありません（/boostは別の実行方式です）。起動していません。");
   const base = o.model ?? GROK_MODEL_DEFAULTS[kind];
   const catalog = await grokCatalogForFast(bin, cwd, base);
   const fastId = catalog.fast_ids?.[base];
@@ -5762,7 +5766,7 @@ function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
 /** 動いている席のfastを切り替える。返りは切り替えた後の状態。席は入力待ちである事（呼び手が確かめる）。 */
 async function switchAgentFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
   if (meta.kind === "antigravity") {
-    if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにfast切替の公式契約はありません");
+    if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIに低遅延fast切替の公式契約はありません（/boostは別の実行方式です）");
     recordAgentFast(meta, false); return false;
   }
   const state = meta.kind === "claude" ? await switchClaudeFast(name, meta, target, verified)
@@ -6317,7 +6321,7 @@ async function configureAgentInLock(
     });
   };
   if (meta.kind === "antigravity") {
-    if (fast === true) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにはfast切替がありません。設定は変えていません。");
+    if (fast === true) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIには低遅延fast切替がありません。設定は変えていません。");
     const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
     if (!bin) throw new AitermError("Antigravity CLIが見つかりません", 2);
     const catalog = antigravityModelChoices(bin, meta.cwd ?? process.cwd());
@@ -7421,7 +7425,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         ? "~/.local/bin/codex"
         : kind === "cursor"
           ? "~/.local/bin/cursor-agent"
-          : "~/.grok/bin/grok";
+          : kind === "antigravity" ? "~/.local/bin/agy（WindowsはLOCALAPPDATA/agy/bin/agy.exe）" : "~/.grok/bin/grok";
     ownTelemetryFailure("AITERM.VENDOR_LAUNCHER_FAILED", new AitermError(`${label} の CLI が見つかりません（${where} か PATH が必要）`, 2), 2);
   }
   // cwd 検証（session を作る前に。cd 失敗はシェル内で静かに死に「起動した」と偽成功を返すため）。
@@ -7445,6 +7449,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
     }
     cwd = opts.cwd;
   }
+  if (kind === "antigravity" && cwd === null) cwd = process.cwd();
   const launchRequestDigest = launchOperationId === null
     ? null
     : claudeLaunchRequestDigest({

@@ -61,7 +61,10 @@ test('4 clientの登録と公開CLIの読戻しを同じ意図で実行する', 
     return '';
   };
   const result = configureIntegrations(dir, registration, run, client => client);
-  assert.deepEqual(Object.values(result).map(item => item.status), ['ready', 'ready', 'ready', 'ready']);
+  assert.deepEqual(Object.values(result).map(item => item.status), ['ready', 'ready', 'ready', 'ready', 'ready']);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.gemini', 'config', 'mcp_config.json'), 'utf8')).mcpServers.aiterm, registration);
+  const agyHook = JSON.parse(readFileSync(join(dir, '.gemini', 'config', 'hooks.json'), 'utf8'))['aiterm-native'].Stop[0].command;
+  assert.match(agyHook.includes('-EncodedCommand') ? Buffer.from(agyHook.split(' ').at(-1), 'base64').toString('utf16le') : agyHook, /antigravity-hook\.js/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.cursor', 'mcp.json'), 'utf8')).mcpServers.aiterm, registration);
   assert.match(JSON.parse(readFileSync(join(dir, '.cursor', 'hooks.json'), 'utf8')).hooks.postToolUse.at(-1).command, /cursor-parent-hook\.js/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.claude', '.claude.json'), 'utf8')).mcpServers.aiterm, { type: 'stdio', ...registration });
@@ -234,7 +237,7 @@ test('中継（mcp-lazy）で包んだ同じ登録を、同じ登録と数える
   for (const [command, args] of [[undefined, direct], ['/usr/local/bin/mcp-lazy', undefined], [null, null], ['/usr/local/bin/mcp-lazy', 'node index.js']]) assert.equal(sameRegistration(command, args, registration), false);
 });
 
-test('引数なしのsetupは、中継つきの同じ登録を4つのclientとも直結へ戻さない', (t) => {
+test('引数なしのsetupは、中継つきの同じ登録を各clientで直結へ戻さない', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'aiterm-relay-registration-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const relay = { command: '/usr/local/bin/mcp-lazy', args: [registration.command, ...registration.args],
@@ -261,7 +264,7 @@ test('引数なしのsetupは、中継つきの同じ登録を4つのclientと�
     writeFileSync(file, JSON.stringify(value));
   }
   const result = configureIntegrations(home, registration, run, client => client);
-  assert.deepEqual(result, { claude: { status: 'ready' }, codex: { status: 'ready' }, grok: { status: 'ready' }, cursor: { status: 'ready' } });
+  assert.deepEqual(result, { claude: { status: 'ready' }, codex: { status: 'ready' }, grok: { status: 'ready' }, cursor: { status: 'ready' }, antigravity: { status: 'ready' } });
   assert.equal(calls.some(([, args]) => args[0] === 'mcp' && args[1] === 'add'), false, 'CodexとGrokを公式CLIで作り直さない');
   assert.deepEqual(JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')).mcpServers.aiterm, { type: 'stdio', ...relay });
   assert.deepEqual(JSON.parse(readFileSync(join(home, '.cursor', 'mcp.json'), 'utf8')).mcpServers.aiterm, relay);

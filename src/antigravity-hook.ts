@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { agentMetadataPath, subagentInstruction, writeJson0600, type AgentMetadata } from "./agent-shared.js";
-import { antigravityBinding, antigravityBindingFile, antigravityFinalText, antigravityResultPath } from "./harnesses/antigravity.js";
+import { antigravityBinding, antigravityBindingFile, antigravityTurn, antigravityResultPath } from "./harnesses/antigravity.js";
 
 const payloadSchema = z.object({ conversationId: z.uuid(), workspacePaths: z.array(z.string()), transcriptPath: z.string().min(1),
   executionNum: z.number().int().nonnegative().optional(), fullyIdle: z.boolean().optional(), terminationReason: z.string().optional(), error: z.string().optional() }).loose();
@@ -36,10 +36,11 @@ async function main(): Promise<unknown> {
   if (event !== "Stop" || !binding || binding.conversation_id !== payload.conversationId || binding.transcript !== payload.transcriptPath || payload.fullyIdle !== true) return {};
   if (payload.executionNum === undefined || !payload.terminationReason) throw new Error("Stop has no execution identity");
   const success = payload.terminationReason === "NO_TOOL_CALL" && !payload.error;
-  const text = success ? antigravityFinalText(binding.transcript) : "";
-  const turn = String(payload.executionNum), resultFile = antigravityResultPath(meta, turn);
+  // executionNum restarts at zero on each user turn (agy 1.4.10).
+  const { user_step, text } = antigravityTurn(binding.transcript, success);
+  const turn = `${user_step}-${payload.executionNum}`, resultFile = antigravityResultPath(meta, turn);
   if (fs.existsSync(resultFile)) return {};
-  writeJson0600(resultFile, { text, conversation_id: payload.conversationId, execution: payload.executionNum });
+  writeJson0600(resultFile, { text, conversation_id: payload.conversationId, user_step, execution: payload.executionNum });
   const record = { type: "agent_done", vendor: "antigravity", aiterm_session: name, launch_id: launch,
     vendor_session_id: payload.conversationId, turn_id: turn, operation_id: null,
     reason: payload.terminationReason, done_status: success ? "turn_done" : "turn_error",

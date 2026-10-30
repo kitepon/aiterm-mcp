@@ -4,7 +4,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { antigravityCatalog, antigravityAuthPane, antigravityAuthChoiceKey, mergeAntigravityHooks, createAntigravityAgentMetadata, antigravityTranscriptText } from '../dist/harnesses/antigravity.js';
+import { authenticateAgent } from '../dist/core.js';
+import { antigravityCatalog, antigravityAuthPane, antigravityAuthChoiceKey, antigravityStartupAction, antigravityPaneObservation, mergeAntigravityHooks, createAntigravityAgentMetadata, antigravityTranscriptText } from '../dist/harnesses/antigravity.js';
+
+test('Antigravity trusts only the exact displayed workspace across native separators and wrapping', () => {
+  const screen = 'C:\\Users\\kite\\long-\nfolder\\fixture\n\nDo you trust the contents of this project?\n> Yes, I trust this folder\n  No, exit';
+  assert.equal(antigravityStartupAction(screen, true, 'C:/Users/kite/long-folder/fixture')?.kind, 'antigravity_trust');
+  assert.equal(antigravityStartupAction(screen, true, 'C:/Users/kite/long-folder'), null);
+  assert.equal(antigravityStartupAction(screen, false, 'C:/Users/kite/long-folder/fixture'), null);
+});
+
+test('Antigravity distinguishes native generation, tool work, idle and blocked input', () => {
+  assert.equal(antigravityPaneObservation('⣯ Working...\n>\nesc to cancel').state, 'busy');
+  assert.equal(antigravityPaneObservation('⣯ Generating...\n>\nesc to cancel').state, 'busy');
+  assert.equal(antigravityPaneObservation('>\n? for shortcuts').state, 'idle');
+  assert.equal(antigravityPaneObservation('Do you trust the contents of this project?').state, 'blocked');
+});
 
 test('Antigravity catalog preserves real effort-specific IDs and selected model', () => {
   const catalog = antigravityCatalog('gemini-4-argon-medium\tGemini 4 Argon (Medium)\r\ngemini-4-argon-high\tGemini 4 Argon (High)\r\n', 'gemini-4-argon-medium\tGemini 4 Argon (Medium)\n');
@@ -41,6 +56,20 @@ test('Antigravity hook registration preserves other hooks and is idempotent', t 
   assert.deepEqual(JSON.parse(body)['other-product'], { Stop: [{ command: 'other' }] });
   assert.equal(mergeAntigravityHooks(file, '/node', '/hook.js'), 'unchanged');
   assert.equal(fs.readFileSync(file, 'utf8'), body);
+  const disabled = JSON.stringify({ 'aiterm-native': { enabled: false } });
+  fs.writeFileSync(file, disabled);
+  assert.throws(() => mergeAntigravityHooks(file, '/node', '/hook.js'), /ANTIGRAVITY_HOOK_DISABLED/);
+  assert.equal(fs.readFileSync(file, 'utf8'), disabled);
+});
+
+test('Antigravity forced relogin refuses before creating a session or clearing shared authentication', async t => {
+  const before = process.env.ANTIGRAVITY_BIN;
+  process.env.ANTIGRAVITY_BIN = process.execPath;
+  t.after(() => { if (before === undefined) delete process.env.ANTIGRAVITY_BIN; else process.env.ANTIGRAVITY_BIN = before; });
+  const result = await authenticateAgent('antigravity', { action: 'start', cwd: process.cwd(), relogin: true });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.session_id, null);
+  assert.match(result.message, /^AGENT_AUTH_RELOGIN_UNSUPPORTED/);
 });
 
 test('Antigravity hooks bind one conversation and publish only a fully idle final response', t => {
@@ -52,8 +81,8 @@ test('Antigravity hooks bind one conversation and publish only a fully idle fina
   const id = 'b8ffcfbd-0a02-490b-b3f6-15b37817ef52';
   const transcript = path.join(meta.antigravity_home, 'brain', id, '.system_generated', 'logs', 'transcript_full.jsonl');
   fs.mkdirSync(path.dirname(transcript), { recursive: true });
-  const user = { type: 'USER_INPUT', content: 'question' };
-  const answer = { type: 'PLANNER_RESPONSE', status: 'DONE', content: 'final answer' };
+  const user = { step_index: 0, type: 'USER_INPUT', content: 'question' };
+  const answer = { step_index: 2, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'final answer' };
   fs.writeFileSync(transcript, [user, answer].map(JSON.stringify).join('\n') + '\n');
   const payload = { conversationId: id, workspacePaths: [cwd], transcriptPath: transcript };
   const hook = (event, input) => {
@@ -76,7 +105,13 @@ test('Antigravity hooks bind one conversation and publish only a fully idle fina
   assert.equal(events.length, 1);
   assert.equal(events[0].done_status, 'turn_done');
   assert.equal(antigravityTranscriptText(meta, events[0]), 'final answer');
-  fs.appendFileSync(transcript, JSON.stringify(user) + '\n');
-  hook('Stop', { ...stop, fullyIdle: true, executionNum: 1 });
+  fs.appendFileSync(transcript, JSON.stringify({ ...user, step_index: 3 }) + '\n');
+  hook('Stop', { ...stop, fullyIdle: true });
   assert.equal(fs.readFileSync(meta.event_file, 'utf8').trim().split('\n').length, 1, 'A previous turn answer cannot satisfy the next turn');
+  fs.appendFileSync(transcript, JSON.stringify({ ...answer, step_index: 4, content: 'second answer' }) + '\n');
+  hook('Stop', { ...stop, fullyIdle: true });
+  const second = fs.readFileSync(meta.event_file, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(second.length, 2, 'executionNum zero is a new execution after a new native user step');
+  assert.equal(second[1].turn_id, '3-0');
+  assert.equal(antigravityTranscriptText(meta, second[1]), 'second answer');
 });

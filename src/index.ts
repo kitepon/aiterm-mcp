@@ -211,6 +211,7 @@ async function factoryDiagnostics(): Promise<string> {
   const codex = core.harnessLauncherDiagnostic("codex");
   const grok = core.harnessLauncherDiagnostic("grok");
   const cursor = core.harnessLauncherDiagnostic("cursor");
+  const antigravity = core.harnessLauncherDiagnostic("antigravity");
   const runtimeErrors = await runtimeErrorStoreDiagnostic();
   const overall = ptyList.status === "unverified" || runtimeErrors.status === "unverified" ? "unverified" : "ready";
   return JSON.stringify({
@@ -238,6 +239,11 @@ async function factoryDiagnostics(): Promise<string> {
       },
       cursor: {
         status: cursor,
+        optional: true,
+        required_for: ["agent_launch"],
+      },
+      antigravity: {
+        status: antigravity,
         optional: true,
         required_for: ["agent_launch"],
       },

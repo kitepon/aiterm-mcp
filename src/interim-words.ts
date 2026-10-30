@@ -322,7 +322,7 @@ export function interimFromNow(meta: AgentMetadata, eventCursor: number): Interi
   try {
     file = meta.kind === "claude" ? claudeSessionTranscriptPath(meta)
       : meta.kind === "codex" ? (meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta))
-      : cursorTranscript(meta);
+      : meta.kind === "cursor" ? cursorTranscript(meta) : null;
   } catch { /* 記録を決められない時は、頭から */ }
   return { event_cursor: eventCursor, unit: "byte", boundary: file ? safeStatSize(file) : 0 };
 }
@@ -334,7 +334,7 @@ function interimWordsFrom(meta: AgentMetadata, from: InterimFrom): Found[] {
   if (meta.kind === "claude") return claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), from.boundary));
   if (meta.kind === "codex") return codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), from.boundary));
   // 位置より後の行だけを渡すので、user発話の数では絞らない。
-  return cursorInterimWords(readLines(cursorTranscript(meta), from.boundary), -1);
+  return meta.kind === "cursor" ? cursorInterimWords(readLines(cursorTranscript(meta), from.boundary), -1) : [];
 }
 
 /**
@@ -365,7 +365,7 @@ export function readInterimWords(meta: AgentMetadata, after: number, from: Inter
     // 境界は、送った時に結び付いていた会話のrolloutの位置。会話の切り替えは追わない（ADR 0105）。
     else if (meta.kind === "codex") found = codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), boundary));
     else if (meta.kind === "grok") found = grokInterimWords(readLines(grokChatHistory(meta)), boundary);
-    else found = cursorInterimWords(readLines(cursorTranscript(meta)), boundary);
+    else if (meta.kind === "cursor") found = cursorInterimWords(readLines(cursorTranscript(meta)), boundary);
   }
   const words = found.map((word, index) => ({ seq: index + 1, ...word }));
   return {

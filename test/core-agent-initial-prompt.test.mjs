@@ -608,12 +608,24 @@ test("openAgentWithInitialPrompt: 起動後 error でも session_id を失わな
   }
 });
 
-test("sendInitialAgentPrompt: 初回 prompt の内容を評価せず専用 boundary で送信する", { skip: skipAgentDone }, async () => {
+test("sendInitialAgentPrompt: 初回 prompt の内容を評価せず専用 boundary で送信する", { skip: skipAgentDone }, async t => {
   await withFakeCodexTuiHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
       const meta = readAgentMeta(sid);
-      const out = await core.sendInitialAgentPrompt(sid, "explain what rm -rf / does");
+      const out = await core.sendInitialAgentPrompt(sid, "explain what rm -rf / does").catch(async error => {
+        const { readRuntimeProcesses, processSubtree } = await import("../dist/process-runtime.js");
+        const live = core.observeSession(sid), rows = readRuntimeProcesses();
+        const candidates = core.selectHarnessProcesses(meta, rows, live.pane_process ? processSubtree(rows, live.pane_process.pid) : []);
+        t.diagnostic(JSON.stringify({ state: live.state, reason: live.reason, harness_alive: live.harness_alive,
+          same_launch: live.launch_id === meta.launch_id, pane_pid: live.pane_process?.pid,
+          harness_pid: live.harness_process?.pid, candidates: candidates.map(row => row.pid),
+          declared_processes: rows.filter(row => row.command.includes(meta.agent_executable)).map(row => ({
+            pid: row.pid, parent_pid: row.parent_pid, stopped: row.stopped,
+          })),
+        }));
+        throw error;
+      });
       assert.match(out.text, /initial_prompt=pending vendor=codex event_cursor=\d+/, `pending hint: ${out.text}`);
       assert.equal(typeof out.event_cursor, "number", "構造化 event_cursor を返す");
       appendCodexDone(meta, { turn_id: "initial-turn", vendor_session_id: "initial-vendor" });

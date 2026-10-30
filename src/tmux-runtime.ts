@@ -465,6 +465,11 @@ export function pasteBufferBaseArgs(): string[] {
 // new-session -f 用の空 config（端末個人の設定ファイルを読まない）。Windows は NUL デバイス。
 export const TMUX_EMPTY_CONFIG = isWin ? "NUL" : "/dev/null";
 
+// A single POSIX command goes through the account's possibly non-login default-shell.
+export function paneCommandArgs(shell: string): string[] {
+  return isWin ? [shell] : ["/bin/sh", "-c", shell];
+}
+
 // tmux 3.2 で new-session -e と、update-environment のワイルドカードが入った。
 function tmuxHasSessionEnvironmentFlags(version?: string): boolean {
   const observed = version ?? spawnSync(resolveTmux(), ["-V"], { encoding: "utf8", timeout: 5000 }).stdout;
@@ -551,8 +556,7 @@ export function tmuxNewSession(
     return result;
   }
   const env = sessionCallerEnvironment();
-  // A single command goes through tmux's default-shell, which may be /usr/bin/false for service users.
-  const command = ["/bin/sh", "-c", launch.shell];
+  const command = paneCommandArgs(launch.shell);
   if (cold) {
     // With no server, there is no global environment to adjust. The first
     // new-session inherits this caller's environment and prints its native ID

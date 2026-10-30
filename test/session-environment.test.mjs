@@ -75,6 +75,20 @@ test("要求したshellはtmux serverのログイン不可shellへ渡さず起�
     const actual = openAs(base, 'env_explicit_shell', { WHO: 'explicit' });
     assert.equal(actual.WHO, 'explicit');
     assert.equal(actual.AITERM_SESSION_ID, 'env_explicit_shell');
+    const restarted = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const runtime = await import(${JSON.stringify(pathToFileURL(resolve('dist/tmux-runtime.js')).href)});
+      const result = runtime.tmuxCommand(false, 'respawn-pane', '-k', '-t', 'env_explicit_shell',
+        ...runtime.paneCommandArgs('printf RESPAWN_REQUESTED; sleep 60'));
+      if (result.code !== 0) throw new Error(result.stderr);
+      let seen = false;
+      for (const until = Date.now() + 5000; Date.now() < until;) {
+        if (runtime.tmuxCommand(false, 'capture-pane', '-p', '-t', 'env_explicit_shell').stdout.includes('RESPAWN_REQUESTED')) { seen = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      console.log(JSON.stringify({ seen, default_shell: runtime.tmuxCommand(false, 'show-options', '-g', '-v', 'default-shell').stdout.trim() }));
+    `], { env: base, encoding: 'utf8' });
+    assert.equal(restarted.status, 0, restarted.stderr);
+    assert.deepEqual(JSON.parse(restarted.stdout), { seen: true, default_shell: '/usr/bin/false' });
   });
 });
 

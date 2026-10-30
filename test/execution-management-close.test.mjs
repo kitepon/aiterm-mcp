@@ -25,8 +25,8 @@ test('native management close of an unknown send keeps another session and permi
   const tmux = (...args) => execFileSync('tmux', ['-S', socket, ...args], { encoding: 'utf8' });
   t.after(() => { try { tmux('kill-server'); } catch {} });
   const session = 'fixture-unknown-send', other = 'fixture-unaffected', launch = 'b'.repeat(32);
-  tmux('-f', '/dev/null', 'new-session', '-d', '-s', session);
-  tmux('new-session', '-d', '-s', other);
+  tmux('-f', '/dev/null', 'new-session', '-d', '-s', session, '/bin/bash', '--noprofile', '--norc');
+  tmux('new-session', '-d', '-s', other, '/bin/bash', '--noprofile', '--norc');
   const native = core.observeExecutionNativeCreationScope();
   assert.equal(native.state, 'known'); assert.ok(native.server);
   const nativeId = native.sessions.find(value => value.session_id === session).native_id;

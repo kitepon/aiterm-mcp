@@ -22,7 +22,7 @@ test('close_launch binds the original request and expected generation to the ser
   const tmux = (...args) => execFileSync('tmux', ['-S', socket, ...args], { encoding: 'utf8' });
   t.after(() => { try { tmux('kill-server'); } catch {} });
   // An unrelated shell survives the explicit target close and keeps the fixture server alive.
-  tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'fixture-unaffected');
+  tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'fixture-unaffected', '/bin/bash', '--noprofile', '--norc');
   const binary = join(process.env.HOME, 'fixture-codex');
   writeFileSync(binary, '#!/bin/sh\nprintf "OpenAI Codex\\n› ready\\n"\nwhile IFS= read -r line; do [ "$line" = "fixture-exit" ] && break; printf "%s\\n" "$line"; done\n', { mode: 0o700 });
   process.env.CODEX_BIN = binary;

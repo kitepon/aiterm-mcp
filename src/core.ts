@@ -65,6 +65,7 @@ import {
   settlePaneLog,
   paneCwdArgument,
   sessionEnvironmentLaunch,
+  paneCommandArgs,
 } from "./tmux-runtime.js";
 import {
   AGENT_DEFAULT_PREFACE,
@@ -5297,7 +5298,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
         meta.phase = "onboarding";
         writeJson0600(authMetadataPath(session), meta);
       });
-      const restarted = tmux("respawn-pane", "-k", "-t", session, resolveWinPaneShell("bash"));
+      const restarted = tmux("respawn-pane", "-k", "-t", session, ...paneCommandArgs(resolveWinPaneShell("bash")));
       if (restarted.code !== 0) return result("failed", session, "公式CLIの初回案内を起動できません。");
       launchAuthProcess(session, meta);
       return result("waiting", session, "公式CLIの初回案内を確認しています。");

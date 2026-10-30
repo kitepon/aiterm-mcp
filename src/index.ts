@@ -442,8 +442,8 @@ registerRemoteAwareTool(
       wait_process: waitProcessOutputSchema,
       parent_delivery: parentDeliveryOutputSchema.optional(),
       launch_id: z.string().nullable(),
-      vendor: z.enum(["claude", "codex", "grok", "cursor"]).nullable(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+      vendor: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).nullable(),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       // dispatch後のsubmit座礁観測（additive）。true=composerに送信textの残存を確認（submit未成立の疑い）/
       // false=残存を観測せず（成立の保証ではない）/ null=通常送信・判定不能。
       submit_residue: z.boolean().nullable(),
@@ -598,9 +598,9 @@ registerRemoteAwareTool(
       mode: z.enum(["terminal", "agent_transcript"]),
       session_id: z.string(),
       text: z.string(),
-      vendor: z.enum(["claude", "codex", "grok", "cursor"]).nullable(),
+      vendor: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).nullable(),
       turn_id: z.string().nullable(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       raw_chars: z.number().int().nonnegative().nullable(),
       // remote付きは現地の結果をそのまま返す。この項目が無い旧版（0.53.2以前）の結果も通すのでoptional。
       answer_empty: z
@@ -746,7 +746,7 @@ registerRemoteAwareTool(
       sessions: z.array(z.object({
         session_id: z.string(), current_command: z.string(), attached: z.boolean(),
         width: z.number(), height: z.number(),
-        harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+        harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
         // 0.58.3より前の現地（remote）は返さないので、無い事も受ける。
         vendor_session_id: z.string().nullable().optional().describe(
           "agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値（席の中で会話を移した後は追わない）、" +
@@ -791,7 +791,7 @@ registerRemoteAwareTool(
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-observe-result.v1"), session_id: z.string(), observed_at: z.string(),
-      exists: z.boolean(), harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+      exists: z.boolean(), harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       launch_id: z.string().nullable(), state: z.enum(["busy", "idle", "blocked", "dead", "missing", "unknown"]),
       reason: z.string(), pane_alive: z.boolean().nullable(), harness_alive: z.boolean().nullable(),
       pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
@@ -840,7 +840,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-approval-result.v1"), action: z.enum(["inspect", "respond"]),
       status: z.enum(["none", "approval_required", "submitted", "blocked"]), session_id: z.string(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]), launch_id: z.string(),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]), launch_id: z.string(),
       reason: z.string(), kind: z.string().nullable(), prompt: z.string().nullable(), prompt_digest: z.string().nullable(),
       choices: z.array(z.object({ decision: z.enum(["approve_once", "deny"]), label: z.string() })),
       selected_choice: z.enum(["approve_once", "deny"]).nullable(), at: z.string(),
@@ -968,7 +968,7 @@ registerRemoteAwareTool(
       "（別のアカウントへ入り直す時、ログインの期限切れを状態から見抜けない時）。Aitermは資格情報を消さず、置き換えは公式CLIが行う。" +
       "Codexの公式ログインは、始めた時点で元のログインを消す（途中でcancelしても戻らない）。",
     inputSchema: {
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       action: z.enum(["start", "status", "cancel", "respond"]),
       expected_binding: authBindingSchema.optional(),
       expected_prompt_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -981,7 +981,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),
       auth_ui: authUiSchema.optional(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       status: z.enum(["waiting", "authenticated", "blocked", "failed"]),
       session_id: z.string().nullable(),
       url: z.string().nullable(),
@@ -1048,8 +1048,8 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-configure-result.v1"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-      provider: z.enum(["claude", "codex", "grok", "cursor"]),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       model: z.string().nullable(),
       reasoning_effort: z.string().nullable(),
       fast: z.boolean().nullable().optional().describe("切り替えた後の、席のfastの状態。Aitermが確かめた事の無い席（前の版が起こした席）はnull"),
@@ -1089,13 +1089,13 @@ registerRemoteAwareTool(
       "取得不能はMODEL_CATALOG_UNAVAILABLE、形式異常はMODEL_CATALOG_INVALIDのエラーで返し、別の一覧へfallbackしない。" +
       "remoteを付けると別端末のharnessの候補を返す。",
     inputSchema: {
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).describe("候補を取得するharness"),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("候補を取得するharness"),
       cwd: z.string().nullish().describe("CLIを実行する作業ディレクトリ（絶対パス・任意）。project設定で候補が変わるharness向け"),
       include_hidden: z.boolean().optional().describe("Codexが一覧で隠すmodelも返す（既定false）。他のharnessには隠すmodelが無い"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-models.v1"),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       source: z.string().describe("取得に使ったharnessの公式の入口"),
       harness_version: z.string().nullable(),
       default_model: z.string().nullable().describe("model省略時にharnessが使うmodel。一覧のIDで表せなければnull"),
@@ -1122,7 +1122,7 @@ registerRemoteAwareTool(
 
 // 新規APIの選択軸はharness。旧4 launcher名は移行期間中の薄いaliasとして同じ実装へ流す。
 const kindForHarness = (harness: core.AgentHarness): core.AgentKind =>
-  harness === "claude-code" ? "claude" : harness === "codex-cli" ? "codex" : harness === "cursor-cli" ? "cursor" : "grok";
+  harness === "claude-code" ? "claude" : harness === "codex-cli" ? "codex" : harness === "cursor-cli" ? "cursor" : harness === "antigravity-cli" ? "antigravity" : "grok";
 const fastModeLaunchDesc =
   "ファスト（harnessの高速の応答。費用や利用量が増える）。省略とfalseは通常の速度で起こす（利用者の設定にfastが残っていても通常）。" +
   "trueは通常で起こしてから、その席をfastへ切り替える。modelがfastに対応していない時（FAST_MODE_NOT_SUPPORTED）と、" +
@@ -1353,7 +1353,7 @@ server.registerTool(
       "remoteを付けると、SSHで入った別端末のAitermで同じ起動を行い、完了は同じ形で親へ届く。" +
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
       prompt: z.string().nullish().describe("起動時に渡す初手プロンプト（任意）。送信後は待たずに即返る"),
       image: z.array(z.string()).optional().describe("初手プロンプトへ添付する画像ファイルの絶対パス（png/jpg/jpeg/gif/webp）"),
       throughline_source_session: z.string().min(1).optional().describe("同一端末のThroughline sessionから読み取り専用contextを初手へ注入する"),
@@ -1375,8 +1375,8 @@ server.registerTool(
       startup: agentStartupSchema,
       remote_host: z.string().optional().describe("別端末で起動した時の接続先"),
       remote_version: z.string().nullable().optional().describe("別端末のAiterm版"),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]),
-      provider: z.enum(["claude", "codex", "grok", "cursor"]).describe("旧互換field。新規連携はharnessを使う"),
+      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+      provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).describe("旧互換field。新規連携はharnessを使う"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       managed_completion: z.boolean(),
       event_cursor: z.number().int().nullable(),

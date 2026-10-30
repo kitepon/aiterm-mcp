@@ -42,7 +42,7 @@ const goalFieldCapabilitiesSchema = z.object({
 export const agentGoalResultSchema = z.object({
   schema: z.literal("aiterm.agent-goal-result.v1"),
   session_id: z.string(), launch_id: z.string(),
-  harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli"]).nullable(),
+  harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
   binding: z.object({ ...executionLaunchSchema.shape, thread_id: z.string().min(1) }).nullable(),
   availability: z.enum(["available", "unsupported", "unavailable"]),
   capabilities: z.object({ inspect: z.boolean(), create: z.boolean(), edit: z.boolean(), pause: z.boolean(), resume: z.boolean(), clear: z.boolean() }),

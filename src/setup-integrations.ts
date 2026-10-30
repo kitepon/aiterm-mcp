@@ -1,3 +1,4 @@
+import { mergeAntigravityHooks, antigravityHookFile } from "./harnesses/antigravity.js";
 // AI clientごとの登録形式をここに閉じ込め、setup共通処理へ漏らさない。
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -132,14 +133,17 @@ export function configureParentHooks(home: string, registration: Registration, r
 
 export function configureIntegrations(home: string, registration: Registration, run: SetupRun = runSetupCommand, resolveClient = resolveAgentBin): Record<string, IntegrationResult> {
   const results: Record<string, IntegrationResult> = {};
-  for (const client of ["claude", "codex", "grok", "cursor"] as const) {
+  for (const client of ["claude", "codex", "grok", "cursor", "antigravity"] as const) {
     try {
       const executable = resolveClient(client);
       if (!executable && !(client === "cursor" && existsSync(join(home, ".cursor")))) {
         results[client] = { status: "not_detected" };
         continue;
       }
-      if (client === "claude" || client === "cursor") {
+      if (client === "antigravity") {
+        mergeJsonMcp(join(home, ".gemini", "config", "mcp_config.json"), registration);
+        mergeAntigravityHooks(antigravityHookFile(home), registration.command, join(dirname(registration.args[0]), "antigravity-hook.js"));
+      } else if (client === "claude" || client === "cursor") {
         const file = client === "cursor" ? join(home, ".cursor", "mcp.json")
           : process.env.CLAUDE_CONFIG_DIR ? join(process.env.CLAUDE_CONFIG_DIR, ".claude.json") : join(home, ".claude.json");
         mergeJsonMcp(file, client === "claude" ? { type: "stdio", ...registration } : registration);

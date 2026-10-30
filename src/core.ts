@@ -35,6 +35,7 @@ import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExe
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
+import { antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
@@ -366,6 +367,7 @@ export interface PaneTtyProcessState {
 
 // harness の実プロセスを command 行から見分ける。agent が起動した子（bash -lc、ssh、git 等）は agent ではない。
 const AGENT_COMMAND_PATTERNS: Record<AgentKind, RegExp> = {
+  antigravity: /(^|[\s/])agy(?:\.exe)?([\s]|$)/,
   codex: /(^|[\s/])codex([\s]|$)/,
   claude: /(^|[\s/])claude([\s]|$)/,
   grok: /(^|[\s/])grok(-[^\s/]+)?([\s]|$)/,
@@ -1312,7 +1314,7 @@ function readInterruptionTarget(name: string): { kind: AgentKind; launch_id: str
     const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
     if (files.length !== 1) return null;
     const meta = JSON.parse(fs.readFileSync(path.join(agentsDir(), files[0]), "utf8"));
-    return meta.aiterm_session === name && ["codex", "claude", "cursor", "grok"].includes(meta.kind)
+    return meta.aiterm_session === name && ["codex", "claude", "cursor", "grok", "antigravity"].includes(meta.kind)
       && typeof meta.launch_id === "string" && LAUNCH_ID_RE.test(meta.launch_id) ? { kind: meta.kind, launch_id: meta.launch_id } : null;
   } catch { return null; }
 }
@@ -1326,7 +1328,7 @@ export function interruptSessionNow(name: string, expectedLaunchId?: string): Pt
   const native = listing.sessions.find(session => session.session_id === name);
   if (!native) return { session_id: name, outcome: "idle" };
   const meta = readInterruptionTarget(name);
-  if (!meta || !["codex", "claude", "cursor", "grok"].includes(meta.kind)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+  if (!meta || !["codex", "claude", "cursor", "grok", "antigravity"].includes(meta.kind)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const key = meta.kind === "codex" ? CODEX_INTERRUPT_KEY : meta.kind === "claude" ? CLAUDE_INTERRUPT_KEY
     : meta.kind === "cursor" ? CURSOR_INTERRUPT_KEY : GROK_INTERRUPT_KEY;
   // A normal Ctrl+C can quit an idle CLI. Use its existing immediate pane
@@ -3347,7 +3349,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
   }
   const m = raw as Partial<AgentMetadata>;
   if (
-    (m.kind !== "claude" && m.kind !== "codex" && m.kind !== "grok" && m.kind !== "cursor") ||
+    (m.kind !== "claude" && m.kind !== "codex" && m.kind !== "grok" && m.kind !== "cursor" && m.kind !== "antigravity") ||
     m.aiterm_session !== name ||
     typeof m.launch_id !== "string" ||
     !LAUNCH_ID_RE.test(m.launch_id)
@@ -3383,6 +3385,16 @@ function loadAgentMetadata(name: string): AgentMetadata {
     ? { startup_process_shapes: m.startup_process_shapes as StartupProcessShape[] } : {};
   const startupFields = Array.isArray(m.startup_processes) && m.startup_processes.every((identity: unknown) => typeof identity === "string")
     ? { startup_processes: m.startup_processes as string[], ...startupShapes } : {};
+  if (m.kind === "antigravity") {
+    if (m.hook_route !== "shared_antigravity_home" || typeof m.antigravity_home !== "string" || !path.isAbsolute(m.antigravity_home)
+      || (m.vendor_session_id != null && (typeof m.vendor_session_id !== "string" || !UUID_RE.test(m.vendor_session_id)))) throw new AitermError("Antigravity metadataが不正です", 2);
+    return { kind: "antigravity", aiterm_session: name, launch_id: m.launch_id, event_file: expectedEvent,
+      cwd: typeof m.cwd === "string" ? m.cwd : null, created_at: typeof m.created_at === "string" ? m.created_at : "",
+      vendor_session_id: m.vendor_session_id ?? null, initial_prompt: normalizeInitialPromptState(m.initial_prompt),
+      hook_route: "shared_antigravity_home", antigravity_home: m.antigravity_home, node_platform: process.platform,
+      ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
+      ...deliveryFields, ...executableFields, ...fastFields, ...startupFields, ...loadAgentLineageFields(m, true) };
+  }
   if (m.kind === "claude") {
     const expectedSettings = agentManagedClaudeSettingsPath(name, m.launch_id);
     const expectedResult = agentClaudeResultPath(name, m.launch_id);
@@ -3539,7 +3551,7 @@ function parseAgentDoneEvent(line: string, meta: AgentMetadata): AgentDoneParseR
     ev.vendor !== meta.kind ||
     ev.aiterm_session !== meta.aiterm_session ||
     ev.launch_id !== meta.launch_id ||
-    ev.done_status !== "turn_done"
+    (ev.done_status !== "turn_done" && !(meta.kind === "antigravity" && ev.done_status === "turn_error"))
   ) {
     return { event: null, malformed: false };
   }
@@ -3571,7 +3583,7 @@ function parseAgentDoneEvent(line: string, meta: AgentMetadata): AgentDoneParseR
       operation_id:
         typeof ev.operation_id === "string" && OPERATION_ID_RE.test(ev.operation_id) ? ev.operation_id : null,
       reason: typeof ev.reason === "string" ? ev.reason : "Stop",
-      done_status: "turn_done",
+      done_status: ev.done_status === "turn_error" ? "turn_error" : "turn_done",
       stop_hook_active: !!ev.stop_hook_active,
       result_digest: typeof ev.result_digest === "string" && /^[0-9a-f]{64}$/.test(ev.result_digest) ? ev.result_digest : undefined,
       result_bytes: Number.isInteger(ev.result_bytes) && (ev.result_bytes as number) >= 0 ? ev.result_bytes : undefined,
@@ -3746,6 +3758,7 @@ function completedClaudeOperationEvent(meta: AgentMetadata, operationId: string)
 }
 
 function recoverAgentHarnessSession(meta: AgentMetadata): void {
+  if (meta.kind === "antigravity") { bindAntigravitySession(meta); return; }
   if (meta.vendor_session_id) return;
   if (meta.kind === "codex") {
     const transcript = bindCodexTranscriptSession(meta);
@@ -3953,6 +3966,9 @@ export async function readAgentTranscriptResult(
   if (meta.kind === "claude") {
     if (!done) transcriptUnavailable();
     text = readClaudeResultText(meta, done, operationId, transcriptUnavailable);
+  } else if (meta.kind === "antigravity") {
+    if (!done || done.done_status !== "turn_done") transcriptUnavailable();
+    text = antigravityTranscriptText(meta, done);
   } else if (meta.kind === "cursor") {
     text = cursorTranscriptText(meta, readTranscriptLines, transcriptUnavailable);
   } else if (meta.kind === "codex") {
@@ -4285,7 +4301,9 @@ export async function observeAgentDone(
       if (scanned.ambiguousHarnessSession) {
         throw new AitermError("agent event file に複数の vendor_session_id が混在しています。該当セッションを閉じて起動し直してください。", 2);
       }
-      if (scanned.event) return observation("done", scanned.event);
+      if (scanned.event) return scanned.event.done_status === "turn_error"
+        ? { ...observation("error", scanned.event), error: `Antigravity execution ended: ${scanned.event.reason}`, error_kind: scanned.event.reason }
+        : observation("done", scanned.event);
     }
     if (transcriptFile && fs.existsSync(transcriptFile)) {
       const transcriptSize = safeStatSize(transcriptFile);
@@ -4662,7 +4680,7 @@ const STARTUP_SELECTION_MAX_SAMPLES = 30;
 async function waitStartupSelection(name: string, selected: RegExp): Promise<boolean> {
   for (let i = 0; i < STARTUP_SELECTION_MAX_SAMPLES; i++) {
     const marker = captureScreen(name, AGENT_TUI_READY_LINES).split("\n").slice(-32)
-      .filter(line => /^\s*❯/u.test(line)).at(-1)?.trim() ?? "";
+      .filter(line => /^\s*(?:❯|>)/u.test(line)).at(-1)?.trim() ?? "";
     if (selected.test(marker)) return true;
     await sleep(STARTUP_SELECTION_POLL_MS);
   }
@@ -4676,7 +4694,8 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   while (!ready.ready) {
     const action = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
-      : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true) : null;
+      : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true)
+      : meta.kind === "antigravity" ? antigravityStartupAction(ready.lastScreen, options.trust_project === true, meta.cwd) : null;
     if (!action || handled.has(action.kind)) break;
     handled.add(action.kind);
     const keys = action.selected ? action.keys.slice(0, -1) : action.keys;
@@ -4959,6 +4978,7 @@ function authPlan(kind: AgentKind, phase: AgentAuthMetadata["phase"]): AgentAuth
     case "codex": return codexAuthPlan();
     case "grok": return grokAuthPlan();
     case "cursor": return cursorAuthPlan();
+    case "antigravity": return { args: [], env: [] };
   }
 }
 
@@ -4968,6 +4988,7 @@ async function authStatus(kind: AgentKind, bin: string, cwd: string, env = proce
     case "codex": return await codexAuthStatus(bin, cwd, env);
     case "grok": return await grokAuthStatus(bin, cwd, env);
     case "cursor": return cursorAuthStatus(bin, cwd, env);
+    case "antigravity": return antigravityAuthStatus(bin, cwd, env);
   }
 }
 
@@ -4977,6 +4998,7 @@ function authPane(meta: AgentAuthMetadata, screen: string): AgentAuthPane {
     case "codex": return codexAuthPane(screen);
     case "grok": return grokAuthPane(screen);
     case "cursor": return cursorAuthPane(screen);
+    case "antigravity": return antigravityAuthPane(screen);
   }
 }
 
@@ -5007,7 +5029,7 @@ function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata | nu
 function readExecutionAuthMetadata(name: string): (AgentAuthMetadata & { launch_id: string; execution_native: ReturnType<typeof executionCreatedNativeBinding> }) | null {
   try {
     const raw = JSON.parse(fs.readFileSync(authMetadataPath(name), "utf8"));
-    if (!["claude", "codex", "grok", "cursor"].includes(raw?.kind)) return null;
+    if (!["claude", "codex", "grok", "cursor", "antigravity"].includes(raw?.kind)) return null;
     const meta = loadAuthMetadata(name, raw.kind), launch = executionLaunchSchema.shape.launch_id.safeParse(meta?.launch_id);
     const native = executionNativeBindingSchema.safeParse(meta?.execution_native);
     return meta && launch.success && native.success ? { ...meta, launch_id: launch.data, execution_native: native.data } : null;
@@ -5114,7 +5136,7 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
         const current = pane.native_input?.kind === "choice" ? pane.native_input.selected_id : null;
         if (!current) throw new Error("native selection unknown");
         issued = true;
-        if (tmux("send-keys", "-t", binding.pane_id, current === answer.id ? "Enter" : "Down").code !== 0)
+        if (tmux("send-keys", "-t", binding.pane_id, meta.kind === "antigravity" ? antigravityAuthChoiceKey(screen, answer.id) : current === answer.id ? "Enter" : "Down").code !== 0)
           throw new Error("native choice unconfirmed");
         if (current === answer.id) break;
         if (step === 7) throw new Error("native choice unconfirmed");
@@ -5306,6 +5328,7 @@ export async function listAgentModels(
     case "codex": return codexModelChoices(bin, options.include_hidden === true);
     case "grok": return grokModelChoices(bin, cwd);
     case "cursor": return cursorModelChoices(bin, cwd);
+    case "antigravity": return antigravityModelChoices(bin, cwd);
   }
 }
 
@@ -5616,6 +5639,7 @@ async function planLaunchFast(
     assertCursorModelAvailable(bin, cwd, o.model, o.effort, true);
     return { ...plan, cursor_fast: true, state: true };
   }
+  if (kind === "antigravity") throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにfast切替の公式契約はありません。起動していません。");
   const base = o.model ?? GROK_MODEL_DEFAULTS[kind];
   const catalog = await grokCatalogForFast(bin, cwd, base);
   const fastId = catalog.fast_ids?.[base];
@@ -5737,6 +5761,10 @@ function recordAgentFast(meta: AgentMetadata, fast: boolean): void {
 
 /** 動いている席のfastを切り替える。返りは切り替えた後の状態。席は入力待ちである事（呼び手が確かめる）。 */
 async function switchAgentFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
+  if (meta.kind === "antigravity") {
+    if (target) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにfast切替の公式契約はありません");
+    recordAgentFast(meta, false); return false;
+  }
   const state = meta.kind === "claude" ? await switchClaudeFast(name, meta, target, verified)
     : meta.kind === "codex" ? await switchCodexFast(name, meta, target, verified)
     : meta.kind === "cursor" ? await switchCursorFast(name, meta, target)
@@ -6288,6 +6316,34 @@ async function configureAgentInLock(
       writeAgentMetadata(meta);
     });
   };
+  if (meta.kind === "antigravity") {
+    if (fast === true) throw new FastModeError("FAST_MODE_NOT_SUPPORTED", "Antigravity CLIにはfast切替がありません。設定は変えていません。");
+    const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
+    if (!bin) throw new AitermError("Antigravity CLIが見つかりません", 2);
+    const catalog = antigravityModelChoices(bin, meta.cwd ?? process.cwd());
+    const current = antigravityCurrentModel(captureScreen(name, AGENT_TUI_READY_LINES), catalog);
+    if (!current) throw new AitermError("ANTIGRAVITY_CONFIGURATION_UNCONFIRMED: 席の現在modelを確認できません", 2);
+    const requested = model ?? (effort ? current.replace(/-(low|medium|high|xhigh|max)$/, `-${effort}`) : current);
+    const target = catalog.models.find(item => item.id === requested);
+    if (!target || (effort && !target.efforts.includes(effort))) throw new AitermError("Antigravity modelとeffortの組み合わせがcatalogにありません。設定は変えていません。", 2);
+    if (target.id !== current) {
+      const config = path.join(meta.antigravity_home!, "settings.json");
+      await withUserConfigLock(config, async () => {
+        const before = readFileOrNull(config) ?? Buffer.from("{}");
+        try {
+          beforeChange();
+          await sendAgentPromptText(name, `/model ${target.id}`, meta.kind);
+          const deadline = performance.now() + 10000;
+          while (antigravityCurrentModel(captureScreen(name, AGENT_TUI_READY_LINES), catalog) !== target.id) {
+            if (performance.now() >= deadline) throw new AitermError("ANTIGRAVITY_CONFIGURATION_UNCONFIRMED: 変更後のmodelを確認できません", 2);
+            await sleep(100);
+          }
+        } finally { restoreJsonSetting(config, before, ["model"]); }
+      });
+    }
+    withExecutionPreparation(name, () => { meta.model = target.id; meta.fast = false; writeAgentMetadata(meta); });
+    return { ...configured(), model: target.id, reasoning_effort: target.default_effort };
+  }
   // fast: true は、modelやeffortを替える前に対応を確かめる（断る時は何も変えない）。
   let fastVerified = false;
   if (fast === true && (meta.kind === "claude" || meta.kind === "codex")) {
@@ -7171,6 +7227,7 @@ function buildAgentCmd(
   if (kind === "claude") return buildClaudeAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "codex") return buildCodexAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "cursor") return buildCursorAgentCmd(bin, model, effort, prompt, meta, cursorFast);
+  if (kind === "antigravity") return antigravityAgentArgv(bin, model, effort, prompt).map(shq).join(" ");
   return buildGrokAgentCmd(kind, bin, model, effort, prompt, meta);
 }
 
@@ -7225,6 +7282,7 @@ function buildAgentLaunchNote(
 ): string {
   if (kind === "claude") return claudeLaunchNote(model, effort, meta);
   if (kind === "cursor") return cursorLaunchNote(model, effort, meta);
+  if (kind === "antigravity") return `model=${model ?? "CLI既定"} effort=${effort ?? "CLI既定"}。`;
   if (kind !== "codex") return grokLaunchNote(kind, model, effort, meta);
   return codexLaunchNote(model, effort, meta);
 }
@@ -7402,6 +7460,15 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   }
   if (kind === "claude") assertClaudeAuthenticationReady(bin);
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
+  if (kind === "antigravity") {
+    const auth = antigravityAuthStatus(bin, cwd ?? process.cwd());
+    if (auth.status !== "authenticated") throw new AitermError(`ANTIGRAVITY_AUTH_REQUIRED: ${auth.message}`, 2);
+    const catalog = antigravityModelChoices(bin, cwd ?? process.cwd());
+    const selected = model ?? catalog.default_model;
+    const choice = catalog.models.find(item => item.id === selected);
+    if (!choice || (effort && !choice.efforts.includes(effort))) throw new AitermError("Antigravity modelとeffortの組み合わせがcatalogにありません", 2);
+    mergeAntigravityHooks();
+  }
   // Windows agent launches run in a native PowerShell pane. Accepted shebang
   // wrappers use noninteractive Git Bash in that pane; there is no WSL bridge.
   // 未検証リスク: npm グローバル導入の codex.cmd/.bat シムの対話 TUI 描画は実 Windows でしか確認
@@ -7467,6 +7534,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
               )
             : kind === "codex"
             ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
+            : kind === "antigravity"
+              ? createAntigravityAgentMetadata(sid, cwd ?? process.cwd(), opts.prompt ? "pending" : "none", writeScope, lineageContext)
             : kind === "cursor"
               ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
               : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
@@ -7495,6 +7564,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
           : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
           : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
+          : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt)
           : grokAgentArgv(kind, bin, model, effort, prompt, meta);
         full = windowsAgentLaunchLine(cwd, [
           ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),

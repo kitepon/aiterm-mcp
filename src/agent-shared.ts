@@ -7,8 +7,8 @@ import { randomBytes } from "node:crypto";
 import { AitermError } from "./errors.js";
 
 /** 既存launcher／stateとの互換に残す内部profile名。新規公開APIの選択軸は AgentHarness。 */
-export type AgentKind = "claude" | "codex" | "grok" | "cursor";
-export type AgentHarness = "claude-code" | "codex-cli" | "grok-cli" | "cursor-cli";
+export type AgentKind = "claude" | "codex" | "grok" | "cursor" | "antigravity";
+export type AgentHarness = "claude-code" | "codex-cli" | "grok-cli" | "cursor-cli" | "antigravity-cli";
 export type InitialPromptState = "none" | "not_sent" | "sent" | "pending" | "done" | "failed";
 
 export interface HarnessPaneObservation {
@@ -69,7 +69,7 @@ export interface AgentMetadata {
     server: { pid: number; started_identity: string } };
   launch_operation_id?: string | null;
   launch_request_digest?: string | null;
-  hook_route: "shared_claude_settings" | "shared_codex_home" | "shared_grok_home" | "shared_cursor_home";
+  hook_route: "shared_claude_settings" | "shared_codex_home" | "shared_grok_home" | "shared_cursor_home" | "shared_antigravity_home";
   completion_route?: "codex_transcript" | "grok_transcript" | "cursor_transcript";
   agent_role?: "subagent";
   parent_session_id?: string;
@@ -83,6 +83,7 @@ export interface AgentMetadata {
   grok_home?: string;
   grok_auth_path?: string | null;
   cursor_home?: string;
+  antigravity_home?: string;
   // 席のファストの状態（ADR 0114）。Aitermが起こした時・切り替えを確かめた時にだけ書く。無いのは、この項目より前の版が起こした席。
   fast?: boolean;
   // 起動・agent_configureで渡したmodel ID（fast版へ替える前の元のID）。省略して起こした席はnull。fastの対応を一覧で確かめるのに使う。
@@ -408,6 +409,7 @@ export function writeAgentMetadata(meta: AgentMetadata): void {
 }
 
 export function agentLabel(kind: AgentKind): string {
+  if (kind === "antigravity") return "Antigravity CLI";
   return kind === "claude"
     ? "Claude Code"
     : kind === "grok"
@@ -418,6 +420,7 @@ export function agentLabel(kind: AgentKind): string {
 }
 
 export function agentHarness(kind: AgentKind): AgentHarness {
+  if (kind === "antigravity") return "antigravity-cli";
   return kind === "claude"
     ? "claude-code"
     : kind === "codex"

@@ -32,7 +32,7 @@ export function requireParentEndpointEvidence(value: unknown): void {
 }
 const snapshotSchema = z.object({
   schema: z.literal("aiterm.execution-parent-process.v1"), source: executionPointSchema,
-  harness: z.enum(["codex-cli", "claude-code", "cursor-cli", "grok-cli"]), harness_process: identity,
+  harness: z.enum(["codex-cli", "claude-code", "cursor-cli", "grok-cli", "antigravity-cli"]), harness_process: identity,
   processes: z.array(identity.extend({ parent_pid: z.number().int().nonnegative() }).strict()),
 }).strict();
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);

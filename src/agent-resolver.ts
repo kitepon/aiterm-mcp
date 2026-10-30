@@ -205,6 +205,8 @@ export function resolveAgentBin(kind: AgentKind): string | null {
       ? ["CODEX_BIN", [".local", "bin", "codex"], "codex"]
       : kind === "cursor"
       ? ["CURSOR_AGENT_BIN", [".local", "bin", "cursor-agent"], "cursor-agent"]
+      : kind === "antigravity"
+      ? ["ANTIGRAVITY_BIN", [".local", "bin", "agy"], "agy"]
       : ["GROK_BIN", [".grok", "bin", isWin ? "grok.exe" : "grok"], "grok"];
   const fromEnv = process.env[envVar as string];
   if (fromEnv) {
@@ -215,6 +217,9 @@ export function resolveAgentBin(kind: AgentKind): string | null {
     throw new AitermError(`${envVar} に指定された ${name} が存在しません: ${fromEnv}`, 2);
   }
   const defaultCandidates = [path.join(home, ...(rel as string[]))];
+  if (kind === "antigravity" && isWin && process.env.LOCALAPPDATA) {
+    defaultCandidates.unshift(path.join(process.env.LOCALAPPDATA, "agy", "bin", "agy.exe"));
+  }
   if (kind === "cursor" && isWin && process.env.LOCALAPPDATA) {
     // Cursor公式Windows installerは %LOCALAPPDATA%\cursor-agent をPATHへ追加し、
     // cursor-agent.exe/cmdを置く。GUI hostの古いPATHでも公式配置を直接解決する。

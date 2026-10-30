@@ -1,3 +1,4 @@
+import { antigravityPaneObservation } from "./harnesses/antigravity.js";
 // Screen observations use supplied samples and clocks. They never create a
 // session, send text/keys, or mutate agent metadata; core owns those effects.
 import type { AgentKind, HarnessPaneObservation } from "./agent-shared.js";
@@ -59,6 +60,7 @@ let agentTuiReadyStableSamplesTestOverride: number | null = null;
  * どのharnessの関数を呼ぶかを自分で選ばない。読みの中身（入力欄・動作中・承認待ちの印）は各harness moduleが所有する。
  */
 export function agentPaneObservation(kind: AgentKind, screen: string): HarnessPaneObservation {
+  if (kind === "antigravity") return antigravityPaneObservation(screen);
   if (kind === "claude") return claudePaneObservation(screen);
   if (kind === "codex") return codexPaneObservation(screen);
   if (kind === "cursor") return cursorPaneObservation(screen);
@@ -66,6 +68,7 @@ export function agentPaneObservation(kind: AgentKind, screen: string): HarnessPa
 }
 
 export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
+  if (kind === "antigravity") return ["idle", "busy"].includes(antigravityPaneObservation(screen).state);
   if (kind === "claude") return claudeTuiReady(screen);
   if (kind === "codex") return codexTuiReady(screen);
   if (kind === "cursor") return cursorTuiReady(screen);
@@ -76,6 +79,7 @@ export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
 // 別の正規表現があった。Claudeは会話欄に残った「esc to interrupt」を動作中と読み、止まった席の設定替え（agent_configure）
 // が入力待ちを待ち続けていた。同じ画面を2つの読みで判断しない。
 export function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
+  if (kind === "antigravity") return antigravityPaneObservation(screen).state === "busy";
   if (kind === "claude") return claudeTuiBusy(screen);
   if (kind === "codex") return codexTuiBusy(screen);
   if (kind === "cursor") return cursorTuiBusy(screen);
@@ -91,6 +95,7 @@ export function isAgentTuiIdleReady(kind: AgentKind, screen: string): boolean {
 // 起動側が明示応答すべき既知UI。ここで自動承認せず、ready timeoutを待たずに
 // `initial_prompt=not_sent`を返してsessionを生かしたままcallerへ制御を戻す。
 function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
+  if (kind === "antigravity") return antigravityPaneObservation(screen).state === "blocked";
   if (kind === "grok") return grokLaunchBlockingDialog(screen) !== null;
   if (kind === "codex") {
     return codexPaneObservation(screen).state === "blocked";

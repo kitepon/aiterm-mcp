@@ -39,6 +39,7 @@ function fakeSeat(name, banner, authJson) {
     ...(authJson ? ["if [ \"$1\" = auth ] && [ \"$2\" = status ] && [ \"$3\" = --json ]; then", `  printf '%s\\n' '${authJson}'`, "  exit 0", "fi"] : []),
     // Retain the declared fake harness process for the ordinary-send liveness check.
     `'${process.execPath}' '${recorder}' '${received(name)}' '${banner}'`,
+    'exit "$?"', // Keep sh from replacing the declared fixture with its recorder.
     "",
   ].join("\n"), { mode: 0o700 });
   fs.chmodSync(bin, 0o700);

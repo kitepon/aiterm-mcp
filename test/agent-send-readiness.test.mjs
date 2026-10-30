@@ -142,17 +142,17 @@ async function scenario(mode) {
     } else if(mode==='busy'||mode==='race'){
       assert.equal(row.receipt_mode,'agent_steer');assert.equal(row.marker_count,1);assert.equal(row.execution_error,null);
       assert.equal(row.operations.send,'accepted');assert.equal(row.slots,0);
-      assert(row.elapsed_ms<10000,'ordinary busy input does not wait for the 30-second readiness deadline: '+JSON.stringify({
-        elapsed_ms:row.elapsed_ms,capture_samples:row.capture_samples,trace_ms:traceRows.at(-1)?.at-traceRows[0]?.at,
-        native_effects:traceRows.filter(item=>item.event==='native').length,
-      }));
+      // Count the controlled observations: native wrapper process startup varies under full CI load.
+      // The pure readiness test covers the deadline with an injected clock.
+      assert.equal(row.capture_samples,mode==='race'?4:1,'busy input leaves readiness at its first busy sample');
     } else if(mode==='startup') {
       assert.equal(row.receipt_mode,'agent_dispatch');assert.equal(row.marker_count,1);
       assert.equal(row.operations.send,'accepted');assert(row.capture_samples>=4,'startup samples do not count as idle readiness');
     } else {
       assert.equal(row.isError,true);assert.match(row.original_failure,/reason=harness_exited/);
       assert.equal(row.marker_count,0);assert.deepEqual(row.execution_error,{schema:'aiterm.execution-error.v1',code:'EXECUTION_UNCONFIRMED',effect:'not_started',follow_up:'status_only'});
-      assert.equal(row.operations.send,'not_sent');assert.equal(row.slots,0);assert(row.elapsed_ms<5000,'a known exited harness is rejected before the readiness deadline');
+      assert.equal(row.operations.send,'not_sent');assert.equal(row.slots,0);
+      assert.equal(row.capture_samples,mode==='dead'?0:2,'exit is rejected before another readiness sample');
     }
     if(mode==='race'){
       assert.equal(row.synthetic_turn_before,row.synthetic_turn_after);

@@ -51,6 +51,18 @@ test("only a pending-send caller can select steer from readiness; ordinary launc
   }
 });
 
+test("pending readiness stops on the first busy redraw without consuming its 30-second deadline", async () => {
+  let clock = 0, samples = 0;
+  const selected = await waitAgentTuiReadyImpl("codex", () => ++samples < 3 ? SCREENS.codex.idle : SCREENS.codex.busy,
+    async ms => { clock += ms; }, {
+      timeoutMs: 30_000, now: () => clock,
+      selectSteer: screen => agentPaneObservation("codex", screen).state === "busy",
+    });
+  assert.equal(selected.steer, true);
+  assert.equal(samples, 3);
+  assert.equal(clock, 1000);
+});
+
 test("agentPaneObservation: 4つのharnessの読みをkindで振り分け、各harnessの観測と同じ結果を返す", () => {
   for (const [kind, screens] of Object.entries(SCREENS)) {
     for (const [label, screen] of Object.entries(screens)) {

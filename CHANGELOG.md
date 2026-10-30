@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-10-30
+
 ### Added
 - Add Google Antigravity CLI as the fifth native harness (`antigravity-cli`), with live model catalog, official authentication UI, same-conversation configuration, correlated TUI completion, and standard PTY lifecycle. Preserve existing harness IDs and tools.
 
@@ -2929,7 +2931,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...HEAD
+[0.62.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...v0.62.0
 [0.61.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.23...v0.61.24
 [0.61.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.22...v0.61.23
 [0.61.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.21...v0.61.22

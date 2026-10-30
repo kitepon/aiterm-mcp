@@ -98,7 +98,7 @@ for (const directory of ['git-hooks', 'git-template']) mkdirSync(join(root, dire
 
 // 一般の試験は、端末に入っている本物のharness（Claude Code・Codex・Grok・Cursor）を起こさない（ADR 0087の追記）。
 // 製品は、名指しの変数（CLAUDE_BINほか）→ 決まった場所（homeの下。WindowsのCursorはLOCALAPPDATAの下）→ PATH の順で実行ファイルを探す。
-// 開発機とrunnerにはharnessが入っているので、偽物を立て忘れた試験は、本物を起こす。4つの変数を、起きたら断って終わる偽物へ向け、
+// 開発機とrunnerにはharnessが入っているので、偽物を立て忘れた試験は、本物を起こす。各harnessの変数を、起きたら断って終わる偽物へ向け、
 // 同じ名前の偽物をPATHの先頭にも置く（変数を外して探し方を確かめる試験と、環境を自分で組む試験のため）。
 // 偽物を使う試験は、今までどおり自分で変数を立てる。実物のharnessで確かめる試験は、利用者が AITERM_TEST_ で始まる変数で実行ファイルを渡した時だけ動く。
 // 偽物は、呼ばれた事を置き場の記録へ1行書く。記録が在れば、processの終わりに知らせて失敗にする（下のexitの所）。
@@ -107,7 +107,7 @@ const refusers = join(root, 'no-harness');
 mkdirSync(refusers);
 // 記録の場所は、偽物の中へ絶対pathで書く（Git Bashは`/`区切りのWindowsのpathを読める）。
 const quoted = `'${(process.platform === 'win32' ? refusals.replace(/\\/g, '/') : refusals).replace(/'/g, `'\\''`)}'`;
-for (const [variable, name] of [['CLAUDE_BIN', 'claude'], ['CODEX_BIN', 'codex'], ['GROK_BIN', 'grok'], ['CURSOR_AGENT_BIN', 'cursor-agent']]) {
+for (const [variable, name] of [['CLAUDE_BIN', 'claude'], ['CODEX_BIN', 'codex'], ['GROK_BIN', 'grok'], ['CURSOR_AGENT_BIN', 'cursor-agent'], ['ANTIGRAVITY_BIN', 'agy']]) {
   // 変数が指すのは、席のshell（WindowsはGit Bash）が動かすscript。製品は、Windowsでも拡張子の無いscriptを受け取る。
   process.env[variable] = join(refusers, name);
   writeFileSync(process.env[variable],

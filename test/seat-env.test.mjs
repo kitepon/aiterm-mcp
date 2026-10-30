@@ -359,10 +359,10 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
       writeFileSync(file, file.endsWith('.cmd') ? `@echo off\r\n>>"${ran}" echo ran\r\n` : `#!/bin/sh\necho ran >> '${ran.replace(/\\/g, '/')}'\n`, { mode: 0o755 });
       return file;
     };
-    const names = ['claude', 'codex', 'grok', 'cursor-agent'];
+    const names = ['claude', 'codex', 'grok', 'cursor-agent', 'agy'];
     for (const name of names) installed(join(owner, 'bin', windows ? `${name}.cmd` : name));
-    for (const place of [['.local', 'bin', 'claude'], ['.local', 'bin', 'codex'], ['.local', 'bin', 'cursor-agent'], ['.grok', 'bin', 'grok']]) installed(join(owner, ...place));
-    const variables = ['CLAUDE_BIN', 'CODEX_BIN', 'GROK_BIN', 'CURSOR_AGENT_BIN'];
+    for (const place of [['.local', 'bin', 'claude'], ['.local', 'bin', 'codex'], ['.local', 'bin', 'cursor-agent'], ['.grok', 'bin', 'grok'], ['.local', 'bin', 'agy']]) installed(join(owner, ...place));
+    const variables = ['CLAUDE_BIN', 'CODEX_BIN', 'GROK_BIN', 'CURSOR_AGENT_BIN', 'ANTIGRAVITY_BIN'];
     const inherited = {
       HOME: owner, USERPROFILE: owner, PATH: [join(owner, 'bin'), process.env.PATH].join(windows ? ';' : ':'),
       ...Object.fromEntries(variables.map((variable, index) => [variable, installed(join(owner, 'named', names[index]))])),
@@ -374,7 +374,7 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
       const { realpathSync } = await import('node:fs');
       const { basename, dirname, join } = await import('node:path');
       const { resolveAgentBin, resolveWinPaneShell } = await import(${moduleUrl('../dist/agent-resolver.js')});
-      const kinds = ['claude', 'codex', 'grok', 'cursor'];
+      const kinds = ['claude', 'codex', 'grok', 'cursor', 'antigravity'];
       const real = (file) => { try { return realpathSync.native(file); } catch { return null; } };
       const refusers = real(join(process.env.TEMP, 'no-harness'));
       const resolve = (kind) => { try { return resolveAgentBin(kind); } catch (error) { return 'error: ' + error.message; } };
@@ -399,7 +399,7 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
       const data = JSON.parse(resolved.stdout);
       assert.deepEqual(data.named, names.map(name => `refuser:${name}`));
       // Windowsで変数を外すと、Codexは.cmdから本体を探して断り（起きない）、Cursorは利用者フォルダ（LOCALAPPDATA。差し替えない）の決まった場所を先に見る。
-      // Cursorのこの道は、前処理では塞げない。変数を外す試験が、LOCALAPPDATAを自分で立てる。
+      // Cursor/Antigravityのこの道は、前処理では塞げない。変数を外す試験が、LOCALAPPDATAを自分で立てる。
       if (windows) {
         assert.equal(data.searched[0], 'refuser:claude.cmd');
         assert.match(data.searched[1], /^error: .*codex\.exeを解決できません/);
@@ -410,7 +410,7 @@ for (const [label, preload] of [['入口（--import）', true], ['最初のimpor
 
       const started = run(true);
       assert.equal(started.status, 1, '断った事が、processの失敗として出る');
-      assert.deepEqual(JSON.parse(started.stdout).started, [97, 97, 97, 97]);
+      assert.deepEqual(JSON.parse(started.stdout).started, names.map(() => 97));
       assert.match(started.stderr, /偽物を立てずにharnessを起こそうとしました/);
       for (const name of names) assert.match(started.stderr, new RegExp(`^  ${name} --version$`, 'm'));
       assert.equal(existsSync(ran), false, `親の偽物が起きた: ${existsSync(ran) ? readFileSync(ran, 'utf8') : ''}`);

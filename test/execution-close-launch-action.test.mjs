@@ -165,7 +165,7 @@ test('close_launch binds the original request and expected generation to the ser
         // Fixture-owned external generation C appears after registration and
         // preparing, before native admission. No real seat is involved.
         tmux('kill-session', '-t', f.target.session_id);
-        tmux('new-session', '-d', '-s', f.target.session_id);
+        tmux('new-session', '-d', '-s', f.target.session_id, '/bin/bash', '--noprofile', '--norc');
         const observed = core.observeExecutionNativeCreationScope();
         const native = observed.sessions.find(row => row.session_id === f.target.session_id);
         const launch = 'c'.repeat(32); unlinkSync(file);

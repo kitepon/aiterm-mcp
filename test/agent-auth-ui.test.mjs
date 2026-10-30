@@ -34,6 +34,15 @@ sleep 30
 }
 async function start(){const dir=fixture();const r=await core.authenticateAgent('claude',{action:'start',cwd:dir,relogin:true}); sessions.push(r.session_id);return {dir,r};}
 function files(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(path.join(dir,e.name)):e.isFile()?[path.join(dir,e.name)]:[]);}
+async function readDigest(dir) {
+ const file=path.join(dir,'digest');
+ for(const until=Date.now()+5000;Date.now()<until;){
+  const text=fs.existsSync(file)?fs.readFileSync(file,'utf8'):'';
+  if(/^[a-f0-9]{64}  -\n$/.test(text))return text.split(' ')[0];
+  await new Promise(resolve=>setTimeout(resolve,20));
+ }
+ assert.fail('fixture did not finish publishing its input digest');
+}
 test('auth UI distinguishes empty code, explicit choices and unsupported input without guessing',()=>{
  assert.equal(claudeAuthPane('Paste code here if prompted >').ui.input,'authorization_code');
  assert.equal(claudeAuthPane('Paste code here if prompted > existing-draft').ui,undefined);
@@ -58,8 +67,7 @@ test('dedicated code input bypasses lastcmd/log/turn and binds the existing lega
  assert.equal(tmuxCommand(true,'pipe-pane','-t',r.session_id,`cat >> '${log}'`).code,0);
  const code='ARTIFICIAL_ONLY_CODE_7N4q_92';
  const receipt=await core.authenticateAgent('claude',{action:'respond',session_id:r.session_id,expected_binding:observed.auth_ui.binding,expected_prompt_digest:observed.auth_ui.prompt_digest,response:{kind:'authorization_code',value:code}});
- for(let i=0;i<50&&!fs.existsSync(path.join(dir,'digest'));i++)await new Promise(r=>setTimeout(r,20));
- assert.equal(fs.readFileSync(path.join(dir,'digest'),'utf8').split(' ')[0],createHash('sha256').update(code).digest('hex'));
+ assert.equal(await readDigest(dir),createHash('sha256').update(code).digest('hex'));
  assert.ok(!JSON.stringify(receipt).includes(code));
  await new Promise(r=>setTimeout(r,150));
  for(const file of files(root))assert.ok(!fs.readFileSync(file).includes(Buffer.from(code)),`code persisted in ${path.basename(file)}`);
@@ -93,7 +101,7 @@ test('normal MCP publishes the typed stages and sends only to the bound auth flo
   const code='FAKE_MCP_INPUT_q29X8_z';
   const receipt=await call({harness:'claude-code',action:'respond',session_id:started.session_id,expected_binding:started.auth_ui.binding,expected_prompt_digest:started.auth_ui.prompt_digest,response:{kind:'authorization_code',value:code}});
   assert.ok(!JSON.stringify(receipt).includes(code));
-  assert.equal(fs.readFileSync(path.join(dir,'digest'),'utf8').split(' ')[0],createHash('sha256').update(code).digest('hex'));
+  assert.equal(await readDigest(dir),createHash('sha256').update(code).digest('hex'));
   for(const file of files(root))assert.ok(!fs.readFileSync(file).includes(Buffer.from(code)),`code persisted in ${path.basename(file)}`);
   assert.ok(!stderr.includes(code));
  } finally {await client.close();}

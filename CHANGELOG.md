@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] - 2026-10-30
+
 ### Fixed
 - Find the runnable Throughline npm shim on Windows when PATH discovery lists its extensionless shell wrapper first. Preserve rejection of an invalid explicit `THROUGHLINE_BIN`.
 - Stop Antigravity's wrapped OAuth URL at its native blank-line boundary so pager footer text cannot alter the authorization state.
@@ -2935,7 +2937,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...HEAD
+[0.62.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...v0.62.0
 [0.61.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.23...v0.61.24
 [0.61.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.22...v0.61.23

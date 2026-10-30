@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Find the runnable Throughline npm shim on Windows when PATH discovery lists its extensionless shell wrapper first. Preserve rejection of an invalid explicit `THROUGHLINE_BIN`.
+
 ## [0.62.0] - 2026-10-30
 
 ### Added

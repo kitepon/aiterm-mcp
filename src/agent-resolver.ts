@@ -252,8 +252,8 @@ export function resolveThroughlineBin(): string | null {
   if (fromEnv) return isUsableExecutableFile(fromEnv) ? fromEnv : null;
   const resolved = spawnSync(isWin ? "where" : "which", ["throughline"], {
     encoding: "utf8",
-  }).stdout?.split(/\r?\n/).find(Boolean) ?? null;
-  return resolved && isUsableExecutableFile(resolved) ? resolved : null;
+  }).stdout?.split(/\r?\n/).find(candidate => isUsableExecutableFile(candidate)) ?? null;
+  return resolved;
 }
 
 export function runThroughlineHandoffContext(

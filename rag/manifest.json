@@ -17,6 +17,22 @@
       "fetched": "2026-10-30"
     },
     {
+      "slug": "antigravity-cli-settings-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI settings and keybindings",
+      "source_url": "https://antigravity.google/docs/cli/using/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-cli-settings-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式の設定scope/操作契約",
+      "relevance": "NativeハーネスとMCP登録/設定・停止の実装",
+      "chars": 11572,
+      "fetched": "2026-10-30"
+    },
+    {
       "slug": "antigravity-headless-20261030",
       "topic": "agent-launchers",
       "title": "Antigravity CLI headless and streaming protocol",
@@ -46,6 +62,22 @@
       "summary": "公式hook設定、conversationId、transcriptPath、Stopと注入",
       "relevance": "Antigravity native harness contract",
       "chars": 29714,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-mcp-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity MCP configuration",
+      "source_url": "https://antigravity.google/docs/mcp/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-mcp-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式の設定scope/操作契約",
+      "relevance": "NativeハーネスとMCP登録/設定・停止の実装",
+      "chars": 30177,
       "fetched": "2026-10-30"
     },
     {

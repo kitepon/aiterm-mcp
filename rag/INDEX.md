@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **187** 件 / 更新: 2026-10-30
+- 総数: **189** 件 / 更新: 2026-10-30
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -404,17 +404,23 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://invisible-island.net/xterm/xterm-paste64.html> (spec, 16092 chars)
   - 効きどころ: PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。
 
-## agent-launchers — 16件
+## agent-launchers — 18件
 
 - [Antigravity authentication](sources/agent-launchers/antigravity-auth-20261030.md) — 通常HOME・keyringとSSH手動OAuthの差
   - 出典: <https://antigravity.google/docs/install?tab=cli> (official_docs, 23265 chars)
   - 効きどころ: Antigravity native harness contract
+- [Antigravity CLI settings and keybindings](sources/agent-launchers/antigravity-cli-settings-20261030.md) — 公式の設定scope/操作契約
+  - 出典: <https://antigravity.google/docs/cli/using/> (official_docs, 11572 chars)
+  - 効きどころ: NativeハーネスとMCP登録/設定・停止の実装
 - [Antigravity CLI headless and streaming protocol](sources/agent-launchers/antigravity-headless-20261030.md) — 公式の常駐NDJSON入力/出力・会話ID・完了status・制約
   - 出典: <https://antigravity.google/docs/cli/headless> (official_docs, 37630 chars)
   - 効きどころ: Antigravity native harness contract
 - [Antigravity lifecycle hooks](sources/agent-launchers/antigravity-hooks-20261030.md) — 公式hook設定、conversationId、transcriptPath、Stopと注入
   - 出典: <https://antigravity.google/docs/hooks/> (official_docs, 29714 chars)
   - 効きどころ: Antigravity native harness contract
+- [Antigravity MCP configuration](sources/agent-launchers/antigravity-mcp-20261030.md) — 公式の設定scope/操作契約
+  - 出典: <https://antigravity.google/docs/mcp/> (official_docs, 30177 chars)
+  - 効きどころ: NativeハーネスとMCP登録/設定・停止の実装
 - [Codex CLIのdevice認証表示と公式login完了](sources/agent-launchers/codex-device-auth-prompt-20261002.md) — Codex CLIのdevice loginで公式URLと期限付きone-time codeを表示し、認証後のtoken保存をCLIが所有する一次実装。
   - 出典: <https://raw.githubusercontent.com/openai/codex/main/codex-rs/login/src/device_code_auth.rs> (official_source, 7545 chars)
   - 効きどころ: agent_authのdevice URL/code抽出ラベルと、Aitermがtokenを操作しない責務境界の根拠。

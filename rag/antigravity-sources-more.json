@@ -1,0 +1,28 @@
+[
+  {
+    "url": "https://antigravity.google/docs/mcp/",
+    "slug": "antigravity-mcp-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity MCP configuration",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli"
+    ],
+    "summary": "公式の設定scope/操作契約",
+    "relevance": "NativeハーネスとMCP登録/設定・停止の実装"
+  },
+  {
+    "url": "https://antigravity.google/docs/cli/using/",
+    "slug": "antigravity-cli-settings-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity CLI settings and keybindings",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli"
+    ],
+    "summary": "公式の設定scope/操作契約",
+    "relevance": "NativeハーネスとMCP登録/設定・停止の実装"
+  }
+]

@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **196** 件 / 更新: 2026-10-30
+- 総数: **197** 件 / 更新: 2026-10-30
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -413,7 +413,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://invisible-island.net/xterm/xterm-paste64.html> (spec, 16092 chars)
   - 効きどころ: PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。
 
-## agent-launchers — 22件
+## agent-launchers — 23件
 
 - [Antigravity authentication](sources/agent-launchers/antigravity-auth-20261030.md) — 通常HOME・keyringとSSH手動OAuthの差
   - 出典: <https://antigravity.google/docs/install?tab=cli> (official_docs, 23265 chars)
@@ -439,6 +439,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Antigravity CLI reference](sources/agent-launchers/antigravity-reference-20261030.md) — 公式CLI引数とqueuedMessages設定
   - 出典: <https://antigravity.google/docs/cli/reference/> (official_docs, 29392 chars)
   - 効きどころ: 実行中送信を次turn queueへ誤配送しない
+- [Antigravity Rules](sources/agent-launchers/antigravity-rules-20261030.md) — CLIの規範ファイルの正式な探索場所・有効化と読込量上限
+  - 出典: <https://antigravity.google/docs/rules/> (official_docs, 20359 chars)
+  - 効きどころ: BellTeamの共通規範とプロジェクト規範を通常HOMEから読み込み、Aiterm起動相関の注入と混同しない
 - [Antigravity CLI settings](sources/agent-launchers/antigravity-settings-20261030.md) — 公式CLI引数とqueuedMessages設定
   - 出典: <https://antigravity.google/docs/settings/> (official_docs, 48529 chars)
   - 効きどころ: 実行中送信を次turn queueへ誤配送しない

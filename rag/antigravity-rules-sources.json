@@ -1,0 +1,16 @@
+[
+  {
+    "url": "https://antigravity.google/docs/rules/",
+    "slug": "antigravity-rules-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity Rules",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli",
+      "rules"
+    ],
+    "summary": "CLIの規範ファイルの正式な探索場所・有効化と読込量上限",
+    "relevance": "BellTeamの共通規範とプロジェクト規範を通常HOMEから読み込み、Aiterm起動相関の注入と混同しない"
+  }
+]

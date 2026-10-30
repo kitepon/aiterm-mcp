@@ -36,8 +36,12 @@ sleep 30
   assert.equal(current.auth_ui.input,'authorization_code');
   const pending=client.callTool({name:'agent_auth',arguments:{harness:'claude-code',action:'respond',session_id:session,expected_binding:current.auth_ui.binding,expected_prompt_digest:current.auth_ui.prompt_digest,response:{kind:'authorization_code',value:code}}});
   if(replace){
-   for(let i=0;i<50&&!fs.existsSync(path.join(dir,'count'));i++)await new Promise(r=>setTimeout(r,10));
-   assert.ok(fs.existsSync(path.join(dir,'count')));
+   let settled=false;pending.then(()=>{settled=true},()=>{settled=true});
+   const received=()=>{try{return fs.readFileSync(path.join(dir,'count'),'utf8')==='x'}catch{return false}};
+   // Synchronize on the native submission, including MCP dispatch under full-suite load.
+   for(const deadline=performance.now()+5000;!received()&&!settled&&performance.now()<deadline;)await new Promise(r=>setTimeout(r,10));
+   assert.ok(received(),'native code submission must precede generation replacement');
+   assert.equal(settled,false,'replacement must happen before the original response completes');
    const file=path.join(agentsDir(),`${session}.auth.json`),meta=JSON.parse(fs.readFileSync(file,'utf8'));
    meta.launch_id='0123456789abcdef0123456789abcdef';fs.writeFileSync(file,JSON.stringify(meta));
   }

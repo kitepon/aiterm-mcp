@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add Google Antigravity CLI as the fifth native harness (`antigravity-cli`), with live model catalog, official authentication UI, same-conversation configuration, correlated TUI completion, and standard PTY lifecycle. Preserve existing harness IDs and tools.
 
+### Fixed
+- Start the requested POSIX pane shell independently of a service account's non-login default shell, preserving caller environment isolation.
+- Accept an empty MCP configuration file as a new registration while continuing to reject malformed nonempty JSON without overwriting it.
+
 ## [0.61.24] - 2026-10-28
 
 ### Fixed

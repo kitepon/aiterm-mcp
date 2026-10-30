@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **193** 件 / 更新: 2026-10-30
+- 総数: **196** 件 / 更新: 2026-10-30
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -209,7 +209,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration> (docs, 17019 chars)
   - 効きどころ: WSL2上の対象環境そのもの。bashのPS0=133;C/PS1=133;A..B注入の実コードがあり、自前でマーカーを仕込む方式の雛形になる。
 
-## バックエンド (backends) — 41件
+## バックエンド (backends) — 44件
 
 - [Detach — GNU Screen User's Manual](sources/backends/gnu-screen-detach.md) — GNU screenのdetach仕様。C-a dで端末から切離しバックグラウンド化、接続喪失時のautodetach、-rでの再接続を解説。
   - 出典: <https://www.gnu.org/software/screen/manual/html_node/Detach.html> (docs, 1578 chars)
@@ -313,6 +313,15 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Control Mode — tmux/tmux Wiki](sources/backends/tmux-control-mode-wiki.md) — tmux制御モード(-CC)のプロトコル仕様。%begin/%end/%errorのガード行、%output等の非同期通知、コマンド送受信の行ベース仕様。
   - 出典: <https://github.com/tmux/tmux/wiki/Control-Mode> (docs, 20509 chars)
   - 効きどころ: 端末エミュレーションせず1本のソケット越しにコマンド送出と出力読取を構造化できる。完了境界検出を %begin/%end ガードで決定論化する設計の直接の根拠。
+- [tmux 3.1c official manual (direct command arguments)](sources/backends/tmux-direct-argv-3-1c.md) — new-sessionの複数引数による直接実行
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/3.1c/tmux.1> (official_docs, 139311 chars)
+  - 効きどころ: service userのdefault-shellに依存せず要求shellを起動
+- [tmux 3.2 official manual (direct command arguments)](sources/backends/tmux-direct-argv-3-2.md) — new-sessionの複数引数による直接実行
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/3.2/tmux.1> (official_docs, 160198 chars)
+  - 効きどころ: service userのdefault-shellに依存せず要求shellを起動
+- [tmux 3.8 official manual (direct command arguments)](sources/backends/tmux-direct-argv-3-8.md) — new-sessionの複数引数による直接実行
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/3.8/tmux.1> (official_docs, 228081 chars)
+  - 効きどころ: service userのdefault-shellに依存せず要求shellを起動
 - [Getting Started — tmux/tmux Wiki](sources/backends/tmux-getting-started-wiki.md) — tmuxのクライアント/サーバモデル入門。状態を1個のサーバプロセスに集約し、session/window/paneの階層とattach/detachで永続化する仕組み。
   - 出典: <https://github.com/tmux/tmux/wiki/Getting-Started> (docs, 66222 chars)
   - 効きどころ: エージェントのプロセスが毎回終了してもdetachedでセッションが生き残る前提(サーバ常駐)を公式に裏付ける。バックエンド選定の基礎モデル。

@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/tmux/tmux/3.1c/tmux.1",
+    "slug": "tmux-direct-argv-3-1c",
+    "topic": "backends",
+    "title": "tmux 3.1c official manual (direct command arguments)",
+    "source_type": "official_docs",
+    "tags": [
+      "tmux",
+      "shell",
+      "argv"
+    ],
+    "summary": "new-session\u306e\u8907\u6570\u5f15\u6570\u306b\u3088\u308b\u76f4\u63a5\u5b9f\u884c",
+    "relevance": "service user\u306edefault-shell\u306b\u4f9d\u5b58\u305b\u305a\u8981\u6c42shell\u3092\u8d77\u52d5",
+    "ext": "txt"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/tmux/tmux/3.2/tmux.1",
+    "slug": "tmux-direct-argv-3-2",
+    "topic": "backends",
+    "title": "tmux 3.2 official manual (direct command arguments)",
+    "source_type": "official_docs",
+    "tags": [
+      "tmux",
+      "shell",
+      "argv"
+    ],
+    "summary": "new-session\u306e\u8907\u6570\u5f15\u6570\u306b\u3088\u308b\u76f4\u63a5\u5b9f\u884c",
+    "relevance": "service user\u306edefault-shell\u306b\u4f9d\u5b58\u305b\u305a\u8981\u6c42shell\u3092\u8d77\u52d5",
+    "ext": "txt"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/tmux/tmux/3.8/tmux.1",
+    "slug": "tmux-direct-argv-3-8",
+    "topic": "backends",
+    "title": "tmux 3.8 official manual (direct command arguments)",
+    "source_type": "official_docs",
+    "tags": [
+      "tmux",
+      "shell",
+      "argv"
+    ],
+    "summary": "new-session\u306e\u8907\u6570\u5f15\u6570\u306b\u3088\u308b\u76f4\u63a5\u5b9f\u884c",
+    "relevance": "service user\u306edefault-shell\u306b\u4f9d\u5b58\u305b\u305a\u8981\u6c42shell\u3092\u8d77\u52d5",
+    "ext": "txt"
+  }
+]

@@ -426,7 +426,7 @@ registerRemoteAwareTool(
         .optional()
         .describe(
           "agent session への送信（forceなし）で、本文の前に置く1行。送る文は「preface・空行・text」の並びになる。" +
-            "Claude Codeの席ではprefaceを貼り付けの印なしで入れ、textだけを貼る。Codex／Grok／Cursorの席では1つで貼る。" +
+            "Claude Codeの席ではprefaceを貼り付けの印なしで入れ、textだけを貼る。Codex／Grok／Cursor／Antigravityの席では1つで貼る。" +
             "1行・200字以内・制御文字なしで、行頭が記号や空白でなく、@ を含まない文。外れた時と通常PTY送信・force送信・remote付きでは、" +
             "打鍵前に拒否する",
         ),
@@ -972,7 +972,7 @@ registerRemoteAwareTool(
       "authenticatedは認証の結果であり、agent_launchの起動準備完了とは別。remoteは他toolと同じ標準対応。" +
       "startは公式の状態が認証済みなら何も起こさずauthenticatedを返す。relogin:trueを付けると、認証済みに見えても公式ログインを開始する" +
       "（別のアカウントへ入り直す時、ログインの期限切れを状態から見抜けない時）。Aitermは資格情報を消さず、置き換えは公式CLIが行う。" +
-      "Codexの公式ログインは、始めた時点で元のログインを消す（途中でcancelしても戻らない）。",
+      "Codexの公式ログインは、始めた時点で元のログインを消す（途中でcancelしても戻らない）。Antigravityのreloginは未対応を返す。",
     inputSchema: {
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       action: z.enum(["start", "status", "cancel", "respond"]),
@@ -1010,7 +1010,7 @@ registerRemoteAwareTool(
   },
 );
 
-// ファスト（高速の応答。ADR 0114）。断りの符号は4つのharnessで共通で、文の先頭に付く。
+// ファスト（高速の応答。ADR 0114）。断りの符号は各harnessで共通で、文の先頭に付く。
 const fastModeErrorCodes = ["FAST_MODE_NOT_SUPPORTED", "FAST_MODE_UNAVAILABLE", "FAST_MODE_MODEL_CONFLICT", "FAST_MODE_UNCONFIRMED"] as const;
 const fastModeFailureSchema = z.object({
   code: z.enum(fastModeErrorCodes),
@@ -1040,7 +1040,7 @@ registerRemoteAwareTool(
   "agent_configure",
   {
     description:
-      "起動済みのClaude／Codex／Grok／Cursor agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effort／fastを変更する。" +
+      "起動済みのClaude／Codex／Grok／Cursor／Antigravity agent sessionを再起動せず、会話contextを保ったままmodel／reasoning effort／fastを変更する。" +
       "各harnessのCLI標準model操作を使う。Cursorのreasoning_effort変更はmodelと同時指定する。" +
       "Claude Codeの席では /model の選ぶ画面の「この会話だけ」（s）で替え、端末の ~/.claude/settings.json の既定は書き換えない。" +
       "その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る。" +
@@ -1090,7 +1090,7 @@ registerRemoteAwareTool(
     description:
       "harnessが今返すmodelとreasoning effortの候補を、そのharnessの公式の一覧から取得する。promptもturnも送らず推論を消費しない。" +
       "Codexはapp-server model/list、Claude Codeはstream-json initializeのmodels、Grokはagent stdio initializeのmodelState、" +
-      "Cursorはcursor-agent modelsを素のmodel IDとeffortへ分けたもの。返るidとeffortsはagent_launch／agent_configureへそのまま渡せる。" +
+      "Cursorはcursor-agent modelsを素のmodel IDとeffortへ分けたもの。Antigravityはagy modelsのeffortを含むIDをそのまま返す。返るidとeffortsはagent_launch／agent_configureへそのまま渡せる。" +
       "modelごとのfastは、そのmodelでfastへ切り替えられるか（harnessが返す値）。fast_unavailableは、アカウントの都合でどのmodelでも使えない時の訳。" +
       "取得不能はMODEL_CATALOG_UNAVAILABLE、形式異常はMODEL_CATALOG_INVALIDのエラーで返し、別の一覧へfallbackしない。" +
       "remoteを付けると別端末のharnessの候補を返す。",

@@ -551,11 +551,13 @@ export function tmuxNewSession(
     return result;
   }
   const env = sessionCallerEnvironment();
+  // A single command goes through tmux's default-shell, which may be /usr/bin/false for service users.
+  const command = ["/bin/sh", "-c", launch.shell];
   if (cold) {
     // With no server, there is no global environment to adjust. The first
     // new-session inherits this caller's environment and prints its native ID
     // and newly created server PID for the guarded receipt proof.
-    const r = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, launch.shell], env);
+    const r = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, ...command], env);
     if (r.code === 0 || r.stdout) captureExecutionCreatedNative(r.stdout);
     return r;
   }
@@ -566,7 +568,7 @@ export function tmuxNewSession(
     for (const key of tmuxEnvironmentNames("-g") ?? []) others.add(key);
     const r = runTmux(observe, undefined, [
       "set-option", "-g", "update-environment", updateEnvironmentPatterns(Object.keys(env), [...others], wildcard).join(" "), ";",
-      "new-session", "-d", "-s", name, ...printNative, ...launch.args, launch.shell, ";",
+      "new-session", "-d", "-s", name, ...printNative, ...launch.args, ...command, ";",
       ...(guarded ? [] : ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";"]),
       "set-option", "-gu", "update-environment",
     ], env);

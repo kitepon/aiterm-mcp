@@ -39,7 +39,10 @@ export function mergeJsonMcp(file: string, registration: Registration): "configu
   let target = file;
   if (existsSync(file)) {
     target = realpathSync(file);
-    try { current = JSON.parse(readFileSync(target, "utf8")); }
+    try {
+      const text = readFileSync(target, "utf8");
+      current = text.trim() ? JSON.parse(text) : {};
+    }
     catch { throw new SetupError("config_invalid", "既存設定のJSONを読めません"); }
     if (!record(current) || (current.mcpServers !== undefined && !record(current.mcpServers))) {
       throw new SetupError("config_invalid", "既存設定とmcpServersはobjectである必要があります");

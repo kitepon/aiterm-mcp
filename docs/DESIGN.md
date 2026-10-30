@@ -163,6 +163,8 @@ Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ
 
 ## Agent model
 
+POSIXのpane作成は要求したshellを直接実行するargvを渡し、サービス用アカウントのログイン不可shellへ仲介させない（ADR 0136）。WindowsのPowerShell/psmux経路は従来どおり。
+
 AntigravityのTUI＋公式hook、発話位置とexecutionNumによる完了相関は[ADR 0135](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0135-antigravity-native-harness.md)を正とする。
 
 標準入口`agent_launch`は`claude-code`、`codex-cli`、`grok-cli`、`cursor-cli`、`antigravity-cli`のharnessとmodelを別軸で選ぶ。

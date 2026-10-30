@@ -29,6 +29,12 @@ test('設定未作成なら初期登録し、不正な設定は上書きしな�
   const file = join(dir, 'nested', 'mcp.json');
   mergeJsonMcp(file, registration);
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: { aiterm: registration } });
+  for (const empty of ['', ' \n']) {
+    writeFileSync(file, empty);
+    assert.equal(mergeJsonMcp(file, registration), 'configured');
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: { aiterm: registration } });
+    assert.equal(readFileSync(`${file}.aiterm-backup`, 'utf8'), empty);
+  }
   for (const invalid of ['{invalid', '[]', '{"mcpServers":[]}']) {
     writeFileSync(file, invalid);
     assert.throws(() => mergeJsonMcp(file, registration), /設定|JSON/);

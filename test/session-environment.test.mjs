@@ -61,6 +61,23 @@ test("端末へ継がせる環境から、Aitermの名札と呼んだ側のpane�
   assert.deepEqual(env, { PATH: "/bin", AITERM_STATE_BASE: "/state", AITERM_TMUX: "/usr/bin/tmux" });
 });
 
+test("要求したshellはtmux serverのログイン不可shellへ渡さず起動する", { skip: isWin }, () => {
+  withServer(base => {
+    const configured = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const runtime = await import(${JSON.stringify(pathToFileURL(resolve('dist/tmux-runtime.js')).href)});
+      (await import('node:fs')).mkdirSync(runtime.SOCKDIR, { recursive: true });
+      const seeded = runtime.tmuxCommand(false, 'new-session', '-d', '-s', 'env_seed', '/bin/sh', '-c', 'sleep 60');
+      if (seeded.code !== 0) throw new Error(seeded.stderr);
+      const changed = runtime.tmuxCommand(false, 'set-option', '-g', 'default-shell', '/usr/bin/false');
+      if (changed.code !== 0) throw new Error(changed.stderr);
+    `], { env: base, encoding: 'utf8' });
+    assert.equal(configured.status, 0, configured.stderr);
+    const actual = openAs(base, 'env_explicit_shell', { WHO: 'explicit' });
+    assert.equal(actual.WHO, 'explicit');
+    assert.equal(actual.AITERM_SESSION_ID, 'env_explicit_shell');
+  });
+});
+
 test("後から開いた端末に、先にserverを起こした呼び出し元の環境が入らない", () => {
   withServer((base, home) => {
     const a = openAs(base, "env_a", { WHO: "A", ONLY_A: "secretA" });

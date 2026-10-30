@@ -602,7 +602,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `agent_models` | harnessが今選べるmodelとreasoning effortを、そのharness自身の一覧からpromptを送らずに取得 | `harness`, `cwd?`, `include_hidden?` |
 | `agent_approval` | Codexの現在の承認を検査し、単発許可・拒否を送る | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | deprecated互換alias（`composer_agent`は0.41.0で削除。Composerは`agent_launch`の`cursor-cli`で使う） | 旧launcher引数 |
-| `agent_configure` | 起動中のClaude／Codex／Grok／Cursorを再起動せずmodel／effort／fast変更 | `session_id`, `model?`, `reasoning_effort?`, `fast?` |
+| `agent_configure` | 起動中のClaude／Codex／Grok／Cursor／Antigravityを再起動せずmodel／effort／fast変更 | `session_id`, `model?`, `reasoning_effort?`, `fast?` |
 | `claude_turn` | 相関済みClaude operationをdispatch（issue）または回収（recover） | `action`, `session_id`, `operation_id`, `text?` |
 | `claude_approval` | 現在表示中の相関済みClaude承認UIを検査または応答 | `action`, `session_id`, `operation_id?`, `approval_choice?`, `observed_prompt_digest?` |
 | `diagnostics` | 機械可読 JSON による read-only factory readiness | （なし） |
@@ -632,7 +632,7 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。
 
-`agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursorを変更し、PTYと会話contextを維持する。
+`agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursor／Antigravityを変更し、PTYと会話contextを維持する。
 
 Codexでmodelだけを変更する場合は、標準の選択画面から現在のeffortを読み、同じ値を明示的に選びます。現在値を読めない場合や変更先で選べない場合は、別の値へ置き換えず失敗します。
 
@@ -772,7 +772,7 @@ BellTeamのmodel・effort・fast変更も、既存session世代に結合したna
 
 通常の配送と親への返答は、実行追跡用の共有lockを取得も待機もしない。旧native入口も通常配送と末端優先の`agent_stop`を提供し、`agent_execution`登録を要求しない。この入口を使う本体もExecutionBridgeの先行登録を外す。記録の失敗で配送を止めない。
 
-セッションは共有tmux socket（Windows nativeはpsmux namespace）上にある。`pty_open`／`agent_launch`の戻り値に表示されるattachコマンドで、人間がClaude／Codex／Grok／Cursor harnessの同じ端末へ入り、途中でキーボードを引き取れる。
+セッションは共有tmux socket（Windows nativeはpsmux namespace）上にある。`pty_open`／`agent_launch`の戻り値に表示されるattachコマンドで、人間がClaude／Codex／Grok／Cursor／Antigravity harnessの同じ端末へ入り、途中でキーボードを引き取れる。
 POSIXでは、tmuxのソケットがまだ無くても最初の`agent_launch`でserverを起動できる。Aitermは作成したsessionとserverを実際のreceiptから照合して受付を確定し、不明な結果を入力の再送で補わない。
 
 ## 要件
@@ -788,7 +788,7 @@ POSIXでは、tmuxのソケットがまだ無くても最初の`agent_launch`で
 
 - **ネスト中（ssh / docker / REPL / 起動したエージェント TUI）は quiescence が原理的に効かない。** 前面コマンドがシェル集合（bash/sh/zsh/fish/dash）の外になるため。ネスト中で `until` も `mark` も無いときは、待っても完了を確定できる信号が無いので、`pty_read({ wait: true })` はフル `timeout` を空費せず出力静止時点で `is_complete=False via nested` と早期に返し、`until`（既定リテラル部分一致・`until_regex: true` で正規表現）か `mark: true`（終了コード付き sentinel・自動検出）の指定を促す。全画面のエージェント TUI なら、出力が落ち着いた時点で `{ screen: true }` を読む。
 - **`is_complete=False` は失敗ではない。** 「timeout 内に完了を観測できなかった」という意味。長時間コマンドでは `timeout` を伸ばすか `until`/`mark` を使う。
-- **agent harnessは実物TUIを起動し、model APIを代理しない。** model・認証・挙動は選んだharnessのもの。隠れたagent間protocolはなく、MCPクライアントがClaude／Codex／Grok／Cursor TUIへ入力を送り出力を読む。
+- **agent harnessは実物TUIを起動し、model APIを代理しない。** model・認証・挙動は選んだharnessのもの。隠れたagent間protocolはなく、MCPクライアントがClaude／Codex／Grok／Cursor／Antigravity TUIへ入力を送り出力を読む。
 - **`pty_send({ rtk: true })` は単行コマンドのみ＋外部 `rtk` バイナリが必要**（無ければ素通し）。一方 `pty_read({ rtk: true })` の reducer は自前実装で rtk 非依存。
 - **`pytest` reducer は件数・`FAILURES` ブロック整形が rtk 0.50.0 と byte 一致**（回帰テストで固定）。ただし `-ra`/`-rf` 時の `FAILED` 要約行の理由は**全文を保持する**（rtk 0.50.0 は最初の `" - "` 区切りで切るが、本実装は可読性優先で情報を残すため、この行は意図的に rtk と完全一致させない）。rtk が大出力時に付ける `[full output: …]`（recall ポインタ）行は read 側では再現しない。
 - **`grep` reducer は rtk 0.50.0 と一致**する。上限に収まる間は出力をそのまま返し、上限を超えた時のまとめ方は recall の案内を除いて `rtk grep` と byte 一致する。`git log` は件数（`-n`）か範囲（`A..B`）を指定すると全コミットを残し、指定が無ければ 10 件にして `[+N more commits]` で終える。rtk の `never_worse` と同じく、縮めた結果が元より多くのトークンを使う reducer は適用しない。

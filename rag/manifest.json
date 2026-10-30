@@ -1243,6 +1243,57 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "tmux-direct-argv-3-1c",
+      "topic": "backends",
+      "title": "tmux 3.1c official manual (direct command arguments)",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/3.1c/tmux.1",
+      "source_type": "official_docs",
+      "path": "sources/backends/tmux-direct-argv-3-1c.md",
+      "tags": [
+        "tmux",
+        "shell",
+        "argv"
+      ],
+      "summary": "new-sessionの複数引数による直接実行",
+      "relevance": "service userのdefault-shellに依存せず要求shellを起動",
+      "chars": 139311,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "tmux-direct-argv-3-2",
+      "topic": "backends",
+      "title": "tmux 3.2 official manual (direct command arguments)",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/3.2/tmux.1",
+      "source_type": "official_docs",
+      "path": "sources/backends/tmux-direct-argv-3-2.md",
+      "tags": [
+        "tmux",
+        "shell",
+        "argv"
+      ],
+      "summary": "new-sessionの複数引数による直接実行",
+      "relevance": "service userのdefault-shellに依存せず要求shellを起動",
+      "chars": 160198,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "tmux-direct-argv-3-8",
+      "topic": "backends",
+      "title": "tmux 3.8 official manual (direct command arguments)",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/3.8/tmux.1",
+      "source_type": "official_docs",
+      "path": "sources/backends/tmux-direct-argv-3-8.md",
+      "tags": [
+        "tmux",
+        "shell",
+        "argv"
+      ],
+      "summary": "new-sessionの複数引数による直接実行",
+      "relevance": "service userのdefault-shellに依存せず要求shellを起動",
+      "chars": 228081,
+      "fetched": "2026-10-30"
+    },
+    {
       "slug": "tmux-getting-started-wiki",
       "topic": "backends",
       "title": "Getting Started — tmux/tmux Wiki",

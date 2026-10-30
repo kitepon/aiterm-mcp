@@ -142,7 +142,10 @@ async function scenario(mode) {
     } else if(mode==='busy'||mode==='race'){
       assert.equal(row.receipt_mode,'agent_steer');assert.equal(row.marker_count,1);assert.equal(row.execution_error,null);
       assert.equal(row.operations.send,'accepted');assert.equal(row.slots,0);
-      assert(row.elapsed_ms<10000,'ordinary busy input does not wait for the 30-second readiness deadline');
+      assert(row.elapsed_ms<10000,'ordinary busy input does not wait for the 30-second readiness deadline: '+JSON.stringify({
+        elapsed_ms:row.elapsed_ms,capture_samples:row.capture_samples,trace_ms:traceRows.at(-1)?.at-traceRows[0]?.at,
+        native_effects:traceRows.filter(item=>item.event==='native').length,
+      }));
     } else if(mode==='startup') {
       assert.equal(row.receipt_mode,'agent_dispatch');assert.equal(row.marker_count,1);
       assert.equal(row.operations.send,'accepted');assert(row.capture_samples>=4,'startup samples do not count as idle readiness');

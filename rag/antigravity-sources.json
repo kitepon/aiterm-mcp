@@ -1,0 +1,41 @@
+[
+  {
+    "url": "https://antigravity.google/docs/cli/headless",
+    "slug": "antigravity-headless-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity CLI headless and streaming protocol",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli"
+    ],
+    "summary": "公式の常駐NDJSON入力/出力・会話ID・完了status・制約",
+    "relevance": "Antigravity native harness contract"
+  },
+  {
+    "url": "https://antigravity.google/docs/hooks/",
+    "slug": "antigravity-hooks-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity lifecycle hooks",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli"
+    ],
+    "summary": "公式hook設定、conversationId、transcriptPath、Stopと注入",
+    "relevance": "Antigravity native harness contract"
+  },
+  {
+    "url": "https://antigravity.google/docs/install?tab=cli",
+    "slug": "antigravity-auth-20261030",
+    "topic": "agent-launchers",
+    "title": "Antigravity authentication",
+    "source_type": "official_docs",
+    "tags": [
+      "antigravity",
+      "cli"
+    ],
+    "summary": "通常HOME・keyringとSSH手動OAuthの差",
+    "relevance": "Antigravity native harness contract"
+  }
+]

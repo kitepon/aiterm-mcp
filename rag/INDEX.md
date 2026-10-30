@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **156** 件 / 更新: 2026-10-24
+- 総数: **187** 件 / 更新: 2026-10-30
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -209,7 +209,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration> (docs, 17019 chars)
   - 効きどころ: WSL2上の対象環境そのもの。bashのPS0=133;C/PS1=133;A..B注入の実コードがあり、自前でマーカーを仕込む方式の雛形になる。
 
-## バックエンド (backends) — 36件
+## バックエンド (backends) — 41件
 
 - [Detach — GNU Screen User's Manual](sources/backends/gnu-screen-detach.md) — GNU screenのdetach仕様。C-a dで端末から切離しバックグラウンド化、接続喪失時のautodetach、-rでの再接続を解説。
   - 出典: <https://www.gnu.org/software/screen/manual/html_node/Detach.html> (docs, 1578 chars)
@@ -292,6 +292,21 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [tmux 3.3a native creation receipt and server/session identifiers](sources/backends/tmux-3-3a-native-create-receipt.md) — Pinned official tmux manual source: new-session -P/-F and native server/session identifiers.
   - 出典: <https://raw.githubusercontent.com/tmux/tmux/3.3a/tmux.1> (official_man_source, 168477 chars)
   - 効きどころ: Guarded creation must capture the actual command receipt and retain native server ownership instead of inferring a created generation from a same-name observation.
+- [tmux 3.6 format.c pane exit state](sources/backends/tmux-36-exit-format-c.md) — tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/format.c> (official_source, 132370 chars)
+  - 効きどころ: Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。
+- [tmux 3.6 server.c pane exit state](sources/backends/tmux-36-exit-server-c.md) — tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/server.c> (official_source, 11823 chars)
+  - 効きどころ: Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。
+- [tmux 3.6 server-fn.c pane EOF before child status](sources/backends/tmux-36-exit-server-fn-c.md) — tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/server-fn.c> (official_source, 11251 chars)
+  - 効きどころ: Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。
+- [tmux 3.6 tmux.h pane exit state](sources/backends/tmux-36-exit-tmux-h.md) — tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/tmux.h> (official_source, 113221 chars)
+  - 効きどころ: Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。
+- [tmux 3.6 window.c pane exit state](sources/backends/tmux-36-exit-window-c.md) — tmux 3.6のpane_dead(fd)と終了status/signal(STATUSREADY)の独立した確定条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/0dac7fe434d029a4f0b819cba8eb7963df291990/window.c> (official_source, 42547 chars)
+  - 効きどころ: Linux認証exitunknownの新しい決定的境界質問。旧CI原因同定ではない。
 - [tmux-continuum README](sources/backends/tmux-continuum-readme.md) — tmux環境を15分間隔で自動保存し、tmuxサーバ起動時に自動復元するプラグイン(resurrect依存)。復元はサーバ起動時のみ。
   - 出典: <https://raw.githubusercontent.com/tmux-plugins/tmux-continuum/master/README.md> (github_readme, 3524 chars)
   - 効きどころ: エージェントが何もしなくてもバックグラウンドでスナップショットが取られ、サーバ再起動で自動復帰する経路の根拠。無人運用の永続性設計に直結。
@@ -389,8 +404,17 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://invisible-island.net/xterm/xterm-paste64.html> (spec, 16092 chars)
   - 効きどころ: PTYへ「貼り付け相当」のテキストを送る際、ブラケットペーストの開始/終了マーカーと、その保護が制御文字混入には無力である(=送る前に我々がサニタイズ責任を持つ)という設計上の前提を一次仕様で確定できる。
 
-## agent-launchers — 13件
+## agent-launchers — 16件
 
+- [Antigravity authentication](sources/agent-launchers/antigravity-auth-20261030.md) — 通常HOME・keyringとSSH手動OAuthの差
+  - 出典: <https://antigravity.google/docs/install?tab=cli> (official_docs, 23265 chars)
+  - 効きどころ: Antigravity native harness contract
+- [Antigravity CLI headless and streaming protocol](sources/agent-launchers/antigravity-headless-20261030.md) — 公式の常駐NDJSON入力/出力・会話ID・完了status・制約
+  - 出典: <https://antigravity.google/docs/cli/headless> (official_docs, 37630 chars)
+  - 効きどころ: Antigravity native harness contract
+- [Antigravity lifecycle hooks](sources/agent-launchers/antigravity-hooks-20261030.md) — 公式hook設定、conversationId、transcriptPath、Stopと注入
+  - 出典: <https://antigravity.google/docs/hooks/> (official_docs, 29714 chars)
+  - 効きどころ: Antigravity native harness contract
 - [Codex CLIのdevice認証表示と公式login完了](sources/agent-launchers/codex-device-auth-prompt-20261002.md) — Codex CLIのdevice loginで公式URLと期限付きone-time codeを表示し、認証後のtoken保存をCLIが所有する一次実装。
   - 出典: <https://raw.githubusercontent.com/openai/codex/main/codex-rs/login/src/device_code_auth.rs> (official_source, 7545 chars)
   - 効きどころ: agent_authのdevice URL/code抽出ラベルと、Aitermがtokenを操作しない責務境界の根拠。
@@ -485,6 +509,72 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://smithery.ai/docs/api-reference/servers/update-a-server> (docs, 13461 chars)
   - 効きどころ: aiterm-mcp公開ページの訴求、リポジトリ導線、MITライセンス、アイコンを正規APIで設定する根拠。
 
+## grok-goal-worker-binding — 21件
+
+- [crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-pager-src-slash-commands-session_info.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs> (official_source, 749 chars)
+  - 効きどころ: 新workerを起こさず既sessionへ接続するadapterの根拠を調べる。
+- [crates/codegen/xai-grok-shell/src/leader/client.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-client.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/client.rs> (official_source, 47249 chars)
+  - 効きどころ: 新workerを起こさず既sessionへ接続するadapterの根拠を調べる。
+- [crates/codegen/xai-grok-shell/src/leader/lock.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-lock.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/lock.rs> (official_source, 25572 chars)
+  - 効きどころ: 新workerを起こさず既sessionへ接続するadapterの根拠を調べる。
+- [crates/codegen/xai-grok-shell/src/leader/protocol.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-protocol.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/leader/protocol.rs> (official_source, 46057 chars)
+  - 効きどころ: 新workerを起こさず既sessionへ接続するadapterの根拠を調べる。
+- [crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs> (official_source, 99255 chars)
+  - 効きどころ: 新workerを起こさず既sessionへ接続するadapterの根拠を調べる。
+- [crates/codegen/xai-grok-shell/src/session/goal_tracker.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md) — 公式goal statusの形式とcurrent session所有の根拠。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/goal_tracker.rs> (official_source, 54212 chars)
+  - 効きどころ: 別CLIの状態型へ変換せずnative readbackを確認する。
+- [crates/codegen/xai-grok-shell/src/session/slash_commands.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-slash_commands.md) — 公式goal statusの形式とcurrent session所有の根拠。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/slash_commands.rs> (official_source, 62759 chars)
+  - 効きどころ: 別CLIの状態型へ変換せずnative readbackを確認する。
+- [Grok official views/goal_detail.rs](sources/grok-goal-worker-binding/grok-native-goal-detail.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/views/goal_detail.rs> (official_source, 91046 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official goal elapsed display](sources/grok-goal-worker-binding/grok-native-goal-orchestrator.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs> (official_source, 17641 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official goal_support.rs](sources/grok-goal-worker-binding/grok-native-goal-support.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal_support.rs> (official_source, 79305 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official minimal/api.rs](sources/grok-goal-worker-binding/grok-native-minimal-api.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/minimal/api.rs> (official_source, 32135 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official app/agent_view/prompt.rs](sources/grok-goal-worker-binding/grok-native-prompt-keys.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/prompt.rs> (official_source, 93284 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official session state extension](sources/grok-goal-worker-binding/grok-native-session-state.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/extensions/session_state.rs> (official_source, 13523 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official slash_exec.rs](sources/grok-goal-worker-binding/grok-native-slash-exec.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/session/acp_session_impl/slash_exec.rs> (official_source, 49707 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official slash/acp_command.rs](sources/grok-goal-worker-binding/grok-native-ui-acp-command.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/slash/acp_command.rs> (official_source, 13896 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official app/acp_handler/tests/goals.rs](sources/grok-goal-worker-binding/grok-native-ui-goal-tests.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/acp_handler/tests/goals.rs> (official_source, 28540 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official app/agent_view/input.rs](sources/grok-goal-worker-binding/grok-native-ui-input.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/input.rs> (official_source, 112434 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official app/agent_view/panes.rs](sources/grok-goal-worker-binding/grok-native-ui-panes.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/agent_view/panes.rs> (official_source, 65538 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [Grok official app/dispatch/router.rs](sources/grok-goal-worker-binding/grok-native-ui-router.md) — 元workerのfresh goal statusとpause/clearの公式処理。
+  - 出典: <https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/src/app/dispatch/router.rs> (official_source, 78659 chars)
+  - 効きどころ: 保存stateを現在値へ代入せず、公式現在表示と操作応答を照合する。
+- [string-width 7.2.0 package.json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 表示cell幅とGoal表示の位置を既存libraryで取得する。
+  - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/package.json> (official_source, 1139 chars)
+  - 効きどころ: Unicodeのcwd/branchを含む現在headerのクリック位置を、native pane座標へ正しく結合する。
+- [string-width 7.2.0 readme.md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 表示cell幅とGoal表示の位置を既存libraryで取得する。
+  - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
+  - 効きどころ: Unicodeのcwd/branchを含む現在headerのクリック位置を、native pane座標へ正しく結合する。
+
 ## installation — 2件
 
 - [HomebrewのCellarとopt prefix](sources/installation/homebrew-opt-prefix.md) — Cellarは版別の実体を置き、opt prefixは有効なkegへのsymlinkを維持する。
@@ -509,56 +599,11 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
 
-## windows-wrapped-shell-prompt
+## windows-wrapped-shell-prompt — 2件
 
 - [string-width 7.2.0 package.json](sources/windows-wrapped-shell-prompt/string-width-7-2-0-package-json.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
+  - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/package.json> (official_source, 1139 chars)
+  - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
-
-## grok-goal-worker-binding
-
-- [crates/codegen/xai-grok-shell/src/session/acp_session_impl/goal.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-acp_session_impl-goal.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
-- [crates/codegen/xai-grok-shell/src/leader/client.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-client.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
-- [crates/codegen/xai-grok-shell/src/leader/lock.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-lock.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
-- [crates/codegen/xai-grok-shell/src/leader/protocol.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-leader-protocol.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
-- [crates/codegen/xai-grok-pager/src/slash/commands/session_info.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-pager-src-slash-commands-session_info.md) — Grok公式元workerとsessionへの接続・goal操作の責務を確認する。
-- [crates/codegen/xai-grok-shell/src/session/slash_commands.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-slash_commands.md) — 公式goal statusの形式とcurrent session所有の根拠。
-- [crates/codegen/xai-grok-shell/src/session/goal_tracker.rs](sources/grok-goal-worker-binding/crates-codegen-xai-grok-shell-src-session-goal_tracker.md) — 公式goal statusの形式とcurrent session所有の根拠。
-
-公式main sourceは2bdd1d6aへ固定した調査資料であり、実CLI1.0.70/f50904eaとのsource同一性は主張しない。現在TUI/PID登録/statusは隔離した実CLIで別に確認する。
-
-- [Grok official current worker accounting](sources/grok-goal-worker-binding/grok-native-goal-support.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
-
-- [Grok official local goal status/pause/clear](sources/grok-goal-worker-binding/grok-native-slash-exec.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
-
-- [Grok official elapsed display](sources/grok-goal-worker-binding/grok-native-goal-orchestrator.md) — 同じ元workerの現在値・操作応答と保存snapshotを区別する一次実装。
-
-- [grok-native-goal-detail](sources/grok-goal-worker-binding/grok-native-goal-detail.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-minimal-api](sources/grok-goal-worker-binding/grok-native-minimal-api.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-session-state](sources/grok-goal-worker-binding/grok-native-session-state.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-ui-acp-command](sources/grok-goal-worker-binding/grok-native-ui-acp-command.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-ui-goal-tests](sources/grok-goal-worker-binding/grok-native-ui-goal-tests.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-ui-input](sources/grok-goal-worker-binding/grok-native-ui-input.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-ui-router](sources/grok-goal-worker-binding/grok-native-ui-router.md) — Grok公式の元worker・現在UI・入力経路の責務。
-
-- [grok-native-prompt-keys](sources/grok-goal-worker-binding/grok-native-prompt-keys.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
-
-- [grok-native-ui-panes](sources/grok-goal-worker-binding/grok-native-ui-panes.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
-
-- [grok-pointer-string-width-7-2-0-package-json](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-package-json.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
-
-- [grok-pointer-string-width-7-2-0-readme-md](sources/grok-goal-worker-binding/grok-pointer-string-width-7-2-0-readme-md.md) — 元workerの現在UI・入力位置と表示cell幅の一次資料。
-
-
-## tmux 3.6 authentication exit observation
-
-- [format.c](sources/backends/tmux-36-exit-format-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
-- [server.c](sources/backends/tmux-36-exit-server-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
-- [server-fn.c](sources/backends/tmux-36-exit-server-fn-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
-- [window.c](sources/backends/tmux-36-exit-window-c.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
-- [tmux.h](sources/backends/tmux-36-exit-tmux-h.md) — pinned 0dac7fe434d029a4f0b819cba8eb7963df291990 (tag3.6). PTY fd closure and waitpid STATUSREADY are separate states; this does not identify the historical failed CI observation.
+  - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
+  - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。

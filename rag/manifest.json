@@ -1,6 +1,54 @@
 {
   "docs": [
     {
+      "slug": "antigravity-auth-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity authentication",
+      "source_url": "https://antigravity.google/docs/install?tab=cli",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-auth-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "通常HOME・keyringとSSH手動OAuthの差",
+      "relevance": "Antigravity native harness contract",
+      "chars": 23265,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-headless-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity CLI headless and streaming protocol",
+      "source_url": "https://antigravity.google/docs/cli/headless",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-headless-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式の常駐NDJSON入力/出力・会話ID・完了status・制約",
+      "relevance": "Antigravity native harness contract",
+      "chars": 37630,
+      "fetched": "2026-10-30"
+    },
+    {
+      "slug": "antigravity-hooks-20261030",
+      "topic": "agent-launchers",
+      "title": "Antigravity lifecycle hooks",
+      "source_url": "https://antigravity.google/docs/hooks/",
+      "source_type": "official_docs",
+      "path": "sources/agent-launchers/antigravity-hooks-20261030.md",
+      "tags": [
+        "antigravity",
+        "cli"
+      ],
+      "summary": "公式hook設定、conversationId、transcriptPath、Stopと注入",
+      "relevance": "Antigravity native harness contract",
+      "chars": 29714,
+      "fetched": "2026-10-30"
+    },
+    {
       "slug": "codex-device-auth-prompt-20261002",
       "topic": "agent-launchers",
       "title": "Codex CLIのdevice認証表示と公式login完了",
@@ -3496,5 +3544,5 @@
       "fetched": "2026-10-25"
     }
   ],
-  "updated": "2026-10-25"
+  "updated": "2026-10-30"
 }

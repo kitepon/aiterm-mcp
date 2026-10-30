@@ -57,6 +57,8 @@ export function antigravityAuthStatus(bin: string, cwd: string, env = process.en
 }
 
 export function antigravityAuthPane(screen: string): AgentAuthPane {
+  if (/\binvalid_grant\b/i.test(screen)) return { url: null, user_code: null, input_required: false,
+    failed: true, message: "Antigravity CLIが認証を拒否しました（invalid_grant）。同じ認証コードを再送しないでください。" };
   const lines = screen.split("\n"), start = lines.findIndex(line => line.includes("https://accounts.google.com/"));
   const urlLines: string[] = [];
   if (start >= 0) for (const line of lines.slice(start)) {

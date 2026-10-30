@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Report Antigravity's native OAuth `invalid_grant` rejection as failed instead of waiting indefinitely, without exposing native error text or retrying the code.
+
 ## [0.62.1] - 2026-10-30
 
 ### Fixed

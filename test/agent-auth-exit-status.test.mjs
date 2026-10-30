@@ -12,7 +12,7 @@ const fs=require('node:fs');const file=${JSON.stringify(state)},s=JSON.parse(fs.
 s.calls.push(args);fs.writeFileSync(file,JSON.stringify(s));
 if(args.includes('-V')){console.log('tmux 3.6');process.exit(0);}
 if(args.includes('list-sessions')){if(s.absentAfter===undefined||s.observations<s.absentAfter)console.log(s.session+'\\tbash\\t0\\t80\\t24');process.exit(0);}
-if(args.includes('capture-pane'))process.exit(0);
+if(args.includes('capture-pane')){process.stdout.write(s.screen??'');process.exit(0);}
 if(args.includes('display-message')){
  if(args.at(-1).startsWith('#{pane_dead}')){
   const row=s.rows[Math.min(s.observations,s.rows.length-1)];s.observations++;
@@ -53,6 +53,14 @@ test('confirmed signal termination stays failed and never probes global authenti
 });
 test('ordinary nonzero exit is final without an extra observation',posix,async()=>{
  const x=await scenario(['1\t9\t']);assert.equal(x.result.status,'failed');assert.match(x.result.message,/exit=9/);assert.equal(x.observations,1);assert.equal(x.officialStatusCalls,0);
+});
+test('a live Antigravity OAuth rejection returns failed without input or private screen text',posix,async()=>{
+ const x=await scenario(['0\t\t'],{kind:'antigravity',screen:'OAuth error: invalid_grant\nARTIFICIAL_PRIVATE_DETAIL'});
+ assert.equal(x.result.status,'failed');assert.equal(x.result.auth_ui.stage,'failed');
+ assert.equal(x.result.session_id,'artificial-auth-exit');assert.equal(x.result.input_required,false);
+ assert.equal(x.result.auth_ui.input,null);assert.equal(x.result.auth_ui.prompt_digest,null);
+ assert.match(x.result.message,/invalid_grant/);assert.ok(!JSON.stringify(x.result).includes('ARTIFICIAL_PRIVATE_DETAIL'));
+ assert.equal(x.officialStatusCalls,0);
 });
 test('exit0 still requires official status confirmation',posix,async()=>{
  const x=await scenario(['1\t0\t'],{kind:'cursor'});assert.equal(x.result.status,'authenticated');assert.equal(x.observations,1);assert.equal(x.officialStatusCalls,1);

@@ -57,6 +57,18 @@ test('Antigravity OAuth URL ends at the native blank line before the pager foote
     'https://accounts.google.com/o/oauth2/auth?client_id=fixture&state=fixture-QA');
 });
 
+test('Antigravity reports invalid_grant without exposing the native rejection text', () => {
+  const pane = antigravityAuthPane('OAuth error: invalid_grant\nARTIFICIAL_PRIVATE_DETAIL');
+  assert.equal(pane.failed, true);
+  assert.equal(pane.input_required, false);
+  assert.equal(pane.ui, undefined);
+  assert.equal(pane.url, null);
+  assert.match(pane.message, /invalid_grant/);
+  assert.ok(!JSON.stringify(pane).includes('ARTIFICIAL_PRIVATE_DETAIL'));
+  assert.equal(antigravityAuthPane('Signing in...').failed, undefined);
+  assert.equal(antigravityAuthPane('invalid_grant_suffix').failed, undefined);
+});
+
 test('Antigravity hook registration preserves other hooks and is idempotent', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-hooks-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

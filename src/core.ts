@@ -5304,6 +5304,7 @@ export async function authenticateAgent(kind: AgentKind, options: {
       return result("waiting", session, "公式CLIの初回案内を確認しています。");
     }
     if (dead !== "0") return result("failed", session, "認証processの生存状態の形式を認識できません。");
+    if (pane.failed) return result("failed", session, null, pane);
     if (pane.onboarding_complete) {
       const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
       if (checked.status === "authenticated") return result("authenticated", session, null);

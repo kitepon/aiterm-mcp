@@ -60,7 +60,7 @@ export function antigravityAuthPane(screen: string): AgentAuthPane {
   const lines = screen.split("\n"), start = lines.findIndex(line => line.includes("https://accounts.google.com/"));
   const urlLines: string[] = [];
   if (start >= 0) for (const line of lines.slice(start)) {
-    if (/^\s*─|After authenticating|authorization code/i.test(line)) break;
+    if (!line.trim() || /^\s*─|After authenticating|authorization code/i.test(line)) break;
     urlLines.push(line.trim());
   }
   const url = authUrl(urlLines.join(""), ["accounts.google.com"]);

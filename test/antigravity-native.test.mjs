@@ -47,6 +47,16 @@ test('Antigravity authentication has explicit menus, wrapped OAuth URL and code 
   assert.equal(antigravityAuthPane('Do you trust the contents of this project?').onboarding_complete, true);
 });
 
+test('Antigravity OAuth URL ends at the native blank line before the pager footer', () => {
+  const screen = [
+    ' Your browser should open automatically. If not:', '',
+    ' https://accounts.google.com/o/oauth2/auth?client_id=fixture&state=fixture-',
+    ' QA', '', '  (1–20 of 24 lines)', '', '  shift+up/down Navigate',
+  ].join('\n');
+  assert.equal(antigravityAuthPane(screen).url,
+    'https://accounts.google.com/o/oauth2/auth?client_id=fixture&state=fixture-QA');
+});
+
 test('Antigravity hook registration preserves other hooks and is idempotent', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-hooks-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Find the runnable Throughline npm shim on Windows when PATH discovery lists its extensionless shell wrapper first. Preserve rejection of an invalid explicit `THROUGHLINE_BIN`.
+- Stop Antigravity's wrapped OAuth URL at its native blank-line boundary so pager footer text cannot alter the authorization state.
 
 ## [0.62.0] - 2026-10-30
 

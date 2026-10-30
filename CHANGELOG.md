@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-10-30
+
 ### Fixed
 - Report Antigravity's native OAuth `invalid_grant` rejection as failed instead of waiting indefinitely, without exposing native error text or retrying the code.
 
@@ -2940,7 +2942,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...HEAD
+[0.62.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...v0.62.2
 [0.62.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...v0.62.0
 [0.61.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.23...v0.61.24

@@ -55,7 +55,9 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  const event=(type,extra={})=>({timestamp:ended,type:'event_msg',payload:{type,turn_id:tag,...extra}});
  fs.writeFileSync(rollout,[{type:'session_meta',payload:{id:meta.vendor_session_id,originator:'codex-tui',source:'cli'}},
   {type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:`AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`}]}},
-  {type:'turn_context',payload:{model:meta.model,effort:'high'}},event('task_started'),event('task_complete',{last_agent_message:'Done'})].map(JSON.stringify).join('\n')+'\n');
+  {type:'turn_context',payload:{model:meta.model,effort:'high'}},event('task_started'),
+  {type:'response_item',payload:{type:'message',role:'assistant',phase:'final_answer',internal_chat_message_metadata_passthrough:{turn_id:tag},content:[{type:'output_text',text:'Done'}]}},
+  event('task_complete',{last_agent_message:'Done'})].map(JSON.stringify).join('\n')+'\n');
  if(recipe)writeAgentResumeRecipe(meta,{schema:'aiterm.agent-resume.v1',launch_id:meta.launch_id,kind:'codex',
   vendor_session_id:meta.vendor_session_id,executable:bin,cwd:process.env.HOME,configuration_root:process.env.CODEX_HOME,model:meta.model,reasoning_effort:'high',
   fast:meta.fast,environment:{PEERTABLE_ROOM:'artificial',PEERTABLE_MEMBER:'fixture'}});
@@ -85,8 +87,12 @@ test('ordinary core hibernates only the expected idle pane, retaining its resume
  assert.deepEqual(listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';',UNREGISTERED_NAME:null});
  assert.deepEqual(core.readSeatTurns([f.name]).seats[0].turn,{state:'idle'});
  assert.equal(core.observeSessionGeneration(f.name).exists,true);
+ assert.equal((await core.readAgentTranscriptResult(f.name,{raw:true})).text,'Done');
  assert.equal(core.observeSession(bridge).exists,true);
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'skipped');
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
+ assert.deepEqual(core.interruptSessionNow(f.name,f.meta.launch_id),{session_id:f.name,outcome:'idle'});
+ assert.throws(()=>core.interruptSessionNow(f.name,'f'.repeat(32)),error=>error.code==='EXECUTION_STALE_GENERATION');
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
  core.closeSession(f.name);assert.equal(readAgentLifecycle(f.meta),null);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume.json')),false);
@@ -110,6 +116,50 @@ for(const state of ['stopping','resuming','failed','recipe-changed','native-repl
   assert.throws(()=>core.closeSessionResult(f.name),/AGENT_RESUME_UNCONFIRMED/);
   assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status,0);
  }
+});
+
+for(const state of ['hibernated','stopping','resuming','failed'])test(`dormant ${state} refuses keys, native reads, interruption and approval on a same-name replacement`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const saved=readAgentLifecycle(f.meta);
+ if(state==='stopping')writeAgentLifecycle(f.meta,{...saved,state});
+ if(state==='resuming'||state==='failed')writeAgentResumeAttempt(f.meta,{schema:'aiterm.agent-resume-attempt.v1',launch_id:f.meta.launch_id,
+  next_launch_id:'e'.repeat(32),recipe_digest:saved.recipe_digest,state,at:new Date().toISOString()});
+ const native=(...args)=>spawnSync(resolveTmux(),['-S',SOCK,...args],{encoding:'utf8'});
+ assert.equal(native('new-session','-d','-s',f.name,'bash').status,0);
+ const marker=f.keys+'-unrelated-enter';native('send-keys','-t',f.name,'-l','--',`touch '${marker}'`);
+ assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/AGENT_RESUME_UNCONFIRMED/);
+ await assert.rejects(core.readOutput(f.name,{screen:true,raw:true}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.interruptSessionNow(f.name),/AGENT_RESUME_UNCONFIRMED/);
+ for(const action of ['inspect','respond']){
+  const request={action,session_id:f.name,...(action==='respond'?{approval_choice:'approve_once',observed_prompt_digest:'sha256:'+ 'a'.repeat(64)}:{})};
+  assert.throws(()=>core.runAgentApproval(request),/AGENT_RESUME_UNCONFIRMED/);
+  assert.throws(()=>core.runClaudeApproval(request),/AGENT_RESUME_UNCONFIRMED/);
+ }
+ assert.equal(fs.existsSync(marker),false);assert.equal(native('has-session','-t',f.name).status,0);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+test('a damaged dormant record cannot become an ordinary PTY or a missing seat',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ fs.writeFileSync(agentMetadataPath(f.name,f.meta.launch_id),'{invalid');
+ assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.observeSession(f.name),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/AGENT_RESUME_UNCONFIRMED/);
+ await assert.rejects(core.readOutput(f.name,{screen:true}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
+});
+
+test('a key from another process cannot enter during admitted agent input',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);let refusal;
+ await core.sendAgentMessage(f.name,'only-admitted-body',{raw:true,before_send:async()=>{
+  const code=`import * as core from ${JSON.stringify(new URL('../dist/core.js',import.meta.url).href)};
+try{core.sendKeyResult(${JSON.stringify(f.name)},'Enter');console.log(JSON.stringify({accepted:true}));}
+catch(error){console.log(JSON.stringify({accepted:false,message:error.message}));}`;
+  const child=spawnSync(process.execPath,['--input-type=module','-e',code],{encoding:'utf8'});
+  assert.equal(child.status,0,child.stderr);refusal=JSON.parse(child.stdout);
+ }});
+ assert.equal(refusal.accepted,false);assert.match(refusal.message,/AGENT_RESUME_UNCONFIRMED/);
+ assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['only-admitted-body']);
 });
 
 test('logical listings do not enroll a hibernation record belonging to another socket',{skip,timeout:15000},async t=>{
@@ -290,7 +340,12 @@ for(const phase of ['created','before-body','native-paste','server-restart','lat
   });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
  }
  if(phase==='later-send'){
-  await core.sendAgentMessage(f.name,'accepted-on-original',{raw:true});replace();
+  await core.sendAgentMessage(f.name,'accepted-on-original',{raw:true});
+  core.sendKeyResult(f.name,'Escape');assert.match(await core.readOutput(f.name,{screen:true,raw:true}),/OpenAI Codex/);
+  replace();
+  assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/AGENT_RESUME_UNCONFIRMED/);
+  await assert.rejects(core.readOutput(f.name,{screen:true,raw:true}),/AGENT_RESUME_UNCONFIRMED/);
+  assert.throws(()=>core.runAgentApproval({action:'inspect',session_id:f.name}),/AGENT_RESUME_UNCONFIRMED/);
   await assert.rejects(core.sendAgentMessage(f.name,'never-on-replacement',{raw:true}),/AGENT_RESUME_|世代|native/);
  }else await assert.rejects(core.sendAgentMessage(f.name,'never-on-replacement',{raw:true,before_send:async()=>{
   if(phase==='before-body')replace();else armed=true;

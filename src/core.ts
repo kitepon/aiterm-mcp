@@ -60,7 +60,7 @@ import {
   loadPtyBufferChunk,
   pasteBufferBaseArgs,
   tmuxNewSession,
-  withNativeSessionCreation, withNativeSessionTarget,
+  withNativeSessionCreation, withNativeSessionTarget, hasVerifiedNativeSessionTarget,
   openPsmuxServerToDesktop,
   registeredSessionEnvironment, registerSessionEnvironment,
   attachCommand,
@@ -1328,17 +1328,23 @@ export function sendKey(name: string, key: string, o: { preserveAgentOperation?:
 export function sendKeyResult(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): PtyKeyResult {
   assertExecutionContext(name);
   assertSessionName(name);
-  if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い`, 2);
   const k = KEYMAP[key.toLowerCase()] ?? key;
-  const receipt = (): PtyKeyResult => ({ schema: "aiterm.pty-key-result.v1", session_id: name, key: k,
-    outcome: "accepted", interruption: "unconfirmed", session_preserved: "unconfirmed" });
-  if (!o.preserveAgentOperation && managedClaudeOperation(name) !== undefined && k !== "C-c") {
+  if (!o.preserveAgentOperation && k !== "C-c" && isAgentSession(name) && managedClaudeOperation(name) !== undefined) {
     throw new AitermError(
       "aiterm相関付きClaude agent sessionではturn相関を壊さないC-cだけをpty_keyで送れます。" +
         "他の対話操作はpty_send（自動dispatch）、終了はpty_closeを使ってください。",
       2,
     );
   }
+  return withAgentNativeOperation(name, true, () => sendKeyResultInNative(name, key, o));
+}
+function sendKeyResultInNative(name: string, key: string, o: { preserveAgentOperation?: boolean }): PtyKeyResult {
+  assertExecutionContext(name);
+  assertSessionName(name);
+  if (!sessionExists(name)) throw new AitermError(`session '${name}' が無い`, 2);
+  const k = KEYMAP[key.toLowerCase()] ?? key;
+  const receipt = (): PtyKeyResult => ({ schema: "aiterm.pty-key-result.v1", session_id: name, key: k,
+    outcome: "accepted", interruption: "unconfirmed", session_preserved: "unconfirmed" });
   const meta = tryLoadAgentMetadata(name);
   if (meta?.kind === "cursor" && k === "Enter") {
     send(name, CURSOR_SUBMIT_SEQUENCE, {
@@ -1369,6 +1375,20 @@ function readInterruptionTarget(name: string): { kind: AgentKind; launch_id: str
  * proof is required to send the harness's normal cancel key. The native session ID prevents a same-name
  * replacement from receiving the key. This never closes or clears a session. */
 export function interruptSessionNow(name: string, expectedLaunchId?: string): PtyKeyResult | { session_id: string; outcome: "idle" } {
+  assertSessionName(name);
+  const meta = tryLoadAgentMetadata(name);
+  if (meta && agentDormantState(meta) === "hibernated") {
+    const observed = observeSession(name);
+    if (observed.state === "hibernated") {
+      if (observed.launch_id !== meta.launch_id || expectedLaunchId && expectedLaunchId !== meta.launch_id)
+        throw new ExecutionError("EXECUTION_STALE_GENERATION");
+      return { session_id: name, outcome: "idle" };
+    }
+  }
+  // The stop button must remain immediate, including during a normal send.
+  return withAgentNativeOperation(name, false, () => interruptSessionNowInNative(name, expectedLaunchId));
+}
+function interruptSessionNowInNative(name: string, expectedLaunchId?: string): PtyKeyResult | { session_id: string; outcome: "idle" } {
   assertSessionName(name);
   const listing = observeExecutionNativeSessions();
   if (listing.state !== "known") throw new ExecutionError("EXECUTION_UNCONFIRMED");
@@ -1650,6 +1670,9 @@ export function utf8SafeSliceStart(buf: Buffer): Buffer {
 }
 
 export async function readOutput(name: string, o: ReadOpts = {}): Promise<string> {
+  return withAgentNativeOperation(name, false, () => readOutputInNative(name, o));
+}
+async function readOutputInNative(name: string, o: ReadOpts): Promise<string> {
   assertSessionName(name);
   const timeout = o.timeout ?? DEFAULT_TIMEOUT;
   if (!sessionExists(name) && !fs.existsSync(logpath(name))) throw new AitermError(`session '${name}' が無い`, 2);
@@ -1937,7 +1960,7 @@ function agentDormantState(meta: AgentMetadata): "hibernated" | "stopping" | "re
 export function observeSession(name: string, cursor?: string): SessionObservation {
   assertSessionName(name);
   const meta = tryLoadAgentMetadata(name);
-  if (!meta) return observeNativeSession(name, cursor);
+  if (!meta) { isAgentSession(name); return observeNativeSession(name, cursor); }
   const state = agentDormantState(meta);
   if (!state) return observeNativeSession(name, cursor);
   if (cursor !== undefined) decodeActivityCursor(cursor, name);
@@ -2830,7 +2853,11 @@ export interface AgentApprovalResult {
   at: string;
 }
 
-export function runAgentApproval(options: {
+export function runAgentApproval(options: Parameters<typeof runAgentApprovalInNative>[0]): AgentApprovalResult {
+  if (options.action === "respond") assertExecutionContext(options.session_id);
+  return withAgentNativeOperation(options.session_id, options.action === "respond", () => runAgentApprovalInNative(options));
+}
+function runAgentApprovalInNative(options: {
   action: "inspect" | "respond";
   session_id: string;
   approval_choice?: ClaudeApprovalDecision;
@@ -3109,7 +3136,11 @@ function assertExpectedClaudeOperation(
   return active;
 }
 
-export function runClaudeApproval({
+export function runClaudeApproval(options: Parameters<typeof runClaudeApprovalInNative>[0]): ClaudeApprovalResult {
+  if (options.action === "respond") assertExecutionContext(options.session_id);
+  return withAgentNativeOperation(options.session_id, options.action === "respond", () => runClaudeApprovalInNative(options));
+}
+function runClaudeApprovalInNative({
   action,
   session_id: name,
   operation_id: operationIdInput,
@@ -3518,6 +3549,25 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
     if (performance.now() >= deadline) throw agentSendBusyError(name, dead ? null : probe.pid, waitMs, untouched);
     await sleep(AGENT_SEND_LOCK_POLL_MS);
   }
+}
+
+function withAgentNativeOperation<T>(name: string, mutates: boolean, body: () => T): T {
+  assertSessionName(name);
+  if (!isAgentSession(name)) return body();
+  // Only the already verified physical resume may use its TUI before publication is ready.
+  if (hasVerifiedNativeSessionTarget(name)) return body();
+  const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 席は休止・停止・復帰中、または他の入力処理中です。操作していません。", 2);
+  const execute = () => {
+    const meta = loadAgentMetadata(name);
+    if (readAgentLifecycle(meta) || agentDormantState(meta)) throw unavailable();
+    return withAgentResumeTarget(meta, body);
+  };
+  if (!mutates || agentSendHeld.has(name)) return execute();
+  const token = tryCreateOwnedLock(agentSendLockPath(name));
+  if (!token) throw unavailable();
+  agentSendHeld.add(name);
+  try { return execute(); }
+  finally { agentSendHeld.delete(name); releaseOwnedLock(agentSendLockPath(name), token); }
 }
 
 async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT, pinResume = true): Promise<T> {
@@ -5176,7 +5226,14 @@ async function sendInitialAgentPromptInLock(
 
 export function isAgentSession(name: string): boolean {
   assertSessionName(name);
-  if (readAgentGeneration(name)) { loadAgentMetadata(name); return true; }
+  const dir = existingAgentsDir();
+  const lifecycle = dir && fs.readdirSync(dir).some(file => file.startsWith(`${name}.`)
+    && /\.(?:lifecycle|resume-attempt|resume-native)\.json$/.test(file));
+  if (readAgentGeneration(name) || lifecycle) {
+    try { loadAgentMetadata(name); }
+    catch { throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の起動記録を確認できません。", 2); }
+    return true;
+  }
   return tryLoadAgentMetadata(name) !== null;
 }
 

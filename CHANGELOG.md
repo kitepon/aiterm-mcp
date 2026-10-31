@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Refuse native screen reads, control keys and approval actions on dormant or uncertain generations, and pin resumed operations to the saved native receipt. Preserve an idle stop result for confirmed hibernation and keep damaged lifecycle records managed.
 - Resume an explicitly named hibernated conversation through agent_launch while preserving its result tuple and initial-prompt receipts; refuse conflicting launch settings before input. Preserve registered environment keys and membership throughout resume.
 - Retain confirmed hibernated logical seats and registered environment in public listings, expose explicit hibernation observations and idle seat turns, and close them without restarting a CLI. Keep stopping, resuming, failed and conflicting generations unknown; automatic hibernation remains disabled.
 - Fence resumed CLI and input operations to the actual native creation receipt, server and pane birth identities, including a receiver-side check against recycled tmux IDs. Mounted execution-graph resume and Windows resume remain unsupported; automatic hibernation is disabled.

@@ -35,6 +35,12 @@ export function withNativeSessionTarget<T>(target: NativeSessionReceipt, verify:
   const frame = { session: target.session_id, target, verify };
   return nativeTargets.run(frame, () => { verifyNativeTarget(frame); return body(); });
 }
+export function hasVerifiedNativeSessionTarget(name: string): boolean {
+  const frame = nativeTargets.getStore();
+  if (!frame?.target || frame.session !== name) return false;
+  verifyNativeTarget(frame);
+  return true;
+}
 export function withNativeSessionCreation<T>(session: string, created: (receipt: NativeSessionReceipt) => void,
   verify: () => void, body: () => T): T {
   if (isWin || nativeTargets.getStore()) throw nativeTargetUnavailable();

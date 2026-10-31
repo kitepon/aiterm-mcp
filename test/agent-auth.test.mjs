@@ -80,7 +80,7 @@ else
   cursor) printf 'Open https://cursor.com/device\\n';;
   claude) printf 'Open https://claude.ai/device\\n';;
  esac
- IFS= read -r reply
+ IFS= read -r reply || exit 1
  touch "$state"
  rm -f "$state.expired"
  exit 0
@@ -89,6 +89,13 @@ fi
   process.env[{ claude: "CLAUDE_BIN", codex: "CODEX_BIN", grok: "GROK_BIN", cursor: "CURSOR_AGENT_BIN" }[kind]] = bin;
   return { home, bin, state };
 }
+test("偽認証CLIは入力なしのEOFで資格情報を作らない", posixPty, () => {
+  const fixture = cli("grok");
+  const result = spawnSync(fixture.bin, ["login", "--device-auth"], { input: "", encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(fixture.state), false);
+});
+
 async function until(kind, session, expected) {
   const deadline = Date.now() + 6000;
   let result;

@@ -23,7 +23,7 @@ import {
 } from "./agent-shared.js";
 import type { AgentHarness, AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
-import { codexBoundTranscript, codexRootTranscript, codexTurnError, codexTurnErrorLine } from "./harnesses/codex.js";
+import { codexBoundTranscript, codexRootTranscript, codexResumeCursor, codexResumeTurnId, codexTurnError, codexTurnErrorLine } from "./harnesses/codex.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { cursorTranscript } from "./harnesses/cursor.js";
 
@@ -328,11 +328,23 @@ export function interimFromNow(meta: AgentMetadata, eventCursor: number): Interi
 }
 
 /** 渡された位置より後に書かれた合間の言葉。位置の単位がharnessと合わない時は、言葉なし。 */
+function codexLinesFrom(meta: AgentMetadata, boundary: number): string[] {
+  const file = meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta);
+  const retiredTurn = codexResumeTurnId(meta, meta.vendor_session_id);
+  return readLines(file, file ? Math.max(boundary, codexResumeCursor(meta, file)) : boundary).filter(line => {
+    if (!retiredTurn) return true;
+    try {
+      const payload = JSON.parse(line)?.payload;
+      return payload?.turn_id !== retiredTurn && payload?.internal_chat_message_metadata_passthrough?.turn_id !== retiredTurn;
+    } catch { return false; }
+  });
+}
+
 function interimWordsFrom(meta: AgentMetadata, from: InterimFrom): Found[] {
   if (meta.kind === "grok") return from.unit === "user" ? grokInterimWords(readLines(grokChatHistory(meta)), from.boundary) : [];
   if (from.unit !== "byte") return [];
   if (meta.kind === "claude") return claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), from.boundary));
-  if (meta.kind === "codex") return codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), from.boundary));
+  if (meta.kind === "codex") return codexInterimWords(codexLinesFrom(meta, from.boundary));
   // 位置より後の行だけを渡すので、user発話の数では絞らない。
   return meta.kind === "cursor" ? cursorInterimWords(readLines(cursorTranscript(meta), from.boundary), -1) : [];
 }
@@ -363,7 +375,7 @@ export function readInterimWords(meta: AgentMetadata, after: number, from: Inter
     const boundary = recorded?.boundary ?? 0;
     if (meta.kind === "claude") found = claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), boundary));
     // 境界は、送った時に結び付いていた会話のrolloutの位置。会話の切り替えは追わない（ADR 0105）。
-    else if (meta.kind === "codex") found = codexInterimWords(readLines(meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta), boundary));
+    else if (meta.kind === "codex") found = codexInterimWords(codexLinesFrom(meta, boundary));
     else if (meta.kind === "grok") found = grokInterimWords(readLines(grokChatHistory(meta)), boundary);
     else if (meta.kind === "cursor") found = cursorInterimWords(readLines(cursorTranscript(meta)), boundary);
   }

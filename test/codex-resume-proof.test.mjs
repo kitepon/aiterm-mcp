@@ -3,7 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {captureCodexResumeProof,readCodexResumeProof,codexResumeProofDigest} from '../dist/harnesses/codex.js';
+import {captureCodexResumeProof,readCodexResumeProof,codexResumeProofDigest,codexRootTranscript,codexBoundTranscript,
+ latestCodexCompletion,codexCompletedTurnId,codexRunningTurn,codexInterruptionRecord,observeCodexDone,bindCodexTranscriptSession,
+ codexTranscriptText} from '../dist/harnesses/codex.js';
+import {writeAgentMetadata,agentMetadataPath} from '../dist/agent-shared.js';
+import {writeAgentResumeRecipe,agentResumeRecipeDigest,writeAgentLifecycle} from '../dist/agent-lifecycle.js';
+import {observeSteerDone} from '../dist/steer-follow.js';
+import {readInterimWords} from '../dist/interim-words.js';
 let serial=0;
 function fixture(){
  const number=++serial,home=path.join(process.env.HOME,'proof-'+number),dir=path.join(home,'sessions');fs.mkdirSync(dir,{recursive:true});
@@ -25,6 +31,87 @@ test('a unique completed native root pins original file identity, prefix and the
  fs.appendFileSync(f.file,[f.event('task_started','next'),f.event('task_complete','next')].map(JSON.stringify).join('\n')+'\n');
  assert.deepEqual(readCodexResumeProof(f.meta),proof,'append-only history preserves the prior prefix');
  const next=captureCodexResumeProof(f.meta);assert.equal(next.last_turn_id,'next');assert.ok(next.cursor>proof.cursor);
+});
+
+function resumed(){
+ const f=fixture(),proof=captureCodexResumeProof(f.meta);
+ const recipe={schema:'aiterm.agent-resume.v1',launch_id:f.meta.launch_id,kind:'codex',vendor_session_id:f.meta.vendor_session_id,
+  executable:process.execPath,cwd:process.env.HOME,configuration_root:f.meta.codex_home,model:'fixture',reasoning_effort:'high',fast:false,environment:{}};
+ writeAgentMetadata(f.meta);writeAgentResumeRecipe(f.meta,recipe);
+ const life={schema:'aiterm.agent-lifecycle.v1',launch_id:f.meta.launch_id,state:'hibernated',at:new Date().toISOString(),anchor:'finished',native_id:'$1',
+  pane:{pid:123,process_group_id:123,started_identity:'fixture',argv_digest:'0'.repeat(64)},recipe_digest:agentResumeRecipeDigest(recipe),resume_proof_digest:codexResumeProofDigest(proof)};
+ writeAgentLifecycle(f.meta,life);
+ const next={...f.meta,launch_id:'b'.repeat(32),resumed_from:f.meta.launch_id,created_at:new Date().toISOString()};writeAgentMetadata(next);
+ return {...f,proof,life,recipe,next,append:records=>fs.appendFileSync(f.file,records.map(JSON.stringify).join('\n')+'\n')};
+}
+const lines=file=>fs.readFileSync(file,'utf8').trim().split('\n');
+test('resumed readers exclude historical completions and a delayed old turn, then accept only a new native turn',async()=>{
+ const f=resumed();assert.equal(codexRootTranscript(f.next),f.file);assert.equal(codexBoundTranscript(f.next),f.file);
+ assert.equal(latestCodexCompletion(f.next,lines),null);assert.equal(codexCompletedTurnId(f.next),null);
+ assert.equal(codexInterruptionRecord(f.next),null);
+ assert.throws(()=>codexTranscriptText(f.next,'original',lines,()=>{throw new Error('unavailable');},true),/unavailable/);
+ f.append([f.event('task_complete','original')]);
+ assert.equal(latestCodexCompletion(f.next,lines),null);assert.equal(codexCompletedTurnId(f.next),null);
+ assert.equal((await observeCodexDone(f.next,0,0)).outcome,'running','a stale cursor cannot borrow the old turn');
+ f.append([f.event('task_started','resumed')]);assert.equal(codexRunningTurn(f.next),'resumed');
+ f.append([f.event('task_complete','resumed')]);
+ assert.equal(codexCompletedTurnId(f.next),'resumed');assert.equal(latestCodexCompletion(f.next,lines).turn_id,'resumed');
+ assert.equal(codexInterruptionRecord(f.next).boundary.turn_id,'resumed');
+ assert.equal((await observeCodexDone(f.next,0,0)).turn_id,'resumed');
+ const proof=captureCodexResumeProof(f.next);assert.equal(proof.launch_id,f.next.launch_id);assert.equal(proof.last_turn_id,'resumed');
+});
+test('a second resume carries the immediate predecessor proof without treating the original marker as its own',()=>{
+ const f=resumed();f.append([f.event('task_started','second'),f.event('task_complete','second')]);
+ const proof=captureCodexResumeProof(f.next),recipe={...f.recipe,launch_id:f.next.launch_id};
+ writeAgentResumeRecipe(f.next,recipe);writeAgentLifecycle(f.next,{...f.life,launch_id:f.next.launch_id,
+  recipe_digest:agentResumeRecipeDigest(recipe),resume_proof_digest:codexResumeProofDigest(proof)});
+ const last={...f.next,launch_id:'c'.repeat(32),resumed_from:f.next.launch_id};
+ assert.equal(codexRootTranscript(last),f.file);assert.equal(latestCodexCompletion(last,lines),null);
+ f.append([f.event('task_started','third'),f.event('task_complete','third')]);
+ assert.equal(codexInterruptionRecord(last).boundary.turn_id,'third');
+});
+test('a resumed launch follows /new only with the new marker, and rejects forked or foreign roots',()=>{
+ const f=resumed(),ms=Date.now(),stamp=ms.toString(16).padStart(12,'0'),session=`${stamp.slice(0,8)}-${stamp.slice(8)}-7000-8000-111111111111`;
+ const file=path.join(f.dir,'rollout-'+session+'.jsonl');
+ const header={type:'session_meta',payload:{id:session,originator:'codex-tui',source:'cli'}};
+ const marker={type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:'AITERM_AGENT_LAUNCH_ID='+f.next.launch_id}]}};
+ const write=()=>{fs.writeFileSync(file,[header,marker,{type:'turn_context',payload:{}},f.event('task_complete','new-root')].map(JSON.stringify).join('\n')+'\n');
+  fs.utimesSync(file,new Date(ms+2000),new Date(ms+2000));};
+ header.payload.forked_from_id=f.meta.vendor_session_id;write();assert.equal(codexRootTranscript(f.next),f.file);
+ delete header.payload.forked_from_id;fs.unlinkSync(file);
+ // Use another path so a previously excluded immutable fork is not reclassified.
+ const validFile=path.join(f.dir,'rollout-new-'+session+'.jsonl');write();fs.renameSync(file,validFile);
+ assert.equal(bindCodexTranscriptSession(f.next),validFile);assert.equal(f.next.vendor_session_id,session);
+ assert.equal(latestCodexCompletion(f.next,lines).turn_id,'new-root');
+ assert.equal(codexInterruptionRecord(f.next).boundary.turn_id,'new-root');
+ marker.payload.content[0].text='AITERM_AGENT_LAUNCH_ID='+'f'.repeat(32);
+ fs.writeFileSync(validFile,[header,marker,{type:'turn_context',payload:{}}].map(JSON.stringify).join('\n')+'\n');
+ assert.throws(()=>codexBoundTranscript(f.next),/AGENT_RESUME_UNCONFIRMED/);
+});
+test('steer and interim readers apply the same resume floor to stale cursors',async()=>{
+ const f=resumed(),text='only this newly submitted request';
+ f.append([{type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}],internal_chat_message_metadata_passthrough:{turn_id:'original'}}},f.event('task_complete','original')]);
+ const entry={schema:'aiterm.steer-entry.v1',steer_id:'a'.repeat(16),at:new Date().toISOString(),event_cursor:0,interim_from:'',needle:text.replace(/\s/g,'')};
+ const pending=await observeSteerDone(f.next,entry,0,{plain:()=>{throw new Error('unexpected fallback');}});
+ assert.equal(pending.outcome,'running');assert.equal(pending.turn_id,null);
+ f.append([f.event('task_started','new-steer'),{type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}],internal_chat_message_metadata_passthrough:{turn_id:'new-steer'}}},f.event('task_complete','new-steer')]);
+ assert.equal((await observeSteerDone(f.next,entry,0,{plain:()=>{throw new Error('unexpected fallback');}})).turn_id,'new-steer');
+ const commentary=(turn_id,text)=>({type:'response_item',payload:{type:'message',role:'assistant',phase:'commentary',content:[{type:'output_text',text}],internal_chat_message_metadata_passthrough:{turn_id}}});
+ f.append([commentary('original','stale words'),commentary('new-steer','new words')]);
+ const interim=readInterimWords(f.next,0,{event_cursor:0,unit:'byte',boundary:0});
+ assert.deepEqual(interim.words.map(word=>word.text),['new words']);
+});
+test('resumed binding rejects missing or inconsistent provenance and replacement history',()=>{
+ for(const change of [f=>fs.unlinkSync(agentMetadataPath(f.meta.aiterm_session,f.meta.launch_id)),
+  f=>writeAgentLifecycle(f.meta,{...f.life,state:'stopping'}),
+  f=>writeAgentLifecycle(f.meta,{...f.life,resume_proof_digest:'f'.repeat(64)}),
+  f=>writeAgentResumeRecipe(f.meta,{...f.recipe,model:'changed'}),
+  f=>{f.next.parent_session_id='foreign';},
+  f=>{const replacement=f.file+'.new';fs.copyFileSync(f.file,replacement);fs.renameSync(replacement,f.file);}]){
+  const f=resumed();change(f);assert.throws(()=>codexRootTranscript(f.next),/AGENT_RESUME_UNCONFIRMED/);
+  assert.throws(()=>codexBoundTranscript(f.next),/AGENT_RESUME_UNCONFIRMED/);
+  assert.throws(()=>bindCodexTranscriptSession(f.next),/AGENT_RESUME_UNCONFIRMED/);
+ }
 });
 test('replacement, truncation, prefix edits and foreign session IDs cannot reuse the old proof',()=>{
  for(const change of [f=>{const replacement=f.file+'.replacement';fs.copyFileSync(f.file,replacement);fs.renameSync(replacement,f.file);},

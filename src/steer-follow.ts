@@ -32,6 +32,8 @@ import {
   codexCompletionEvent,
   codexRolloutSessionId,
   codexRootTranscript,
+  codexResumeCursor,
+  codexResumeTurnId,
   codexRunningTurn,
   codexTranscriptSessionId,
   codexTurnError,
@@ -265,7 +267,7 @@ async function observeCodexSteerDone(
   if (!transcript) return { ...await deps.plain(entry.event_cursor, timeoutSeconds), steer: fate("unknown") };
   const metadataFile = agentMetadataPath(meta.aiterm_session, meta.launch_id);
   const harnessSessionId = meta.vendor_session_id ? codexRolloutSessionId(meta, transcript) : codexTranscriptSessionId(transcript);
-  const follower = new LineFollower(transcript, entry.event_cursor);
+  const follower = new LineFollower(transcript, Math.max(entry.event_cursor, codexResumeCursor(meta, transcript)));
   const sentAt = Date.parse(entry.at);
   const deadline = performance.now() + timeoutSeconds * 1000;
   let malformedEvents = 0;
@@ -295,6 +297,7 @@ async function observeCodexSteerDone(
     const lines = follower.read();
     if (lines === null) throw new AitermError("Codex transcript が完了待機中に短くなりました。該当セッションを閉じて起動し直してください。", 2);
     if (lines.length) quietSince = performance.now();
+    const retiredTurn = codexResumeTurnId(meta, harnessSessionId);
     for (const line of lines) {
       if (!line.trim()) continue;
       if (Buffer.byteLength(line, "utf8") > AGENT_EVENT_MAX_BYTES) {
@@ -307,6 +310,7 @@ async function observeCodexSteerDone(
         continue;
       }
       const payload = record?.payload;
+      if (retiredTurn && (payload?.turn_id === retiredTurn || payload?.internal_chat_message_metadata_passthrough?.turn_id === retiredTurn)) continue;
       if (record?.type === "event_msg" && payload?.type === "task_started" && typeof payload.turn_id === "string") {
         openTurn = payload.turn_id;
         startedAfter.add(payload.turn_id);

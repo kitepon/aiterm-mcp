@@ -35,6 +35,7 @@ import {
   agentHarness,
 } from "../agent-shared.js";
 import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext, HarnessPaneObservation } from "../agent-shared.js";
+import { readAgentLifecycle, readAgentResumeRecipe, agentResumeRecipeDigest } from "../agent-lifecycle.js";
 
 export function realCodexHome(): string {
   return process.env.CODEX_HOME || path.join(process.env.HOME ?? os.homedir(), ".codex");
@@ -263,7 +264,12 @@ function codexLaunchOthersFor(launchId: string): Set<string> {
 /** 結び付けた会話（vendor_session_id）のroot rollout。会話の切り替えは追わない。完了の読み位置（cursor）はこのfileの位置。 */
 export function codexBoundTranscript(meta: AgentMetadata): string | null {
   if (meta.kind !== "codex" || !meta.codex_home || !meta.vendor_session_id) return null;
-  return findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+  const origin = codexResumedProof(meta);
+  if (origin?.session_id === meta.vendor_session_id) return origin.file;
+  const file = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+  if (origin && (!file || codexTranscriptSessionId(file) !== meta.vendor_session_id
+    || codexLaunchVerdict(file, meta).verdict !== "match" || codexLaunchVerdict(file, meta).forked)) throw resumeProofUnavailable();
+  return file;
 }
 
 /**
@@ -294,6 +300,7 @@ function codexSwitchedTranscript(meta: AgentMetadata, bound: string): string | n
     try { mtime = fs.statSync(file).mtimeMs; } catch { continue; }
     if (mtime <= latestMtime) continue;
     let own = memo.get(file);
+    if (meta.resumed_from && own === true) own = undefined;
     if (own === undefined) {
       const { verdict, forked } = codexLaunchVerdict(file, meta);
       if (verdict === "undecided") continue;
@@ -309,9 +316,10 @@ function codexSwitchedTranscript(meta: AgentMetadata, bound: string): string | n
 
 /** この起動の、今の会話のroot rollout。結び付けた会話から、同じprocessの新しい会話へ移っていれば、新しい方。 */
 export function codexRootTranscript(meta: AgentMetadata): string | null {
+  if (meta.resumed_from !== undefined && !meta.vendor_session_id) throw resumeProofUnavailable();
   if (meta.kind !== "codex" || !meta.codex_home) return null;
   if (meta.vendor_session_id) {
-    const bound = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
+    const bound = codexBoundTranscript(meta);
     return bound ? codexSwitchedTranscript(meta, bound) ?? bound : null;
   }
   if (meta.hook_route === "shared_codex_home") {
@@ -364,6 +372,7 @@ export function codexCompletionEvent(
     typeof record?.payload?.turn_id !== "string" ||
     !record.payload.turn_id
   ) return null;
+  if (record.payload.turn_id === codexResumeTurnId(meta, harnessSessionId)) return null;
   return {
     type: "agent_done",
     vendor: "codex",
@@ -443,6 +452,16 @@ function codexLatestTurnBoundary(meta: AgentMetadata, reach: "tail" | "whole"): 
   let transcript: string | null;
   try { transcript = codexRootTranscript(meta); } catch { return null; }
   if (!transcript) return null;
+  const floor = codexResumeCursor(meta, transcript);
+  if (floor > 0) {
+    const origin = codexResumedProof(meta)!;
+    const minimum = Math.max(floor, reach === "tail" ? safeStatSize(transcript) - AGENT_TURN_BOUNDARY_TAIL_BYTES : 0);
+    return scanLinesNewestFirst(transcript, (line, offset) => {
+      if (offset < minimum) return null;
+      const value = codexTurnBoundaryLine(line);
+      return value?.turn_id === origin.last_turn_id ? undefined : value;
+    }, AGENT_TURN_BOUNDARY_TAIL_BYTES) ?? null;
+  }
   if (reach === "whole") return scanLinesNewestFirst(transcript, codexTurnBoundaryLine, AGENT_TURN_BOUNDARY_TAIL_BYTES) ?? null;
   const lines = readTailLinesNewestFirst(transcript, AGENT_TURN_BOUNDARY_TAIL_BYTES);
   if (!lines) return null;
@@ -466,6 +485,7 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
 } | null {
   if (meta.kind !== "codex" || meta.hook_route !== "shared_codex_home" || !meta.codex_home) return null;
   try {
+    const origin = codexResumedProof(meta);
     // The ordinary browser skips unreadable directories. Such a partial list
     // cannot establish a unique native endpoint for interruption evidence.
     const listStrict = () => {
@@ -509,15 +529,21 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
       return null;
     };
     for (const file of files) {
+      if (origin?.file === file) {
+        if (origin.session_id === meta.vendor_session_id) matches.push(file);
+        continue;
+      }
       const verdict = codexLaunchVerdict(file, meta);
       if (verdict.verdict === "undecided") return null; // no guessing around partial endpoint evidence
       if (verdict.verdict === "match" && !verdict.forked) matches.push(file);
     }
     if (matches.length !== 1) return null;
-    const file = matches[0], before = fs.statSync(file), session = header(file);
+    const file = matches[0], before = fs.statSync(file), session = origin?.file === file ? origin.session_id : header(file);
     if (!session || !before.isFile()) return null;
     const boundary = scanLinesNewestFirst(file, (line, offset) => {
+      if (origin?.file === file && offset < origin.cursor) return null;
       const value = codexTurnBoundaryLine(line);
+      if (origin?.file === file && value?.turn_id === origin.last_turn_id) return undefined;
       return value ? { ...value, event_cursor: offset } : value;
     }, AGENT_TURN_BOUNDARY_TAIL_BYTES);
     const after = fs.statSync(file);
@@ -530,6 +556,7 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
     const last = listStrict();
     if (JSON.stringify(last) !== JSON.stringify(files)) return null;
     for (const candidate of last) {
+      if (origin?.file === candidate) continue;
       const verdict = codexLaunchVerdict(candidate, meta);
       if (verdict.verdict === "undecided" || (verdict.verdict === "match" && !verdict.forked && candidate !== file)) return null;
     }
@@ -579,6 +606,11 @@ export function latestCodexCompletion(
   const transcript = codexRootTranscript(meta);
   if (!transcript) return null;
   const harnessSessionId = codexRolloutSessionId(meta, transcript);
+  const floor = codexResumeCursor(meta, transcript);
+  if (floor > 0) return scanLinesNewestFirst(transcript, (line, offset) => {
+    if (offset < floor) return null;
+    try { return codexCompletionEvent(meta, harnessSessionId, JSON.parse(line)) ?? undefined; } catch { return undefined; }
+  }, AGENT_TURN_BOUNDARY_TAIL_BYTES) ?? null;
   let latest: AgentDoneEvent | null = null;
   for (const line of readTranscriptLines(transcript)) {
     if (!line.trim()) continue;
@@ -601,7 +633,7 @@ export async function observeCodexDone(
   // 読み位置（cursor）は、送った時に結び付いていた会話のrolloutの位置。結び付けが済んだ席は、そのrolloutから読み始める。
   const anchored = (): string | null => meta.vendor_session_id ? codexBoundTranscript(meta) : codexRootTranscript(meta);
   let transcript = anchored();
-  let startOffset = requestedCursor ?? (transcript ? safeStatSize(transcript) : 0);
+  let startOffset = Math.max(requestedCursor ?? (transcript ? safeStatSize(transcript) : 0), transcript ? codexResumeCursor(meta, transcript) : 0);
   let cursor = startOffset;
   let carry: Buffer = Buffer.alloc(0);
   let malformedEvents = 0;
@@ -639,6 +671,11 @@ export async function observeCodexDone(
     if (!fs.existsSync(metadataFile)) return observation("closed");
     let behind = false;
     transcript ??= anchored();
+    const floor = transcript ? codexResumeCursor(meta, transcript) : 0;
+    if (cursor < floor) {
+      cursor = startOffset = floor;
+      carry = Buffer.alloc(0); initializedBoundary = false; discardLeadingFragment = false;
+    }
     if (transcript && meta.vendor_session_id && cursor === startOffset && performance.now() >= switchCheckAt) {
       switchCheckAt = performance.now() + CODEX_SWITCH_CHECK_MS;
       let current: string | null = null;
@@ -1060,7 +1097,9 @@ export function codexTranscriptText(
   // 完了待ちが切り替わった後の会話で完了を見つけた時も、同じ会話から回答を読む（ADR 0105）。
   const transcript = codexRootTranscript(meta);
   if (!transcript) transcriptUnavailable();
-  const lines = readTranscriptLines(transcript);
+  const floor = codexResumeCursor(meta, transcript);
+  if (turnId !== null && turnId === codexResumeTurnId(meta, meta.vendor_session_id)) transcriptUnavailable();
+  const lines = floor > 0 ? readFileRange(transcript, floor, safeStatSize(transcript)).toString("utf8").split("\n") : readTranscriptLines(transcript);
   if (exactCompletion) {
     // 同じturnの本文だけを使う。完了event内の本文と、turn ID付きoutput_textの両形式を扱う。
     const matching = codexTurnAnswer();
@@ -1359,6 +1398,35 @@ const codexResumeProofSchema = z.object({ schema: z.literal("aiterm.codex-resume
 export type CodexResumeProof = z.infer<typeof codexResumeProofSchema>;
 const codexResumeProofPath = (meta: AgentMetadata) => agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, ".codex-resume.json");
 const resumeProofUnavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: Codexの元の会話記録を確認できません。", 2);
+/** A resumed launch inherits a proven native root, never the old launch marker. */
+function codexResumedProof(meta: AgentMetadata): CodexResumeProof | null {
+  if (meta.resumed_from === undefined) return null;
+  try {
+    if (!/^[a-f0-9]{32}$/.test(meta.resumed_from) || meta.resumed_from === meta.launch_id) throw resumeProofUnavailable();
+    const file = agentMetadataPath(meta.aiterm_session, meta.resumed_from), stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw resumeProofUnavailable();
+    const previous: AgentMetadata = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (previous.kind !== "codex" || previous.aiterm_session !== meta.aiterm_session || previous.launch_id !== meta.resumed_from
+      || previous.codex_home !== meta.codex_home || previous.hook_route !== meta.hook_route
+      || ["agent_role", "parent_session_id", "delegation_depth", "lineage", "delegation_allowed"].some(key =>
+        (previous as any)[key] !== (meta as any)[key])) throw resumeProofUnavailable();
+    const life = readAgentLifecycle(previous), recipe = readAgentResumeRecipe(previous), proof = readCodexResumeProof(previous);
+    if (life?.state !== "hibernated" || !recipe || recipe.kind !== "codex" || recipe.vendor_session_id !== previous.vendor_session_id
+      || recipe.configuration_root !== meta.codex_home || life.recipe_digest !== agentResumeRecipeDigest(recipe)
+      || life.resume_proof_digest !== codexResumeProofDigest(proof)) throw resumeProofUnavailable();
+    return proof;
+  } catch { throw resumeProofUnavailable(); }
+}
+
+/** Byte floor for this launch on its inherited history; a new /new root starts at zero. */
+export function codexResumeCursor(meta: AgentMetadata, transcript: string): number {
+  const origin = codexResumedProof(meta);
+  return origin?.file === transcript ? origin.cursor : 0;
+}
+export function codexResumeTurnId(meta: AgentMetadata, sessionId: string | null): string | null {
+  const origin = codexResumedProof(meta);
+  return origin?.session_id === sessionId ? origin.last_turn_id : null;
+}
 export function codexResumeProofDigest(proof: CodexResumeProof): string {
   return createHash("sha256").update(JSON.stringify(codexResumeProofSchema.parse(proof))).digest("hex");
 }
@@ -1367,9 +1435,9 @@ export function readCodexResumeProof(meta: AgentMetadata): CodexResumeProof {
     const item = fs.lstatSync(codexResumeProofPath(meta));
     if (!item.isFile() || item.size > 4 * 1024 * 1024) throw resumeProofUnavailable();
     const proof = codexResumeProofSchema.parse(JSON.parse(fs.readFileSync(codexResumeProofPath(meta), "utf8")));
-    const relative = path.relative(path.join(meta.codex_home!, "sessions"), proof.file), stat = fs.statSync(proof.file, { bigint: true });
+    const relative = path.relative(path.join(meta.codex_home!, "sessions"), proof.file), stat = fs.lstatSync(proof.file, { bigint: true });
     if (meta.kind !== "codex" || proof.launch_id !== meta.launch_id || proof.session_id !== meta.vendor_session_id
-      || path.isAbsolute(relative) || relative.startsWith("..") || stat.dev.toString() !== proof.device || stat.ino.toString() !== proof.inode
+      || !stat.isFile() || path.isAbsolute(relative) || relative.startsWith("..") || stat.dev.toString() !== proof.device || stat.ino.toString() !== proof.inode
       || stat.size < BigInt(proof.cursor) || stat.size < BigInt(proof.prefix_bytes)
       || createHash("sha256").update(readFileRange(proof.file, 0, proof.prefix_bytes)).digest("hex") !== proof.prefix_sha256)
       throw resumeProofUnavailable();

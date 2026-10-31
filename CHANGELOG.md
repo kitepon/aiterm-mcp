@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Physical resume remains unconnected.
 - Pin a completed Codex root transcript and its file identity before idle shutdown; refuse stopping when the saved proof or history changes.
 - Prepare resume templates from confirmed launch/configuration inputs and an atomic current-launch selector that preserves old hook and waiter records. Automatic activation remains disabled.
 - Prepare per-launch native sleep clocks, stale-worker recovery and native completion pickup without a parent waiter. Clock activation remains disabled until resume and logical-seat acceptance are complete.

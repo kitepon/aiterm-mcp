@@ -30,9 +30,13 @@ test('process-table ordering does not change the child-before-parent order',asyn
  assert.deepEqual(f.effects.map(x=>x.ids.sort((a,b)=>a-b)),[[11,12],[10]]);
 });
 test('uncooperative processes get the full five-second grace before KILL',async()=>{
- const f=fixture(true);assert.equal(await f.run(),true);
+ const f=fixture(true),read=f.runtime.read;f.runtime.read=()=>{f.at+=250;return read();};
+ f.rows.find(row=>row.pid===12).process_group_id=12;
+ assert.equal(await f.run(),true);
  assert.ok(f.effects.some(x=>x.signal==='SIGTERM'));assert.ok(f.effects.some(x=>x.signal==='SIGKILL'));
  assert.ok(f.effects.filter(x=>x.signal==='SIGKILL').every(x=>x.at>=5000));assert.deepEqual(f.rows.map(x=>x.pid),[20]);
+ const lastTerm=Math.max(...f.effects.filter(x=>x.signal==='SIGTERM').map(x=>x.at));
+ assert.ok(f.effects.filter(x=>x.signal==='SIGKILL').every(x=>x.at-lastTerm>=5000),'process observation cost must not shorten the grace interval');
 });
 test('a child created during graceful shutdown is collected before success',async()=>{
  const f=fixture(true),pause=f.runtime.pause;let added=false;

@@ -64,12 +64,13 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
       for (const member of group ? current.filter(value => value.process_group_id === target.process_group_id) : [target]) terminated.add(key(member));
     }
   };
-  const until = runtime.now() + 5000;
+  let until: number | null = null;
   for (;;) {
     const alive = refresh();
     if (alive.length === 0) return true;
-    if (runtime.now() >= until) break;
+    if (until !== null && runtime.now() >= until) break;
     for (const row of childrenFirst(alive)) if (!terminated.has(key(row))) signal(row, "SIGTERM");
+    until ??= runtime.now() + 5000;
     await runtime.pause(Math.min(100, Math.max(0, until - runtime.now())));
   }
   for (const row of childrenFirst(refresh())) signal(row, "SIGKILL");

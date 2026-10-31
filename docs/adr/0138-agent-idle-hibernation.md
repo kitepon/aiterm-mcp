@@ -39,3 +39,5 @@ process-tree-stop.tsがPID/開始時刻/argv digest/process groupを照合した
 Windows候補はProcess handleを保持し開始時刻を照合した同processへCloseMainWindowで終了を要求し、猶予後にKillを呼ぶ。windowless processではCloseMainWindowがfalseを返し得る。実Win/psmuxの境界と動的な子の完全性はまだ受入前で、自動休止を有効にはしない。一次資料はrag/INDEX.mdのProcess lifecycleを参照。
 
 現段階はこれらの部品を隔離試験で確認した範囲。coreの送信lock/native generationへのadapter、durableなstopping/hibernated記録、tmux native IDへの最後のkill、resume recipe、公開observe/list/sendへの接続は未実装である。自動停止や既存席への作用はまだ発生しない。部品のfixture成功を製品全体の休止成功と扱わない。
+
+猶予の起点は、最初の対象群へTERMを送り終えた時点とする。process表取得が遅い場面でも、その取得時間で5秒を短くしない。追加の反例試験は取得に250msかかる別々のprocess groupを使い、旧計算で失敗、修正後に成功することを確認した。

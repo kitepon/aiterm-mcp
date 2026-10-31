@@ -1209,8 +1209,8 @@ const CODEX_MODELS_MAX_PAGES = 20;
  * 親配送と同じ接続（aiterm-steer-deliveryのwithCodexReceiver）で、threadもturnも作らない。
  * `codex debug models` も同じ内容を返すが、debug用の命令なので使わない。
  */
-export async function codexModelChoices(bin: string, includeHidden: boolean): Promise<AgentModelCatalog> {
-  const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(steer.realCodexHome()) };
+export async function codexModelChoices(bin: string, includeHidden: boolean, codexHome = steer.realCodexHome(), env = process.env): Promise<AgentModelCatalog> {
+  const parent = { thread_id: "00000000-0000-4000-8000-000000000000", codex_home: path.resolve(codexHome) };
   let pages: any[];
   try {
     pages = await steer.withCodexReceiver(AITERM_PROFILE, parent, async (request) => {
@@ -1224,7 +1224,7 @@ export async function codexModelChoices(bin: string, includeHidden: boolean): Pr
         cursor = result.nextCursor;
       }
       throw catalogInvalid("Codex", `model/listが${CODEX_MODELS_MAX_PAGES}ページを超えました`);
-    }, { executable: bin, timeout_ms: CODEX_MODELS_TIMEOUT_MS });
+    }, { executable: bin, timeout_ms: CODEX_MODELS_TIMEOUT_MS, env });
   } catch (error) {
     if (error instanceof AitermError) throw error;
     throw catalogUnavailable("Codex", error instanceof Error ? error.message : String(error));

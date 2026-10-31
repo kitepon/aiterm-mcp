@@ -190,7 +190,7 @@ const CLAUDE_ULTRACODE_NOTE =
  * （SDKの公開型 SDKControlRequest／SDKControlInitializeResponse）の応答にある models を読む。
  * promptは送らず、sessionを保存せず、利用者のhookとMCP serverを起動しない。
  */
-export async function claudeModelChoices(bin: string, cwd: string): Promise<AgentModelCatalog> {
+export async function claudeModelChoices(bin: string, cwd: string, env = process.env): Promise<AgentModelCatalog> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-claude-models-"));
   try {
     const settings = path.join(dir, "settings.json");
@@ -207,7 +207,7 @@ export async function claudeModelChoices(bin: string, cwd: string): Promise<Agen
         "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
       ], {
         cwd,
-        env: process.env,
+        env,
         input: JSON.stringify(request) + "\n",
         until: requestId,
         timeout: CLAUDE_MODELS_TIMEOUT_MS,
@@ -724,6 +724,7 @@ export function createClaudeAgentMetadata(
     ...agentLineageFields(lineageContext),
     node_platform: process.platform,
     claude_settings: claudeSettings,
+    claude_home: path.resolve(cwd ?? process.cwd(), claudeConfigDir()),
     result_file: resultFile,
   };
   writeAgentMetadata(meta);
@@ -749,7 +750,7 @@ export function claudeProjectSlug(cwd: string): string {
 export function claudeSessionTranscriptPath(meta: AgentMetadata): string | null {
   if (meta.kind !== "claude" || !meta.vendor_session_id) return null;
   return path.join(
-    claudeConfigDir(),
+    meta.claude_home ?? claudeConfigDir(),
     "projects",
     claudeProjectSlug(meta.cwd ?? process.cwd()),
     `${meta.vendor_session_id}.jsonl`,

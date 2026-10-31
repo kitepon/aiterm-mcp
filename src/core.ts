@@ -33,7 +33,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
+import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, type AgentLifecycle, type AgentResumeAttempt } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -95,7 +95,7 @@ import {
   stateRoot,
   ensureStateRoot,
   agentsDir,
-  readAgentGeneration, selectAgentMetadataFile,
+  readAgentGeneration, selectAgentMetadataFile, publishAgentGeneration,
   agentEventPath,
   agentMetadataPath,
   agentWaitLockPath,
@@ -172,6 +172,7 @@ import {
   observeCodexDone,
   buildCodexAgentCmd,
   codexAgentArgv,
+  codexResumeArgv,
   codexLaunchNote,
   codexPaneObservation,
   CODEX_INTERRUPT_KEY,
@@ -215,6 +216,7 @@ import {
   claudeFastResult,
   buildClaudeAgentCmd,
   claudeAgentArgv,
+  claudeResumeArgv,
   claudeLaunchNote,
   claudePaneObservation,
   CLAUDE_INTERRUPT_KEY,
@@ -602,6 +604,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".events.jsonl") ||
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
+          f.endsWith(".resume-attempt.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
           f.endsWith(".lifecycle.json") ||
@@ -955,6 +958,10 @@ function rtkRewrite(text: string): string {
 // 明示解決する（WSL 非依存の裁定に従う）。AITERM_BASH で上書き可。
 
 export function openSession(name?: string | null, shell = "bash", envVars: string[] = []): [string, string] {
+  return openSessionInternal(name, shell, envVars, false);
+}
+
+function openSessionInternal(name: string | null | undefined, shell: string, envVars: string[], preserveAgentState: boolean): [string, string] {
   assertExecutionContext(name);
   shell = resolveWinPaneShell(shell);
   for (const key of envVars) {
@@ -1020,7 +1027,7 @@ export function openSession(name?: string | null, shell = "bash", envVars: strin
       /* noop */
     }
   }
-  cleanupAgentState(nm);
+  if (!preserveAgentState) cleanupAgentState(nm);
   // pipe-pane の引数は tmux 内部の /bin/sh -c で再解釈される（argv ではない）。パスは単一引用符で包み、
   // パス自身の ' は '\'' イディオムでエスケープする（名前は検証済みだが、Windows ユーザー名 O'Brien 等が
   // 一時パスに ' を持ち込み redirect を壊すのを防ぐ。空白対策も兼ねる）。
@@ -3591,6 +3598,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       typeof m.vendor_session_id !== "string" ||
       !UUID_RE.test(m.vendor_session_id) ||
       m.result_file !== expectedResult ||
+      (m.claude_home !== undefined && (typeof m.claude_home !== "string" || !path.isAbsolute(m.claude_home))) ||
       ((launchOperationId === null) !== (launchRequestDigest === null)) ||
       (launchOperationId !== null && !OPERATION_ID_RE.test(launchOperationId)) ||
       (launchRequestDigest !== null && !OPERATION_ID_RE.test(launchRequestDigest))
@@ -3618,6 +3626,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...loadAgentLineageFields(m, true),
       node_platform: process.platform,
       claude_settings: expectedSettings,
+      ...(m.claude_home === undefined ? {} : { claude_home: m.claude_home }),
       result_file: expectedResult,
     };
   }
@@ -5794,13 +5803,9 @@ function modelIsFastVariant(kind: AgentKind, model: string | null): boolean {
   return false;
 }
 
-function claudeUserSettingsPath(): string {
-  return path.join(claudeConfigDir(), "settings.json");
-}
-
 /** Claude Codeの席のmodelがfastへ切り替えられるかを、一覧で確かめる。使えない時は断る。 */
-async function assertClaudeFastSupported(bin: string, cwd: string, model: string | null, untouched: string): Promise<FastModeFailure | null> {
-  const catalog = await claudeModelChoices(bin, cwd);
+async function assertClaudeFastSupported(bin: string, cwd: string, model: string | null, untouched: string, env = process.env): Promise<FastModeFailure | null> {
+  const catalog = await claudeModelChoices(bin, cwd, env);
   const key = model ?? "default";
   if (!catalog.fast_ids?.[key]) {
     throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
@@ -5810,8 +5815,8 @@ async function assertClaudeFastSupported(bin: string, cwd: string, model: string
 }
 
 /** Codexの席のmodel（省略時は利用者のconfig、無ければ一覧の既定）がfastへ切り替えられるかを、一覧で確かめる。 */
-async function assertCodexFastSupported(bin: string, codexHome: string, model: string | null, untouched: string): Promise<void> {
-  const catalog = await codexModelChoices(bin, true);
+async function assertCodexFastSupported(bin: string, codexHome: string, model: string | null, untouched: string, env = process.env): Promise<void> {
+  const catalog = await codexModelChoices(bin, true, codexHome, env);
   const effective = model ?? readCodexConfigPins(path.join(codexHome, "config.toml")).model.value ?? catalog.default_model;
   if (!effective || !catalog.fast_ids?.[effective]) {
     throw new FastModeError("FAST_MODE_NOT_SUPPORTED",
@@ -5999,10 +6004,11 @@ async function switchClaudeFast(name: string, meta: AgentMetadata, target: boole
       throw new FastModeError("FAST_MODE_UNCONFIRMED",
         `この席のmodelが控えに無く（前の版のAitermが起こした席）、fastの対応を確かめられません。agent_configureへmodelも渡してください。${untouched}`);
     }
-    const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), meta.model, untouched);
+    const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), meta.model, untouched,
+      { ...process.env, CLAUDE_CONFIG_DIR: meta.claude_home ?? claudeConfigDir() });
     if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
   }
-  const settings = claudeUserSettingsPath();
+  const settings = path.join(meta.claude_home ?? claudeConfigDir(), "settings.json");
   // Claude Codeは結果の行を出す前に、利用者の設定へ fastMode を書く（on は true、off は項目を消す）。切り替えの前の値へ戻す。
   const seen = await keepingUserDefaults(settings, (before) => { restoreJsonSetting(settings, before, "fastMode"); }, async () => {
     const beforeScreen = captureScreen(name, AGENT_TUI_READY_LINES);
@@ -6305,7 +6311,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     const observed = observeSession(input.session_id);
     if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
-      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
+      vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, claude_home: meta.claude_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
       native_process: observed.harness_process };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
@@ -6326,7 +6332,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
         const generation=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
         let registration:unknown;
         try{
-          const file=path.join(claudeConfigDir(),"sessions",`${owner?.pid}.json`);
+          const file=path.join(target.claude_home ?? claudeConfigDir(),"sessions",`${owner?.pid}.json`);
           const st=fs.lstatSync(file);
           if(!st.isFile()||st.isSymbolicLink()||st.size>64*1024)throw new Error("native registration unavailable");
           registration=JSON.parse(fs.readFileSync(file,"utf8"));
@@ -6618,7 +6624,8 @@ async function configureAgentInLock(
         throw new FastModeError("FAST_MODE_UNCONFIRMED",
           `この席のmodelが控えに無く（前の版のAitermが起こした席）、fastの対応を確かめられません。modelも渡してください。${untouched}`);
       }
-      const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), target, untouched);
+      const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), target, untouched,
+        { ...process.env, CLAUDE_CONFIG_DIR: meta.claude_home ?? claudeConfigDir() });
       if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
     } else {
       await assertCodexFastSupported(bin, meta.codex_home ?? realCodexHome(), model ?? meta.model ?? null, untouched);
@@ -6922,6 +6929,104 @@ interface AgentDispatchOpts {
   preface?: string | null;
 }
 
+/** Caller holds the ordinary send admission for the entire resume and submission. */
+async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
+  const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
+  const uncertain = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", 2);
+  const ownAttempt = readAgentResumeAttempt(previous);
+  if (!lifecycle) {
+    if (previous.resumed_from) {
+      const attempt = readAgentResumeAttempt({ aiterm_session: name, launch_id: previous.resumed_from });
+      if (attempt?.state !== "ready" || attempt.next_launch_id !== previous.launch_id) throw uncertain();
+    }
+    if (ownAttempt) throw uncertain();
+    return previous;
+  }
+  if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
+  const recipe = readAgentResumeRecipe(previous);
+  if (!recipe || recipe.launch_id !== previous.launch_id || recipe.kind !== previous.kind
+    || recipe.vendor_session_id !== previous.vendor_session_id || lifecycle.recipe_digest !== agentResumeRecipeDigest(recipe)
+    || recipe.model !== previous.model || recipe.fast !== previous.fast || recipe.cwd !== previous.cwd || recipe.executable !== previous.agent_executable
+    || recipe.configuration_root !== (previous.kind === "codex" ? previous.codex_home : previous.claude_home ?? claudeConfigDir())
+    || !recipe.model || !recipe.reasoning_effort || !isUsableAgentExecutableFile(recipe.executable)
+    || !fs.statSync(recipe.cwd).isDirectory() || sessionExists(name)) throw uncertain();
+  if (previous.kind === "codex" && (!lifecycle.resume_proof_digest
+    || codexResumeProofDigest(readCodexResumeProof(previous)) !== lifecycle.resume_proof_digest)) throw uncertain();
+  const controlEnv = { ...process.env };
+  for (const [key, value] of Object.entries(recipe.environment)) {
+    if (value === null) delete controlEnv[key]; else controlEnv[key] = value;
+  }
+  controlEnv[recipe.kind === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = recipe.configuration_root;
+  if (recipe.fast) {
+    if (recipe.kind === "claude") {
+      if (await assertClaudeFastSupported(recipe.executable, recipe.cwd, recipe.model, "本文は送信していません。", controlEnv)) throw uncertain();
+    } else await assertCodexFastSupported(recipe.executable, recipe.configuration_root, recipe.model, "本文は送信していません。", controlEnv);
+  }
+  const lineage: AgentLineageContext = { agentRole: "subagent", parentSessionId: previous.parent_session_id!,
+    delegationDepth: previous.delegation_depth!, lineage: previous.lineage!, delegationAllowed: true };
+  let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
+  try {
+    await withExecutionNativeAdmission(name, () => {
+      if (!isDeepStrictEqual(loadAgentMetadata(name), previous) || sessionExists(name)) throw uncertain();
+      if (readAgentLifecycle(previous)?.state !== "hibernated"
+        || agentResumeRecipeDigest(readAgentResumeRecipe(previous)!) !== lifecycle.recipe_digest) throw uncertain();
+      if (previous.kind === "codex" && codexResumeProofDigest(readCodexResumeProof(previous)) !== lifecycle.resume_proof_digest) throw uncertain();
+      publishAgentGeneration(previous);
+      next = previous.kind === "claude"
+        ? createClaudeAgentMetadata(name, recipe.cwd, "none", null, null, lineage, recipe.model, recipe.reasoning_effort)
+        : createCodexAgentMetadata(name, recipe.cwd, "none", { model: recipe.model, effort: recipe.reasoning_effort }, previous.write_scope, lineage);
+      next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
+      next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
+      if (next.kind === "claude") next.claude_home = recipe.configuration_root;
+      else next.codex_home = recipe.configuration_root;
+      if (previous.write_scope !== undefined) next.write_scope = previous.write_scope;
+      writeAgentMetadata(next); initializeAgentActivity(next);
+      attempt = { schema: "aiterm.agent-resume-attempt.v1", launch_id: previous.launch_id, next_launch_id: next.launch_id,
+        state: "resuming", at: new Date().toISOString(), recipe_digest: lifecycle.recipe_digest };
+      writeAgentResumeAttempt(previous, attempt);
+      const shell = isWin ? "pwsh" : "bash";
+      openSessionInternal(name, shell, [], true);
+      if (hasExecutionCreationScope()) {
+        next.execution_native = executionCreatedNativeBinding(name); writeAgentMetadata(next);
+        bindExecutionCreatedLaunch({ session_id: name, launch_id: next.launch_id });
+      }
+      const environment: [string, string | null][] = [...Object.entries(recipe.environment),
+        [next.kind === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", recipe.configuration_root], ...agentEnvEntries(next, name)];
+      for (const [key, value] of environment) {
+        const stored = value === null ? tmux("set-environment", "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
+        if (stored.code !== 0) throw uncertain();
+      }
+      const argv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
+        : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
+      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")))
+        : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
+          + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
+      agentLaunchLines.set(name, atomicShellMultiline(full, shell));
+      send(name, full, { enter: true, mark: false, force: true, rtk: false, raw: true, launchShell: shell, preserveAgentOperation: true });
+      publishAgentGeneration(previous, next);
+    });
+    const resumed: AgentMetadata = next!;
+    const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout });
+    if (ready.status !== "ready") throw uncertain();
+    // Launch argv pins standard speed; restore fast only after the native composer is ready.
+    if (recipe.fast) {
+      const failed = await applyLaunchFast(name, resumed);
+      if (failed || resumed.fast !== true) throw uncertain();
+    }
+    if (loadAgentMetadata(name).launch_id !== resumed.launch_id) throw uncertain();
+    writeAgentResumeTemplate(resumed, { schema: "aiterm.agent-resume-template.v1", launch_id: resumed.launch_id, state: "confirmed",
+      kind: recipe.kind, executable: recipe.executable, cwd: recipe.cwd, configuration_root: recipe.configuration_root,
+      model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
+    writeAgentResumeRecipe(resumed, { ...recipe, launch_id: resumed.launch_id });
+    writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
+    return resumed;
+  } catch (error) {
+    const issued = attempt as AgentResumeAttempt | null;
+    if (issued) try { writeAgentResumeAttempt(previous, { ...issued, state: "failed", at: new Date().toISOString() }); } catch { /* resuming also blocks replay */ }
+    throw new AitermError(`AGENT_RESUME_FAILED: 同じ会話への復帰を確認できません。本文は送信していません。再送せず席の状態を確認してください。${error instanceof ExecutionError ? ` ${error.code}` : ""}`, 2);
+  }
+}
+
 export async function dispatchAgentTurn(
   name: string,
   text: string,
@@ -6942,7 +7047,7 @@ async function dispatchAgentTurnInLock(
   o: AgentDispatchOpts,
   pendingSend?: { follow?: boolean },
 ): Promise<AgentSendReceipt> {
-  const meta = loadAgentMetadata(name);
+  const meta = await resumeAgentInLock(name, o.ready_timeout);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
@@ -7206,7 +7311,7 @@ async function sendAgentMessageInLock(
   text: string,
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
-  const meta = loadAgentMetadata(name);
+  const meta = await resumeAgentInLock(name);
   assertAgentSendHarness(name, meta);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
@@ -7819,7 +7924,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           // Validate it before publishing metadata, then bind this internally
           // generated managed launch. Model arguments cannot select this ID.
           writeAgentMetadata(meta);
-          try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? claudeConfigDir() : meta.codex_home!); }
+          try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!); }
           catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
           agentMetadataNegativeCache.delete(sid);
         }

@@ -16,14 +16,16 @@ import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
-async function fixture(t,{recipe=true}={}){
+async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false}={}){
  const tag='idle-core-'+ ++serial,bin=join(process.env.HOME,tag+'-codex.sh'),driver=join(process.env.HOME,tag+'-driver.mjs');
  const keys=join(process.env.HOME,tag+'-input'),spawnFlag=join(process.env.HOME,tag+'-spawn'),spawned=join(process.env.HOME,tag+'-spawned');
  fs.mkdirSync(process.env.CODEX_HOME,{recursive:true});
- fs.writeFileSync(bin,`#!/bin/sh\n'${process.execPath.replaceAll("'","'\\''")}' '${driver}'\n`,{mode:0o700});
+ fs.writeFileSync(bin,`#!/bin/sh\n'${process.execPath.replaceAll("'","'\\''")}' '${driver}' "$@"\n`,{mode:0o700});
  fs.writeFileSync(driver,`import fs from 'node:fs';import {spawn} from 'node:child_process';
 let line='',added=false;
-const draw=()=>process.stdout.write('\\x1b[H\\x1b[2JOpenAI Codex\\n› '+line+'\\x1b[K\\n  mock-model default · /tmp/proj\\x1b[K\\n\\x1b[J');
+fs.appendFileSync(${JSON.stringify(keys+'-launches')},JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),room:process.env.PEERTABLE_ROOM??null,member:process.env.PEERTABLE_MEMBER??null,unset:process.env.AITERM_TEST_UNSET??null})+'\\n');
+${resumeBlocked?'if(process.argv.includes("resume"))process.exit(0);':''}
+const draw=()=>process.stdout.write(${resumeBlocked?'process.argv.includes("resume") ? "\\x1b[H\\x1b[2Junknown blocked view" : ':''}'\\x1b[H\\x1b[2JOpenAI Codex\\n› '+line+'\\x1b[K\\n  mock-model default · /tmp/proj\\x1b[K\\n\\x1b[J');
 process.stdin.setRawMode(true);process.stdin.resume();draw();
 process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\\[20[01]~/g,'')){
  if(ch==='\\r'){fs.appendFileSync(${JSON.stringify(keys)},line+'\\n');line='';}else if(ch>=' '){line+=ch;}}
@@ -33,7 +35,9 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
- const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME,...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
+ if(resumeEnv){process.env.PEERTABLE_ROOM='saved room';process.env.PEERTABLE_MEMBER='saved member';delete process.env.AITERM_TEST_UNSET;}
+ const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME,
+  ...(resumeEnv?{env_vars:['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']} : {}),...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
  let live;
  for(const until=Date.now()+5000;Date.now()<until;await sleep(40)){
   live=core.observeSession(name);if(live.state==='idle'&&live.harness_alive===true)break;
@@ -72,6 +76,41 @@ test('ordinary core hibernates only the expected idle pane, retaining its resume
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
  core.closeSession(f.name);assert.equal(readAgentLifecycle(f.meta),null);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume.json')),false);
+});
+
+test('a failed physical resume cannot start another CLI or accept either queued body', {skip,timeout:15000},async t=>{
+ const f=await fixture(t,{resumeBlocked:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const results=await Promise.allSettled([core.dispatchAgentTurn(f.name,'never-first',{raw:true,ready_timeout:200}),core.sendAgentMessage(f.name,'never-second',{raw:true})]);
+ assert.ok(results.every(result=>result.status==='rejected'&&/AGENT_RESUME_(?:FAILED|UNCONFIRMED)/.test(result.reason.message)));
+ const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,2);
+ assert.equal(fs.existsSync(f.keys),false);
+ const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
+ assert.equal(attempt.state,'failed');core.closeSession(f.name);
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json')),false);
+});
+
+test('send resumes the same conversation once, preserves old records and restores explicit environment', {skip,timeout:30000},async t=>{
+ const f=await fixture(t,{resumeEnv:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ process.env.PEERTABLE_ROOM='caller room';process.env.PEERTABLE_MEMBER='caller member';process.env.AITERM_TEST_UNSET='caller value';
+ const receipts=await Promise.all(['first-body','second-body'].map(text=>core.sendAgentMessage(f.name,text,{raw:true})));
+ assert.equal(receipts[0].launch_id,receipts[1].launch_id);assert.notEqual(receipts[0].launch_id,f.meta.launch_id);
+ const current=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,receipts[0].launch_id),'utf8'));
+ assert.equal(current.vendor_session_id,f.meta.vendor_session_id);assert.equal(current.resumed_from,f.meta.launch_id);
+ assert.equal(current.lineage,f.meta.lineage);assert.equal(current.delegation_depth,f.meta.delegation_depth);
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
+ const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,2);
+ assert.ok(launches[1].argv.includes('resume'));assert.ok(launches[1].argv.includes(f.meta.vendor_session_id));
+ assert.equal(launches[1].room,'saved room');assert.equal(launches[1].member,'saved member');assert.equal(launches[1].unset,null);
+ assert.equal(launches[1].cwd,f.meta.cwd);
+ const accepted=fs.readFileSync(f.keys,'utf8').trim().split('\n');assert.deepEqual(accepted,['first-body','second-body']);
+});
+
+test('a same-launch metadata change after hibernation cannot reuse a stale resume recipe',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ writeAgentMetadata({...f.meta,model:'later-model'});
+ await assert.rejects(core.sendAgentMessage(f.name,'never-body',{raw:true}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+ assert.equal(fs.existsSync(f.keys),false);
 });
 
 test('recipe absence and an outdated launch never terminate an idle seat',{skip,timeout:15000},async t=>{

@@ -1,6 +1,6 @@
 # ADR 0138: 会話席の無活動終了と同会話再開
 
-状態: 採用（時刻記録・休止判定・本体の停止adapterと時計まで実装。公式再開・公開観測は未接続で、自動休止は無効）。
+状態: 採用（時刻記録・停止adapter・時計・再開候補を実装中。公開論理席と実harness受入は未了、自動休止は無効）。
 
 ## 方針
 
@@ -58,9 +58,9 @@ Cがbusy/blocked/background/未確認入力を返しても、60秒後の次回�
 agent_launchとpty_listの公開入口、起動直後、native完了waiter、Claude Stopへ起動口を置いた。内部list/observeは再帰的な掃引をしない。AGENT_IDLE_ENABLED=falseで公開入口と実CLIを止めており、isolated擬似CLIの試験だけが内部controllerを直接呼ぶ。Dの同会話復帰・公開論理席・実物受入の後に有効化し、CLIの公開登録もその時に揃える。
 
 
-## 公式再開の引数（本体未接続）
+## 公式再開の引数
 
-Claude/Codexのresume argvは既存のlaunch argvから設定を保ち、初手本文を渡さず、保存済みUUIDを明示する。Claudeは--session-idを--resumeへ替え、Codexはresume <UUID>と明示--cdを使い、cwd選択promptを避ける。会話名/--last/picker/forkで代用しない。recipeもこのUUID形式を必要とする。fastの復元、launch世代とCodex旧rolloutの正規相関、metadataの切替と公開論理席は未接続であり、これだけで実resume成功とはしない。公式一次資料はrag/INDEX.mdのClaude/Codex resume reference（2026-10-31）を参照する。
+Claude/Codexのresume argvは既存のlaunch argvから設定を保ち、初手本文を渡さず、保存済みUUIDを明示する。Claudeは--session-idを--resumeへ替え、Codexはresume <UUID>と明示--cdを使い、cwd選択promptを避ける。会話名/--last/picker/forkで代用しない。recipeもこのUUID形式を必要とする。fastの復元、launch世代とCodex旧rolloutの相関、metadata切替は再開候補へ接続した。公開論理席と実harnessの受入は未了であり、引数や擬似CLIの成功だけで実resume成功とはしない。公式一次資料はrag/INDEX.mdのClaude/Codex resume reference（2026-10-31）を参照する。
 
 
 ## 復帰情報の採取と設定変更
@@ -77,7 +77,13 @@ agent_configureは最初の設定効果の直前、同じ送信排他でtemplate
 
 旧hook/waiterと遅れたmetadata writerは元のper-launch fileを読み書きし、active pointerを取り戻せない。pointer欠測の旧席は従来どおり単一metadataを要求し、pointerが壊れた時や選ばれた世代が無い時は旧世代へfallbackしない。isAgentSessionもこの失敗をAGENT_RESUME_UNCONFIRMEDとして返し、AGENT_SESSION_REQUIREDによるconsumerの二重launchを避ける。通常closeはpointer/templateと全世代を片付ける。
 
-この切替helperはまだ実resumeから呼ばれない。openSessionのcleanupを保留する物理再開、Codex旧rolloutとの新launch相関、ready/fast確認後の本文投入、公開hibernated/list/stopの接続が残る。
+この切替helperを物理再開候補へ接続した。native世代の追加fenceと実物受入、公開hibernated/list/stopの接続が残る。
+
+物理再開の候補はsend/dispatchの同じ送信lock内で、保存recipeと休止世代を再確認し、旧pointerをpinして新metadataをstageする。内部のPTY作成だけはagent stateのcleanupを保留する。公式resume argvへ保存会話ID、cwd、model/effortを渡し、明示envのnullは解除、harness設定rootは保存pathで上書きする。新lineageは旧lineageと同じで深さを増やさない。CLI投入後に新世代を公開し、既存ready gateと必要なfast確認を経てから本文の送信経路へ戻る。
+
+元世代のresume-attempt.jsonは新launchとrecipe digest、resuming/ready/failedを持つ。native効果前にresumingを保存し、失敗・保存不能は未確定のまま本文と追加CLIを止める。途中failureをcloseして隠さず、通常close時だけ記録を片付ける。新CLIの実creator stampは既存creation scopeにある場合のみそのreceiptから採り、新しいeffect枠を作らない。mounted graphの世代切替、同名native置換の追加fenceと反例、agent_launch同名経路、公開観測/list/stop、実harnessの同会話・fast受入は残るため、自動停止を有効にしない。
+
+Claudeの設定rootはclaude_homeとしてmetadataへ絶対pathを保存し、transcript・Goal本人登録・fast既定値の復元も同じrootを使う。model catalogの照会もresume時の保存rootと明示envを使い、現在のcaller環境へすり替えない。これはpath参照であり、設定fileや資格を複写する処理ではない。
 
 ## Codexの停止前の会話記録
 

@@ -63,6 +63,20 @@ export function cancelAgentStopping(meta: Launch, anchor: string): void {
   fs.unlinkSync(file(meta, ".lifecycle.json"));
 }
 
+const resumeAttemptSchema = z.object({ schema: z.literal("aiterm.agent-resume-attempt.v1"), launch_id: launchId,
+  next_launch_id: launchId, state: z.enum(["resuming", "ready", "failed"]), at: z.iso.datetime(),
+  recipe_digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+export type AgentResumeAttempt = z.infer<typeof resumeAttemptSchema>;
+export function readAgentResumeAttempt(meta: Launch): AgentResumeAttempt | null {
+  const value = read(meta, ".resume-attempt.json", resumeAttemptSchema);
+  if (value && value.launch_id !== meta.launch_id) throw unavailable();
+  return value;
+}
+export function writeAgentResumeAttempt(meta: Launch, value: AgentResumeAttempt): void {
+  if (value.launch_id !== meta.launch_id || value.next_launch_id === meta.launch_id) throw unavailable();
+  writeJson0600(file(meta, ".resume-attempt.json"), resumeAttemptSchema.parse(value));
+}
+
 
 const idleClockSchema = z.object({ schema: z.literal("aiterm.agent-idle-clock.v1"), launch_id: launchId,
   token: launchId, owner: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1) }).strict(),

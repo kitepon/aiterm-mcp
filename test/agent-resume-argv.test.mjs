@@ -3,9 +3,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {claudeAgentArgv,claudeResumeArgv} from '../dist/harnesses/claude.js';
 import {codexAgentArgv,codexResumeArgv} from '../dist/harnesses/codex.js';
+import {windowsAgentLaunchLine} from '../dist/agent-resolver.js';
 const session='11111111-2222-4333-8444-555555555555';
 const meta={aiterm_session:'resume-argv',launch_id:'a'.repeat(32),vendor_session_id:session,node_platform:process.platform,
  agent_role:'subagent',parent_session_id:'host-root',delegation_depth:1,lineage:'host-root>codex:resume-argv',delegation_allowed:true};
+
+test('Windows resume explicitly removes saved unset variables without substituting caller values',()=>{
+ const line=windowsAgentLaunchLine(null,[['SAVED_UNSET',null],['SAVED_VALUE',"value 'quoted'"]],['fixture.exe','resume',session]);
+ assert.match(line,/Remove-Item -LiteralPath 'Env:SAVED_UNSET' -ErrorAction SilentlyContinue/);
+ assert.ok(line.includes("$env:SAVED_VALUE='value ''quoted'''"));
+ assert.throws(()=>windowsAgentLaunchLine(null,[['BAD;NAME',null]],['fixture.exe']),/環境変数名/);
+});
 
 test('Claude resume retains launch settings but selects the saved ID without a new session or initial body',()=>{
  const m={...meta,kind:'claude',claude_settings:'settings with spaces.json'};

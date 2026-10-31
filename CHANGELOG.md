@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Prepare same-conversation physical resume under the send lock, preserving predecessor state, lineage, cwd and explicit environment, with durable failure records that prevent duplicate CLI launches. Public lifecycle integration and real-harness acceptance remain pending; automatic hibernation is disabled.
 - Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Physical resume remains unconnected.
 - Pin a completed Codex root transcript and its file identity before idle shutdown; refuse stopping when the saved proof or history changes.
 - Prepare resume templates from confirmed launch/configuration inputs and an atomic current-launch selector that preserves old hook and waiter records. Automatic activation remains disabled.

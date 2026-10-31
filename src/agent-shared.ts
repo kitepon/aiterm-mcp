@@ -80,6 +80,7 @@ export interface AgentMetadata {
   node_platform: NodeJS.Platform;
   codex_home?: string;
   claude_settings?: string;
+  claude_home?: string;
   result_file?: string;
   grok_home?: string;
   grok_auth_path?: string | null;

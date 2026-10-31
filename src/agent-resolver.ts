@@ -284,13 +284,13 @@ export function runThroughlineHandoffContext(
 }
 
 /** Owned Windows agent launch: PowerShell uses argv, without interactive MSYS input. */
-export function windowsAgentLaunchLine(cwd: string | null, env: [string, string][], argv: string[]): string {
+export function windowsAgentLaunchLine(cwd: string | null, env: [string, string | null][], argv: string[]): string {
   const psq = (value: string) => `'${value.replace(/'/g, "''")}'`;
   const parts: string[] = [];
   if (cwd) parts.push(`Set-Location -LiteralPath ${psq(cwd)}`);
   for (const [name, value] of env) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new AitermError("環境変数名が不正です", 2);
-    parts.push(`$env:${name}=${psq(value)}`);
+    parts.push(value === null ? `Remove-Item -LiteralPath 'Env:${name}' -ErrorAction SilentlyContinue` : `$env:${name}=${psq(value)}`);
   }
   parts.push(`& ${argv.map(psq).join(" ")}`);
   return parts.join("; ");

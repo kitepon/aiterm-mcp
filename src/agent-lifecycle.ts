@@ -10,8 +10,8 @@ const absolute = z.string().min(1).refine(value => path.isAbsolute(value) && !va
 export const agentResumeRecipeSchema = z.object({
   schema: z.literal("aiterm.agent-resume.v1"), launch_id: launchId,
   kind: z.enum(["claude", "codex"]), vendor_session_id: z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i),
-  executable: absolute, cwd: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean(),
-  environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().refine(value => !value.includes("\0"))),
+  executable: absolute, cwd: absolute, configuration_root: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean(),
+  environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().refine(value => !value.includes("\0")).nullable()),
 }).strict();
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
 const identity = z.object({ pid: z.number().int().positive(), process_group_id: z.number().int().positive().nullable(),
@@ -82,4 +82,51 @@ export function retireAgentIdleClock(meta: Launch, token?: string): void {
   const value = readAgentIdleClock(meta);
   if (value === null || (token !== undefined && value.token !== token)) return;
   fs.unlinkSync(file(meta, ".idle-clock.json"));
+}
+
+
+const resumeTemplateSchema = agentResumeRecipeSchema.omit({ vendor_session_id: true, fast: true }).extend({
+  schema: z.literal("aiterm.agent-resume-template.v1"), state: z.enum(["confirmed", "unconfirmed"]),
+}).strict();
+export type AgentResumeTemplate = z.infer<typeof resumeTemplateSchema>;
+export function readAgentResumeTemplate(meta: Launch): AgentResumeTemplate | null {
+  const value = read(meta, ".resume-template.json", resumeTemplateSchema);
+  if (value && value.launch_id !== meta.launch_id) throw unavailable();
+  return value;
+}
+export function writeAgentResumeTemplate(meta: AgentMetadata, input: AgentResumeTemplate): void {
+  const value = resumeTemplateSchema.parse(input);
+  if (value.launch_id !== meta.launch_id || value.kind !== meta.kind) throw unavailable();
+  writeJson0600(file(meta, ".resume-template.json"), value);
+}
+export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string | null, envNames: string[], configurationRoot: string, env = process.env): void {
+  if (meta.kind !== "claude" && meta.kind !== "codex") return;
+  // Explicit credential variables cannot be persisted as a conversation recipe.
+  if (envNames.some(name => /(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(name))) return;
+  writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
+    executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
+    environment: Object.fromEntries(envNames.map(name => [name, env[name] ?? null])), state: "confirmed" });
+}
+export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
+  const complete = !!model && !!effort;
+  const known = before.state === "confirmed" && (!model || model === before.model || effort !== null);
+  writeAgentResumeTemplate(meta, { ...before, model: model ?? before.model, reasoning_effort: effort ?? before.reasoning_effort,
+    state: complete || known ? "confirmed" : "unconfirmed" });
+}
+export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe | null {
+  const template = readAgentResumeTemplate(meta);
+  if (!template) {
+    const recipe = readAgentResumeRecipe(meta);
+    return recipe?.model && recipe.reasoning_effort ? recipe : null;
+  }
+  if (template.state !== "confirmed" || !template.model || !template.reasoning_effort || template.model !== meta.model
+    || template.executable !== meta.agent_executable || template.cwd !== meta.cwd || typeof meta.fast !== "boolean") return null;
+  if (meta.kind === "claude" && !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort)) return null;
+  const { state, ...settings } = template;
+  const candidate = agentResumeRecipeSchema.safeParse({ ...settings, schema: "aiterm.agent-resume.v1",
+    vendor_session_id: meta.vendor_session_id, fast: meta.fast });
+  if (!candidate.success) return null;
+  const previous = readAgentResumeRecipe(meta);
+  if (!previous || agentResumeRecipeDigest(previous) !== agentResumeRecipeDigest(candidate.data)) writeAgentResumeRecipe(meta, candidate.data);
+  return candidate.data;
 }

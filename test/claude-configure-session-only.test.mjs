@@ -14,6 +14,8 @@ process.env.TMPDIR = base;
 process.env.XDG_RUNTIME_DIR = base;
 const claude = await import("../dist/harnesses/claude.js");
 const core = await import("../dist/core.js");
+const { readAgentResumeTemplate } = await import("../dist/agent-lifecycle.js");
+const resumeTemplate = sid => readAgentResumeTemplate({aiterm_session:sid,launch_id:core.observeSession(sid).launch_id});
 core.__testSetAgentTuiReadyStableSamples(1);
 after(() => fs.rmSync(base, { recursive: true, force: true }));
 
@@ -278,6 +280,8 @@ test("agent_configure: Claude Codeの席は、選ぶ画面の s（この会話�
   await withPickerClaude({}, async ({ sid, keys, screen, saved }) => {
     // 今はSonnet 5.5（4行目）・medium。IDで渡したOpus 5.5（2行目）をhighで選ぶ。
     assert.deepEqual(await core.configureAgent(sid, { model: "claude-opus-5-5", reasoning_effort: "high" }), done(sid, "claude-opus-5-5", "high"));
+    assert.equal(resumeTemplate(sid).state,"confirmed");
+    assert.equal(resumeTemplate(sid).reasoning_effort,"high");
     assert.equal(saved(), false, "Enter（既定として保存）を押していない");
     assert.match(await screen(), /Set model to Opus 5\.5 for this session only with high effort/u);
     // 一周して行を集め（下へ13回）、2行目へ戻り（上へ2回）、effortを1段上げ、s。`/model <名前>` も `/effort` も打たない。
@@ -288,10 +292,13 @@ test("agent_configure: Claude Codeの席は、選ぶ画面の s（この会話�
     assert.deepEqual(await core.configureAgent(sid, { reasoning_effort: "low" }), done(sid, null, "low"));
     assert.match(await screen(), /Set model to Opus 5\.5 for this session only with low effort/u);
     assert.ok(keys().endsWith("/model⏎←←s"), keys());
+    assert.equal(resumeTemplate(sid).reasoning_effort,"low");
+    assert.equal(resumeTemplate(sid).state,"confirmed");
 
     // modelだけ（別名）: effortは触らない。見えていない行（13行目）も選べる。
     assert.deepEqual(await core.configureAgent(sid, { model: "claude-sonnet-4-6" }), done(sid, "claude-sonnet-4-6", null));
     assert.match(await screen(), /Set model to Sonnet 4\.6 for this session only with low effort/u);
+    assert.equal(resumeTemplate(sid).state,"unconfirmed");
     assert.deepEqual(await core.configureAgent(sid, { model: "opus" }), done(sid, "opus", null));
     assert.match(await screen(), /Set model to Opus 5\.5 for this session only with low effort/u);
     assert.equal(saved(), false);
@@ -319,6 +326,7 @@ test("agent_configure: 選べない時は、選ぶ画面をEscで閉じて、何
       const now = await screen();
       assert.match(now, /Kept model as Sonnet 5\.5\n[\s\S]*$/u);
       assert.doesNotMatch(now, /Set model to/u);
+      assert.equal(resumeTemplate(sid).state,"confirmed","a refusal before the setting changes retains the prior template");
     };
     // 選ぶ画面に無い機種。
     await refused({ model: "claude-opus-9-9" }, /CLAUDE_MODEL_NOT_IN_PICKER vendor=claude[\s\S]*claude-opus-9-9 がありません（選べる機種: Default \(recommended\), Opus 5\.5,[\s\S]*modelとreasoning_effortは変えていません。/u);

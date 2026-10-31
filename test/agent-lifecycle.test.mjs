@@ -6,7 +6,7 @@ import {agentMetadataPath} from '../dist/agent-shared.js';
 import {writeAgentResumeRecipe,readAgentResumeRecipe,agentResumeRecipeDigest,writeAgentLifecycle,readAgentLifecycle,cancelAgentStopping} from '../dist/agent-lifecycle.js';
 const meta={aiterm_session:'lifecycle-fixture',launch_id:'a'.repeat(32),kind:'codex',vendor_session_id:'11111111-2222-4333-8444-555555555555'};
 const recipe={schema:'aiterm.agent-resume.v1',launch_id:meta.launch_id,kind:'codex',vendor_session_id:'11111111-2222-4333-8444-555555555555',
- executable:process.execPath,cwd:process.env.HOME,model:'fixture-model',reasoning_effort:'high',fast:false,environment:{PEERTABLE_ROOM:'artificial'}};
+ executable:process.execPath,cwd:process.env.HOME,configuration_root:process.env.CODEX_HOME,model:'fixture-model',reasoning_effort:'high',fast:false,environment:{PEERTABLE_ROOM:'artificial'}};
 const file=suffix=>agentMetadataPath(meta.aiterm_session,meta.launch_id).replace(/\.agent\.json$/,suffix);
 test('private resume recipes preserve only their matching launch and reject malformed state',()=>{
  assert.equal(readAgentResumeRecipe(meta),null);writeAgentResumeRecipe(meta,recipe);

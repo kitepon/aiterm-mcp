@@ -59,6 +59,7 @@ export interface AgentMetadata {
   // launcher の能力宣言。省略時は能力制限なし。
   write_scope?: string;
   vendor_session_id: string | null;
+  resumed_from?: string;
   initial_prompt: InitialPromptState;
   initial_prompt_delivery?: InitialPromptDelivery;
   initial_prompt_cursor?: number | null;
@@ -335,6 +336,59 @@ export function agentMetadataPath(name: string, launchId: string): string {
   assertSessionName(name);
   if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);
   return path.join(agentsDir(), `${name}.${launchId}.agent.json`);
+}
+
+export interface AgentGeneration {
+  schema: "aiterm.agent-generation.v1"; launch_id: string; previous_launch_id: string | null;
+}
+const generationPath = (name: string) => {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.active-launch.json`);
+};
+export function readAgentGeneration(name: string): AgentGeneration | null {
+  let body: string;
+  try { body = fs.readFileSync(generationPath(name), "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  try {
+    const value = JSON.parse(body);
+    if (value.schema !== "aiterm.agent-generation.v1" || typeof value.launch_id !== "string" || !LAUNCH_ID_RE.test(value.launch_id)
+      || !(value.previous_launch_id === null || (typeof value.previous_launch_id === "string" && LAUNCH_ID_RE.test(value.previous_launch_id)))
+      || value.previous_launch_id === value.launch_id) throw new Error();
+    return value;
+  } catch { throw new AitermError("AGENT_RESUME_UNCONFIRMED: 現在の起動世代を確認できません。", 2); }
+}
+/** No pointer changes until a complete per-launch metadata record is durable. Caller owns seat admission. */
+export function publishAgentGeneration(previous: AgentMetadata, next = previous): void {
+  const name = previous.aiterm_session, current = readAgentGeneration(name);
+  if (current && current.launch_id !== previous.launch_id)
+    throw new AitermError("AGENT_RESUME_UNCONFIRMED: 起動世代が置き換わっています。", 2);
+  if (!current) {
+    const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
+    if (files.length !== 1 || files[0] !== path.basename(agentMetadataPath(name, previous.launch_id)))
+      throw new AitermError("AGENT_RESUME_UNCONFIRMED: 元の起動世代を特定できません。", 2);
+  }
+  const source = JSON.parse(fs.readFileSync(agentMetadataPath(name, previous.launch_id), "utf8"));
+  const stored = JSON.parse(fs.readFileSync(agentMetadataPath(name, next.launch_id), "utf8"));
+  if (source.launch_id !== previous.launch_id || source.aiterm_session !== name || source.kind !== previous.kind
+    || source.vendor_session_id !== previous.vendor_session_id || next.aiterm_session !== name || stored.aiterm_session !== name || stored.launch_id !== next.launch_id
+    || stored.kind !== previous.kind || stored.kind !== next.kind || stored.vendor_session_id !== previous.vendor_session_id
+    || stored.vendor_session_id !== next.vendor_session_id
+    || ["parent_session_id", "delegation_depth", "lineage"].some(field => stored[field] !== source[field])
+    || (next.launch_id !== previous.launch_id && (stored.resumed_from !== previous.launch_id || next.resumed_from !== previous.launch_id)))
+    throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰先が元の会話と一致しません。", 2);
+  writeJson0600(generationPath(name), { schema: "aiterm.agent-generation.v1", launch_id: next.launch_id,
+    previous_launch_id: next.launch_id === previous.launch_id ? current?.previous_launch_id ?? previous.resumed_from ?? null : previous.launch_id });
+}
+/** A staged second generation is invisible until publication; missing/broken pointers never fall back. */
+export function selectAgentMetadataFile(name: string, files: string[]): string {
+  const current = readAgentGeneration(name);
+  if (current) {
+    const selected = path.basename(agentMetadataPath(name, current.launch_id));
+    if (files.includes(selected)) return selected;
+    throw new AitermError("AGENT_RESUME_UNCONFIRMED: 現在の起動記録がありません。", 2);
+  }
+  if (files.length !== 1) throw new AitermError(`session '${name}' の agent metadata が複数あります。閉じて起動し直してください。`, 2);
+  return files[0];
 }
 
 export function agentWaitLockPath(name: string, launchId: string): string {

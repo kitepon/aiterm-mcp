@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import * as core from '../dist/core.js';
-import {agentMetadataPath,writeAgentMetadata,ensureStateRoot} from '../dist/agent-shared.js';
+import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publishAgentGeneration} from '../dist/agent-shared.js';
 import {readAgentLifecycle,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/execution-effect.js';
 import {readProcessIdentities} from '../dist/process-runtime.js';
@@ -33,7 +33,7 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
- const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME});
+ const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME,...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
  let live;
  for(const until=Date.now()+5000;Date.now()<until;await sleep(40)){
   live=core.observeSession(name);if(live.state==='idle'&&live.harness_alive===true)break;
@@ -51,7 +51,7 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
   {type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:`AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`}]}},
   event('task_started'),event('task_complete',{last_agent_message:'Done'})].map(JSON.stringify).join('\n')+'\n');
  if(recipe)writeAgentResumeRecipe(meta,{schema:'aiterm.agent-resume.v1',launch_id:meta.launch_id,kind:'codex',
-  vendor_session_id:meta.vendor_session_id,executable:bin,cwd:process.env.HOME,model:meta.model,reasoning_effort:null,
+  vendor_session_id:meta.vendor_session_id,executable:bin,cwd:process.env.HOME,configuration_root:process.env.CODEX_HOME,model:meta.model,reasoning_effort:'high',
   fast:meta.fast,environment:{PEERTABLE_ROOM:'artificial',PEERTABLE_MEMBER:'fixture'}});
  const expected={session_id:name,launch_id:meta.launch_id};
  return {name,meta,expected,keys,spawnFlag,spawned,rollout,
@@ -204,4 +204,22 @@ test('a clock tick discovers autonomous native completion without a parent waite
  assert.equal(readAgentIdleClock(f.meta).token,spawned.token,'an earlier pending tick is reused');
  assert.equal((await core.serviceAgentIdleClock(f.expected,old.token)).reason,'superseded_timer');
  assert.equal((await core.serviceAgentIdleClock(f.expected,spawned.token)).reason,'superseded_timer','a different process cannot impersonate the sleeper');
+});
+
+
+test('public registration follows the published launch while old and staged metadata coexist',
+ {skip,timeout:15000},async t=>{
+ const f=await fixture(t);publishAgentGeneration(f.meta);
+ const next={...f.meta,launch_id:'b'.repeat(32),resumed_from:f.meta.launch_id,event_file:agentEventPath(f.name,'b'.repeat(32))};
+ fs.writeFileSync(next.event_file,'');writeAgentMetadata(next);
+ assert.equal(core.isAgentSession(f.name),true);
+ assert.equal(core.observeSessionGeneration(f.name).launch_id,f.meta.launch_id);
+ publishAgentGeneration(f.meta,next);
+ assert.equal(core.observeSessionGeneration(f.name).launch_id,next.launch_id);
+ writeAgentMetadata({...f.meta,model:'stale'});
+ assert.equal(core.observeSessionGeneration(f.name).launch_id,next.launch_id);
+ fs.unlinkSync(agentMetadataPath(f.name,next.launch_id));
+ assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/,'cannot request a replacement seat via AGENT_SESSION_REQUIRED');
+ fs.unlinkSync(agentMetadataPath(f.name,f.meta.launch_id));
+ assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/);
 });

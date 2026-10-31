@@ -33,7 +33,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
+import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -95,6 +95,7 @@ import {
   stateRoot,
   ensureStateRoot,
   agentsDir,
+  readAgentGeneration, selectAgentMetadataFile,
   agentEventPath,
   agentMetadataPath,
   agentWaitLockPath,
@@ -596,9 +597,11 @@ function cleanupAgentState(name: string): void {
       try {
         if (
           f.endsWith(".agent.json") ||
+          f.endsWith(".active-launch.json") ||
           f.endsWith(".events.jsonl") ||
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
+          f.endsWith(".resume-template.json") ||
           f.endsWith(".lifecycle.json") ||
           f.endsWith(".idle-check.json") ||
           f.endsWith(".idle-clock.json") ||
@@ -1327,8 +1330,8 @@ export function sendKeyResult(name: string, key: string, o: { preserveAgentOpera
 function readInterruptionTarget(name: string): { kind: AgentKind; launch_id: string } | null {
   try {
     const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
-    if (files.length !== 1) return null;
-    const meta = JSON.parse(fs.readFileSync(path.join(agentsDir(), files[0]), "utf8"));
+    if (files.length === 0) return null;
+    const meta = JSON.parse(fs.readFileSync(path.join(agentsDir(), selectAgentMetadataFile(name, files)), "utf8"));
     return meta.aiterm_session === name && ["codex", "claude", "cursor", "grok", "antigravity"].includes(meta.kind)
       && typeof meta.launch_id === "string" && LAUNCH_ID_RE.test(meta.launch_id) ? { kind: meta.kind, launch_id: meta.launch_id } : null;
   } catch { return null; }
@@ -2013,7 +2016,8 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
   const snapshot = (): IdleSeatSnapshot => {
     const meta = metadata();
     captured ??= meta;
-    const recipe = readAgentResumeRecipe(meta);
+    if (meta.kind === "codex" && readAgentResumeTemplate(meta)?.state === "confirmed") bindCodexTranscriptSession(meta);
+    const recipe = refreshAgentResumeRecipe(meta);
     const digest = recipe && agentResumeRecipeDigest(recipe);
     if (recipeDigest && digest !== recipeDigest) throw new Error("resume_recipe_changed");
     const lifecycle = readAgentLifecycle(meta);
@@ -3504,17 +3508,16 @@ function loadAgentMetadata(name: string): AgentMetadata {
     .readdirSync(dir)
     .filter((f) => f.startsWith(`${name}.`) && f.endsWith(".agent.json"));
   if (files.length === 0) {
+    if (readAgentGeneration(name)) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 現在の起動記録がありません。", 2);
     throw new AitermError(
       `session '${name}' は agent_done 管理セッションではありません。claude_agent／codex_agent 等の launcher で起動してください。`,
       2,
     );
   }
-  if (files.length !== 1) {
-    throw new AitermError(`session '${name}' の agent metadata が複数あります。閉じて起動し直してください。`, 2);
-  }
+  const selectedFile = selectAgentMetadataFile(name, files);
   let raw: unknown;
   try {
-    raw = JSON.parse(fs.readFileSync(path.join(dir, files[0]), "utf8"));
+    raw = JSON.parse(fs.readFileSync(path.join(dir, selectedFile), "utf8"));
   } catch (e) {
     throw new AitermError(`agent metadata を読めません: ${(e as Error).message}`, 2);
   }
@@ -3527,6 +3530,11 @@ function loadAgentMetadata(name: string): AgentMetadata {
   ) {
     throw new AitermError(`agent metadata が不正です: ${files[0]}`, 2);
   }
+  const generation = readAgentGeneration(name);
+  if (m.resumed_from !== undefined && (typeof m.resumed_from !== "string" || !LAUNCH_ID_RE.test(m.resumed_from)
+    || generation?.launch_id !== m.launch_id || generation.previous_launch_id !== m.resumed_from))
+    throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰した起動世代が一致しません。", 2);
+  const resumeFields = m.resumed_from === undefined ? {} : { resumed_from: m.resumed_from };
   const expectedEvent = agentEventPath(name, m.launch_id);
   if (m.event_file !== expectedEvent) {
     throw new AitermError("agent metadata の path が現在の secure state root と一致しません", 2);
@@ -3596,6 +3604,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...deliveryFields,
       ...executableFields,
       ...fastFields,
+      ...resumeFields,
       ...startupFields,
       launch_operation_id: launchOperationId,
       launch_request_digest: launchRequestDigest,
@@ -3629,6 +3638,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...deliveryFields,
       ...executableFields,
       ...fastFields,
+      ...resumeFields,
       ...startupFields,
       hook_route: "shared_codex_home",
       completion_route: "codex_transcript",
@@ -3660,6 +3670,7 @@ function loadAgentMetadata(name: string): AgentMetadata {
       ...deliveryFields,
       ...executableFields,
       ...fastFields,
+      ...resumeFields,
       ...startupFields,
       hook_route: "shared_cursor_home",
       completion_route: "cursor_transcript",
@@ -5035,6 +5046,7 @@ async function sendInitialAgentPromptInLock(
 
 export function isAgentSession(name: string): boolean {
   assertSessionName(name);
+  if (readAgentGeneration(name)) { loadAgentMetadata(name); return true; }
   return tryLoadAgentMetadata(name) !== null;
 }
 
@@ -6475,9 +6487,19 @@ export async function configureAgent(
       const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
       for (;;) {
         checkGeneration();
-        const result = await withAgentSendLock(name, () => {
+        const result = await withAgentSendLock(name, async () => {
           checkGeneration();
-          return configureAgentInLock(name, model, effort, fast, beforeChange);
+          const current = loadAgentMetadata(name), saved = readAgentResumeTemplate(current);
+          let invalidated = false;
+          const result = await configureAgentInLock(name, model, effort, fast, () => {
+            if (saved && !invalidated) {
+              withExecutionPreparation(name, () => writeAgentResumeTemplate(current, { ...saved, state: "unconfirmed" }));
+              invalidated = true;
+            }
+            beforeChange();
+          });
+          if (result && saved) withExecutionPreparation(name, () => finishAgentResumeConfiguration(loadAgentMetadata(name), saved, model, effort));
+          return result;
         }, AGENT_CONFIGURE_UNCHANGED);
         if (result) return result;
         if (performance.now() >= deadline) throw agentConfigureNotReady(name);
@@ -7782,6 +7804,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           // Stamp its exact native creator before binding and any later input.
           if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
           meta.agent_executable = bin;
+          if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
           // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
           meta.fast = opts.fast_state === true;
           meta.model = opts.base_model !== undefined ? opts.base_model : model;
@@ -7790,6 +7813,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           // Validate it before publishing metadata, then bind this internally
           // generated managed launch. Model arguments cannot select this ID.
           writeAgentMetadata(meta);
+          try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? claudeConfigDir() : meta.codex_home!); }
+          catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
           agentMetadataNegativeCache.delete(sid);
         }
         return meta;

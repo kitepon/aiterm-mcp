@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readAgentActivity } from "../dist/agent-activity.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -21,7 +22,7 @@ import {
   fileSnapshot,
 } from "./core-agent-support.mjs";
 
-test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待つ", { skip: skipAgentDone }, async () => {
+test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待つ", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
@@ -29,16 +30,30 @@ test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待
       assert.ok(metaFile);
       const meta = JSON.parse(fs.readFileSync(path.join(agentStateDir(), metaFile), "utf8"));
       await markFakeAgentReady(sid, "codex");
+      assert.deepEqual(readAgentActivity(meta), { tracked: true, last_input_at: null, last_turn_end_at: null });
       const receipt = await core.dispatchAgentTurn(sid, "echo AGENT_DONE_BODY");
       assert.equal(receipt.harness, "codex-cli");
+      assert.ok(readAgentActivity(meta).last_input_at);
+      assert.equal(readAgentActivity(meta).last_turn_end_at, null);
       scheduleCodexDone(meta);
       const observation = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 3 });
       assert.equal(observation.outcome, "done");
       assert.equal(observation.vendor, "codex");
       assert.equal(observation.harness, "codex-cli");
       assert.equal(observation.turn_id, "turn-test");
+      assert.equal(readAgentActivity(meta).last_turn_end_at, observation.at);
+      const endedAt = readAgentActivity(meta).last_turn_end_at;
+      await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 0 });
+      assert.equal(readAgentActivity(meta).last_turn_end_at, endedAt);
+      fs.appendFileSync(path.join(agentStateDir(), `${sid}.${meta.launch_id}.activity.jsonl`), '{partial');
+      const warning = t.mock.method(process.stderr, "write", () => true);
+      assert.equal((await core.observeAgentDone(sid, { cursor: receipt.event_cursor, timeout: 0 })).outcome, "done");
+      assert.ok(warning.mock.calls.some(call => call.arguments[0].includes("AGENT_ACTIVITY_UNCONFIRMED")));
+      warning.mock.restore();
+      assert.throws(() => readAgentActivity(meta), /AGENT_ACTIVITY_UNCONFIRMED/);
     } finally {
       core.closeSession(sid);
+      assert.equal(fs.readdirSync(agentStateDir()).some(file => file.startsWith(`${sid}.`) && file.endsWith(".activity.jsonl")), false);
     }
   });
 });

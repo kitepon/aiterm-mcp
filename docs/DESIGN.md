@@ -182,6 +182,8 @@ Codex model-only configuration reads the native current effort before navigating
 
 Codex v1のactive goalは設定替えの間だけ一時停止する。`configure-goal.ts`がpause→nativeの番終了待ち→既存の設定替え→resumeを持つ。coreは同じlaunch/threadへの束縛と番終了記録を供給し、待機中は送信lockを持たない。pause/resumeは既存のCLI goal adapterで一度だけ発行し、mutation直前のnative readbackが比較元から変われば発行しない。設定替え失敗でも自分のpauseの復元を試み、別goalや変更されたgoalは再開しない。公開schemaは維持し、設定とgoalの不確定な結果はエラー本文で併記する（ADR 0137）。
 
+無活動判定用の時刻は、起動世代ごとのactivity.jsonlに追記する。agent-activity.tsがlast_input_atとlast_turn_end_atを返し、metadata全体を書き戻す処理とは独立する。親からの初手・dispatch・steerのPTY書込み境界と、Claude Stop/既存のnative完了観測だけが記録する。同じ番の完了を繰り返し読んでも起点を更新せず、途中出力・画面描画・設定命令では更新しない。履歴欠測と破損は未知として扱い、時刻記録失敗で既に得た完了結果を失わせない。現段階は記録のみで、自動休止はまだ有効にしない（ADR 0138）。
+
 agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
 Codex親にはAitermのMCP processが完了を観測し、選択設定に応じて公式Steerまたはqueueへ本文を自動配送する。
 Claude Code親は公式の非同期hookで本文を受け取り、待機中も新しいturnへ進める。

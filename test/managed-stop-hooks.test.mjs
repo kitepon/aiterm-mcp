@@ -120,6 +120,9 @@ test("claude-stop-hook: Stop payload本文をowner-only resultへ分離しevent�
     const eventFile = path.join(agents, `${session}.${launchId}.events.jsonl`);
     const event = JSON.parse(fs.readFileSync(eventFile, "utf8").trim());
     assert.equal(event.vendor, "claude");
+    const activity = JSON.parse(fs.readFileSync(path.join(agents, `${session}.${launchId}.activity.jsonl`), "utf8").trim());
+    assert.equal(activity.kind, "turn_end");
+    assert.equal(activity.at, event.at);
     assert.equal(event.vendor_session_id, "claude-session-1");
     assert.equal(event.turn_id, null);
     assert.equal(event.done_status, "turn_done");

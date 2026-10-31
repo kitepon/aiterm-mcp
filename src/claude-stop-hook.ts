@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { currentUid as uid, runtimeStateBase } from "./state-root.js";
 import { createHash, randomBytes } from "node:crypto";
+import { recordAgentTurnEnd } from "./agent-activity.js";
 
 const LAUNCH_ID_RE = /^[0-9a-f]{32}$/;
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -198,6 +199,7 @@ async function main(): Promise<void> {
     result_bytes: resultBytes,
     text,
   });
+  const endedAt = new Date().toISOString();
   appendEvent(eventFile, {
     type: "agent_done",
     vendor: "claude",
@@ -211,8 +213,12 @@ async function main(): Promise<void> {
     stop_hook_active: !!payload.stop_hook_active,
     result_digest: resultDigest,
     result_bytes: resultBytes,
-    at: new Date().toISOString(),
+    at: endedAt,
   });
+  try {
+    recordAgentTurnEnd({ aiterm_session: session, launch_id: launchId }, { vendor: "claude",
+      vendor_session_id: payload.session_id, turn_id: null, operation_id: operationId, at: endedAt });
+  } catch { process.stderr.write("aiterm: AGENT_ACTIVITY_UNCONFIRMED: 番の終了時刻を保存できません。Stop結果は保存済みです。\n"); }
   if (operationMarker) consumeOperationMarker(operationFile, operationMarker);
 }
 

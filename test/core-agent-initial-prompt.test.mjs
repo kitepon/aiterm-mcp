@@ -2,6 +2,7 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readAgentActivity } from "../dist/agent-activity.js";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -276,6 +277,8 @@ test("openAgentWithInitialPrompt: prompt を shell argv に載せず pending eve
         const meta = readAgentMeta(sid);
         assert.equal(meta.initial_prompt, "pending");
         assert.equal(typeof launchCursor, "number", "構造化 event_cursor を返す");
+        assert.ok(readAgentActivity(meta).last_input_at);
+        assert.equal(readAgentActivity(meta).last_turn_end_at, null);
         assert.match(out, new RegExp(`event_cursor=${launchCursor}\\b`), "hint と構造化 cursor が一致する");
         appendCodexDone(meta, { turn_id: "open-agent-initial", vendor_session_id: "open-agent-vendor" });
         const observation = await core.observeAgentDone(sid, { cursor: launchCursor, timeout: 3 });

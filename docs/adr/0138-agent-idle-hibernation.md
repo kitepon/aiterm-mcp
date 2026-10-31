@@ -1,0 +1,31 @@
+# ADR 0138: 会話席の無活動終了と同会話再開
+
+状態: 採用（時刻記録のみ実装、休止・時計・再開は未実装）。
+
+## 方針
+
+Ownerは2026-10-31、最後の番の終了から30分、新しい入力も番もないAiterm管理会話席を、子孫processごと止め、次の入力で同じvendor会話を再開するよう指示した。普通のpty_open、常駐receiver、OS daemonは含めない。busy、blocked/approval、後から始まったbackground作業、未配送の子結果、人のattach、再開に必要な会話ID欠測では休止しない。固まりの疑いは報告だけとする。既存の実席を手動で整理する権限へ拡張しない。
+
+## 時刻の正本
+
+agent-activity.tsがmetadataと同じper-launch prefixのactivity.jsonlを持つ。入力は初手・dispatch・steerのPTY書込み境界、番終了はClaude Stopと既存のharness完了観測から追記する。legacy launcherのargv promptも入力境界で記録する。設定用のslash命令や途中出力は起点にしない。
+
+last_input_at/last_turn_end_atをmetadataへ直接書くと、別processのhookとsenderが古いmetadataを書き戻し、相手の時刻や設定を消せる。追記の記録を分離し、metadataを書き戻す権限をwaiterへ増やさない。created行は新規追跡の空記録と旧版の欠測を区別する。
+
+同じ番のvendor/session/turn（無ければoperationまたはStop時刻）をhashにし、最初の完了観測だけを採用する。競合で同じ番の行が重複しても、読み手は最初の行を採り、過去の番や時計の逆行で起点を戻さない。Cursorなどnative完了に壁時計が無い経路、時刻として読めない旧形式では、完了を観測した時刻を使う。回答本文やcredentialは記録に含めない。
+
+時刻記録が壊れていれば休止を許可しない。完了記録の保存失敗はstderrへ明示し、既に得たnative完了結果は返す。将来のidle-checkでは最新native完了と記録を再確認し、保存不能ならその席を止めない。通常closeはこの記録も消す。現時点は時刻記録だけで、timer/自動停止/resumeは追加していない。
+
+## 休止・再開の公開契約（実装予定）
+
+pty_listには再開可能な論理席を残す。pty_observeはstate=hibernated、reason=idle_timeout、exists=true（論理席の存在）、有効な保存launch_id/harnessを返す。物理processの生存を偽らず、pane_alive/harness_alive=false、pane_process/harness_process/process_identity/token_hint=nullとする。
+
+木の終了と未配送0を確定した休止ではpending_child_deliveries=0、activity.post_startup_process_count=0。CPU累積は0、比較cursor/変更/delta/比較の完全性はnull。一覧の許可env照会は保持し、seat_turnsはidle。通常closeの消去意味は維持する。
+
+送信は同一admissionで休止判定・resume・本文投入を排他化し、resume時は新launch_id/resumed_fromと同vendor会話を束縛する。本文の実受理前に成功receiptを返さず、不明な効果を再送しない。resume失敗はAGENT_SESSION_REQUIREDへ置換しない。休止席へのstopはidleを返し、起こさない。native admissionの世代切替と環境の再現、各harnessの公式再開能力を確認してから有効化する。
+
+BellTeamのexists/配備quiet判定とPeertableの送信前生存判定はこの状態への対応が必要。両製品の候補互換と実物の隔離受入を公開前に接続する。利用製品のsourceは各担当が持つ。
+
+## 記録の確認
+
+agent-activity.test.mjsは入力/終了の区別、完了の重複、時計の逆行、起動世代、破損を確認する。core-agent-dispatch/core-agent-initial-promptは実tmuxの初手と通常入力、native完了、破損した時計でも完了結果を返すことを確認する。managed-stop-hooksは実hook processからの記録とStop時刻の一致を確認する。

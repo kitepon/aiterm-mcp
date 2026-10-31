@@ -29,6 +29,7 @@ import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCu
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
+import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd } from "./agent-activity.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -591,6 +592,7 @@ function cleanupAgentState(name: string): void {
         if (
           f.endsWith(".agent.json") ||
           f.endsWith(".events.jsonl") ||
+          f.endsWith(".activity.jsonl") ||
           f.endsWith(".wait.lock") ||
           f.endsWith(".claude-settings.json") ||
           f.endsWith(".claude-mcp.json") ||
@@ -4198,11 +4200,26 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
   return null;
 }
 
-// 外部waiterプロセス用の純リーダー観測。lock・PTY・metadata書込・dispatch状態には一切触れない。
+// 外部waiterは完了の時刻だけを追記し、lock・PTY・metadata束縛・dispatch状態には触れない。
 // Codex/Cursor/Grokは各harnessのtranscript、Claudeはevent fileを増分走査し、vendor_session_idのbind永続化を
 // 行わない（waiterは観測者であって所有者でない）。
 // steerを渡した時は、その差し込み（pty_sendの返りのsteer_id）を取った番の終わりを待つ（ADR 0122。steer-follow.ts）。
 export async function observeAgentDone(
+  name: string,
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
+): Promise<AgentWaitObservation> {
+  const result = await observeAgentDoneInternal(name, o);
+  if ((result.outcome === "done" || result.outcome === "error") && result.at !== null) {
+    try {
+      recordAgentTurnEnd({ aiterm_session: name, launch_id: result.launch_id }, {
+        ...result, at: Number.isFinite(Date.parse(result.at)) ? result.at : new Date().toISOString(),
+      });
+    } catch { process.stderr.write("aiterm: AGENT_ACTIVITY_UNCONFIRMED: 番の終了時刻を保存できません。完了結果は保持し、休止判定では記録を再確認してください。\n"); }
+  }
+  return result;
+}
+
+async function observeAgentDoneInternal(
   name: string,
   o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
 ): Promise<AgentWaitObservation> {
@@ -4606,6 +4623,7 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
   admission: "native" | "none";
   // 貼付と同じ枠の中で、貼付の直前に行う控え（dispatchの送信境界の控えとClaudeの番の予約）。
   beforePaste?: () => void;
+  inputMeta?: AgentMetadata;
   checkInput?: (inputStarted: boolean) => void;
   // Cursorの入力欄へ本文が現れなかった時の文言の主語。
   subject: string;
@@ -4624,6 +4642,7 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
       preserveAgentOperation: o.preserveAgentOperation,
       bracketedPaste: true,
       typedPreface: o.typedPreface,
+      ...(o.inputMeta ? { beforePtyWrite: () => recordAgentInput(o.inputMeta!) } : {}),
     });
   });
   if (kind === "cursor") {
@@ -4644,12 +4663,13 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
   });
 }
 
-async function sendAgentPromptText(name: string, text: string, kind?: AgentKind): Promise<void> {
+async function sendAgentPromptText(name: string, text: string, kind?: AgentKind, inputMeta?: AgentMetadata): Promise<void> {
   // 起動時の文にも、包みになる長さなら出所の1行を包みの外へ出す（ADR 0116）。
   const prefaced = kind === undefined ? { body: text } : splitAgentPreface(kind, null, text, { defaultForWrapped: true });
   await submitAgentComposerText(name, kind, prefaced.body, {
     force: true, raw: false, typedPreface: prefaced.typedPreface, preserveAgentOperation: true,
     admission: "none", subject: "送信prompt",
+    inputMeta,
   });
 }
 
@@ -4789,7 +4809,7 @@ async function sendInitialAgentPromptInLock(
       reserveAnonymousClaudeTurn(meta);
     }
     setInitialDelivery(meta, { status: "submitted_unconfirmed", reason: "dispatch_in_progress", turn_started: null }, startOffset);
-    await sendAgentPromptText(name, promptText, meta.kind);
+    await sendAgentPromptText(name, promptText, meta.kind, meta);
     setInitialPromptState(meta, "pending");
   } catch (e) {
     setInitialPromptState(meta, "failed");
@@ -6825,6 +6845,7 @@ async function dispatchAgentTurnInLock(
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
     harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
   await submitAgentComposerText(name, meta.kind, dispatchText, {
+    inputMeta: meta,
     force: o.force, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
     admission: "native", subject: "送信prompt",
     ...(pendingSend ? { checkInput: (started: boolean) => assertAgentSendHarness(name, meta, started) } : {}),
@@ -7086,6 +7107,7 @@ async function steerRunningTurn(
   await submitAgentComposerText(name, meta.kind, text, {
     force: true, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
     admission: "native", subject: "差し込む文",
+    inputMeta: meta,
     checkInput: started => assertAgentSendHarness(name, meta, started),
   });
   // GrokとCursorは実行中の送信を待ち行列へ入れる。そのままだと現在turnの完了後に別turnとして動き、
@@ -7597,6 +7619,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
           meta.fast = opts.fast_state === true;
           meta.model = opts.base_model !== undefined ? opts.base_model : model;
+          initializeAgentActivity(meta);
           // The new physical shell is already pinned by its actual create receipt.
           // Validate it before publishing metadata, then bind this internally
           // generated managed launch. Model arguments cannot select this ID.
@@ -7640,6 +7663,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         raw: true,
         launchShell: paneShell,
         preserveAgentOperation: meta?.kind === "claude",
+        ...(meta && opts.prompt ? { beforePtyWrite: () => recordAgentInput(meta) } : {}),
       });
     } catch (e) {
       const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);

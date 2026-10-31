@@ -7,8 +7,10 @@ import {spawnSync} from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import * as core from '../dist/core.js';
 import {agentMetadataPath,writeAgentMetadata,ensureStateRoot} from '../dist/agent-shared.js';
-import {readAgentLifecycle,writeAgentResumeRecipe} from '../dist/agent-lifecycle.js';
+import {readAgentLifecycle,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/execution-effect.js';
+import {readProcessIdentities} from '../dist/process-runtime.js';
+import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
@@ -174,4 +176,32 @@ test('failure to persist the latest native completion refuses stopping before pr
   assert.equal(refused,true);assert.equal(result.outcome,'skipped');
   assert.equal(core.observeSession(f.name).harness_alive,true);assert.equal(readAgentLifecycle(f.meta),null);
  }finally{append.mock.restore();}
+});
+
+
+test('a clock tick discovers autonomous native completion without a parent waiter',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);const owner=readProcessIdentities([process.pid])[0];
+ const old={schema:'aiterm.agent-idle-clock.v1',launch_id:f.meta.launch_id,token:'c'.repeat(32),owner,
+  anchor:f.meta.created_at,wake_at:new Date().toISOString()};
+ writeAgentIdleClock(f.meta,old);
+ let spawned;
+ t.after(()=>{
+  if(spawned&&readProcessIdentities([spawned.owner.pid]).some(row=>row.started_identity===spawned.owner.started_identity)){
+   try{process.kill(-spawned.owner.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}
+  }
+  retireAgentIdleClock(f.meta);
+ });
+ const native=(type)=>JSON.stringify({timestamp:new Date().toISOString(),type:'event_msg',payload:{type,turn_id:'autonomous',last_agent_message:'Done'}})+'\n';
+ fs.appendFileSync(f.rollout,native('task_started'));
+ const [busy]=await Promise.all([core.serviceAgentIdleClock(f.expected,old.token),core.serviceAgentIdleClock(f.expected)]);
+ spawned=readAgentIdleClock(f.meta);
+ assert.equal(busy.reason,'turn_end_unconfirmed');assert.equal(core.observeSession(f.name).harness_alive,true);
+ assert.notEqual(spawned.token,old.token);
+ assert.ok(Date.parse(spawned.wake_at)-Date.now()>50000,'a busy turn has a successor tick');
+ fs.appendFileSync(f.rollout,native('task_complete'));
+ const done=await core.serviceAgentIdleClock(f.expected);
+ assert.equal(done.outcome,'not_due');assert.ok(Date.parse(readAgentActivity(f.meta).last_turn_end_at)>Date.now()-10000);
+ assert.equal(readAgentIdleClock(f.meta).token,spawned.token,'an earlier pending tick is reused');
+ assert.equal((await core.serviceAgentIdleClock(f.expected,old.token)).reason,'superseded_timer');
+ assert.equal((await core.serviceAgentIdleClock(f.expected,spawned.token)).reason,'superseded_timer','a different process cannot impersonate the sleeper');
 });

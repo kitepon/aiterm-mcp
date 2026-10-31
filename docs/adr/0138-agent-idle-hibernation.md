@@ -1,6 +1,6 @@
 # ADR 0138: 会話席の無活動終了と同会話再開
 
-状態: 採用（時刻記録・休止判定・本体の停止adapterまで実装。時計・公式再開・公開観測は未接続で、自動休止は無効）。
+状態: 採用（時刻記録・休止判定・本体の停止adapterと時計まで実装。公式再開・公開観測は未接続で、自動休止は無効）。
 
 ## 方針
 
@@ -14,7 +14,7 @@ last_input_at/last_turn_end_atをmetadataへ直接書くと、別processのhook�
 
 同じ番のvendor/session/turn（無ければoperationまたはStop時刻）をhashにし、最初の完了観測だけを採用する。競合で同じ番の行が重複しても、読み手は最初の行を採り、過去の番や時計の逆行で起点を戻さない。Cursorなどnative完了に壁時計が無い経路、時刻として読めない旧形式では、完了を観測した時刻を使う。回答本文やcredentialは記録に含めない。
 
-時刻記録が壊れていれば休止を許可しない。完了記録の保存失敗はstderrへ明示し、既に得たnative完了結果は返す。将来のidle-checkでは最新native完了と記録を再確認し、保存不能ならその席を止めない。通常closeはこの記録も消す。現時点は時刻記録だけで、timer/自動停止/resumeは追加していない。
+時刻記録が壊れていれば休止を許可しない。完了記録の保存失敗はstderrへ明示し、既に得たnative完了結果は返す。idle-checkでは最新native完了と記録を再確認し、保存不能ならその席を止めない。通常closeはこの記録も消す。自動休止は公式resumeと公開観測の受入まで有効にしない。
 
 ## 休止・再開の公開契約（実装予定）
 
@@ -42,6 +42,17 @@ core.checkAgentIdleは通常の送信と同じprocess内queueとprocess間file l
 
 agent-lifecycle.tsはprivateなper-launch resume recipeとstopping/hibernated記録を0600で原子的に保存する。recipeはlaunch/vendor/kindを検証し、停止中はdigestを固定する。durableなstoppingを記録してからも、最初のsignal直前にはbackground/未配送を含む保護条件全体を読み直す。まだ一度もsignalしていなければ、自分の一致するstoppingだけを取り消してskipする。効果の可能性がある失敗はstoppingのまま未確定とし、成功に丸めない。木の退出後も元のnative IDだけを閉じ、native不在と同じlaunchを確認してhibernatedを記録する。別世代へ記録を書き込まない。通常closeはこれらのprivate記録も消す。
 
-隔離された実tmuxと擬似CLIで、普通のPTYを保持した停止、recipe欠測、送信admissionとの競合、停止準備後のbackground/未配送増加、後続番の中断、木退出後の世代交代を確認する。recipeのproduction採取、時計、公式resume、公開observe/list/sendは未接続であり、公開toolやtimerからこのadapterは呼ばない。擬似CLIでの停止成功は実harnessの休止→同会話復帰の受入ではない。自動停止や既存実席への作用はまだ発生しない。
+隔離された実tmuxと擬似CLIで、普通のPTYを保持した停止、recipe欠測、送信admissionとの競合、停止準備後のbackground/未配送増加、後続番の中断、木退出後の世代交代を確認する。recipeのproduction採取、公式resume、公開observe/list/sendは未接続であり、公開入口からの時計起動は無効にしている。擬似CLIでの停止成功は実harnessの休止→同会話復帰の受入ではない。自動停止や既存実席への作用はまだ発生しない。
 
 猶予の起点は、最初の対象群へTERMを送り終えた時点とする。process表取得が遅い場面でも、その取得時間で5秒を短くしない。追加の反例試験は取得に250msかかる別々のprocess groupを使い、旧計算で失敗、修正後に成功することを確認した。
+
+
+## 席ごとの時計
+
+agent-idle-clock.tsとagent-idle-cli.tsはper-launchの遅延processを使う。待機はdetachedなPOSIX sh＋sleep、Windows PowerShell 7 Start-Sleepとし、30分待つNodeやhost schedulerは置かない。起床時だけNodeで期待launch/clock token/持ち主の開始時刻を確認し、既存のC判定を通す。workerのAITERM_AGENT_* lineageは引き継がず、元のPTYの木へ混ぜない。待機を最大1日に区切るが、AITERM_IDLE_MINUTESの閾値は短縮しない。
+
+private idle-clock.jsonのowner PID/開始時刻、anchor、次回時刻、tokenを同じ送信file lockの下で保存する。生存する時計は重ねて作らず、失われた時計はlist/launchの掃引から短命のcontrollerを起こして回収する。常駐MCPからsleepを直接生やすと、Windowsではdetachedでも元の親子表へ残るため、このcontrollerが記録を保存して先に退出する。PIDを見て元の席から外れたと偽るのではなく、実際の親子鎖を切る。古いtokenや別processによるworkerの成り代わりは判定前に拒否する。効果未確定のstoppingから停止を繰り返さない。closeは時計の記録も消し、残った有限sleepは起床後の世代/token検査で終わる。
+
+Cがbusy/blocked/background/未確認入力を返しても、60秒後の次回確認を持つ。native完了は各tickで記録するので、goalの自動番にparent waiterが無くても終了を回収できる。既知のnative番終了と期限があれば、その期限までsleepする。新しい終了で起点が変わっていれば、新しい期限へ進み、途中出力では時計を戻さない。送信lock待ちが満了した時だけCLIのexit 75でshell sleepへ戻り、Nodeを待機常駐させない。本文を配送・再送する経路ではない。
+
+agent_launchとpty_listの公開入口、起動直後、native完了waiter、Claude Stopへ起動口を置いた。内部list/observeは再帰的な掃引をしない。AGENT_IDLE_ENABLED=falseで公開入口と実CLIを止めており、isolated擬似CLIの試験だけが内部controllerを直接呼ぶ。Dの同会話復帰・公開論理席・実物受入の後に有効化し、CLIの公開登録もその時に揃える。

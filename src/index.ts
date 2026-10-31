@@ -763,6 +763,7 @@ registerRemoteAwareTool(
   },
   async ({ env_keys }, extra) => {
     try {
+      await core.maintainAgentIdleClocks();
       const result = core.listSessionsResult(env_keys);
       return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...seatTurnsMeta(result.sessions, extra._meta) };
     } catch (e) {
@@ -1202,6 +1203,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     if (!supportsWriteScope && write_scope !== undefined) {
       throw new core.AitermError("claude-code harnessはwrite_scopeに対応していません。指定を外してください", 2);
     }
+    await core.maintainAgentIdleClocks();
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
     if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
     const [sid, hint, eventCursor, submitResidue, initialDelivery, startup, fastState] = await core.openAgentWithInitialPrompt(kind, {

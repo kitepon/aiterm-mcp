@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { currentUid as uid, runtimeStateBase } from "./state-root.js";
 import { createHash, randomBytes } from "node:crypto";
+import { requestAgentIdleClock } from "./agent-idle-clock.js";
 import { recordAgentTurnEnd } from "./agent-activity.js";
 
 const LAUNCH_ID_RE = /^[0-9a-f]{32}$/;
@@ -220,6 +221,7 @@ async function main(): Promise<void> {
       vendor_session_id: payload.session_id, turn_id: null, operation_id: operationId, at: endedAt });
   } catch { process.stderr.write("aiterm: AGENT_ACTIVITY_UNCONFIRMED: 番の終了時刻を保存できません。Stop結果は保存済みです。\n"); }
   if (operationMarker) consumeOperationMarker(operationFile, operationMarker);
+  requestAgentIdleClock(session, launchId);
 }
 
 main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

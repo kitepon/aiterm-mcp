@@ -31,8 +31,9 @@ import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
 import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgentActivity } from "./agent-activity.js";
 import { checkIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
+import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
+import { readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -600,6 +601,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".resume.json") ||
           f.endsWith(".lifecycle.json") ||
           f.endsWith(".idle-check.json") ||
+          f.endsWith(".idle-clock.json") ||
           f.endsWith(".wait.lock") ||
           f.endsWith(".claude-settings.json") ||
           f.endsWith(".claude-mcp.json") ||
@@ -2089,6 +2091,45 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
         writeJson0600(agentMetadataPath(name, expected.launch_id).replace(/\.agent\.json$/, ".idle-check.json"), result);
     },
   }, expected.launch_id, minutes, expectedAnchor);
+}
+
+/** One clock tick; native completion is refreshed even when no parent is waiting for the turn. */
+export async function serviceAgentIdleClock(expectedInput: ExecutionLaunch, token?: string): Promise<IdleCheckResult> {
+  const expected = executionLaunchSchema.parse(expectedInput), name = expected.session_id;
+  assertExecutionContext(name);
+  const clock = await withAgentSendLock(name, async () => {
+    const meta = loadAgentMetadata(name);
+    if (meta.launch_id !== expected.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    return readAgentIdleClock(meta);
+  });
+  if (token !== undefined && (clock?.token !== token || !isAgentIdleClockOwner(clock)))
+    return { outcome: "skipped", reason: "superseded_timer", anchor: null, due_at: null, stalled: false };
+  const result = await checkAgentIdle(expected, token === undefined ? undefined : clock?.anchor ?? undefined);
+  await withAgentSendLock(name, async () => {
+    const meta = loadAgentMetadata(name);
+    if (meta.launch_id !== expected.launch_id) return;
+    const deadline = idleClockDeadline(result, Date.now());
+    if (deadline === null || readAgentLifecycle(meta) || !["claude", "codex"].includes(meta.kind)) {
+      retireAgentIdleClock(meta, token); return;
+    }
+    await armAgentIdleClock(meta, result.anchor, deadline, token);
+  });
+  return result;
+}
+
+/** Only public list/launch entries sweep; internal observation must never recurse into an idle check. */
+export async function maintainAgentIdleClocks(): Promise<void> {
+  if (!AGENT_IDLE_ENABLED) return;
+  const names = new Set(fs.readdirSync(agentsDir()).flatMap(file => {
+    const match = /^([A-Za-z0-9_-]{1,64})\.[a-f0-9]{32}\.agent\.json$/.exec(file);
+    return match ? [match[1]] : [];
+  }));
+  for (const name of names) {
+    try {
+      const meta = loadAgentMetadata(name);
+      if (["claude", "codex"].includes(meta.kind)) requestAgentIdleClock(name, meta.launch_id);
+    } catch { process.stderr.write("aiterm: idle_clock_sweep_unconfirmed\n"); }
+  }
 }
 
 /** Private guarded-runtime read. Legacy metadata without an original native
@@ -4338,6 +4379,7 @@ export async function observeAgentDone(
       recordAgentTurnEnd({ aiterm_session: name, launch_id: result.launch_id }, {
         ...result, at: Number.isFinite(Date.parse(result.at)) ? result.at : new Date().toISOString(),
       });
+      requestAgentIdleClock(name, result.launch_id);
     } catch { process.stderr.write("aiterm: AGENT_ACTIVITY_UNCONFIRMED: 番の終了時刻を保存できません。完了結果は保持し、休止判定では記録を再確認してください。\n"); }
   }
   return result;
@@ -7799,6 +7841,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       }
       throw failure;
     }
+    const launched = tryLoadAgentMetadata(sid);
+    if (launched) requestAgentIdleClock(sid, launched.launch_id);
     const driveHint =
       agentDone
         ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +

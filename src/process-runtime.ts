@@ -323,3 +323,18 @@ export function readLinuxProcessRegistrationIdentity(pid:number): {procStart:str
     return {procStart:start.slice(6),pidDomain:`linux::${domain}`};
   }catch{return null;}
 }
+
+
+/** A detached seat clock sleeps in the native shell; exit 75 retries admission without keeping Node resident. */
+export function idleClockCommand(delayMs: number, executable: string, args: string[], windows = isWin): { executable: string; args: string[] } {
+  if (!Number.isFinite(delayMs) || !executable || [executable, ...args].some(value => value.includes("\0")))
+    throw new Error("invalid_delayed_process");
+  const seconds = Math.min(86_400, Math.max(1, Math.ceil(delayMs / 1000)));
+  if (!windows) return { executable: "/bin/sh", args: ["-c",
+    'aiterm_delay=$1; shift; sleep "$aiterm_delay" || exit; while :; do "$@"; aiterm_status=$?; [ "$aiterm_status" -eq 75 ] || exit "$aiterm_status"; sleep 60 || exit; done',
+    "aiterm-idle-clock", String(seconds), executable, ...args] };
+  const quote = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  const script = `$ErrorActionPreference='Stop'; Start-Sleep -Seconds ${seconds}; do { & ${[executable, ...args].map(quote).join(" ")}; if ($null -eq $LASTEXITCODE) { exit 2 }; $aiterm_status=$LASTEXITCODE; if ($aiterm_status -eq 75) { Start-Sleep -Seconds 60 } } while ($aiterm_status -eq 75); exit $aiterm_status`;
+  return { executable: resolveWindowsPowerShell7(), args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+    Buffer.from(script, "utf16le").toString("base64")] };
+}

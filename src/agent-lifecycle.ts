@@ -62,3 +62,24 @@ export function cancelAgentStopping(meta: Launch, anchor: string): void {
   if (value.state !== "stopping" || value.anchor !== anchor) throw unavailable();
   fs.unlinkSync(file(meta, ".lifecycle.json"));
 }
+
+
+const idleClockSchema = z.object({ schema: z.literal("aiterm.agent-idle-clock.v1"), launch_id: launchId,
+  token: launchId, owner: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1) }).strict(),
+  anchor: z.string().nullable(), wake_at: z.iso.datetime() }).strict();
+export type AgentIdleClock = z.infer<typeof idleClockSchema>;
+export function readAgentIdleClock(meta: Launch): AgentIdleClock | null {
+  const value = read(meta, ".idle-clock.json", idleClockSchema);
+  if (value && value.launch_id !== meta.launch_id) throw unavailable();
+  return value;
+}
+export function writeAgentIdleClock(meta: Launch, input: AgentIdleClock): void {
+  const value = idleClockSchema.parse(input);
+  if (value.launch_id !== meta.launch_id) throw unavailable();
+  writeJson0600(file(meta, ".idle-clock.json"), value);
+}
+export function retireAgentIdleClock(meta: Launch, token?: string): void {
+  const value = readAgentIdleClock(meta);
+  if (value === null || (token !== undefined && value.token !== token)) return;
+  fs.unlinkSync(file(meta, ".idle-clock.json"));
+}

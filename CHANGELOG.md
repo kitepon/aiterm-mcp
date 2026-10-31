@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Give Antigravity authentication a 120×60 terminal so the official OAuth code field remains visible without manual pager keys.
+
 ## [0.62.2] - 2026-10-30
 
 ### Fixed

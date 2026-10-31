@@ -5235,6 +5235,9 @@ export async function authenticateAgent(kind: AgentKind, options: {
       const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
       if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
       disableAuthLogging(name);
+      // shortcut: AGY 1.4.12 hides its OAuth code field at 80x24; revisit if its auth layout grows.
+      if (kind === "antigravity" && tmux("resize-window", "-t", name, "-x", "120", "-y", "60").code !== 0)
+        throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: Antigravityの認証画面サイズを設定できません。", 2);
       meta.launch_id = randomBytes(16).toString("hex");
       if (hasExecutionCreationScope()) {
         meta.execution_native = executionCreatedNativeBinding(name);

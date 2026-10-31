@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.3] - 2026-10-31
+
 ### Fixed
 - Give Antigravity authentication a 120×60 terminal so the official OAuth code field remains visible without manual pager keys.
 
@@ -2945,7 +2947,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...HEAD
+[0.62.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...v0.62.3
 [0.62.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...v0.62.2
 [0.62.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.61.24...v0.62.0

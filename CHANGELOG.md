@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Retain confirmed hibernated logical seats and registered environment in public listings, expose explicit hibernation observations and idle seat turns, and close them without restarting a CLI. Keep stopping, resuming, failed and conflicting generations unknown; automatic hibernation remains disabled.
 - Fence resumed CLI and input operations to the actual native creation receipt, server and pane birth identities, including a receiver-side check against recycled tmux IDs. Mounted execution-graph resume and Windows resume remain unsupported; automatic hibernation is disabled.
 - Prepare same-conversation physical resume under the send lock, preserving predecessor state, lineage, cwd and explicit environment, with durable failure records that prevent duplicate CLI launches. Public lifecycle integration and real-harness acceptance remain pending; automatic hibernation is disabled.
 - Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Real-harness acceptance remains pending.

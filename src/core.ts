@@ -588,6 +588,14 @@ function existingAgentsDir(): string | null {
   }
 }
 
+function savedAgentSessionNames(): string[] {
+  const dir = existingAgentsDir();
+  return dir ? [...new Set(fs.readdirSync(dir).flatMap(file => {
+    const match = /^([A-Za-z0-9_-]{1,64})\.[a-f0-9]{32}\.agent\.json$/.exec(file);
+    return match ? [match[1]] : [];
+  }))] : [];
+}
+
 function cleanupAgentState(name: string): void {
   assertSessionName(name);
   agentMetadataNegativeCache.delete(name);
@@ -1762,7 +1770,7 @@ export interface SessionObservation {
   exists: boolean;
   harness: AgentHarness | null;
   launch_id: string | null;
-  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown";
+  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown" | "hibernated";
   reason: string;
   pane_alive: boolean | null;
   harness_alive: boolean | null;
@@ -1889,19 +1897,65 @@ export function postStartupProcessCount(
   return added.size;
 }
 
-export function observeSession(name: string, cursor?: string): SessionObservation {
-  assertSessionName(name);
-  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
-  const listed = listSessionsResult().sessions.find(session => session.session_id === name);
-  const result: SessionObservation = {
+function emptySessionObservation(name: string, exists: boolean): SessionObservation {
+  return {
     schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
-    exists: !!listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
+    exists, harness: null, launch_id: null, state: "missing", reason: "session_missing",
     pane_alive: false, harness_alive: null, pane_process: null, harness_process: null, process_identity: null,
     token_hint: null, pending_child_deliveries: null,
     activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
       background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
       post_startup_process_count: null },
   };
+}
+
+function agentDormantState(meta: AgentMetadata): "hibernated" | "stopping" | "resuming" | "failed" | "unknown" | null {
+  const lifecycle = readAgentLifecycle(meta);
+  const origin = lifecycle ?? (meta.resumed_from ? readAgentLifecycle({ aiterm_session: meta.aiterm_session, launch_id: meta.resumed_from }) : null);
+  if (origin && origin.socket !== SOCK) return null;
+  const attempt = readAgentResumeAttempt(meta);
+  if (attempt) return attempt.state === "ready" ? "unknown" : attempt.state;
+  if (lifecycle) return lifecycle.state;
+  if (meta.resumed_from) {
+    const previous = readAgentResumeAttempt({ aiterm_session: meta.aiterm_session, launch_id: meta.resumed_from });
+    if (!previous || previous.next_launch_id !== meta.launch_id) return "unknown";
+    if (previous.state !== "ready") return previous.state;
+  }
+  return null;
+}
+
+export function observeSession(name: string, cursor?: string): SessionObservation {
+  assertSessionName(name);
+  const meta = tryLoadAgentMetadata(name);
+  if (!meta) return observeNativeSession(name, cursor);
+  const state = agentDormantState(meta);
+  if (!state) return observeNativeSession(name, cursor);
+  if (cursor !== undefined) decodeActivityCursor(cursor, name);
+  const result = emptySessionObservation(name, true);
+  result.harness = agentHarness(meta.kind); result.launch_id = meta.launch_id;
+  result.state = "unknown"; result.reason = `agent_${state}`; result.pane_alive = null;
+  const native = listNativeSessionsResult().sessions.some(row => row.session_id === name);
+  if (state !== "hibernated" || native) {
+    if (native && state === "hibernated") result.reason = "resume_native_conflict";
+    return result;
+  }
+  try { confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!); }
+  catch { result.reason = "resume_unconfirmed"; return result; }
+  // Discard the old pane's cursor; hibernation proves absence, not an activity delta.
+  if (!isDeepStrictEqual(loadAgentMetadata(name), meta) || agentDormantState(meta) !== "hibernated"
+    || listNativeSessionsResult().sessions.some(row => row.session_id === name)) return result;
+  result.state = "hibernated"; result.reason = "idle_timeout";
+  result.pane_alive = false; result.harness_alive = false; result.pending_child_deliveries = 0;
+  result.activity.cpu_seconds = 0; result.activity.background_cpu_seconds = 0;
+  result.activity.post_startup_process_count = 0;
+  return result;
+}
+
+function observeNativeSession(name: string, cursor?: string): SessionObservation {
+  assertSessionName(name);
+  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
+  const listed = listNativeSessionsResult().sessions.find(session => session.session_id === name);
+  const result = emptySessionObservation(name, !!listed);
   if (!listed) return result;
   const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
   if (pane.code !== 0) throw new AitermError("paneの生存情報を取得できません", 2);
@@ -2035,10 +2089,11 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     const lifecycle = readAgentLifecycle(meta);
     if (lifecycle && !preparation) throw new Error("lifecycle_already_recorded");
     if (preparation && (!lifecycle || lifecycle.state !== "stopping" || lifecycle.anchor !== preparation.anchor
-      || lifecycle.recipe_digest !== preparation.recipe_digest || lifecycle.resume_proof_digest !== preparation.resume_proof_digest)) throw new Error("lifecycle_changed");
+      || lifecycle.recipe_digest !== preparation.recipe_digest || lifecycle.resume_proof_digest !== preparation.resume_proof_digest
+      || lifecycle.socket !== preparation.socket)) throw new Error("lifecycle_changed");
     if (preparation?.resume_proof_digest && codexResumeProofDigest(readCodexResumeProof(meta)) !== preparation.resume_proof_digest)
       throw new Error("resume_proof_changed");
-    const live = observeSession(name), slot = native();
+    const live = observeNativeSession(name), slot = native();
     if (slot && live.pane_process) {
       if (slot.pane_pid !== live.pane_process.pid) throw new Error("pane_identity_changed");
       if (root && !isDeepStrictEqual(root, live.pane_process)) throw new Error("pane_identity_changed");
@@ -2070,7 +2125,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       const meta = metadata();
       if (!pinned || !root || !recipeDigest || readAgentLifecycle(meta)) throw new Error("idle_preparation_unconfirmed");
       const proof = meta.kind === "codex" ? captureCodexResumeProof(meta) : null;
-      preparation = { schema: "aiterm.agent-lifecycle.v1", launch_id: meta.launch_id, state: "stopping",
+      preparation = { schema: "aiterm.agent-lifecycle.v1", launch_id: meta.launch_id, state: "stopping", socket: SOCK,
         at: new Date().toISOString(), anchor, native_id: pinned.native_id, pane: root, recipe_digest: recipeDigest,
         ...(proof ? { resume_proof_digest: codexResumeProofDigest(proof) } : {}) };
       writeAgentLifecycle(meta, preparation);
@@ -2140,11 +2195,7 @@ export async function serviceAgentIdleClock(expectedInput: ExecutionLaunch, toke
 /** Only public list/launch entries sweep; internal observation must never recurse into an idle check. */
 export async function maintainAgentIdleClocks(): Promise<void> {
   if (!AGENT_IDLE_ENABLED) return;
-  const names = new Set(fs.readdirSync(agentsDir()).flatMap(file => {
-    const match = /^([A-Za-z0-9_-]{1,64})\.[a-f0-9]{32}\.agent\.json$/.exec(file);
-    return match ? [match[1]] : [];
-  }));
-  for (const name of names) {
+  for (const name of savedAgentSessionNames()) {
     try {
       const meta = loadAgentMetadata(name);
       if (["claude", "codex"].includes(meta.kind)) requestAgentIdleClock(name, meta.launch_id);
@@ -2228,7 +2279,7 @@ function observeEmptyCreatedLaunch(target: ExecutionLaunch, alive: boolean): unk
 export function observeExecutionParentProcess(name: string): unknown {
   assertSessionName(name);
   return readExecutionParentProcess(name, {
-    present: () => listSessionsResult().sessions.some(session => session.session_id === name),
+    present: () => listNativeSessionsResult().sessions.some(session => session.session_id === name),
     metadata: () => tryLoadAgentMetadata(name),
     pane: () => tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}"),
     processes: readRuntimeProcesses,
@@ -2243,7 +2294,7 @@ const SESSION_LIST_EXITING_RETRY_MS = 500;
 const SESSION_LIST_EXITING_POLL_MS = 20;
 const SESSION_LIST_SERVER_EXITING_RE = /server exited unexpectedly/i;
 
-export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): {
+function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): {
   schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
 } {
   for (const key of envKeys) {
@@ -2283,6 +2334,27 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
       vendor_session_id: meta?.vendor_session_id ?? null, environment });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
+}
+
+export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): ReturnType<typeof listNativeSessionsResult> {
+  const result = listNativeSessionsResult(envKeys, runTmux);
+  const present = new Set(result.sessions.map(row => row.session_id));
+  for (const name of savedAgentSessionNames()) {
+    if (present.has(name)) continue;
+    const meta = loadAgentMetadata(name), state = agentDormantState(meta);
+    if (!state) continue;
+    const environment: Record<string, string | null> = Object.fromEntries(envKeys.map(key => [key, null]));
+    let command: string = state;
+    if (state === "hibernated") {
+      try {
+        const recipe = confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!);
+        for (const key of envKeys) environment[key] = recipe.environment[key] ?? null;
+      } catch { command = "unknown"; }
+    }
+    result.sessions.push({ session_id: name, current_command: command, attached: false, width: 0, height: 0,
+      harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment });
+  }
+  return result;
 }
 
 export function listSessions(result = listSessionsResult()): string {
@@ -2447,24 +2519,41 @@ function letClaudeExitBeforeClose(name: string): void {
 function closeSessionInternal(name: string, observeDependency = true, o: { letHarnessExit?: boolean } = {}): string {
   assertSessionName(name);
   assertSessionClosable(name);
-  if (o.letHarnessExit) letClaudeExitBeforeClose(name);
-  const killed = (observeDependency ? tmux : tmuxCleanup)("kill-session", "-t", name);
-  if (executionManagementCloseTarget(name) && killed.code !== 0) {
-    // Recovery must not erase the old launch metadata or report closed when
-    // its one pinned native close failed. Keep the original send uncertainty.
-    throw new AitermError(`tmux sessionを閉じられませんでした: ${killed.stderr.trim() || `code=${killed.code}`}`, 2);
-  }
-  for (const p of [logpath(name), offsetpath(name), lastcmdpath(name), markpath(name), sendLockPath(name)]) {
-    try {
-      fs.unlinkSync(p);
-    } catch {
-      /* noop */
+  const finish = (native: boolean): string => {
+    if (native && o.letHarnessExit) letClaudeExitBeforeClose(name);
+    const killed = native ? (observeDependency ? tmux : tmuxCleanup)("kill-session", "-t", name) : { code: 0, stderr: "" };
+    if (executionManagementCloseTarget(name) && killed.code !== 0) {
+      // Recovery must not erase the old launch metadata or report closed when
+      // its one pinned native close failed. Keep the original send uncertainty.
+      throw new AitermError(`tmux sessionを閉じられませんでした: ${killed.stderr.trim() || `code=${killed.code}`}`, 2);
     }
+    for (const p of [logpath(name), offsetpath(name), lastcmdpath(name), markpath(name), sendLockPath(name)]) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        /* noop */
+      }
+    }
+    cleanupAgentSendLock(name);
+    cleanupAgentState(name);
+    agentLaunchLines.delete(name);
+    return `closed ${name}`;
+  };
+  const meta = tryLoadAgentMetadata(name), lifecycle = meta && readAgentLifecycle(meta);
+  if (meta && lifecycle) {
+    assertExecutionResumeSupported();
+    const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 休止席のclose対象を確認できません。", 2);
+    // A logical close must never kill a new same-name native terminal.
+    const token = tryCreateOwnedLock(agentSendLockPath(name));
+    if (!token) throw unavailable();
+    try {
+      if (lifecycle.state !== "hibernated" || lifecycle.socket !== SOCK || readAgentResumeAttempt(meta)
+        || !isDeepStrictEqual(loadAgentMetadata(name), meta) || !isDeepStrictEqual(readAgentLifecycle(meta), lifecycle)
+        || listNativeSessionsResult().sessions.some(row => row.session_id === name)) throw unavailable();
+      return finish(false);
+    } finally { releaseOwnedLock(agentSendLockPath(name), token); }
   }
-  cleanupAgentSendLock(name);
-  cleanupAgentState(name);
-  agentLaunchLines.delete(name);
-  return `closed ${name}`;
+  return meta?.resumed_from ? withAgentResumeTarget(meta, () => finish(true)) : finish(true);
 }
 
 export function closeSession(name: string): string {
@@ -2481,14 +2570,15 @@ export type PtyCloseResult = {
 /**
  * Durable caller向けのclose receipt。
  *
- * closeSessionInternalのidempotent cleanupは維持し、呼出時点でtmux sessionが
- * 存在したかだけを固定語彙で返す。MCP response loss後も同じsession IDで再試行すれば
+ * closeSessionInternalのidempotent cleanupは維持し、呼出時点でtmux session
+ * または休止した論理席が存在したかを固定語彙で返す。MCP response loss後も同じsession IDで再試行すれば
  * already_closedとなり、close完了を文字列解析なしで確定できる。
  */
 export function closeSessionResult(name: string): PtyCloseResult {
   assertExecutionContext(name);
   assertSessionName(name);
-  const existed = sessionExists(name);
+  const meta = tryLoadAgentMetadata(name);
+  const existed = sessionExists(name) || !!(meta && agentDormantState(meta));
   closeSessionInternal(name, true, { letHarnessExit: true });
   return {
     schema: "aiterm.pty-close-result.v1",
@@ -4115,7 +4205,10 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
     const meta = tryLoadAgentMetadata(name);
     if (!meta) continue;
     let turn: SeatTurn | null = null;
-    try { turn = codexSeatTurn(meta); } catch { /* 読めない席は、分からないまま返す */ }
+    try {
+      const state = agentDormantState(meta);
+      turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null) : codexSeatTurn(meta);
+    } catch { /* 読めない席は、分からないまま返す */ }
     seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       turn: turn?.state === "running" ? { ...turn, wait_process: agentWaitProcess(name, turn.event_cursor) } : turn });
   }
@@ -4941,7 +5034,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
   }
   if (!ready.ready) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
-  const live = observeSession(name);
+  const live = observeNativeSession(name);
   if (live.harness_alive !== true || live.harness_process === null || live.state !== "idle")
     return { status: "blocked", reason: live.reason };
   // ここまでに居るprocessは起動時の足場（harness・MCP・起動時hook）。初手を送る前に控える。
@@ -5260,7 +5353,7 @@ function readExecutionAuthMetadata(name: string): (AgentAuthMetadata & { launch_
 
 /** 一覧の取得失敗を端末の消失へ丸めず、正規PTY一覧で存在を確認する。 */
 function authSessionExists(name: string): boolean {
-  return listSessionsResult().sessions.some(session => session.session_id === name);
+  return listNativeSessionsResult().sessions.some(session => session.session_id === name);
 }
 
 function authSessionEnvironment(name: string, keys: string[]): NodeJS.ProcessEnv {
@@ -6955,6 +7048,20 @@ function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T): T {
   return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native), body);
 }
 
+function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecycle) {
+  const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した休止会話の再開情報を確認できません。", 2);
+  const recipe = readAgentResumeRecipe(meta);
+  if (lifecycle.socket !== SOCK || !recipe || recipe.launch_id !== meta.launch_id || recipe.kind !== meta.kind
+    || recipe.vendor_session_id !== meta.vendor_session_id || lifecycle.recipe_digest !== agentResumeRecipeDigest(recipe)
+    || recipe.model !== meta.model || recipe.fast !== meta.fast || recipe.cwd !== meta.cwd || recipe.executable !== meta.agent_executable
+    || recipe.configuration_root !== (meta.kind === "codex" ? meta.codex_home : meta.claude_home ?? claudeConfigDir())
+    || !recipe.model || !recipe.reasoning_effort || !isUsableAgentExecutableFile(recipe.executable)
+    || !fs.statSync(recipe.cwd).isDirectory()) throw unavailable();
+  if (meta.kind === "codex" && (!lifecycle.resume_proof_digest
+    || codexResumeProofDigest(readCodexResumeProof(meta)) !== lifecycle.resume_proof_digest)) throw unavailable();
+  return recipe;
+}
+
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
   const uncertain = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", 2);
@@ -6970,15 +7077,8 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
   assertExecutionResumeSupported();
   if (isWin) throw new AitermError("AGENT_RESUME_UNSUPPORTED: Windowsのnative復帰境界は未受入です。", 2);
-  const recipe = readAgentResumeRecipe(previous);
-  if (!recipe || recipe.launch_id !== previous.launch_id || recipe.kind !== previous.kind
-    || recipe.vendor_session_id !== previous.vendor_session_id || lifecycle.recipe_digest !== agentResumeRecipeDigest(recipe)
-    || recipe.model !== previous.model || recipe.fast !== previous.fast || recipe.cwd !== previous.cwd || recipe.executable !== previous.agent_executable
-    || recipe.configuration_root !== (previous.kind === "codex" ? previous.codex_home : previous.claude_home ?? claudeConfigDir())
-    || !recipe.model || !recipe.reasoning_effort || !isUsableAgentExecutableFile(recipe.executable)
-    || !fs.statSync(recipe.cwd).isDirectory() || sessionExists(name)) throw uncertain();
-  if (previous.kind === "codex" && (!lifecycle.resume_proof_digest
-    || codexResumeProofDigest(readCodexResumeProof(previous)) !== lifecycle.resume_proof_digest)) throw uncertain();
+  const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
+  if (sessionExists(name)) throw uncertain();
   const controlEnv = { ...process.env };
   for (const [key, value] of Object.entries(recipe.environment)) {
     if (value === null) delete controlEnv[key]; else controlEnv[key] = value;

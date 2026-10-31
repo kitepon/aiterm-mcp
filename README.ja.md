@@ -530,7 +530,7 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 最後のsessionを閉じた直後は、終了中のserverの一覧を最長500msで再観測する場合がある。管理されたnative操作は、正常一覧または同socketの厳密な不在を確認できなければunknownを保つ。closeや送信は再実行しない。
 
 `pty_observe({ session_id, cursor? })`は`aiterm.pty-observe-result.v1`で`exists`、`observed_at`、
-`state`（busy／idle／blocked／dead／missing／unknown）、`reason`、`pane_alive`、`harness_alive`を返す。
+`state`（busy／idle／blocked／dead／missing／unknown／hibernated）、`reason`、`pane_alive`、`harness_alive`を返す。
 `pane_process`と`harness_process`は別のidentityで、`process_identity`はagentならharness、通常PTYなら
 一意な子process group leader、子がなければpaneを指す。identityは`pid`、`process_group_id`、
 `started_identity`、`argv_digest`を持ち、特定不能はnull。WindowsのPIDはnative PIDで、process groupはnull。
@@ -541,6 +541,8 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 `cpu_delta_complete=false`を付ける。`background_cpu_seconds`、`background_cpu_delta_seconds`、
 `background_cpu_delta_complete`はpane開始から60秒以降に生成された子孫だけの同じ観測で、起動時MCPを除外する。
 `token_hint`は画面の直近token表示値またはnull。画面本文や生argvを解析する必要はない。
+
+休止を確定した会話席は、同じsession ID・harness・会話ID・明示登録envを`pty_list`に残す。`pty_observe`は`state=hibernated`、`reason=idle_timeout`、`exists=true`を返す。pane/harnessの生存はfalse、process本人性3項目とtoken_hintはnull。未配送数と起動後process数は0、CPU累積は0、cursorと活動差分はnull。停止途中・復帰途中・失敗・native世代の不一致はunknownとする。休止席のcloseはCLIを起こさず論理席を消す。実harnessとconsumerの受入前のため、自動休止は現在無効。
 
 agent sessionを閉じると失うものは、次の2項目で分かる。`activity.post_startup_process_count`は、`agent_launch`の起動準備が
 完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。数えないものは2つ。Codex自身の

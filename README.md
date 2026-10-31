@@ -563,7 +563,7 @@ Its `aiterm.pty-list-result.v1` receipt contains `observed_at` and `sessions`, w
 After the last session closes, session listing may briefly re-observe an exiting server for up to 500 ms. Managed native operations retain unknown unless the listing or exact scoped absence can be confirmed; this never repeats a close or send.
 
 `pty_observe({ session_id, cursor? })` returns `aiterm.pty-observe-result.v1` with `exists`, `observed_at`, `state`
-(busy/idle/blocked/dead/missing/unknown), `reason`, `pane_alive`, and `harness_alive`. `pane_process` and `harness_process`
+(busy/idle/blocked/dead/missing/unknown/hibernated), `reason`, `pane_alive`, and `harness_alive`. `pane_process` and `harness_process`
 are separate identities. `process_identity` selects the harness for agents, or the unique child process-group leader
 for an ordinary terminal, using the pane when no child leader exists. An identity contains `pid`, `process_group_id`,
 `started_identity`, and `argv_digest`; unresolved identities are null. Windows PIDs are native and its process-group field
@@ -575,6 +575,8 @@ between observations, the delta covers only observed increments and `cpu_delta_c
 `background_cpu_seconds`, `background_cpu_delta_seconds`, and `background_cpu_delta_complete` apply the same measurement
 only to descendants created at least 60 seconds after the pane, excluding startup MCP processes. `token_hint` is the latest
 displayed token count or null. Callers do not need raw argv or pane-text parsing.
+
+A confirmed hibernation keeps the same logical session in `pty_list`, with the saved harness, conversation ID, and explicitly registered environment values. `pty_observe` returns `state: "hibernated"`, `reason: "idle_timeout"`, and `exists: true`, while both liveness fields are false and process identities and token hint are null. Pending child deliveries and post-startup process count are zero; CPU totals are zero and activity cursors and differences are null. Stopping, resuming, failed, or conflicting native generations remain unknown. Closing a hibernated seat removes it without restarting the CLI. Automatic hibernation is currently disabled pending real-harness and consumer acceptance.
 
 Two fields tell a caller what closing an agent session would lose. `activity.post_startup_process_count` is the number of
 processes in the session that did not exist when `agent_launch` finished startup (before the first prompt), so background work

@@ -1,6 +1,6 @@
 # ADR 0138: 会話席の無活動終了と同会話再開
 
-状態: 採用（時刻記録・停止adapter・時計・再開候補を実装中。公開論理席と実harness受入は未了、自動休止は無効）。
+状態: 採用（時刻記録・停止adapter・時計・再開候補を実装中。公開論理席は候補接続済み、実harness受入は未了、自動休止は無効）。
 
 ## 方針
 
@@ -16,11 +16,15 @@ last_input_at/last_turn_end_atをmetadataへ直接書くと、別processのhook�
 
 時刻記録が壊れていれば休止を許可しない。完了記録の保存失敗はstderrへ明示し、既に得たnative完了結果は返す。idle-checkでは最新native完了と記録を再確認し、保存不能ならその席を止めない。通常closeはこの記録も消す。自動休止は公式resumeと公開観測の受入まで有効にしない。
 
-## 休止・再開の公開契約（実装予定）
+## 休止・再開の公開契約（候補接続済み、自動休止は無効）
 
 pty_listには再開可能な論理席を残す。pty_observeはstate=hibernated、reason=idle_timeout、exists=true（論理席の存在）、有効な保存launch_id/harnessを返す。物理processの生存を偽らず、pane_alive/harness_alive=false、pane_process/harness_process/process_identity/token_hint=nullとする。
 
 木の終了と未配送0を確定した休止ではpending_child_deliveries=0、activity.post_startup_process_count=0。CPU累積は0、比較cursor/変更/delta/比較の完全性はnull。一覧の許可env照会は保持し、seat_turnsはidle。通常closeの消去意味は維持する。
+
+公開一覧はnative一覧と保存された論理席を合わせる。内部の存在判定・起動準備・停止fence・認証・親process証拠はnative一覧/観測を使い、論理上の存在をprocess生存へ流用しない。private lifecycleのsocketを元の実endpointへ固定し、共有state内にある別socketの休止席を登録しない。停止途中・復帰中・失敗・元recipe/proofの不整合・同名nativeの再出現はunknownとして、0countやidle turnを返さない。復帰中に新metadataが公開されても、元世代のattemptがreadyになるまで同じ扱いとする。
+
+休止closeは通常の送信lockを作用前に取り、同じmetadata/lifecycleとnative不在を確かめてから論理席を片付ける。CLIを起こさずclosed receiptを返し、再度のcloseはalready_closed。新しい同名nativeがあれば消さず未確定を返す。復帰後のnative closeも保存された本人性へ固定する。
 
 送信は同一admissionで休止判定・resume・本文投入を排他化し、resume時は新launch_id/resumed_fromと同vendor会話を束縛する。本文の実受理前に成功receiptを返さず、不明な効果を再送しない。resume失敗はAGENT_SESSION_REQUIREDへ置換しない。休止席へのstopはidleを返し、起こさない。native admissionの世代切替と環境の再現、各harnessの公式再開能力を確認してから有効化する。
 
@@ -42,7 +46,7 @@ core.checkAgentIdleは通常の送信と同じprocess内queueとprocess間file l
 
 agent-lifecycle.tsはprivateなper-launch resume recipeとstopping/hibernated記録を0600で原子的に保存する。recipeはlaunch/vendor/kindを検証し、停止中はdigestを固定する。durableなstoppingを記録してからも、最初のsignal直前にはbackground/未配送を含む保護条件全体を読み直す。まだ一度もsignalしていなければ、自分の一致するstoppingだけを取り消してskipする。効果の可能性がある失敗はstoppingのまま未確定とし、成功に丸めない。木の退出後も元のnative IDだけを閉じ、native不在と同じlaunchを確認してhibernatedを記録する。別世代へ記録を書き込まない。通常closeはこれらのprivate記録も消す。
 
-隔離された実tmuxと擬似CLIで、普通のPTYを保持した停止、recipe欠測、送信admissionとの競合、停止準備後のbackground/未配送増加、後続番の中断、木退出後の世代交代を確認する。新規起動のtemplate採取と設定替えの更新は接続済みだが、旧席の検証採取・公開observe/listと実harness受入は未了であり、公開入口からの時計起動は無効にしている。擬似CLIでの停止成功は実harnessの休止→同会話復帰の受入ではない。自動停止や既存実席への作用はまだ発生しない。
+隔離された実tmuxと擬似CLIで、普通のPTYを保持した停止、recipe欠測、送信admissionとの競合、停止準備後のbackground/未配送増加、後続番の中断、木退出後の世代交代を確認する。新規起動のtemplate採取と設定替えの更新は接続済みだが、旧席の検証採取と実harness受入は未了であり、公開入口からの時計起動は無効にしている。擬似CLIでの停止成功は実harnessの休止→同会話復帰の受入ではない。自動停止や既存実席への作用はまだ発生しない。
 
 猶予の起点は、最初の対象群へTERMを送り終えた時点とする。process表取得が遅い場面でも、その取得時間で5秒を短くしない。追加の反例試験は取得に250msかかる別々のprocess groupを使い、旧計算で失敗、修正後に成功することを確認した。
 
@@ -60,7 +64,7 @@ agent_launchとpty_listの公開入口、起動直後、native完了waiter、Cla
 
 ## 公式再開の引数
 
-Claude/Codexのresume argvは既存のlaunch argvから設定を保ち、初手本文を渡さず、保存済みUUIDを明示する。Claudeは--session-idを--resumeへ替え、Codexはresume <UUID>と明示--cdを使い、cwd選択promptを避ける。会話名/--last/picker/forkで代用しない。recipeもこのUUID形式を必要とする。fastの復元、launch世代とCodex旧rolloutの相関、metadata切替は再開候補へ接続した。公開論理席と実harnessの受入は未了であり、引数や擬似CLIの成功だけで実resume成功とはしない。公式一次資料はrag/INDEX.mdのClaude/Codex resume reference（2026-10-31）を参照する。
+Claude/Codexのresume argvは既存のlaunch argvから設定を保ち、初手本文を渡さず、保存済みUUIDを明示する。Claudeは--session-idを--resumeへ替え、Codexはresume <UUID>と明示--cdを使い、cwd選択promptを避ける。会話名/--last/picker/forkで代用しない。recipeもこのUUID形式を必要とする。fastの復元、launch世代とCodex旧rolloutの相関、metadata切替は再開候補へ接続した。公開論理席は候補接続済みだが実harnessの受入は未了であり、引数や擬似CLIの成功だけで実resume成功とはしない。公式一次資料はrag/INDEX.mdのClaude/Codex resume reference（2026-10-31）を参照する。
 
 
 ## 復帰情報の採取と設定変更
@@ -77,11 +81,11 @@ agent_configureは最初の設定効果の直前、同じ送信排他でtemplate
 
 旧hook/waiterと遅れたmetadata writerは元のper-launch fileを読み書きし、active pointerを取り戻せない。pointer欠測の旧席は従来どおり単一metadataを要求し、pointerが壊れた時や選ばれた世代が無い時は旧世代へfallbackしない。isAgentSessionもこの失敗をAGENT_RESUME_UNCONFIRMEDとして返し、AGENT_SESSION_REQUIREDによるconsumerの二重launchを避ける。通常closeはpointer/templateと全世代を片付ける。
 
-この切替helperを物理再開候補とnative世代のfenceへ接続した。実物受入、agent_launch同名と公開hibernated/list/stopの接続が残る。
+この切替helperを物理再開候補とnative世代のfenceへ接続した。実物受入、agent_launch同名と実harness受入が残る。
 
 物理再開の候補はsend/dispatchの同じ送信lock内で、保存recipeと休止世代を再確認し、旧pointerをpinして新metadataをstageする。内部のPTY作成だけはagent stateのcleanupを保留する。公式resume argvへ保存会話ID、cwd、model/effortを渡し、明示envのnullは解除、harness設定rootは保存pathで上書きする。新lineageは旧lineageと同じで深さを増やさない。CLI投入後に新世代を公開し、既存ready gateと必要なfast確認を経てから本文の送信経路へ戻る。
 
-元世代のresume-attempt.jsonは新launchとrecipe digest、resuming/ready/failedを持つ。native効果前にresumingを保存し、失敗・保存不能は未確定のまま本文と追加CLIを止める。途中failureをcloseして隠さず、通常close時だけ記録を片付ける。新しいeffect枠やcreator stampを作らない。mounted graphには正規resume transitionが無いため、停止・復帰の効果前にEXECUTION_UNSUPPORTEDで断る。Windowsはdirect payload endpointのnative固定が未受入なので停止対象外、resumeもAGENT_RESUME_UNSUPPORTEDで断る。agent_launch同名経路、公開観測/list/stop、実harnessの同会話・fast受入が残るため、自動停止を有効にしない。
+元世代のresume-attempt.jsonは新launchとrecipe digest、resuming/ready/failedを持つ。native効果前にresumingを保存し、失敗・保存不能は未確定のまま本文と追加CLIを止める。途中failureをcloseして隠さず、通常close時だけ記録を片付ける。新しいeffect枠やcreator stampを作らない。mounted graphには正規resume transitionが無いため、停止・復帰の効果前にEXECUTION_UNSUPPORTEDで断る。Windowsはdirect payload endpointのnative固定が未受入なので停止対象外、resumeもAGENT_RESUME_UNSUPPORTEDで断る。agent_launch同名経路、実harnessの同会話・fast受入が残るため、自動停止を有効にしない。
 
 POSIXの実new-session -P -F receiptにあるnative ID、session名、server PID、pane ID/PIDをprivate resume-native.jsonへ保存する。server/paneのOS開始本人性も固定し、既存の送信admission内でCLI投入・ready・fast・本文と後続の送信/設定に同じtargetを使う。これは宛先の固定であり、既存guardTmuxExecutionの権限は増やさない。名前が同じでもnative IDやpane/開始本人性が違えば、本文と成功receiptを返さない。旧/新metadataの世代、保存proofの不整合も拒否する。
 

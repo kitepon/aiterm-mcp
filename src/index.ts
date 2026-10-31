@@ -799,7 +799,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.pty-observe-result.v1"), session_id: z.string(), observed_at: z.string(),
       exists: z.boolean(), harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
-      launch_id: z.string().nullable(), state: z.enum(["busy", "idle", "blocked", "dead", "missing", "unknown"]),
+      launch_id: z.string().nullable(), state: z.enum(["busy", "idle", "blocked", "dead", "missing", "unknown", "hibernated"]),
       reason: z.string(), pane_alive: z.boolean().nullable(), harness_alive: z.boolean().nullable(),
       pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
       process_identity: nativeProcessIdentitySchema.nullable(),

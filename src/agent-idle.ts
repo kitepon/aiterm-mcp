@@ -6,7 +6,7 @@ export interface IdleSeatSnapshot {
   vendor_session_id: string | null;
   resume_ready: boolean;
   activity: AgentActivity;
-  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown";
+  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown" | "hibernated";
   reason: string;
   attached: boolean | null;
   turn_settled: boolean | null;

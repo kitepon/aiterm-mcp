@@ -8,7 +8,7 @@ import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import * as core from '../dist/core.js';
 import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publishAgentGeneration} from '../dist/agent-shared.js';
-import {readAgentLifecycle,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
+import {readAgentLifecycle,writeAgentLifecycle,writeAgentResumeAttempt,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/execution-effect.js';
 import {readProcessIdentities} from '../dist/process-runtime.js';
 import {readAgentActivity} from '../dist/agent-activity.js';
@@ -65,19 +65,68 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
 }
 
 test('ordinary core hibernates only the expected idle pane, retaining its resume data', {skip,timeout:30000},async t=>{
- const f=await fixture(t);const [bridge]=core.openSession('ordinary-bridge');
+ const f=await fixture(t,{resumeEnv:true});const [bridge]=core.openSession('ordinary-bridge');
  assert.equal(core.observeSession(f.name).activity.post_startup_process_count,0);
  const result=await core.checkAgentIdle(f.expected);
  assert.equal(result.outcome,'hibernated',JSON.stringify(result));
  const lifecycle=readAgentLifecycle(f.meta);assert.equal(lifecycle.state,'hibernated');
  assert.equal(lifecycle.launch_id,f.meta.launch_id);assert.match(lifecycle.native_id,/^\$\d+$/);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
- assert.equal(core.observeSession(f.name).exists,false,'logical public listing is a later integration');
+ const observed=core.observeSession(f.name,Buffer.from(JSON.stringify({session_id:f.name,pane_identity:'old-pane',screen_digest:'old',processes:{},background_processes:{}})).toString('base64url'));
+ assert.equal(observed.exists,true);assert.equal(observed.state,'hibernated');assert.equal(observed.reason,'idle_timeout');
+ assert.equal(observed.launch_id,f.meta.launch_id);assert.equal(observed.harness,'codex-cli');
+ assert.equal(observed.pane_alive,false);assert.equal(observed.harness_alive,false);
+ for(const key of ['pane_process','harness_process','process_identity','token_hint'])assert.equal(observed[key],null);
+ assert.equal(observed.pending_child_deliveries,0);assert.equal(observed.activity.post_startup_process_count,0);
+ assert.equal(observed.activity.cpu_seconds,0);assert.equal(observed.activity.background_cpu_seconds,0);
+ for(const key of ['cursor','output_changed','cpu_delta_seconds','cpu_delta_complete','background_cpu_delta_seconds','background_cpu_delta_complete'])assert.equal(observed.activity[key],null);
+ const listed=core.listSessionsResult(['PEERTABLE_ROOM','PEERTABLE_MEMBER','UNREGISTERED_NAME']).sessions.find(row=>row.session_id===f.name);
+ assert.equal(listed.harness,'codex-cli');assert.equal(listed.vendor_session_id,f.meta.vendor_session_id);
+ assert.deepEqual(listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';',UNREGISTERED_NAME:null});
+ assert.deepEqual(core.readSeatTurns([f.name]).seats[0].turn,{state:'idle'});
+ assert.equal(core.observeSessionGeneration(f.name).exists,true);
  assert.equal(core.observeSession(bridge).exists,true);
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'skipped');
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
  core.closeSession(f.name);assert.equal(readAgentLifecycle(f.meta),null);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume.json')),false);
+});
+
+for(const state of ['stopping','resuming','failed','recipe-changed','native-replaced'])test(`public dormant state does not claim confirmed hibernation for ${state}`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const saved=readAgentLifecycle(f.meta);
+ if(state==='stopping')writeAgentLifecycle(f.meta,{...saved,state:'stopping'});
+ if(state==='resuming'||state==='failed')writeAgentResumeAttempt(f.meta,{schema:'aiterm.agent-resume-attempt.v1',launch_id:f.meta.launch_id,
+  next_launch_id:'e'.repeat(32),recipe_digest:saved.recipe_digest,state,at:new Date().toISOString()});
+ if(state==='recipe-changed')writeAgentMetadata({...f.meta,model:'later-model'});
+ if(state==='native-replaced'){
+  const raw=spawnSync(resolveTmux(),['-S',SOCK,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'});assert.equal(raw.status,0);
+ }
+ const seen=core.observeSession(f.name);assert.equal(seen.exists,true);assert.equal(seen.state,'unknown');
+ assert.equal(seen.launch_id,f.meta.launch_id);assert.equal(seen.activity.post_startup_process_count,null);
+ assert.ok(core.listSessionsResult().sessions.some(row=>row.session_id===f.name));
+ assert.equal(core.readSeatTurns([f.name]).seats[0].turn,null);
+ if(state==='native-replaced'){
+  assert.throws(()=>core.closeSessionResult(f.name),/AGENT_RESUME_UNCONFIRMED/);
+  assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status,0);
+ }
+});
+
+test('logical listings do not enroll a hibernation record belonging to another socket',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ writeAgentLifecycle(f.meta,{...readAgentLifecycle(f.meta),socket:SOCK+'-other'});
+ assert.equal(core.listSessionsResult().sessions.some(row=>row.session_id===f.name),false);
+ assert.equal(core.observeSession(f.name).exists,false);
+ await assert.rejects(core.sendAgentMessage(f.name,'never-body',{raw:true}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.closeSessionResult(f.name),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
+});
+
+test('closing a hibernated logical seat returns closed without restarting a CLI',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ assert.equal(core.closeSessionResult(f.name).outcome,'closed');assert.equal(core.observeSession(f.name).exists,false);
+ assert.equal(core.closeSessionResult(f.name).outcome,'already_closed');
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });
 
 test('a failed physical resume cannot start another CLI or accept either queued body', {skip,timeout:15000},async t=>{
@@ -269,7 +318,7 @@ test('a replacement after native exit retains uncertain stopping instead of comp
  {skip,timeout:20000},async t=>{
  const f=await fixture(t);let replaced=false;
  const timer=setInterval(()=>{
-  if(!replaced&&core.observeSession(f.name).exists===false){
+  if(!replaced&&spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status!==0){
    replaced=true;writeAgentMetadata({...f.meta,launch_id:'b'.repeat(32)});
    fs.unlinkSync(agentMetadataPath(f.name,f.meta.launch_id));
   }

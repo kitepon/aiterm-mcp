@@ -3436,6 +3436,24 @@
       "fetched": "2026-06-01"
     },
     {
+      "slug": "dotnet-process-close-and-kill-20261031",
+      "topic": "process-lifecycle",
+      "title": ".NET Processの終了要求・強制終了・handleの公式API定義",
+      "source_url": "https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml",
+      "source_type": "official_api_source",
+      "path": "sources/process-lifecycle/dotnet-process-close-and-kill-20261031.md",
+      "tags": [
+        "windows",
+        "process",
+        "lifecycle",
+        "hibernation"
+      ],
+      "summary": "Microsoftの公式API XML。CloseMainWindowは終了要求で、windowless processはfalseを返す。Killは強制終了で、終了完了は別途確認する。",
+      "relevance": "Windows会話席の休止で、handleを保持した同一processへの終了要求と強制終了を区別し、子孫の実終了を別途確認するための一次資料。",
+      "chars": 525610,
+      "fetched": "2026-10-31"
+    },
+    {
       "slug": "cert-vu763073-iterm2-tmux-rce",
       "topic": "safety",
       "title": "CERT VU#763073: iTerm2 with tmux Integration Remote Command Execution",
@@ -3693,5 +3711,5 @@
       "fetched": "2026-10-25"
     }
   ],
-  "updated": "2026-10-30"
+  "updated": "2026-10-31"
 }

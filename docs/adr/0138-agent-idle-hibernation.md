@@ -1,6 +1,6 @@
 # ADR 0138: 会話席の無活動終了と同会話再開
 
-状態: 採用（時刻記録のみ実装、休止・時計・再開は未実装）。
+状態: 採用（時刻記録と休止判定・木停止の部品を実装、本体接続・時計・再開は未実装）。
 
 ## 方針
 
@@ -29,3 +29,13 @@ BellTeamのexists/配備quiet判定とPeertableの送信前生存判定はこの
 ## 記録の確認
 
 agent-activity.test.mjsは入力/終了の区別、完了の重複、時計の逆行、起動世代、破損を確認する。core-agent-dispatch/core-agent-initial-promptは実tmuxの初手と通常入力、native完了、破損した時計でも完了結果を返すことを確認する。managed-stop-hooksは実hook processからの記録とStop時刻の一致を確認する。
+
+## 休止判定と木の停止の部品（本体未接続）
+
+agent-idle.tsは既存の席admissionをruntimeから受け、判定・停止準備・終了確認・休止記録を同じ枠で進める。busy/blocked/unknown、attach、未配送または欠測、起動後processまたは欠測、会話ID/再開能力欠測、native番終了欠測、入力後の番未完了では進めない。tracked席の番終了欠測はcreated_atで代用しない。旧版の未記録席だけ、確認できたidleとcreated_atを移行規則に使う。遅延processの起点が変わっていたら何もしない。停止前・各signal前・終了後の世代/入力/attach/新しいbusyを確認し、変化と途中失敗は未確定とする。
+
+process-tree-stop.tsがPID/開始時刻/argv digest/process groupを照合したpane木へTERM、5秒の猶予、KILLを送る。process-runtime.tsがOS差を所有する。POSIXのsession識別は木の内外を分けるため、stop用の読取りだけsessを追加する。別sessionへ離れた子は親子表に残っていても対象外。全memberが元の木に属すると確かめたgroupだけを一括signalし、共有groupでは本人性を照合した個別PIDへ送る。猶予中の新しい子も観測し、退出確認が取れない時は成功にしない。終了したzombieは実行中processとして扱わない。
+
+Windows候補はProcess handleを保持し開始時刻を照合した同processへCloseMainWindowで終了を要求し、猶予後にKillを呼ぶ。windowless processではCloseMainWindowがfalseを返し得る。実Win/psmuxの境界と動的な子の完全性はまだ受入前で、自動休止を有効にはしない。一次資料はrag/INDEX.mdのProcess lifecycleを参照。
+
+現段階はこれらの部品を隔離試験で確認した範囲。coreの送信lock/native generationへのadapter、durableなstopping/hibernated記録、tmux native IDへの最後のkill、resume recipe、公開observe/list/sendへの接続は未実装である。自動停止や既存席への作用はまだ発生しない。部品のfixture成功を製品全体の休止成功と扱わない。

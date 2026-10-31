@@ -634,3 +634,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
   - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
   - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。
+
+## Process lifecycle
+
+- [.NET Processの終了要求・強制終了・handleの公式API定義](sources/process-lifecycle/dotnet-process-close-and-kill-20261031.md) — Microsoft公式API XML。CloseMainWindowは終了要求、Killは強制終了で、子孫の退出は別途確認する。
+  - 出典: <https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml> (official_api_source)
+  - 効きどころ: Windows会話席の休止で元のprocess handleと開始時刻を照合し、終了要求と強制終了を区別する根拠。

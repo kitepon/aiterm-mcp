@@ -18,6 +18,8 @@ export interface NativeProcessIdentity {
 }
 
 export interface RuntimeProcess extends NativeProcessIdentity {
+  session_identity?: string;
+  zombie?: boolean;
   executable?: string;
   parent_pid: number;
   cpu_seconds: number;
@@ -39,15 +41,19 @@ export function parseCpuTime(value: string): number {
     + Number(match[3]) * 60 + Number(match[4]);
 }
 
-export function parsePosixProcessTable(text: string): RuntimeProcess[] {
+export function parsePosixProcessTable(text: string, includeSession = false): RuntimeProcess[] {
   return text.split("\n").filter(line => line.trim()).map(line => {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/.exec(line);
+    const match = (includeSession
+      ? /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/
+      : /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/).exec(line);
     if (!match) throw new AitermError("process一覧の形式を認識できません", 2);
-    const command = match[7].trim();
+    const offset = includeSession ? 1 : 0;
+    const command = match[7 + offset].trim();
     return {
       pid: Number(match[1]), parent_pid: Number(match[2]), process_group_id: Number(match[3]),
-      stopped: match[4].includes("T"),
-      started_identity: match[5].trim(), cpu_seconds: parseCpuTime(match[6]), command,
+      stopped: match[4 + offset].includes("T"), zombie: match[4 + offset].includes("Z"),
+      ...(includeSession ? { session_identity: match[4] } : {}),
+      started_identity: match[5 + offset].trim(), cpu_seconds: parseCpuTime(match[6 + offset]), command,
       argv_digest: createHash("sha256").update(command).digest("hex"),
     };
   });
@@ -56,6 +62,7 @@ export function parsePosixProcessTable(text: string): RuntimeProcess[] {
 // AitermがOSのprocess表を引く時のコマンドの形。席のprocessを数える側が、これを利用者の作業と取り違えないために使う。
 const POSIX_PS = "/bin/ps";
 const POSIX_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,stat=,lstart=,time=,command="];
+const POSIX_SESSION_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,sess=,stat=,lstart=,time=,command="];
 const POSIX_IDENTITY_ARGS = ["-o", "pid=,lstart=", "-p"];
 const POSIX_ELAPSED_ARGS = ["-o", "etime=", "-p"];
 const WINDOWS_PROBE_HEADER = ["$ErrorActionPreference='Stop'", "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)"];
@@ -70,6 +77,7 @@ const WINDOWS_PROBE_PREFIX = (() => {
 export function aitermProcessProbe(command: string): boolean {
   if (command.includes(` ${WINDOWS_PROBE_ARGS.join(" ")} ${WINDOWS_PROBE_PREFIX}`)) return true;
   return command === `${POSIX_PS} ${POSIX_TABLE_ARGS.join(" ")}` || command.startsWith(`${POSIX_PS} ${POSIX_IDENTITY_ARGS.join(" ")} `)
+    || command === `${POSIX_PS} ${POSIX_SESSION_TABLE_ARGS.join(" ")}`
     || command.startsWith(`${POSIX_PS} ${POSIX_ELAPSED_ARGS.join(" ")} `);
 }
 
@@ -80,13 +88,13 @@ export function windowsConsoleHost(row: RuntimeProcess): boolean {
   return path.posix.basename(name).toLowerCase() === "conhost.exe";
 }
 
-export function readRuntimeProcesses(): RuntimeProcess[] {
+export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
   if (!isWin) {
-    const result = spawnSync(POSIX_PS, POSIX_TABLE_ARGS, {
+    const result = spawnSync(POSIX_PS, includeSession ? POSIX_SESSION_TABLE_ARGS : POSIX_TABLE_ARGS, {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
     });
     if (result.error || result.status !== 0) throw new AitermError("OSのprocess一覧を取得できません", 2);
-    return parsePosixProcessTable(result.stdout);
+    return parsePosixProcessTable(result.stdout, includeSession);
   }
   const script = [
     ...WINDOWS_PROBE_HEADER,
@@ -114,6 +122,30 @@ export function readRuntimeProcesses(): RuntimeProcess[] {
       command, cpu_seconds: row.cpu_seconds, argv_digest: createHash("sha256").update(command).digest("hex"),
     };
   });
+}
+
+/** A held Process handle on Windows prevents a PID replacement from becoming the target. */
+export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIGTERM" | "SIGKILL", group: boolean): void {
+  if (!Number.isSafeInteger(target.pid) || target.pid <= 1 || !Number.isFinite(Date.parse(target.started_identity))
+    || (group && (!Number.isSafeInteger(target.process_group_id) || target.process_group_id! <= 1)))
+    throw new Error("invalid_process_signal_target");
+  if (!isWin) {
+    try { process.kill(group ? -target.process_group_id! : target.pid, signal); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    return;
+  }
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    `try { $target=[Diagnostics.Process]::GetProcessById(${target.pid}) } catch [ArgumentException] { exit 3 }`,
+    "try {",
+    "[void]$target.Handle",
+    `if(([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne ${Date.parse(target.started_identity)}) { exit 4 }`,
+    signal === "SIGTERM" ? "[void]$target.CloseMainWindow()" : "$target.Kill()",
+    "} finally { $target.Dispose() }",
+  ].join("\n");
+  const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+    Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 10_000, windowsHide: true });
+  if (result.error || ![0, 3].includes(result.status!)) throw new Error("native_process_signal_unconfirmed");
 }
 
 /** そのpidのprocessが今あるか。OSへ直接聞き、processを起こさない。権限が無くて触れないprocessも「ある」と読む。 */

@@ -1,0 +1,105 @@
+import type { AgentActivity } from "./agent-activity.js";
+
+export interface IdleSeatSnapshot {
+  launch_id: string;
+  created_at: string;
+  vendor_session_id: string | null;
+  resume_ready: boolean;
+  activity: AgentActivity;
+  state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown";
+  reason: string;
+  attached: boolean | null;
+  turn_settled: boolean | null;
+  pending_child_deliveries: number | null;
+  post_startup_process_count: number | null;
+  window_activity_at: number | null;
+}
+export interface IdleDecision {
+  outcome: "ready" | "not_due" | "skipped";
+  reason: string;
+  anchor: string | null;
+  due_at: number | null;
+  stalled: boolean;
+}
+
+export function idleMinutes(value = process.env.AITERM_IDLE_MINUTES): number {
+  if (value === undefined) return 30;
+  const minutes = Number(value);
+  if (!value.trim() || !Number.isFinite(minutes * 60_000) || minutes <= 0)
+    throw new Error("AITERM_IDLE_MINUTES must be a positive finite duration");
+  return minutes;
+}
+
+export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30, expectedAnchor?: string): IdleDecision {
+  const result: IdleDecision = { outcome: "skipped", reason: "observation_unconfirmed", anchor: null, due_at: null, stalled: false };
+  if (!Number.isFinite(now) || !Number.isFinite(minutes * 60_000) || minutes <= 0) return result;
+  if (seat.state !== "idle" || seat.reason !== "composer_ready") return { ...result, reason: seat.state === "busy" ? "turn_running" : seat.state,
+    stalled: seat.state === "busy" && seat.window_activity_at !== null && Number.isFinite(seat.window_activity_at)
+      && now - seat.window_activity_at >= 60 * 60_000 };
+  if (seat.attached !== false) return { ...result, reason: seat.attached === true ? "attached" : "attachment_unconfirmed" };
+  if (seat.pending_child_deliveries !== 0) return { ...result, reason: "child_delivery_pending_or_unknown" };
+  if (seat.post_startup_process_count !== 0) return { ...result, reason: "background_work_or_unknown" };
+  if (!seat.vendor_session_id) return { ...result, reason: "conversation_id_unavailable" };
+  if (!seat.resume_ready) return { ...result, reason: "resume_unavailable" };
+  if (seat.turn_settled !== true) return { ...result, reason: "turn_end_unconfirmed" };
+  const anchor = seat.activity.last_turn_end_at ?? (!seat.activity.tracked ? seat.created_at : null);
+  if (anchor === null || !Number.isFinite(Date.parse(anchor))) return { ...result, reason: "turn_end_time_unavailable" };
+  const input = seat.activity.last_input_at;
+  if (input !== null && (!Number.isFinite(Date.parse(input)) || Date.parse(input) > Date.parse(anchor)))
+    return { ...result, reason: "input_without_turn_end" };
+  const due = Date.parse(anchor) + minutes * 60_000;
+  if (!Number.isFinite(due)) return result;
+  if (expectedAnchor !== undefined && expectedAnchor !== anchor) return { ...result, reason: "superseded_timer", anchor, due_at: due };
+  return { ...result, outcome: now < due ? "not_due" : "ready", reason: now < due ? "before_deadline" : "idle_timeout", anchor, due_at: due };
+}
+
+export interface IdleCheckRuntime {
+  exclusive<T>(body: () => Promise<T>): Promise<T>;
+  now(): number;
+  snapshot(): IdleSeatSnapshot;
+  /** Synchronous compare-and-record under the serving runtime's existing admission. */
+  begin(seat: IdleSeatSnapshot, anchor: string): void;
+  stop(verify: () => void): Promise<boolean>;
+  finish(seat: IdleSeatSnapshot, anchor: string): void;
+  record(result: IdleCheckResult): void;
+}
+export type IdleCheckResult = Omit<IdleDecision, "outcome"> & { outcome: IdleDecision["outcome"] | "hibernated" | "unconfirmed" };
+
+/** The owner supplies the same seat admission used by input; no independent queue is created. */
+export async function checkIdleSeat(runtime: IdleCheckRuntime, expectedLaunch: string, minutes = 30,
+  expectedAnchor?: string): Promise<IdleCheckResult> {
+  return runtime.exclusive(async () => {
+    let issued = false;
+    let result: IdleCheckResult;
+    try {
+      const before = runtime.snapshot();
+      const lastInputAt = before.activity.last_input_at;
+      result = before.launch_id !== expectedLaunch
+        ? { outcome: "skipped", reason: "generation_replaced", anchor: null, due_at: null, stalled: false }
+        : decideIdleSeat(before, runtime.now(), minutes, expectedAnchor);
+      if (result.outcome === "ready") {
+        const anchor = result.anchor!;
+        const verify = () => {
+          const current = runtime.snapshot();
+          const decision = decideIdleSeat(current, runtime.now(), minutes, anchor);
+          if (current.launch_id !== expectedLaunch || current.activity.last_input_at !== lastInputAt
+            || (issued ? current.attached === true || ["busy", "blocked"].includes(current.state) : decision.outcome !== "ready"))
+            throw new Error("idle_precondition_changed");
+        };
+        verify();
+        runtime.begin(before, anchor);
+        issued = true;
+        const stopped = await runtime.stop(verify);
+        if (!stopped) throw new Error("process_tree_exit_unconfirmed");
+        verify();
+        runtime.finish(before, anchor);
+        result = { ...result, outcome: "hibernated" };
+      }
+    } catch {
+      result = { outcome: issued ? "unconfirmed" : "skipped", reason: issued ? "stop_unconfirmed" : "observation_unconfirmed",
+        anchor: null, due_at: null, stalled: false };
+    }
+    runtime.record(result);
+    return result;
+  });
+}

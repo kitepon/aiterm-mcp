@@ -180,6 +180,8 @@ Codex model-only configuration reads the native current effort before navigating
 
 4harness共通の`agent_configure`は、変更を発行し得る境界に達したかを要求内で保持する。失敗は`aiterm.agent-configure-error.v1`の`not_applied/not_started`又は`outcome_unknown/possible`で返し、後者には部分適用を含む。これは要求単位の保守的な分類で、以前の実設定や他要求の状態は証明しない。成功型は維持し、Codexの完了は指定ID・effortに一致する新規native通知を確認する。別modelの通知や残画面では成功にしない。
 
+Codex v1のactive goalは設定替えの間だけ一時停止する。`configure-goal.ts`がpause→nativeの番終了待ち→既存の設定替え→resumeを持つ。coreは同じlaunch/threadへの束縛と番終了記録を供給し、待機中は送信lockを持たない。pause/resumeは既存のCLI goal adapterで一度だけ発行し、mutation直前のnative readbackが比較元から変われば発行しない。設定替え失敗でも自分のpauseの復元を試み、別goalや変更されたgoalは再開しない。公開schemaは維持し、設定とgoalの不確定な結果はエラー本文で併記する（ADR 0137）。
+
 agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
 Codex親にはAitermのMCP processが完了を観測し、選択設定に応じて公式Steerまたはqueueへ本文を自動配送する。
 Claude Code親は公式の非同期hookで本文を受け取り、待機中も新しいturnへ進める。

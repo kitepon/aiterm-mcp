@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Pause an active Codex v1 goal while changing session settings, wait for the native turn-end record, and restore the owned pause after success or failure. Report uncertain goal restoration alongside configuration failure without replaying an operation.
+
 ## [0.62.3] - 2026-10-31
 
 ### Fixed

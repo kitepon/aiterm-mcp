@@ -28,6 +28,7 @@ import {nativeGoalClickBytes} from './agent-goal-ui.js';
 import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
+import { configureWithPausedGoal } from "./configure-goal.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -6089,7 +6090,8 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
 }
 
 /** Goal operations share the existing seat admission and original launch ID. */
-export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic"): Promise<AgentGoalWireResult> {
+export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic",
+  expectedGoal?: import("./agent-goal.js").NativeGoal): Promise<AgentGoalWireResult> {
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
@@ -6215,7 +6217,9 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     clear: target => clearClaudeGoal(goalUi(target)),
     setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
   }, origin));
-  const run = () => manageAgentGoal(input, { resolve, connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
+  const run = () => manageAgentGoal(input, { resolve,
+    ...(expectedGoal ? { beforeMutation: (current: import("./agent-goal.js").NativeGoal | null) => JSON.stringify(current) === JSON.stringify(expectedGoal) } : {}),
+    connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);
     return withExecutionNativeAdmission(input.session_id, () => {
       beforeExecutionEffect(input.session_id, () => {
@@ -6249,6 +6253,10 @@ export async function pauseAgentGoalForStop(target: { session_id: string; launch
   return { status: result.availability === "unsupported" || result.outcome === "unsupported" ? "unsupported" : result.outcome === "outcome_unknown" ? "outcome_unknown" : "unavailable", reason: result.reason };
 }
 
+function agentConfigureNotReady(name: string): AitermError {
+  return new AitermError(`agent session '${name}' は入力待ちではありません。番またはgoalが継続する場合はgoalを停止または完了にしてから agent_configure してください。設定は変えていません。`, 2);
+}
+
 export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null; fast?: boolean | null },
@@ -6271,15 +6279,46 @@ export async function configureAgent(
     }
     // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
     // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
-    const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
-    for (;;) {
-      const result = await withAgentSendLock(name, () => configureAgentInLock(name, model, effort, fast, beforeChange), AGENT_CONFIGURE_UNCHANGED);
-      if (result) return result;
-      if (performance.now() >= deadline) throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
-      await sleep(AGENT_TUI_READY_POLL_MS);
-    }
+    const meta = loadAgentMetadata(name);
+    const checkGeneration = () => {
+      assertExecutionContext(name);
+      if (tryLoadAgentMetadata(name)?.launch_id !== meta.launch_id || observeSessionGeneration(name).launch_id !== meta.launch_id)
+        throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    };
+    const configure = async () => {
+      const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
+      for (;;) {
+        checkGeneration();
+        const result = await withAgentSendLock(name, () => {
+          checkGeneration();
+          return configureAgentInLock(name, model, effort, fast, beforeChange);
+        }, AGENT_CONFIGURE_UNCHANGED);
+        if (result) return result;
+        if (performance.now() >= deadline) throw agentConfigureNotReady(name);
+        await sleep(AGENT_TUI_READY_POLL_MS);
+      }
+    };
+    if (meta.kind !== "codex") return await configure();
+    return await configureWithPausedGoal({
+      goal: (action, expected) => {
+        checkGeneration();
+        return agentGoal({ session_id: name, launch_id: meta.launch_id, action,
+          ...(meta.vendor_session_id ? { expected_thread_id: meta.vendor_session_id } : {}) }, "user", expected);
+      },
+      waitForTurnEnd: async () => {
+        const deadline = performance.now() + 30 * 60_000;
+        for (;;) {
+          checkGeneration();
+          if (codexTurnSettled(loadAgentMetadata(name))) return;
+          if (performance.now() >= deadline) throw new AitermError("GOAL_CONFIGURE_TURN_END_UNCONFIRMED: 30分以内に現在の番の終了を確認できません。設定は変えていません。", 2);
+          await sleep(AGENT_TUI_READY_POLL_MS);
+        }
+      },
+    }, configure);
   } catch (error) {
     const failure = error instanceof Error ? error : new AitermError(String(error), 2);
+    if (!mayHaveChanged && failure.message.includes("AGENT_SEND_BUSY") && !failure.message.includes("設定は変えていません。"))
+      failure.message += " 設定は変えていません。";
     Object.assign(failure, { configurationFailure: { schema: "aiterm.agent-configure-error.v1", session_id: name,
       outcome: mayHaveChanged ? "outcome_unknown" : "not_applied", effect: mayHaveChanged ? "possible" : "not_started" } });
     throw failure;
@@ -6307,7 +6346,7 @@ async function configureAgentInLock(
         `CODEX_RATE_LIMIT_MODEL_SWITCH_RECOVERY_FAILED: ${codexPaneObservation(ready.lastScreen).reason}。設定変更は送信していません。`, 2,
       );
     }
-    throw new AitermError(`agent session '${name}' は入力待ちではありません`, 2);
+    throw agentConfigureNotReady(name);
   }
   const configured = (): AgentConfigureResult => ({
     schema: "aiterm.agent-configure-result.v1",

@@ -81,6 +81,7 @@ export interface AgentGoalRuntime {
   // Both functions come from the serving runtime, never from tool arguments.
   resolve(): GoalTarget | null;
   connect<T>(target: GoalTarget, run: GoalConnectionRun<T>): Promise<T>;
+  beforeMutation?(goal: NativeGoal | null): boolean;
 }
 const capabilities = (enabled: boolean) => ({ inspect: enabled, create: enabled, edit: enabled, pause: enabled, resume: enabled, clear: enabled });
 
@@ -137,6 +138,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       if (input.action !== "create" && input.action !== "clear" && before === null) return reject("goal_missing");
       if (input.action === "resume" && before?.status !== "paused") return reject("resume_requires_paused_goal");
       if (input.action === "pause" && before?.status !== "active") return reject("pause_requires_active_goal");
+      if (runtime.beforeMutation && !runtime.beforeMutation(before)) return reject("goal_changed_before_mutation");
       if (!same()) return { ...result, availability: "unavailable", outcome: "unavailable", reason: "generation_replaced" };
       const method = input.action === "clear" ? "thread/goal/clear" : "thread/goal/set";
       const params: Record<string, unknown> = { threadId, origin };

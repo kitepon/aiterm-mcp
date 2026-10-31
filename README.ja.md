@@ -634,6 +634,8 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursor／Antigravityを変更し、PTYと会話contextを維持する。
 
+Codex v1のgoalがactiveの席では、`agent_configure`がgoalを一時停止し、現在の番の終了記録を最長30分待ってから設定を替え、同じgoalを再開します。番を待つ間も差し込みは通ります。途中で変更されたgoalは保持し、再開できなかった時は設定変更の結果とgoalの状態をエラー本文に残します。他のharnessでは通常の入力待ち上限を維持するため、番が続くgoalは停止または完了にしてから設定を替えてください。
+
 Codexでmodelだけを変更する場合は、標準の選択画面から現在のeffortを読み、同じ値を明示的に選びます。現在値を読めない場合や変更先で選べない場合は、別の値へ置き換えず失敗します。
 
 長寿命Codexでは状態footerの空白入りモデル表示名も認識し、起動headerが画面外へ流れた後も入力欄の受付を維持する。

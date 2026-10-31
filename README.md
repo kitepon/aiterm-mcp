@@ -677,6 +677,8 @@ enables collection on that host.
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
 
+For an active Codex v1 goal, `agent_configure` temporarily pauses the goal, waits for the current native turn to end (up to 30 minutes), applies settings through the same send queue, and resumes that goal. Steering remains available during the wait. A changed goal is preserved; a failed or uncertain restoration is reported with the configuration outcome. Other harnesses retain the normal readiness limit: stop or complete a continuously running goal before configuring them.
+
 Codex model-only changes explicitly preserve the current reasoning effort read from the native picker. Unreadable or unsupported current effort fails without selecting another value.
 
 Long-lived Codex sessions recognize native model display names containing spaces in the status footer, so a ready composer remains available after the launch header scrolls away.

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Avoid repeating native seat observation when selecting the Goal adapter; retain all adapter binding and readback checks.
+
 ## [0.62.3] - 2026-10-31
 
 ### Fixed

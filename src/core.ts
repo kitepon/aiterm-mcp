@@ -6199,12 +6199,13 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     };
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
-  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
+  const harness = resolve()?.harness;
+  if(harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
     read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
     canClear:target=>grokGoalClearReady(grokPort(target).ui),
     clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
   },origin));
-  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
+  if (harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);
       if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");

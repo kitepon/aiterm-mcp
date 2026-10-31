@@ -383,6 +383,15 @@ export function claudeAgentArgv(
   return parts;
 }
 
+/** Resume exactly the saved conversation; the caller submits its body only after readiness. */
+export function claudeResumeArgv(bin: string, model: string | null, effort: string | null, meta: AgentMetadata): string[] {
+  if (meta.kind !== "claude" || !meta.vendor_session_id || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(meta.vendor_session_id))
+    throw new AitermError("AGENT_RESUME_UNSUPPORTED: Claudeの保存会話IDを確認できません。", 2);
+  const argv = claudeAgentArgv(bin, model, effort, null, meta);
+  argv[argv.indexOf("--session-id")] = "--resume";
+  return argv;
+}
+
 export function buildClaudeAgentCmd(
   bin: string, model: string | null, effort: string | null,
   prompt: string | null, meta: AgentMetadata | null,

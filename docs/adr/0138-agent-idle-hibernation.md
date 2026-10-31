@@ -56,3 +56,8 @@ private idle-clock.jsonのowner PID/開始時刻、anchor、次回時刻、token
 Cがbusy/blocked/background/未確認入力を返しても、60秒後の次回確認を持つ。native完了は各tickで記録するので、goalの自動番にparent waiterが無くても終了を回収できる。既知のnative番終了と期限があれば、その期限までsleepする。新しい終了で起点が変わっていれば、新しい期限へ進み、途中出力では時計を戻さない。送信lock待ちが満了した時だけCLIのexit 75でshell sleepへ戻り、Nodeを待機常駐させない。本文を配送・再送する経路ではない。
 
 agent_launchとpty_listの公開入口、起動直後、native完了waiter、Claude Stopへ起動口を置いた。内部list/observeは再帰的な掃引をしない。AGENT_IDLE_ENABLED=falseで公開入口と実CLIを止めており、isolated擬似CLIの試験だけが内部controllerを直接呼ぶ。Dの同会話復帰・公開論理席・実物受入の後に有効化し、CLIの公開登録もその時に揃える。
+
+
+## 公式再開の引数（本体未接続）
+
+Claude/Codexのresume argvは既存のlaunch argvから設定を保ち、初手本文を渡さず、保存済みUUIDを明示する。Claudeは--session-idを--resumeへ替え、Codexはresume <UUID>と明示--cdを使い、cwd選択promptを避ける。会話名/--last/picker/forkで代用しない。recipeもこのUUID形式を必要とする。fastの復元、launch世代とCodex旧rolloutの正規相関、metadataの切替と公開論理席は未接続であり、これだけで実resume成功とはしない。公式一次資料はrag/INDEX.mdのClaude/Codex resume reference（2026-10-31）を参照する。

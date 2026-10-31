@@ -9,7 +9,7 @@ const launchId = z.string().regex(/^[a-f0-9]{32}$/);
 const absolute = z.string().min(1).refine(value => path.isAbsolute(value) && !value.includes("\0"));
 export const agentResumeRecipeSchema = z.object({
   schema: z.literal("aiterm.agent-resume.v1"), launch_id: launchId,
-  kind: z.enum(["claude", "codex"]), vendor_session_id: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/),
+  kind: z.enum(["claude", "codex"]), vendor_session_id: z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i),
   executable: absolute, cwd: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean(),
   environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().refine(value => !value.includes("\0"))),
 }).strict();

@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **196** 件 / 更新: 2026-10-30
+- 総数: **199** 件 / 更新: 2026-10-31
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -89,7 +89,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/rusiaaman/wcgw/main/README.md> (github_readme, 14491 chars)
   - 効きどころ: 完了検出が二段(短timeoutで即抜け+出力ストリーム継続を見て待ち時間調整)で、純粋quiescenceとexit-codeの中間設計の実例。screen -xで人間が同一端末にアタッチ、背景コマンド多重化は我々のバックエンド選定(tmux代替案)とsend設計の比較対象。
 
-## 完了境界の検出 (completion-detection) — 39件
+## 完了境界の検出 (completion-detection) — 41件
 
 - [Phase 0 multi-agent smoke: AI CLI TUI done detection](sources/completion-detection/agent-cli-done-phase0-smoke-2026-07-07.md) — Codex/Grok/Composer の TUI Stop hook をマルチエージェントで実測した。hook 発火自体は確認できたが、Codex continuation と temporary home 差分が実装前ブロッカーとして残った。
   - 出典: <local:multi-agent-smoke-2026-07-07> (local_probe, 7446 chars)
@@ -118,6 +118,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [Claude Code Channels reference: MCP通知契約](sources/completion-detection/claude-channels-reference-2026-09-10.md) — claude/channel capabilityとnotifications/claude/channelを規定する。通知ACKはなく、有効化されていない親は通知を黙示破棄する。
   - 出典: <https://code.claude.com/docs/en/channels-reference.md> (official_docs, 50246 chars)
   - 効きどころ: 通知書込みと受領を区別し、親の識別・有効化・切断時の契約を検証する。
+- [Claude Code CLI reference: resume and fork flags](sources/completion-detection/claude-cli-resume-reference-20261031.md) — 公式Claude Code CLIのresume/continue、session-id、fork-sessionの区別。
+  - 出典: <https://code.claude.com/docs/en/cli-reference.md> (docs, 51768 chars)
+  - 効きどころ: 明示した保存会話IDをresumeし、session-idによる新会話やforkへ取り替えない根拠。
 - [Claude Code hooks: asyncRewakeと非ブロック受信](sources/completion-detection/claude-hooks-2026-09-10.md) — command hookのexec形式、PreToolUse/PostToolUse/SessionEndとasyncRewakeの公式契約。asyncRewakeはバックグラウンドで動き、exit 2でidle中の親も再開する。
   - 出典: <https://code.claude.com/docs/en/hooks.md> (official_docs, 319948 chars)
   - 効きどころ: 起動flagを増やさずClaude親へ結果を届け、MCP requestのtoolUseIdとhookのtool_use_idで宛先を相関する。
@@ -142,6 +145,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [OpenAI: Codexの認証保存先とログイン共有](sources/completion-detection/codex-auth-storage-20260913.md) — OpenAI一次資料。認証情報の保存先file/keyring/auto/ephemeral、共有ログイン、ファイル中のトークンの取扱いを説明する。
   - 出典: <https://developers.openai.com/codex/auth/> (official_docs, 45092 chars)
   - 効きどころ: 保存先変更は明示的な認証設計であり、改造版による既存Keychainの読出しを隠す自動移送として扱わない。
+- [Codex CLI reference: interactive resume and cwd](sources/completion-detection/codex-cli-resume-reference-20261031.md) — 公式Codex CLIのresumeとsession ID指定、model/sandbox上書きとcwd選択の契約。
+  - 出典: <https://learn.chatgpt.com/docs/cli/reference.md> (docs, 54041 chars)
+  - 効きどころ: 同一会話のCLI再開で明示IDとcwdを使い、pickerや新規forkへ逃がさない根拠。
 - [Codex CLI Stop hook as turn-done signal](sources/completion-detection/codex-cli-stop-hook.md) — Codex CLI の Stop hook はターン終了時に発火する。exec、直接TUI、aiterm openAgent相当のtmux経路で発火を実測した。ただし co-located Stop hook の decision:block continuation で初回Stopは final done ではなくなる。
   - 出典: <https://developers.openai.com/codex/hooks> (official_docs_and_local_probe, 6163 chars)
   - 効きどころ: Codex TUI の画面文言や静止状態ではなく、CLIライフサイクルイベントで done を捕まえる根拠。同時に、既存 Stop hook へ単純appendする bridge が誤doneする反証でもある。
@@ -620,6 +626,12 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/mux.c> (official_source, 67679 chars)
   - 効きどころ: 長いTMPDIRに依存しない共有ソケット配置と一時名まで含む長さの受入根拠。
 
+## process-lifecycle — 1件
+
+- [.NET Processの終了要求・強制終了・handleの公式API定義](sources/process-lifecycle/dotnet-process-close-and-kill-20261031.md) — Microsoftの公式API XML。CloseMainWindowは終了要求で、windowless processはfalseを返す。Killは強制終了で、終了完了は別途確認する。
+  - 出典: <https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml> (official_api_source, 525610 chars)
+  - 効きどころ: Windows会話席の休止で、handleを保持した同一processへの終了要求と強制終了を区別し、子孫の実終了を別途確認するための一次資料。
+
 ## terminal-automation — 1件
 
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
@@ -634,9 +646,3 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
   - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
   - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。
-
-## Process lifecycle
-
-- [.NET Processの終了要求・強制終了・handleの公式API定義](sources/process-lifecycle/dotnet-process-close-and-kill-20261031.md) — Microsoft公式API XML。CloseMainWindowは終了要求、Killは強制終了で、子孫の退出は別途確認する。
-  - 出典: <https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml> (official_api_source)
-  - 効きどころ: Windows会話席の休止で元のprocess handleと開始時刻を照合し、終了要求と強制終了を区別する根拠。

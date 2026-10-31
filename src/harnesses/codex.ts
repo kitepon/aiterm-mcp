@@ -752,6 +752,14 @@ export function codexAgentArgv(
   return parts;
 }
 
+/** Explicit cwd avoids the vendor's directory-choice prompt during same-thread resume. */
+export function codexResumeArgv(bin: string, model: string | null, effort: string | null, meta: AgentMetadata, cwd: string): string[] {
+  if (meta.kind !== "codex" || !meta.vendor_session_id || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(meta.vendor_session_id)
+    || !path.isAbsolute(cwd) || cwd.includes("\0"))
+    throw new AitermError("AGENT_RESUME_UNSUPPORTED: Codexの保存会話IDとcwdを確認できません。", 2);
+  return [bin, "resume", meta.vendor_session_id, ...codexAgentArgv(bin, model, effort, null, meta).slice(1), "--cd", cwd];
+}
+
 export function buildCodexAgentCmd(
   bin: string, model: string | null, effort: string | null,
   prompt: string | null, meta: AgentMetadata | null,

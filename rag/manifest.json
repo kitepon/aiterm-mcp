@@ -1662,6 +1662,23 @@
       "fetched": "2026-09-10"
     },
     {
+      "slug": "claude-cli-resume-reference-20261031",
+      "topic": "completion-detection",
+      "title": "Claude Code CLI reference: resume and fork flags",
+      "source_url": "https://code.claude.com/docs/en/cli-reference.md",
+      "source_type": "docs",
+      "path": "sources/completion-detection/claude-cli-resume-reference-20261031.md",
+      "tags": [
+        "claude",
+        "resume",
+        "cli"
+      ],
+      "summary": "公式Claude Code CLIのresume/continue、session-id、fork-sessionの区別。",
+      "relevance": "明示した保存会話IDをresumeし、session-idによる新会話やforkへ取り替えない根拠。",
+      "chars": 51768,
+      "fetched": "2026-10-31"
+    },
+    {
       "slug": "claude-hooks-2026-09-10",
       "topic": "completion-detection",
       "title": "Claude Code hooks: asyncRewakeと非ブロック受信",
@@ -1805,6 +1822,23 @@
       "relevance": "保存先変更は明示的な認証設計であり、改造版による既存Keychainの読出しを隠す自動移送として扱わない。",
       "chars": 45092,
       "fetched": "2026-09-13"
+    },
+    {
+      "slug": "codex-cli-resume-reference-20261031",
+      "topic": "completion-detection",
+      "title": "Codex CLI reference: interactive resume and cwd",
+      "source_url": "https://learn.chatgpt.com/docs/cli/reference.md",
+      "source_type": "docs",
+      "path": "sources/completion-detection/codex-cli-resume-reference-20261031.md",
+      "tags": [
+        "codex",
+        "resume",
+        "cli"
+      ],
+      "summary": "公式Codex CLIのresumeとsession ID指定、model/sandbox上書きとcwd選択の契約。",
+      "relevance": "同一会話のCLI再開で明示IDとcwdを使い、pickerや新規forkへ逃がさない根拠。",
+      "chars": 54041,
+      "fetched": "2026-10-31"
     },
     {
       "slug": "codex-cli-stop-hook",

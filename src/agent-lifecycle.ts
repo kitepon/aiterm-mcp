@@ -18,7 +18,7 @@ const identity = z.object({ pid: z.number().int().positive(), process_group_id: 
   started_identity: z.string().min(1), argv_digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 export const agentLifecycleSchema = z.object({ schema: z.literal("aiterm.agent-lifecycle.v1"), launch_id: launchId,
   state: z.enum(["stopping", "hibernated"]), at: z.iso.datetime(), anchor: z.string().min(1),
-  native_id: z.string().regex(/^\$\d+$/), pane: identity, recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  native_id: z.string().regex(/^\$\d+$/), pane: identity, resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 export type AgentLifecycle = z.infer<typeof agentLifecycleSchema>;
 type Launch = Pick<AgentMetadata, "aiterm_session" | "launch_id">;

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Pin a completed Codex root transcript and its file identity before idle shutdown; refuse stopping when the saved proof or history changes.
 - Prepare resume templates from confirmed launch/configuration inputs and an atomic current-launch selector that preserves old hook and waiter records. Automatic activation remains disabled.
 - Prepare per-launch native sleep clocks, stale-worker recovery and native completion pickup without a parent waiter. Clock activation remains disabled until resume and logical-seat acceptance are complete.
 - Prepare idle eligibility and verified process-tree shutdown under the existing send admission, with private stopping/hibernated records, checks immediately before the first signal, a five-second graceful interval and protection for detached sessions. Automatic hibernation remains disabled until official resume and public lifecycle integration are complete.

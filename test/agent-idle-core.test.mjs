@@ -49,7 +49,7 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  const event=(type,extra={})=>({timestamp:ended,type:'event_msg',payload:{type,turn_id:tag,...extra}});
  fs.writeFileSync(rollout,[{type:'session_meta',payload:{id:meta.vendor_session_id,originator:'codex-tui',source:'cli'}},
   {type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:`AITERM_AGENT_LAUNCH_ID=${meta.launch_id}`}]}},
-  event('task_started'),event('task_complete',{last_agent_message:'Done'})].map(JSON.stringify).join('\n')+'\n');
+  {type:'turn_context',payload:{model:meta.model,effort:'high'}},event('task_started'),event('task_complete',{last_agent_message:'Done'})].map(JSON.stringify).join('\n')+'\n');
  if(recipe)writeAgentResumeRecipe(meta,{schema:'aiterm.agent-resume.v1',launch_id:meta.launch_id,kind:'codex',
   vendor_session_id:meta.vendor_session_id,executable:bin,cwd:process.env.HOME,configuration_root:process.env.CODEX_HOME,model:meta.model,reasoning_effort:'high',
   fast:meta.fast,environment:{PEERTABLE_ROOM:'artificial',PEERTABLE_MEMBER:'fixture'}});
@@ -81,7 +81,7 @@ test('recipe absence and an outdated launch never terminate an idle seat',{skip,
  assert.equal(core.observeSession(f.name).harness_alive,true);assert.equal(readAgentLifecycle(f.meta),null);
 });
 
-for(const kind of ['background','delivery'])test(`a ${kind} added after preparation cancels before the first signal`,
+for(const kind of ['background','delivery','proof'])test(`a ${kind} added after preparation cancels before the first signal`,
  {skip,timeout:20000},async t=>{
  const f=await fixture(t),original=fs.renameSync;let added=false;
  const rename=t.mock.method(fs,'renameSync',function(from,to){
@@ -93,6 +93,9 @@ for(const kind of ['background','delivery'])test(`a ${kind} added after preparat
     const wait=spawnSync(process.execPath,['-e',
      `const fs=require('node:fs');const until=Date.now()+4000;const timer=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(timer);process.exit(0);}if(Date.now()>until)process.exit(1);},10);`,f.spawned],{timeout:5000});
     assert.equal(wait.status,0);
+   }else if(kind==='proof'){
+    const file=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.codex-resume.json');
+    const proof=JSON.parse(fs.readFileSync(file,'utf8'));proof.last_turn_id='changed-proof';fs.writeFileSync(file,JSON.stringify(proof));
    }else{
     const owner=core.observeSession(f.name).harness_process;
     const directory=join(ensureStateRoot(),'parent-deliveries','active',deliveryOwnerPrefix(owner)+'fixture');

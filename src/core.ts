@@ -166,6 +166,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexCompletedTurnId,
+  captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -602,6 +603,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
           f.endsWith(".resume-template.json") ||
+          f.endsWith(".codex-resume.json") ||
           f.endsWith(".lifecycle.json") ||
           f.endsWith(".idle-check.json") ||
           f.endsWith(".idle-clock.json") ||
@@ -2023,7 +2025,9 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     const lifecycle = readAgentLifecycle(meta);
     if (lifecycle && !preparation) throw new Error("lifecycle_already_recorded");
     if (preparation && (!lifecycle || lifecycle.state !== "stopping" || lifecycle.anchor !== preparation.anchor
-      || lifecycle.recipe_digest !== preparation.recipe_digest)) throw new Error("lifecycle_changed");
+      || lifecycle.recipe_digest !== preparation.recipe_digest || lifecycle.resume_proof_digest !== preparation.resume_proof_digest)) throw new Error("lifecycle_changed");
+    if (preparation?.resume_proof_digest && codexResumeProofDigest(readCodexResumeProof(meta)) !== preparation.resume_proof_digest)
+      throw new Error("resume_proof_changed");
     const live = observeSession(name), slot = native();
     if (slot && live.pane_process) {
       if (slot.pane_pid !== live.pane_process.pid) throw new Error("pane_identity_changed");
@@ -2055,8 +2059,10 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     begin: (_seat, anchor) => withExecutionPreparation(name, () => {
       const meta = metadata();
       if (!pinned || !root || !recipeDigest || readAgentLifecycle(meta)) throw new Error("idle_preparation_unconfirmed");
+      const proof = meta.kind === "codex" ? captureCodexResumeProof(meta) : null;
       preparation = { schema: "aiterm.agent-lifecycle.v1", launch_id: meta.launch_id, state: "stopping",
-        at: new Date().toISOString(), anchor, native_id: pinned.native_id, pane: root, recipe_digest: recipeDigest };
+        at: new Date().toISOString(), anchor, native_id: pinned.native_id, pane: root, recipe_digest: recipeDigest,
+        ...(proof ? { resume_proof_digest: codexResumeProofDigest(proof) } : {}) };
       writeAgentLifecycle(meta, preparation);
     }),
     stop: async (verify, didIssue) => {

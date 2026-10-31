@@ -5,7 +5,8 @@ import { authUrl, authUserCode, type AgentAuthPlan, type AgentAuthStatus, type A
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
+import { z } from "zod";
 import { AitermError } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
 import * as steer from "aiterm-steer-delivery";
@@ -20,6 +21,7 @@ import {
   sleep,
   agentMetadataPath,
   writeAgentMetadata,
+  writeJson0600,
   agentEventPath,
   createEmpty0600,
   agentLineageFields,
@@ -1345,3 +1347,51 @@ export function restoreCodexDefaultInFile(configPath: string, key: CodexDefaultK
 
 // The ordinary interactive cancel gesture; not a process termination signal.
 export const CODEX_INTERRUPT_KEY = "Escape" as const;
+
+
+const codexResumeProofSchema = z.object({ schema: z.literal("aiterm.codex-resume-proof.v1"),
+  launch_id: z.string().regex(/^[a-f0-9]{32}$/), session_id: z.string().uuid(),
+  file: z.string().refine(value => path.isAbsolute(value)), device: z.string().regex(/^\d+$/), inode: z.string().regex(/^\d+$/),
+  cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  prefix_bytes: z.number().int().positive().max(1024 * 1024), prefix_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  last_turn_id: z.string().min(1).max(256),
+}).strict();
+export type CodexResumeProof = z.infer<typeof codexResumeProofSchema>;
+const codexResumeProofPath = (meta: AgentMetadata) => agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, ".codex-resume.json");
+const resumeProofUnavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: Codexの元の会話記録を確認できません。", 2);
+export function codexResumeProofDigest(proof: CodexResumeProof): string {
+  return createHash("sha256").update(JSON.stringify(codexResumeProofSchema.parse(proof))).digest("hex");
+}
+export function readCodexResumeProof(meta: AgentMetadata): CodexResumeProof {
+  try {
+    const item = fs.lstatSync(codexResumeProofPath(meta));
+    if (!item.isFile() || item.size > 4 * 1024 * 1024) throw resumeProofUnavailable();
+    const proof = codexResumeProofSchema.parse(JSON.parse(fs.readFileSync(codexResumeProofPath(meta), "utf8")));
+    const relative = path.relative(path.join(meta.codex_home!, "sessions"), proof.file), stat = fs.statSync(proof.file, { bigint: true });
+    if (meta.kind !== "codex" || proof.launch_id !== meta.launch_id || proof.session_id !== meta.vendor_session_id
+      || path.isAbsolute(relative) || relative.startsWith("..") || stat.dev.toString() !== proof.device || stat.ino.toString() !== proof.inode
+      || stat.size < BigInt(proof.cursor) || stat.size < BigInt(proof.prefix_bytes)
+      || createHash("sha256").update(readFileRange(proof.file, 0, proof.prefix_bytes)).digest("hex") !== proof.prefix_sha256)
+      throw resumeProofUnavailable();
+    return proof;
+  } catch { throw resumeProofUnavailable(); }
+}
+/** Pin a unique, completed native root before stopping; a cached vendor ID alone is insufficient. */
+export function captureCodexResumeProof(meta: AgentMetadata): CodexResumeProof {
+  try {
+    const evidence = codexInterruptionRecord(meta), file = codexRootTranscript(meta);
+    if (!evidence || !file || evidence.boundary.type !== "task_complete" || evidence.session_id !== meta.vendor_session_id)
+      throw resumeProofUnavailable();
+    const before = fs.statSync(file, { bigint: true }), bytes = Math.min(Number(before.size), 1024 * 1024);
+    if (before.size > BigInt(Number.MAX_SAFE_INTEGER) || Number(before.dev) !== evidence.file.device || Number(before.ino) !== evidence.file.inode)
+      throw resumeProofUnavailable();
+    const digest = createHash("sha256").update(readFileRange(file, 0, bytes)).digest("hex"), after = fs.statSync(file, { bigint: true });
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs
+      || before.ctimeNs !== after.ctimeNs) throw resumeProofUnavailable();
+    const proof = codexResumeProofSchema.parse({ schema: "aiterm.codex-resume-proof.v1", launch_id: meta.launch_id,
+      session_id: evidence.session_id, file, device: before.dev.toString(), inode: before.ino.toString(), cursor: Number(before.size),
+      prefix_bytes: bytes, prefix_sha256: digest, last_turn_id: evidence.boundary.turn_id });
+    writeJson0600(codexResumeProofPath(meta), proof);
+    return readCodexResumeProof(meta);
+  } catch { throw resumeProofUnavailable(); }
+}

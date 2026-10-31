@@ -6093,11 +6093,11 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
-    const generation = observeSessionGeneration(input.session_id);
     const meta = tryLoadAgentMetadata(input.session_id);
-    if (!generation.exists || generation.launch_id !== input.launch_id || meta?.launch_id !== input.launch_id) return null;
+    if (meta?.launch_id !== input.launch_id) return null;
     const observed = observeSession(input.session_id);
-    if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
+    if (!observed.exists || observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null
+      || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
       native_process: observed.harness_process };

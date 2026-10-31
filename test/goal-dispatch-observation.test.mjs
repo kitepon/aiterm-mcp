@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-test('goal dispatch observes once and retains the manager binding observation', {skip:process.platform==='win32'}, async () => {
+test('goal resolve rejects stale metadata before sampling and still rejects a missing native seat', {skip:process.platform==='win32'}, async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'goal-dispatch-'));
   const bin=path.join(root,'tmux'),calls=path.join(root,'calls');
   fs.writeFileSync(bin,`#!${process.execPath}
@@ -20,6 +20,15 @@ if(args.includes('-V'))console.log('tmux 3.6');
     assert.equal(r.availability,'unavailable');
     assert.equal(r.mutation,'not_requested');
     assert.equal(r.reason,'binding_unavailable');
+    assert.equal(fs.existsSync(calls),false);
+    const {createCodexAgentMetadata}=await import('../dist/harnesses/codex.js');
+    const meta=createCodexAgentMetadata('missing-goal-fixture',root,'none',{},undefined,{agentRole:'subagent',parentSessionId:'host-root',delegationDepth:1,lineage:'host-root>codex:fixture',delegationAllowed:true});
+    const stale=await agentGoal({session_id:meta.aiterm_session,launch_id:'b'.repeat(32),action:'inspect'});
+    assert.equal(stale.availability,'unavailable');
+    assert.equal(fs.existsSync(calls),false);
+    const absent=await agentGoal({session_id:meta.aiterm_session,launch_id:meta.launch_id,action:'inspect'});
+    assert.equal(absent.availability,'unavailable');
+    assert.equal(absent.mutation,'not_requested');
     const rows=fs.readFileSync(calls,'utf8').trim().split('\n').map(x=>JSON.parse(x));
     assert.equal(rows.filter(row=>row.includes('list-sessions')).length,2);
     assert.ok(rows.every(row=>row.includes('-V')||row.includes('list-sessions')));

@@ -2,12 +2,28 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
+import {syncBuiltinESMExports} from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
-  psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop } from "../dist/tmux-runtime.js";
+  psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop, resolveTmux, tmuxCommand } from "../dist/tmux-runtime.js";
 import { shq } from "../dist/agent-shared.js";
 import { resolveWinPaneShell } from "../dist/agent-resolver.js";
+
+test('ordinary terminal output is not treated as a private resume refusal', {skip:isWin}, t=>{
+ const bin=resolveTmux(false),original=childProcess.spawnSync,marker='__AITERM_NATIVE_GENERATION_REFUSED__';
+ t.mock.method(childProcess,'spawnSync',(binary,args,options)=>binary===bin&&args.includes('display-message')
+  ? {pid:0,output:[null,marker,''],status:0,signal:null,stdout:marker,stderr:''}:original(binary,args,options));
+ syncBuiltinESMExports();
+ try{assert.equal(tmuxCommand(false,'display-message','-p',marker).stdout,marker);}
+ finally{t.mock.restoreAll();syncBuiltinESMExports();}
+});
+
+test('environment values ending with a semicolon remain values in tmux argv',()=>{
+ const launch=sessionEnvironmentLaunch('bash',['VALUE=;','BACKSLASH=\\;'],'tmux 3.6a');
+ assert.deepEqual(launch.args,isWin?['-e','VALUE=;','-e','BACKSLASH=\\;']:['-e','VALUE=\\;','-e','BACKSLASH=\\\\;']);
+});
 
 test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {
   const source = "文字列'\\\n2行目\r\n";

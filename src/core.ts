@@ -33,11 +33,11 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, type AgentLifecycle, type AgentResumeAttempt } from "./agent-lifecycle.js";
+import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
-import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
+import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExecutionEffect, bindExecutionCreatedLaunch, executionCreatedNativeBinding, hasExecutionCreationScope, assertExecutionContext, assertExecutionResumeSupported, withExecutionPreparation, captureExecutionSendBoundary, readExecutionSendBoundary, executionManagementCloseTarget, withExecutionNativeAdmission } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
@@ -60,6 +60,7 @@ import {
   loadPtyBufferChunk,
   pasteBufferBaseArgs,
   tmuxNewSession,
+  withNativeSessionCreation, withNativeSessionTarget,
   openPsmuxServerToDesktop,
   registeredSessionEnvironment,
   attachCommand,
@@ -605,6 +606,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
           f.endsWith(".resume-attempt.json") ||
+          f.endsWith(".resume-native.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
           f.endsWith(".lifecycle.json") ||
@@ -1992,6 +1994,7 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
 export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string): Promise<IdleCheckResult> {
   const expected = executionLaunchSchema.parse(expectedInput), name = expected.session_id;
   assertExecutionContext(name);
+  assertExecutionResumeSupported();
   const minutes = idleMinutes();
   let captured: AgentMetadata | null = null;
   let pinned: { native_id: string; pane_pid: number } | null = null;
@@ -2048,7 +2051,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     if (!effectIssued && done) recordAgentTurnEnd(meta, {
       ...done, at: Number.isFinite(Date.parse(done.at)) ? done.at : new Date().toISOString(),
     });
-    const resumeReady = !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
+    const resumeReady = !isWin && !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
       && recipe.executable === meta.agent_executable && recipe.cwd === (meta.cwd ?? recipe.cwd)
       && recipe.model === meta.model && recipe.fast === meta.fast;
     if (resumeReady) recipeDigest ??= digest;
@@ -2062,7 +2065,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       window_activity_at: slot?.window_activity_at ?? null };
   };
   return checkIdleSeat({
-    exclusive: body => withAgentSendLock(name, body), now: Date.now, snapshot,
+    exclusive: body => withAgentSendLock(name, body, AGENT_SEND_UNSENT, false), now: Date.now, snapshot,
     begin: (_seat, anchor) => withExecutionPreparation(name, () => {
       const meta = metadata();
       if (!pinned || !root || !recipeDigest || readAgentLifecycle(meta)) throw new Error("idle_preparation_unconfirmed");
@@ -3410,7 +3413,7 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
   }
 }
 
-async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT): Promise<T> {
+async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT, pinResume = true): Promise<T> {
   const waitMs = agentSendLockWaitMs;
   const deadline = performance.now() + waitMs;
   const previous = agentSendQueues.get(name) ?? Promise.resolve();
@@ -3437,6 +3440,8 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
     const release = await acquireAgentSendFileLock(name, deadline, waitMs, untouched);
     agentSendHeld.add(name);
     try {
+      const meta = pinResume ? tryLoadAgentMetadata(name) : null;
+      if (meta?.resumed_from && !readAgentLifecycle(meta)) return await withAgentResumeTarget(meta, run);
       return await run();
     } finally {
       agentSendHeld.delete(name);
@@ -6930,6 +6935,26 @@ interface AgentDispatchOpts {
 }
 
 /** Caller holds the ordinary send admission for the entire resume and submission. */
+function verifyAgentResumeNative(meta: AgentMetadata, native: AgentResumeNative, expectedLaunch = meta.launch_id): void {
+  const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative世代が置き換わっています。", 2);
+  if (loadAgentMetadata(meta.aiterm_session).launch_id !== expectedLaunch
+    || !isDeepStrictEqual(readAgentResumeNative(meta), native)) throw unavailable();
+  const sessions = observeExecutionNativeSessions();
+  if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === meta.aiterm_session && row.native_id === native.native_id)) throw unavailable();
+  const pane = tmux("display-message", "-p", "-t", native.pane_id, "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}");
+  if (pane.code !== 0 || pane.stdout.trim() !== [native.native_id, meta.aiterm_session, native.server_pid, native.pane_id, native.pane_pid].join("\t")
+    || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
+    || processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity) throw unavailable();
+}
+function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T): T {
+  if (!meta.resumed_from) return body();
+  let native: AgentResumeNative | null;
+  try { native = readAgentResumeNative(meta); }
+  catch { throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録を確認できません。", 2); }
+  if (!native) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録がありません。", 2);
+  return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native), body);
+}
+
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
   const uncertain = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", 2);
@@ -6943,6 +6968,8 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     return previous;
   }
   if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
+  assertExecutionResumeSupported();
+  if (isWin) throw new AitermError("AGENT_RESUME_UNSUPPORTED: Windowsのnative復帰境界は未受入です。", 2);
   const recipe = readAgentResumeRecipe(previous);
   if (!recipe || recipe.launch_id !== previous.launch_id || recipe.kind !== previous.kind
     || recipe.vendor_session_id !== previous.vendor_session_id || lifecycle.recipe_digest !== agentResumeRecipeDigest(recipe)
@@ -6965,6 +6992,17 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   const lineage: AgentLineageContext = { agentRole: "subagent", parentSessionId: previous.parent_session_id!,
     delegationDepth: previous.delegation_depth!, lineage: previous.lineage!, delegationAllowed: true };
   let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
+  let native: AgentResumeNative | null = null, published = false;
+  return withNativeSessionCreation(name, receipt => {
+    const server = processStartIdentity(receipt.server_pid, process.platform), pane = processStartIdentity(receipt.pane_pid, process.platform);
+    if (!next || !server || !pane) throw uncertain();
+    native = { schema: "aiterm.agent-resume-native.v1", launch_id: next.launch_id, ...receipt,
+      server_started_identity: server, pane_started_identity: pane };
+    writeAgentResumeNative(next, native);
+  }, () => {
+    if (!next || !native) throw uncertain();
+    verifyAgentResumeNative(next, native, published ? next.launch_id : previous.launch_id);
+  }, async () => {
   try {
     await withExecutionNativeAdmission(name, () => {
       if (!isDeepStrictEqual(loadAgentMetadata(name), previous) || sessionExists(name)) throw uncertain();
@@ -6986,10 +7024,6 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       writeAgentResumeAttempt(previous, attempt);
       const shell = isWin ? "pwsh" : "bash";
       openSessionInternal(name, shell, [], true);
-      if (hasExecutionCreationScope()) {
-        next.execution_native = executionCreatedNativeBinding(name); writeAgentMetadata(next);
-        bindExecutionCreatedLaunch({ session_id: name, launch_id: next.launch_id });
-      }
       const environment: [string, string | null][] = [...Object.entries(recipe.environment),
         [next.kind === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", recipe.configuration_root], ...agentEnvEntries(next, name)];
       for (const [key, value] of environment) {
@@ -7004,6 +7038,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       agentLaunchLines.set(name, atomicShellMultiline(full, shell));
       send(name, full, { enter: true, mark: false, force: true, rtk: false, raw: true, launchShell: shell, preserveAgentOperation: true });
       publishAgentGeneration(previous, next);
+      published = true;
     });
     const resumed: AgentMetadata = next!;
     const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout });
@@ -7025,6 +7060,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     if (issued) try { writeAgentResumeAttempt(previous, { ...issued, state: "failed", at: new Date().toISOString() }); } catch { /* resuming also blocks replay */ }
     throw new AitermError(`AGENT_RESUME_FAILED: 同じ会話への復帰を確認できません。本文は送信していません。再送せず席の状態を確認してください。${error instanceof ExecutionError ? ` ${error.code}` : ""}`, 2);
   }
+  });
 }
 
 export async function dispatchAgentTurn(
@@ -7035,7 +7071,10 @@ export async function dispatchAgentTurn(
   assertExecutionContext(name);
   assertSessionName(name);
   loadAgentMetadata(name);
-  return withAgentSendLock(name, () => dispatchAgentTurnInLock(name, text, o));
+  return withAgentSendLock(name, async () => {
+    const meta = await resumeAgentInLock(name, o.ready_timeout);
+    return withAgentResumeTarget(meta, () => dispatchAgentTurnInLock(name, text, o));
+  });
 }
 
 function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts): Promise<AgentDispatchReceipt>;
@@ -7047,7 +7086,7 @@ async function dispatchAgentTurnInLock(
   o: AgentDispatchOpts,
   pendingSend?: { follow?: boolean },
 ): Promise<AgentSendReceipt> {
-  const meta = await resumeAgentInLock(name, o.ready_timeout);
+  const meta = loadAgentMetadata(name);
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
@@ -7303,7 +7342,10 @@ export async function sendAgentMessage(
   loadAgentMetadata(name);
   // 前置きは、順番待ちにも入力受付の待ちにも入る前に確かめる（外れた時に待たせない）。
   if (o.preface != null) assertAgentPreface(o.preface);
-  return withAgentSendLock(name, () => sendAgentMessageInLock(name, text, o));
+  return withAgentSendLock(name, async () => {
+    const meta = await resumeAgentInLock(name);
+    return withAgentResumeTarget(meta, () => sendAgentMessageInLock(name, text, o));
+  });
 }
 
 async function sendAgentMessageInLock(
@@ -7311,7 +7353,7 @@ async function sendAgentMessageInLock(
   text: string,
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
-  const meta = await resumeAgentInLock(name);
+  const meta = loadAgentMetadata(name);
   assertAgentSendHarness(name, meta);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);

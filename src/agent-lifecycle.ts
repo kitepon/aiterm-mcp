@@ -77,6 +77,22 @@ export function writeAgentResumeAttempt(meta: Launch, value: AgentResumeAttempt)
   writeJson0600(file(meta, ".resume-attempt.json"), resumeAttemptSchema.parse(value));
 }
 
+const resumeNativeSchema = z.object({ schema: z.literal("aiterm.agent-resume-native.v1"), launch_id: launchId,
+  native_id: z.string().regex(/^\$\d+$/), session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  server_pid: z.number().int().positive(), server_started_identity: z.string().min(1),
+  pane_id: z.string().regex(/^%\d+$/), pane_pid: z.number().int().positive(), pane_started_identity: z.string().min(1),
+}).strict();
+export type AgentResumeNative = z.infer<typeof resumeNativeSchema>;
+export function readAgentResumeNative(meta: Launch): AgentResumeNative | null {
+  const value = read(meta, ".resume-native.json", resumeNativeSchema);
+  if (value && (value.launch_id !== meta.launch_id || value.session_id !== meta.aiterm_session)) throw unavailable();
+  return value;
+}
+export function writeAgentResumeNative(meta: Launch, value: AgentResumeNative): void {
+  if (value.launch_id !== meta.launch_id || value.session_id !== meta.aiterm_session) throw unavailable();
+  writeJson0600(file(meta, ".resume-native.json"), resumeNativeSchema.parse(value));
+}
+
 
 const idleClockSchema = z.object({ schema: z.literal("aiterm.agent-idle-clock.v1"), launch_id: launchId,
   token: launchId, owner: z.object({ pid: z.number().int().positive(), started_identity: z.string().min(1) }).strict(),

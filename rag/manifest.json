@@ -3709,6 +3709,58 @@
       "fetched": "2026-09-19"
     },
     {
+      "slug": "tmux-command-argument-parser-20261031",
+      "topic": "tmux",
+      "title": "tmux argument parser: trailing semicolon escape",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/master/cmd-parse.y",
+      "source_type": "official",
+      "path": "sources/tmux/tmux-command-argument-parser-20261031.md",
+      "tags": [
+        "tmux",
+        "argv",
+        "environment"
+      ],
+      "summary": "CLI argv ending with a semicolon is split unless escaped, including environment values.",
+      "relevance": "Preserve literal saved environment values at initial launch and resume.",
+      "chars": 39831,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "tmux-if-shell-native-queue-source-20261031",
+      "topic": "tmux",
+      "title": "tmux if-shell source: native format evaluation and command queue insertion",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/master/cmd-if-shell.c",
+      "source_type": "official",
+      "path": "sources/tmux/tmux-if-shell-native-queue-source-20261031.md",
+      "tags": [
+        "tmux",
+        "if-shell",
+        "native-generation"
+      ],
+      "summary": "The -F path evaluates a native format and inserts the selected command queue without starting a shell job.",
+      "relevance": "Generation conditions and input must be evaluated on the same tmux server.",
+      "chars": 5312,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "tmux-native-command-conditions-20261031",
+      "topic": "tmux",
+      "title": "tmux manual: command queues and conditional formats",
+      "source_url": "https://raw.githubusercontent.com/tmux/tmux/master/tmux.1",
+      "source_type": "official",
+      "path": "sources/tmux/tmux-native-command-conditions-20261031.md",
+      "tags": [
+        "tmux",
+        "if-shell",
+        "formats",
+        "native-generation"
+      ],
+      "summary": "Native conditional command queues for generation-pinned resume.",
+      "relevance": "Verify server/pane identity inside the same tmux server command queue before input.",
+      "chars": 232946,
+      "fetched": "2026-10-31"
+    },
+    {
       "slug": "string-width-7-2-0-package-json",
       "topic": "windows-wrapped-shell-prompt",
       "title": "string-width 7.2.0 package.json",

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import * as core from '../dist/core.js';
 import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publishAgentGeneration} from '../dist/agent-shared.js';
@@ -12,6 +13,7 @@ import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/exec
 import {readProcessIdentities} from '../dist/process-runtime.js';
 import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
+import {SOCK,resolveTmux} from '../dist/tmux-runtime.js';
 
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -35,7 +37,7 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
- if(resumeEnv){process.env.PEERTABLE_ROOM='saved room';process.env.PEERTABLE_MEMBER='saved member';delete process.env.AITERM_TEST_UNSET;}
+ if(resumeEnv){process.env.PEERTABLE_ROOM="saved room ' $() ; #{pane_id} \\ literal";process.env.PEERTABLE_MEMBER=';';delete process.env.AITERM_TEST_UNSET;}
  const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME,
   ...(resumeEnv?{env_vars:['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']} : {}),...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
  let live;
@@ -100,9 +102,58 @@ test('send resumes the same conversation once, preserves old records and restore
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
  const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,2);
  assert.ok(launches[1].argv.includes('resume'));assert.ok(launches[1].argv.includes(f.meta.vendor_session_id));
- assert.equal(launches[1].room,'saved room');assert.equal(launches[1].member,'saved member');assert.equal(launches[1].unset,null);
+ assert.equal(launches[1].room,"saved room ' $() ; #{pane_id} \\ literal");assert.equal(launches[1].member,';');assert.equal(launches[1].unset,null);
  assert.equal(launches[1].cwd,f.meta.cwd);
  const accepted=fs.readFileSync(f.keys,'utf8').trim().split('\n');assert.deepEqual(accepted,['first-body','second-body']);
+});
+
+test('a mounted execution graph refuses resume before metadata creation or native issuance',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');let issued=0;
+ await assert.rejects(withExecutionEffectScope(f.name,()=>{issued++;},()=>core.sendAgentMessage(f.name,'never-body',{raw:true})),/EXECUTION_UNSUPPORTED/);
+ assert.equal(issued,0);assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+ assert.equal(fs.existsSync(f.keys),false);
+});
+
+test('failure to persist the actual native receipt leaves a blocked attempt and starts no CLI',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const original=fs.renameSync;t.mock.method(fs,'renameSync',function(from,to){
+  if(to.endsWith('.resume-native.json'))throw Object.assign(new Error('fixture storage full'),{code:'ENOSPC'});
+  return original(from,to);
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ await assert.rejects(core.sendAgentMessage(f.name,'never-first',{raw:true}),/AGENT_RESUME_FAILED/);
+ await assert.rejects(core.sendAgentMessage(f.name,'never-second',{raw:true}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);assert.equal(fs.existsSync(f.keys),false);
+ const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
+ assert.equal(attempt.state,'failed');
+});
+
+test('a generation change during resume publication prevents the old request from submitting',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const original=fs.renameSync;let changed=false;
+ t.mock.method(fs,'renameSync',function(from,to){
+  const result=original(from,to);
+  if(!changed&&to.endsWith('.active-launch.json')){
+   const pointer=JSON.parse(fs.readFileSync(to,'utf8'));
+   if(pointer.launch_id!==f.meta.launch_id){
+    changed=true;const next=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,pointer.launch_id),'utf8'));
+    const other={...next,launch_id:'f'.repeat(32),event_file:agentEventPath(f.name,'f'.repeat(32)),resumed_from:next.launch_id};
+    fs.writeFileSync(other.event_file,'');writeAgentMetadata(other);publishAgentGeneration(next,other);
+   }
+  }
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ await assert.rejects(core.sendAgentMessage(f.name,'never-body',{raw:true}),/AGENT_RESUME_FAILED/);
+ assert.equal(changed,true);assert.equal(fs.existsSync(f.keys),false);
+});
+
+test('a changed native proof after readiness cannot authorize the pending body',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ await assert.rejects(core.sendAgentMessage(f.name,'never-body',{raw:true,before_send:async boundary=>{
+  const file=agentMetadataPath(f.name,boundary.launch_id).replace(/\.agent\.json$/,'.resume-native.json');
+  const native=JSON.parse(fs.readFileSync(file,'utf8'));native.pane_id='%999999';fs.writeFileSync(file,JSON.stringify(native));
+ }}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(fs.existsSync(f.keys),false);
 });
 
 test('a same-launch metadata change after hibernation cannot reuse a stale resume recipe',{skip,timeout:15000},async t=>{
@@ -111,6 +162,45 @@ test('a same-launch metadata change after hibernation cannot reuse a stale resum
  await assert.rejects(core.sendAgentMessage(f.name,'never-body',{raw:true}),/AGENT_RESUME_UNCONFIRMED/);
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
  assert.equal(fs.existsSync(f.keys),false);
+});
+
+for(const phase of ['created','before-body','native-paste','server-restart','later-send'])test(`resume refuses a same-name native replacement at ${phase}`,
+ {skip,timeout:20000},async t=>{
+ const f=await fixture(t);core.openSession('replacement-guard-bridge');
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const original=childProcess.spawnSync,bin=resolveTmux(),prefix=['-S',SOCK],wrongEnter=f.keys+'-wrong-enter';let replaced=false,armed=false;
+ const replace=()=>{
+  replaced=true;
+  if(phase==='server-restart'){
+   assert.equal(original(bin,[...prefix,'kill-server'],{encoding:'utf8'}).status,0);
+   for(const name of ['replacement-zero','replacement-one'])assert.equal(original(bin,[...prefix,'new-session','-d','-s',name,'bash'],{encoding:'utf8'}).status,0);
+  }else assert.equal(original(bin,[...prefix,'kill-session','-t',f.name],{encoding:'utf8'}).status,0);
+  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'}).status,0);
+  if(phase==='server-restart')assert.equal(original(bin,[...prefix,'send-keys','-t',f.name,'-l','--',`touch '${wrongEnter.replaceAll("'","'\\''")}'`],{encoding:'utf8'}).status,0);
+ };
+ if(phase==='created'||phase==='native-paste'||phase==='server-restart'){
+  t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+   if(phase==='native-paste'&&armed&&!replaced&&binary===bin&&args.some(arg=>arg.includes('paste-buffer'))) replace();
+   if(phase==='server-restart'&&armed&&!replaced&&binary===bin&&args.some(arg=>arg.includes('send-keys'))&&args.some(arg=>arg.includes('Enter')))replace();
+   const result=original(binary,args,options);
+   if(phase==='created'&&!replaced&&binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0)replace();
+   return result;
+  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ }
+ if(phase==='later-send'){
+  await core.sendAgentMessage(f.name,'accepted-on-original',{raw:true});replace();
+  await assert.rejects(core.sendAgentMessage(f.name,'never-on-replacement',{raw:true}),/AGENT_RESUME_|世代|native/);
+ }else await assert.rejects(core.sendAgentMessage(f.name,'never-on-replacement',{raw:true,before_send:async()=>{
+  if(phase==='before-body')replace();else armed=true;
+ }}),/AGENT_RESUME_|世代|native|入力/);
+ assert.equal(replaced,true);
+ assert.equal(original(bin,[...prefix,'has-session','-t',f.name],{encoding:'utf8'}).status,0,'replacement is never cleaned up as our failed resume');
+ const screen=original(bin,[...prefix,'capture-pane','-p','-t',f.name],{encoding:'utf8'}).stdout;
+ assert.equal(screen.includes('never-on-replacement'),false,'even a partial paste cannot reach the replacement pane');
+ assert.equal(fs.existsSync(wrongEnter),false,'Enter cannot execute the replacement pane draft after server ID reuse');
+ const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n');assert.equal(launches.length,phase==='created'?1:2);
+ const accepted=fs.existsSync(f.keys)?fs.readFileSync(f.keys,'utf8').trim().split('\n'):[];
+ assert.deepEqual(accepted,phase==='later-send'?['accepted-on-original']:[]);
 });
 
 test('recipe absence and an outdated launch never terminate an idle seat',{skip,timeout:15000},async t=>{

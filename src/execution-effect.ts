@@ -184,6 +184,12 @@ function issueEffect(scope: EffectScope): void {
   }
 }
 export function hasExecutionCreationScope(): boolean { return !!scopes.getStore()?.creation; }
+/** The mounted graph has no native resume transition; never manufacture a creation frame. */
+export function assertExecutionResumeSupported(): void {
+  const scope = scopes.getStore();
+  if (scope) refuse(scope, "EXECUTION_UNSUPPORTED");
+  if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+}
 export function prepareExecutionCreation(): boolean {
   const scope = scopes.getStore();
   if (!scope) throw new ExecutionError("EXECUTION_UNSUPPORTED");

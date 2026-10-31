@@ -7,10 +7,90 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { AsyncLocalStorage } from "node:async_hooks";
 import stringWidth from 'string-width';
 import { AitermError, ptyDependencyError } from "./errors.js";
 import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
+
+export interface NativeSessionReceipt {
+  native_id: string; session_id: string; server_pid: number; pane_id: string; pane_pid: number;
+}
+type NativeTarget = { session: string; target: NativeSessionReceipt | null; verify: () => void;
+  created?: (receipt: NativeSessionReceipt) => void; checking?: boolean };
+const nativeTargets = new AsyncLocalStorage<NativeTarget>();
+const nativeReads = new Set(["list-sessions", "list-commands", "list-panes", "list-windows", "has-session", "display-message", "capture-pane", "show-environment", "show-options"]);
+const nativePanes = new Set(["send-keys", "paste-buffer", "pipe-pane", "capture-pane", "display-message", "list-panes"]);
+const nativeTargetUnavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative端末の本人性を確認できません。", 2);
+function verifyNativeTarget(frame: NativeTarget): void {
+  if (frame.checking) return;
+  frame.checking = true;
+  try { frame.verify(); } finally { frame.checking = false; }
+}
+
+/** Target routing only: guardTmuxExecution still owns every effect authorization. */
+export function withNativeSessionTarget<T>(target: NativeSessionReceipt, verify: () => void, body: () => T): T {
+  const enclosing = nativeTargets.getStore();
+  if (enclosing && JSON.stringify(enclosing.target) !== JSON.stringify(target)) throw nativeTargetUnavailable();
+  const frame = { session: target.session_id, target, verify };
+  return nativeTargets.run(frame, () => { verifyNativeTarget(frame); return body(); });
+}
+export function withNativeSessionCreation<T>(session: string, created: (receipt: NativeSessionReceipt) => void,
+  verify: () => void, body: () => T): T {
+  if (isWin || nativeTargets.getStore()) throw nativeTargetUnavailable();
+  return nativeTargets.run({ session, target: null, created, verify }, body);
+}
+function captureNativeSessionReceipt(receipt: string): void {
+  const frame = nativeTargets.getStore();
+  if (!frame?.created || frame.target) throw nativeTargetUnavailable();
+  const value = /^(\$\d+)\t([A-Za-z0-9_-]{1,64})\t([1-9][0-9]*)\t(%\d+)\t([1-9][0-9]*)\r?\n?$/.exec(receipt);
+  if (!value || value[2] !== frame.session) throw nativeTargetUnavailable();
+  frame.target = { native_id: value[1], session_id: value[2], server_pid: Number(value[3]), pane_id: value[4], pane_pid: Number(value[5]) };
+  frame.created({ ...frame.target });
+  verifyNativeTarget(frame);
+}
+function nativeSessionArgs(input: string[]): string[] {
+  const frame = nativeTargets.getStore();
+  if (!frame) return input;
+  const args = [...input];
+  let effect = false, targetedRead = false;
+  for (let start = 0; start < args.length;) {
+    let end = args.indexOf(";", start); if (end < 0) end = args.length;
+    const command = args[start];
+    if (!nativeReads.has(command) && command !== "delete-buffer") effect = true;
+    if (command === "new-session") {
+      const named = args.findIndex((value, index) => index > start && index < end && value === "-s");
+      if (frame.target || !frame.created || named < 0 || args[named + 1] !== frame.session) throw nativeTargetUnavailable();
+    }
+    const at = args.findIndex((value, index) => index > start && index < end && value === "-t");
+    if (at >= 0) {
+      targetedRead ||= nativeReads.has(command);
+      const raw = args[at + 1], named = /^=?([A-Za-z0-9_-]{1,64})(?::(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
+      const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id;
+      if (!own || (!frame.target && !nativeReads.has(command))) throw nativeTargetUnavailable();
+      args[at + 1] = frame.target ? (nativePanes.has(command) ? frame.target.pane_id : frame.target.native_id) : `=${frame.session}`;
+    }
+    start = end + 1;
+  }
+  if (effect || (targetedRead && frame.target)) {
+    if (frame.target) verifyNativeTarget(frame);
+    else if (!args.includes("new-session")) throw nativeTargetUnavailable();
+  }
+  return args;
+}
+
+const NATIVE_REFUSED = "__AITERM_NATIVE_GENERATION_REFUSED__";
+/** Check on the receiving server too: a new server may recycle session and pane IDs. */
+function nativeConditionalArgs(args: string[]): string[] {
+  const target = nativeTargets.getStore()?.target;
+  if (!target || nativeReads.has(args[0]) || args[0] === "delete-buffer") return args;
+  const checks = [["pid", target.server_pid], ["session_id", target.native_id], ["session_name", target.session_id],
+    ["pane_id", target.pane_id], ["pane_pid", target.pane_pid]].map(([key, value]) => `#{==:#{${key}},${value}}`);
+  const condition = checks.reduce((left, right) => `#{&&:${left},${right}}`);
+  const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+  const command = args.map(quote).join(" ");
+  return ["if-shell", "-F", "-t", target.pane_id, condition, command, `display-message -p ${NATIVE_REFUSED}`];
+}
 
 // Windows ネイティブには tmux が無いため、tmux CLI 互換の native psmux を叩く
 // （POSIX = Linux/WSL2/macOS は従来どおり tmux を直接叩く。WSL 橋は e3f5fc8 で全廃）。
@@ -271,7 +351,8 @@ function runTmux(
   args: string[],
   session?: NodeJS.ProcessEnv,
 ): { code: number; stdout: string; stderr: string } {
-  args = guardTmuxExecution(args);
+  args = guardTmuxExecution(nativeSessionArgs(args));
+  args = nativeConditionalArgs(args);
   // maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）や多セッションの list-sessions で
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。
   // Windows は tmux CLI 互換の native psmux を -L namespace 隔離で叩く（WSL 非依存）。
@@ -299,6 +380,9 @@ function runTmux(
     tmuxBin = null; // 次回 resolveTmux で再解決を許す
     ptyDependencyError(tmuxMissingMessage(), observe);
   }
+  const native = nativeTargets.getStore();
+  if (native?.target && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable();
+  if (native?.target && r.status !== 0) verifyNativeTarget(native);
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
@@ -489,7 +573,8 @@ export function sessionEnvironmentLaunch(shell: string, environment: string[], v
     if (callerPath !== undefined) environment = [...environment, `PATH=${callerPath}`];
   }
   const modern = isWin || tmuxHasSessionEnvironmentFlags(version);
-  if (modern) return { shell, args: environment.flatMap(entry => ["-e", entry]), register_after_start: false };
+  // tmux's argv parser treats even an environment value's trailing semicolon as a command separator.
+  if (modern) return { shell, args: environment.flatMap(entry => ["-e", isWin ? entry : entry.replace(/;$/, "\\;")]), register_after_start: false };
   // tmux <3.2はnew-session -eを持たない。子への継承とsession台帳への登録を製品内で完結する。
   const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
   return { shell: `exec /usr/bin/env ${environment.map(quote).join(" ")} ${quote(shell)}`, args: [], register_after_start: true };
@@ -545,11 +630,13 @@ export function tmuxNewSession(
   registered: string[] = [],
 ): { code: number; stdout: string; stderr: string } {
   const guarded = hasExecutionCreationScope();
+  const pinned = nativeTargets.getStore()?.created !== undefined;
   // Windows per-session server creation needs a separate native-owner proof.
   // The legacy public launcher is unchanged.
   let cold = false;
   if (guarded) { if (isWin) throw new ExecutionError("EXECUTION_UNSUPPORTED"); cold = prepareExecutionCreation(); }
-  const printNative = guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
+  const printNative = pinned ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}"]
+    : guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
   if (isWin) {
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
     if (guarded && (result.code === 0 || result.stdout)) captureExecutionCreatedNative(result.stdout);
@@ -573,18 +660,19 @@ export function tmuxNewSession(
     const r = runTmux(observe, undefined, [
       "set-option", "-g", "update-environment", updateEnvironmentPatterns(Object.keys(env), [...others], wildcard).join(" "), ";",
       "new-session", "-d", "-s", name, ...printNative, ...launch.args, ...command, ";",
-      ...(guarded ? [] : ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";"]),
+      ...(guarded || pinned ? [] : ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" "), ";"]),
       "set-option", "-gu", "update-environment",
     ], env);
     // Bind only the ID printed by this exact create command. Target-specific
     // setup runs later through that native ID, never a fresh same-name lookup.
     if (guarded && (r.code === 0 || r.stdout)) captureExecutionCreatedNative(r.stdout);
+    if (pinned && (r.code === 0 || r.stdout)) captureNativeSessionReceipt(r.stdout);
     if (r.code !== 0) {
       // 途中の命令が失敗すると、後続の命令は実行されない。差し替えた設定を戻す。
       runTmux(false, undefined, ["set-option", "-gu", "update-environment"]);
       return r;
     }
-    if (guarded) {
+    if (guarded || pinned) {
       const registeredResult = runTmux(observe, undefined, ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" ")]);
       if (registeredResult.code !== 0) return registeredResult;
     }
@@ -595,7 +683,7 @@ export function tmuxNewSession(
     const uncovered = shared?.filter(key => !own.has(key));
     if (uncovered?.length === 0) return r;
     runTmux(false, undefined, ["kill-session", "-t", `=${name}`]);
-    if (guarded || !uncovered || attempt >= 2) {
+    if (guarded || pinned || !uncovered || attempt >= 2) {
       return { code: 1, stdout: "", stderr: "共通環境の変数をsessionから外せなかったため、sessionを破棄しました" };
     }
     for (const key of uncovered) others.add(key);

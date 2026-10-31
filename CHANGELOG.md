@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Fence resumed CLI and input operations to the actual native creation receipt, server and pane birth identities, including a receiver-side check against recycled tmux IDs. Mounted execution-graph resume and Windows resume remain unsupported; automatic hibernation is disabled.
 - Prepare same-conversation physical resume under the send lock, preserving predecessor state, lineage, cwd and explicit environment, with durable failure records that prevent duplicate CLI launches. Public lifecycle integration and real-harness acceptance remain pending; automatic hibernation is disabled.
-- Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Physical resume remains unconnected.
+- Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Real-harness acceptance remains pending.
 - Pin a completed Codex root transcript and its file identity before idle shutdown; refuse stopping when the saved proof or history changes.
 - Prepare resume templates from confirmed launch/configuration inputs and an atomic current-launch selector that preserves old hook and waiter records. Automatic activation remains disabled.
 - Prepare per-launch native sleep clocks, stale-worker recovery and native completion pickup without a parent waiter. Clock activation remains disabled until resume and logical-seat acceptance are complete.
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record per-launch input and turn-end timestamps without changing the idle clock on repeated completion observations. This adds lifecycle records only; automatic hibernation is not enabled.
 
 ### Fixed
+- Preserve literal environment values ending in a semicolon when creating POSIX tmux sessions.
 - Pause an active Codex v1 goal while changing session settings, wait for the native turn-end record, and restore the owned pause after success or failure. Report uncertain goal restoration alongside configuration failure without replaying an operation.
 
 ## [0.62.3] - 2026-10-31

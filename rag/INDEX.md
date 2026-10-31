@@ -646,3 +646,17 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
   - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
   - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。
+
+
+## tmux — 3件
+
+- [tmux manual: command queues and conditional formats](sources/tmux/tmux-native-command-conditions-20261031.md) — 公式manpageの新規作成receipt、native formatと条件付きcommand queue。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/tmux.1>
+  - 効きどころ: 同名席・server再起動によるID再利用で、CLIや本文の送信先を替えない。
+- [tmux if-shell native queue source](sources/tmux/tmux-if-shell-native-queue-source-20261031.md) — -Fはnative formatを評価して同serverのqueueへcommandを挿入し、shell jobを起こさない。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-if-shell.c>
+  - 効きどころ: 検証と送信の間に新serverへ接続し直す境界を閉じる。
+
+- [tmux command argument parser](sources/tmux/tmux-command-argument-parser-20261031.md) — trailing semicolonをcommand separatorにしない公式argv escapeの条件。
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-parse.y>
+  - 効きどころ: 保存envがセミコロンやbackslash＋セミコロンで終わっても元の値を維持する。

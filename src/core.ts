@@ -6095,12 +6095,18 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
   const resolve = (): GoalTarget | null => {
     const meta = tryLoadAgentMetadata(input.session_id);
     if (meta?.launch_id !== input.launch_id) return null;
-    const observed = observeSession(input.session_id);
-    if (!observed.exists || observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null
-      || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
+    // Goal binding needs a live native process, not screen/CPU/activity collection.
+    const pane = tmux("display-message", "-p", "-t", `=${input.session_id}:`, "#{pane_pid}\t#{pane_dead}");
+    if (pane.code !== 0) return null;
+    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]);
+    if (fields.length !== 2 || !Number.isSafeInteger(pid) || pid < 1 || fields[1] !== "0") return null;
+    const rows = readRuntimeProcesses();
+    if (!rows.some(row => row.pid === pid)) return null;
+    const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
+    if (candidates.length !== 1 || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
-      native_process: observed.harness_process };
+      native_process: processIdentity(candidates[0]) };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
     let inputStarted = false;

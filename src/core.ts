@@ -809,6 +809,7 @@ function autoName(): string {
   const r = tmux("list-sessions", "-F", "#{session_name}");
   const existing = new Set(r.code === 0 ? r.stdout.split(/\s+/).filter(Boolean) : []);
   let i = 1;
+  for (const name of savedAgentSessionNames()) existing.add(name);
   while (existing.has(`t${i}`)) i++;
   return `t${i}`;
 }
@@ -2087,6 +2088,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
   let pinned: { native_id: string; pane_pid: number } | null = null;
   let root: NativeProcessIdentity | null = null;
   let recipeDigest: string | null = null;
+  let initialNative: AgentResumeNative | null = null;
   let preparation: AgentLifecycle | null = null;
   let effectIssued = false;
   const metadata = () => {
@@ -2115,6 +2117,10 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
   const snapshot = (): IdleSeatSnapshot => {
     const meta = metadata();
     captured ??= meta;
+    const receipt = readAgentResumeNative(meta);
+    if (initialNative && !isDeepStrictEqual(receipt, initialNative)) throw new Error("native_creation_changed");
+    initialNative ??= receipt;
+    if (receipt && !effectIssued) verifyAgentResumeNative(meta, receipt);
     if (meta.kind === "codex" && readAgentResumeTemplate(meta)?.state === "confirmed") bindCodexTranscriptSession(meta);
     const recipe = refreshAgentResumeRecipe(meta);
     const digest = recipe && agentResumeRecipeDigest(recipe);
@@ -2139,7 +2145,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     if (!effectIssued && done) recordAgentTurnEnd(meta, {
       ...done, at: Number.isFinite(Date.parse(done.at)) ? done.at : new Date().toISOString(),
     });
-    const resumeReady = !isWin && !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
+    const resumeReady = !isWin && !!receipt && !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
       && recipe.executable === meta.agent_executable && recipe.cwd === (meta.cwd ?? recipe.cwd)
       && recipe.model === meta.model && recipe.fast === meta.fast;
     if (resumeReady) recipeDigest ??= digest;
@@ -2179,10 +2185,14 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
         metadata(); verify();
         const remaining = native();
         if (remaining) {
-          bindExecutionNativeTarget(name, remaining.native_id);
-          beforeExecutionEffect(name);
-          didIssue(); effectIssued = true;
-          if (tmux("kill-session", "-t", remaining.native_id).code !== 0) throw new Error("native_close_unconfirmed");
+          if (!initialNative) throw new Error("native_creation_unconfirmed");
+          const proof = initialNative;
+          withNativeSessionTarget(proof, () => verifyAgentResumeNative(metadata(), proof, expected.launch_id, true), () => {
+            bindExecutionNativeTarget(name, remaining.native_id);
+            beforeExecutionEffect(name);
+            didIssue(); effectIssued = true;
+            if (tmux("kill-session", "-t", remaining.native_id).code !== 0) throw new Error("native_close_unconfirmed");
+          });
         }
         return native() === null;
       });
@@ -2580,20 +2590,23 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
     return `closed ${name}`;
   };
   const meta = tryLoadAgentMetadata(name), lifecycle = meta && readAgentLifecycle(meta);
-  if (meta && lifecycle) {
-    assertExecutionResumeSupported();
+  const native = meta && !lifecycle && readAgentResumeNative(meta) ? observeExecutionNativeSessions() : null;
+  const absent = native?.state === "known" && !native.sessions.some(row => row.session_id === name);
+  if (meta && (lifecycle || absent)) {
+    if (lifecycle) assertExecutionResumeSupported();
     const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 休止席のclose対象を確認できません。", 2);
     // A logical close must never kill a new same-name native terminal.
     const token = tryCreateOwnedLock(agentSendLockPath(name));
     if (!token) throw unavailable();
     try {
-      if (lifecycle.state !== "hibernated" || lifecycle.socket !== SOCK || readAgentResumeAttempt(meta)
+      const current = observeExecutionNativeSessions();
+      if ((lifecycle && (lifecycle.state !== "hibernated" || lifecycle.socket !== SOCK)) || readAgentResumeAttempt(meta)
         || !isDeepStrictEqual(loadAgentMetadata(name), meta) || !isDeepStrictEqual(readAgentLifecycle(meta), lifecycle)
-        || listNativeSessionsResult().sessions.some(row => row.session_id === name)) throw unavailable();
+        || current.state !== "known" || current.sessions.some(row => row.session_id === name)) throw unavailable();
       return finish(false);
     } finally { releaseOwnedLock(agentSendLockPath(name), token); }
   }
-  return meta?.resumed_from ? withAgentResumeTarget(meta, () => finish(true)) : finish(true);
+  return meta ? withAgentResumeTarget(meta, () => finish(true), true) : finish(true);
 }
 
 export function closeSession(name: string): string {
@@ -3598,7 +3611,11 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
     agentSendHeld.add(name);
     try {
       const meta = pinResume ? tryLoadAgentMetadata(name) : null;
-      if (meta?.resumed_from && !readAgentLifecycle(meta)) return await withAgentResumeTarget(meta, run);
+      if (meta && !readAgentLifecycle(meta)) {
+        if (!fs.existsSync(SOCKDIR) && !meta.resumed_from) throw new AitermError(
+          `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`, 2);
+        return await withAgentResumeTarget(meta, run);
+      }
       return await run();
     } finally {
       agentSendHeld.delete(name);
@@ -5227,8 +5244,9 @@ async function sendInitialAgentPromptInLock(
 export function isAgentSession(name: string): boolean {
   assertSessionName(name);
   const dir = existingAgentsDir();
-  const lifecycle = dir && fs.readdirSync(dir).some(file => file.startsWith(`${name}.`)
-    && /\.(?:lifecycle|resume-attempt|resume-native)\.json$/.test(file));
+  const files = dir ? fs.readdirSync(dir).filter(file => file.startsWith(`${name}.`)) : [];
+  const lifecycle = files.some(file => /\.(?:lifecycle|resume-attempt)\.json$/.test(file))
+    || files.some(file => file.endsWith(".resume-native.json")) && files.some(file => file.endsWith(".agent.json"));
   if (readAgentGeneration(name) || lifecycle) {
     try { loadAgentMetadata(name); }
     catch { throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の起動記録を確認できません。", 2); }
@@ -7104,24 +7122,32 @@ interface AgentDispatchOpts {
 }
 
 /** Caller holds the ordinary send admission for the entire resume and submission. */
-function verifyAgentResumeNative(meta: AgentMetadata, native: AgentResumeNative, expectedLaunch = meta.launch_id): void {
+function verifyAgentResumeNative(meta: AgentMetadata, native: AgentResumeNative, expectedLaunch = meta.launch_id, allowExitedPane = false): void {
   const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative世代が置き換わっています。", 2);
   if (loadAgentMetadata(meta.aiterm_session).launch_id !== expectedLaunch
     || !isDeepStrictEqual(readAgentResumeNative(meta), native)) throw unavailable();
-  const sessions = observeExecutionNativeSessions();
-  if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === meta.aiterm_session && row.native_id === native.native_id)) throw unavailable();
-  const pane = tmux("display-message", "-p", "-t", native.pane_id, "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}");
-  if (pane.code !== 0 || pane.stdout.trim() !== [native.native_id, meta.aiterm_session, native.server_pid, native.pane_id, native.pane_pid].join("\t")
-    || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
-    || processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity) throw unavailable();
+  verifyCreatedNative(native, allowExitedPane);
 }
-function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T): T {
-  if (!meta.resumed_from) return body();
+function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_id">, allowExitedPane = false): void {
+  const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。", 2);
+  const sessions = observeExecutionNativeSessions();
+  if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === native.session_id && row.native_id === native.native_id)) throw unavailable();
+  const pane = tmux("display-message", "-p", "-t", native.pane_id, "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
+  const fields = pane.stdout.trim().split("\t");
+  if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 5).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id, native.pane_pid].join("\t")
+    || !["0", "1"].includes(fields[5]) || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
+    || (!(allowExitedPane && fields[5] === "1") && processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity)) throw unavailable();
+}
+function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExitedPane = false): T {
+  if (hasVerifiedNativeSessionTarget(meta.aiterm_session)) return body();
   let native: AgentResumeNative | null;
   try { native = readAgentResumeNative(meta); }
   catch { throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録を確認できません。", 2); }
-  if (!native) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録がありません。", 2);
-  return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native), body);
+  if (!native) {
+    if (meta.resumed_from) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録がありません。", 2);
+    return body();
+  }
+  return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native, meta.launch_id, allowExitedPane), body);
 }
 
 function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecycle) {
@@ -8093,128 +8119,167 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   }
 
   return () => {
-    let sid: string;
-    let hint: string;
-    // Windows launches use native PowerShell input; never type an owned CLI
-    // command through MSYS interactive select/console-master input handling.
-    const paneShell = isWin ? "pwsh" : "bash";
-    try {
-      [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
-    } catch (error) {
-      if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
-        requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
-        return existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
-      }
-      throw error;
-    }
-    let launchNote = "";
-    try {
-      const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
-      if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
-      const meta = withExecutionPreparation(sid, () => {
-        const meta = agentDone
-          ? kind === "claude"
-            ? createClaudeAgentMetadata(
-                sid,
-                cwd,
-                opts.prompt ? "pending" : "none",
-                launchOperationId,
-                launchRequestDigest,
-                lineageContext,
-                model,
-                effort,
-              )
-            : kind === "codex"
-            ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
-            : kind === "antigravity"
-              ? createAntigravityAgentMetadata(sid, cwd ?? process.cwd(), opts.prompt ? "pending" : "none", writeScope, lineageContext)
-            : kind === "cursor"
-              ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
-              : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
-          : null;
-        if (meta) {
-          // Metadata constructors publish their internally generated launch ID.
-          // Stamp its exact native creator before binding and any later input.
-          if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
-          meta.agent_executable = bin;
-          if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
-          // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
-          meta.fast = opts.fast_state === true;
-          meta.model = opts.base_model !== undefined ? opts.base_model : model;
-          initializeAgentActivity(meta);
-          // The new physical shell is already pinned by its actual create receipt.
-          // Validate it before publishing metadata, then bind this internally
-          // generated managed launch. Model arguments cannot select this ID.
-          writeAgentMetadata(meta);
-          try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!); }
-          catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
-          agentMetadataNegativeCache.delete(sid);
-        }
-        return meta;
-      });
-      if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
-      launchNote = buildAgentLaunchNote(kind, model, effort, meta);
-      let full: string;
-      if (paneShell === "pwsh") {
-        const prompt = opts.prompt ?? null;
-        const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
-          : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
-          : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
-          : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt)
-          : grokAgentArgv(kind, bin, model, effort, prompt, meta);
-        full = windowsAgentLaunchLine(cwd, [
-          ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
-        ],
-          windowsAgentArgv(argv, () => resolveWinPaneShell("bash")));
-      } else {
-        const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
-        const envPrefix = agentEnvPrefix(meta, sid, envVars);
-        const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
-        // このpaneのbashはAitermが自分で選んだ。sub-agent instructionのLFを含む起動commandは、
-        // 利用者のshell送信と同じknown-shell適合で1物理行にしてから打つ（sanitizeはしない）。
-        // 対話shellの行編集が、埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。
-        // agent TUIへの本文（bracketedPaste）は文字どおりのまま。argv・lineage・metadata・native
-        // admission・receiptの契約は変えない。
-        full = command;
-      }
-      if (meta) agentLaunchLines.set(sid, atomicShellMultiline(full, paneShell));
-      // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて、sanitizeせずに送る。
-      send(sid, full, {
-        enter: true,
-        mark: false,
-        force: true,
-        rtk: false,
-        raw: true,
-        launchShell: paneShell,
-        preserveAgentOperation: meta?.kind === "claude",
-        ...(meta && opts.prompt ? { beforePtyWrite: () => recordAgentInput(meta) } : {}),
-      });
-    } catch (e) {
-      const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
-      // 起動コマンドを投入できなかった session は空のまま残る＝残骸を作らない。片付けてから元エラーを伝える。
+    let initialNative: Omit<AgentResumeNative, "schema" | "launch_id"> | null = null;
+    let initialLaunch: AgentMetadata | null = null, initialProof: AgentResumeNative | null = null;
+    let initialAdmission: { name: string; token: string } | null = null;
+    const create = (): [string, string] => {
+      let sid: string;
+      let hint: string;
+      // Windows launches use native PowerShell input; never type an owned CLI
+      // command through MSYS interactive select/console-master input handling.
+      const paneShell = isWin ? "pwsh" : "bash";
       try {
-        closeSessionInternal(sid, false);
-      } catch {
-        /* 片付け失敗より元エラーの伝達を優先 */
+        [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
+      } catch (error) {
+        if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
+          requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
+          return existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
+        }
+        throw error;
       }
-      throw failure;
+      let launchNote = "";
+      try {
+        const lineageContext = createAgentLineageContext(kind, sid, lineageSeed);
+        if (hasExecutionCreationScope()) beforeExecutionEffect(sid);
+        const meta = withExecutionPreparation(sid, () => {
+          const meta = agentDone
+            ? kind === "claude"
+              ? createClaudeAgentMetadata(
+                  sid,
+                  cwd,
+                  opts.prompt ? "pending" : "none",
+                  launchOperationId,
+                  launchRequestDigest,
+                  lineageContext,
+                  model,
+                  effort,
+                )
+              : kind === "codex"
+              ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
+              : kind === "antigravity"
+                ? createAntigravityAgentMetadata(sid, cwd ?? process.cwd(), opts.prompt ? "pending" : "none", writeScope, lineageContext)
+              : kind === "cursor"
+                ? createCursorAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", writeScope, lineageContext)
+                : createGrokAgentMetadata(kind, sid, cwd, opts.prompt ? "pending" : "none", grokAuthPath, writeScope, lineageContext)
+            : null;
+          if (meta) {
+            // Metadata constructors publish their internally generated launch ID.
+            // Stamp its exact native creator before binding and any later input.
+            if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
+            meta.agent_executable = bin;
+            if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
+            // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
+            meta.fast = opts.fast_state === true;
+            meta.model = opts.base_model !== undefined ? opts.base_model : model;
+            initializeAgentActivity(meta);
+            // The new physical shell is already pinned by its actual create receipt.
+            // Validate it before publishing metadata, then bind this internally
+            // generated managed launch. Model arguments cannot select this ID.
+            writeAgentMetadata(meta);
+            if (initialNative) {
+              const proof: AgentResumeNative = { schema: "aiterm.agent-resume-native.v1", launch_id: meta.launch_id, ...initialNative };
+              writeAgentResumeNative(meta, proof);
+              initialLaunch = meta; initialProof = proof;
+            }
+            try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!); }
+            catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
+            agentMetadataNegativeCache.delete(sid);
+          }
+          return meta;
+        });
+        if (meta && hasExecutionCreationScope()) bindExecutionCreatedLaunch({ session_id: sid, launch_id: meta.launch_id });
+        launchNote = buildAgentLaunchNote(kind, model, effort, meta);
+        let full: string;
+        if (paneShell === "pwsh") {
+          const prompt = opts.prompt ?? null;
+          const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
+            : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
+            : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
+            : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt)
+            : grokAgentArgv(kind, bin, model, effort, prompt, meta);
+          full = windowsAgentLaunchLine(cwd, [
+            ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
+          ],
+            windowsAgentArgv(argv, () => resolveWinPaneShell("bash")));
+        } else {
+          const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
+          const envPrefix = agentEnvPrefix(meta, sid, envVars);
+          const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
+          // このpaneのbashはAitermが自分で選んだ。sub-agent instructionのLFを含む起動commandは、
+          // 利用者のshell送信と同じknown-shell適合で1物理行にしてから打つ（sanitizeはしない）。
+          // 対話shellの行編集が、埋め込みLFごとに1行ずつ受け付けて継続promptで繋ぐ形に依存しない。
+          // agent TUIへの本文（bracketedPaste）は文字どおりのまま。argv・lineage・metadata・native
+          // admission・receiptの契約は変えない。
+          full = command;
+        }
+        if (meta) agentLaunchLines.set(sid, atomicShellMultiline(full, paneShell));
+        // force:true はagent sessionへの手動介入を表す。起動コマンド自体はAitermが組み立てて、sanitizeせずに送る。
+        send(sid, full, {
+          enter: true,
+          mark: false,
+          force: true,
+          rtk: false,
+          raw: true,
+          launchShell: paneShell,
+          preserveAgentOperation: meta?.kind === "claude",
+          ...(meta && opts.prompt ? { beforePtyWrite: () => recordAgentInput(meta) } : {}),
+        });
+      } catch (e) {
+        const failure = e instanceof ExecutionError ? e : telemetryOwnedFailure("AITERM.VENDOR_LAUNCHER_FAILED", e);
+        // 起動コマンドを投入できなかった session は空のまま残る＝残骸を作らない。片付けてから元エラーを伝える。
+        try {
+          closeSessionInternal(sid, false);
+        } catch {
+          /* 片付け失敗より元エラーの伝達を優先 */
+        }
+        throw failure;
+      }
+      const launched = tryLoadAgentMetadata(sid);
+      if (launched) requestAgentIdleClock(sid, launched.launch_id);
+      const driveHint =
+        agentDone
+          ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
+            `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
+            `Stopが来ない場合の解除はpty_close(${sid})を使う。`
+          : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
+            `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;
+      return [
+        sid,
+        `${label} を session ${sid} で起動した。${launchNote}${agentDone ? "agent_done 待機が有効。" : ""}` +
+          `${agentDone ? " 通常のproject／user環境を共有し、aiterm所有の完了相関とsub-agent lineageだけを加算。" : ""}\n${hint}\n` +
+          driveHint +
+          `起動直後に増分 pty_read すると空/半描画になり得るので screen:true を使う。`,
+      ];
+    };
+    if (isWin || hasExecutionCreationScope() || !agentDone || !["claude", "codex"].includes(kind)) return create();
+    try {
+      return withNativeSessionCreation(opts.session_name ?? null, receipt => {
+        const server = processStartIdentity(receipt.server_pid, process.platform), pane = processStartIdentity(receipt.pane_pid, process.platform);
+        if (!server || !pane) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。", 2);
+        initialNative = { ...receipt, server_started_identity: server, pane_started_identity: pane };
+        try {
+          const token = tryCreateOwnedLock(agentSendLockPath(receipt.session_id));
+          if (!token) throw agentSendBusyError(receipt.session_id, null, 0);
+          initialAdmission = { name: receipt.session_id, token };
+          agentSendHeld.add(receipt.session_id);
+          // The old launch may have entered hibernation after the public precheck.
+          assertNoDormantSession(receipt.session_id);
+        } catch (error) {
+          try { tmux("kill-session", "-t", receipt.session_id); } catch { /* Preserve old launch state and the original error. */ }
+          throw error;
+        }
+      }, () => {
+        if (!initialNative) throw new AitermError("AGENT_RESUME_UNCONFIRMED: native作成結果を確認できません。", 2);
+        if (initialLaunch && initialProof) verifyAgentResumeNative(initialLaunch, initialProof);
+        else verifyCreatedNative(initialNative);
+      }, create);
+    } finally {
+      if (initialAdmission) {
+        const { name, token } = initialAdmission;
+        agentSendHeld.delete(name);
+        releaseOwnedLock(agentSendLockPath(name), token);
+      }
     }
-    const launched = tryLoadAgentMetadata(sid);
-    if (launched) requestAgentIdleClock(sid, launched.launch_id);
-    const driveHint =
-      agentDone
-        ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-          `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
-          `Stopが来ない場合の解除はpty_close(${sid})を使う。`
-        : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
-          `pty_send(${sid}, "...") で入力・pty_key(${sid}, "Enter"/"Up"/"C-c" 等) で操作する（対話）。`;
-    return [
-      sid,
-      `${label} を session ${sid} で起動した。${launchNote}${agentDone ? "agent_done 待機が有効。" : ""}` +
-        `${agentDone ? " 通常のproject／user環境を共有し、aiterm所有の完了相関とsub-agent lineageだけを加算。" : ""}\n${hint}\n` +
-        driveHint +
-        `起動直後に増分 pty_read すると空/半描画になり得るので screen:true を使う。`,
-    ];
   };
 }
 

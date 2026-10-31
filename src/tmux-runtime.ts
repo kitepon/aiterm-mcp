@@ -16,7 +16,7 @@ import { ExecutionError } from "./execution-wire.js";
 export interface NativeSessionReceipt {
   native_id: string; session_id: string; server_pid: number; pane_id: string; pane_pid: number;
 }
-type NativeTarget = { session: string; target: NativeSessionReceipt | null; verify: () => void;
+type NativeTarget = { session: string | null; target: NativeSessionReceipt | null; verify: () => void;
   created?: (receipt: NativeSessionReceipt) => void; checking?: boolean };
 const nativeTargets = new AsyncLocalStorage<NativeTarget>();
 const nativeReads = new Set(["list-sessions", "list-commands", "list-panes", "list-windows", "has-session", "display-message", "capture-pane", "show-environment", "show-options"]);
@@ -41,7 +41,7 @@ export function hasVerifiedNativeSessionTarget(name: string): boolean {
   verifyNativeTarget(frame);
   return true;
 }
-export function withNativeSessionCreation<T>(session: string, created: (receipt: NativeSessionReceipt) => void,
+export function withNativeSessionCreation<T>(session: string | null, created: (receipt: NativeSessionReceipt) => void,
   verify: () => void, body: () => T): T {
   if (isWin || nativeTargets.getStore()) throw nativeTargetUnavailable();
   return nativeTargets.run({ session, target: null, created, verify }, body);
@@ -50,7 +50,8 @@ function captureNativeSessionReceipt(receipt: string): void {
   const frame = nativeTargets.getStore();
   if (!frame?.created || frame.target) throw nativeTargetUnavailable();
   const value = /^(\$\d+)\t([A-Za-z0-9_-]{1,64})\t([1-9][0-9]*)\t(%\d+)\t([1-9][0-9]*)\r?\n?$/.exec(receipt);
-  if (!value || value[2] !== frame.session) throw nativeTargetUnavailable();
+  if (!value || frame.session !== null && value[2] !== frame.session) throw nativeTargetUnavailable();
+  frame.session = value[2];
   frame.target = { native_id: value[1], session_id: value[2], server_pid: Number(value[3]), pane_id: value[4], pane_pid: Number(value[5]) };
   frame.created({ ...frame.target });
   verifyNativeTarget(frame);
@@ -66,10 +67,11 @@ function nativeSessionArgs(input: string[]): string[] {
     if (!nativeReads.has(command) && command !== "delete-buffer") effect = true;
     if (command === "new-session") {
       const named = args.findIndex((value, index) => index > start && index < end && value === "-s");
-      if (frame.target || !frame.created || named < 0 || args[named + 1] !== frame.session) throw nativeTargetUnavailable();
+      if (frame.target || !frame.created || named < 0 || frame.session !== null && args[named + 1] !== frame.session) throw nativeTargetUnavailable();
     }
     const at = args.findIndex((value, index) => index > start && index < end && value === "-t");
     if (at >= 0) {
+      if (frame.session === null && !frame.target && nativeReads.has(command)) { start = end + 1; continue; }
       targetedRead ||= nativeReads.has(command);
       const raw = args[at + 1], named = /^=?([A-Za-z0-9_-]{1,64})(?::(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
       const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id;
@@ -80,7 +82,7 @@ function nativeSessionArgs(input: string[]): string[] {
   }
   if (effect || (targetedRead && frame.target)) {
     if (frame.target) verifyNativeTarget(frame);
-    else if (!args.includes("new-session")) throw nativeTargetUnavailable();
+    else if (!args.includes("new-session") && !(args.length === 3 && args[0] === "set-option" && args[1] === "-gu" && args[2] === "update-environment")) throw nativeTargetUnavailable();
   }
   return args;
 }
@@ -357,7 +359,8 @@ function runTmux(
   args: string[],
   session?: NodeJS.ProcessEnv,
 ): { code: number; stdout: string; stderr: string } {
-  args = guardTmuxExecution(nativeSessionArgs(args));
+  // Authorize the logical/native session before routing it to its pinned pane.
+  args = nativeSessionArgs(guardTmuxExecution(args));
   args = nativeConditionalArgs(args);
   // maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）や多セッションの list-sessions で
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。

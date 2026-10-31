@@ -39,8 +39,10 @@ fs.writeFileSync(wrapper, [
   ` if(c.dieAtSample===c.samples)fs.writeFileSync(c.exitFlag,'exit');`,
   ` const screen=c.mode==='race' ? (c.samples<=2 ? ${JSON.stringify(IDLE)} : ${JSON.stringify(BUSY)}) : c.mode==='modal' ? (c.samples<=2 ? ${JSON.stringify(IDLE)} : ${JSON.stringify(MODAL)}) : c.mode==='busy' ? ${JSON.stringify(BUSY)} : c.mode==='startup' ? (c.samples<3 ? ${JSON.stringify(STARTUP)} : ${JSON.stringify(IDLE)}) : c.mode==='dead' ? ${JSON.stringify(SHELL)} : null;`,
   ` if(screen!==null) {fs.appendFileSync(trace,JSON.stringify({at:Date.now(),event:'screen',sample:c.samples,state:c.mode==='race'?(c.samples<=2?'idle':'busy'):c.mode})+'\\n'); process.stdout.write(screen); process.exit(0); } }`,
-  `if(c && a.some(x=>['paste-buffer','send-keys','load-buffer','set-environment'].includes(x))) fs.appendFileSync(trace,JSON.stringify({at:Date.now(),event:'native',command:a.find(x=>['paste-buffer','send-keys','load-buffer','set-environment'].includes(x))})+'\\n');`,
-  `const r=spawnSync(${JSON.stringify(realTmux)},a,{input:fs.readFileSync(0),encoding:'utf8',maxBuffer:16*1024*1024});if(c?.dieAfterPaste&&a.includes('paste-buffer'))fs.writeFileSync(c.exitFlag,'exit');process.stdout.write(r.stdout??'');process.stderr.write(r.stderr??'');process.exit(r.status??1);`,
+  // Pinned input runs through a receiving-server condition; observe its one native command too.
+  `const conditional=a.indexOf('if-shell'), nativeCommand=conditional>=0?/^'([^']+)'/.exec(a[conditional+5]??'')?.[1]:a.find(x=>['paste-buffer','send-keys','load-buffer','set-environment'].includes(x));`,
+  `if(c && ['paste-buffer','send-keys','load-buffer','set-environment'].includes(nativeCommand)) fs.appendFileSync(trace,JSON.stringify({at:Date.now(),event:'native',command:nativeCommand})+'\\n');`,
+  `const r=spawnSync(${JSON.stringify(realTmux)},a,{input:fs.readFileSync(0),encoding:'utf8',maxBuffer:16*1024*1024});if(c?.dieAfterPaste&&nativeCommand==='paste-buffer')fs.writeFileSync(c.exitFlag,'exit');process.stdout.write(r.stdout??'');process.stderr.write(r.stderr??'');process.exit(r.status??1);`,
 ].join('\n')+'\n', { mode: 0o700 });
 process.env.AITERM_TMUX = wrapper;
 const fake = path.join(root, 'codex-fixture.mjs');
@@ -140,13 +142,13 @@ async function scenario(mode) {
       assert.equal(row.isError,true);assert.equal(row.marker_count,0);assert.equal(row.execution_error.effect,'not_started');
       assert.match(row.original_failure,/state=blocked reason=command_approval/);
     } else if(mode==='busy'||mode==='race'){
-      assert.equal(row.receipt_mode,'agent_steer');assert.equal(row.marker_count,1);assert.equal(row.execution_error,null);
+      assert.equal(row.receipt_mode,'agent_steer',JSON.stringify(row));assert.equal(row.marker_count,1);assert.equal(row.execution_error,null);
       assert.equal(row.operations.send,'accepted');assert.equal(row.slots,0);
       // Count the controlled observations: native wrapper process startup varies under full CI load.
       // The pure readiness test covers the deadline with an injected clock.
       assert.equal(row.capture_samples,mode==='race'?4:1,'busy input leaves readiness at its first busy sample');
     } else if(mode==='startup') {
-      assert.equal(row.receipt_mode,'agent_dispatch');assert.equal(row.marker_count,1);
+      assert.equal(row.receipt_mode,'agent_dispatch',JSON.stringify(row));assert.equal(row.marker_count,1);
       assert.equal(row.operations.send,'accepted');assert(row.capture_samples>=4,'startup samples do not count as idle readiness');
     } else {
       assert.equal(row.isError,true);assert.match(row.original_failure,/reason=harness_exited/);

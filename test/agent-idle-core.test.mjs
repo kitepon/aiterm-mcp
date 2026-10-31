@@ -18,7 +18,7 @@ import {SOCK,resolveTmux} from '../dist/tmux-runtime.js';
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
-async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false}={}){
+async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,seatName}={}){
  const tag='idle-core-'+ ++serial,bin=join(process.env.HOME,tag+'-codex.sh'),driver=join(process.env.HOME,tag+'-driver.mjs');
  const keys=join(process.env.HOME,tag+'-input'),spawnFlag=join(process.env.HOME,tag+'-spawn'),spawned=join(process.env.HOME,tag+'-spawned');
  fs.mkdirSync(process.env.CODEX_HOME,{recursive:true});
@@ -38,7 +38,7 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
  if(resumeEnv){process.env.PEERTABLE_ROOM="saved room ' $() ; #{pane_id} \\ literal";process.env.PEERTABLE_MEMBER=';';delete process.env.AITERM_TEST_UNSET;}
- const [name]=core.openAgent('codex',{session_name:tag,agent_done:true,cwd:process.env.HOME,
+ const [name]=core.openAgent('codex',{session_name:seatName??tag,agent_done:true,cwd:process.env.HOME,
   ...(resumeEnv?{env_vars:['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']} : {}),...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
  let live;
  for(const until=Date.now()+5000;Date.now()<until;await sleep(40)){
@@ -62,9 +62,144 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
   vendor_session_id:meta.vendor_session_id,executable:bin,cwd:process.env.HOME,configuration_root:process.env.CODEX_HOME,model:meta.model,reasoning_effort:'high',
   fast:meta.fast,environment:{PEERTABLE_ROOM:'artificial',PEERTABLE_MEMBER:'fixture'}});
  const expected={session_id:name,launch_id:meta.launch_id};
- return {name,meta,expected,keys,spawnFlag,spawned,rollout,
+ return {name,meta,expected,keys,spawnFlag,spawned,rollout,bin,
   lifecycle:agentMetadataPath(name,meta.launch_id).replace(/\.agent\.json$/,'.lifecycle.json')};
 }
+
+for(const phase of ['created','metadata'])test(`a fresh launch never types into or cleans up a same-name replacement at ${phase}`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('fresh-guard-bridge');core.closeSession(f.name);
+ const original=childProcess.spawnSync,rename=fs.renameSync,bin=resolveTmux(),prefix=['-S',SOCK];let replaced=false;
+ const replace=()=>{
+  replaced=true;assert.equal(original(bin,[...prefix,'kill-session','-t',f.name],{encoding:'utf8'}).status,0);
+  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'}).status,0);
+ };
+ if(phase==='created')t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+  const result=original(binary,args,options);
+  if(!replaced&&binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0)replace();
+  return result;
+ });
+ else t.mock.method(fs,'renameSync',function(from,to){
+  const result=rename(from,to);
+  if(!replaced&&to.includes('/'+f.name+'.')&&to.endsWith('.agent.json'))replace();
+  return result;
+ });
+ syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(replaced,true);assert.equal(original(bin,[...prefix,'has-session','-t',f.name]).status,0);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+test('a missing initial creation receipt cannot be reconstructed during idle checking',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);
+ fs.rmSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-native.json'),{force:true});
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'skipped');
+ assert.equal(core.observeSession(f.name).harness_alive,true);assert.equal(readAgentLifecycle(f.meta),null);
+});
+
+test('the first idle check never terminates a same-name successor even after a stale startup writer',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('fresh-check-guard');
+ const native=(...args)=>spawnSync(resolveTmux(),['-S',SOCK,...args],{encoding:'utf8'});
+ assert.equal(native('kill-session','-t',f.name).status,0);
+ assert.equal(native('new-session','-d','-s',f.name,f.bin).status,0);
+ let seen;
+ for(const until=Date.now()+4000;Date.now()<until;await sleep(40)){
+  seen=core.observeSession(f.name);if(seen.state==='idle'&&seen.harness_alive===true)break;
+ }
+ assert.equal(seen.state,'idle');
+ writeAgentMetadata({...f.meta,startup_processes:Object.keys(JSON.parse(Buffer.from(seen.activity.cursor,'base64url').toString()).processes)});
+ assert.equal(core.observeSession(f.name).activity.post_startup_process_count,0);
+ assert.notEqual((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ assert.equal(native('has-session','-t',f.name).status,0);assert.equal(readAgentLifecycle(f.meta),null);
+});
+
+test('automatic session names preserve a hibernated logical name',{skip,timeout:15000},async t=>{
+ const f=await fixture(t,{seatName:'t1'});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const [name]=core.openSession();assert.notEqual(name,'t1');
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');assert.equal(core.observeSession(f.name).state,'hibernated');
+});
+
+test('an automatically named fresh launch retries a real name collision without using the occupied terminal',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-collision-guard');core.closeSession(f.name);
+ const original=childProcess.spawnSync,bin=resolveTmux(),prefix=['-S',SOCK];let collided=false;
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+  if(!collided&&binary===bin&&args.includes('new-session')){
+   collided=true;const at=args.indexOf('-s');assert.equal(args[at+1],'t1');
+   assert.equal(original(bin,[...prefix,'new-session','-d','-s','t1','bash'],{encoding:'utf8'}).status,0);
+  }
+  return original(binary,args,options);
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ const result=core.openAgent('codex',{agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME});
+ assert.equal(result.length,2);assert.equal(collided,true);assert.notEqual(result[0],'t1');
+ assert.equal(original(bin,[...prefix,'has-session','-t','t1']).status,0);
+ for(const until=Date.now()+2000;Date.now()<until;await sleep(30))if(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length===2)break;
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2);
+ assert.equal(original(bin,[...prefix,'capture-pane','-p','-t','t1'],{encoding:'utf8'}).stdout.includes(f.bin),false);
+});
+
+test('failure to save an initial receipt refuses CLI input and cleans only its actual empty terminal',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-storage-guard');core.closeSession(f.name);const rename=fs.renameSync;
+ t.mock.method(fs,'renameSync',function(from,to){if(to.endsWith('.resume-native.json'))throw Object.assign(new Error('fixture ENOSPC'),{code:'ENOSPC'});return rename(from,to);});
+ syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/ENOSPC/);
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status,1);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+test('a missing actual create receipt never adopts the current same-name native terminal',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-receipt-guard');core.closeSession(f.name);const original=childProcess.spawnSync,bin=resolveTmux();
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){const result=original(binary,args,options);
+  return binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0?{...result,stdout:''}:result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(original(bin,['-S',SOCK,'has-session','-t',f.name]).status,0);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+for(const conflict of ['admission','lifecycle'])test(`initial creation preserves old state when ${conflict} changes after native creation`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-admission-guard');
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const saved=fs.readFileSync(f.lifecycle,'utf8'),savedMeta=fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id),'utf8');fs.rmSync(f.lifecycle);
+ const original=childProcess.spawnSync,bin=resolveTmux(),lock=join(SOCK,'..',f.name+'.agent-send.lock');let injected=false;
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){const result=original(binary,args,options);
+  if(!injected&&binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0){
+   injected=true;
+   if(conflict==='admission')fs.writeFileSync(lock,JSON.stringify({pid:process.pid,at:new Date().toISOString(),token:'fixture-other-owner'}));
+   else fs.writeFileSync(f.lifecycle,saved);
+  }
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();fs.rmSync(lock,{force:true});});
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_SEND_BUSY|AGENT_RESUME_REQUIRED/);
+ assert.equal(injected,true);assert.equal(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id),'utf8'),savedMeta);
+ if(conflict==='lifecycle')assert.equal(fs.readFileSync(f.lifecycle,'utf8'),saved);
+ assert.equal(original(bin,['-S',SOCK,'has-session','-t',f.name]).status,1);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+test('a corrupted initial launch record with native proof remains a managed failure',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);fs.writeFileSync(agentMetadataPath(f.name,f.meta.launch_id),'broken metadata');
+ assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/);
+});
+
+test('closing an initial launch can remove its original exited pane without resuming it',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-exited-guard');
+ const proof=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-native.json'),'utf8'));
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'set-option','-t',f.name,'remain-on-exit','on']).status,0);
+ process.kill(proof.pane_pid,'SIGKILL');
+ for(const until=Date.now()+3000;Date.now()<until;await sleep(30)){
+  if(spawnSync(resolveTmux(),['-S',SOCK,'display-message','-p','-t',proof.pane_id,'#{pane_dead}'],{encoding:'utf8'}).stdout.trim()==='1')break;
+ }
+ assert.equal(core.closeSessionResult(f.name).outcome,'closed');
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status,1);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+test('closing a vanished initial native terminal cleans only the unchanged registration',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);core.openSession('initial-vanished-guard');
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',f.name]).status,0);
+ assert.equal(core.closeSessionResult(f.name).outcome,'already_closed');
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),false);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
 
 test('ordinary core hibernates only the expected idle pane, retaining its resume data', {skip,timeout:30000},async t=>{
  const f=await fixture(t,{resumeEnv:true});const [bridge]=core.openSession('ordinary-bridge');

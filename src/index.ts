@@ -753,6 +753,8 @@ registerRemoteAwareTool(
         session_id: z.string(), current_command: z.string(), attached: z.boolean(),
         width: z.number(), height: z.number(),
         harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
+        launch_id: z.string().nullable().optional().describe(
+          "一覧取得時のmanaged起動ID。通常PTYやmetadata不明時はnull、旧remote版は省略。操作時のfresh binding検証の代わりにはしない"),
         // 0.58.3より前の現地（remote）は返さないので、無い事も受ける。
         vendor_session_id: z.string().nullable().optional().describe(
           "agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値（席の中で会話を移した後は追わない）、" +

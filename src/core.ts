@@ -1716,6 +1716,7 @@ export interface ListedSession {
   width: number;
   height: number;
   harness: AgentHarness | null;
+  launch_id: string | null;
   /** agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値、CodexとCursorは分かった後。 */
   vendor_session_id: string | null;
   environment: Record<string, string | null>;
@@ -2092,6 +2093,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     const meta = tryLoadAgentMetadata(name);
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
       width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
+      launch_id: meta?.launch_id ?? null,
       vendor_session_id: meta?.vendor_session_id ?? null, environment });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };

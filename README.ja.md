@@ -595,7 +595,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
-| `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
+| `pty_list` | textと構造化したsession一覧。管理対象の起動ID `launch_id` は一覧取得時の値で、通常PTYやmetadata不明時はnull、旧remote版は省略。操作前の最新の紐付け確認は引き続き必要。明示した非秘密環境変数も照会できる | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |

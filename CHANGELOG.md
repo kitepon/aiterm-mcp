@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Include the managed `launch_id` snapshot in structured `pty_list` results; older remote results without the field remain valid.
+
 ### Fixed
 - Avoid repeating native seat observation when selecting the Goal adapter; retain all adapter binding and readback checks.
 

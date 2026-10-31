@@ -635,7 +635,7 @@ continue to use `claude_approval`.
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
-| `pty_list` | Text and structured session list (each agent session carries its harness conversation ID as `vendor_session_id`), with explicitly requested non-secret environment values | `env_keys?` |
+| `pty_list` | Text and structured session list (managed sessions include snapshot `launch_id` and harness conversation ID `vendor_session_id`; `launch_id` is null for ordinary/unmanaged PTYs and may be absent on older remote versions, so callers retain fresh binding checks before operations), with explicitly requested non-secret environment values | `env_keys?` |
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |

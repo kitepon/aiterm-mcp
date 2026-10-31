@@ -153,7 +153,60 @@ test('send resumes the same conversation once, preserves old records and restore
  assert.ok(launches[1].argv.includes('resume'));assert.ok(launches[1].argv.includes(f.meta.vendor_session_id));
  assert.equal(launches[1].room,"saved room ' $() ; #{pane_id} \\ literal");assert.equal(launches[1].member,';');assert.equal(launches[1].unset,null);
  assert.equal(launches[1].cwd,f.meta.cwd);
+ const listed=core.listSessionsResult(['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']).sessions.find(row=>row.session_id===f.name);
+ assert.deepEqual(listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';',AITERM_TEST_UNSET:null});
  const accepted=fs.readFileSync(f.keys,'utf8').trim().split('\n');assert.deepEqual(accepted,['first-body','second-body']);
+});
+
+test('an external observer retains membership while the published resume is not ready',{skip,timeout:20000},async t=>{
+ const f=await fixture(t,{resumeEnv:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const rename=fs.renameSync;let during;
+ t.mock.method(fs,'renameSync',function(from,to){
+  const result=rename(from,to);
+  if(!during&&to.endsWith('.active-launch.json')&&JSON.parse(fs.readFileSync(to,'utf8')).launch_id!==f.meta.launch_id){
+   const code=`import * as core from ${JSON.stringify(new URL('../dist/core.js',import.meta.url).href)};
+const observed=core.observeSession(${JSON.stringify(f.name)});
+console.log(JSON.stringify({observed,listed:core.listSessionsResult(['PEERTABLE_ROOM','PEERTABLE_MEMBER']).sessions.find(row=>row.session_id===${JSON.stringify(f.name)}),turn:core.readSeatTurns([${JSON.stringify(f.name)}]).seats[0].turn}));`;
+   const read=spawnSync(process.execPath,['--input-type=module','-e',code],{encoding:'utf8'});
+   assert.equal(read.status,0,read.stderr);during=JSON.parse(read.stdout);
+  }
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ await core.sendAgentMessage(f.name,'accepted-after-ready',{raw:true});
+ assert.equal(during.observed.state,'unknown');assert.equal(during.observed.reason,'agent_resuming');
+ assert.equal(during.observed.activity.post_startup_process_count,null);assert.equal(during.turn,null);
+ assert.deepEqual(during.listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';'});
+ assert.equal(core.observeSession(f.name).state,'idle');
+});
+
+for(const prompt of [null,'launch-first-body'])test(`same-name agent_launch resumes with its existing result tuple and prompt=${prompt!==null}`,{skip,timeout:20000},async t=>{
+ const f=await fixture(t,{resumeEnv:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const result=await core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt,ready_timeout:1000});
+ assert.equal(result.length,7);assert.equal(result[0],f.name);assert.equal(result[5].status,'ready');assert.equal(result[6].fast,false);
+ assert.equal(result[4].status,prompt===null?'not_requested':'submitted_unconfirmed');
+ const seen=core.observeSession(f.name);assert.notEqual(seen.launch_id,f.meta.launch_id);assert.equal(seen.harness_alive,true);
+ const current=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,seen.launch_id),'utf8'));
+ assert.equal(current.vendor_session_id,f.meta.vendor_session_id);assert.equal(current.resumed_from,f.meta.launch_id);
+ assert.equal(current.lineage,f.meta.lineage);assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2);
+ assert.deepEqual(fs.existsSync(f.keys)?fs.readFileSync(f.keys,'utf8').trim().split('\n'):[],prompt===null?[]:[prompt]);
+});
+
+test('a conflicting same-name launch cannot replace the saved conversation or its environment',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ assert.throws(()=>core.openSession(f.name),/AGENT_RESUME_REQUIRED/);
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true}),/AGENT_RESUME_REQUIRED/);
+ await assert.rejects(core.configureAgent(f.name,{model:'other-model'}),error=>{
+  assert.match(error.message,/AGENT_RESUME_REQUIRED/);assert.equal(error.configurationFailure.outcome,'not_applied');
+  assert.equal(error.configurationFailure.effect,'not_started');return true;
+ });
+ for(const change of [{model:'other-model'},{reasoning_effort:'low'},{fast:true},{cwd:process.env.CODEX_HOME},
+  {env_vars:['DIFFERENT_MEMBER']},{write_scope:'read-only'}]){
+  await assert.rejects(core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt:'never-body',...change}),/AGENT_RESUME_CONFLICT/);
+ }
+ await assert.rejects(core.openAgentWithInitialPrompt('claude',{session_name:f.name,prompt:'never-body'}),/AGENT_RESUME_CONFLICT/);
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');assert.equal(core.observeSession(f.name).launch_id,f.meta.launch_id);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);assert.equal(fs.existsSync(f.keys),false);
 });
 
 test('a mounted execution graph refuses resume before metadata creation or native issuance',{skip,timeout:15000},async t=>{

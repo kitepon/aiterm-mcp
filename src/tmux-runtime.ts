@@ -618,6 +618,11 @@ export function registeredSessionEnvironment(name: string): string[] | null {
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim().split(" ") : null;
 }
 
+export function registerSessionEnvironment(observe: boolean, name: string, keys: string[]): { code: number; stdout: string; stderr: string } {
+  if (keys.some(key => !ENV_NAME.test(key))) throw new AitermError("env_varsの環境変数名が不正です", 2);
+  return runTmux(observe, undefined, ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, [...new Set(keys)].join(" ")]);
+}
+
 // tmux は、server を起こした client の環境を共通環境として全 session へ配る。何もしないと、最初に端末を
 // 開いた呼び出し元の値が、後から別の呼び出し元が開く端末へ入る。新しい端末の環境を「開いた process の環境」に
 // するため、new-session の間だけ update-environment を差し替えて client の環境を session へ写し、共通環境に
@@ -673,7 +678,7 @@ export function tmuxNewSession(
       return r;
     }
     if (guarded || pinned) {
-      const registeredResult = runTmux(observe, undefined, ["set-option", "-t", `=${name}:`, REGISTERED_ENV_OPTION, registered.join(" ")]);
+      const registeredResult = registerSessionEnvironment(observe, name, registered);
       if (registeredResult.code !== 0) return registeredResult;
     }
     // 共通環境の名前が、どれも session 側で上書きか消去になっていることを確かめる。別の呼び出し元が同時に

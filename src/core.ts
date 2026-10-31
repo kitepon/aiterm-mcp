@@ -62,7 +62,7 @@ import {
   tmuxNewSession,
   withNativeSessionCreation, withNativeSessionTarget,
   openPsmuxServerToDesktop,
-  registeredSessionEnvironment,
+  registeredSessionEnvironment, registerSessionEnvironment,
   attachCommand,
   normalizePaneCommand,
   atomicShellMultiline,
@@ -967,7 +967,17 @@ function rtkRewrite(text: string): string {
 // WSL launcher (bash.exe) に解決されてしまうため、Git for Windows の bash.exe を
 // 明示解決する（WSL 非依存の裁定に従う）。AITERM_BASH で上書き可。
 
+function assertNoDormantSession(name: string | null | undefined): void {
+  if (!name) return;
+  assertSessionName(name);
+  const saved = tryLoadAgentMetadata(name);
+  if (saved && (readAgentLifecycle(saved) || agentDormantState(saved)))
+    throw new AitermError("AGENT_RESUME_REQUIRED: 保存した会話席はagent_launchまたはpty_sendで再開してください。", 2);
+}
+
 export function openSession(name?: string | null, shell = "bash", envVars: string[] = []): [string, string] {
+  assertExecutionContext(name);
+  assertNoDormantSession(name);
   return openSessionInternal(name, shell, envVars, false);
 }
 
@@ -2340,16 +2350,23 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
   const result = listNativeSessionsResult(envKeys, runTmux);
   const present = new Set(result.sessions.map(row => row.session_id));
   for (const name of savedAgentSessionNames()) {
-    if (present.has(name)) continue;
-    const meta = loadAgentMetadata(name), state = agentDormantState(meta);
+    // A known native terminal remains present even when its ordinary agent record is invalid.
+    const meta = present.has(name) ? tryLoadAgentMetadata(name) : loadAgentMetadata(name);
+    if (!meta) continue;
+    const state = agentDormantState(meta);
     if (!state) continue;
     const environment: Record<string, string | null> = Object.fromEntries(envKeys.map(key => [key, null]));
     let command: string = state;
+    const recipe = readAgentResumeRecipe(meta);
+    if (recipe?.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id)
+      for (const key of envKeys) environment[key] = recipe.environment[key] ?? null;
     if (state === "hibernated") {
-      try {
-        const recipe = confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!);
-        for (const key of envKeys) environment[key] = recipe.environment[key] ?? null;
-      } catch { command = "unknown"; }
+      try { confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!); }
+      catch { command = "unknown"; }
+    }
+    if (present.has(name)) {
+      result.sessions.find(row => row.session_id === name)!.environment = environment;
+      continue;
     }
     result.sessions.push({ session_id: name, current_command: command, attached: false, width: 0, height: 0,
       harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment });
@@ -6600,6 +6617,8 @@ export async function configureAgent(
         const result = await withAgentSendLock(name, async () => {
           checkGeneration();
           const current = loadAgentMetadata(name), saved = readAgentResumeTemplate(current);
+          if (readAgentLifecycle(current) || agentDormantState(current))
+            throw new AitermError("AGENT_RESUME_REQUIRED: 設定を変える前に保存した会話席をagent_launchで再開してください。設定は変えていません。", 2);
           let invalidated = false;
           const result = await configureAgentInLock(name, model, effort, fast, () => {
             if (saved && !invalidated) {
@@ -7114,11 +7133,13 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
         ? createClaudeAgentMetadata(name, recipe.cwd, "none", null, null, lineage, recipe.model, recipe.reasoning_effort)
         : createCodexAgentMetadata(name, recipe.cwd, "none", { model: recipe.model, effort: recipe.reasoning_effort }, previous.write_scope, lineage);
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
+      next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
       if (next.kind === "claude") next.claude_home = recipe.configuration_root;
       else next.codex_home = recipe.configuration_root;
       if (previous.write_scope !== undefined) next.write_scope = previous.write_scope;
       writeAgentMetadata(next); initializeAgentActivity(next);
+      writeAgentResumeRecipe(next, { ...recipe, launch_id: next.launch_id });
       attempt = { schema: "aiterm.agent-resume-attempt.v1", launch_id: previous.launch_id, next_launch_id: next.launch_id,
         state: "resuming", at: new Date().toISOString(), recipe_digest: lifecycle.recipe_digest };
       writeAgentResumeAttempt(previous, attempt);
@@ -7130,6 +7151,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
         const stored = value === null ? tmux("set-environment", "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
         if (stored.code !== 0) throw uncertain();
       }
+      if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
       const argv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
         : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
       const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")))
@@ -7878,6 +7900,7 @@ export function openAgent(
  * Public synchronous openAgent retains its existing immediate refusal contract.
  */
 function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[1] = {}): () => [string, string] {
+  assertNoDormantSession(opts.session_name);
   const label = agentLabel(kind);
   // 前提検証は session を作る前に全部済ませる（失敗の残骸 session を作らない）。
   // model/effort → bin → cwd の順: model/effort 検証は CLI 不在の端末でも同じ結果になる（テスト可能性）。
@@ -8191,6 +8214,50 @@ export async function openAgentWithInitialPrompt(
     : portableForkPrompt(sourceSessionId, mission as string, supplementFile);
   if (opts.launch_operation_id != null && prompt !== null) {
     throw new AitermError("launch_operation_idはpromptなしのClaude相関launchだけで指定できます", 2);
+  }
+  if (opts.session_name) {
+    assertSessionName(opts.session_name);
+    const name = opts.session_name, saved = tryLoadAgentMetadata(name);
+    if (saved && (readAgentLifecycle(saved) || agentDormantState(saved))) {
+      return withAgentSendLock(name, async () => {
+        const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
+        if (!isDeepStrictEqual(previous, saved) || lifecycle?.state !== "hibernated" || readAgentResumeAttempt(previous))
+          throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の再開世代を確認できません。", 2);
+        const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
+        if (kind !== previous.kind || sourceSessionId !== null
+          || (opts.model != null && opts.model.trim() !== recipe.model)
+          || (opts.reasoning_effort != null && opts.reasoning_effort.trim() !== recipe.reasoning_effort)
+          || (opts.fast != null && opts.fast !== recipe.fast)
+          || (opts.cwd != null && path.resolve(opts.cwd) !== recipe.cwd)
+          || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
+          || (opts.env_vars !== undefined && !isDeepStrictEqual([...new Set(opts.env_vars)].sort(), Object.keys(recipe.environment).sort())))
+          throw new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
+        if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
+          claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
+            cwd: opts.cwd ?? null, agentDone: true }));
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined);
+        return withAgentResumeTarget(resumed, async () => {
+          const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
+          const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };
+          if (!prompt) return [name, hint, null, null,
+            { status: "not_requested", reason: "not_requested", turn_started: false },
+            { status: "ready", reason: "composer_ready" }, fastState];
+          try {
+            const initial = await sendInitialAgentPromptInLock(name, prompt, {
+              ready_timeout: opts.ready_timeout ?? undefined, before_send: opts.before_send,
+            });
+            return [name, `${hint}\n${initial.text}`, initial.event_cursor, initial.submit_residue, initial.initial_prompt,
+              { status: "ready", reason: "composer_ready" }, fastState];
+          } catch (error) {
+            const current = loadAgentMetadata(name);
+            throw new AgentLaunchPromptError(`session_id: ${name}\n復帰後の初回promptの受理を確認できません。本文を再送しないでください。\n${error instanceof Error ? error.message : String(error)}`,
+              error instanceof AitermError ? error.code : 1, name,
+              current.initial_prompt_delivery ?? { status: "not_sent", reason: "startup_failed", turn_started: false },
+              current.initial_prompt_cursor ?? null, { status: "blocked", reason: "startup_failed" });
+          }
+        });
+      });
+    }
   }
   // ファスト（ADR 0114）。設定の誤りは席を作る前に断る。fastへ出来ない訳がアカウントの都合なら、通常で起こして返りへ訳を入れる。
   const requestedModel = opts.model == null ? null : opts.model.trim() || null;

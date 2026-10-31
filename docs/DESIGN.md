@@ -184,7 +184,7 @@ Codex v1のactive goalは設定替えの間だけ一時停止する。`configure
 
 無活動判定用の時刻は、起動世代ごとのactivity.jsonlに追記する。agent-activity.tsがlast_input_atとlast_turn_end_atを返し、metadata全体を書き戻す処理とは独立する。親からの初手・dispatch・steerのPTY書込み境界と、Claude Stop/既存のnative完了観測だけが記録する。同じ番の完了を繰り返し読んでも起点を更新せず、途中出力・画面描画・設定命令では更新しない。履歴欠測と破損は未知として扱い、時刻記録失敗で既に得た完了結果を失わせない。現段階は記録のみで、自動休止はまだ有効にしない（ADR 0138）。
 
-休止判定の部品はagent-idle.ts、木の停止はprocess-tree-stop.tsに置く。前者はruntimeが供給する既存の席admissionで世代/入力/保護条件を再確認し、未確定を成功にしない。後者は本人性を照合したpane木へTERM→5秒→KILLと退出確認を行い、POSIXの別sessionを除外する。OSごとのsignalはprocess-runtime.tsが所有する。本体adapter・復帰記録・時計・公開経路には未接続で、自動休止はまだ無効（ADR 0138）。
+休止判定の部品はagent-idle.ts、木の停止はprocess-tree-stop.tsに置く。前者はruntimeが供給する既存の席admissionで世代/入力/保護条件を再確認し、未確定を成功にしない。後者は本人性を照合したpane木へTERM→5秒→KILLと退出確認を行い、POSIXの別sessionを除外する。OSごとのsignalはprocess-runtime.tsが所有する。本体adapterは既存送信queue/file lockで期待launchと元のnative ID/pane本人性を固定する。最新native完了の保存とprivate resume recipeの一致を確認し、durable stoppingの後も最初のsignal前は保護条件全体を再確認する。効果前だけ準備を取消し、効果後の不明はstoppingに残す。木の退出後に元native IDを閉じ、同世代だけをhibernatedへ進める。時計・recipeのproduction採取・公式再開・公開経路には未接続で、自動休止はまだ無効（ADR 0138）。
 
 agent turnは常に非ブロックdispatchであり、receiptの`event_cursor`がturn境界になる。
 Codex親にはAitermのMCP processが完了を観測し、選択設定に応じて公式Steerまたはqueueへ本文を自動配送する。

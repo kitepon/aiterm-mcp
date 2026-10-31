@@ -118,3 +118,15 @@ test('a real isolated POSIX process ignoring TERM is killed after five seconds',
  assert.ok(performance.now()-start>=5000);
  assert.ok(!readRuntimeProcesses(true).some(row=>row.pid===child.pid&&!row.zombie));
 });
+
+
+test('preparation contains the admission check and final process read before each signal',async()=>{
+ const f=fixture();let preparing=false,verified=false,readAfterVerify=false;
+ const read=f.runtime.read,signal=f.runtime.signal;
+ f.runtime.prepare=body=>{assert.equal(preparing,false);preparing=true;verified=false;readAfterVerify=false;
+  try{body();}finally{preparing=false;}};
+ f.runtime.read=()=>{if(preparing){assert.equal(verified,true);readAfterVerify=true;}return read();};
+ f.runtime.signal=(...args)=>{assert.equal(preparing,true);assert.equal(readAfterVerify,true);signal(...args);};
+ assert.equal(await f.run(()=>{assert.equal(preparing,true);verified=true;}),true);
+ assert.equal(f.effects.length,2);
+});

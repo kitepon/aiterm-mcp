@@ -1,6 +1,6 @@
 # ADR 0138: 会話席の無活動終了と同会話再開
 
-状態: 採用（時刻記録と休止判定・木停止の部品を実装、本体接続・時計・再開は未実装）。
+状態: 採用（時刻記録・休止判定・本体の停止adapterまで実装。時計・公式再開・公開観測は未接続で、自動休止は無効）。
 
 ## 方針
 
@@ -30,7 +30,7 @@ BellTeamのexists/配備quiet判定とPeertableの送信前生存判定はこの
 
 agent-activity.test.mjsは入力/終了の区別、完了の重複、時計の逆行、起動世代、破損を確認する。core-agent-dispatch/core-agent-initial-promptは実tmuxの初手と通常入力、native完了、破損した時計でも完了結果を返すことを確認する。managed-stop-hooksは実hook processからの記録とStop時刻の一致を確認する。
 
-## 休止判定と木の停止の部品（本体未接続）
+## 休止判定と木の停止
 
 agent-idle.tsは既存の席admissionをruntimeから受け、判定・停止準備・終了確認・休止記録を同じ枠で進める。busy/blocked/unknown、attach、未配送または欠測、起動後processまたは欠測、会話ID/再開能力欠測、native番終了欠測、入力後の番未完了では進めない。tracked席の番終了欠測はcreated_atで代用しない。旧版の未記録席だけ、確認できたidleとcreated_atを移行規則に使う。遅延processの起点が変わっていたら何もしない。停止前・各signal前・終了後の世代/入力/attach/新しいbusyを確認し、変化と途中失敗は未確定とする。
 
@@ -38,6 +38,10 @@ process-tree-stop.tsがPID/開始時刻/argv digest/process groupを照合した
 
 Windows候補はProcess handleを保持し開始時刻を照合した同processへCloseMainWindowで終了を要求し、猶予後にKillを呼ぶ。windowless processではCloseMainWindowがfalseを返し得る。実Win/psmuxの境界と動的な子の完全性はまだ受入前で、自動休止を有効にはしない。一次資料はrag/INDEX.mdのProcess lifecycleを参照。
 
-現段階はこれらの部品を隔離試験で確認した範囲。coreの送信lock/native generationへのadapter、durableなstopping/hibernated記録、tmux native IDへの最後のkill、resume recipe、公開observe/list/sendへの接続は未実装である。自動停止や既存席への作用はまだ発生しない。部品のfixture成功を製品全体の休止成功と扱わない。
+core.checkAgentIdleは通常の送信と同じprocess内queueとprocess間file lockを取り、期待launchと元のnative session ID・pane PID/開始時刻/argv digestを保持する。最新native完了をactivityへ保存できない時、Codexの最新境界がtask_completeでない時、完全なresume recipeが無い時は停止しない。通常のMCP serverは歴史的なexecution graphをmountしない。存在しないeffect枠やcreator stampを作らず、mount済みの呼出しには既存のassert/preparation/effect guardをそのまま適用する。
+
+agent-lifecycle.tsはprivateなper-launch resume recipeとstopping/hibernated記録を0600で原子的に保存する。recipeはlaunch/vendor/kindを検証し、停止中はdigestを固定する。durableなstoppingを記録してからも、最初のsignal直前にはbackground/未配送を含む保護条件全体を読み直す。まだ一度もsignalしていなければ、自分の一致するstoppingだけを取り消してskipする。効果の可能性がある失敗はstoppingのまま未確定とし、成功に丸めない。木の退出後も元のnative IDだけを閉じ、native不在と同じlaunchを確認してhibernatedを記録する。別世代へ記録を書き込まない。通常closeはこれらのprivate記録も消す。
+
+隔離された実tmuxと擬似CLIで、普通のPTYを保持した停止、recipe欠測、送信admissionとの競合、停止準備後のbackground/未配送増加、後続番の中断、木退出後の世代交代を確認する。recipeのproduction採取、時計、公式resume、公開observe/list/sendは未接続であり、公開toolやtimerからこのadapterは呼ばない。擬似CLIでの停止成功は実harnessの休止→同会話復帰の受入ではない。自動停止や既存実席への作用はまだ発生しない。
 
 猶予の起点は、最初の対象群へTERMを送り終えた時点とする。process表取得が遅い場面でも、その取得時間で5秒を短くしない。追加の反例試験は取得に250msかかる別々のprocess groupを使い、旧計算で失敗、修正後に成功することを確認した。

@@ -29,7 +29,10 @@ import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCu
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
-import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd } from "./agent-activity.js";
+import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgentActivity } from "./agent-activity.js";
+import { checkIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
+import { stopProcessTree } from "./process-tree-stop.js";
+import { readAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, type AgentLifecycle } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -40,7 +43,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -160,6 +163,7 @@ import {
   bindCodexTranscriptSession,
   latestCodexCompletion,
   codexTurnSettled,
+  codexCompletedTurnId,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -593,6 +597,9 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".agent.json") ||
           f.endsWith(".events.jsonl") ||
           f.endsWith(".activity.jsonl") ||
+          f.endsWith(".resume.json") ||
+          f.endsWith(".lifecycle.json") ||
+          f.endsWith(".idle-check.json") ||
           f.endsWith(".wait.lock") ||
           f.endsWith(".claude-settings.json") ||
           f.endsWith(".claude-mcp.json") ||
@@ -1965,6 +1972,123 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
   const exists = listSessionsResult().sessions.some(session => session.session_id === name);
   return { schema: "aiterm.pty-observe-result.v1", session_id: name, exists,
     launch_id: exists ? tryLoadAgentMetadata(name)?.launch_id ?? null : null };
+}
+
+/** Internal lifecycle worker; not an MCP input route and never creates an effect scope. */
+export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string): Promise<IdleCheckResult> {
+  const expected = executionLaunchSchema.parse(expectedInput), name = expected.session_id;
+  assertExecutionContext(name);
+  const minutes = idleMinutes();
+  let captured: AgentMetadata | null = null;
+  let pinned: { native_id: string; pane_pid: number } | null = null;
+  let root: NativeProcessIdentity | null = null;
+  let recipeDigest: string | null = null;
+  let preparation: AgentLifecycle | null = null;
+  let effectIssued = false;
+  const metadata = () => {
+    assertExecutionContext(name);
+    const meta = loadAgentMetadata(name);
+    if (meta.launch_id !== expected.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    if (captured && (!isDeepStrictEqual(meta.execution_native, captured.execution_native) || meta.kind !== captured.kind
+      || meta.vendor_session_id !== captured.vendor_session_id || meta.agent_executable !== captured.agent_executable
+      || meta.cwd !== captured.cwd || meta.model !== captured.model || meta.fast !== captured.fast))
+      throw new ExecutionError("EXECUTION_STALE_GENERATION");
+    return meta;
+  };
+  const native = () => {
+    const sessions = observeExecutionNativeSessions();
+    if (sessions.state !== "known") throw new Error("native_session_unconfirmed");
+    const current = sessions.sessions.find(item => item.session_id === name);
+    if (!current) return null;
+    const pane = tmux("display-message", "-p", "-t", current.native_id, "#{pane_pid}\t#{session_attached}\t#{window_activity}");
+    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]), attached = Number(fields[1]);
+    if (pane.code !== 0 || fields.length !== 3 || !Number.isSafeInteger(pid) || pid < 1
+      || !/^\d+$/.test(fields[1]) || !Number.isSafeInteger(attached)) throw new Error("native_pane_unconfirmed");
+    if (pinned && (current.native_id !== pinned.native_id || pid !== pinned.pane_pid)) throw new Error("native_pane_replaced");
+    return { native_id: current.native_id, pane_pid: pid, attached: attached > 0,
+      window_activity_at: /^\d+$/.test(fields[2]) ? Number(fields[2]) * 1000 : null };
+  };
+  const snapshot = (): IdleSeatSnapshot => {
+    const meta = metadata();
+    captured ??= meta;
+    const recipe = readAgentResumeRecipe(meta);
+    const digest = recipe && agentResumeRecipeDigest(recipe);
+    if (recipeDigest && digest !== recipeDigest) throw new Error("resume_recipe_changed");
+    const lifecycle = readAgentLifecycle(meta);
+    if (lifecycle && !preparation) throw new Error("lifecycle_already_recorded");
+    if (preparation && (!lifecycle || lifecycle.state !== "stopping" || lifecycle.anchor !== preparation.anchor
+      || lifecycle.recipe_digest !== preparation.recipe_digest)) throw new Error("lifecycle_changed");
+    const live = observeSession(name), slot = native();
+    if (slot && live.pane_process) {
+      if (slot.pane_pid !== live.pane_process.pid) throw new Error("pane_identity_changed");
+      if (root && !isDeepStrictEqual(root, live.pane_process)) throw new Error("pane_identity_changed");
+      pinned ??= { native_id: slot.native_id, pane_pid: slot.pane_pid };
+      root ??= live.pane_process;
+    }
+    if (!effectIssued && meta.execution_native && observeExecutionSessionGeneration(name).launch_id !== expected.launch_id)
+      throw new Error("native_creator_unconfirmed");
+    const done = latestAgentDoneEvent(meta);
+    if (!effectIssued && done) recordAgentTurnEnd(meta, {
+      ...done, at: Number.isFinite(Date.parse(done.at)) ? done.at : new Date().toISOString(),
+    });
+    const resumeReady = !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
+      && recipe.executable === meta.agent_executable && recipe.cwd === (meta.cwd ?? recipe.cwd)
+      && recipe.model === meta.model && recipe.fast === meta.fast;
+    if (resumeReady) recipeDigest ??= digest;
+    const settled = meta.kind === "claude" ? done !== null && readClaudeOperationMarker(meta) === null
+      : meta.kind === "codex" ? done?.turn_id != null && done.turn_id === codexCompletedTurnId(meta) : agentTurnSettled(meta);
+    return { launch_id: meta.launch_id, created_at: meta.created_at, vendor_session_id: meta.vendor_session_id,
+      resume_ready: resumeReady, activity: readAgentActivity(meta), state: live.state, reason: live.reason,
+      attached: slot?.attached ?? (effectIssued ? false : null), turn_settled: settled,
+      pending_child_deliveries: live.pending_child_deliveries,
+      post_startup_process_count: live.activity.post_startup_process_count,
+      window_activity_at: slot?.window_activity_at ?? null };
+  };
+  return checkIdleSeat({
+    exclusive: body => withAgentSendLock(name, body), now: Date.now, snapshot,
+    begin: (_seat, anchor) => withExecutionPreparation(name, () => {
+      const meta = metadata();
+      if (!pinned || !root || !recipeDigest || readAgentLifecycle(meta)) throw new Error("idle_preparation_unconfirmed");
+      preparation = { schema: "aiterm.agent-lifecycle.v1", launch_id: meta.launch_id, state: "stopping",
+        at: new Date().toISOString(), anchor, native_id: pinned.native_id, pane: root, recipe_digest: recipeDigest };
+      writeAgentLifecycle(meta, preparation);
+    }),
+    stop: async (verify, didIssue) => {
+      if (!root) throw new Error("pane_identity_unavailable");
+      const stopped = await stopProcessTree(root, verify, {
+        read: () => readRuntimeProcesses(true), now: () => performance.now(), pause: sleep,
+        prepare: body => withExecutionPreparation(name, body),
+        signal: (target, signal, group) => {
+          beforeExecutionEffect(name);
+          didIssue(); effectIssued = true;
+          signalRuntimeProcess(target, signal, group);
+        },
+      });
+      if (!stopped) return false;
+      return withExecutionPreparation(name, () => {
+        metadata(); verify();
+        const remaining = native();
+        if (remaining) {
+          bindExecutionNativeTarget(name, remaining.native_id);
+          beforeExecutionEffect(name);
+          didIssue(); effectIssued = true;
+          if (tmux("kill-session", "-t", remaining.native_id).code !== 0) throw new Error("native_close_unconfirmed");
+        }
+        return native() === null;
+      });
+    },
+    finish: (_seat, anchor) => withExecutionPreparation(name, () => {
+      const meta = metadata(), current = readAgentLifecycle(meta);
+      if (native() !== null || !current || current.state !== "stopping" || current.anchor !== anchor
+        || current.recipe_digest !== recipeDigest || !preparation) throw new Error("idle_finish_unconfirmed");
+      writeAgentLifecycle(meta, { ...preparation, state: "hibernated", at: new Date().toISOString() });
+    }),
+    cancel: (_seat, anchor) => withExecutionPreparation(name, () => cancelAgentStopping(metadata(), anchor)),
+    record: result => {
+      if (tryLoadAgentMetadata(name)?.launch_id === expected.launch_id)
+        writeJson0600(agentMetadataPath(name, expected.launch_id).replace(/\.agent\.json$/, ".idle-check.json"), result);
+    },
+  }, expected.launch_id, minutes, expectedAnchor);
 }
 
 /** Private guarded-runtime read. Legacy metadata without an original native

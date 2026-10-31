@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Prepare idle eligibility and verified process-tree shutdown, including a five-second graceful interval and protection for detached sessions. Automatic hibernation remains disabled until the lifecycle integration is complete.
+- Prepare idle eligibility and verified process-tree shutdown under the existing send admission, with private stopping/hibernated records, checks immediately before the first signal, a five-second graceful interval and protection for detached sessions. Automatic hibernation remains disabled until official resume and public lifecycle integration are complete.
 - Record per-launch input and turn-end timestamps without changing the idle clock on repeated completion observations. This adds lifecycle records only; automatic hibernation is not enabled.
 
 ### Fixed

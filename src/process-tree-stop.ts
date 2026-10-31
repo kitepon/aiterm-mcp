@@ -4,6 +4,7 @@ type Signal = "SIGTERM" | "SIGKILL";
 export interface ProcessTreeStopRuntime {
   read(): RuntimeProcess[];
   signal(target: NativeProcessIdentity, signal: Signal, group: boolean): void;
+  prepare?(body: () => void): void;
   pause(ms: number): Promise<void>;
   now(): number;
 }
@@ -51,7 +52,7 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
     if (selected.has(process.pid)) throw new Error("process_tree_contains_checker");
     return rows.filter(row => !row.zombie && selected.has(row.pid) && same(selected.get(row.pid)!, row));
   };
-  const signal = (row: RuntimeProcess, wanted: Signal) => {
+  const signal = (row: RuntimeProcess, wanted: Signal) => (runtime.prepare ?? (body => body()))(() => {
     verify();
     const current = runtime.read();
     const target = current.find(value => value.pid === row.pid && !value.zombie);
@@ -63,7 +64,7 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
     if (wanted === "SIGTERM") {
       for (const member of group ? current.filter(value => value.process_group_id === target.process_group_id) : [target]) terminated.add(key(member));
     }
-  };
+  });
   let until: number | null = null;
   for (;;) {
     const alive = refresh();

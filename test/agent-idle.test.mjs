@@ -48,7 +48,8 @@ function fixture(){
  f.runtime={now:()=>now,snapshot:()=>structuredClone(f.current),
   exclusive:async body=>{assert.equal(f.locked,false);f.locked=true;try{return await body();}finally{f.locked=false;}},
   begin:()=>{assert.equal(f.locked,true);f.effects.push('begin');},
-  stop:async verify=>{verify();f.effects.push('stop');f.current.state='dead';verify();return true;},
+  stop:async (verify,didIssue)=>{verify();didIssue();f.effects.push('stop');f.current.state='dead';verify();return true;},
+  cancel:()=>{assert.equal(f.locked,true);f.effects.push('cancel');},
   finish:()=>{assert.equal(f.locked,true);f.effects.push('finish');},record:r=>f.effects.push(r.outcome)};
  f.run=()=>checkIdleSeat(f.runtime,'a'.repeat(32));return f;
 }
@@ -75,18 +76,28 @@ test('the final precondition read rejects a new input, attachment or new native 
 test('generation/input/busy changes during stop retain uncertainty and cannot mark the seat hibernated',async()=>{
  for(const change of [f=>{f.current.launch_id='b'.repeat(32);},
   f=>{f.current.activity.last_input_at='2026-10-31T00:30:00Z';},f=>{f.current.state='busy';}]){
-  const f=fixture();f.runtime.stop=async verify=>{change(f);verify();return true;};
+  const f=fixture();f.runtime.stop=async (verify,didIssue)=>{verify();didIssue();change(f);verify();return true;};
   assert.equal((await f.run()).outcome,'unconfirmed');assert.deepEqual(f.effects,['begin','unconfirmed']);
  }
 });
 test('exit and persistence failures are never successful hibernation',async()=>{
  for(const fail of ['stop','finish','snapshot']){
-  const f=fixture();f.runtime[fail]=()=>{throw Error('unavailable');};
+  const f=fixture();f.runtime[fail]=(_verify,didIssue)=>{if(fail==='stop')didIssue();throw Error('unavailable');};
   const r=await f.run();assert.equal(r.outcome,fail==='snapshot'?'skipped':'unconfirmed');assert.ok(!f.effects.includes('hibernated'));
  }
- const f=fixture();f.runtime.stop=async()=>false;assert.equal((await f.run()).outcome,'unconfirmed');
+ const f=fixture();f.runtime.stop=async(_verify,didIssue)=>{didIssue();return false;};assert.equal((await f.run()).outcome,'unconfirmed');
 });
 test('a replacement after tree exit cannot receive the old hibernation record',async()=>{
- const f=fixture();f.runtime.stop=async verify=>{verify();f.effects.push('stop');f.current.launch_id='b'.repeat(32);return true;};
+ const f=fixture();f.runtime.stop=async (verify,didIssue)=>{verify();didIssue();f.effects.push('stop');f.current.launch_id='b'.repeat(32);return true;};
  assert.equal((await f.run()).outcome,'unconfirmed');assert.deepEqual(f.effects,['begin','stop','unconfirmed']);
+});
+test('background work or a child delivery added after begin refuses the first signal and cancels only the preparation',async()=>{
+ for(const field of ['post_startup_process_count','pending_child_deliveries']){
+  const f=fixture();f.runtime.stop=async(verify,didIssue)=>{f.current[field]=1;verify();didIssue();return true;};
+  assert.equal((await f.run()).outcome,'skipped');assert.deepEqual(f.effects,['begin','cancel','skipped']);
+ }
+});
+test('a failed cancellation keeps the stopping outcome uncertain',async()=>{
+ const f=fixture();f.runtime.stop=async()=>{throw Error('before signal');};f.runtime.cancel=()=>{throw Error('not persisted');};
+ assert.equal((await f.run()).outcome,'unconfirmed');assert.deepEqual(f.effects,['begin','unconfirmed']);
 });

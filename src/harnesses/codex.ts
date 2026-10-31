@@ -552,6 +552,12 @@ export function codexTurnSettled(meta: AgentMetadata): boolean {
   return boundary?.type === "turn_aborted" && boundary.reason === "interrupted";
 }
 
+/** An idle reaper must not borrow a previous reply's clock after a later interrupted turn. */
+export function codexCompletedTurnId(meta: AgentMetadata): string | null {
+  const boundary = codexLatestTurnBoundary(meta, "tail");
+  return boundary?.type === "task_complete" && typeof boundary.turn_id === "string" && boundary.turn_id ? boundary.turn_id : null;
+}
+
 /**
  * この起動のroot rolloutの上で動いているturnのID。末尾から見て最初の境界がtask_startedの時だけ返す。
  * rolloutが無い、この起動に結び付かない、書いている途中、境界が1つも無い時はnull（分からない時は「動いている」と数えない）。

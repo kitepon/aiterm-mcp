@@ -59,7 +59,8 @@ export interface IdleCheckRuntime {
   snapshot(): IdleSeatSnapshot;
   /** Synchronous compare-and-record under the serving runtime's existing admission. */
   begin(seat: IdleSeatSnapshot, anchor: string): void;
-  stop(verify: () => void): Promise<boolean>;
+  stop(verify: () => void, didIssue: () => void): Promise<boolean>;
+  cancel(seat: IdleSeatSnapshot, anchor: string): void;
   finish(seat: IdleSeatSnapshot, anchor: string): void;
   record(result: IdleCheckResult): void;
 }
@@ -70,6 +71,8 @@ export async function checkIdleSeat(runtime: IdleCheckRuntime, expectedLaunch: s
   expectedAnchor?: string): Promise<IdleCheckResult> {
   return runtime.exclusive(async () => {
     let issued = false;
+    let effectIssued = false;
+    let preparation: { seat: IdleSeatSnapshot; anchor: string } | null = null;
     let result: IdleCheckResult;
     try {
       const before = runtime.snapshot();
@@ -83,19 +86,23 @@ export async function checkIdleSeat(runtime: IdleCheckRuntime, expectedLaunch: s
           const current = runtime.snapshot();
           const decision = decideIdleSeat(current, runtime.now(), minutes, anchor);
           if (current.launch_id !== expectedLaunch || current.activity.last_input_at !== lastInputAt
-            || (issued ? current.attached === true || ["busy", "blocked"].includes(current.state) : decision.outcome !== "ready"))
+            || (effectIssued ? current.attached === true || ["busy", "blocked"].includes(current.state) : decision.outcome !== "ready"))
             throw new Error("idle_precondition_changed");
         };
         verify();
-        runtime.begin(before, anchor);
+        preparation = { seat: before, anchor };
         issued = true;
-        const stopped = await runtime.stop(verify);
+        runtime.begin(before, anchor);
+        const stopped = await runtime.stop(verify, () => { effectIssued = true; });
         if (!stopped) throw new Error("process_tree_exit_unconfirmed");
         verify();
         runtime.finish(before, anchor);
         result = { ...result, outcome: "hibernated" };
       }
     } catch {
+      if (issued && !effectIssued && preparation) {
+        try { runtime.cancel(preparation.seat, preparation.anchor); issued = false; } catch { /* Keep an uncertain stopping record. */ }
+      }
       result = { outcome: issued ? "unconfirmed" : "skipped", reason: issued ? "stop_unconfirmed" : "observation_unconfirmed",
         anchor: null, due_at: null, stalled: false };
     }

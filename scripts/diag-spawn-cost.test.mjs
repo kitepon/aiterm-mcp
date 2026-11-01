@@ -40,7 +40,8 @@ test('an inherited ordinary Node child retains its environment and writes no pro
   assert.equal(result.status, 0, result.stderr);
   const child = JSON.parse(result.stdout);
   assert.equal(child.home, process.env.HOME); assert.equal(child.state, process.env.XDG_RUNTIME_DIR); assert.equal(child.sentinel, 'SENTINEL');
-  assert.equal(fs.existsSync(path.join(root, 'test-failure-snapshots', `spawn-cost-${child.pid}.json`)), false);
+  const directory = path.join(root, 'test-failure-snapshots');
+  assert.equal(fs.existsSync(directory) && fs.readdirSync(directory).some(name => name === `spawn-cost-${child.pid}.json` || name.startsWith(`spawn-cost-${child.pid}-`)), false);
 });
 
 test('a real test entry records scalar costs while preserving child output and exit status', () => {

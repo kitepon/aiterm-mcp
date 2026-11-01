@@ -11,6 +11,7 @@ const hasPowerShell = spawnSync("pwsh", ["-NoProfile", "-Command", "$PSVersionTa
 const skip = hasBackend && hasPowerShell ? undefined : "端末backendとPowerShell 7が必要";
 process.env.TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-powershell-test-"));
 const core = await import("../dist/core.js");
+const runtime = await import("../dist/tmux-runtime.js");
 
 test("PowerShellの単行もUnicode入出力とnative pipelineをUTF-8で保持する", { skip }, async () => {
   const session = "powershell_unicode_singleline";
@@ -35,9 +36,10 @@ test("PowerShellの複数行は記述順に実行し、完了印と変数を保�
     core.send(session, "[Console]::WriteLine('準備' + '完了')", { mark: true });
     await core.readOutput(session, { wait: true, timeout: 5 });
     core.send(session, "$aitermValue = 42\n$aitermValue += 8\n[Console]::WriteLine('SUM=' + $aitermValue)", { mark: true });
+    const markId = fs.readFileSync(path.join(runtime.SOCKDIR, session + ".mark"), "utf8").trim();
     const result = await core.readOutput(session, { wait: true, timeout: 5 });
     assert.match(result, /SUM=50(?!\d)/u, result);
-    assert.ok(result.indexOf("SUM=50") < result.indexOf("<<<AITERM_DONE rc=0>>>"), result);
+    assert.ok(result.indexOf("SUM=50") < result.indexOf(`<<<AITERM_DONE rc=0>>> id=${markId}`), result);
     assert.match(result, /is_complete=True via mark/u, result);
     core.send(session, "[Console]::WriteLine('PERSIST=' + $aitermValue)", { mark: true });
     assert.match(await core.readOutput(session, { wait: true, timeout: 5 }), /PERSIST=50(?!\d)/u);

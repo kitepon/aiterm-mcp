@@ -66,6 +66,15 @@ test("appendMarkSentinel: 実行hostによらずPowerShellは数字sentinelを�
   }
 });
 
+test("appendMarkSentinel: both shell forms correlate the execution output with its mark ID", () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  for (const shell of ["bash", "pwsh"]) {
+    const command = appendMarkSentinel("echo ok", shell, id);
+    assert.match(command, new RegExp(`>>> id=${id}`));
+    assert.doesNotMatch(command, /<<<AITERM_DONE rc=[0-9]+>>>/);
+  }
+});
+
 test("markShellCommand: SSH先の現在のPowerShell promptを使い過去画面を拾わない", () => {
   assert.equal(markShellCommand('ssh', 'PowerShell 7.6.5\nPS C:\\Users\\kite_>\n\n'), 'pwsh');
   assert.equal(markShellCommand('ssh', 'PS C:\\Users\\kite_> exit\nkite@ubuntu:~$\n'), 'ssh');

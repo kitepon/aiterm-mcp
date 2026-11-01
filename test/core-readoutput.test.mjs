@@ -33,6 +33,16 @@ afterEach(() => {
 
 const TEN = Array.from({ length: 10 }, (_, i) => `${i}`).join("\n") + "\n"; // "0\n..9\n"
 
+test("read wait: an existing legacy mark still completes its pending command", async () => {
+  const name = "legacy_mark";
+  const mark = path.join(SOCKDIR, name + ".mark");
+  fab(name, "\n<<<AITERM_DONE rc=0>>>\n");
+  fs.writeFileSync(mark, "1");
+  try {
+    assert.match(await core.readOutput(name, { wait: true, timeout: 1 }), /is_complete=True via mark/);
+  } finally { fs.rmSync(mark, { force: true }); }
+});
+
 test("read wait: a shell name cannot complete an empty pending output stream", { skip: process.platform === "win32" ? "fake tmux is a POSIX script" : undefined }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "empty-wait-"));
   const backend = path.join(root, "tmux");

@@ -13,7 +13,7 @@ import { AitermError, ptyDependencyError } from "./errors.js";
 import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 
-import { parseNativeSessionReceipt, nativePaneTarget, nativeSessionCondition, type NativeSessionReceipt } from "./native-session.js";
+import { parseNativeSessionReceipt, nativePaneTarget, nativeSessionTarget, nativeSessionCondition, type NativeSessionReceipt } from "./native-session.js";
 export type { NativeSessionReceipt } from "./native-session.js";
 type NativeTarget = { session: string | null; target: NativeSessionReceipt | null; verify: () => void;
   created?: (receipt: NativeSessionReceipt) => void; checking?: boolean };
@@ -77,7 +77,7 @@ function nativeSessionArgs(input: string[]): string[] {
       const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id
         || frame.target !== null && raw === nativePaneTarget(frame.target);
       if (!own || (!frame.target && !nativeReads.has(command))) throw nativeTargetUnavailable();
-      args[at + 1] = frame.target ? (nativePanes.has(command) ? nativePaneTarget(frame.target) : isWin ? `=${frame.target.session_id}:` : frame.target.native_id) : `=${frame.session}`;
+      args[at + 1] = frame.target ? (nativePanes.has(command) ? nativePaneTarget(frame.target) : nativeSessionTarget(frame.target)) : `=${frame.session}`;
     }
     start = end + 1;
   }

@@ -15,6 +15,11 @@ export function nativePaneTarget(target: NativeSessionReceipt, platform: NodeJS.
   return platform === "win32" ? `${target.session_id}:.${target.pane_id}` : target.pane_id;
 }
 
+export function nativeSessionTarget(target: NativeSessionReceipt, platform: NodeJS.Platform = process.platform): string {
+  // psmux kill-session compares the raw name; a trailing colon silently misses.
+  return platform === "win32" ? `=${target.session_id}` : target.native_id;
+}
+
 export function nativeSessionCondition(target: NativeSessionReceipt): string {
   return [["pid", target.server_pid], ["session_id", target.native_id], ["session_name", target.session_id],
     ["pane_id", target.pane_id], ["pane_pid", target.pane_pid]].map(([key, value]) => `#{==:#{${key}},${value}}`)

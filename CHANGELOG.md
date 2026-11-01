@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record per-launch input and turn-end timestamps without changing the idle clock on repeated completion observations. This adds lifecycle records only; automatic hibernation is not enabled.
 
 ### Fixed
+- Preserve unset environment values and use exact session targets for native Windows resume and close.
 - Preserve literal environment values ending in a semicolon when creating POSIX tmux sessions.
 - Pause an active Codex v1 goal while changing session settings, wait for the native turn-end record, and restore the owned pause after success or failure. Report uncertain goal restoration alongside configuration failure without replaying an operation.
 

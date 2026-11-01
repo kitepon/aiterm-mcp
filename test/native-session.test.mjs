@@ -1,7 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseNativeSessionReceipt,nativePaneTarget,nativeSessionCondition} from '../dist/native-session.js';
+import {parseNativeSessionReceipt,nativePaneTarget,nativeSessionTarget,nativeSessionCondition} from '../dist/native-session.js';
 
 const target={native_id:'$1355',session_id:'idle-native-proof',server_pid:74940,pane_id:'%1',pane_pid:76120};
 test('native create receipts accept exact OS output and reject ambiguous or unsafe identities',()=>{
@@ -16,4 +16,8 @@ test('Windows pane targets retain their server session identity despite recycled
  assert.equal(nativePaneTarget(target,'linux'),'%1');
  assert.match(nativeSessionCondition(target),/pid},74940/);
  for(const text of ['session_id},$1355','session_name},idle-native-proof','pane_id},%1','pane_pid},76120'])assert.ok(nativeSessionCondition(target).includes(text));
+});
+test('session commands use exact session names without a pane suffix on Windows',()=>{
+ assert.equal(nativeSessionTarget(target,'win32'),'=idle-native-proof');
+ for(const platform of ['linux','darwin'])assert.equal(nativeSessionTarget(target,platform),'$1355');
 });

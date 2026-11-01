@@ -7334,7 +7334,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       const environment: [string, string | null][] = [...Object.entries(recipe.environment),
         ...(next.kind === "codex" ? [["CODEX_HOME", recipe.configuration_root] as [string, string]] : []), ...agentEnvEntries(next, name)];
       for (const [key, value] of environment) {
-        const stored = value === null ? tmux("set-environment", "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
+        const stored = value === null ? tmux("set-environment", isWin ? "-u" : "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
         if (stored.code !== 0) throw uncertain();
       }
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();

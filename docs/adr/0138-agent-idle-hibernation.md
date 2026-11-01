@@ -140,3 +140,5 @@ native-session.tsがnative create receiptの5fieldと条件式を共有し、POS
 直接SendBytes workerにはprivate枠の期待create receiptだけを渡す。workerはsession baseとの一致を最初に確認し、最初に得たport/keyの認証済peerへ固定する。各chunkは元native全期待値の条件に通る時だけ明示paneへ送り、拒否後のchunkと後続Enterは送らない。既存の256byte分割、UTF-8 byte、drain、失敗時の再送禁止を維持する。これはpsmuxの現行入力対象機構を使う相関であり、任意の外部clientによるpane focus変更と入力を原子的に同期する新APIではない。
 
 Windows再開の新metadataは通常のWindows起動と同じCLI退出印を持ち、初期process未観測を死亡と誤認しない。自動休止は引き続きfalseで、正式受入と公開前に有効化しない。
+
+Windowsのsession単位の命令は末尾colonなしのexact session名を使う。psmux 3.3.8のkill-sessionは生のsession名を比較するため、pane形式の末尾colonでは無作用のまま成功する。保存したnull環境変数の復元は、psmuxで未対応のtmux `set-environment -r` ではなく `-u` で削除し、明示空文字と区別する。資格やambient環境は保存しない。

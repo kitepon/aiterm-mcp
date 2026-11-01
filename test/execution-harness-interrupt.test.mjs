@@ -947,7 +947,7 @@ test('stop during actual anonymous before_send cancels only the old unissued req
   const next = await x.dispatch('independent-same-launch-next-request'); assert.equal(next.isError, undefined, JSON.stringify(next));
   assert.equal(next._meta['aiterm/execution_binding'].target.launch.launch_id, f.point.launch.launch_id); assert.deepEqual(f.keys, []);
 });
-test('actual issued anonymous input receipt arriving during stop is retained then reselected at its original Point before a single Esc', posix, async t => {
+test('late issued anonymous input receipt stays bound across a bounded drain and subsequent controls with one Esc', posix, async t => {
   const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
   const f = fixture(t, 'claude'), issued = pause(), release = pause(), selected = pause(); let selections = 0;
   const x = anonymousRaceService(t, f, { selectInterruptionSync(launch, candidates) {
@@ -955,11 +955,23 @@ test('actual issued anonymous input receipt arriving during stop is retained the
   } });
   const pending = x.dispatch('anonymous-issued-receipt-late', undefined, async () => { issued.resolve(); await release.promise; });
   await issued.promise;
-  const stopping = x.service.interruptCascade(x.input); await selected.promise; release.resolve();
-  const [receipt, stop] = await Promise.all([pending, stopping]);
+  const began=performance.now();
+  const stopping = x.service.interruptCascade(x.input).then(stop=>({stop,elapsed:performance.now()-began}));
+  await selected.promise; release.resolve();
+  const [receipt, first] = await Promise.all([pending, stopping]);
+  let stop=first.stop;
   assert.equal(receipt.isError, undefined, JSON.stringify(receipt));
   const binding = receipt._meta['aiterm/execution_binding']; assert.ok(binding.target); assert.equal(binding.target.boundary.turn_id, null);
   assert.equal(binding.target.boundary.operation_id, null); assert.equal(binding.target.boundary.event_cursor, 1);
+  if(stop.targets[0].key_receipt !== 'accepted') {
+    assert.equal(stop.status,'unconfirmed');
+    assert.equal(stop.targets[0].key_receipt,'not_sent',JSON.stringify(stop));
+    assert(first.elapsed>=150,'an unconfirmed issued input must consume the existing drain bound');
+    assert(stop.unresolved.some(row=>row.reason==='native_issuance_unconfirmed'),JSON.stringify(stop));
+    assert.deepEqual(f.keys,[],'an unresolved issued input must not receive Esc');
+    t.diagnostic('receipt committed after the bounded drain; a separate control request reselects its original Point');
+    stop=await x.service.interruptCascade(x.input);
+  }
   assert.equal(stop.targets[0].key_receipt, 'accepted', 'readonly selector must reconsider the newly bound real receipt');
   assert.ok(selections >= 2); assert.deepEqual(stop.targets[0].run, binding.target); assert.deepEqual(f.keys, ['Escape']);
   assert.equal(stop.targets[0].interruption, 'unconfirmed'); assert.equal(stop.targets[0].session_preserved, 'unconfirmed');

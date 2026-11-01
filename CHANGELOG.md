@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Recognize the Codex `Fast` status footer after its header scrolls away, retaining dialog guards and keeping the footer outside Goal composer text.
+
 ## [0.62.3] - 2026-10-31
 
 ### Fixed

@@ -68,6 +68,37 @@ test("Grok: accepted text without a matching native start remains unknown", asyn
   assert.deepEqual(s.handed, []);
 });
 
+test("Grok: native text blocks correlate wrapped dispatch and working input", async t => {
+  for (const working of [false, true]) {
+    const s = seat(t);
+    const cursor = fs.statSync(s.events).size;
+    if (working) s.append(s.events, { type: "turn_ended", outcome: "cancelled", cancellation_context: { trigger: "send_now" } });
+    const started = fs.statSync(s.events).size;
+    s.append(s.events, { type: "turn_started", turn_number: 1 });
+    const text = `<user_query>\n${TEXT}\n</user_query>`;
+    s.append(s.history, { type: "user", prompt_index: 1, content: [{ type: "text", text: working
+      ? `The user sent a message while you were working:\n${text}\nIf the user is asking for a response, address the user first. After replying, complete any unfinished tasks from previous turns.`
+      : text }] });
+    assert.equal((await s.wait()).steer.placement, working ? "same_turn" : "next_turn");
+    assert.deepEqual(s.handed, [working ? started : cursor]);
+  }
+});
+
+test("Grok: unknown or mixed text block wrappers cannot establish acceptance", async t => {
+  for (const content of [
+    [{ type: "text", text: TEXT }],
+    [{ type: "text", text: `<system-reminder>\n${TEXT}\n</system-reminder>` }],
+    [{ type: "text", text: `<user_query>\n${TEXT}\n</user_query>` }, { type: "image", source: "unknown" }],
+    [{ type: "text", text: `<user_query>\n${TEXT}\n</user_query>extra` }],
+  ]) {
+    const s = seat(t);
+    s.append(s.events, { type: "turn_started", turn_number: 1 });
+    s.append(s.history, { type: "user", prompt_index: 1, content });
+    assert.equal((await s.wait()).steer.placement, "unknown");
+    assert.deepEqual(s.handed, []);
+  }
+});
+
 test("Grok: partial or ambiguous records never produce a completion handle", async t => {
   for (const mode of ["partial", "duplicate", "truncated"]) {
     const s = seat(t);

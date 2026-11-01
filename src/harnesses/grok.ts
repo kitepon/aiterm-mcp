@@ -593,6 +593,23 @@ export function grokFooterHasConfiguration(screen: string, model: string | null,
   });
 }
 
+/** Native history wraps submitted text; accept only the observed complete wrappers. */
+export function grokUserPrompt(record: any): string | null {
+  if (record?.type !== "user" || "synthetic_reason" in record) return null;
+  if (typeof record.content === "string") return record.content;
+  if (!Array.isArray(record.content) || record.content.length !== 1) return null;
+  const item = record.content[0];
+  if (item?.type !== "text" || typeof item.text !== "string") return null;
+  for (const [prefix, suffix] of [
+    ["<user_query>\n", "\n</user_query>"],
+    ["The user sent a message while you were working:\n<user_query>\n",
+      "\n</user_query>\nIf the user is asking for a response, address the user first. After replying, complete any unfinished tasks from previous turns."],
+  ]) {
+    if (item.text.startsWith(prefix) && item.text.endsWith(suffix)) return item.text.slice(prefix.length, -suffix.length);
+  }
+  return null;
+}
+
 // 配送では完了eventのturn_numberと履歴のprompt_indexを相関する。通常照会は直近の実user発話を読む。
 export function grokTranscriptText(
   meta: AgentMetadata,

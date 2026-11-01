@@ -39,7 +39,7 @@ import {
   codexUsageLimit,
 } from "./harnesses/codex.js";
 import { interimFromToken, parseInterimFrom } from "./interim-words.js";
-import { grokEventsTranscript, grokSessionDirectory } from "./harnesses/grok.js";
+import { grokEventsTranscript, grokSessionDirectory, grokUserPrompt } from "./harnesses/grok.js";
 import type { InterimFrom } from "./interim-words.js";
 
 /** 差し込みの返りの_metaで返すキー。 */
@@ -269,8 +269,8 @@ export function grokSteerAcceptance(meta: AgentMetadata, entry: SteerEntry):
     for (const line of rows) {
       let row: any;
       try { row = JSON.parse(line); } catch { return null; }
-      if (row?.type === "user" && !("synthetic_reason" in row) && typeof row.content === "string"
-        && createHash("sha256").update(squeeze(row.content)).digest("hex") === entry.body_digest) {
+      const prompt = grokUserPrompt(row);
+      if (prompt !== null && createHash("sha256").update(squeeze(prompt)).digest("hex") === entry.body_digest) {
         if (!Number.isSafeInteger(row.prompt_index) || row.prompt_index < 0) return null;
         matches.push(row.prompt_index);
       }

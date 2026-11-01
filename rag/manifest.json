@@ -3657,6 +3657,40 @@
       "fetched": "2026-09-19"
     },
     {
+      "slug": "psreadline-bracketed-paste-issue1471-20261101",
+      "topic": "terminal-automation",
+      "title": "PSReadLine official issue 1471: Support Paste Bracketing",
+      "source_url": "https://api.github.com/repos/PowerShell/PSReadLine/issues/1471",
+      "source_type": "github_issue",
+      "path": "sources/terminal-automation/psreadline-bracketed-paste-issue1471-20261101.md",
+      "tags": [
+        "powershell",
+        "psreadline",
+        "paste"
+      ],
+      "summary": "公式のbracketed-paste対応要望の現状。実装済みと推定しない。",
+      "relevance": "Windows入力の修理で、対応未確認のpaste markerを成功条件にしない。",
+      "chars": 8102,
+      "fetched": "2026-11-01"
+    },
+    {
+      "slug": "psreadline-paste-functions-76-20261101",
+      "topic": "terminal-automation",
+      "title": "PowerShell 7.6 PSReadLine functions: paste behavior",
+      "source_url": "https://raw.githubusercontent.com/MicrosoftDocs/PowerShell-Docs/main/reference/7.6/PSReadLine/About/about_PSReadLine_Functions.md",
+      "source_type": "official_documentation",
+      "path": "sources/terminal-automation/psreadline-paste-functions-76-20261101.md",
+      "tags": [
+        "powershell",
+        "psreadline",
+        "paste"
+      ],
+      "summary": "Paste関数の一括挿入とコンソールの一文字ずつの挿入の違いを説明する。",
+      "relevance": "通常PTYのPowerShell入力で、入力受領と編集処理・実行の境界を切り分ける。",
+      "chars": 39584,
+      "fetched": "2026-11-01"
+    },
+    {
       "slug": "string-width-7-2-0-package-json",
       "topic": "windows-wrapped-shell-prompt",
       "title": "string-width 7.2.0 package.json",
@@ -3693,5 +3727,5 @@
       "fetched": "2026-10-25"
     }
   ],
-  "updated": "2026-10-30"
+  "updated": "2026-11-01"
 }

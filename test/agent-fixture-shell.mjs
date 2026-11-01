@@ -12,3 +12,9 @@ export function agentFixturePrint(text) {
   const escaped = text.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
   return "printf '%b' '" + escaped.replaceAll("'", "'\\''") + "'";
 }
+
+// The argv printer's child renderer must own an input prompt before control text.
+export function agentFixtureShellReady(screen, marker) {
+  const lines = screen.trimEnd().split(/\r?\n/);
+  return lines.includes(marker) && /^PS [^\r\n]*>\s*$/.test(lines.at(-1) ?? '');
+}

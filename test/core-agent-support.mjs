@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
+import { agentFixturePrint, agentFixtureShellCommand, agentFixtureShellReady } from "./agent-fixture-shell.mjs";
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasTmux =
@@ -801,6 +801,17 @@ function appendClaudeDoneWhenLogContains(sid, needle, text, overrides = {}) {
 }
 
 async function markFakeAgentReady(sid, kind = "codex") {
+  let timeout = 5;
+  if (process.platform === "win32" && kind === "codex" && readAgentMeta(sid).agent_executable === argvPrinterBin) {
+    const started = performance.now();
+    let ready = false;
+    while (performance.now() - started < 5000) {
+      if (agentFixtureShellReady(await core.readOutput(sid, { screen: true, raw: true }), ARGV_FIXTURE_DONE)) { ready = true; break; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!ready) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'fixture renderer input ownership' })));
+    timeout = Math.max(0, 5 - (performance.now() - started) / 1000);
+  }
   if (kind === "grok") {
     const meta = readAgentMeta(sid);
     const dir = path.join(meta.grok_home, "sessions", encodeURIComponent(meta.cwd ?? process.cwd()), meta.vendor_session_id);
@@ -817,7 +828,7 @@ async function markFakeAgentReady(sid, kind = "codex") {
     raw: true,
     preserveAgentOperation: true,
   });
-  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout, raw: true });
   if (!ready.includes("ready")) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'fixture ready control command' })));
 }
 

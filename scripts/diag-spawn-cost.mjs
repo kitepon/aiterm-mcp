@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
+import { randomUUID } from 'node:crypto';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -54,10 +55,10 @@ if (targetTest(process.env.NODE_TEST_CONTEXT, process.argv[1], root)) {
   process.once('exit', () => {
     const directory = path.join(root, 'test-failure-snapshots');
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, `spawn-cost-${process.pid}.json`), JSON.stringify({
+    fs.writeFileSync(path.join(directory, `spawn-cost-${process.pid}-${randomUUID()}.json`), JSON.stringify({
       schema: 'aiterm.diagnostic-spawn-cost.v1', pid: process.pid,
       test_file: path.relative(root, process.argv[1]).split(path.sep).join('/'),
       duration_ms: performance.now() - started, operations,
-    }, null, 2) + '\n', { mode: 0o600 });
+    }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   });
 }

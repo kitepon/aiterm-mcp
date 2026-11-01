@@ -45,16 +45,20 @@ test('an inherited ordinary Node child retains its environment and writes no pro
 
 test('a real test entry records scalar costs while preserving child output and exit status', () => {
   const probe = path.join(root, 'test', `profile-probe-${process.pid}.test.mjs`);
-  let report;
+  let report, canary;
   try {
-    fs.writeFileSync(probe, `import './seat-env.mjs';\nimport {spawnSync} from 'node:child_process';\nconst result=spawnSync(process.execPath,['-e','process.stdout.write("PRIVATE_PAYLOAD");process.exit(7)'],{encoding:'utf8'});\nconsole.log(JSON.stringify({pid:process.pid,status:result.status,output:result.stdout}));\n`);
+    fs.writeFileSync(probe, `import './seat-env.mjs';\nimport fs from 'node:fs';\nimport {spawnSync} from 'node:child_process';\nfs.mkdirSync(${JSON.stringify(path.join(root, 'test-failure-snapshots'))},{recursive:true});\nfs.writeFileSync(${JSON.stringify(path.join(root, 'test-failure-snapshots'))}+'/spawn-cost-'+process.pid+'.json','PRIOR_GENERATION');\nconst result=spawnSync(process.execPath,['-e','process.stdout.write("PRIVATE_PAYLOAD");process.exit(7)'],{encoding:'utf8'});\nconsole.log(JSON.stringify({pid:process.pid,status:result.status,output:result.stdout}));\n`);
     const result = spawnSync(process.execPath, ['--import', preload, probe], { encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' } });
     assert.equal(result.status, 0, result.stderr);
     const child = JSON.parse(result.stdout); assert.equal(child.status, 7); assert.equal(child.output, 'PRIVATE_PAYLOAD');
-    report = path.join(root, 'test-failure-snapshots', `spawn-cost-${child.pid}.json`);
+    canary = path.join(root, 'test-failure-snapshots', `spawn-cost-${child.pid}.json`);
+    assert.equal(fs.readFileSync(canary, 'utf8'), 'PRIOR_GENERATION', 'PID reuse never overwrites prior process evidence');
+    const names = fs.readdirSync(path.dirname(canary)).filter(name => name.startsWith(`spawn-cost-${child.pid}-`) && name.endsWith('.json'));
+    assert.equal(names.length, 1);
+    report = path.join(path.dirname(canary), names[0]);
     const raw = fs.readFileSync(report, 'utf8'), data = JSON.parse(raw);
     assert.equal(data.schema, 'aiterm.diagnostic-spawn-cost.v1');
     assert.ok(data.operations.other.count >= 1); assert.ok(data.operations.other.max_ms > 0);
     assert.doesNotMatch(raw, /PRIVATE_PAYLOAD|PRIVATE_ENV|SENTINEL/);
-  } finally { fs.rmSync(probe, { force: true }); if (report) fs.rmSync(report, { force: true }); }
+  } finally { fs.rmSync(probe, { force: true }); if (report) fs.rmSync(report, { force: true }); if (canary) fs.rmSync(canary, { force: true }); }
 });

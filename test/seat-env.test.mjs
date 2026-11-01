@@ -42,7 +42,7 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(result.status, 0, result.stderr);
     const data = JSON.parse(result.stdout);
     assert.equal(data.exists, true);
-    assert.equal(existsSync(data.initial), false, '前処理が作った置き場は、processの終わりに消える');
+    assert.equal(existsSync(data.initial), process.platform === 'win32', 'Windowsの子rootは並行走者の終了まで保持し、POSIXは子の終了時に消す');
     assert.notEqual(data.initial, inherited);
     assert.deepEqual(Object.values(data.environment), Array(9).fill(null));
     assert.deepEqual(data.temporary, Array(3).fill(data.initial));
@@ -52,6 +52,38 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Windows keeps distinct child temp roots until their preloaded runner finishes', { skip: process.platform !== 'win32' }, () => {
+  const preload = new URL('./seat-env.mjs', import.meta.url).href;
+  const { AITERM_TEST_RUN_ROOT: _runRoot, NODE_TEST_CONTEXT: _context, ...env } = process.env;
+  const invalid = spawnSync(process.execPath, ['--import', preload, '-e', 'throw new Error("must not run")'], {env:{...env,AITERM_TEST_RUN_ROOT:''},encoding:'utf8'});
+  assert.notEqual(invalid.status,0);
+  assert.match(invalid.stderr,/Windows test run root must be an existing directory/);
+  const result = spawnSync(process.execPath, ['--import', preload, '--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { spawnSync } from 'node:child_process';
+    const owner = process.env.AITERM_TEST_RUN_ROOT;
+    const child = () => {
+      const r = spawnSync(process.execPath, ['--import', ${JSON.stringify(preload)}, '-e',
+        'console.log(JSON.stringify({root:process.env.TEMP,owner:process.env.AITERM_TEST_RUN_ROOT}))'], {encoding:'utf8'});
+      assert.equal(r.status,0,r.stderr);
+      return JSON.parse(r.stdout);
+    };
+    const a=child(),b=child();
+    assert.notEqual(a.root,b.root);
+    for(const entry of [a,b]) {
+      assert.equal(entry.owner,owner);
+      assert.equal(path.dirname(entry.root),owner);
+      assert(fs.existsSync(entry.root),'an exited child must not remove another MSYS process mount');
+    }
+    console.log(JSON.stringify({owner,children:[a.root,b.root]}));
+  `], {env,encoding:'utf8',timeout:10000});
+  assert.equal(result.status,0,result.stderr);
+  const data=JSON.parse(result.stdout);
+  for(const root of [data.owner,...data.children]) assert.equal(existsSync(root),false,'the runner removes its owned tree after all children finish');
 });
 
 // 試験fileは、入口（--import）を通らずに流される事がある。引数が空の`node --test`は、その場所から下の試験fileを全部拾う（ADR 0087の追記）。

@@ -10,7 +10,7 @@ export function parseIdleArgs(args: string[]): { session_id: string; launch_id: 
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index], value = args[index + 1];
     if (!["--session", "--launch", "--clock"].includes(key) || value === undefined || fields[key] !== undefined)
-      throw new Error("usage: aiterm idle-check --session <name> --launch <32hex> [--clock <32hex>]");
+      throw new Error("usage: aiterm-idle-check --session <name> --launch <32hex> [--clock <32hex>]");
     fields[key] = value;
   }
   const launch = executionLaunchSchema.parse({ session_id: fields["--session"], launch_id: fields["--launch"] });

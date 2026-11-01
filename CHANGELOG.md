@@ -7,27 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Preserve Claude configuration selection across resume and reject onboarding screens as composer readiness.
-
 ### Added
-- Check native model, effort and speed displays before an idle shutdown under the existing send admission. Cancel previews without saving settings, and retain seats on mismatches, unsupported displays or intervening screen/attachment changes. Automatic activation remains disabled.
-- Bind initial managed Claude/Codex launches on POSIX to their actual native creation receipt under the send admission; protect launch, input, close and the first idle check from same-name replacements. Preserve logical names during automatic naming and old state during launch/hibernation races.
-- Refuse native screen reads, control keys and approval actions on dormant or uncertain generations, and pin resumed operations to the saved native receipt. Preserve an idle stop result for confirmed hibernation and keep damaged lifecycle records managed.
-- Resume an explicitly named hibernated conversation through agent_launch while preserving its result tuple and initial-prompt receipts; refuse conflicting launch settings before input. Preserve registered environment keys and membership throughout resume.
-- Retain confirmed hibernated logical seats and registered environment in public listings, expose explicit hibernation observations and idle seat turns, and close them without restarting a CLI. Keep stopping, resuming, failed and conflicting generations unknown; automatic hibernation remains disabled.
-- Fence resumed CLI and input operations to the actual native creation receipt, server and pane birth identities, including a receiver-side check against recycled tmux IDs. Mounted execution-graph resume and Windows resume remain unsupported; automatic hibernation is disabled.
-- Prepare same-conversation physical resume under the send lock, preserving predecessor state, lineage, cwd and explicit environment, with durable failure records that prevent duplicate CLI launches. Public lifecycle integration is connected as a candidate; real-harness acceptance remains pending; automatic hibernation is disabled.
-- Bind resumed Codex readers to the predecessor's hibernation and transcript proof; exclude pre-resume completions and delayed old-turn events across wait, turn-state, steer and interim reads. Real-harness acceptance remains pending.
-- Pin a completed Codex root transcript and its file identity before idle shutdown; refuse stopping when the saved proof or history changes.
-- Prepare resume templates from confirmed launch/configuration inputs and an atomic current-launch selector that preserves old hook and waiter records. Automatic activation remains disabled.
-- Prepare per-launch native sleep clocks, stale-worker recovery and native completion pickup without a parent waiter. Clock activation remains disabled until resume and logical-seat acceptance are complete.
-- Prepare idle eligibility and verified process-tree shutdown under the existing send admission, with private stopping/hibernated records, checks immediately before the first signal, a five-second graceful interval and protection for detached sessions. Automatic hibernation remains disabled until official resume and public lifecycle integration are complete.
-- Record per-launch input and turn-end timestamps without changing the idle clock on repeated completion observations. This adds lifecycle records only; automatic hibernation is not enabled.
+- Hibernate managed Claude and Codex conversations after 30 idle minutes on Linux, macOS and Windows; resume the same vendor conversation and saved settings on the next send. Preserve logical listings and explicit environment values while dormant.
+- Add `aiterm-idle-check` and native per-launch sleep clocks. Keep active turns, approvals, attachments, pending deliveries, working descendants and unconfirmed generations alive; exclude unverified harnesses and mounted execution graphs.
+- Bind launch, resume, input and close to the actual native creation identity and preserve predecessor history and uncertain effects without replay.
 
 ### Fixed
-- Preserve unset environment values and use exact session targets for native Windows resume and close.
-- Preserve literal environment values ending in a semicolon when creating POSIX tmux sessions.
-- Pause an active Codex v1 goal while changing session settings, wait for the native turn-end record, and restore the owned pause after success or failure. Report uncertain goal restoration alongside configuration failure without replaying an operation.
+- Pause an active Codex v1 goal for session configuration, wait for its native turn end, and restore the owned pause while reporting partial or uncertain failures.
+- Preserve Claude configuration selection across resume and refuse onboarding screens as composer readiness.
+- Preserve unset Windows environment values, use exact session targets for native close, and retain literal POSIX environment values ending in a semicolon.
+- Read the explicit `Fast off` preview in Codex 0.162 and distinguish Claude's native macOS keep-awake helper from user work.
 
 ## [0.62.6] - 2026-11-01
 

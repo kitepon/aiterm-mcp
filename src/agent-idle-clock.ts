@@ -3,12 +3,12 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { readProcessIdentities, idleClockCommand } from "./process-runtime.js";
 import { liveNodeExecutable } from "./live-node.js";
-import { readAgentIdleClock, writeAgentIdleClock, type AgentIdleClock } from "./agent-lifecycle.js";
+import { readAgentIdleClock, readAgentResumeNative, writeAgentIdleClock, type AgentIdleClock } from "./agent-lifecycle.js";
 import type { AgentMetadata } from "./agent-shared.js";
 import type { IdleCheckResult } from "./agent-idle.js";
 
-// Enable only after official resume and the public logical-seat contract pass acceptance.
-export const AGENT_IDLE_ENABLED = false;
+// Test fixtures drive the controller explicitly, without arming unattended timers.
+export const AGENT_IDLE_ENABLED = !process.env.NODE_TEST_CONTEXT;
 const CLI = fileURLToPath(new URL("./agent-idle-cli.js", import.meta.url));
 export function idleClockDeadline(result: IdleCheckResult, now: number): number | null {
   if (result.outcome === "hibernated" || result.outcome === "unconfirmed" || ["dead", "missing"].includes(result.reason)) return null;
@@ -52,6 +52,7 @@ export async function armAgentIdleClock(meta: AgentMetadata, anchor: string | nu
 export function requestAgentIdleClock(session: string, launchId: string): void {
   if (!AGENT_IDLE_ENABLED) return;
   try {
+    if (!readAgentResumeNative({ aiterm_session: session, launch_id: launchId })) return;
     const clock = readAgentIdleClock({ aiterm_session: session, launch_id: launchId });
     if (clock && readProcessIdentities([clock.owner.pid]).some(row => row.started_identity === clock.owner.started_identity)) return;
   } catch { process.stderr.write("aiterm: idle_clock_state_unconfirmed\n"); return; }

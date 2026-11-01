@@ -29,14 +29,18 @@ test('deadline retains the native end clock and retries busy observations withou
  for(const reason of ['dead','missing'])assert.equal(idleClockDeadline({...base,reason},1000),null);
 });
 
-test('clock CLI validates generations and duplicate arguments, with production entry disabled',()=>{
+test('clock CLI validates generations and keeps unattended timers out of node:test fixtures',()=>{
  const args=['--session','seat','--launch','b'.repeat(32),'--clock','c'.repeat(32)];
  assert.deepEqual(parseIdleArgs(args),{session_id:'seat',launch_id:'b'.repeat(32),token:'c'.repeat(32)});
  for(const bad of [[],['--session','../seat','--launch','b'.repeat(32)],[...args,'--session','other'],[...args,'--wat','x'],
   ['--session','seat','--launch','b'.repeat(32),'--clock','not-a-token']])assert.throws(()=>parseIdleArgs(bad));
- assert.equal(AGENT_IDLE_ENABLED,false,'resume/public acceptance is not complete');
+ assert.equal(AGENT_IDLE_ENABLED,false,'node:test drives the controller explicitly');
  const run=spawnSync(process.execPath,['dist/agent-idle-cli.js',...args],{encoding:'utf8'});
  assert.equal(run.status,0,run.stderr);assert.equal(JSON.parse(run.stdout).reason,'lifecycle_not_enabled');
+ const env={...process.env};delete env.NODE_TEST_CONTEXT;
+ const enabled=spawnSync(process.execPath,['dist/agent-idle-cli.js',...args],{env,encoding:'utf8'});
+ assert.equal(enabled.status,2,enabled.stderr);assert.match(enabled.stderr,/idle_check_unconfirmed/);
+ assert.equal(enabled.stdout,'','normal CLI reaches the controller and refuses the missing generation');
 });
 
 test('one native sleeper owns a launch; a dead owner is recovered without touching a newer token',async t=>{

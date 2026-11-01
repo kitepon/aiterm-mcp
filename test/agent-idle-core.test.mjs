@@ -622,16 +622,19 @@ test('a later aborted native turn cannot reuse the previous reply clock',{skip,t
 
 test('a replacement after native exit retains uncertain stopping instead of completing the old launch',
  {skip,timeout:20000},async t=>{
- const f=await fixture(t);let replaced=false;
- const timer=setInterval(()=>{
-  if(!replaced&&spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',f.name]).status!==0){
+ const f=await fixture(t);let replaced=false;const original=childProcess.spawnSync,bin=resolveTmux();
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+  const result=original(binary,args,options);
+  if(!replaced&&binary===bin&&args.some(value=>['list-sessions','has-session'].includes(value))
+   &&readAgentLifecycle(f.meta)?.state==='stopping'
+   &&original(bin,['-S',SOCK,'has-session','-t',f.name]).status!==0){
    replaced=true;writeAgentMetadata({...f.meta,launch_id:'b'.repeat(32)});
    fs.unlinkSync(agentMetadataPath(f.name,f.meta.launch_id));
   }
- },5);
- t.after(()=>clearInterval(timer));
- const result=await core.checkAgentIdle(f.expected);clearInterval(timer);
- assert.equal(replaced,true);assert.equal(result.outcome,'unconfirmed');
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ const result=await core.checkAgentIdle(f.expected);
+ assert.equal(replaced,true,JSON.stringify(result));assert.equal(result.outcome,'unconfirmed');
  assert.equal(readAgentLifecycle(f.meta).state,'stopping');
  assert.equal(fs.existsSync(agentMetadataPath(f.name,'b'.repeat(32))),true);
 });

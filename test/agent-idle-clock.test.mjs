@@ -64,7 +64,7 @@ test('native sleep delays literal argv in a separate session; only the final com
  const body='literal $HOME $(false) `false` " apostrophe\' 日本語';
  fs.writeFileSync(worker,"import fs from 'node:fs';fs.writeFileSync(process.argv[2],JSON.stringify(process.argv.slice(3)));\n");
  const command=idleClockCommand(1500,process.execPath,[worker,output,body]);
- const started=Date.now(),child=spawn(command.executable,command.args,{detached:true,stdio:'ignore'});
+ const started=Date.now(),child=spawn(command.executable,command.args,{detached:process.platform!=='win32',stdio:'ignore'});
  const done=once(child,'exit');
  t.after(()=>{if(child.exitCode===null)child.kill();});
  await once(child,'spawn');

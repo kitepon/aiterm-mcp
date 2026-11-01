@@ -22,7 +22,7 @@ test('ordinary terminal output is not treated as a private resume refusal', {ski
 
 test('environment values ending with a semicolon remain values in tmux argv',()=>{
  const launch=sessionEnvironmentLaunch('bash',['VALUE=;','BACKSLASH=\\;'],'tmux 3.6a');
- assert.deepEqual(launch.args,isWin?['-e','VALUE=;','-e','BACKSLASH=\\;']:['-e','VALUE=\\;','-e','BACKSLASH=\\\\;']);
+ assert.deepEqual(launch.args,isWin?['-e','VALUE=;','-e','BACKSLASH=\\;','-e',`PATH=${process.env.PATH}`]:['-e','VALUE=\\;','-e','BACKSLASH=\\\\;']);
 });
 
 test("複数行のshell適合はhost OSによらず行を一括して渡す", () => {

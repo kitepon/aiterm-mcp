@@ -44,9 +44,9 @@ test("read wait: an existing legacy mark still completes its pending command", a
 });
 
 test("read wait: a shell name cannot complete an empty pending output stream", { skip: process.platform === "win32" ? "fake tmux is a POSIX script" : undefined }, () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "empty-wait-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "empty-wait-V"));
   const backend = path.join(root, "tmux");
-  fs.writeFileSync(backend, '#!/bin/sh\ncase "$*" in *-V*) echo "tmux 3.6";; *display-message*) echo bash;; esac\n', { mode: 0o700 });
+  fs.writeFileSync(backend, '#!/bin/sh\nfor arg do case "$arg" in -V) echo "tmux 3.6"; exit;; display-message) echo bash; exit;; esac; done\n', { mode: 0o700 });
   try {
     for (const late of [false, true]) {
       const script = `

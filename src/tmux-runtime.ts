@@ -94,7 +94,9 @@ function nativeConditionalArgs(args: string[]): string[] {
   const target = nativeTargets.getStore()?.target;
   if (!target || nativeReads.has(args[0]) || args[0] === "delete-buffer") return args;
   const condition = nativeSessionCondition(target, nativeTargets.getStore()?.allowExitedPane);
-  const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+  const quote = (value: string) => isWin
+    ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    : `'${value.replace(/'/g, "'\\''")}'`;
   const command = args.map(quote).join(" ");
   return ["if-shell", "-F", "-t", nativePaneTarget(target), condition, command, `display-message -p ${NATIVE_REFUSED}`];
 }

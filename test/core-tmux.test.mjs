@@ -117,18 +117,23 @@ test("サニタイズ: raw=true は素通し", { skip }, () => {
 
 test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async (t) => {
   const session = "selftest_long_input";
+  const timing = { open_started_at: Date.now() };
   core.openSession(session);
+  timing.open_returned_at = Date.now();
   try {
     const marker = "<<<AITERM_LONG_INPUT len=6000>>>";
     // 256byte境界直後に3byte文字を置き、chunk分割がUTF-8を壊さないことも同時に固定する。
     const value = `${"x".repeat(255)}あ${"x".repeat(5744)}`;
     const command = `v=${value}; printf '\\n<<<AITERM_LONG_INPUT len=%s>>>\\n' "\${#v}"`;
+    timing.send_started_at = Date.now();
     core.send(session, command, { force: true });
+    timing.send_returned_at = Date.now();
     const out = await core.readOutput(session, { wait: true, until: marker, timeout: 5 });
+    timing.read_returned_at = Date.now();
     assert.ok(out.includes(marker), `長いcommandの末尾まで実行される: ${JSON.stringify(out)}`);
     assert.match(out, /is_complete=True via until/, "指定markerが完了証拠になる");
   } catch (error) {
-    t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: '6000-character shell execution' })));
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: '6000-character shell execution', timing })));
     throw error;
   } finally {
     core.closeSession(session);

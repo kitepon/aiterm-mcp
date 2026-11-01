@@ -114,7 +114,9 @@ async function readArgvFixture(sid, t, argvFile) {
     catch { return null; }
   };
   const expectedAnchor = anchor();
+  const timing = { read_started_at: Date.now() };
   const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
+  timing.read_returned_at = Date.now();
   if (out.includes(ARGV_FIXTURE_DONE)) return out;
   const stats = text => ({ bytes: Buffer.byteLength(text), argv: text.includes("<arg>"),
     done: text.includes(ARGV_FIXTURE_DONE),
@@ -145,7 +147,7 @@ async function readArgvFixture(sid, t, argvFile) {
     argvState = stat ? { status: 'present', size: stat.size, mtime_ms: stat.mtimeMs } : { status: 'missing' };
   } catch { argvState = { status: 'unknown' }; }
   t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'argv completion', expected_launch_id: launchId,
-    argv_file: argvState })));
+    argv_file: argvState, timing })));
   assert.fail("fake CLI argv completion was not observed within the existing 5-second deadline");
 }
 

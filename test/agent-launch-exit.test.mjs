@@ -53,20 +53,29 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
 `);
   meta.agent_executable = script;
   let launching;
+  const timing = { open_started_at: Date.now() };
   core.openSession(session, 'pwsh');
+  timing.open_returned_at = Date.now();
   try {
     fs.writeFileSync(meta.event_file, '');
     fs.writeFileSync(agentMetadataPath(session,meta.launch_id),JSON.stringify(meta));
     assert.equal(core.observeSession(session).harness_alive, null);
     assert.equal(core.observeSession(session).reason, 'harness_start_unconfirmed');
+    timing.dispatch_started_at = Date.now();
     const pending = core.sendAgentMessage(session, 'START_BOUNDARY_BODY');
     const launch = new Promise((resolve,reject) => { launching = setImmediate(() => {
-      try { resolve(core.send(session,
+      try {
+        timing.launch_send_started_at = Date.now();
+        const sent = core.send(session,
         windowsAgentLaunchLine(null, [], [process.execPath, script, meta.launch_id], {file,launch_id:meta.launch_id}),
-        {raw:true,force:true,launchShell:'pwsh',preserveAgentOperation:true})); }
+        {raw:true,force:true,launchShell:'pwsh',preserveAgentOperation:true});
+        timing.launch_send_returned_at = Date.now();
+        resolve(sent);
+      }
       catch(error) { reject(error); }
     }); });
     const [receipt] = await Promise.all([pending,launch]);
+    timing.dispatch_returned_at = Date.now();
     assert.equal(receipt.schema,'aiterm.agent-dispatch.v1');
     assert.equal(core.observeSession(session).harness_alive,true);
     assert.equal(fs.existsSync(file),false,'launcher has not returned while the CLI is alive');
@@ -81,7 +90,7 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
     await assert.rejects(core.sendAgentMessage(session,'NO_REPLAY'),/harness_exited/);
     assert.deepEqual(fs.readFileSync(ledger),before);
   } catch(error) {
-    t.diagnostic(JSON.stringify(await capturePtyFailure(core,session,{boundary:'native launch exit lifecycle'})));
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core,session,{boundary:'native launch exit lifecycle',timing})));
     throw error;
   } finally {
     if(launching)clearImmediate(launching);

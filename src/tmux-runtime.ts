@@ -13,9 +13,8 @@ import { AitermError, ptyDependencyError } from "./errors.js";
 import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 
-export interface NativeSessionReceipt {
-  native_id: string; session_id: string; server_pid: number; pane_id: string; pane_pid: number;
-}
+import { parseNativeSessionReceipt, nativePaneTarget, nativeSessionCondition, type NativeSessionReceipt } from "./native-session.js";
+export type { NativeSessionReceipt } from "./native-session.js";
 type NativeTarget = { session: string | null; target: NativeSessionReceipt | null; verify: () => void;
   created?: (receipt: NativeSessionReceipt) => void; checking?: boolean };
 const nativeTargets = new AsyncLocalStorage<NativeTarget>();
@@ -43,16 +42,17 @@ export function hasVerifiedNativeSessionTarget(name: string): boolean {
 }
 export function withNativeSessionCreation<T>(session: string | null, created: (receipt: NativeSessionReceipt) => void,
   verify: () => void, body: () => T): T {
-  if (isWin || nativeTargets.getStore()) throw nativeTargetUnavailable();
+  if (nativeTargets.getStore()) throw nativeTargetUnavailable();
   return nativeTargets.run({ session, target: null, created, verify }, body);
 }
 function captureNativeSessionReceipt(receipt: string): void {
   const frame = nativeTargets.getStore();
   if (!frame?.created || frame.target) throw nativeTargetUnavailable();
-  const value = /^(\$\d+)\t([A-Za-z0-9_-]{1,64})\t([1-9][0-9]*)\t(%\d+)\t([1-9][0-9]*)\r?\n?$/.exec(receipt);
-  if (!value || frame.session !== null && value[2] !== frame.session) throw nativeTargetUnavailable();
-  frame.session = value[2];
-  frame.target = { native_id: value[1], session_id: value[2], server_pid: Number(value[3]), pane_id: value[4], pane_pid: Number(value[5]) };
+  let target: NativeSessionReceipt;
+  try { target = parseNativeSessionReceipt(receipt); } catch { throw nativeTargetUnavailable(); }
+  if (frame.session !== null && target.session_id !== frame.session) throw nativeTargetUnavailable();
+  frame.session = target.session_id;
+  frame.target = target;
   frame.created({ ...frame.target });
   verifyNativeTarget(frame);
 }
@@ -74,9 +74,10 @@ function nativeSessionArgs(input: string[]): string[] {
       if (frame.session === null && !frame.target && nativeReads.has(command)) { start = end + 1; continue; }
       targetedRead ||= nativeReads.has(command);
       const raw = args[at + 1], named = /^=?([A-Za-z0-9_-]{1,64})(?::(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
-      const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id;
+      const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id
+        || frame.target !== null && raw === nativePaneTarget(frame.target);
       if (!own || (!frame.target && !nativeReads.has(command))) throw nativeTargetUnavailable();
-      args[at + 1] = frame.target ? (nativePanes.has(command) ? frame.target.pane_id : frame.target.native_id) : `=${frame.session}`;
+      args[at + 1] = frame.target ? (nativePanes.has(command) ? nativePaneTarget(frame.target) : isWin ? `=${frame.target.session_id}:` : frame.target.native_id) : `=${frame.session}`;
     }
     start = end + 1;
   }
@@ -92,12 +93,10 @@ const NATIVE_REFUSED = "__AITERM_NATIVE_GENERATION_REFUSED__";
 function nativeConditionalArgs(args: string[]): string[] {
   const target = nativeTargets.getStore()?.target;
   if (!target || nativeReads.has(args[0]) || args[0] === "delete-buffer") return args;
-  const checks = [["pid", target.server_pid], ["session_id", target.native_id], ["session_name", target.session_id],
-    ["pane_id", target.pane_id], ["pane_pid", target.pane_pid]].map(([key, value]) => `#{==:#{${key}},${value}}`);
-  const condition = checks.reduce((left, right) => `#{&&:${left},${right}}`);
+  const condition = nativeSessionCondition(target);
   const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
   const command = args.map(quote).join(" ");
-  return ["if-shell", "-F", "-t", target.pane_id, condition, command, `display-message -p ${NATIVE_REFUSED}`];
+  return ["if-shell", "-F", "-t", nativePaneTarget(target), condition, command, `display-message -p ${NATIVE_REFUSED}`];
 }
 
 // Windows ネイティブには tmux が無いため、tmux CLI 互換の native psmux を叩く
@@ -514,9 +513,14 @@ export function sendPsmuxPayload(
   if (!isWin) return { code: 1, stdout: "", stderr: "psmux direct send is Windows-only" };
   ensureWinPsmux(observe);
   beforeExecutionEffect(sessionName);
+  const frame = nativeTargets.getStore();
+  if (frame && (!frame.target || frame.session !== sessionName)) throw nativeTargetUnavailable();
+  if (frame) verifyNativeTarget(frame);
+  const target = frame?.target;
+  const proof = target ? [target.native_id, target.session_id, target.server_pid, target.pane_id, target.pane_pid].join("\t") : null;
   const worker = fileURLToPath(new URL("./psmux-send-worker.js", import.meta.url));
   const body = bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text;
-  const result = spawnSync(process.execPath, [worker, `${WIN_NS}__${sessionName}`], {
+  const result = spawnSync(process.execPath, [worker, `${WIN_NS}__${sessionName}`, ...(proof === null ? [] : [proof])], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
     input: Buffer.from(body, "utf8"),
@@ -654,6 +658,7 @@ export function tmuxNewSession(
   if (isWin) {
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
     if (guarded && (result.code === 0 || result.stdout)) captureExecutionCreatedNative(result.stdout);
+    if (pinned && (result.code === 0 || result.stdout)) captureNativeSessionReceipt(result.stdout);
     return result;
   }
   const env = sessionCallerEnvironment();

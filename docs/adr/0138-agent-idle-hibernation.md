@@ -132,3 +132,11 @@ Linuxの実Codex0.166.0（gpt-6.1-sol/high/OFF）とClaude2.1.316（claude-sonne
 設定表示の検査中も手動force送信とキーを同じnative mutation guardへ通す。process内のheld setだけで別requestへ排他を引き渡さず、実file lock保持中のprivate owner leaseをAsyncLocalStorageと現在leaseの一致で照合する。新しいnative権限やeffect scopeは作らない。Claudeの元の通常送信拒否はこのguardより先に維持し、停止ボタンの即時中断経路は変えない。
 
 Claude resume preserves the original CLAUDE_CONFIG_DIR selector (including unset) separately from its resolved path; incomplete old selectors remain unavailable. Security notes block startup even when an older shell marker remains above them.
+
+## Windowsのnative作成と直接入力
+
+native-session.tsがnative create receiptの5fieldと条件式を共有し、POSIXのtabとWindows psmuxのspace区切りを別々に検証する。psmuxのpane IDはserverごとに再利用される。`-L`と`$session_id`の組合せはnamespaceを二重に付けるため、Windowsのpane宛先はsession名とpane IDで指定し、server PID/session ID/同名session/pane ID/pane PIDの全期待値を別途照合する。単独の本人観測でもこのqualified targetを使い、既存のprivate native枠の有無へ依存しない。mounted graphのWindows creator不対応は保持する。
+
+直接SendBytes workerにはprivate枠の期待create receiptだけを渡す。workerはsession baseとの一致を最初に確認し、最初に得たport/keyの認証済peerへ固定する。各chunkは元native全期待値の条件に通る時だけ明示paneへ送り、拒否後のchunkと後続Enterは送らない。既存の256byte分割、UTF-8 byte、drain、失敗時の再送禁止を維持する。これはpsmuxの現行入力対象機構を使う相関であり、任意の外部clientによるpane focus変更と入力を原子的に同期する新APIではない。
+
+Windows再開の新metadataは通常のWindows起動と同じCLI退出印を持ち、初期process未観測を死亡と誤認しない。自動休止は引き続きfalseで、正式受入と公開前に有効化しない。

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { parseNativeSessionReceipt, nativeSessionCondition } from "./native-session.js";
 
 // 公開本文64KiBのBase64に加え、UTF-8初期化文・scriptblock構文・paste markerを含む。
 // 最大本文の変換増分は336byte以内。本文の公開上限は変えず、内部の包みを512byte確保する。
@@ -67,6 +68,9 @@ function delay(ms: number): Promise<void> {
 async function send(): Promise<void> {
   const sessionBase = process.argv[2] ?? "";
   if (!SESSION_BASE_RE.test(sessionBase)) throw new Error("invalid psmux session base");
+  const expected = process.argv[3] === undefined ? null : parseNativeSessionReceipt(process.argv[3], "linux");
+  if (process.argv.length > 4 || expected && !sessionBase.endsWith(`__${expected.session_id}`))
+    throw new Error("psmux native target does not match session base");
   const payload = await readPayload();
   const dir = psmuxDataDir();
   const portText = fs.readFileSync(path.join(dir, `${sessionBase}.port`), "utf8").trim();
@@ -78,7 +82,9 @@ async function send(): Promise<void> {
   for (let offset = 0; offset < payload.length; offset += PTY_CHUNK_BYTES) {
     const chunk = payload.subarray(offset, offset + PTY_CHUNK_BYTES);
     const hex = Array.from(chunk, (byte) => byte.toString(16).padStart(2, "0")).join(" ");
-    subcommands.push(`send -H ${hex}`);
+    const send = `send -H ${expected ? `-t ${expected.pane_id} ` : ""}${hex}`;
+    // A fixed authenticated peer keeps later chunks off a replacement server; no registry re-read occurs.
+    subcommands.push(expected ? `if-shell -F '${nativeSessionCondition(expected)}' '${send}' 'display-message -p AITERM_NATIVE_REFUSED'` : send);
   }
   const chunkDrainMs = payload.length > 1024 ? 300 : 100;
   for (const command of subcommands) {

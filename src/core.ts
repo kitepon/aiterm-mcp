@@ -1,3 +1,4 @@
+import { nativePaneTarget } from "./native-session.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { inspectIdleSettings, type IdleSettings } from "./harnesses/idle-settings.js";
 import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_READY_POLL_MS,
@@ -2147,7 +2148,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     if (sessions.state !== "known") throw new Error("native_session_unconfirmed");
     const current = sessions.sessions.find(item => item.session_id === name);
     if (!current) return null;
-    const pane = tmux("display-message", "-p", "-t", current.native_id, "#{pane_pid}\t#{session_attached}\t#{window_activity}\t#{?session_last_attached,#{session_last_attached},0}");
+    const pane = tmux("display-message", "-p", "-t", isWin ? `=${name}:` : current.native_id, "#{pane_pid}\t#{session_attached}\t#{window_activity}\t#{?session_last_attached,#{session_last_attached},0}");
     const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]), attached = Number(fields[1]);
     if (pane.code !== 0 || fields.length !== 4 || !Number.isSafeInteger(pid) || pid < 1
       || !/^\d+$/.test(fields[1]) || !Number.isSafeInteger(attached)) throw new Error("native_pane_unconfirmed");
@@ -2187,7 +2188,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     if (!effectIssued && done) recordAgentTurnEnd(meta, {
       ...done, at: Number.isFinite(Date.parse(done.at)) ? done.at : new Date().toISOString(),
     });
-    const resumeReady = !isWin && !!receipt && !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
+    const resumeReady = !!receipt && !!recipe && recipe.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id
       && recipe.executable === meta.agent_executable && recipe.cwd === (meta.cwd ?? recipe.cwd)
       && recipe.model === meta.model && recipe.fast === meta.fast;
     if (resumeReady) recipeDigest ??= digest;
@@ -7233,7 +7234,7 @@ function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_
   const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。", 2);
   const sessions = observeExecutionNativeSessions();
   if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === native.session_id && row.native_id === native.native_id)) throw unavailable();
-  const pane = tmux("display-message", "-p", "-t", native.pane_id, "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
+  const pane = tmux("display-message", "-p", "-t", nativePaneTarget(native), "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
   const fields = pane.stdout.trim().split("\t");
   if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 5).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id, native.pane_pid].join("\t")
     || !["0", "1"].includes(fields[5]) || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
@@ -7280,7 +7281,6 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   }
   if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
   assertExecutionResumeSupported();
-  if (isWin) throw new AitermError("AGENT_RESUME_UNSUPPORTED: Windowsのnative復帰境界は未受入です。", 2);
   const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
   if (sessionExists(name)) throw uncertain();
   const controlEnv = { ...process.env };
@@ -7320,6 +7320,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
       next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
+      if (isWin) next.windows_launch_exit_tracked = true;
       if (next.kind === "claude") next.claude_home = recipe.configuration_root;
       else next.codex_home = recipe.configuration_root;
       if (previous.write_scope !== undefined) next.write_scope = previous.write_scope;
@@ -7339,7 +7340,8 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
       const argv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
         : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
-      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")))
+      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")),
+        { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id })
         : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
           + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
       agentLaunchLines.set(name, atomicShellMultiline(full, shell));
@@ -8395,7 +8397,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           `起動直後に増分 pty_read すると空/半描画になり得るので screen:true を使う。`,
       ];
     };
-    if (isWin || hasExecutionCreationScope() || !agentDone || !["claude", "codex"].includes(kind)) return create();
+    if (hasExecutionCreationScope() || !agentDone || !["claude", "codex"].includes(kind)) return create();
     try {
       return withNativeSessionCreation(opts.session_name ?? null, receipt => {
         const server = processStartIdentity(receipt.server_pid, process.platform), pane = processStartIdentity(receipt.pane_pid, process.platform);

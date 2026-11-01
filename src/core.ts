@@ -886,10 +886,11 @@ async function waitCompletion(
         // 次周回の先頭で新増分に対する mark/until 判定が走る。
         if (safeStatSize(logpath(name)) !== size) {
           stable = 0;
-        } else if (!until && !markActive && SHELLS.has(fg)) {
+        } else if (!until && !markActive && SHELLS.has(fg) && size > start) {
+          // A native pipe may stay empty before the submitted input runs.
           await settlePaneLog(logpath(name), POLL);
           return [true, "quiescent"]; // 出力静止 ∧ シェル復帰 ＝ 確証つき完了
-        } else if (!until && !markActive && fg !== "") {
+        } else if (!until && !markActive && fg !== "" && !SHELLS.has(fg)) {
           // ネスト中（前面が ssh/docker/REPL 等でシェル集合外）は quiescence の「シェル復帰」条件を
           // 原理的に満たせない。until も mark も無ければこれ以上待っても確証は増えない（until/dead/
           // quiescent/mark のいずれも発火し得ない）ので、出力静止時点で「未確定」のまま早期返却する。

@@ -87,6 +87,7 @@ agent入力欄への`bracketedPaste`は、制御文字の除去後も本文の�
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。
+静止による完了は読取りcursor以後の新しい出力を必要とし、native pipeが初回出力前に空のままでもshell名だけで完了へ進めない。
 sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在の標準PowerShell promptを
 検出した場合は、Aiterm hostのOSに関係なくPowerShell構文を使う。過去のpromptでは切り替えない。
 

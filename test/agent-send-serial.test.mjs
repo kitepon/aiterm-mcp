@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
+import { agentFixturePrint, agentFixtureShellCommand, waitAgentFixtureShell } from "./agent-fixture-shell.mjs";
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasTmux =
@@ -25,6 +25,7 @@ process.env.HOME = fakeHome;
 process.env.XDG_CONFIG_HOME = path.join(fakeHome, ".config");
 process.env.XDG_STATE_HOME = path.join(fakeHome, ".local", "state");
 const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
+const SERIAL_ARGV_DONE="<<<AITERM_SERIAL_ARGV_DONE>>>";
 const fakeClaudeStarted = path.join(process.env.TMPDIR, "fake-claude-started");
 const quotedStart = "'" + fakeClaudeStarted.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
 const claudeStart = () => {
@@ -42,6 +43,7 @@ fs.writeFileSync(
     `printf '%s\\n' "$AITERM_AGENT_LAUNCH_ID" > ${quotedStart}`,
     "printf '%s ' \"$@\"",
     "printf '\\n'",
+    `printf '%s\\n' '${SERIAL_ARGV_DONE}'`,
     // Keep the declared fake harness alive while the fixture shell renders
     // controlled screens; an exited argv printer is no longer a send target.
     agentFixtureShellCommand,
@@ -95,8 +97,14 @@ function claudeMarkerPath(sid) {
 }
 
 async function markFakeClaudeReady(sid) {
+  let timeout=5;
+  if(process.platform==='win32') {
+    const owned=await waitAgentFixtureShell(()=>core.readOutput(sid,{screen:true,raw:true}),SERIAL_ARGV_DONE);
+    if(!owned.ready)assert.fail(JSON.stringify(await capturePtyFailure(core,sid,{boundary:'Claude renderer input ownership',native_start:claudeStart()})));
+    timeout=owned.timeout;
+  }
   core.send(sid, agentFixturePrint("Claude Code\n❯ ready\n"), { force: true, raw: true, preserveAgentOperation: true });
-  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout, raw: true });
   if (!ready.includes("ready")) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Claude fixture ready', native_start: claudeStart() })));
 }
 

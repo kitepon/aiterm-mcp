@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 // Windows ネイティブは tmux CLI 互換の psmux を叩く。検出も同じ経路に合わせる。
 const hasTmux =
@@ -114,7 +115,7 @@ test("サニタイズ: raw=true は素通し", { skip }, () => {
   core.sendKey(SESS, "C-u");
 });
 
-test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async () => {
+test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async (t) => {
   const session = "selftest_long_input";
   core.openSession(session);
   try {
@@ -126,6 +127,9 @@ test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip },
     const out = await core.readOutput(session, { wait: true, until: marker, timeout: 5 });
     assert.ok(out.includes(marker), `長いcommandの末尾まで実行される: ${JSON.stringify(out)}`);
     assert.match(out, /is_complete=True via until/, "指定markerが完了証拠になる");
+  } catch (error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: '6000-character shell execution' })));
+    throw error;
   } finally {
     core.closeSession(session);
   }

@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -24,6 +25,12 @@ process.env.HOME = fakeHome;
 process.env.XDG_CONFIG_HOME = path.join(fakeHome, ".config");
 process.env.XDG_STATE_HOME = path.join(fakeHome, ".local", "state");
 const fakeClaudeBin = path.join(process.env.TMPDIR, "fake-claude.sh");
+const fakeClaudeStarted = path.join(process.env.TMPDIR, "fake-claude-started");
+const quotedStart = "'" + fakeClaudeStarted.replaceAll("\\", "/").replaceAll("'", "'\\''") + "'";
+const claudeStart = () => {
+  try { return { launch_id: fs.readFileSync(fakeClaudeStarted, 'utf8').trim(), at: fs.statSync(fakeClaudeStarted).mtimeMs }; }
+  catch { return null; }
+};
 fs.writeFileSync(
   fakeClaudeBin,
   [
@@ -32,6 +39,7 @@ fs.writeFileSync(
     "  printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'",
     "  exit 0",
     "fi",
+    `printf '%s\\n' "$AITERM_AGENT_LAUNCH_ID" > ${quotedStart}`,
     "printf '%s ' \"$@\"",
     "printf '\\n'",
     // Keep the declared fake harness alive while the fixture shell renders
@@ -88,7 +96,8 @@ function claudeMarkerPath(sid) {
 
 async function markFakeClaudeReady(sid) {
   core.send(sid, agentFixturePrint("Claude Code\n❯ ready\n"), { force: true, raw: true, preserveAgentOperation: true });
-  await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  if (!ready.includes("ready")) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Claude fixture ready', native_start: claudeStart() })));
 }
 
 // 終了済みのprocessのpid。
@@ -123,12 +132,16 @@ after(() => {
   else process.env.HOME = savedHome;
 });
 
-test("起動直後のClaudeへ2通が重なっても、後の1通は断られず差し込みで届く", { skip }, async () => {
+test("起動直後のClaudeへ2通が重なっても、後の1通は断られず差し込みで届く", { skip }, async (t) => {
   const [sid] = core.openAgent("claude", { agent_done: true });
+  const failures = [];
+  const send = text => core.sendAgentMessage(sid, text).catch(error => {
+    failures.push({ at: Date.now(), message: error.message, native_start: claudeStart() }); throw error;
+  });
   try {
     const sends = Promise.allSettled([
-      core.sendAgentMessage(sid, "echo OVERLAP_ONE"),
-      core.sendAgentMessage(sid, "echo OVERLAP_TWO"),
+      send("echo OVERLAP_ONE"),
+      send("echo OVERLAP_TWO"),
     ]);
     // 2通とも入力受付待ちへ入ってから、席を入力受付にする。
     await sleep(300);
@@ -143,12 +156,15 @@ test("起動直後のClaudeへ2通が重なっても、後の1通は断られず
     assert.match(out, /OVERLAP_TWO/);
     assert.ok(fs.existsSync(claudeMarkerPath(sid)), "turnの印は1通目のものが残る");
     assert.equal(fs.existsSync(agentSendLockPath(sid)), false, "送り終えたらlockを残さない");
+  } catch (error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'same-process startup sends', failures, native_start: claudeStart() })));
+    throw error;
   } finally {
     core.closeSession(sid);
   }
 });
 
-test("別のprocessから起動直後のClaudeへ2通が重なっても、どちらも断られない", { skip }, async () => {
+test("別のprocessから起動直後のClaudeへ2通が重なっても、どちらも断られない", { skip }, async (t) => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   const script = path.join(process.env.TMPDIR, "send-one.mjs");
   fs.writeFileSync(script, [
@@ -159,7 +175,9 @@ test("別のprocessから起動直後のClaudeへ2通が重なっても、どち
     "  const receipt = await core.sendAgentMessage(process.argv[3], process.argv[4]);",
     "  console.log(JSON.stringify({ ok: true, schema: receipt.schema }));",
     "} catch (error) {",
-    "  console.log(JSON.stringify({ ok: false, message: error.message }));",
+    "  const fs = await import('node:fs'); let native_start = null;",
+    `  try { native_start = { launch_id: fs.readFileSync(${JSON.stringify(fakeClaudeStarted)}, 'utf8').trim(), at: fs.statSync(${JSON.stringify(fakeClaudeStarted)}).mtimeMs }; } catch {}`,
+    "  console.log(JSON.stringify({ ok: false, message: error.message, at: Date.now(), native_start }));",
     "}",
     "",
   ].join("\n"));
@@ -172,13 +190,14 @@ test("別のprocessから起動直後のClaudeへ2通が重なっても、どち
       result: new Promise((resolve) => child.on("close", () => resolve(JSON.parse(stdout.trim().split("\n").at(-1))))),
     };
   };
+  let results;
   try {
     const one = run("echo PROCESS_ONE");
     const two = run("echo PROCESS_TWO");
     await Promise.all([one.started(), two.started()]);
     await sleep(500);
     await markFakeClaudeReady(sid);
-    const results = await Promise.all([one.result, two.result]);
+    results = await Promise.all([one.result, two.result]);
     assert.deepEqual(results.map((r) => r.ok), [true, true], JSON.stringify(results));
     // 別のprocessの間の順番は決めない。先に通った方が新しいturn、後の方が差し込みになる。
     assert.deepEqual(results.map((r) => r.schema).sort(), ["aiterm.agent-dispatch.v1", "aiterm.agent-steer.v1"]);
@@ -186,6 +205,9 @@ test("別のprocessから起動直後のClaudeへ2通が重なっても、どち
     assert.match(out, /PROCESS_ONE/);
     assert.match(out, /PROCESS_TWO/);
     assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
+  } catch (error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'cross-process startup sends', results, native_start: claudeStart() })));
+    throw error;
   } finally {
     core.closeSession(sid);
     fs.rmSync(script, { force: true });

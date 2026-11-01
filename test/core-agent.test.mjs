@@ -3,6 +3,7 @@
 // - CODEX_BIN 環境変数で bin を無害コマンドに偽装し、CLI 未導入環境でも cwd 検証・残骸テストを回す。
 // - tmux 実機を使うケースは core-tmux.test.mjs と同じ隔離ソケット方式（TMPDIR 退避・skip 制御）。
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -152,7 +153,7 @@ function readFakeTuiInput(input) {
   return content ? content.split("\n").map((line) => JSON.parse(line)) : [];
 }
 
-test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで同じsessionへ本文を一度送る", { skip: skipAgentDone }, async () => {
+test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで同じsessionへ本文を一度送る", { skip: skipAgentDone }, async (t) => {
   const savedBin = process.env.CODEX_BIN;
   try {
     for (const [version, cursor] of [["0.155.1", 1], ["0.155.1", 2], ["0.155.1", 3], ["0.157.0", 1]]) {
@@ -172,6 +173,9 @@ test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで�
           assert.deepEqual(input.filter((entry) => entry.phase === "modal").map((entry) => entry.text), ["2"]);
           assert.equal(input.filter((entry) => entry.text.includes("RATE_LIMIT_BODY")).length, 1, "本文は一度だけ送る");
         });
+      } catch (error) {
+        t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Codex keep-current modal', version, cursor })));
+        throw error;
       } finally {
         try { core.closeSession(sid); } catch {}
         fs.rmSync(fake.bin, { force: true });

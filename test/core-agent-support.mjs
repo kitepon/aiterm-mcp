@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { agentFixturePrint, agentFixtureShellCommand } from "./agent-fixture-shell.mjs";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasTmux =
   (process.platform === "win32"
@@ -103,7 +104,7 @@ const agentStateDir = () => path.join(process.env.TMPDIR, `aiterm-mcp-${testUid(
 // Observe the fake CLI's own complete argv output, never its shell command echo.
 // Keep the existing 5-second deadline. On a miss, collect scalars before the
 // caller's original cleanup without resending input or advancing a screen offset.
-async function readArgvFixture(sid, t) {
+async function readArgvFixture(sid, t, argvFile) {
   const launchId = readAgentMeta(sid).launch_id;
   const runtime = await import("../dist/tmux-runtime.js");
   const anchor = () => {
@@ -138,6 +139,13 @@ async function readArgvFixture(sid, t) {
     } catch { diagnostic.same_generation = null; }
   }
   t.diagnostic(JSON.stringify(diagnostic));
+  let argvState = null;
+  if (argvFile) try {
+    const stat = fs.statSync(argvFile, { throwIfNoEntry: false });
+    argvState = stat ? { status: 'present', size: stat.size, mtime_ms: stat.mtimeMs } : { status: 'missing' };
+  } catch { argvState = { status: 'unknown' }; }
+  t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'argv completion', expected_launch_id: launchId,
+    argv_file: argvState })));
   assert.fail("fake CLI argv completion was not observed within the existing 5-second deadline");
 }
 
@@ -809,7 +817,8 @@ async function markFakeAgentReady(sid, kind = "codex") {
     raw: true,
     preserveAgentOperation: true,
   });
-  await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  const ready = await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
+  if (!ready.includes("ready")) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'fixture ready control command' })));
 }
 
 function fileSnapshot(p) {

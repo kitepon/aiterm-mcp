@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasBackend = spawnSync(process.platform === "win32" ? "psmux" : "tmux", ["-V"]).status === 0;
 const hasPowerShell = spawnSync("pwsh", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"]).status === 0;
@@ -29,7 +30,7 @@ test("PowerShellの単行もUnicode入出力とnative pipelineをUTF-8で保持�
   }
 });
 
-test("PowerShellの複数行は記述順に実行し、完了印と変数を保持する", { skip }, async () => {
+test("PowerShellの複数行は記述順に実行し、完了印と変数を保持する", { skip }, async (t) => {
   const session = "powershell_multiline_order";
   core.openSession(session, "pwsh");
   try {
@@ -43,6 +44,9 @@ test("PowerShellの複数行は記述順に実行し、完了印と変数を保�
     assert.match(result, /is_complete=True via mark/u, result);
     core.send(session, "[Console]::WriteLine('PERSIST=' + $aitermValue)", { mark: true });
     assert.match(await core.readOutput(session, { wait: true, timeout: 5 }), /PERSIST=50(?!\d)/u);
+  } catch (error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: 'PowerShell multiline mark' })));
+    throw error;
   } finally {
     core.closeSession(session);
   }

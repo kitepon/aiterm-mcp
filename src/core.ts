@@ -3243,6 +3243,7 @@ async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: 
 }
 
 async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT): Promise<T> {
+  const launchId = tryLoadAgentMetadata(name)?.launch_id;
   const waitMs = agentSendLockWaitMs;
   const deadline = performance.now() + waitMs;
   const previous = agentSendQueues.get(name) ?? Promise.resolve();
@@ -3269,6 +3270,7 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
     const release = await acquireAgentSendFileLock(name, deadline, waitMs, untouched);
     agentSendHeld.add(name);
     try {
+      if (tryLoadAgentMetadata(name)?.launch_id !== launchId) throw new ExecutionError("EXECUTION_STALE_GENERATION");
       return await run();
     } finally {
       agentSendHeld.delete(name);

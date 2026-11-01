@@ -1724,6 +1724,7 @@ export interface ListedSession {
   width: number;
   height: number;
   harness: AgentHarness | null;
+  launch_id: string | null;
   /** agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値、CodexとCursorは分かった後。 */
   vendor_session_id: string | null;
   environment: Record<string, string | null>;
@@ -2118,6 +2119,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     const meta = tryLoadAgentMetadata(name);
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
       width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
+      launch_id: meta?.launch_id ?? null,
       vendor_session_id: meta?.vendor_session_id ?? null, environment });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
@@ -6127,14 +6129,20 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
-    const generation = observeSessionGeneration(input.session_id);
     const meta = tryLoadAgentMetadata(input.session_id);
-    if (!generation.exists || generation.launch_id !== input.launch_id || meta?.launch_id !== input.launch_id) return null;
-    const observed = observeSession(input.session_id);
-    if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
+    if (meta?.launch_id !== input.launch_id) return null;
+    // Goal binding needs a live native process, not screen/CPU/activity collection.
+    const pane = tmux("display-message", "-p", "-t", `=${input.session_id}:`, "#{pane_pid}\t#{pane_dead}");
+    if (pane.code !== 0) return null;
+    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]);
+    if (fields.length !== 2 || !Number.isSafeInteger(pid) || pid < 1 || fields[1] !== "0") return null;
+    const rows = readRuntimeProcesses();
+    if (!rows.some(row => row.pid === pid)) return null;
+    const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
+    if (candidates.length !== 1 || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
-      native_process: observed.harness_process };
+      native_process: processIdentity(candidates[0]) };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
     let inputStarted = false;
@@ -6233,12 +6241,13 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     };
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
-  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
+  const harness = resolve()?.harness;
+  if(harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
     read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
     canClear:target=>grokGoalClearReady(grokPort(target).ui),
     clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
   },origin));
-  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
+  if (harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);
       if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");

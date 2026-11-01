@@ -620,7 +620,10 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/mux.c> (official_source, 67679 chars)
   - 効きどころ: 長いTMPDIRに依存しない共有ソケット配置と一時名まで含む長さの受入根拠。
 
-## terminal-automation — 1件
+## terminal-automation — 3件
+
+- [PSReadLine official issue 1471: Support Paste Bracketing](sources/terminal-automation/psreadline-bracketed-paste-issue1471-20261101.md) — 公式のbracketed-paste対応要望の現状。未確認の機能をWindows入力修理の前提にしない。
+- [PowerShell 7.6 PSReadLine functions](sources/terminal-automation/psreadline-paste-functions-76-20261101.md) — Paste関数の一括挿入とコンソールの一文字ずつの挿入の違い。
 
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)

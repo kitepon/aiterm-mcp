@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Correlate Grok input with its accepted native turn when the preceding turn ends during submission; never substitute the preceding completion or resend the input.
+- Preserve `STEER_NOT_QUEUED` / `STEER_STILL_QUEUED` errors with typed unknown-effect receipts and a launch-bound Grok observation handle when available.
+
+## [0.62.5] - 2026-11-01
+
+### Added
+- Include the managed `launch_id` snapshot in structured `pty_list` results; older remote results without the field remain valid.
+
+### Fixed
 - Reject psmux command errors after successful authentication and stop without resending partially delivered input.
 - Keep input admission independent of unrelated activity-capture failures while retaining native ownership and readiness checks.
 - Reject readiness or steer admission when a screen or transcript read finishes after a positive readiness deadline.
@@ -17,8 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind each new shell completion mark to its submission so a delayed earlier mark cannot complete a newer command or remove its pending mark.
 - Recognize an explicitly configured native harness executable by its full process path, including renamed Windows binaries, instead of reporting it exited.
 - Keep a read with an empty pending output stream unconfirmed instead of completing from a stale shell name; late output remains observable within the existing deadline.
-- Correlate Grok input with its accepted native turn when the preceding turn ends during submission; never substitute the preceding completion or resend the input.
-- Preserve `STEER_NOT_QUEUED` / `STEER_STILL_QUEUED` errors with typed unknown-effect receipts and a launch-bound Grok observation handle when available.
+- Avoid repeating native seat observation when selecting the Goal adapter; retain all adapter binding and readback checks.
+
+## [0.62.4] - 2026-11-01
+
+### Fixed
+- Recognize the Codex `Fast` status footer after its header scrolls away, retaining dialog guards and keeping the footer outside Goal composer text.
 
 ## [0.62.3] - 2026-10-31
 
@@ -2960,7 +2973,9 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...HEAD
+[0.62.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...v0.62.5
+[0.62.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...v0.62.4
 [0.62.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...v0.62.3
 [0.62.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...v0.62.2
 [0.62.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.0...v0.62.1

@@ -251,7 +251,7 @@ args = [${JSON.stringify(probe)}]
       node: process.execPath, hook, findBinary: () => binary, processes: () => [], legacy: () => null };
     assert.equal((await configureCodexSteer('enable', setupRuntime)).status, 'ready');
   }
-  const env = { ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot, PATHEXT: process.env.PATHEXT, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: root, TMP: root } : {}),
+  const env = { ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot, PATHEXT: process.env.PATHEXT, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: process.env.TEMP, TMP: process.env.TMP } : {}),
     PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error',
     // この環境は一から組む。見張りを止める印（test/seat-env.mjs）を、ここでも渡す。
     AITERM_STEER_CODEX_WAKE: '0' };

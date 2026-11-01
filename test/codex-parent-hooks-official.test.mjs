@@ -163,7 +163,7 @@ args = [${JSON.stringify(probe)}]
   assert.equal((await configureCodexSteer('status', setupRuntime)).status, 'ready');
   assert(!((await readFile(join(home,'config.toml'),'utf8')).includes('bypass_hook_trust')), '通常のhook承認を使う');
   // PATHEXTを落とすと、PowerShellが.exeを関連付け起動して標準入出力を失う。
-  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, PATHEXT:process.env.PATHEXT, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:root, TMP:root} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
+  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, PATHEXT:process.env.PATHEXT, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:process.env.TEMP, TMP:process.env.TMP} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
   if (mode === 'transition') env.AITERM_HOOK_PROBE_BARRIER = `${url}/hook-release`;
   const parent = connect(binary, root, env);
   let sender;

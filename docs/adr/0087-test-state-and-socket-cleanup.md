@@ -138,3 +138,7 @@ Windowsでは、`--import ./test/seat-env.mjs --test`の親走者が作る一時
 子の終了時はrootを削除せず、全試験子が終わった親走者の終了時に所有treeを削除する。POSIXのprocess終了時cleanupは変えない。
 CI・npm test・文書試験・公開試験の既入口はすべて親へpreloadしている。Windowsの複数fileを直接流す時も同じpreloadを使う。
 資格の持込み・Host設定/標準runtimeの変更・timeout延長/skipは追加しない。子rootの分離、子終了後の保持、親終了後のtree削除を前処理試験で確認する。
+
+個別fixtureがTEMP/TMPを差し替える場合も、MSYSを起こす可能性がある値には同じ走者寿命のprivate TEMPを使う。
+state-root隔離試験のforeign TEMPと、公式Codexのhook/配送/relay試験のTEMP/TMPをこの範囲へ揃える。
+個別state/TMPDIR/HOME/configは引き続きfixtureごとに分け、短命なstate用rootの削除は共有/tmpへ波及させない。

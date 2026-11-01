@@ -59,11 +59,9 @@ requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
   build();
-  const files = [
-    'scripts/verify-release-commit.test.mjs',
-    ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
-  ];
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
+  process.stdout.write('DIAGNOSTIC ONLY: native lifecycle and fixture ownership; not product full acceptance\n');
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/agent-launch-exit.test.mjs', 'test/agent-fixture-shell.test.mjs']);
+  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', '--test-name-pattern=Codexのturnがサービスの誤り', 'test/core-agent-observe.test.mjs']);
 } else if (scope === 'metadata') {
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);

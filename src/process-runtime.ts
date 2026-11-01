@@ -27,6 +27,13 @@ export interface RuntimeProcess extends NativeProcessIdentity {
   stopped: boolean | null;
 }
 
+/** Claude's native macOS keep-awake helper does no user work of its own. */
+export function macKeepAwakeProcess(row: RuntimeProcess, harness?: NativeProcessIdentity | null, platform: NodeJS.Platform = process.platform): boolean {
+  const started = Date.parse(row.started_identity), parentStarted = Date.parse(harness?.started_identity ?? "");
+  return platform === "darwin" && !!harness && row.parent_pid === harness.pid && Number.isFinite(started)
+    && Number.isFinite(parentStarted) && started >= parentStarted && /^(?:\/usr\/bin\/)?caffeinate -i -t 300$/.test(row.command.trim());
+}
+
 export function processIdentity(process: RuntimeProcess): NativeProcessIdentity {
   return {
     pid: process.pid, process_group_id: process.process_group_id,

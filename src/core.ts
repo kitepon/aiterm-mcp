@@ -47,7 +47,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
@@ -1907,7 +1907,7 @@ export function startupProcessShapes(identities: string[], rows: RuntimeProcess[
 // 親も立て直されている時は、立て直された親の下を見る。終了した控え1つにつき、数えないのは1つまで。
 export function postStartupProcessCount(
   kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
-  shapes: StartupProcessShape[] = [],
+  shapes: StartupProcessShape[] = [], harness?: NativeProcessIdentity | null,
 ): number {
   const byPid = new Map(rows.map(row => [row.pid, row]));
   const relayChild = (row: RuntimeProcess): boolean => {
@@ -1923,7 +1923,8 @@ export function postStartupProcessCount(
   };
   const present = new Set(activityRows.map(processKey));
   const added = new Map(activityRows
-    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command)) && !relayChild(row) && !ownProbe(row))
+    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command))
+      && !(kind === "claude" && macKeepAwakeProcess(row, harness)) && !relayChild(row) && !ownProbe(row))
     .map(row => [processKey(row), row]));
   const gone = shapes.filter(shape => startup.has(shape.identity) && !present.has(shape.identity));
   const replacedBy = new Map<string, string>();
@@ -2102,7 +2103,7 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
     post_startup_process_count: startup
-      ? postStartupProcessCount(meta!.kind, activityRows, rows, startup, meta!.startup_process_shapes) : null,
+      ? postStartupProcessCount(meta!.kind, activityRows, rows, startup, meta!.startup_process_shapes, agent) : null,
   };
   return result;
 }

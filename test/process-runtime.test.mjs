@@ -3,7 +3,21 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, parsePosixElapsed, processElapsedSeconds } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, parsePosixElapsed, processElapsedSeconds } from "../dist/process-runtime.js";
+
+test('only the exact native keep-awake child of the current harness is idle infrastructure',()=>{
+ const harness={pid:10,started_identity:'2026-11-01T12:00:00Z'};
+ const row={pid:20,parent_pid:10,started_identity:'2026-11-01T12:00:01Z',command:'caffeinate -i -t 300'};
+ assert.equal(macKeepAwakeProcess(row,harness,'darwin'),true);
+ assert.equal(macKeepAwakeProcess({...row,command:'/usr/bin/caffeinate -i -t 300'},harness,'darwin'),true);
+ for(const platform of ['linux','win32'])assert.equal(macKeepAwakeProcess(row,harness,platform),false);
+ for(const command of ['caffeinate -i -t 300 make','/tmp/caffeinate -i -t 300','caffeinate -i','caffeinate -i -t 600'])
+  assert.equal(macKeepAwakeProcess({...row,command},harness,'darwin'),false);
+ assert.equal(macKeepAwakeProcess({...row,parent_pid:11},harness,'darwin'),false);
+ assert.equal(macKeepAwakeProcess(row,undefined,'darwin'),false);
+ assert.equal(macKeepAwakeProcess(row,{...harness,started_identity:'2026-11-01T12:00:02Z'},'darwin'),false);
+ assert.equal(macKeepAwakeProcess({...row,started_identity:'unknown'},harness,'darwin'),false);
+});
 
 test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");

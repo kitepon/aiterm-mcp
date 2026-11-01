@@ -93,6 +93,18 @@ test("起動完了の後に増えたprocessのうち、中継の直接の子は�
   assert.equal(count("claude", [helper]), 1);
 });
 
+test('Claude keep-awake infrastructure does not hide work below it or another parent', {skip:process.platform!=='darwin'},()=>{
+ const row=(pid,parent_pid,second,command)=>({pid,parent_pid,started_identity:`2026-11-01T12:00:0${second}Z`,command});
+ const harness=row(10,5,1,'claude'),startupRows=[row(5,1,0,'/bin/bash'),harness];
+ const startup=new Set(startupRows.map(r=>`${r.pid}:${r.started_identity}`));
+ const helper=row(20,10,2,'caffeinate -i -t 300');
+ const count=(added,kind='claude')=>core.postStartupProcessCount(kind,[...startupRows,...added],[...startupRows,...added],startup,[],harness);
+ assert.equal(count([helper]),0);
+ assert.equal(count([helper,row(21,20,3,'make')]),1);
+ assert.equal(count([{...helper,parent_pid:5}]),1);
+ assert.equal(count([helper],'codex'),1);
+});
+
 test("起動完了の後に増えたprocessのうち、Aitermがprocess表を引くために起こした物は数えない", () => {
   const at = second => `2026-10-04T07:00:${String(second).padStart(2, "0")}.000Z`;
   const row = (pid, parent_pid, second, command) => ({ pid, parent_pid, started_identity: at(second), command });

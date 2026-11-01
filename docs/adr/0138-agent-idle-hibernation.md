@@ -144,3 +144,5 @@ Windows再開の新metadataは通常のWindows起動と同じCLI退出印を持�
 Windowsのsession単位の命令は末尾colonなしのexact session名を使う。psmux 3.3.8のkill-sessionは生のsession名を比較するため、pane形式の末尾colonでは無作用のまま成功する。保存したnull環境変数の復元は、psmuxで未対応のtmux `set-environment -r` ではなく `-u` で削除し、明示空文字と区別する。資格やambient環境は保存しない。
 
 Codex 0.162.1のnative status-line previewは通常速度を `Fast off`、新しい0.166.0は `Standard` と表示する。いずれも明示OFFとして読み、model/effortとFast suffixの矛盾・欠測は従来どおり拒否する。previewの取消しと設定非保存は変えない。
+
+MacのClaudeは設定UIの操作でも `caffeinate -i -t 300` を自分の直接の子として起こす。この正確なnative keep-awake命令だけを起動後の作業数から外す。現在のharness PIDと開始時刻、実親PID、OS、引数を照合し、未知の親・別command・別引数・その子孫の仕事は除外しない。木の停止対象から除外する意味ではない。

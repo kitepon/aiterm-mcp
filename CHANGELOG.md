@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Reject psmux command errors after successful authentication and stop without resending partially delivered input.
 - Keep input admission independent of unrelated activity-capture failures while retaining native ownership and readiness checks.
 - Reject readiness or steer admission when a screen or transcript read finishes after a positive readiness deadline.
 - Reject queued agent operations if the session was recreated while they waited, before they can act on the replacement launch.

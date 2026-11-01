@@ -12,6 +12,14 @@ const core = await import("../dist/core.js");
 const runtime = await import("../dist/process-runtime.js");
 after(() => { core.killAll(); rmSync(directory, { recursive: true, force: true }); });
 
+test("明示したnative実行ファイルを名前の推測なしで識別する", () => {
+  const meta = { kind: 'claude', launch_id: 'native-launch', agent_executable: 'C:/Tools With Spaces/native-client.exe' };
+  const native = { pid: 10, parent_pid: 1, command: '"c:\\TOOLS WITH SPACES\\native-client.exe" --setting value' };
+  const other = { pid: 20, parent_pid: 1, command: '"C:\\Other\\native-client.exe" --setting value' };
+  assert.deepEqual(core.selectHarnessProcesses(meta, [native, other], [native, other]).map(row => row.pid), [10]);
+  assert.deepEqual(core.selectHarnessProcesses(meta, [native], []).map(row => row.pid), []);
+});
+
 test("同じlaunchのnpm shimとnative Codexは中間Nodeを跨いだ一つの起動として識別する", () => {
   const meta = { kind: 'codex', launch_id: 'launch-fixture', agent_executable: 'C:/Users/test/npm/codex' };
   const rows = [

@@ -1779,13 +1779,12 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
       .replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
     const command = row.command.replace(/\\/g, "/").replace(/\.exe(?=["\s]|$)/gi, "").replace(/"/g, "");
     const tokens = row.command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-    // `sh <script>` だけでなく、Windowsの `cmd.exe /c <launcher>.cmd` のように起動した実行ファイルが
-    // 2番目以降に来る形もある（Cursor公式installerは .cmd → .ps1 → node と中継する）。
+    // native本体の先頭tokenと、sh/cmd経由で2番目以降に来るlauncherの両方を照合する。
     const launched = meta.agent_executable?.replace(/\\/g, "/");
     const sameFile = (value: string): boolean => /^[A-Za-z]:\//.test(launched!) ? value.toLowerCase() === launched!.toLowerCase() : value === launched;
-    const launchedScript = launched !== undefined
-      && tokens.slice(1).some(token => sameFile(token.replace(/^["']|["']$/g, "").replace(/\\/g, "/")));
-    return launchedScript || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
+    const launchedProcess = launched !== undefined
+      && tokens.some(token => sameFile(token.replace(/^["']|["']$/g, "").replace(/\\/g, "/")));
+    return launchedProcess || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
   };
   // WindowsのMSYS execでnative親子関係が切れる場合も、launch固有引数で相関する。
   const correlated = rows.filter(row => matches(row) && row.command.includes(meta.launch_id));

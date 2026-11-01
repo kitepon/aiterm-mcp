@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import {
   hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
@@ -21,7 +22,7 @@ import {
   fileSnapshot,
 } from "./core-agent-support.mjs";
 
-test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待つ", { skip: skipAgentDone }, async () => {
+test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待つ", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });
     try {
@@ -37,6 +38,9 @@ test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待
       assert.equal(observation.vendor, "codex");
       assert.equal(observation.harness, "codex-cli");
       assert.equal(observation.turn_id, "turn-test");
+    } catch (error) {
+      t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Codex initial dispatch' })));
+      throw error;
     } finally {
       core.closeSession(sid);
     }

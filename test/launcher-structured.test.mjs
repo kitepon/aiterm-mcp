@@ -139,7 +139,7 @@ test("claude_agent: text contentを維持しClaude managed launch receiptをstru
   }
 });
 
-test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振り分ける", { skip }, async () => {
+test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振り分ける", { skip }, async (t) => {
   const root = fs.mkdtempSync(path.join(shortTmpBase, "aiterm-cursor-launch-"));
   const fakeCursor = path.join(root, "fake-cursor-agent.sh");
   fs.writeFileSync(fakeCursor, [
@@ -215,6 +215,18 @@ test("agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振�
     const unsupported = await waitForResponse(child, () => responseFor(stdout, 4), () => stdout, () => stderr);
     assert.equal(unsupported.result.isError, true);
     assert.match(unsupported.result.content?.[0]?.text ?? "", /claude-code harnessはwrite_scopeに対応していません/);
+  } catch (error) {
+    // A cold observer must use this MCP child's state root before importing core.
+    const code = `
+      Object.assign(process.env, { TMPDIR: process.argv[1], XDG_RUNTIME_DIR: process.argv[1] });
+      const core = await import(${JSON.stringify(new URL("../dist/core.js", import.meta.url).href)});
+      const { capturePtyFailure } = await import(${JSON.stringify(new URL("./pty-failure-evidence.mjs", import.meta.url).href)});
+      console.log(JSON.stringify(await capturePtyFailure(core, process.argv[2], { boundary: "Cursor MCP launch response" })));
+    `;
+    const probe = spawnSync(process.execPath, ["--import", new URL("./seat-env.mjs", import.meta.url).href,
+      "--input-type=module", "-e", code, root, sessionId], { encoding: "utf8", timeout: 10_000 });
+    t.diagnostic(probe.stdout.trim() || JSON.stringify({ capture_error: probe.error?.message ?? "observer failed", status: probe.status }));
+    throw error;
   } finally {
     child.kill();
     await onceExit(child);

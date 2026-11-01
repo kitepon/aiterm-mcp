@@ -533,6 +533,7 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 
 `pty_observe({ session_id, cursor? })`は`aiterm.pty-observe-result.v1`で`exists`、`observed_at`、
 `state`（busy／idle／blocked／dead／missing／unknown）、`reason`、`pane_alive`、`harness_alive`を返す。
+Windowsで新しく起動するClaude・Codex・Grok・Antigravityは、本人processが不在でも、同じ起動のCLIからshellへ戻った記録がなければ未確認を返す。送信は既存の準備待ちの期限を使い、貼付直前とEnter直前にも本人を確認する。旧版で起動したsessionの扱いは維持する。
 `pane_process`と`harness_process`は別のidentityで、`process_identity`はagentならharness、通常PTYなら
 一意な子process group leader、子がなければpaneを指す。identityは`pid`、`process_group_id`、
 `started_identity`、`argv_digest`を持ち、特定不能はnull。WindowsのPIDはnative PIDで、process groupはnull。

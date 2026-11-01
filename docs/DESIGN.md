@@ -144,6 +144,7 @@ psmuxは切断の合図なしでsessionを止めるので、そのままでは�
 
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
+新しいWindows managed launch（Cursorを除く）はmetadataのwindows_launch_exit_trackedを立て、所有PowerShellのfinallyが`.agent.json.launch-exited`へ同launch IDを記録する。候補不在で記録が欠測・不一致ならharness_alive:null/reason:harness_start_unconfirmed、同IDがあればfalse/harness_exited。存在する本人候補は従来どおり優先する。準備待ち中は未確認を空sampleとして既deadlineで再観測し、native入力直前の未確認は拒否する。close/killAllは同sessionの終了記録も削除する。旧metadataとCursorのnative未解決は従来の判定を維持する。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。
 祖先を共有しない候補は別々に残し、複数候補を一つと推測しない。
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。

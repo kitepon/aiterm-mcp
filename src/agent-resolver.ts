@@ -284,7 +284,8 @@ export function runThroughlineHandoffContext(
 }
 
 /** Owned Windows agent launch: PowerShell uses argv, without interactive MSYS input. */
-export function windowsAgentLaunchLine(cwd: string | null, env: [string, string][], argv: string[]): string {
+export function windowsAgentLaunchLine(cwd: string | null, env: [string, string][], argv: string[],
+  exited?: { file: string; launch_id: string }): string {
   const psq = (value: string) => `'${value.replace(/'/g, "''")}'`;
   const parts: string[] = [];
   if (cwd) parts.push(`Set-Location -LiteralPath ${psq(cwd)}`);
@@ -293,7 +294,8 @@ export function windowsAgentLaunchLine(cwd: string | null, env: [string, string]
     parts.push(`$env:${name}=${psq(value)}`);
   }
   parts.push(`& ${argv.map(psq).join(" ")}`);
-  return parts.join("; ");
+  const command = parts.join("; ");
+  return exited ? `try { ${command} } finally { [IO.File]::WriteAllText(${psq(exited.file)}, ${psq(exited.launch_id)}) }` : command;
 }
 
 /**

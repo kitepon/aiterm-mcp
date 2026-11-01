@@ -119,8 +119,8 @@ jobs:
         if: matrix.environment == 'windows-native'
         shell: pwsh
         run: ${{ inputs.full-command }}
-      - name: preserve Windows PTY failure evidence
-        if: failure() && matrix.environment == 'windows-native'
+      - name: preserve Windows diagnostic evidence
+        if: always() && matrix.environment == 'windows-native'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pty-failures-${{ matrix.environment }}-${{ github.sha }}-${{ github.run_attempt }}

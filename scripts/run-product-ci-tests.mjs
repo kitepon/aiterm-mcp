@@ -59,6 +59,9 @@ requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
   build();
+  if (process.platform !== 'win32') throw new Error('Windows observation cost diagnostic requires Windows');
+  console.log('DIAGNOSTIC_ONLY: unchanged full test set with test-worker spawn costs');
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${new URL('./diag-spawn-cost.mjs', import.meta.url).href}`.trim();
   const files = [
     'scripts/verify-release-commit.test.mjs',
     ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),

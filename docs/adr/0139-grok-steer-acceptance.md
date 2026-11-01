@@ -1,0 +1,15 @@
+# ADR 0139: Grokの差し込みとturn終了の競合をnative受理へ束縛する
+
+日付: 2026-11-01
+
+Grokのbusy判定から本文送信までに元turnが終わると、本文が新turnを始めてもqueue表示は出ない。従来の`STEER_NOT_QUEUED`は打鍵後の成否を表せず、ADR 0122のGrok waiterは送信後最初の完了を今回の完了へ取り違えた。
+
+送信前のhistory byte位置と本文全体のdigestを控える。送信後の実user行だけから本文を照合し、`prompt_index`と送信後eventsの`turn_started.turn_number`を一意に結び付けた場合だけ受理と数える。新turnならその開始位置をdispatch receiptと親配送へ渡す。queueや空画面の消失を受理証拠にせず、本文・Enterの再投入で修復しない。
+
+実Grokの履歴は単一text blockの配列で、通常入力と実行中入力をそれぞれ既知の`<user_query>`全体へ包む。harness adapterでその完全な包みだけを外して照合する。未知の包み、画像との混在、synthetic行を本文一致の証拠にしない。文字列の旧形式も引き続き読む。
+
+欠測・複数一致・記録途中・旧控え・控え消失は不明を維持する。Grokのwaiterは元launchへ固定し、旧turn完了へのfallbackを廃止する。`send_now`のcancelled境界は従来どおり作業の継続として扱う。
+
+queue未確認/残留のwireは既isError/text prefixとexit 2を保ち、`aiterm.agent-send-error.v1`で文字列code、outcome_unknown/effect possible、元session/launch、保存できた観測handleだけを追加する。Cursorの同エラーはtyped unknownへ揃え、native受理の専用観測が無い間はhandleをnullにする。
+
+BellTeam担当Tronyは実装前に既Client/Transportとの互換を確認した。本文再送、自動wake、後発launchや旧turn完了への置換は行わない。

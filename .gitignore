@@ -25,6 +25,7 @@ rtk/
 # Node（npm パッケージのビルド成果物・依存）
 node_modules/
 dist/
+test-failure-snapshots/
 
 # Python prototype（prototype/python/ の参照実装。成果物は Node 版）
 .venv/

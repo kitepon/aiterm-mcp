@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 // Windows ネイティブは tmux CLI 互換の psmux を叩く。検出も同じ経路に合わせる。
 const hasTmux =
@@ -114,18 +115,26 @@ test("サニタイズ: raw=true は素通し", { skip }, () => {
   core.sendKey(SESS, "C-u");
 });
 
-test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async () => {
+test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async (t) => {
   const session = "selftest_long_input";
+  const timing = { open_started_at: Date.now() };
   core.openSession(session);
+  timing.open_returned_at = Date.now();
   try {
     const marker = "<<<AITERM_LONG_INPUT len=6000>>>";
     // 256byte境界直後に3byte文字を置き、chunk分割がUTF-8を壊さないことも同時に固定する。
     const value = `${"x".repeat(255)}あ${"x".repeat(5744)}`;
     const command = `v=${value}; printf '\\n<<<AITERM_LONG_INPUT len=%s>>>\\n' "\${#v}"`;
+    timing.send_started_at = Date.now();
     core.send(session, command, { force: true });
+    timing.send_returned_at = Date.now();
     const out = await core.readOutput(session, { wait: true, until: marker, timeout: 5 });
+    timing.read_returned_at = Date.now();
     assert.ok(out.includes(marker), `長いcommandの末尾まで実行される: ${JSON.stringify(out)}`);
     assert.match(out, /is_complete=True via until/, "指定markerが完了証拠になる");
+  } catch (error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: '6000-character shell execution', timing })));
+    throw error;
   } finally {
     core.closeSession(session);
   }
@@ -354,6 +363,40 @@ test("closeSession: 非存在でも冪等", { skip }, () => {
 });
 
 // ---------------------------------------------------------------- mark + 完了検出（sentinel 自動検出）
+for (const earlierReader of [false, true]) test(`read wait: an older pending mark cannot complete a newer command${earlierReader ? " with a prior reader" : ""}`, { skip }, async () => {
+  const session = "selftest_mark_generation";
+  const release = path.join(SANDBOX, "release-old-mark");
+  const shellRelease = release.replaceAll("\\", "/").replaceAll("'", "'\\''");
+  core.openSession(session);
+  try {
+    core.send(session, `printf 'OLD_%s\\n' START; while [ ! -f '${shellRelease}' ]; do sleep 0.01; done`, { mark: true });
+    assert.match(await core.readOutput(session, { wait: true, until: "OLD_START", timeout: 5, raw: true }), /OLD_START/);
+    const olderRead = earlierReader ? core.readOutput(session, { wait: true, timeout: 5 }) : null;
+    core.send(session, "sleep 0.6; printf 'CURRENT_%s\\n' DONE", { mark: true });
+    fs.writeFileSync(release, "release");
+    if (olderRead) await olderRead;
+    const output = await core.readOutput(session, { wait: true, timeout: 5, full: earlierReader });
+    assert.match(output, /CURRENT_DONE/, output);
+    assert.match(output, /is_complete=True via mark/, output);
+  } finally {
+    core.closeSession(session);
+    fs.rmSync(release, { force: true });
+  }
+});
+
+test("send mark: a persistence failure refuses before writing the command", { skip }, () => {
+  const session = "selftest_mark_write_failure";
+  const mark = path.join(SOCKDIR, session + ".mark");
+  core.openSession(session);
+  fs.mkdirSync(mark);
+  try {
+    assert.throws(() => core.send(session, "echo MUST_NOT_SEND", { mark: true }), /送信IDを保存できません。文字列は送信していません/);
+  } finally {
+    fs.rmSync(mark, { recursive: true });
+    core.closeSession(session);
+  }
+});
+
 test("send mark + read wait: sentinel を自動検出し is_complete=True via mark", { skip }, async () => {
   const rt = "selftest_rt";
   core.openSession(rt);

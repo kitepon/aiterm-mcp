@@ -69,3 +69,12 @@ test('reserved/control creation inputs refuse without a placeholder goal or any 
   assert.equal(port.events.length,0);
  }
 });
+
+
+test('Fast footer stays outside styled composer text and preserves literal drafts',()=>{
+  for(const fast of ['Fast','fast']) {
+    const adapt=screen=>screen.replace('GPT-6.1-Sol default',`GPT-6.1-Sol high ${fast}`);
+    assert.deepEqual(codexGoalUiState(adapt(screens.mainEmpty)),{kind:'composer',empty:true,text:''});
+    assert.deepEqual(codexGoalUiState(adapt(main('literal draft'))),{kind:'composer',empty:false,text:'literal draft'});
+  }
+});

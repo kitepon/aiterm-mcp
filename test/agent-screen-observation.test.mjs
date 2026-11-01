@@ -32,6 +32,29 @@ const SCREENS = {
 const HARNESS = { claude: claudePaneObservation, codex: codexPaneObservation, grok: grokPaneObservation, cursor: cursorPaneObservation };
 const BUSY = { claude: claudeTuiBusy, codex: codexTuiBusy, grok: grokTuiBusy, cursor: cursorTuiBusy };
 
+test('readiness never admits a sample or transcript decision that returns after its positive deadline', async () => {
+  for (const [kind, screens] of Object.entries(SCREENS)) {
+    for (const phase of ['sample', 'steer', 'settled']) {
+      let clock = 0;
+      const result = await waitAgentTuiReadyImpl(kind, () => {
+        if (phase === 'sample') clock = 11;
+        return phase === 'steer' ? screens.busy : screens.idle;
+      }, async () => { throw new Error('an expired decision must not poll again'); }, {
+        timeoutMs: 10, now: () => clock, stableSamples: phase === 'settled' ? 11 : 1,
+        ...(phase === 'steer' ? { selectSteer: () => { clock = 11; return true; } } : {}),
+        ...(phase === 'settled' ? { settledSamples: 1, turnSettled: () => { clock = 11; return true; } } : {}),
+      });
+      assert.equal(result.ready, false, `${kind} ${phase}`);
+      assert.equal(result.steer, undefined, `${kind} ${phase}`);
+    }
+    let clock = 0;
+    const timely = await waitAgentTuiReadyImpl(kind, () => { clock = 9; return screens.idle; },
+      async () => { throw new Error('one timely sample is sufficient'); },
+      { timeoutMs: 10, now: () => clock, stableSamples: 1 });
+    assert.equal(timely.ready, true, kind);
+  }
+});
+
 test("only a pending-send caller can select steer from readiness; ordinary launch/configuration waits retain their deadline", async () => {
   for (const [kind, screens] of Object.entries(SCREENS)) {
     let clock = 0;

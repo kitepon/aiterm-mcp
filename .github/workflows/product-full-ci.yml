@@ -21,6 +21,11 @@ on:
         required: false
         default: all
         type: string
+      test-files:
+        description: Optional explicit test file selection
+        required: false
+        default: ""
+        type: string
       comparison_base:
         description: workflow_dispatchで使う明示的な比較元commit/ref
         required: false
@@ -55,6 +60,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DISPATCH_TEST_FILES: ${{ inputs.test-files }}
           DISPATCH_BASE: ${{ inputs.comparison_base }}
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -77,6 +83,7 @@ jobs:
     needs: classify
     # 選んだ環境が全部、同じcommitの全テストでもう通っている時は、環境が空になる。空のmatrixは起こさない。
     if: needs.classify.outputs.product_change == 'true' && needs.classify.outputs.environments != '[]'
+    name: ${{ needs.classify.outputs.test_scope == 'all' && 'full' || 'selected' }} (${{ matrix.environment }})
     env:
       PRODUCT_CI_TEST_SCOPE: ${{ needs.classify.outputs.test_scope }}
       PRODUCT_CI_TEST_FILES: ${{ needs.classify.outputs.test_files }}
@@ -119,6 +126,14 @@ jobs:
         if: matrix.environment == 'windows-native'
         shell: pwsh
         run: ${{ inputs.full-command }}
+      - name: preserve Windows PTY failure evidence
+        if: failure() && matrix.environment == 'windows-native'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pty-failures-${{ matrix.environment }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: test-failure-snapshots/
+          if-no-files-found: ignore
+          retention-days: 7
 
   gate:
     needs: [classify, full]

@@ -64,6 +64,7 @@ export interface AgentMetadata {
   initial_prompt_delivery?: InitialPromptDelivery;
   initial_prompt_cursor?: number | null;
   agent_executable?: string;
+  windows_launch_exit_tracked?: true;
   // Private guarded-launch provenance. Missing on legacy launches; never
   // infer it from a same-name native observation or a later PID snapshot.
   execution_native?: { schema: "aiterm.execution-native.v1"; native_id: string;

@@ -42,7 +42,7 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
     assert.equal(result.status, 0, result.stderr);
     const data = JSON.parse(result.stdout);
     assert.equal(data.exists, true);
-    assert.equal(existsSync(data.initial), false, '前処理が作った置き場は、processの終わりに消える');
+    assert.equal(existsSync(data.initial), process.platform === 'win32', 'Windowsの子rootは並行走者の終了まで保持し、POSIXは子の終了時に消す');
     assert.notEqual(data.initial, inherited);
     assert.deepEqual(Object.values(data.environment), Array(9).fill(null));
     assert.deepEqual(data.temporary, Array(3).fill(data.initial));
@@ -52,6 +52,46 @@ test('試験入口は席のstate・系譜・tmuxを外し、個別試験の保�
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the real test runner keeps separate Windows worker roots until all workers finish', () => {
+  const tree=fileURLToPath(new URL('..',import.meta.url));
+  const root=mkdtempSync(join(tmpdir(),'seat-runner-'));
+  const { AITERM_TEST_RUN_ROOT: _runRoot, NODE_TEST_CONTEXT: _context, ...env } = process.env;
+  try {
+    for(const file of ['test/seat-env.mjs','scripts/run-seat-tests.mjs']) {
+      mkdirSync(dirname(join(root,file)),{recursive:true});
+      writeFileSync(join(root,file),readFileSync(join(tree,file)));
+    }
+    writeFileSync(join(root,'package.json'),JSON.stringify({type:'module'}));
+    const a=join(root,'a.json');
+    writeFileSync(join(root,'test/a.test.mjs'), `import './seat-env.mjs';
+      import test from 'node:test';import fs from 'node:fs';
+      test('a',()=>{const r={root:process.env.TEMP,owner:process.env.AITERM_TEST_RUN_ROOT,pid:process.pid};fs.writeFileSync(${JSON.stringify(a)},JSON.stringify(r));console.log('ROOT_RECEIPT '+JSON.stringify(r));});`);
+    writeFileSync(join(root,'test/b.test.mjs'), `import './seat-env.mjs';
+      import test from 'node:test';import fs from 'node:fs';import assert from 'node:assert/strict';
+      test('b',async()=>{const deadline=Date.now()+5000;let a,alive=true;
+        while(alive&&Date.now()<deadline){if(fs.existsSync(${JSON.stringify(a)})){a=JSON.parse(fs.readFileSync(${JSON.stringify(a)},'utf8'));try{process.kill(a.pid,0);}catch(e){if(e.code!=='ESRCH')throw e;alive=false;}}
+          if(alive)await new Promise(r=>setTimeout(r,10));}
+        assert(a&&!alive,'first worker must have exited');
+        if(process.platform==='win32'){assert(fs.existsSync(a.root),'an exited worker must retain its shared MSYS mount');assert.equal(a.owner,process.env.AITERM_TEST_RUN_ROOT);}
+        console.log('ROOT_RECEIPT '+JSON.stringify({root:process.env.TEMP,owner:process.env.AITERM_TEST_RUN_ROOT}));});`);
+    const run=args=>spawnSync(process.execPath,['scripts/run-seat-tests.mjs',...args],{cwd:root,env,encoding:'utf8',timeout:10000});
+    const bad=run(['--test','']);assert.notEqual(bad.status,0);assert.match(bad.stderr,/test files must be explicit/);
+    if(process.platform==='win32') {
+      const invalid=spawnSync(process.execPath,['scripts/run-seat-tests.mjs','--test','test/a.test.mjs'],{cwd:root,env:{...env,AITERM_TEST_RUN_ROOT:''},encoding:'utf8'});
+      assert.notEqual(invalid.status,0);assert.match(invalid.stderr,/Windows test run root must be an existing directory/);
+      const direct=spawnSync(process.execPath,['--import','./test/seat-env.mjs','--test','test/a.test.mjs','test/b.test.mjs'],{cwd:root,env,encoding:'utf8',timeout:10000});
+      assert.notEqual(direct.status,0,'worker-only preload is the old failing boundary');
+      assert.match(direct.stdout+direct.stderr,/an exited worker must retain its shared MSYS mount/);
+      rmSync(a,{force:true});
+    }
+    const result=run(['--test','test/a.test.mjs','test/b.test.mjs']);assert.equal(result.status,0,result.stdout+result.stderr);
+    const rows=result.stdout.split(/\r?\n/).filter(s=>s.includes('ROOT_RECEIPT ')).map(s=>JSON.parse(s.slice(s.indexOf('ROOT_RECEIPT ')+13)));
+    assert.equal(rows.length,2);assert.notEqual(rows[0].root,rows[1].root);
+    for(const row of rows){if(process.platform==='win32')assert.equal(dirname(row.root),row.owner);assert.equal(existsSync(row.root),false,'the runner removes worker roots after completion');}
+    if(process.platform==='win32')assert.equal(existsSync(rows[0].owner),false);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
 
 // 試験fileは、入口（--import）を通らずに流される事がある。引数が空の`node --test`は、その場所から下の試験fileを全部拾う（ADR 0087の追記）。
@@ -466,6 +506,7 @@ test('CIの入口は、端末全体のgitの設定を確かめられない時、
   const module = name => `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(launched)}, ${JSON.stringify(`${name}\n`)});\n`;
   for (const [file, body] of [
     ['scripts/run-product-ci-tests.mjs', readFileSync(join(tree, 'scripts', 'run-product-ci-tests.mjs'), 'utf8')],
+    ['scripts/run-seat-tests.mjs', readFileSync(join(tree, 'scripts', 'run-seat-tests.mjs'), 'utf8')],
     ['scripts/clean-build.mjs', module('clean-build')],
     // 拡張子の無いfileは、CommonJSとして読まれる。
     ['node_modules/typescript/bin/tsc', `require('node:fs').appendFileSync(${JSON.stringify(launched)}, 'tsc\\n');\n`],

@@ -41,6 +41,7 @@ import {
   codexUsageLimit,
 } from "./harnesses/codex.js";
 import { interimFromToken, parseInterimFrom } from "./interim-words.js";
+import { grokEventsTranscript, grokSessionDirectory, grokUserPrompt } from "./harnesses/grok.js";
 import type { InterimFrom } from "./interim-words.js";
 
 /** 差し込みの返りの_metaで返すキー。 */
@@ -72,6 +73,9 @@ export interface SteerEntry {
   interim_from: string;
   /** 文の見分けに使う並び。短すぎる文は空。 */
   needle: string;
+  /** Grok: compare the entire input and only history appended after admission. */
+  body_digest?: string;
+  history_cursor?: number;
 }
 
 export function steerLedgerPath(name: string, launchId: string): string {
@@ -111,6 +115,10 @@ export function recordSteer(meta: AgentMetadata, from: InterimFrom, body: string
       event_cursor: from.event_cursor,
       interim_from: interimFromToken(from),
       needle: steerNeedle(body),
+      ...(meta.kind === "grok" ? {
+        body_digest: createHash("sha256").update(squeeze(body)).digest("hex"),
+        history_cursor: safeStatSize(path.join(grokSessionDirectory(meta) ?? "", "chat_history.jsonl")),
+      } : {}),
     };
     if (safeStatSize(file) > STEER_LEDGER_MAX_BYTES) {
       const kept = fs.readFileSync(file, "utf8").split("\n").filter(line => parseSteerEntry(line)).slice(-STEER_LEDGER_KEEP);
@@ -218,7 +226,8 @@ function baseObservation(meta: AgentMetadata): Omit<AgentWaitObservation, "outco
 /**
  * 差し込んだ文を取った番の終わりを待つ。
  * CodexとClaude Codeは、harnessの記録の中から文を見つけて、その番の終わりを返す。
- * GrokとCursorは「今すぐ送る」で必ず動いている番へ入る（入らなければ差し込みが誤りで返る）ので、打った後の最初の完了が、その番の終わり。
+ * Grokは送信後の本文全体とnative turn番号を照合する。照合できなければ旧turn完了で代用しない。
+ * Cursorはqueue操作で確認した現在turnの完了を追う。
  */
 export async function observeSteerDone(
   meta: AgentMetadata,
@@ -228,7 +237,62 @@ export async function observeSteerDone(
 ): Promise<AgentWaitObservation> {
   if (meta.kind === "codex") return observeCodexSteerDone(meta, entry, timeoutSeconds, deps);
   if (meta.kind === "claude") return observeClaudeSteerDone(meta, entry, timeoutSeconds, deps);
+  if (meta.kind === "grok") {
+    const deadline = performance.now() + timeoutSeconds * 1000;
+    for (;;) {
+      deps.signal?.throwIfAborted();
+      if (!fs.existsSync(agentMetadataPath(meta.aiterm_session, meta.launch_id))) return { ...baseObservation(meta), outcome: "closed", steer: fate("unknown") };
+      const accepted = grokSteerAcceptance(meta, entry);
+      if (accepted) return { ...await deps.plain(accepted.event_cursor, Math.max(0, (deadline - performance.now()) / 1000)),
+        steer: fate(accepted.placement, accepted.taken_at) };
+      if (performance.now() >= deadline) return { ...baseObservation(meta), outcome: timeoutSeconds === 0 ? "running" : "timeout", steer: fate("unknown") };
+      await sleep(AGENT_DONE_POLL_MS);
+    }
+  }
   return { ...await deps.plain(entry.event_cursor, timeoutSeconds), steer: fate("same_turn") };
+}
+
+/** Correlate the newly appended full input with Grok's prompt_index/turn_number. */
+export function grokSteerAcceptance(meta: AgentMetadata, entry: SteerEntry):
+  { event_cursor: number; placement: "same_turn" | "next_turn"; taken_at: string | null } | null {
+  const directory = grokSessionDirectory(meta), events = grokEventsTranscript(meta);
+  if (!directory || !events || !entry.body_digest || !Number.isSafeInteger(entry.history_cursor) || entry.history_cursor! < 0) return null;
+  const history = path.join(directory, "chat_history.jsonl");
+  const completeLines = (file: string, from: number): string[] | null => {
+    const size = safeStatSize(file);
+    // shortcut: refuse transcript increments above 4 MiB; add streaming if real input crosses this bound.
+    if (size < from || size - from > STEER_READ_CHUNK_BYTES || (from > 0 && readFileRange(file, from - 1, from)[0] !== 10)) return null;
+    return readFileRange(file, from, size).toString("utf8").split("\n").slice(0, -1);
+  };
+  try {
+    const rows = completeLines(history, entry.history_cursor!), boundaries = completeLines(events, entry.event_cursor);
+    if (!rows || !boundaries) return null;
+    const matches: number[] = [];
+    for (const line of rows) {
+      let row: any;
+      try { row = JSON.parse(line); } catch { return null; }
+      const prompt = grokUserPrompt(row);
+      if (prompt !== null && createHash("sha256").update(squeeze(prompt)).digest("hex") === entry.body_digest) {
+        if (!Number.isSafeInteger(row.prompt_index) || row.prompt_index < 0) return null;
+        matches.push(row.prompt_index);
+      }
+    }
+    if (matches.length !== 1) return null;
+    let offset = entry.event_cursor, sendNow = false;
+    const starts: Array<{ event_cursor: number; placement: "same_turn" | "next_turn"; taken_at: string | null }> = [];
+    for (const line of boundaries) {
+      let row: any;
+      try { row = JSON.parse(line); } catch { return null; }
+      if (row?.type === "turn_ended" && row.cancellation_context?.trigger === "send_now") sendNow = true;
+      if (row?.type === "turn_started") {
+        if (row.turn_number === matches[0]) starts.push({ event_cursor: offset,
+          placement: sendNow ? "same_turn" : "next_turn", taken_at: typeof row.ts === "string" ? row.ts : null });
+        sendNow = false;
+      }
+      offset += Buffer.byteLength(line + "\n");
+    }
+    return starts.length === 1 ? starts[0] : null;
+  } catch { return null; }
 }
 
 // ------------------------------------------------ Codex

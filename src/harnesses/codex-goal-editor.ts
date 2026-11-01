@@ -26,7 +26,7 @@ export function codexGoalUiState(raw: string): { kind: 'composer' | 'editor' | '
   const end = body.findIndex(line => {
     const value = plain(line);
     return line.some(c => c.decorated && c.text.trim())
-      && (/^\s*\? for shortcuts|^\s*⚠\s*\d+ warnings|^\s*\S+\s+(?:default|minimal|low|medium|high|xhigh|ultra)\s*·\s/u.test(value));
+      && (/^\s*\? for shortcuts|^\s*⚠\s*\d+ warnings|^\s*\S+\s+(?:default|minimal|low|medium|high|xhigh|ultra)(?:[ \t]+[Ff]ast)?\s*·\s/u.test(value));
   });
   const content = (end < 0 ? body : body.slice(0, end));
   const cells = content.flat().filter(c => c.text.trim());

@@ -33,6 +33,7 @@ fs.writeFileSync(wrapper, [
   `const a=process.argv.slice(2), socket=${JSON.stringify(socket)}, trace=${JSON.stringify(trace)}, control=${JSON.stringify(control)};`,
   `if (!a.includes('-V') && a[a.indexOf('-S')+1]!==socket) { process.stderr.write('fixture refuses other socket'); process.exit(91); }`,
   `let c=null; try {c=JSON.parse(fs.readFileSync(control,'utf8'));}catch{}`,
+  `if(c?.patch==='activity-unavailable' && a.includes('capture-pane') && a.includes('-200')){process.stderr.write('synthetic activity capture unavailable');process.exit(2);}`,
   `const capture=a.includes('capture-pane') && a.includes('-45');`,
   `if(c && capture) { c.samples++; fs.writeFileSync(control,JSON.stringify(c));`,
   ` if(c.samples===3 && ['stop','uncertain'].includes(c.patch)) { const {FileExecutionStore}=await import(${JSON.stringify(pathToFileURL(path.join(product,'dist/execution-store.js')).href)}); new FileExecutionStore(c.graph).transactionSync(state=>{if(c.patch==='stop')state.stopping.push(c.target);else state.slots.push({session_id:c.target.session_id,expected_launch_id:c.target.launch_id,stage:'send',state:'unknown',request:null});}); }`,
@@ -88,7 +89,7 @@ async function scenario(mode) {
     let live;
     for(let n=0;n<100;n++){live=core.observeSession(sid);if(live.harness_alive===true&&live.state==='idle')break;await delay(50);}
     assert.equal(live.harness_alive,true);assert.equal(live.state,'idle');
-    const meta=redactedRollout(live.launch_id,mode,mode!=='startup');
+    const meta=redactedRollout(live.launch_id,mode,mode!=='startup'&&mode!=='activity-unavailable');
     row.synthetic_turn_before=codexRunningTurn(meta);
     if(mode==='dead'){
       fs.writeFileSync(exitFlag,'exit');
@@ -109,8 +110,9 @@ async function scenario(mode) {
     const dispatcher=createExecutionDispatcher({service,nativeIdentity:{pid:process.pid,started_identity:'synthetic-probe-start'},sourceEnvironment:{},initializedClientName:()=> 'bellteam',observeSessionGeneration:core.observeSessionGeneration});
     const request={kind:'delivery',delivery_id:randomUUID(),target_session_id:sid};
     await service.execute({action:'register',source_session_id:source.session_id,reservation:{schema:'aiterm.execution-reservation.v1',request,source:{launch:source,boundary:null},target:{session_id:sid,expected_launch_id:live.launch_id}}});
-    const renderedMode=['stop','uncertain','replace-source','replace-target'].includes(mode)?'race':mode==='dies-during-wait'?'startup':mode==='dies-after-paste'?'busy':mode;
+    const renderedMode=['stop','uncertain','replace-source','replace-target'].includes(mode)?'race':['dies-during-wait','activity-unavailable'].includes(mode)?'startup':mode==='dies-after-paste'?'busy':mode;
     fs.writeFileSync(control,JSON.stringify({mode:renderedMode,samples:0,patch:mode,graph:store.directory,target:{session_id:sid,launch_id:live.launch_id},exitFlag,dieAtSample:mode==='dies-during-wait'?2:null,dieAfterPaste:mode==='dies-after-paste'}));fs.writeFileSync(trace,'');
+    if(mode==='activity-unavailable')assert.throws(()=>core.observeSession(sid),/paneの活動観測を取得できません/);
     const started=performance.now();let originalFailure=null;
     const result=await dispatcher.dispatch('pty_send',{session_id:sid,text:`SYNTHETIC_${mode.toUpperCase()}_MARKER`,require_agent:true},
       {_meta:{'aiterm/execution':{schema:'aiterm.execution-ref.v1',request}}},async()=>{
@@ -147,8 +149,8 @@ async function scenario(mode) {
       // Count the controlled observations: native wrapper process startup varies under full CI load.
       // The pure readiness test covers the deadline with an injected clock.
       assert.equal(row.capture_samples,mode==='race'?4:1,'busy input leaves readiness at its first busy sample');
-    } else if(mode==='startup') {
-      assert.equal(row.receipt_mode,'agent_dispatch',JSON.stringify(row));assert.equal(row.marker_count,1);
+    } else if(mode==='startup'||mode==='activity-unavailable') {
+      assert.equal(row.receipt_mode,'agent_dispatch');assert.equal(row.marker_count,1);
       assert.equal(row.operations.send,'accepted');assert(row.capture_samples>=4,'startup samples do not count as idle readiness');
     } else {
       assert.equal(row.isError,true);assert.match(row.original_failure,/reason=harness_exited/);
@@ -169,7 +171,7 @@ async function scenario(mode) {
     return row;
   } finally {fs.rmSync(control,{force:true});core.closeSession(sid);}
 }
-for(const [mode,label] of [['race','pending Codex input selects steer when busy returns during readiness'],['busy','initial busy input remains a single steer'],['dead','known exited harness refuses before waiting and never receives input'],['startup','a starting live harness still waits for idle readiness']]) {
+for(const [mode,label] of [['race','pending Codex input selects steer when busy returns during readiness'],['busy','initial busy input remains a single steer'],['dead','known exited harness refuses before waiting and never receives input'],['startup','a starting live harness still waits for idle readiness'],['activity-unavailable','input admission requires native ownership and its own readiness screen, without unrelated activity capture']]) {
   test(label,{skip:posix},async t=>{const r=await scenario(mode);t.diagnostic(JSON.stringify({mode,elapsed_ms:r.elapsed_ms,receipt:r.receipt_mode,marker_count:r.marker_count,error:r.execution_error}));});
 }
 for(const mode of ['stop','uncertain','replace-source','replace-target','modal','dies-during-wait','dies-after-paste']) {

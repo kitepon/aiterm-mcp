@@ -2,7 +2,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import test from "node:test";
 import { grokPaneObservation, grokEnvTokens } from "../dist/harnesses/grok.js";
-import { codexHelperProcess, codexPaneObservation, codexTuiBusy, codexTuiReady, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexTurnErrorLine, codexUsageLimit } from "../dist/harnesses/codex.js";
+import { codexHelperProcess, codexFooterShowsFast, codexPaneObservation, codexTuiBusy, codexTuiReady, codexApprovalDialog, codexRateLimitModelSwitchDialog, codexStartupAction, codexTurnError, codexTurnErrorLine, codexUsageLimit } from "../dist/harnesses/codex.js";
 
 test("CodexのWindows hook確認は画面上部の見出しとgo back footerから判定する", () => {
   const screen = ['  Hooks need review', '  8 hooks are new or changed.',
@@ -600,4 +600,20 @@ test('Claude security notes after an old shell marker are onboarding, not a read
  assert.deepEqual(claudePaneObservation(screen),{state:'blocked',reason:'vendor_onboarding_required'});
  assert.equal(claudeStartupAction(screen,true),null);
  assert.equal(claudeTuiReady(screen+'\n────────────\n❯ \n────────────\n'),true,'past notes do not hide the current composer');
+});
+
+test('Codex capital Fast footer identifies the headerless live composer without bypassing dialogs',()=>{
+  for(const fast of ['Fast','fast']) {
+    const footer=`  GPT-6.1-Sol high ${fast} · /work/fixture · sample goal\n  ? for shortcuts   ⚠ 2 warnings · f2 to view`;
+    const screen=`• Service tier set to priority\n\n› Ask Codex to do anything\n\n${footer}`;
+    assert.equal(codexTuiReady(screen),true);
+    assert.deepEqual(codexPaneObservation(screen),{state:'idle',reason:'composer_ready'});
+    assert.equal(codexFooterShowsFast(screen),true);
+    assert.deepEqual(codexPaneObservation(`• Working (3s • esc to interrupt)\n${screen}`),{state:'busy',reason:'turn_running'});
+    assert.deepEqual(codexPaneObservation(screen+'\nWarnings · 1 of 2 · Startup\nk keep & next · esc dismiss & close · ^o copy'),{state:'blocked',reason:'unknown_dialog'});
+    assert.deepEqual(codexPaneObservation(screen+'\nAllow the test MCP server to run tool\n› 1. Yes\nenter select · esc back'),{state:'blocked',reason:'mcp_approval'});
+    assert.equal(codexTuiReady(footer),false,'a footer without a composer is not ready');
+  }
+  assert.equal(codexTuiReady('› please be Fast · thanks'),false);
+  assert.equal(codexFooterShowsFast('› please be Fast · thanks'),null);
 });

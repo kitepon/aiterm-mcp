@@ -48,7 +48,8 @@ test(
   { skip: windowsOnly ?? (hasPsmux ? undefined : "psmux未導入") },
   () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-state-killall-"));
-    const foreign = path.join(root, "foreign");
+    // A Bash pane may share this TEMP after the case finishes; the runner owns its lifetime.
+    const foreign = os.tmpdir();
     const isolated = path.join(root, "isolated");
     const foreignAgents = path.join(foreign, "aiterm-mcp-0", "agents");
     const sentinel = path.join(foreignAgents, "live-product.0123456789abcdef0123456789abcdef.agent.json");

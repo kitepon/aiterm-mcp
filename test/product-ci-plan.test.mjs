@@ -481,3 +481,33 @@ test('workflowは、環境が空の時にfullを起こさず、関門へ環境�
     assert.match(source, /\npermissions:\n(?:  #[^\n]*\n)*  actions: read\n  contents: read\n/u, file);
   }
 });
+
+
+test('selected manual CI validates files and never counts as full regression', async t => {
+  const repo = await repository(t);
+  await mkdir(join(repo.root, 'test'));
+  await writeFile(join(repo.root, 'test', 'input.test.mjs'), '// fixture');
+  const output = join(repo.root, 'selection.txt');
+  const run = files => spawnSync(process.execPath, [SCRIPT, 'plan'], {
+    cwd: repo.root, encoding: 'utf8', env: planEnvironment({
+      EVENT_NAME: 'workflow_dispatch', DISPATCH_BASE: repo.base, GITHUB_SHA: repo.head,
+      GITHUB_OUTPUT: output, REQUESTED_ENVIRONMENT: 'windows-native', DISPATCH_TEST_FILES: JSON.stringify(files),
+    }),
+  });
+  assert.equal(run(['test/input.test.mjs']).status, 0);
+  const outputs = Object.fromEntries((await readFile(output, 'utf8')).trim().split('\n').map(line => line.split(/=(.*)/su).slice(0, 2)));
+  assert.equal(outputs.test_scope, 'selected');
+  assert.deepEqual(JSON.parse(outputs.test_files), ['test/input.test.mjs']);
+  assert.deepEqual(JSON.parse(outputs.environments), ['windows-native']);
+  for (const files of [[], ['test/missing.test.mjs'], ['../test/input.test.mjs'], ['src/windows-powershell.ts'], null, 'test/input.test.mjs']) {
+    assert.notEqual(run(files).status, 0, JSON.stringify(files));
+  }
+  const headSha = 'a'.repeat(40);
+  assert.equal(priorFullEnvironments({
+    runs: [{ id: 1, event: 'workflow_dispatch', head_sha: headSha, workflow_id: WORKFLOW_ID }],
+    jobsByRun: new Map([[1, [{ name: 'full / selected (windows-native)', status: 'completed', conclusion: 'success' }]]]),
+    headSha, workflowId: WORKFLOW_ID, currentRunId: 2,
+  }).size, 0);
+  const workflow = await readFile(resolve(import.meta.dirname, '..', '.github/workflows/product-full-ci.yml'), 'utf8');
+  assert.match(workflow, /name: \$\{\{ needs\.classify\.outputs\.test_scope == 'all' && 'full' \|\| 'selected' \}\}/u);
+});

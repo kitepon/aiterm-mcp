@@ -8,6 +8,7 @@ import { readAgentActivity } from "../dist/agent-activity.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import {
   hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
@@ -51,6 +52,9 @@ test("dispatch/observe: Codex task_complete 到着まで transcript 正本を待
       assert.ok(warning.mock.calls.some(call => call.arguments[0].includes("AGENT_ACTIVITY_UNCONFIRMED")));
       warning.mock.restore();
       assert.throws(() => readAgentActivity(meta), /AGENT_ACTIVITY_UNCONFIRMED/);
+    } catch (error) {
+      t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Codex initial dispatch' })));
+      throw error;
     } finally {
       core.closeSession(sid);
       assert.equal(fs.readdirSync(agentStateDir()).some(file => file.startsWith(`${sid}.`) && file.endsWith(".activity.jsonl")), false);

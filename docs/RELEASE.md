@@ -10,12 +10,17 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
   LinuxとWindowsを選ぶ。共通変更が混ざっても対象OSを落とさない。試験は依存graphから選び、依存を確定できない変更だけ全テストへ広げる。
 - 版番号だけの変更はJSONの実差分で識別し、Linuxでbuildと配布metadata・pack・文書確認を行う。依存や実行設定の変更は省略しない。
   文書だけなら文書検査、実装と文書の混在なら関連試験と文書検査を行う。
-- 週1回の定期実行（月曜 03:00 JST）と手動実行は、指定された環境で全テストを回す。定期実行の対象は3環境である。
+- 手動実行の`test_files`へ既存試験fileのJSON配列を渡すと、指定OSでその試験だけを実行する。空欄は従来の全試験。
+  選択実行のjob名は`selected`で、同headの全試験成功の再利用対象にしない。
+- 週1回の定期実行（月曜 03:00 JST）と`test_files`未指定の手動実行は、指定された環境で全テストを回す。定期実行の対象は3環境である。
 - pushは、同じcommitの全テスト（手動実行か定期実行）がもう通っている環境を流さない。枝で手動実行を通してからmainへ早送りすると、
   mainのpushは変更分類と関門だけで終わる。通っている環境が一部の時は、残りの環境だけを流す。GitHubへ聞けない時は、選んだ環境を全部流す。
   同じcommitのpush・pull requestの成功は、試験を絞っている事があるので数えない（ADR 0115）。
 - tag push: 所有確認と、tagged commitが`origin/main`の祖先であることの確認だけを行い、npmへprovenance付きで
   publishする。同じcommitのmain CIの結果は待たない。
+
+Windows試験の失敗時は、同じjob内で`test-failure-snapshots/`をhead/環境/attempt別artifactへ保存する（7日保持）。
+次のcheckout後もこの原本を回収できる。snapshotの無い失敗は詳細logを正本とし、artifact未取得を受入済みにしない。
 
 ## Producerとconsumerを公開前に揃える時
 
@@ -29,7 +34,7 @@ Steerの未公開release sourceは` scripts/fixtures/steer-release-source.json `
 ## Release手順
 
 1. 変更に直結するfocused testを手元で通す。full regressionは手元で回さず、CIに任せる。
-   個別試験も`node --import ./test/seat-env.mjs --test ...`で起動する。稼働中の席の保存場所を試験へ継承しない。
+   個別試験も`node scripts/run-seat-tests.mjs --test ...`で起動する。稼働中の席の保存場所を試験へ継承しない。
 2. `CHANGELOG.md`の`## [Unreleased]`へ内容を書き、mainへcommitしてpushする。
    3環境の全テストを先に通しておく時は、枝をpushして手動実行（`gh workflow run ci.yml --ref <枝> -f environment=all -f comparison_base=<前の公開commit>`）を
    1回流し、通ったcommitをそのままmainへ早送りする。Windowsの全テストは1回で済む。

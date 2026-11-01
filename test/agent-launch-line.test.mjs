@@ -64,7 +64,7 @@ test("openAgent codex: 起動commandは1物理行で打たれ、argvは偽CLIの
       const [sid] = core.openAgent("codex", { agent_done: true, prompt: PROMPT, write_scope: "read-only" });
       try {
         assertOnePhysicalLine(submittedLine(sid));
-        await readArgvFixture(sid, t);
+        await readArgvFixture(sid, t, argvFileFor(readAgentMeta(sid).launch_id));
         const argv = receivedArgv(sid);
         const sandbox = argv.indexOf("--sandbox");
         assert.ok(sandbox >= 0);
@@ -89,7 +89,7 @@ test("openAgent claude: --append-system-promptの複数行instructionも1物理�
     const [sid] = core.openAgent("claude", { agent_done: true });
     try {
       assertOnePhysicalLine(submittedLine(sid));
-      await readArgvFixture(sid, t);
+      await readArgvFixture(sid, t, argvFileFor(readAgentMeta(sid).launch_id));
       const argv = receivedArgv(sid);
       const at = argv.indexOf("--append-system-prompt");
       assert.ok(at >= 0, JSON.stringify(argv));
@@ -135,7 +135,7 @@ class Fixture {
       const [sid] = core.openAgent("grok", { agent_done: true, prompt: PROMPT, reasoning_effort: "high", env_vars: ["AITERM_TEST_GROK_ARGV_FILE"] });
       try {
         assertOnePhysicalLine(submittedLine(sid));
-        await readArgvFixture(sid, t);
+        await readArgvFixture(sid, t, output);
         const argv = fs.readFileSync(output, "utf8").split("\0");
         assert.equal(argv.pop(), "");
         assert.equal(argv.at(-1), PROMPT);

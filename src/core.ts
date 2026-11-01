@@ -271,7 +271,7 @@ import {
 } from "./harnesses/cursor.js";
 import { interimFromNow, readInterimWords, recordInterimBoundary } from "./interim-words.js";
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
-import { codexSeatTurn, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
+import { codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
 import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
@@ -612,6 +612,7 @@ function cleanupAgentState(name: string): void {
         if (
           f.endsWith(".agent.json") ||
           f.endsWith(".active-launch.json") ||
+          f.endsWith(".launch-exited") ||
           f.endsWith(".events.jsonl") ||
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
@@ -657,7 +658,7 @@ function offsetpath(name: string): string {
 function lastcmdpath(name: string): string {
   return path.join(SOCKDIR, name + ".lastcmd");
 }
-// mark:true 送信中フラグ。存在すれば waitCompletion が sentinel 完了検出（MARK_DONE_RE）を有効化する。
+// mark:trueの送信ID。旧producerの"1"もpending flagとして読み取る。
 function markpath(name: string): string {
   return path.join(SOCKDIR, name + ".mark");
 }
@@ -860,7 +861,12 @@ async function waitCompletion(
   }
   // mark:true 送信中なら sentinel 完了検出を有効化する。エコー（rc=%d）でなく実出力（rc=<数字>）だけに
   // 一致する数字アンカー MARK_DONE_RE を使うため、until のようにエコー部分一致で早期誤完了しない（B1）。
-  const markActive = fs.existsSync(markpath(name));
+  let markId: string | null = null;
+  try { markId = fs.readFileSync(markpath(name), "utf8").trim(); } catch { /* no pending mark */ }
+  const markActive = markId !== null;
+  // shortcut: legacy "1" lacks correlation; retire the fallback after legacy pending commands are gone.
+  const markDone = markId === "1" ? MARK_DONE_RE : /^[0-9a-f]{32}$/.test(markId ?? "")
+    ? new RegExp(`${MARK_DONE_RE.source} id=${markId}(?:\\r?\\n|$)`) : null;
   for (;;) {
     let size = 0;
     try {
@@ -890,9 +896,9 @@ async function waitCompletion(
         }
       }
       // mark を until より先に判定（sentinel は確証つき完了。until はユーザ指定でエコー誤爆余地あり）。
-      if (markActive && MARK_DONE_RE.test(neu)) {
+      if (markActive && markDone?.test(neu)) {
         try {
-          fs.unlinkSync(markpath(name)); // 同一 sentinel での再発火を防ぐ
+          if (fs.readFileSync(markpath(name), "utf8").trim() === markId) fs.unlinkSync(markpath(name));
         } catch {
           /* noop */
         }
@@ -919,10 +925,11 @@ async function waitCompletion(
         // 次周回の先頭で新増分に対する mark/until 判定が走る。
         if (safeStatSize(logpath(name)) !== size) {
           stable = 0;
-        } else if (!until && !markActive && SHELLS.has(fg)) {
+        } else if (!until && !markActive && SHELLS.has(fg) && size > start) {
+          // A native pipe may stay empty before the submitted input runs.
           await settlePaneLog(logpath(name), POLL);
           return [true, "quiescent"]; // 出力静止 ∧ シェル復帰 ＝ 確証つき完了
-        } else if (!until && !markActive && fg !== "") {
+        } else if (!until && !markActive && fg !== "" && !SHELLS.has(fg)) {
           // ネスト中（前面が ssh/docker/REPL 等でシェル集合外）は quiescence の「シェル復帰」条件を
           // 原理的に満たせない。until も mark も無ければこれ以上待っても確証は増えない（until/dead/
           // quiescent/mark のいずれも発火し得ない）ので、出力静止時点で「未確定」のまま早期返却する。
@@ -1208,7 +1215,8 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
       o.beforePtyWrite?.();
       writeLastcmd(name, o.launchShell ? atomicShellMultiline(text, o.launchShell) : text);
       if (o.rtk) text = rtkRewrite(text);
-      if (o.mark) text = appendMarkSentinel(text, fg);
+      const markId = o.mark ? randomBytes(16).toString("hex") : null;
+      if (markId !== null) text = appendMarkSentinel(text, fg, markId);
       assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
       const reportedText = text;
       // Agent composer paste is literal text even if native foreground metadata
@@ -1221,9 +1229,9 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     });
     if (o.mark) {
       try {
-        fs.writeFileSync(markpath(name), "1"); // waitCompletion に sentinel 完了検出を有効化させる
+        fs.writeFileSync(markpath(name), markId!);
       } catch {
-        /* noop（フラグ書けなくても until/quiescence 経路は生きる） */
+        throw new AitermError("完了印の送信IDを保存できません。文字列は送信していません。", 2);
       }
     } else {
       // 非 mark 送信は、未消化の古い mark 完了待ちを無効化する（前コマンドの sentinel を待ち続けない）。
@@ -1788,6 +1796,7 @@ export interface ListedSession {
   width: number;
   height: number;
   harness: AgentHarness | null;
+  launch_id: string | null;
   /** agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値、CodexとCursorは分かった後。 */
   vendor_session_id: string | null;
   environment: Record<string, string | null>;
@@ -1850,13 +1859,12 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
       .replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
     const command = row.command.replace(/\\/g, "/").replace(/\.exe(?=["\s]|$)/gi, "").replace(/"/g, "");
     const tokens = row.command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-    // `sh <script>` だけでなく、Windowsの `cmd.exe /c <launcher>.cmd` のように起動した実行ファイルが
-    // 2番目以降に来る形もある（Cursor公式installerは .cmd → .ps1 → node と中継する）。
+    // native本体の先頭tokenと、sh/cmd経由で2番目以降に来るlauncherの両方を照合する。
     const launched = meta.agent_executable?.replace(/\\/g, "/");
     const sameFile = (value: string): boolean => /^[A-Za-z]:\//.test(launched!) ? value.toLowerCase() === launched!.toLowerCase() : value === launched;
-    const launchedScript = launched !== undefined
-      && tokens.slice(1).some(token => sameFile(token.replace(/^["']|["']$/g, "").replace(/\\/g, "/")));
-    return launchedScript || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
+    const launchedProcess = launched !== undefined
+      && tokens.some(token => sameFile(token.replace(/^["']|["']$/g, "").replace(/\\/g, "/")));
+    return launchedProcess || (!SHELLS.has(executable) && executable !== "pwsh" && AGENT_COMMAND_PATTERNS[meta.kind].test(command));
   };
   // WindowsのMSYS execでnative親子関係が切れる場合も、launch固有引数で相関する。
   const correlated = rows.filter(row => matches(row) && row.command.includes(meta.launch_id));
@@ -1989,12 +1997,29 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   return result;
 }
 
-function observeNativeSession(name: string, cursor?: string): SessionObservation {
+/** Native absence before the owned launcher returns does not prove CLI exit. */
+export function absentHarnessAlive(meta: AgentMetadata, platform: NodeJS.Platform = process.platform): false | null {
+  if (platform === "win32" && meta.windows_launch_exit_tracked === true) {
+    try { return fs.readFileSync(agentMetadataPath(meta.aiterm_session, meta.launch_id) + ".launch-exited", "utf8") === meta.launch_id ? false : null; }
+    catch { return null; }
+  }
+  return platform === "win32" && meta.kind === "cursor" ? null : false;
+}
+
+// Input admission needs the same native ownership proof, without activity capture or child-delivery scans.
+function observeSessionNative(name: string) {
   assertSessionName(name);
-  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
   const listed = listNativeSessionsResult().sessions.find(session => session.session_id === name);
-  const result = emptySessionObservation(name, !!listed);
-  if (!listed) return result;
+  const result: SessionObservation = {
+    schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
+    exists: !!listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
+    pane_alive: false, harness_alive: null, pane_process: null, harness_process: null, process_identity: null,
+    token_hint: null, pending_child_deliveries: null,
+    activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
+      background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
+      post_startup_process_count: null },
+  };
+  if (!listed) return { result, native: null };
   const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
   if (pane.code !== 0) throw new AitermError("paneの生存情報を取得できません", 2);
   const [pidText, dead] = pane.stdout.trim().split("\t");
@@ -2006,13 +2031,13 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
   result.launch_id = meta?.launch_id ?? null;
   if (dead === "1") {
     result.state = "dead"; result.reason = "pane_dead"; result.harness_alive = meta ? false : null;
-    return result;
+    return { result, native: null };
   }
   const rows = readRuntimeProcesses();
   const root = rows.find(row => row.pid === panePid);
   result.pane_alive = root ? true : null;
   result.state = "unknown"; result.reason = root ? "ordinary_pty" : "native_pane_process_unresolved";
-  if (!root) return result;
+  if (!root) return { result, native: null };
   result.pane_process = processIdentity(root);
   const subtree = processSubtree(rows, root.pid);
   const candidates = meta ? selectHarnessProcesses(meta, rows, subtree) : [];
@@ -2020,9 +2045,10 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
   if (meta) {
     result.harness_process = agent ? processIdentity(agent) : null;
     // Cursorにはlaunch固有argvがない。Windowsの切れた親子関係だけで死亡を断定しない。
-    result.harness_alive = candidates.length ? true : isWin && meta.kind === "cursor" ? null : false;
+    result.harness_alive = candidates.length ? true : absentHarnessAlive(meta);
     if (result.harness_alive === false) { result.state = "dead"; result.reason = "harness_exited"; }
-    else if (result.harness_alive === null) result.reason = "harness_process_unresolved";
+    else if (result.harness_alive === null) result.reason = isWin && meta.windows_launch_exit_tracked
+      ? "harness_start_unconfirmed" : "harness_process_unresolved";
     else if (!agent) result.reason = "harness_process_ambiguous";
     result.process_identity = result.harness_process;
   } else {
@@ -2030,6 +2056,15 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
     result.process_identity = leaders.length > 1 ? null : processIdentity(leaders[0] ?? root);
     if (leaders.length > 1) result.reason = "process_identity_ambiguous";
   }
+  return { result, native: { rows, root, subtree, meta, agent } };
+}
+
+function observeNativeSession(name: string, cursor?: string): SessionObservation {
+  assertSessionName(name);
+  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
+  const { result, native } = observeSessionNative(name);
+  if (!native) return result;
+  const { rows, root, subtree, meta, agent } = native;
   const captured = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200");
   if (captured.code !== 0) throw new AitermError("paneの活動観測を取得できません", 2);
   const screen = captured.stdout;
@@ -2393,6 +2428,7 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
     const meta = tryLoadAgentMetadata(name);
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
       width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
+      launch_id: meta?.launch_id ?? null,
       vendor_session_id: meta?.vendor_session_id ?? null, environment });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
@@ -2420,7 +2456,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
       result.sessions.find(row => row.session_id === name)!.environment = environment;
       continue;
     }
-    result.sessions.push({ session_id: name, current_command: command, attached: false, width: 0, height: 0,
+    result.sessions.push({ session_id: name, launch_id: meta.launch_id, current_command: command, attached: false, width: 0, height: 0,
       harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment });
   }
   return result;
@@ -3608,6 +3644,7 @@ function withAgentNativeOperation<T>(name: string, mutates: boolean, body: () =>
 }
 
 async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT, pinResume = true): Promise<T> {
+  const launchId = tryLoadAgentMetadata(name)?.launch_id;
   const waitMs = agentSendLockWaitMs;
   const deadline = performance.now() + waitMs;
   const previous = agentSendQueues.get(name) ?? Promise.resolve();
@@ -3635,6 +3672,10 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
     const mine = Symbol(name);
     agentSendHeld.add(name); activeAgentSendOwner.set(name, mine);
     try {
+      const current = tryLoadAgentMetadata(name);
+      const resumed = launchId && current?.resumed_from === launchId
+        && readAgentResumeAttempt({ aiterm_session: name, launch_id: launchId })?.next_launch_id === current.launch_id;
+      if (current?.launch_id !== launchId && !resumed) throw new ExecutionError("EXECUTION_STALE_GENERATION");
       return await agentSendOwner.run(mine, async () => {
         const meta = pinResume ? tryLoadAgentMetadata(name) : null;
         if (meta && !readAgentLifecycle(meta)) {
@@ -3769,7 +3810,10 @@ function loadAgentMetadata(name: string): AgentMetadata {
   };
   const parsedNative = m.execution_native === undefined ? null : executionNativeBindingSchema.safeParse(m.execution_native);
   if (parsedNative && !parsedNative.success) throw new AitermError("agent native bindingが不正です", 2);
+  if (m.windows_launch_exit_tracked !== undefined && m.windows_launch_exit_tracked !== true)
+    throw new AitermError("Windows launch exit metadataが不正です", 2);
   const executableFields = {
+    ...(m.windows_launch_exit_tracked === true ? { windows_launch_exit_tracked: true as const } : {}),
     ...(m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable }),
     ...(parsedNative?.success ? { execution_native: parsedNative.data } : {}),
   };
@@ -4508,7 +4552,7 @@ export function windowsStartProcessArgumentList(args: string[]): string {
 export function agentWaitProcess(
   session: string,
   cursor: number,
-  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform } = {},
+  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform; launchId?: string } = {},
   steer: string | null = null,
 ): AgentWaitProcess {
   const executable = runtime.executable ?? liveNodeExecutable();
@@ -4520,6 +4564,7 @@ export function agentWaitProcess(
     String(cursor),
     // 差し込みを取った番の終わりを待つ（ADR 0122）。
     ...(steer ? ["--steer", steer] : []),
+    ...(runtime.launchId ? ["--launch", runtime.launchId] : []),
   ];
   return {
     executable,
@@ -4606,8 +4651,9 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
 // steerを渡した時は、その差し込み（pty_sendの返りのsteer_id）を取った番の終わりを待つ（ADR 0122。steer-follow.ts）。
 export async function observeAgentDone(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string } = {},
 ): Promise<AgentWaitObservation> {
+  if (o.expected_launch_id && !fs.existsSync(agentMetadataPath(name, o.expected_launch_id))) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const result = await observeAgentDoneInternal(name, o);
   if ((result.outcome === "done" || result.outcome === "error") && result.at !== null) {
     try {
@@ -4622,9 +4668,10 @@ export async function observeAgentDone(
 
 async function observeAgentDoneInternal(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string } = {},
 ): Promise<AgentWaitObservation> {
   const meta = loadAgentMetadata(name);
+  if (o.expected_launch_id && meta.launch_id !== o.expected_launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
@@ -4636,9 +4683,10 @@ async function observeAgentDoneInternal(
   if (o.steer != null) {
     if (operationId) throw new AitermError("steer は operation_id と併用できません", 2);
     const plain = (cursor: number, timeoutSeconds: number): Promise<AgentWaitObservation> =>
-      observeAgentDone(name, { timeout: timeoutSeconds, cursor, signal: o.signal });
+      observeAgentDone(name, { timeout: timeoutSeconds, cursor, signal: o.signal, expected_launch_id: meta.launch_id });
     const entry = readSteerEntry(meta, o.steer);
     if (!entry) {
+      if (meta.kind === "grok") throw new AitermError("STEER_NOT_FOUND: Grokの差し込み控えがありません。旧turnの完了は使いません。", 2);
       // 控えが無い（古くて消えた）。位置が渡されていれば、今までの待ち（その位置より後の最初の完了）で返す。
       if (o.cursor == null) throw new AitermError("STEER_NOT_FOUND: この席に、その差し込みの控えがありません。", 2);
       return { ...await plain(o.cursor, timeout), steer: { placement: "unknown", taken_at: null } };
@@ -4780,12 +4828,12 @@ async function waitAgentTuiReady(
   name: string,
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
-  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean; checkInput?: () => void;
+  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean; checkInput?: () => boolean | void;
     selectSteer?: (screen: string) => boolean } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const result = await waitAgentTuiReadyImpl(
     meta.kind,
-    () => { o.checkInput?.(); return captureScreen(name, AGENT_TUI_READY_LINES); },
+    () => o.checkInput?.() === false ? "" : captureScreen(name, AGENT_TUI_READY_LINES),
     sleep,
     { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, selectSteer: o.selectSteer,
       launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
@@ -5386,10 +5434,9 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
   name: string,
   meta: AgentMetadata,
   timeoutMs: number,
-  o: { settledTurn?: boolean; checkInput?: () => void; selectSteer?: (screen: string) => boolean } = {},
+  o: { settledTurn?: boolean; checkInput?: () => boolean | void; selectSteer?: (screen: string) => boolean } = {},
 ): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
-  o.checkInput?.();
-  let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
+  let codexRateLimitModelSwitch = o.checkInput?.() === false ? false : await recoverCodexRateLimitModelSwitch(name, meta);
   // 上限のmodalを閉じた直後は、画面が落ち着くのを11回の確かめで待つ。
   let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? { ...o, settledTurn: false, codexRateLimitRecovery: true } : o);
   if (!ready.ready && !ready.steer && !codexRateLimitModelSwitch) {
@@ -6542,14 +6589,20 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
-    const generation = observeSessionGeneration(input.session_id);
     const meta = tryLoadAgentMetadata(input.session_id);
-    if (!generation.exists || generation.launch_id !== input.launch_id || meta?.launch_id !== input.launch_id) return null;
-    const observed = observeSession(input.session_id);
-    if (observed.launch_id !== input.launch_id || observed.harness_alive !== true || observed.harness_process === null) return null;
+    if (meta?.launch_id !== input.launch_id) return null;
+    // Goal binding needs a live native process, not screen/CPU/activity collection.
+    const pane = tmux("display-message", "-p", "-t", `=${input.session_id}:`, "#{pane_pid}\t#{pane_dead}");
+    if (pane.code !== 0) return null;
+    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]);
+    if (fields.length !== 2 || !Number.isSafeInteger(pid) || pid < 1 || fields[1] !== "0") return null;
+    const rows = readRuntimeProcesses();
+    if (!rows.some(row => row.pid === pid)) return null;
+    const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
+    if (candidates.length !== 1 || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
     return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, claude_home: meta.claude_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
-      native_process: observed.harness_process };
+      native_process: processIdentity(candidates[0]) };
   };
   const goalUi = (target: GoalTarget): CodexGoalUi => {
     let inputStarted = false;
@@ -6648,12 +6701,13 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     };
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
-  if(resolve()?.harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
+  const harness = resolve()?.harness;
+  if(harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
     read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
     canClear:target=>grokGoalClearReady(grokPort(target).ui),
     clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
   },origin));
-  if (resolve()?.harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
+  if (harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
     read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
       const meta=tryLoadAgentMetadata(input.session_id);
       if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
@@ -7390,7 +7444,7 @@ async function dispatchAgentTurnInLock(
     // 上限のpanelを閉じた直後（Grok）は、画面が落ち着くのを11回の確かめで待つ。
     const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
       name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, { settledTurn: !limitDialog,
-        ...(pendingSend ? { checkInput: () => assertAgentSendHarness(name, meta),
+        ...(pendingSend ? { checkInput: () => assertAgentSendHarness(name, meta, false, true),
           selectSteer: (screen: string) => agentPaneObservation(meta.kind, screen).state === "busy"
             && agentSendTurnRunning(meta, screen) } : {}) },
     );
@@ -7398,6 +7452,7 @@ async function dispatchAgentTurnInLock(
     const { ready } = recovery;
     if (ready.steer && pendingSend) return steerRunningTurn(name, meta, text, {
       raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: pendingSend.follow,
+      before_send: o.before_send,
     });
     if (!ready.ready) {
       if (codexRateLimitModelSwitch) {
@@ -7607,7 +7662,7 @@ async function sendAgentMessageInLock(
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
-  assertAgentSendHarness(name, meta);
+  assertAgentSendHarness(name, meta, false, true);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
   if (meta.kind === "claude") paneInputRecovery.push(...await clearClaudeSelectMenuBeforeInput(name));
@@ -7616,7 +7671,7 @@ async function sendAgentMessageInLock(
   // Codexは回答を流している間、画面に動作中の行を出さない。その間に届いた文を、Codexは動いているturnへ取り込む（ADR 0101）。
   if (!running && meta.kind === "codex" && await codexTurnRunningBehindIdleScreen(name, meta, screen)) running = true;
   if (running) {
-    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow });
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow, before_send: o.before_send });
   }
   return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface }, { follow: o.follow });
 }
@@ -7624,16 +7679,18 @@ async function sendAgentMessageInLock(
 // The same generation and existing process must still own this pending input.
 // Unknown native process observations remain unknown; only proven exit is a
 // death refusal. This check runs before waiting and inside each input admission.
-function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false): void {
-  const current = observeSession(name);
+function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false, waiting = false): boolean {
+  const current = observeSessionNative(name).result;
   if (current.exists && current.launch_id !== meta.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-  if (!current.exists || current.harness_alive === false) {
+  const starting = current.reason === "harness_start_unconfirmed";
+  if (!current.exists || current.harness_alive === false || (starting && !waiting)) {
     throw new AitermError(
       (inputStarted ? `agent session '${name}' の ${agentLabel(meta.kind)} への入力完了を確認できません。本文を再送しないでください。`
         : `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`) +
         `\nstate=${current.state} reason=${current.reason}`, 2,
     );
   }
+  return !starting;
 }
 
 function agentSendTurnRunning(meta: AgentMetadata, screen: string): boolean {
@@ -7683,11 +7740,10 @@ async function steerRunningTurn(
   name: string,
   meta: AgentMetadata,
   text: string,
-  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null; follow?: boolean },
-): Promise<AgentSteerReceipt> {
+  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null; follow?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend },
+): Promise<AgentSendReceipt> {
   const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.raw });
-  text = prefaced.body;
-  prepareSendText(text, { raw: o.raw });
+  text = prepareSendText(prefaced.body, { raw: o.raw });
   const receipt: AgentSteerReceipt = {
     schema: "aiterm.agent-steer.v1" as const,
     session_id: meta.aiterm_session,
@@ -7695,7 +7751,7 @@ async function steerRunningTurn(
     vendor: meta.kind,
     harness: agentHarness(meta.kind),
     pane_input_recovery: o.pane_input_recovery,
-    ...(o.follow ? { follow: recordSteerPosition(meta, text) } : {}),
+    ...(o.follow || meta.kind === "grok" ? { follow: recordSteerPosition(meta, text) } : {}),
   };
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   await submitAgentComposerText(name, meta.kind, text, {
@@ -7710,23 +7766,54 @@ async function steerRunningTurn(
     : meta.kind === "cursor" ? cursorSteerQueued : null;
   if (queued) {
     const label = meta.kind === "cursor" ? "Cursor" : "Grok";
-    // Cursorはturn_endedを記録へ書いた後も画面にbusy表示を残すので、記録で見る。Grokは画面で見る。
+    // Native completion takes precedence over a stale busy indicator.
     const stillRunning = (): boolean => meta.kind === "cursor"
       ? latestCursorCompletion(meta, readTranscriptLines) === null
-      : isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
-    if (!await waitSteerScreen(name, queued, stillRunning)) {
-      throw new AitermError(
+      : !grokTurnSettled(meta) && isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
+    const entry = meta.kind === "grok" && receipt.follow ? readSteerEntry(meta, receipt.follow.steer_id) : null;
+    const accepted: { current: ReturnType<typeof grokSteerAcceptance> } = { current: null };
+    const sawQueue = await waitSteerScreen(name, screen => {
+      accepted.current = entry ? grokSteerAcceptance(meta, entry) : null;
+      return accepted.current !== null || queued(screen);
+    }, stillRunning);
+    if (accepted.current) {
+      if (accepted.current.placement === "same_turn") return receipt;
+      const boundary = { session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
+        harness: agentHarness(meta.kind), event_cursor: accepted.current.event_cursor, operation_id: null };
+      try {
+        // The native input already started a new turn; bind its delivery without submitting again.
+        assertAgentSendHarness(name, meta, true);
+        await o.before_send?.(boundary);
+        assertAgentSendHarness(name, meta, true);
+      } catch (cause) {
+        const error = new AitermError(`STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n本文は新turnで受理されましたが、完了配送の登録を確認できません。本文を再送しないでください。`, 2);
+        error.cause = cause;
+        error.sendFailure = steerUnknownFailure(meta, "STEER_NOT_QUEUED", receipt.follow);
+        throw error;
+      }
+      recordInterimBoundary(meta, accepted.current.event_cursor, null);
+      return { schema: "aiterm.agent-dispatch.v1", ...boundary, submit_residue: null, pane_input_recovery: receipt.pane_input_recovery };
+    }
+    if (!sawQueue) {
+      const error = new AitermError(
         `STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n` +
           `差し込む文が${label}の待ち行列へ入ったことを確認できません。子のturnが送る直前に終わっていた時は、` +
-          `文は新しいturnとして始まっており、その完了は通知されません。再送する前にpty_read(screen:true)で確かめてください。`, 2,
+          `文が新しいturnとして始まった可能性があります。受理は不明です。本文を再送しないでください。`, 2,
       );
+      error.sendFailure = steerUnknownFailure(meta, "STEER_NOT_QUEUED", receipt.follow);
+      throw error;
     }
-    await withExecutionNativeAdmission(name, () => sendKey(name, "Enter"));
+    await withExecutionNativeAdmission(name, () => {
+      assertAgentSendHarness(name, meta, true);
+      if (queued(captureScreen(name, AGENT_TUI_READY_LINES))) sendKey(name, "Enter");
+    });
     if (!await waitSteerScreen(name, screen => !queued(screen), stillRunning)) {
-      throw new AitermError(
+      const error = new AitermError(
         `STEER_STILL_QUEUED vendor=${meta.kind} session=${name}\n` +
-          `差し込む文が${label}の待ち行列に残っています。現在のturnが終わると別turnとして実行されます。`, 2,
+          `差し込む文が${label}の待ち行列に残っています。受理は不明です。本文を再送しないでください。`, 2,
       );
+      error.sendFailure = steerUnknownFailure(meta, "STEER_STILL_QUEUED", receipt.follow);
+      throw error;
     }
   }
   // Cursorだけは実行中でも入力欄の残留を確実に見分けられる（dispatchと同じ扱い）。Codex／Claudeは
@@ -7742,6 +7829,14 @@ async function steerRunningTurn(
     }
   }
   return receipt;
+}
+
+function steerUnknownFailure(meta: AgentMetadata, code: "STEER_NOT_QUEUED" | "STEER_STILL_QUEUED", follow: AgentSteerReceipt["follow"]): NonNullable<AitermError["sendFailure"]> {
+  // Cursor has no proven acceptance reader yet; never expose an old-turn waiter for unknown input.
+  const tracked = meta.kind === "grok" ? follow : null;
+  return { schema: "aiterm.agent-send-error.v1", code, outcome: "outcome_unknown", effect: "possible",
+    session_id: meta.aiterm_session, launch_id: meta.launch_id, vendor: meta.kind, harness: agentHarness(meta.kind),
+    event_cursor: tracked?.event_cursor ?? null, steer_id: tracked?.steer_id ?? null, interim_from: tracked?.interim_from ?? null };
 }
 
 export async function runClaudeOperation({
@@ -8215,6 +8310,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             // Stamp its exact native creator before binding and any later input.
             if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
             meta.agent_executable = bin;
+            if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
             // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
             meta.fast = opts.fast_state === true;
@@ -8248,7 +8344,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           full = windowsAgentLaunchLine(cwd, [
             ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
           ],
-            windowsAgentArgv(argv, () => resolveWinPaneShell("bash")));
+            windowsAgentArgv(argv, () => resolveWinPaneShell("bash")), meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
         } else {
           const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
           const envPrefix = agentEnvPrefix(meta, sid, envVars);

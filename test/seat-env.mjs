@@ -1,6 +1,6 @@
 // npm testとCIの入口。試験processごとに、親の席から保存場所・系譜・harnessと道具の置き場・鍵を引き継がない。
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, lstatSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,13 @@ for (const key of Object.keys(process.env)) {
 // 試験の会話は一時の置き場にあり、開発機やrunnerのアプリには無い。
 process.env.AITERM_STEER_CODEX_WAKE = '0';
 // macOSのos.tmpdir()は長く、tmux socketの104 byte上限を超え得る。
-const root = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'at-'));
+const inheritedRunRoot = process.platform === 'win32' ? process.env.AITERM_TEST_RUN_ROOT : undefined;
+if (inheritedRunRoot !== undefined && (!isAbsolute(inheritedRunRoot) || !lstatSync(inheritedRunRoot).isDirectory())) {
+  throw new Error('seat-env: Windows test run root must be an existing directory');
+}
+const root = mkdtempSync(join(inheritedRunRoot ?? (process.platform === 'win32' ? tmpdir() : '/tmp'), 'at-'));
+// MSYS shares /tmp mounts across same-user processes; keep child roots until the preloaded test runner exits.
+if (process.platform === 'win32') process.env.AITERM_TEST_RUN_ROOT = inheritedRunRoot ?? root;
 for (const key of ['TEMP', 'TMP', 'XDG_RUNTIME_DIR']) process.env[key] = root;
 // Windowsのstate選択はTMPDIRをXDGより先に見る。個別試験がXDGだけを切り替えられるよう、
 // 既定socketはTEMPで隔離し、TMPDIRは個別試験が指定する時だけ使う。
@@ -158,6 +164,7 @@ process.on('exit', () => {
   } catch {
     // 記録を読めない時は、試験の結果を変えない。
   }
+  if (inheritedRunRoot) return;
   try {
     const sockets = socketFiles(root);
     if (sockets.length > 0) {

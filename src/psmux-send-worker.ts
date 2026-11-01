@@ -50,11 +50,11 @@ async function sendCommand(port: number, key: string, command: string, expectedR
       response += chunk.toString("utf8");
     });
     socket.on("end", () => {
-      if (
-        response.split(/\r?\n/).includes("OK") &&
-        (expectedResponse == null || response.includes(expectedResponse))
-      ) finish();
-      else finish(new Error(`psmux authentication failed: ${response.trim() || "empty response"}`));
+      const authenticated = /^OK\r?\n/.exec(response);
+      if (!authenticated) finish(new Error(`psmux authentication failed: ${response.trim() || "empty response"}`));
+      // AUTH is acknowledged before the command is read; only its separate reply can satisfy the command.
+      else if (response.slice(authenticated[0].length).trim() === (expectedResponse ?? "")) finish();
+      else finish(new Error("psmux command response was not accepted; input may be partial, do not resend"));
     });
     socket.on("error", (error) => finish(error));
   });

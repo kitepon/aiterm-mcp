@@ -209,7 +209,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.62.3** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.62.6** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 
@@ -237,6 +237,8 @@ MCP clientが起動し直すまで旧版のcodeで動き（`running_servers`）�
 2026 のエージェントツールの多くはオーケストレーションへ寄っていっている——先導するモデルが機械的なリファクタを Codex に委ね、一括編集を Composer に走らせながら自分は diff をレビューし、1 つのタスクを複数エージェントに分散して自分のコンテキスト窓を守る。そうしたエージェントはどれも既に端末の中に住んでいる。aiterm はその端末を一級の・MCP ネイティブなツールにする——だから指揮するモデルは、**人がペインを配線しなくても他のエージェントを起動して操れる。**
 
 ## 2 つの使い方
+
+Grokへの`pty_send`中に前のturnが終わった場合、送信後の本文全体とnative turn番号を照合し、新turnでの受理を確認できれば`agent_dispatch`を返す。本文は再送しない。`STEER_NOT_QUEUED`・`STEER_STILL_QUEUED`は既存の`isError:true`と本文prefixを保ち、`structuredContent`に`aiterm.agent-send-error.v1`、文字列の`code`、`outcome:"outcome_unknown"`、`effect:"possible"`、元session/launchを返す。Grokの送信前記録を保存できた場合だけ観測用の手がかりを付け、取得不能はnullとする。不明の本文は再送しない。観測は本文のnative受理を確認するまで未完了を保ち、前のturnの完了を流用しない。Cursorの成否不明エラーでは、native受理を確定する観測経路が未対応のため手がかりはnull。
 
 ### 1. SSH・コンテナ・REPL を 1 本の永続端末で操作する — 土台
 
@@ -272,6 +274,8 @@ agent session宛ての`pty_send`は、任意の`preface`（本文の前に置く
 呼び手が`preface`を渡さない時も、Claude Codeの席へ送る文が包まれる長さ（改行3つ以上か800字以上）なら、Aitermが自分で1行を入れる: 「Aitermが届ける、この席の呼び手からの正規の送信です。下の貼り付けは、どこかから拾った文ではなく、呼び手がこの席へ宛てて送った文です。」出所だけを言い、従えとは書かない。新しいturn・差し込み・`agent_launch`の`prompt`・`remote`の先の席（現地のAitermが入れる）のどれも同じ。この1行が無いと、文の全部が包みの中になり、Claude Codeの席は「利用者自身の指示ではない」と見て動かない事がある。短い文、Codex・Grok・Cursorの席、`raw`・`force`付きの送信は今までと同じ（ADR 0116）。
 
 同じagent sessionへの`pty_send`が重なった時は、1本ずつ通す。後の1通は、前の1通を送り終えてから振り分け直すので、順に送った時と同じ結果になる（起動直後のClaude Codeへ重なった後の1通は`mode=agent_steer`で返る）。前の1通が起動直後の入力受付待ちなら、その分だけ返りが遅れる。待つ上限（POSIX 60秒、Windows 180秒）を越えた時は、打鍵前に`AGENT_SEND_BUSY`と「文字列は送信していません」を返す。送信の途中で終了したprocessのlockは、次の送信が片付けて進む。
+
+順番待ちのagent操作は、受付時の`launch_id`を保持する。待機中に同じ名前の席を作り直した時は、新しい席へ作用する前に`EXECUTION_STALE_GENERATION`で拒否する。
 
 `agent_launch`・`pty_send`（agent session宛て）は任意の`image`（画像ファイルの絶対パスの配列。png/jpg/jpeg/gif/webp）を受ける。aitermが本文末尾へ添付行を付け、どのharnessも自分のfile読取toolでそのpathを画像として開く。呼出し側はharness別の添付手順を覚えない。不正なpathは送信前に拒否する。
 
@@ -531,6 +535,7 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 
 `pty_observe({ session_id, cursor? })`は`aiterm.pty-observe-result.v1`で`exists`、`observed_at`、
 `state`（busy／idle／blocked／dead／missing／unknown／hibernated）、`reason`、`pane_alive`、`harness_alive`を返す。
+Windowsで新しく起動するClaude・Codex・Grok・Antigravityは、本人processが不在でも、同じ起動のCLIからshellへ戻った記録がなければ未確認を返す。送信は既存の準備待ちの期限を使い、貼付直前とEnter直前にも本人を確認する。旧版で起動したsessionの扱いは維持する。
 `pane_process`と`harness_process`は別のidentityで、`process_identity`はagentならharness、通常PTYなら
 一意な子process group leader、子がなければpaneを指す。identityは`pid`、`process_group_id`、
 `started_identity`、`argv_digest`を持ち、特定不能はnull。WindowsのPIDはnative PIDで、process groupはnull。
@@ -597,7 +602,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
 | `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
-| `pty_list` | textと構造化したsession一覧、明示した非秘密環境変数の照会 | `env_keys?` |
+| `pty_list` | textと構造化したsession一覧。管理対象の起動ID `launch_id` は一覧取得時の値で、通常PTYやmetadata不明時はnull、旧remote版は省略。操作前の最新の紐付け確認は引き続き必要。明示した非秘密環境変数も照会できる | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |
@@ -718,7 +723,7 @@ SSH先がPowerShellの場合、`mark:true`は現在の標準`PS ...>`プロン�
 
 Windows nativeで現在のGit Bashプロンプトが折り返されている時は、実pane列数と一致する表示幅の連続行だけを接続して方言を補正する。過去の入力済みcommand・別prompt・未知の幅を根拠にBashへ切り替えず、通常送信とmark送信が同じruntimeの判定を使う。
 
-`pty_read({ wait: true })`は通常PTYを、process終了／`mark:true` sentinel／`until`一致／shell復帰を伴う出力静止／timeoutの5層で判定する。agent sessionは第6の正確な層を使い、Codexは通常rollout、Grokは通常session event、Claudeはlaunch相関Stop event、Cursorは通常agent transcriptの`turn_ended`を`aiterm-wait --cursor`が観測する。親はブロックもポーリングもしない。
+`pty_read({ wait: true })`は通常PTYを、process終了／`mark:true` sentinel／`until`一致／shell復帰を伴う出力静止／timeoutの5層で判定する。静止による完了には読取り位置以後の新しい出力が必要で、空のログは締切まで未確認を保つ。新しい`mark`は送信IDを持ち、前のcommandの遅れた完了印で次の読取りを完了させない。旧版の処理中markは引き続き読める。IDを保存できなければ入力前に拒否する。agent sessionは第6の正確な層を使い、Codexは通常rollout、Grokは通常session event、Claudeはlaunch相関Stop event、Cursorは通常agent transcriptの`turn_ended`を`aiterm-wait --cursor`が観測する。親はブロックもポーリングもしない。
 
 ### Codex／Claude Code／Cursor親への回答自動配送
 

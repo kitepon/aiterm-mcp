@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import {
   ARGV_FIXTURE_DONE, readArgvFixture, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
   testUid, skipAgentDone, skipGrokFakeBin, agentStateDir, makeFakeCodexHome, makeFakeGrokHome,
@@ -21,7 +22,7 @@ import {
   fileSnapshot,
 } from "./core-agent-support.mjs";
 
-test("observeAgentDone: 送信前の古い task_complete を follow-up done と誤認しない", { skip: skipAgentDone }, async () => {
+test("observeAgentDone: 送信前の古い task_complete を follow-up done と誤認しない", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true, prompt: "Reply READY." });
     try {
@@ -40,6 +41,9 @@ test("observeAgentDone: 送信前の古い task_complete を follow-up done と�
       assert.equal(observation.outcome, "running", `古い event を拾っていない: ${JSON.stringify(observation)}`);
       assert.equal(observation.turn_id, null, `古い event を完了扱いしない: ${JSON.stringify(observation)}`);
       assert.match(fs.readFileSync(sessionLogPath(sid), "utf8"), /FOLLOWUP_BODY/, "follow-up の出力は送信されている");
+    } catch (error) {
+      t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'Codex follow-up dispatch' })));
+      throw error;
     } finally {
       core.closeSession(sid);
     }

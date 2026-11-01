@@ -86,7 +86,9 @@ agent入力欄への`bracketedPaste`は、制御文字の除去後も本文の�
 
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
+新しいmarkは送信IDを完了印と待機fileへ結び、旧commandの印を次の完了へ使わない。旧producerのpending flagは読取り互換を保ち、旧readの完了で新しい待機fileを消さない。ID保存失敗は入力前拒否。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。
+静止による完了は読取りcursor以後の新しい出力を必要とし、native pipeが初回出力前に空のままでもshell名だけで完了へ進めない。
 sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在の標準PowerShell promptを
 検出した場合は、Aiterm hostのOSに関係なくPowerShell構文を使う。過去のpromptでは切り替えない。
 
@@ -142,6 +144,7 @@ psmuxは切断の合図なしでsessionを止めるので、そのままでは�
 
 `pty_observe`は存在、pane／harnessの生存、画面状態と理由、native process identityを分ける。
 PIDは開始識別子・argv digestと組にし、paneとharnessを同一視しない。特定できないidentityはnull。
+新しいWindows managed launch（Cursorを除く）はmetadataのwindows_launch_exit_trackedを立て、所有PowerShellのfinallyが`.agent.json.launch-exited`へ同launch IDを記録する。候補不在で記録が欠測・不一致ならharness_alive:null/reason:harness_start_unconfirmed、同IDがあればfalse/harness_exited。存在する本人候補は従来どおり優先する。準備待ち中は未確認を空sampleとして既deadlineで再観測し、native入力直前の未確認は拒否する。close/killAllは同sessionの終了記録も削除する。旧metadataとCursorのnative未解決は従来の判定を維持する。
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。
 祖先を共有しない候補は別々に残し、複数候補を一つと推測しない。
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
@@ -202,18 +205,23 @@ Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの�
 それ以外は新しいturnとしてdispatchする。
 振り分けから送り終えるまでの間には、起動直後の入力受付待ちなどの待ちが挟まる。同じsessionへの送信（`pty_send`、`claude_turn issue`、起動時prompt）は1本ずつ通し、
 重なった後の1通は前の1通が終わってから振り分け直す。同じprocessの中は着いた順の待ち行列、別のprocessの間はsocketの置き場の`<name>.agent-send.lock`で排他する。
+この共通lockへ並ぶ時点の`launch_id`を保持し、取得後に同じ起動か確かめる。待機中の同名再作成では`EXECUTION_STALE_GENERATION`で拒否し、新しい席へ送信・設定変更・Goal操作を移さない。
 通常の`pty_send`は、本文未発行の入力受付待ちに生存busyが見えた時、同じrequest・送信lock内で既存steerを選ぶ。起動・設定の待ちはsteerへ変えない。
 送信前、準備中の観測、貼付とEnterの各native受付内で元launchとharness生存を再確認する。確定した死亡は30秒待たずに断り、貼付後の死亡は作用可能性を保持する（ADR 0134）。
 待つ上限は、起動から最初の描画を待つ上限と貼り付けの上限の和で、越えたら`AGENT_SEND_BUSY`で未送信を返す。判断の記録はADR 0088（`docs/adr/0088-one-agent-send-per-session.md`）。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
 待ち行列の表示は5秒待ち、子のturnが続いている間だけ30秒まで延ばす（表示が遅い端末がある。turnが終わっていれば、文は新しいturnとして始まっている）。
-Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
+Grokは待ち行列へ入れた後に「send now」を押す。押す直前に元launchとqueueの現在表示を再確認する。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
 新turnが作業を継ぐので、完了判定はこの継ぎ目を完了と数えない。Grokが待ち行列へ入れない時とCursorの入力欄に本文が残る時は`steered`を返さない。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
+Grokのbusy判定後にturnが終わる競合では、送信前のhistory byte位置と本文全体のdigestを保存し、新しい実user行の`prompt_index`と送信後eventの`turn_started.turn_number`を照合する。新turnでの受理が確定した時だけ、その開始位置を使ったdispatch receiptと親配送登録へ移す。本文やEnterを再送しない。Grokの差し込みwaiterも同じ照合を使い、古い完了や短い本文prefixを受理証拠にしない。欠測・曖昧・旧控え・控え消失は未確定とし、旧turn待ちへのfallbackをしない。生成する観測processの`--launch`は元世代へ固定する。
+queueの未確認/残留は`aiterm.agent-send-error.v1`（文字列code、outcome_unknown/effect possible、元session/launch）を既isError/prefixへ追加する。Grokの保存済み送信前位置だけを観測に渡し、Cursorの未知な受理へ旧turnのwaiterを渡さない。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
 Codex・Grok・Cursorの席は、新しいturnを送るたびに入力受付を確かめる。起動の途中の入力欄を採らないよう、500msおきに11回続けて
 入力待ちを読む（ADR 0014）。席のharnessが自分の記録で「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は、
 100msおきに2回で通す（ADR 0097）。記録の上でturnが動いている間は、画面が入力待ちに見えても11回の確かめを通る。
+正の入力待ち期限は画面・履歴の読取が返った後にも照合し、期限後に返ったready/busyで入力やsteerを許可しない。
+入力の生存確認は公開observeと同じnative世代・本人の読取を共用し、不要な200行の活動captureや子配送集計は要求しない。専用45行の入力画面判定は保持し、公開observeは従来どおり活動観測まで行う。
 Codexの入力待ちは、入力欄の行（`›`、古い描画の`>`）がある時だけ読む。起動の見出しの`>_`は入力欄ではない。足元の警告をF2で開いた
 警告の画面は、入力欄の場所に出て鍵を受けるので、応答の要る画面と同じに数え、`pty_send`は打鍵の前に断る。Aitermは閉じない（ADR 0107）。
 

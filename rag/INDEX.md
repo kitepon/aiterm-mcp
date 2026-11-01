@@ -632,7 +632,10 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml> (official_api_source, 525610 chars)
   - 効きどころ: Windows会話席の休止で、handleを保持した同一processへの終了要求と強制終了を区別し、子孫の実終了を別途確認するための一次資料。
 
-## terminal-automation — 1件
+## terminal-automation — 3件
+
+- [PSReadLine official issue 1471: Support Paste Bracketing](sources/terminal-automation/psreadline-bracketed-paste-issue1471-20261101.md) — 公式のbracketed-paste対応要望の現状。未確認の機能をWindows入力修理の前提にしない。
+- [PowerShell 7.6 PSReadLine functions](sources/terminal-automation/psreadline-paste-functions-76-20261101.md) — Paste関数の一括挿入とコンソールの一文字ずつの挿入の違い。
 
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)

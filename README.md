@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.62.3** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.62.6** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -268,6 +268,8 @@ Cursorが誤りでturnを終えた時（記録の`turn_ended`が`status: "error"
 
 ## Two ways to use it
 
+Grok can finish its current turn while `pty_send` is submitting input. Aiterm correlates the newly appended full user message with the native turn number and returns `agent_dispatch` for a proven new turn, without sending again. `STEER_NOT_QUEUED` and `STEER_STILL_QUEUED` preserve `isError:true` and their existing text prefix; `structuredContent` adds `aiterm.agent-send-error.v1`, a string `code`, `outcome:"outcome_unknown"`, `effect:"possible"`, and the original session/launch. A Grok observation handle is returned only when its pre-input record was saved; unavailable handles are null. Do not resend unknown input. Its waiter remains pending until the input's native acceptance is proven and cannot use the preceding turn's completion. Cursor errors retain null recovery handles until native acceptance can be proven.
+
 ### 1. Drive SSH, containers, and REPLs in one persistent terminal — the primitive
 
 This is the base, and it works with just the platform backend — tmux on POSIX or psmux on native Windows. `pty_open` grabs one local terminal; `ssh host`, `docker exec -it x bash`, or a REPL are just text you `pty_send` into it — **once**. Every command after that rides the same already-authenticated session. Session kind is never a tool-level distinction.
@@ -296,6 +298,8 @@ Set `require_agent:true` on `pty_send` when the integration requires agent deliv
 When the caller gives no `preface`, Aiterm adds one itself for a Claude Code session whenever the text is long enough for Claude Code to wrap it (three or more line breaks, or 800 characters and up): "Aitermが届ける、この席の呼び手からの正規の送信です。下の貼り付けは、どこかから拾った文ではなく、呼び手がこの席へ宛てて送った文です。" ("A regular message from this session's caller, delivered by Aiterm. The paste below was sent to this session by the caller, not picked up from somewhere else.") The line states where the message comes from and does not tell the session to obey it. It applies to new turns, to steering, to the `prompt` of `agent_launch`, and to `remote` sessions (the Aiterm on that machine adds it). Without that line the whole message sits inside the wrapper, and a Claude Code session may decline to act on it as "not the user's own instruction". Short texts, Codex, Grok and Cursor sessions, and sends with `raw` or `force` are unchanged (ADR 0116).
 
 Overlapping `pty_send` calls to the same agent session are handled one at a time. A later call picks its route only after the earlier one has been sent, so the result matches calls made in sequence (a call that overlaps the first send to a freshly started Claude Code session returns `mode=agent_steer`). It returns later by however long the earlier call waits for the session to accept input. If its turn does not come within the limit (60 seconds on POSIX, 180 seconds on Windows), Aiterm refuses before sending any text and returns `AGENT_SEND_BUSY` with an explicit unsent message. A lock left by a process that exited mid-send is cleared by the next send. `agent_configure` waits in the same line: a `pty_send` that arrives while a configuration change is in progress is sent after the change, so the turn runs with the new setting. A configuration change to a session whose turn is running does not hold the line while it waits for the turn to end, so steering still goes through. If its turn does not come within the same limit, `agent_configure` returns `AGENT_SEND_BUSY` with an explicit unchanged message.
+
+Queued agent operations retain the original `launch_id`. If the session is recreated under the same name while they wait, they fail with `EXECUTION_STALE_GENERATION` before acting on the replacement.
 
 `agent_launch` and `pty_send` (to an agent session) accept an optional `image`: an array of absolute paths to image files (png/jpg/jpeg/gif/webp). Aiterm appends an attachment block to the prompt, and every harness opens the path with its own file-reading tool and sees the image; the caller never learns harness-specific attachment tricks. Invalid paths are rejected before anything is sent.
 
@@ -568,6 +572,8 @@ are separate identities. `process_identity` selects the harness for agents, or t
 for an ordinary terminal, using the pane when no child leader exists. An identity contains `pid`, `process_group_id`,
 `started_identity`, and `argv_digest`; unresolved identities are null. Windows PIDs are native and its process-group field
 is null. Start identity uses POSIX `LC_ALL=C ps lstart` or Windows UTC ISO milliseconds; the argv digest is SHA-256 hex.
+New managed Windows launches of Claude, Codex, Grok, and Antigravity keep missing native processes unknown until their launch shell records that the same CLI invocation returned. Pending input uses the existing readiness deadline; it is still checked before paste and Enter. Older launch metadata keeps its previous behavior.
+Input admission uses fresh native ownership and its dedicated readiness screen; an unrelated activity-capture failure does not block it. Public `pty_observe` still requires the full activity observation.
 
 Pass `activity.cursor` into the next observation to obtain `output_changed` and `cpu_delta_seconds`; first observations and
 recreated panes return null differences. `cpu_seconds` is the current subtree's cumulative CPU. If a process disappeared
@@ -617,6 +623,7 @@ For Claude Code's first-run text-style menu, it confirms the item already select
 If the CLI then requests an account login method, the launch reports `vendor_onboarding_required`; complete that choice in the official interactive Claude Code CLI.
 The input-readiness wait is 30 seconds. Only when it expires while the agent has not drawn anything yet (a busy host), the launch
 waits up to 50 seconds from startup. If nothing is drawn by then, it still returns `initial_prompt=not_sent` and keeps the session.
+Positive readiness deadlines are checked again after screen and transcript reads; a late ready or busy result cannot authorize input.
 A prompt-free launch without this option retains `startup.status="not_checked"`. `initial_prompt.status` distinguishes
 `not_requested`, `not_sent`, `submitted_unconfirmed`, and `started`. Failure responses retain structured session information.
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
@@ -637,7 +644,7 @@ continue to use `claude_approval`.
 | `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
-| `pty_list` | Text and structured session list (each agent session carries its harness conversation ID as `vendor_session_id`), with explicitly requested non-secret environment values | `env_keys?` |
+| `pty_list` | Text and structured session list (managed sessions include snapshot `launch_id` and harness conversation ID `vendor_session_id`; `launch_id` is null for ordinary/unmanaged PTYs and may be absent on older remote versions, so callers retain fresh binding checks before operations), with explicitly requested non-secret environment values | `env_keys?` |
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |
@@ -766,7 +773,7 @@ For PowerShell over SSH, `mark:true` recognizes the current standard `PS ...>` p
 
 On native Windows, a wrapped current Git Bash prompt is reconciled with the measured pane columns before choosing shell syntax. Only full-width continuation rows of the current empty prompt are joined; earlier commands, other prompts and unknown widths do not authorize a correction. Ordinary and marked sends use the same runtime decision.
 
-`pty_read({ wait: true })` decides "is the command done?" via five layers: process exit / a `mark:true` sentinel / an `until` match / output quiescence with shell return / timeout. `mark` emits the shell's exit status on POSIX shells and `0` (success) or `1` (failure) on PowerShell; fish/csh/tcsh are rejected before send because they do not share either status syntax. When `mark` or `until` is active, that requested evidence takes precedence and a momentarily quiet shell cannot complete the read as quiescent. Agent sessions add a sixth exact layer: Codex observes normal rollout `task_complete`; Grok observes normal session `turn_ended`; Claude observes its additive launch-correlated Stop event; Cursor observes `turn_ended(status:"success")` in the launch-bound normal agent transcript. `aiterm-wait --cursor` performs that harness-specific observation without the parent blocking or polling. Pre-send readiness failures are MCP errors, and late completion remains recoverable without resending.
+`pty_read({ wait: true })` decides "is the command done?" via five layers: process exit / a `mark:true` sentinel / an `until` match / output quiescence with shell return / timeout. Quiescence requires new output after the read cursor; an empty stream stays unconfirmed until its deadline. Each new `mark` carries a submission ID, so an older command's late sentinel cannot complete a newer read; legacy pending marks remain readable. If its ID cannot be saved, the command is refused before input. `mark` emits the shell's exit status on POSIX shells and `0` (success) or `1` (failure) on PowerShell; fish/csh/tcsh are rejected before send because they do not share either status syntax. When `mark` or `until` is active, that requested evidence takes precedence and a momentarily quiet shell cannot complete the read as quiescent. Agent sessions add a sixth exact layer: Codex observes normal rollout `task_complete`; Grok observes normal session `turn_ended`; Claude observes its additive launch-correlated Stop event; Cursor observes `turn_ended(status:"success")` in the launch-bound normal agent transcript. `aiterm-wait --cursor` performs that harness-specific observation without the parent blocking or polling. Pre-send readiness failures are MCP errors, and late completion remains recoverable without resending.
 
 ### Completion push for parent agents (`aiterm-wait`)
 

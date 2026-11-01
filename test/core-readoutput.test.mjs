@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { spawnSync } from "node:child_process";
 import * as core from "../dist/core.js";
 
 // core.ts と同じ解決順にする（Windows は TMPDIR→TEMP→os.tmpdir()）。
@@ -31,6 +32,44 @@ afterEach(() => {
 });
 
 const TEN = Array.from({ length: 10 }, (_, i) => `${i}`).join("\n") + "\n"; // "0\n..9\n"
+
+test("read wait: an existing legacy mark still completes its pending command", async () => {
+  const name = "legacy_mark";
+  const mark = path.join(SOCKDIR, name + ".mark");
+  fab(name, "\n<<<AITERM_DONE rc=0>>>\n");
+  fs.writeFileSync(mark, "1");
+  try {
+    assert.match(await core.readOutput(name, { wait: true, timeout: 1 }), /is_complete=True via mark/);
+  } finally { fs.rmSync(mark, { force: true }); }
+});
+
+test("read wait: a shell name cannot complete an empty pending output stream", { skip: process.platform === "win32" ? "fake tmux is a POSIX script" : undefined }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "empty-wait-"));
+  const backend = path.join(root, "tmux");
+  fs.writeFileSync(backend, '#!/bin/sh\ncase "$*" in *-V*) echo "tmux 3.6";; *display-message*) echo bash;; esac\n', { mode: 0o700 });
+  try {
+    for (const late of [false, true]) {
+      const script = `
+        import fs from 'node:fs';
+        import path from 'node:path';
+        const core = await import(${JSON.stringify(new URL("../dist/core.js", import.meta.url).href)});
+        const dir = path.join(process.env.TMPDIR, 'claude-tmux-sockets');
+        fs.mkdirSync(dir, { recursive: true });
+        const log = path.join(dir, 'pending.log');
+        fs.writeFileSync(log, ''); fs.writeFileSync(path.join(dir, 'pending.offset'), '0');
+        ${late ? "setTimeout(() => fs.appendFileSync(log, 'LATE_OUTPUT\\n'), 850);" : ""}
+        console.log(JSON.stringify(await core.readOutput('pending', { wait: true, timeout: ${late ? 2 : 1} })));
+      `;
+      const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+        encoding: "utf8", env: { ...process.env, TMPDIR: root, XDG_RUNTIME_DIR: root, AITERM_TMUX: backend },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const text = JSON.parse(result.stdout.trim());
+      if (late) assert.match(text, /LATE_OUTPUT/, text);
+      else assert.match(text, /is_complete=False via timeout/, text);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test("readOutput full: 全文を返し offset を末尾へ進める", async () => {
   const n = "ro_full";

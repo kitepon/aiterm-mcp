@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.5] - 2026-11-01
+
 ### Added
 - Include the managed `launch_id` snapshot in structured `pty_list` results; older remote results without the field remain valid.
 
@@ -2967,7 +2969,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...HEAD
+[0.62.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...v0.62.5
 [0.62.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...v0.62.4
 [0.62.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...v0.62.3
 [0.62.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.1...v0.62.2

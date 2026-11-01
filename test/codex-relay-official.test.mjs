@@ -124,7 +124,7 @@ stream_max_retries = 0
   if (!windows) await writeFile(launcher, codexRelayLauncher({ binary, node: process.execPath, relay: fileURLToPath(new URL('../dist/codex-stdio-relay.js', import.meta.url)), socket_root: sockets }), { mode: 0o700 });
   const child = spawn(launcher, ['-c', 'model_reasoning_effort="low"', 'app-server', '-c', 'analytics.enabled=false', '--listen', 'stdio://'], {
     cwd: root,
-    env: { ...(windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: root, TMP: root } : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' },
+    env: { ...(windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: process.env.TEMP, TMP: process.env.TMP } : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' },
     stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   });
   const stderr = [];

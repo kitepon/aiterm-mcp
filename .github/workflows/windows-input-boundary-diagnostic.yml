@@ -3,17 +3,19 @@ on:
   push:
     branches: [diag/windows-input-boundary-20261101]
 permissions:
-  actions: read
   contents: read
 jobs:
   diagnostic:
-    uses: ./.github/workflows/product-full-ci.yml
-    with:
-      environment: windows-native
-      comparison_base: 83a6a68e25b196a1bdefe8bd6ddd43ee1a928904
-      dependency-command: npm run ci:dependencies
-      documentation-command: npm run test:docs
-      full-command: >-
-        node --version && npm --version && npm run build &&
-        node --import ./test/seat-env.mjs --test test/seat-env.test.mjs &&
-        node scripts/windows-input-boundary-diagnostic.mjs . diagnostic-evidence load-parent
+    runs-on: [self-hosted, factory, windows-native]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: install dependencies
+        shell: pwsh
+        run: npm run ci:dependencies
+      - name: trace isolated native input and execution
+        shell: pwsh
+        run: >-
+          node --version && npm --version && npm run build &&
+          node --import ./test/seat-env.mjs --test test/seat-env.test.mjs &&
+          node scripts/windows-input-boundary-diagnostic.mjs . diagnostic-evidence load-parent

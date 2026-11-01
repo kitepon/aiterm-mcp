@@ -25,6 +25,13 @@ test('Codex native preview reads model, effort and explicit speed, then cancels 
  const ui=codexUi();assert.equal(await inspectIdleSettings('codex',expected,ui),true);
  assert.deepEqual(ui.commands,['/statusline']);assert.equal(ui.keys.at(-1),'Escape');assert.equal(await ui.ready(),true);
 });
+test('Codex native Fast off preview confirms standard speed without saving',async()=>{
+ const ui=codexUi(),screen=ui.screen;
+ ui.screen=()=>screen().replace(/ · Standard$/m,' · Fast off');
+ assert.equal(await inspectIdleSettings('codex',expected,ui),true);
+ assert.equal(ui.keys.at(-1),'Escape');assert.equal(await ui.ready(),true);
+ assert.equal(codexPreviewMatchesSettings('GPT-6.1-Sol high Fast · Fast off',expected),false);
+});
 for(const changes of [{model:'different-model'},{reasoning_effort:'low'},{fast:true}])test('Codex native settings mismatch '+JSON.stringify(changes),async()=>{
  const ui=codexUi({...expected,...changes});assert.equal(await inspectIdleSettings('codex',expected,ui),false);
  assert.equal(ui.keys.at(-1),'Escape');assert.equal(await ui.ready(),true);

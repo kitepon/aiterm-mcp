@@ -142,3 +142,5 @@ native-session.tsがnative create receiptの5fieldと条件式を共有し、POS
 Windows再開の新metadataは通常のWindows起動と同じCLI退出印を持ち、初期process未観測を死亡と誤認しない。自動休止は引き続きfalseで、正式受入と公開前に有効化しない。
 
 Windowsのsession単位の命令は末尾colonなしのexact session名を使う。psmux 3.3.8のkill-sessionは生のsession名を比較するため、pane形式の末尾colonでは無作用のまま成功する。保存したnull環境変数の復元は、psmuxで未対応のtmux `set-environment -r` ではなく `-u` で削除し、明示空文字と区別する。資格やambient環境は保存しない。
+
+Codex 0.162.1のnative status-line previewは通常速度を `Fast off`、新しい0.166.0は `Standard` と表示する。いずれも明示OFFとして読み、model/effortとFast suffixの矛盾・欠測は従来どおり拒否する。previewの取消しと設定非保存は変えない。

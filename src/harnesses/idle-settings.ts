@@ -27,7 +27,7 @@ export function codexSettingsPreview(screen: string): {
 }
 
 export function codexPreviewMatchesSettings(preview: string, expected: IdleSettings): boolean {
-  const match = /^(\S+) (none|minimal|low|medium|high|xhigh|max|ultra)( Fast)? · (Standard|Fast)$/.exec(preview);
+  const match = /^(\S+) (none|minimal|low|medium|high|xhigh|max|ultra)( Fast)? · (Standard|Fast|Fast off)$/.exec(preview);
   return !!match && !!expected.model && match[1].toLowerCase() === expected.model.toLowerCase()
     && match[2] === expected.reasoning_effort && !!match[3] === (match[4] === 'Fast')
     && (match[4] === 'Fast') === expected.fast;

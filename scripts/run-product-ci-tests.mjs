@@ -60,7 +60,20 @@ if (scope === 'all') {
   requireTerminalBackend();
   build();
   // Isolated diagnostic branch only; this is not a product regression gate.
-  run(process.execPath, ['scripts/windows-input-boundary-diagnostic.mjs', process.cwd(), 'diagnostic-evidence', 'load-parent']);
+  console.log('DIAGNOSTIC ONLY: product source d292503; not a product full regression gate');
+  let failed = false;
+  for (const args of [
+    ['--import', './test/seat-env.mjs', '--test', '--test-name-pattern', 'older pending mark|persistence failure', 'test/core-tmux.test.mjs'],
+    ['--import', './test/seat-env.mjs', '--test', 'test/powershell-pty.test.mjs'],
+    ['scripts/windows-input-boundary-diagnostic.mjs', process.cwd(), 'diagnostic-evidence', 'load-parent'],
+    ['scripts/windows-claude-start-diagnostic.mjs', process.cwd(), 'diagnostic-claude-evidence'],
+  ]) {
+    console.log('DIAGNOSTIC PHASE ' + JSON.stringify(args));
+    const result = spawnSync(process.execPath, args, { stdio: 'inherit', windowsHide: true });
+    if (result.error) throw result.error;
+    failed ||= result.status !== 0;
+  }
+  process.exit(failed ? 1 : 0);
 } else if (scope === 'metadata') {
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);

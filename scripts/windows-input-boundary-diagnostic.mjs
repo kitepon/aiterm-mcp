@@ -23,6 +23,7 @@ if (mode.endsWith('parent')) {
     if (fs.existsSync(file)) console.log('DIAG_RESULT ' + fs.readFileSync(file, 'utf8').replace(/\n/g, ' '));
     else console.log('DIAG_DRIVER_ERROR ' + kind + ' ' + fs.readFileSync(path.join(output, kind + '.log'), 'utf8'));
   }
+  assert(exits.every(row => row.code === 0), 'one or more diagnostic children failed');
 } else {
   assert.equal(process.platform, 'win32');
   const core = await import(pathToFileURL(path.join(source, 'dist/core.js')));
@@ -30,7 +31,7 @@ if (mode.endsWith('parent')) {
   const [shell, size] = mode.split('-');
   const sid = 'boundary';
   const at = performance.now();
-  const result = { mode, runtime: process.env.XDG_RUNTIME_DIR, trace: [], source };
+  const result = { mode, runtime: process.env.XDG_RUNTIME_DIR, trace: [], source, timing_origin: 'core.send return before diagnostic probes' };
   const note = (phase, value = {}) => { result.trace.push({ phase, ms: performance.now() - at, ...value }); fs.writeFileSync(path.join(output, mode + '.json'), JSON.stringify(result, null, 2)); };
   const marker = 'BOUNDARY_EXEC_' + mode;
   const target = path.join(process.env.XDG_RUNTIME_DIR, 'executed.txt');
@@ -41,9 +42,10 @@ if (mode.endsWith('parent')) {
   const log = () => { try { return fs.readFileSync(path.join(rt.SOCKDIR, sid + '.log'), 'utf8'); } catch { return ''; } };
   const screen = () => rt.tmuxCommand(false, 'capture-pane', '-p', '-J', '-t', sid, '-S', '-20').stdout;
   try {
-    note('open-start'); core.openSession(sid, shell); note('open-return', { screen: screen(), log_bytes: Buffer.byteLength(log()) });
-    note('send-start', { chars: command.length }); core.send(sid, command); note('send-return', { screen: screen(), log_bytes: Buffer.byteLength(log()) });
+    note('open-start'); core.openSession(sid, shell); note('open-return');
+    note('send-start', { chars: command.length }); core.send(sid, command);
     const returned = performance.now();
+    note('send-return', { send_return_ms: returned - at });
     let ended = false;
     for (let i = 0; performance.now() - returned < 15000; i++) {
       const exists = fs.existsSync(target), text = log();
@@ -53,6 +55,7 @@ if (mode.endsWith('parent')) {
       await new Promise(r => setTimeout(r, 100));
     }
     result.observed_completion = ended;
+    if (!result.exact || !result.within_original_5s) process.exitCode = 1;
     note('final', { screen: screen() });
     fs.writeFileSync(path.join(output, mode + '.pane.log'), log());
   } catch (e) { note('error', { message: e.message, stack: e.stack }); process.exitCode = 1; }

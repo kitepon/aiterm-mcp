@@ -23,7 +23,9 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
   const initial = runtime.read();
   const liveRoot = initial.find(row => row.pid === root.pid && !row.zombie);
   if (!liveRoot || !same(root, liveRoot)) throw new Error("process_tree_root_changed");
+  if (liveRoot.session_identity === null) throw new Error("process_tree_session_unconfirmed");
   const tree = processSubtree(initial, root.pid);
+  if (tree.some(row => row.session_identity === null)) throw new Error("process_tree_session_unconfirmed");
   if (tree.some(row => row.pid === process.pid)) throw new Error("process_tree_contains_checker");
   const inSession = (row: RuntimeProcess) => liveRoot.session_identity === undefined || row.session_identity === liveRoot.session_identity;
   const selected = new Map(tree.filter(inSession).map(row => [row.pid, row]));

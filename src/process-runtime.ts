@@ -18,7 +18,7 @@ export interface NativeProcessIdentity {
 }
 
 export interface RuntimeProcess extends NativeProcessIdentity {
-  session_identity?: string;
+  session_identity?: string | null;
   zombie?: boolean;
   executable?: string;
   parent_pid: number;
@@ -48,14 +48,16 @@ export function parseCpuTime(value: string): number {
     + Number(match[3]) * 60 + Number(match[4]);
 }
 
-export function parsePosixProcessTable(text: string, includeSession = false): RuntimeProcess[] {
-  return text.split("\n").filter(line => line.trim()).map(line => {
+export function parsePosixProcessTable(text: string, includeSession = false, platform: NodeJS.Platform = process.platform): RuntimeProcess[] {
+  const leaders = new Set<number>();
+  const rows: RuntimeProcess[] = text.split("\n").filter(line => line.trim()).map(line => {
     const match = (includeSession
       ? /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/
       : /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/).exec(line);
     if (!match) throw new AitermError("process一覧の形式を認識できません", 2);
     const offset = includeSession ? 1 : 0;
     const command = match[7 + offset].trim();
+    if (match[4 + offset].includes("s")) leaders.add(Number(match[1]));
     return {
       pid: Number(match[1]), parent_pid: Number(match[2]), process_group_id: Number(match[3]),
       stopped: match[4 + offset].includes("T"), zombie: match[4 + offset].includes("Z"),
@@ -64,6 +66,21 @@ export function parsePosixProcessTable(text: string, includeSession = false): Ru
       argv_digest: createHash("sha256").update(command).digest("hex"),
     };
   });
+  // Darwin sess is a kernel pointer hidden as zero; stat's s is the actual session-leader flag.
+  if (includeSession && platform === "darwin") {
+    const byPid = new Map(rows.map(row => [row.pid, row]));
+    for (const row of rows) {
+      let leader: RuntimeProcess | undefined = Number.isFinite(Date.parse(row.started_identity)) ? row : undefined;
+      const seen = new Set<number>();
+      while (leader && !leaders.has(leader.pid) && !seen.has(leader.pid)) {
+        seen.add(leader.pid);
+        leader = leader.parent_pid <= 1 ? undefined : parentProcess(leader, byPid);
+        if (leader && !Number.isFinite(Date.parse(leader.started_identity))) leader = undefined;
+      }
+      row.session_identity = leader && leaders.has(leader.pid) ? `${leader.pid}:${leader.started_identity}` : null;
+    }
+  }
+  return rows;
 }
 
 // AitermがOSのprocess表を引く時のコマンドの形。席のprocessを数える側が、これを利用者の作業と取り違えないために使う。

@@ -70,6 +70,11 @@ test('changed seat admission and process-table failure cannot be reported as a s
  const stuck=fixture(true);stuck.runtime.signal=(target,signal)=>{stuck.effects.push({target,signal});};
  assert.equal(await stuck.run(),false);
 });
+test('unknown native session membership refuses every signal',async()=>{
+ const f=fixture();const read=f.runtime.read;
+ f.runtime.read=()=>read().map(value=>({...value,session_identity:null}));
+ await assert.rejects(f.run(),/process_tree_session_unconfirmed/);assert.deepEqual(f.effects,[]);
+});
 test('session-aware POSIX observations provide a separate session identity and zombie flag',
  {skip:process.platform==='win32'},()=>{
  const own=readRuntimeProcesses(true).find(r=>r.pid===process.pid);

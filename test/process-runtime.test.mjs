@@ -31,6 +31,16 @@ test("POSIX process表の開始識別とargv digestを保持する", () => {
   assert.equal(parseCpuTime("2-03:04:05.50"), 183845.5);
 });
 
+test('Darwin session leaders separate detached trees when sess is redacted to zero',()=>{
+ const row=(pid,parent,pgid,stat)=>`${pid} ${parent} ${pgid} 0 ${stat} Sun Nov 1 12:00:00 2026 00:00.01 node`;
+ const rows=parsePosixProcessTable([row(10,1,10,'Ss'),row(11,10,11,'S'),row(20,10,20,'Ss'),row(21,20,21,'S'),row(30,1,30,'S'),row(31,32,31,'S'),row(32,31,32,'S')].join('\n'),true,'darwin');
+ const byPid=new Map(rows.map(r=>[r.pid,r]));
+ assert.equal(byPid.get(10).session_identity,byPid.get(11).session_identity);
+ assert.equal(byPid.get(20).session_identity,byPid.get(21).session_identity);
+ assert.notEqual(byPid.get(10).session_identity,byPid.get(20).session_identity);
+ for(const pid of [30,31,32])assert.equal(byPid.get(pid).session_identity,null);
+});
+
 test("background活動から起動直後の足場processを除く", () => {
   const root = { pid: 1, started_identity: "2026-09-10T00:00:00.000Z" };
   const rows = [root, { pid: 2, started_identity: "2026-09-10T00:00:59.000Z" },

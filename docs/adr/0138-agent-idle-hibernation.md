@@ -146,3 +146,7 @@ Windowsのsession単位の命令は末尾colonなしのexact session名を使う
 Codex 0.162.1のnative status-line previewは通常速度を `Fast off`、新しい0.166.0は `Standard` と表示する。いずれも明示OFFとして読み、model/effortとFast suffixの矛盾・欠測は従来どおり拒否する。previewの取消しと設定非保存は変えない。
 
 MacのClaudeは設定UIの操作でも `caffeinate -i -t 300` を自分の直接の子として起こす。この正確なnative keep-awake命令だけを起動後の作業数から外す。現在のharness PIDと開始時刻、実親PID、OS、引数を照合し、未知の親・別command・別引数・その子孫の仕事は除外しない。木の停止対象から除外する意味ではない。
+
+Darwinのps `sess` はkernel pointerであり、0へ秘匿された値をsession IDとして扱わない。Apple公式psの `stat` にあるsession leaderフラグと開始本人性を照合した親子鎖からsessionを識別する。leaderの欠測・親PID再利用・循環・孤児で所属を確認できない場合はnullとし、対象木の所属が未知ならsignal前に拒否する。取得仕様の正本はRAG process-lifecycleのApple adv_cmds commit6bed8737。
+
+Macのtmuxは終了したpaneのpane_pidを空にする。explicitな終了済みpaneのcloseだけは、同じserver開始本人性・session ID/name・pane IDとpane_dead=1を照合してこの空を認める。通常の入力・設定・生存paneの本人性は元PID照合のままにし、受信側条件も同じclose専用の許可を使う。

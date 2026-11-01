@@ -2248,7 +2248,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
             beforeExecutionEffect(name);
             didIssue(); effectIssued = true;
             if (tmux("kill-session", "-t", remaining.native_id).code !== 0) throw new Error("native_close_unconfirmed");
-          });
+          }, true);
         }
         return native() === null;
       });
@@ -7237,9 +7237,12 @@ function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_
   if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === native.session_id && row.native_id === native.native_id)) throw unavailable();
   const pane = tmux("display-message", "-p", "-t", nativePaneTarget(native), "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
   const fields = pane.stdout.trim().split("\t");
-  if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 5).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id, native.pane_pid].join("\t")
+  const exited = allowExitedPane && fields[5] === "1";
+  // macOS tmux clears pane_pid after exit; only the explicit dead-pane close admits that absence.
+  if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 4).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id].join("\t")
+    || (fields[4] !== String(native.pane_pid) && !(exited && fields[4] === ""))
     || !["0", "1"].includes(fields[5]) || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
-    || (!(allowExitedPane && fields[5] === "1") && processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity)) throw unavailable();
+    || (!exited && processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity)) throw unavailable();
 }
 function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExitedPane = false): T {
   if (hasVerifiedNativeSessionTarget(meta.aiterm_session)) return body();
@@ -7250,7 +7253,7 @@ function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExite
     if (meta.resumed_from) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative本人性の記録がありません。", 2);
     return body();
   }
-  return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native, meta.launch_id, allowExitedPane), body);
+  return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native, meta.launch_id, allowExitedPane), body, allowExitedPane);
 }
 
 function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecycle) {

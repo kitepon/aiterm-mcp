@@ -16,6 +16,8 @@ test('Windows pane targets retain their server session identity despite recycled
  assert.equal(nativePaneTarget(target,'linux'),'%1');
  assert.match(nativeSessionCondition(target),/pid},74940/);
  for(const text of ['session_id},$1355','session_name},idle-native-proof','pane_id},%1','pane_pid},76120'])assert.ok(nativeSessionCondition(target).includes(text));
+ assert.ok(!nativeSessionCondition(target).includes('pane_dead'));
+ assert.ok(nativeSessionCondition(target,true).includes('#{&&:#{==:#{pane_dead},1},#{==:#{pane_pid},}}'));
 });
 test('session commands use exact session names without a pane suffix on Windows',()=>{
  assert.equal(nativeSessionTarget(target,'win32'),'=idle-native-proof');

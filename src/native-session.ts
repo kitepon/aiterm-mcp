@@ -20,8 +20,10 @@ export function nativeSessionTarget(target: NativeSessionReceipt, platform: Node
   return platform === "win32" ? `=${target.session_id}` : target.native_id;
 }
 
-export function nativeSessionCondition(target: NativeSessionReceipt): string {
-  return [["pid", target.server_pid], ["session_id", target.native_id], ["session_name", target.session_id],
-    ["pane_id", target.pane_id], ["pane_pid", target.pane_pid]].map(([key, value]) => `#{==:#{${key}},${value}}`)
+export function nativeSessionCondition(target: NativeSessionReceipt, allowExitedPane = false): string {
+  const pane = `#{==:#{pane_pid},${target.pane_pid}}`;
+  return [...[["pid", target.server_pid], ["session_id", target.native_id], ["session_name", target.session_id],
+    ["pane_id", target.pane_id]].map(([key, value]) => `#{==:#{${key}},${value}}`),
+    allowExitedPane ? `#{||:${pane},#{&&:#{==:#{pane_dead},1},#{==:#{pane_pid},}}}` : pane]
     .reduce((left, right) => `#{&&:${left},${right}}`);
 }

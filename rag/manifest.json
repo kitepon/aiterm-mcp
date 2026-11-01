@@ -3931,6 +3931,42 @@
       "relevance": "『zellijはWindows非対応』という旧知識の更新。ただしtmux CLI互換の外部制御（send-keys/capture-pane相当）を持たないため、Aitermバックエンド適性は別問題。",
       "chars": 112733,
       "fetched": "2026-08-16"
+    },
+    {
+      "slug": "darwin-ps-keyword-c-20261101",
+      "topic": "process-lifecycle",
+      "title": "Apple adv_cmds ps keyword.c session and state fields",
+      "source_url": "https://raw.githubusercontent.com/apple-oss-distributions/adv_cmds/6bed8737a34dbb54782a18f47dccf933a9967a12/ps/keyword.c",
+      "source_type": "official_source",
+      "path": "sources/process-lifecycle/darwin-ps-keyword-c-20261101.md",
+      "tags": [
+        "macos",
+        "ps",
+        "session",
+        "process-lifecycle"
+      ],
+      "summary": "Darwin sess is a kernel pointer field; state s is EPROC_SLEADER.",
+      "relevance": "Native session membership for safe process-tree stop; never interpret redacted sess zero as one shared session.",
+      "chars": 12614,
+      "fetched": "2026-11-01"
+    },
+    {
+      "slug": "darwin-ps-print-c-20261101",
+      "topic": "process-lifecycle",
+      "title": "Apple adv_cmds ps print.c session and state fields",
+      "source_url": "https://raw.githubusercontent.com/apple-oss-distributions/adv_cmds/6bed8737a34dbb54782a18f47dccf933a9967a12/ps/print.c",
+      "source_type": "official_source",
+      "path": "sources/process-lifecycle/darwin-ps-print-c-20261101.md",
+      "tags": [
+        "macos",
+        "ps",
+        "session",
+        "process-lifecycle"
+      ],
+      "summary": "Darwin sess is a kernel pointer field; state s is EPROC_SLEADER.",
+      "relevance": "Native session membership for safe process-tree stop; never interpret redacted sess zero as one shared session.",
+      "chars": 26110,
+      "fetched": "2026-11-01"
     }
   ],
   "updated": "2026-11-01"

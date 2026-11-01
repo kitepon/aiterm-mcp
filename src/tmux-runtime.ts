@@ -16,7 +16,7 @@ import { ExecutionError } from "./execution-wire.js";
 import { parseNativeSessionReceipt, nativePaneTarget, nativeSessionTarget, nativeSessionCondition, type NativeSessionReceipt } from "./native-session.js";
 export type { NativeSessionReceipt } from "./native-session.js";
 type NativeTarget = { session: string | null; target: NativeSessionReceipt | null; verify: () => void;
-  created?: (receipt: NativeSessionReceipt) => void; checking?: boolean };
+  created?: (receipt: NativeSessionReceipt) => void; checking?: boolean; allowExitedPane?: boolean };
 const nativeTargets = new AsyncLocalStorage<NativeTarget>();
 const nativeReads = new Set(["list-sessions", "list-commands", "list-panes", "list-windows", "has-session", "display-message", "capture-pane", "show-environment", "show-options"]);
 const nativePanes = new Set(["send-keys", "paste-buffer", "pipe-pane", "capture-pane", "display-message", "list-panes"]);
@@ -28,10 +28,10 @@ function verifyNativeTarget(frame: NativeTarget): void {
 }
 
 /** Target routing only: guardTmuxExecution still owns every effect authorization. */
-export function withNativeSessionTarget<T>(target: NativeSessionReceipt, verify: () => void, body: () => T): T {
+export function withNativeSessionTarget<T>(target: NativeSessionReceipt, verify: () => void, body: () => T, allowExitedPane = false): T {
   const enclosing = nativeTargets.getStore();
   if (enclosing && JSON.stringify(enclosing.target) !== JSON.stringify(target)) throw nativeTargetUnavailable();
-  const frame = { session: target.session_id, target, verify };
+  const frame = { session: target.session_id, target, verify, allowExitedPane };
   return nativeTargets.run(frame, () => { verifyNativeTarget(frame); return body(); });
 }
 export function hasVerifiedNativeSessionTarget(name: string): boolean {
@@ -93,7 +93,7 @@ const NATIVE_REFUSED = "__AITERM_NATIVE_GENERATION_REFUSED__";
 function nativeConditionalArgs(args: string[]): string[] {
   const target = nativeTargets.getStore()?.target;
   if (!target || nativeReads.has(args[0]) || args[0] === "delete-buffer") return args;
-  const condition = nativeSessionCondition(target);
+  const condition = nativeSessionCondition(target, nativeTargets.getStore()?.allowExitedPane);
   const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
   const command = args.map(quote).join(" ");
   return ["if-shell", "-F", "-t", nativePaneTarget(target), condition, command, `display-message -p ${NATIVE_REFUSED}`];

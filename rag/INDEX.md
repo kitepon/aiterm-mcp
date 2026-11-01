@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **199** 件 / 更新: 2026-10-31
+- 総数: **212** 件 / 更新: 2026-11-01
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -617,6 +617,27 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://nodejs.org/api/process.html> (docs, 179959 chars)
   - 効きどころ: HomebrewのCellar実体を永続する起動設定へ固定してはいけない根拠。
 
+## native-settings — 6件
+
+- [Claude Code configuration files and directory scope](sources/native-settings/claude-config-directory-scope.md) — Official configuration directory and separate global state file semantics.
+  - 出典: <https://code.claude.com/docs/en/settings> (official-docs, 207722 chars)
+  - 効きどころ: Preserve unset CLAUDE_CONFIG_DIR as distinct from an explicitly selected configuration directory.
+- [Claude Code fast mode native menu](sources/native-settings/claude-fast-mode-native-20261101.md) — fastの現在値確認とmodel変更時の連動
+  - 出典: <https://code.claude.com/docs/en/fast-mode.md> (official_docs, 20919 chars)
+  - 効きどころ: 状態確認を設定変更と取り違えず、通常設定を保持して休止する
+- [Codex 0.166 native bottom_pane/effort_status_line.rs](sources/native-settings/codex-0166-bottom_pane-effort_status_line.md) — 公式0.166のnative設定表示と足元の状態表示
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/effort_status_line.rs> (official_source, 8729 chars)
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない
+- [Codex 0.166 native bottom_pane/status_line_setup.rs](sources/native-settings/codex-0166-bottom_pane-status_line_setup.md) — 公式0.166のnative設定表示と足元の状態表示
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/status_line_setup.rs> (official_source, 30061 chars)
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない
+- [Codex 0.166 native chatwidget/status_surfaces.rs](sources/native-settings/codex-0166-chatwidget-status_surfaces.md) — 公式0.166のnative設定表示と足元の状態表示
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/chatwidget/status_surfaces.rs> (official_source, 54315 chars)
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない
+- [Codex 0.166 native status/card.rs](sources/native-settings/codex-0166-status-card.md) — 公式0.166のnative設定表示と足元の状態表示
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/status/card.rs> (official_source, 38684 chars)
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない
+
 ## platform — 2件
 
 - [OpenSSH ControlMaster・ControlPath・ControlPersist 公式仕様](sources/platform/openssh-controlmaster-config.md) — ControlPathは他ユーザーが書けないディレクトリと%C等による接続分離を推奨し、ControlPersistは無通信時の共有master終了を所有する。
@@ -626,20 +647,41 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://raw.githubusercontent.com/openssh/openssh-portable/87f0cd1892e501f835dd210abea5461807c8deba/mux.c> (official_source, 67679 chars)
   - 効きどころ: 長いTMPDIRに依存しない共有ソケット配置と一時名まで含む長さの受入根拠。
 
-## process-lifecycle — 1件
+## process-lifecycle — 3件
 
+- [Apple adv_cmds ps keyword.c session and state fields](sources/process-lifecycle/darwin-ps-keyword-c-20261101.md) — Darwin sess is a kernel pointer field; state s is EPROC_SLEADER.
+  - 出典: <https://raw.githubusercontent.com/apple-oss-distributions/adv_cmds/6bed8737a34dbb54782a18f47dccf933a9967a12/ps/keyword.c> (official_source, 12614 chars)
+  - 効きどころ: Native session membership for safe process-tree stop; never interpret redacted sess zero as one shared session.
+- [Apple adv_cmds ps print.c session and state fields](sources/process-lifecycle/darwin-ps-print-c-20261101.md) — Darwin sess is a kernel pointer field; state s is EPROC_SLEADER.
+  - 出典: <https://raw.githubusercontent.com/apple-oss-distributions/adv_cmds/6bed8737a34dbb54782a18f47dccf933a9967a12/ps/print.c> (official_source, 26110 chars)
+  - 効きどころ: Native session membership for safe process-tree stop; never interpret redacted sess zero as one shared session.
 - [.NET Processの終了要求・強制終了・handleの公式API定義](sources/process-lifecycle/dotnet-process-close-and-kill-20261031.md) — Microsoftの公式API XML。CloseMainWindowは終了要求で、windowless processはfalseを返す。Killは強制終了で、終了完了は別途確認する。
   - 出典: <https://raw.githubusercontent.com/dotnet/dotnet-api-docs/main/xml/System.Diagnostics/Process.xml> (official_api_source, 525610 chars)
   - 効きどころ: Windows会話席の休止で、handleを保持した同一processへの終了要求と強制終了を区別し、子孫の実終了を別途確認するための一次資料。
 
 ## terminal-automation — 3件
 
-- [PSReadLine official issue 1471: Support Paste Bracketing](sources/terminal-automation/psreadline-bracketed-paste-issue1471-20261101.md) — 公式のbracketed-paste対応要望の現状。未確認の機能をWindows入力修理の前提にしない。
-- [PowerShell 7.6 PSReadLine functions](sources/terminal-automation/psreadline-paste-functions-76-20261101.md) — Paste関数の一括挿入とコンソールの一文字ずつの挿入の違い。
-
 - [PowerShell: Windows実行形式の判定と関連付け起動](sources/terminal-automation/powershell-native-command-20260919.md) — WindowsではPATHEXTで直接実行を判定し、関連付け起動では標準入出力のredirectを使わない。
   - 出典: <https://raw.githubusercontent.com/PowerShell/PowerShell/master/src/System.Management.Automation/engine/NativeCommandProcessor.cs> (official_source, 104301 chars)
   - 効きどころ: 隔離Codex hook試験のPATHEXT欠落でNodeが別窓に残った原因を照合する一次資料。
+- [PSReadLine official issue 1471: Support Paste Bracketing](sources/terminal-automation/psreadline-bracketed-paste-issue1471-20261101.md) — 公式のbracketed-paste対応要望の現状。実装済みと推定しない。
+  - 出典: <https://api.github.com/repos/PowerShell/PSReadLine/issues/1471> (github_issue, 8102 chars)
+  - 効きどころ: Windows入力の修理で、対応未確認のpaste markerを成功条件にしない。
+- [PowerShell 7.6 PSReadLine functions: paste behavior](sources/terminal-automation/psreadline-paste-functions-76-20261101.md) — Paste関数の一括挿入とコンソールの一文字ずつの挿入の違いを説明する。
+  - 出典: <https://raw.githubusercontent.com/MicrosoftDocs/PowerShell-Docs/main/reference/7.6/PSReadLine/About/about_PSReadLine_Functions.md> (official_documentation, 39584 chars)
+  - 効きどころ: 通常PTYのPowerShell入力で、入力受領と編集処理・実行の境界を切り分ける。
+
+## tmux — 3件
+
+- [tmux argument parser: trailing semicolon escape](sources/tmux/tmux-command-argument-parser-20261031.md) — CLI argv ending with a semicolon is split unless escaped, including environment values.
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-parse.y> (official, 39831 chars)
+  - 効きどころ: Preserve literal saved environment values at initial launch and resume.
+- [tmux if-shell source: native format evaluation and command queue insertion](sources/tmux/tmux-if-shell-native-queue-source-20261031.md) — The -F path evaluates a native format and inserts the selected command queue without starting a shell job.
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-if-shell.c> (official, 5312 chars)
+  - 効きどころ: Generation conditions and input must be evaluated on the same tmux server.
+- [tmux manual: command queues and conditional formats](sources/tmux/tmux-native-command-conditions-20261031.md) — Native conditional command queues for generation-pinned resume.
+  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/tmux.1> (official, 232946 chars)
+  - 効きどころ: Verify server/pane identity inside the same tmux server command queue before input.
 
 ## windows-wrapped-shell-prompt — 2件
 
@@ -649,40 +691,3 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [string-width 7.2.0 readme.md](sources/windows-wrapped-shell-prompt/string-width-7-2-0-readme-md.md) — Node18対応の表示セル数を取得する既存libraryの固定一次資料。
   - 出典: <https://raw.githubusercontent.com/sindresorhus/string-width/v7.2.0/readme.md> (official_source, 1935 chars)
   - 効きどころ: psmuxの現在prompt折返しを実pane幅と照合し、日本語/emojiを文字数へ誤変換しない。
-
-
-## tmux — 3件
-
-- [tmux manual: command queues and conditional formats](sources/tmux/tmux-native-command-conditions-20261031.md) — 公式manpageの新規作成receipt、native formatと条件付きcommand queue。
-  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/tmux.1>
-  - 効きどころ: 同名席・server再起動によるID再利用で、CLIや本文の送信先を替えない。
-- [tmux if-shell native queue source](sources/tmux/tmux-if-shell-native-queue-source-20261031.md) — -Fはnative formatを評価して同serverのqueueへcommandを挿入し、shell jobを起こさない。
-  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-if-shell.c>
-  - 効きどころ: 検証と送信の間に新serverへ接続し直す境界を閉じる。
-
-- [tmux command argument parser](sources/tmux/tmux-command-argument-parser-20261031.md) — trailing semicolonをcommand separatorにしない公式argv escapeの条件。
-  - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-parse.y>
-  - 効きどころ: 保存envがセミコロンやbackslash＋セミコロンで終わっても元の値を維持する。
-
-
-## native-settings — 6件
-
-- [Codex 0.166 native status/card.rs](sources/native-settings/codex-0166-status-card.md) — 公式0.166のnative設定表示と足元の状態表示。
-  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/status/card.rs>
-  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
-- [Codex 0.166 native chatwidget/status_surfaces.rs](sources/native-settings/codex-0166-chatwidget-status_surfaces.md) — 公式0.166のnative設定表示と足元の状態表示。
-  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/chatwidget/status_surfaces.rs>
-  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
-- [Codex 0.166 native bottom_pane/effort_status_line.rs](sources/native-settings/codex-0166-bottom_pane-effort_status_line.md) — 公式0.166のnative設定表示と足元の状態表示。
-  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/effort_status_line.rs>
-  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
-- [Codex 0.166 native bottom_pane/status_line_setup.rs](sources/native-settings/codex-0166-bottom_pane-status_line_setup.md) — 公式0.166のnative設定表示と足元の状態表示。
-  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/status_line_setup.rs>
-  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
-- [Claude Code fast mode native menu](sources/native-settings/claude-fast-mode-native-20261101.md) — fastの現在値確認とmodel変更時の連動。
-  - 出典: <https://code.claude.com/docs/en/fast-mode.md>
-  - 効きどころ: 状態確認を設定変更と取り違えず、通常設定を保持して休止する。
-
-- [Claude Code configuration files and directory scope](sources/native-settings/claude-config-directory-scope.md) — 設定ディレクトリとglobal状態の公式仕様。
-  - 出典: <https://code.claude.com/docs/en/settings>
-  - 効きどころ: CLAUDE_CONFIG_DIRの未指定と明示指定を区別して同じprofileを復元する。

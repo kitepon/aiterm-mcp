@@ -16,6 +16,14 @@ import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 import {SOCK,resolveTmux} from '../dist/tmux-runtime.js';
 
+// Temporary CI diagnosis: native identity and close commands only, never agent input or environment.
+const traceSpawn=childProcess.spawnSync;
+childProcess.spawnSync=function(binary,args,options){
+ const result=traceSpawn(binary,args,options);
+ if(args?.some(x=>typeof x==='string'&&x.includes('kill-session'))||args?.includes('new-session'))
+  console.error('IDLE_NATIVE_TRACE',JSON.stringify({binary,args:args.includes('new-session')?args.slice(0,args.indexOf('-s')+2):args,status:result.status,stdout:result.stdout,stderr:result.stderr}));
+ return result;
+};syncBuiltinESMExports();
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
@@ -398,7 +406,7 @@ test('send resumes the same conversation once, preserves old records and restore
  const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,2);
  assert.ok(launches[1].argv.includes('resume'));assert.ok(launches[1].argv.includes(f.meta.vendor_session_id));
  assert.equal(launches[1].room,"saved room ' $() ; #{pane_id} \\ literal");assert.equal(launches[1].member,';');assert.equal(launches[1].unset,null);
- assert.equal(launches[1].cwd,f.meta.cwd);
+ assert.equal(fs.realpathSync(launches[1].cwd),fs.realpathSync(f.meta.cwd));
  const listed=core.listSessionsResult(['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']).sessions.find(row=>row.session_id===f.name);
  assert.deepEqual(listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';',AITERM_TEST_UNSET:null});
  const accepted=fs.readFileSync(f.keys,'utf8').trim().split('\n');assert.deepEqual(accepted,['first-body','second-body']);

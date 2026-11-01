@@ -118,6 +118,7 @@ test("サニタイズ: raw=true は素通し", { skip }, () => {
 test("send: 6,000文字の入力を途中欠落させずPTYへ送る", { skip }, async (t) => {
   const session = "selftest_long_input";
   const timing = { open_started_at: Date.now() };
+  t.after(() => t.diagnostic(JSON.stringify({schema:'aiterm.test-input-phases.v1',boundary:'6000-character shell execution',timing})));
   core.openSession(session);
   timing.open_returned_at = Date.now();
   try {

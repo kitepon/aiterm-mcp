@@ -54,6 +54,7 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
   meta.agent_executable = script;
   let launching;
   const timing = { open_started_at: Date.now() };
+  t.after(() => t.diagnostic(JSON.stringify({schema:'aiterm.test-input-phases.v1',boundary:'native launch exit lifecycle',timing})));
   core.openSession(session, 'pwsh');
   timing.open_returned_at = Date.now();
   try {

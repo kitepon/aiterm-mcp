@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', windowsHide: true });
@@ -59,9 +59,13 @@ requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
   build();
+  if (process.platform !== 'win32') throw new Error('Windows input phase diagnostic requires Windows');
+  console.log('DIAGNOSTIC_ONLY: input phase timing; not a product full gate');
   const files = [
-    'scripts/verify-release-commit.test.mjs',
-    ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
+    'test/agent-launch-exit.test.mjs',
+    'test/agent-launch-line.test.mjs',
+    'test/core-tmux.test.mjs',
+    'test/powershell-pty.test.mjs',
   ];
   run(process.execPath, ['scripts/run-seat-tests.mjs', '--test', ...files]);
 } else if (scope === 'metadata') {

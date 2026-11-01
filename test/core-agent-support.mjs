@@ -117,6 +117,7 @@ async function readArgvFixture(sid, t, argvFile) {
   const timing = { read_started_at: Date.now() };
   const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true, until: ARGV_FIXTURE_DONE });
   timing.read_returned_at = Date.now();
+  t.diagnostic(JSON.stringify({schema:'aiterm.test-input-phases.v1',boundary:'argv completion',timing}));
   if (out.includes(ARGV_FIXTURE_DONE)) return out;
   const stats = text => ({ bytes: Buffer.byteLength(text), argv: text.includes("<arg>"),
     done: text.includes(ARGV_FIXTURE_DONE),

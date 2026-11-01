@@ -33,6 +33,7 @@ test("PowerShellの単行もUnicode入出力とnative pipelineをUTF-8で保持�
 test("PowerShellの複数行は記述順に実行し、完了印と変数を保持する", { skip }, async (t) => {
   const session = "powershell_multiline_order";
   const timing = { open_started_at: Date.now() };
+  t.after(() => t.diagnostic(JSON.stringify({schema:'aiterm.test-input-phases.v1',boundary:'PowerShell multiline mark',timing})));
   core.openSession(session, "pwsh");
   timing.open_returned_at = Date.now();
   try {

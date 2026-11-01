@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { agentFixturePrint, agentFixtureShellCommand, agentFixtureShellReady } from "./agent-fixture-shell.mjs";
+import { agentFixturePrint, agentFixtureShellCommand, waitAgentFixtureShell } from "./agent-fixture-shell.mjs";
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasTmux =
@@ -802,15 +802,10 @@ function appendClaudeDoneWhenLogContains(sid, needle, text, overrides = {}) {
 
 async function markFakeAgentReady(sid, kind = "codex") {
   let timeout = 5;
-  if (process.platform === "win32" && kind === "codex" && readAgentMeta(sid).agent_executable === argvPrinterBin) {
-    const started = performance.now();
-    let ready = false;
-    while (performance.now() - started < 5000) {
-      if (agentFixtureShellReady(await core.readOutput(sid, { screen: true, raw: true }), ARGV_FIXTURE_DONE)) { ready = true; break; }
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    if (!ready) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'fixture renderer input ownership' })));
-    timeout = Math.max(0, 5 - (performance.now() - started) / 1000);
+  if (process.platform === "win32" && [argvPrinterBin,fakeClaudeBin].includes(readAgentMeta(sid).agent_executable)) {
+    const owned=await waitAgentFixtureShell(()=>core.readOutput(sid,{screen:true,raw:true}),ARGV_FIXTURE_DONE);
+    if (!owned.ready) assert.fail(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'fixture renderer input ownership' })));
+    timeout=owned.timeout;
   }
   if (kind === "grok") {
     const meta = readAgentMeta(sid);

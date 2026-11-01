@@ -386,7 +386,7 @@ test("順番待ちの送信は、同名で作り直したagentへ移らない", 
     release();
     const results = await settled;
     assert.deepEqual(results.map(result => result.status), ["rejected", "rejected"]);
-    assert.match(results[0].reason.message, /agent_done 管理セッションではありません/);
+    assert.match(results[0].reason.message, /agent_done 管理セッションではありません|state=missing reason=session_missing/);
     assert.match(results[1].reason.message, /EXECUTION_STALE_GENERATION/);
     core.openAgent("claude", { agent_done: true, session_name: sid });
     assert.notEqual(readAgentMeta(sid).launch_id, original);

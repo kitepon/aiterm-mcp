@@ -52,7 +52,6 @@ process.stdin.on('data',b=>fs.appendFileSync(${JSON.stringify(ledger)},b));
 setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},25);
 `);
   meta.agent_executable = script;
-  let launching;
   const timing = { open_started_at: Date.now() };
   core.openSession(session, 'pwsh');
   timing.open_returned_at = Date.now();
@@ -61,20 +60,14 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
     fs.writeFileSync(agentMetadataPath(session,meta.launch_id),JSON.stringify(meta));
     assert.equal(core.observeSession(session).harness_alive, null);
     assert.equal(core.observeSession(session).reason, 'harness_start_unconfirmed');
+    // Launch before public dispatch takes the send lock; a foreign force send cannot join that admission.
+    timing.launch_send_started_at = Date.now();
+    core.send(session,
+      windowsAgentLaunchLine(null, [], [process.execPath, script, meta.launch_id], {file,launch_id:meta.launch_id}),
+      {raw:true,force:true,launchShell:'pwsh',preserveAgentOperation:true});
+    timing.launch_send_returned_at = Date.now();
     timing.dispatch_started_at = Date.now();
-    const pending = core.sendAgentMessage(session, 'START_BOUNDARY_BODY');
-    const launch = new Promise((resolve,reject) => { launching = setImmediate(() => {
-      try {
-        timing.launch_send_started_at = Date.now();
-        const sent = core.send(session,
-        windowsAgentLaunchLine(null, [], [process.execPath, script, meta.launch_id], {file,launch_id:meta.launch_id}),
-        {raw:true,force:true,launchShell:'pwsh',preserveAgentOperation:true});
-        timing.launch_send_returned_at = Date.now();
-        resolve(sent);
-      }
-      catch(error) { reject(error); }
-    }); });
-    const [receipt] = await Promise.all([pending,launch]);
+    const receipt = await core.sendAgentMessage(session, 'START_BOUNDARY_BODY');
     timing.dispatch_returned_at = Date.now();
     assert.equal(receipt.schema,'aiterm.agent-dispatch.v1');
     assert.equal(core.observeSession(session).harness_alive,true);
@@ -93,7 +86,6 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
     t.diagnostic(JSON.stringify(await capturePtyFailure(core,session,{boundary:'native launch exit lifecycle',timing})));
     throw error;
   } finally {
-    if(launching)clearImmediate(launching);
     core.closeSession(session);
     assert.equal(fs.existsSync(file),false,'close removes only its launch exit evidence');
   }

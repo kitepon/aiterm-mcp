@@ -659,6 +659,14 @@ export function tmuxNewSession(
     : guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
   if (isWin) {
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
+    if (result.code === 0) {
+      if (pinned) {
+        try { if (parseNativeSessionReceipt(result.stdout).session_id !== name) throw nativeTargetUnavailable(); }
+        catch { throw nativeTargetUnavailable(); }
+      }
+      // Existing psmux 3.3.8 registry protection must run before identity reads can trigger registry reaping.
+      openPsmuxServerToDesktop(name);
+    }
     if (guarded && (result.code === 0 || result.stdout)) captureExecutionCreatedNative(result.stdout);
     if (pinned && (result.code === 0 || result.stdout)) captureNativeSessionReceipt(result.stdout);
     return result;

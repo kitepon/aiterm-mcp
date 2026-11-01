@@ -64,7 +64,6 @@ import {
   pasteBufferBaseArgs,
   tmuxNewSession,
   withNativeSessionCreation, withNativeSessionTarget, hasVerifiedNativeSessionTarget,
-  openPsmuxServerToDesktop,
   registeredSessionEnvironment, registerSessionEnvironment,
   attachCommand,
   normalizePaneCommand,
@@ -124,6 +123,7 @@ import type {
 } from "./agent-shared.js";
 import { AuthResponseError, authUi, authPromptDigest, authBindingSchema, authResponseSchema, type AuthBinding, type AuthResponse } from "./agent-auth-ui.js";
 import { processStartIdentity } from "./runtime-error-os.js";
+import { processStartIdentities } from "./process-start.js";
 import type { AgentAuthMetadata, AgentAuthResult, AgentAuthPlan, AgentAuthStatus, AgentAuthPane } from "./agent-auth.js";
 import { catalogUnavailable, type AgentModelCatalog } from "./model-catalog.js";
 import { FastModeError, fastModeFailure, launchContinuesWithoutFast, type FastModeFailure } from "./fast-mode.js";
@@ -1024,8 +1024,6 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
       const launch = sessionEnvironmentLaunch(shell, environment);
       const r = tmuxNewSession(true, nm, launch, environment.map(entry => entry.slice(0, entry.indexOf("="))));
       if (r.code === 0) {
-        // Windowsで、画面の無いlogon（ssh・service）で立てた本体の控えを、画面のある側のpsmuxに消させない（psmux 3.3.8）。
-        openPsmuxServerToDesktop(nm);
         if (launch.register_after_start) for (const entry of environment) {
           const at = entry.indexOf("=");
           const registered = tmux("set-environment", "-t", nm, entry.slice(0, at), entry.slice(at + 1));
@@ -2633,6 +2631,15 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
       // Recovery must not erase the old launch metadata or report closed when
       // its one pinned native close failed. Keep the original send uncertainty.
       throw new AitermError(`tmux sessionを閉じられませんでした: ${killed.stderr.trim() || `code=${killed.code}`}`, 2);
+    }
+    const proof = isWin && native && meta ? readAgentResumeNative(meta) : null;
+    if (proof && killed.code === 0) {
+      // psmux acknowledges shutdown before its children release their executable and cwd handles.
+      const deadline = performance.now() + SESSION_LIST_EXITING_RETRY_MS;
+      while (isPidAlive(proof.server_pid)) {
+        if (performance.now() >= deadline) throw new AitermError("native_close_unconfirmed: psmuxの終了を確認できません。", 2);
+        pauseSync(SESSION_LIST_EXITING_POLL_MS);
+      }
     }
     for (const p of [logpath(name), offsetpath(name), lastcmdpath(name), markpath(name), sendLockPath(name)]) {
       try {
@@ -7238,11 +7245,12 @@ function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_
   const pane = tmux("display-message", "-p", "-t", nativePaneTarget(native), "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
   const fields = pane.stdout.trim().split("\t");
   const exited = allowExitedPane && fields[5] === "1";
+  const [serverStarted, paneStarted] = processStartIdentities(exited ? [native.server_pid] : [native.server_pid, native.pane_pid], process.platform);
   // macOS tmux clears pane_pid after exit; only the explicit dead-pane close admits that absence.
   if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 4).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id].join("\t")
     || (fields[4] !== String(native.pane_pid) && !(exited && fields[4] === ""))
-    || !["0", "1"].includes(fields[5]) || processStartIdentity(native.server_pid, process.platform) !== native.server_started_identity
-    || (!exited && processStartIdentity(native.pane_pid, process.platform) !== native.pane_started_identity)) throw unavailable();
+    || !["0", "1"].includes(fields[5]) || serverStarted !== native.server_started_identity
+    || (!exited && paneStarted !== native.pane_started_identity)) throw unavailable();
 }
 function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExitedPane = false): T {
   if (hasVerifiedNativeSessionTarget(meta.aiterm_session)) return body();
@@ -7302,7 +7310,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
   let native: AgentResumeNative | null = null, published = false;
   return withNativeSessionCreation(name, receipt => {
-    const server = processStartIdentity(receipt.server_pid, process.platform), pane = processStartIdentity(receipt.pane_pid, process.platform);
+    const [server, pane] = processStartIdentities([receipt.server_pid, receipt.pane_pid], process.platform);
     if (!next || !server || !pane) throw uncertain();
     native = { schema: "aiterm.agent-resume-native.v1", launch_id: next.launch_id, ...receipt,
       server_started_identity: server, pane_started_identity: pane };
@@ -8404,7 +8412,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
     if (hasExecutionCreationScope() || !agentDone || !["claude", "codex"].includes(kind)) return create();
     try {
       return withNativeSessionCreation(opts.session_name ?? null, receipt => {
-        const server = processStartIdentity(receipt.server_pid, process.platform), pane = processStartIdentity(receipt.pane_pid, process.platform);
+        const [server, pane] = processStartIdentities([receipt.server_pid, receipt.pane_pid], process.platform);
         if (!server || !pane) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。", 2);
         initialNative = { ...receipt, server_started_identity: server, pane_started_identity: pane };
         try {

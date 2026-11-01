@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Preserve Windows registry protection before native identity checks, batch exact process births, and confirm native shutdown before cleaning a closed seat.
 ### Added
 - Hibernate managed Claude and Codex conversations after 30 idle minutes on Linux, macOS and Windows; resume the same vendor conversation and saved settings on the next send. Preserve logical listings and explicit environment values while dormant.
 - Add `aiterm-idle-check` and native per-launch sleep clocks. Keep active turns, approvals, attachments, pending deliveries, working descendants and unconfirmed generations alive; exclude unverified harnesses and mounted execution graphs.

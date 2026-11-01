@@ -17,6 +17,9 @@ Aitermのreleaseはこのrepositoryが所有する。`.github/workflows/product-
 - tag push: 所有確認と、tagged commitが`origin/main`の祖先であることの確認だけを行い、npmへprovenance付きで
   publishする。同じcommitのmain CIの結果は待たない。
 
+Windows試験の失敗時は、同じjob内で`test-failure-snapshots/`をhead/環境/attempt別artifactへ保存する（7日保持）。
+次のcheckout後もこの原本を回収できる。snapshotの無い失敗は詳細logを正本とし、artifact未取得を受入済みにしない。
+
 ## Producerとconsumerを公開前に揃える時
 
 Steerの未公開release sourceは` scripts/fixtures/steer-release-source.json `の固定commitと通常npm tgzで指定する。

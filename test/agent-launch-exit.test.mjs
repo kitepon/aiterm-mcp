@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { capturePtyFailure } from './pty-failure-evidence.mjs';
 import { randomBytes } from 'node:crypto';
 import * as core from '../dist/core.js';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
@@ -36,12 +38,13 @@ test('Windows native absence stays unknown until the same launcher returns', () 
   } finally { fs.rmSync(file, {force:true}); }
 });
 
-test('owned Windows launch distinguishes pre-spawn, live CLI, and returned CLI without resending', {skip:process.platform !== 'win32'}, async () => {
-  const [session] = core.openSession('launch_exit_native', 'pwsh');
+test('owned Windows launch distinguishes pre-spawn, live CLI, and returned CLI without resending', {skip:process.platform !== 'win32'}, async (t) => {
+  const session = 'launch_exit_native';
   const {meta,file} = fixture(session);
-  const script = path.join(process.env.TMPDIR, "launch-exit-fixture.mjs");
-  const ledger = path.join(process.env.TMPDIR, 'launch-exit-input');
-  const release = path.join(process.env.TMPDIR, 'launch-exit-release');
+  const temporary = os.tmpdir();
+  const script = path.join(temporary, "launch-exit-fixture.mjs");
+  const ledger = path.join(temporary, 'launch-exit-input');
+  const release = path.join(temporary, 'launch-exit-release');
   fs.writeFileSync(script, `import fs from 'node:fs';
 process.stdout.write('OpenAI Codex\\n› Ask Codex to do anything\\n  mock-model high · /synthetic\\n');
 if(process.stdin.isTTY)process.stdin.setRawMode(true);
@@ -49,10 +52,11 @@ process.stdin.on('data',b=>fs.appendFileSync(${JSON.stringify(ledger)},b));
 setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},25);
 `);
   meta.agent_executable = script;
-  fs.writeFileSync(meta.event_file, '');
-  fs.writeFileSync(agentMetadataPath(session,meta.launch_id),JSON.stringify(meta));
   let launching;
+  core.openSession(session, 'pwsh');
   try {
+    fs.writeFileSync(meta.event_file, '');
+    fs.writeFileSync(agentMetadataPath(session,meta.launch_id),JSON.stringify(meta));
     assert.equal(core.observeSession(session).harness_alive, null);
     assert.equal(core.observeSession(session).reason, 'harness_start_unconfirmed');
     const pending = core.sendAgentMessage(session, 'START_BOUNDARY_BODY');
@@ -76,6 +80,9 @@ setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},2
     const before=fs.readFileSync(ledger);
     await assert.rejects(core.sendAgentMessage(session,'NO_REPLAY'),/harness_exited/);
     assert.deepEqual(fs.readFileSync(ledger),before);
+  } catch(error) {
+    t.diagnostic(JSON.stringify(await capturePtyFailure(core,session,{boundary:'native launch exit lifecycle'})));
+    throw error;
   } finally {
     if(launching)clearImmediate(launching);
     core.closeSession(session);

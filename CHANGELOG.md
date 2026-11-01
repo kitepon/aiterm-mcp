@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.6] - 2026-11-01
+
 ### Fixed
 - Correlate Grok input with its accepted native turn when the preceding turn ends during submission; never substitute the preceding completion or resend the input.
 - Preserve `STEER_NOT_QUEUED` / `STEER_STILL_QUEUED` errors with typed unknown-effect receipts and a launch-bound Grok observation handle when available.
@@ -2973,7 +2975,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...HEAD
+[0.62.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...v0.62.6
 [0.62.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...v0.62.5
 [0.62.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...v0.62.4
 [0.62.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.2...v0.62.3

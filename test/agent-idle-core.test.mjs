@@ -14,16 +14,8 @@ import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/exec
 import {readProcessIdentities} from '../dist/process-runtime.js';
 import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
-import {SOCK,resolveTmux} from '../dist/tmux-runtime.js';
+import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
 
-// Temporary CI diagnosis: native identity and close commands only, never agent input or environment.
-const traceSpawn=childProcess.spawnSync;
-childProcess.spawnSync=function(binary,args,options){
- const result=traceSpawn(binary,args,options);
- if(args?.some(x=>typeof x==='string'&&x.includes('kill-session'))||args?.includes('new-session'))
-  console.error('IDLE_NATIVE_TRACE',JSON.stringify({binary,args:args.includes('new-session')?args.slice(0,args.indexOf('-s')+2):args,status:result.status,stdout:result.stdout,stderr:result.stderr}));
- return result;
-};syncBuiltinESMExports();
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
@@ -67,6 +59,8 @@ setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  if(resumeEnv){process.env.PEERTABLE_ROOM="saved room ' $() ; #{pane_id} \\ literal";process.env.PEERTABLE_MEMBER=';';delete process.env.AITERM_TEST_UNSET;}
  const [name]=core.openAgent('codex',{session_name:seatName??tag,agent_done:true,cwd:process.env.HOME,
   ...(resumeEnv?{env_vars:['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']} : {}),...(recipe?{model:'fixture-model',reasoning_effort:'high'}:{})});
+ // Exercise service accounts with a noninteractive login shell, independently of the test runner's account.
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'set-option','-g','default-shell','/usr/bin/false'],{encoding:'utf8'}).status,0);
  let live;
  for(const until=Date.now()+5000;Date.now()<until;await sleep(40)){
   live=core.observeSession(name);if(live.state==='idle'&&live.harness_alive===true)break;
@@ -98,7 +92,7 @@ for(const phase of ['created','metadata'])test(`a fresh launch never types into 
  const original=childProcess.spawnSync,rename=fs.renameSync,bin=resolveTmux(),prefix=['-S',SOCK];let replaced=false;
  const replace=()=>{
   replaced=true;assert.equal(original(bin,[...prefix,'kill-session','-t',f.name],{encoding:'utf8'}).status,0);
-  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'}).status,0);
+  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,...paneCommandArgs('bash')],{encoding:'utf8'}).status,0);
  };
  if(phase==='created')t.mock.method(childProcess,'spawnSync',function(binary,args,options){
   const result=original(binary,args,options);
@@ -127,7 +121,7 @@ test('the first idle check never terminates a same-name successor even after a s
  const f=await fixture(t);core.openSession('fresh-check-guard');
  const native=(...args)=>spawnSync(resolveTmux(),['-S',SOCK,...args],{encoding:'utf8'});
  assert.equal(native('kill-session','-t',f.name).status,0);
- assert.equal(native('new-session','-d','-s',f.name,f.bin).status,0);
+ assert.equal(native('new-session','-d','-s',f.name,...paneCommandArgs(f.bin)).status,0);
  let seen;
  for(const until=Date.now()+4000;Date.now()<until;await sleep(40)){
   seen=core.observeSession(f.name);if(seen.state==='idle'&&seen.harness_alive===true)break;
@@ -151,7 +145,7 @@ test('an automatically named fresh launch retries a real name collision without 
  t.mock.method(childProcess,'spawnSync',function(binary,args,options){
   if(!collided&&binary===bin&&args.includes('new-session')){
    collided=true;const at=args.indexOf('-s');assert.equal(args[at+1],'t1');
-   assert.equal(original(bin,[...prefix,'new-session','-d','-s','t1','bash'],{encoding:'utf8'}).status,0);
+   assert.equal(original(bin,[...prefix,'new-session','-d','-s','t1',...paneCommandArgs('bash')],{encoding:'utf8'}).status,0);
   }
   return original(binary,args,options);
  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
@@ -310,7 +304,7 @@ for(const state of ['stopping','resuming','failed','recipe-changed','native-repl
   next_launch_id:'e'.repeat(32),recipe_digest:saved.recipe_digest,state,at:new Date().toISOString()});
  if(state==='recipe-changed')writeAgentMetadata({...f.meta,model:'later-model'});
  if(state==='native-replaced'){
-  const raw=spawnSync(resolveTmux(),['-S',SOCK,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'});assert.equal(raw.status,0);
+  const raw=spawnSync(resolveTmux(),['-S',SOCK,'new-session','-d','-s',f.name,...paneCommandArgs('bash')],{encoding:'utf8'});assert.equal(raw.status,0);
  }
  const seen=core.observeSession(f.name);assert.equal(seen.exists,true);assert.equal(seen.state,'unknown');
  assert.equal(seen.launch_id,f.meta.launch_id);assert.equal(seen.activity.post_startup_process_count,null);
@@ -329,7 +323,7 @@ for(const state of ['hibernated','stopping','resuming','failed'])test(`dormant $
  if(state==='resuming'||state==='failed')writeAgentResumeAttempt(f.meta,{schema:'aiterm.agent-resume-attempt.v1',launch_id:f.meta.launch_id,
   next_launch_id:'e'.repeat(32),recipe_digest:saved.recipe_digest,state,at:new Date().toISOString()});
  const native=(...args)=>spawnSync(resolveTmux(),['-S',SOCK,...args],{encoding:'utf8'});
- assert.equal(native('new-session','-d','-s',f.name,'bash').status,0);
+ assert.equal(native('new-session','-d','-s',f.name,...paneCommandArgs('bash')).status,0);
  const marker=f.keys+'-unrelated-enter';native('send-keys','-t',f.name,'-l','--',`touch '${marker}'`);
  assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/AGENT_RESUME_UNCONFIRMED/);
  await assert.rejects(core.readOutput(f.name,{screen:true,raw:true}),/AGENT_RESUME_UNCONFIRMED/);
@@ -529,9 +523,9 @@ for(const phase of ['created','before-body','native-paste','server-restart','lat
   replaced=true;
   if(phase==='server-restart'){
    assert.equal(original(bin,[...prefix,'kill-server'],{encoding:'utf8'}).status,0);
-   for(const name of ['replacement-zero','replacement-one'])assert.equal(original(bin,[...prefix,'new-session','-d','-s',name,'bash'],{encoding:'utf8'}).status,0);
+   for(const name of ['replacement-zero','replacement-one'])assert.equal(original(bin,[...prefix,'new-session','-d','-s',name,...paneCommandArgs('bash')],{encoding:'utf8'}).status,0);
   }else assert.equal(original(bin,[...prefix,'kill-session','-t',f.name],{encoding:'utf8'}).status,0);
-  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,'bash'],{encoding:'utf8'}).status,0);
+  assert.equal(original(bin,[...prefix,'new-session','-d','-s',f.name,...paneCommandArgs('bash')],{encoding:'utf8'}).status,0);
   if(phase==='server-restart')assert.equal(original(bin,[...prefix,'send-keys','-t',f.name,'-l','--',`touch '${wrongEnter.replaceAll("'","'\\''")}'`],{encoding:'utf8'}).status,0);
  };
  if(phase==='created'||phase==='native-paste'||phase==='server-restart'){

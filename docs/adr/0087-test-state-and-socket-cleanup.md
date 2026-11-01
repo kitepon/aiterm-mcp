@@ -125,3 +125,16 @@ BellTeamの席で、別の製品の試験の走者へ空の引数が渡り、`no
 - 手で1回（2026-10-13、Linux）: 一時の置き場を`AITERM_STATE_BASE`に渡し、席の環境のまま、入口を通さずに`core-agent.test.mjs`の2本を流した。
   直した後は置き場が書かれず2本とも通る。最初のimportを抜いた写しでは、置き場に試験の席の登録が残り、1本落ちる。
 - 手で1回（2026-10-13、Linux。4つのharnessが入っている席）: 7を入れて全部の試験を流し、断る偽物が呼ばれた回数は0。
+
+
+## 追記（2026-11-01）: WindowsのMSYS共有mountと削除寿命
+
+MSYSのusertemp mountは同ユーザーのprocess間で共有される。別のTEMPで起こしたBashも、先に生きているMSYSが初期化した/tmpを使う。
+factory-runnerの最小反例では、先行Bashを生かしたままその所有TEMPだけを削除すると、後続Bashの/tmpが同じ削除済みrootを指し、
+`could not find /tmp`と一覧のENOENTになった。恒常Host TEMP/ACLの不整合ではない。
+
+Windowsでは、`--import ./test/seat-env.mjs --test`の親走者が作る一時rootをAITERM_TEST_RUN_ROOTで子へ渡す。
+子はその下に別のrootを作り、TEMP/TMP/HOME/state/socket/harnessと資格を従来どおり個別に隔離する。
+子の終了時はrootを削除せず、全試験子が終わった親走者の終了時に所有treeを削除する。POSIXのprocess終了時cleanupは変えない。
+CI・npm test・文書試験・公開試験の既入口はすべて親へpreloadしている。Windowsの複数fileを直接流す時も同じpreloadを使う。
+資格の持込み・Host設定/標準runtimeの変更・timeout延長/skipは追加しない。子rootの分離、子終了後の保持、親終了後のtree削除を前処理試験で確認する。

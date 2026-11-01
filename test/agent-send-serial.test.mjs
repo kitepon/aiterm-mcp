@@ -361,6 +361,40 @@ test("同じprocessの前の1通が上限を越えて続く時も、後の1通�
   }
 });
 
+test("順番待ちの送信は、同名で作り直したagentへ移らない", { skip }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let entered;
+  const entering = new Promise(resolve => { entered = resolve; });
+  let settled;
+  try {
+    await markFakeClaudeReady(sid);
+    const original = readAgentMeta(sid).launch_id;
+    const first = core.sendAgentMessage(sid, "echo OLD_INFLIGHT", {
+      before_send: async () => { entered(); await held; },
+    });
+    settled = Promise.allSettled([first]);
+    await Promise.race([entering, first]);
+    const queued = core.sendAgentMessage(sid, "echo OLD_QUEUED");
+    settled = Promise.allSettled([first, queued]);
+    core.closeSession(sid);
+    core.openAgent("claude", { agent_done: true, session_name: sid });
+    assert.notEqual(readAgentMeta(sid).launch_id, original);
+    await markFakeClaudeReady(sid);
+    release();
+    const results = await settled;
+    assert.deepEqual(results.map(result => result.status), ["rejected", "rejected"]);
+    for (const result of results) assert.match(result.reason.message, /EXECUTION_STALE_GENERATION/);
+    assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /OLD_INFLIGHT|OLD_QUEUED/);
+    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
+  } finally {
+    release();
+    await settled;
+    core.closeSession(sid);
+  }
+});
+
 test("送信が入力受付待ちの間もsessionは閉じられ、その送信は打たずに終わってlockを外す", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {

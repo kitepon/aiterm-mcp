@@ -23,6 +23,11 @@ if(args.includes('display-message')&&fs.existsSync(${JSON.stringify(path.join(ro
     assert.equal(r.mutation,'not_requested');
     assert.equal(r.reason,'binding_unavailable');
     assert.equal(fs.existsSync(calls),false);
+    const missingClear=await agentGoal({session_id:'missing-goal-fixture',launch_id:'a'.repeat(32),action:'clear'},'user');
+    assert.equal(missingClear.availability,'unavailable');
+    assert.equal(missingClear.mutation,'not_issued');
+    assert.equal(missingClear.reason,'binding_unavailable');
+    assert.equal(fs.existsSync(calls),false);
     const {createCodexAgentMetadata}=await import('../dist/harnesses/codex.js');
     const meta=createCodexAgentMetadata('missing-goal-fixture',root,'none',{},undefined,{agentRole:'subagent',parentSessionId:'host-root',delegationDepth:1,lineage:'host-root>codex:fixture',delegationAllowed:true});
     const stale=await agentGoal({session_id:meta.aiterm_session,launch_id:'b'.repeat(32),action:'inspect'});

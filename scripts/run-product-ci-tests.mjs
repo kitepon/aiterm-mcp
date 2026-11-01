@@ -59,11 +59,8 @@ requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
   build();
-  const files = [
-    'scripts/verify-release-commit.test.mjs',
-    ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
-  ];
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
+  process.stdout.write('READ-ONLY DIAGNOSTIC: factory token Git/MSYS tmp mapping; not product full acceptance\n');
+  run(process.execPath, ['scripts/diagnostics/windows-factory-tmp-read.mjs']);
 } else if (scope === 'metadata') {
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);

@@ -59,8 +59,8 @@ requireKnownSystemGitHooks();
 if (scope === 'all') {
   requireTerminalBackend();
   build();
-  process.stdout.write('READ-ONLY DIAGNOSTIC: factory token Git/MSYS tmp mapping; not product full acceptance\n');
-  run(process.execPath, ['scripts/diagnostics/windows-factory-tmp-read.mjs']);
+  process.stdout.write('DIAGNOSTIC: owned MSYS lifetime and deleted private tmp mapping; not product full acceptance\n');
+  run(process.execPath, ['scripts/diagnostics/windows-factory-tmp-read.mjs', 'lifetime']);
 } else if (scope === 'metadata') {
   build();
   run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);

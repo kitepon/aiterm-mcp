@@ -589,6 +589,7 @@ function cleanupAgentState(name: string): void {
       try {
         if (
           f.endsWith(".agent.json") ||
+          f.endsWith(".launch-exited") ||
           f.endsWith(".events.jsonl") ||
           f.endsWith(".wait.lock") ||
           f.endsWith(".claude-settings.json") ||
@@ -1870,6 +1871,15 @@ export function postStartupProcessCount(
   return added.size;
 }
 
+/** Native absence before the owned launcher returns does not prove CLI exit. */
+export function absentHarnessAlive(meta: AgentMetadata, platform: NodeJS.Platform = process.platform): false | null {
+  if (platform === "win32" && meta.windows_launch_exit_tracked === true) {
+    try { return fs.readFileSync(agentMetadataPath(meta.aiterm_session, meta.launch_id) + ".launch-exited", "utf8") === meta.launch_id ? false : null; }
+    catch { return null; }
+  }
+  return platform === "win32" && meta.kind === "cursor" ? null : false;
+}
+
 export function observeSession(name: string, cursor?: string): SessionObservation {
   assertSessionName(name);
   const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
@@ -1909,9 +1919,10 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   if (meta) {
     result.harness_process = agent ? processIdentity(agent) : null;
     // Cursorにはlaunch固有argvがない。Windowsの切れた親子関係だけで死亡を断定しない。
-    result.harness_alive = candidates.length ? true : isWin && meta.kind === "cursor" ? null : false;
+    result.harness_alive = candidates.length ? true : absentHarnessAlive(meta);
     if (result.harness_alive === false) { result.state = "dead"; result.reason = "harness_exited"; }
-    else if (result.harness_alive === null) result.reason = "harness_process_unresolved";
+    else if (result.harness_alive === null) result.reason = isWin && meta.windows_launch_exit_tracked
+      ? "harness_start_unconfirmed" : "harness_process_unresolved";
     else if (!agent) result.reason = "harness_process_ambiguous";
     result.process_identity = result.harness_process;
   } else {
@@ -3382,7 +3393,10 @@ function loadAgentMetadata(name: string): AgentMetadata {
   };
   const parsedNative = m.execution_native === undefined ? null : executionNativeBindingSchema.safeParse(m.execution_native);
   if (parsedNative && !parsedNative.success) throw new AitermError("agent native bindingが不正です", 2);
+  if (m.windows_launch_exit_tracked !== undefined && m.windows_launch_exit_tracked !== true)
+    throw new AitermError("Windows launch exit metadataが不正です", 2);
   const executableFields = {
+    ...(m.windows_launch_exit_tracked === true ? { windows_launch_exit_tracked: true as const } : {}),
     ...(m.agent_executable === undefined ? {} : { agent_executable: m.agent_executable }),
     ...(parsedNative?.success ? { execution_native: parsedNative.data } : {}),
   };
@@ -4369,12 +4383,12 @@ async function waitAgentTuiReady(
   name: string,
   meta: AgentMetadata,
   timeoutMs = AGENT_TUI_READY_TIMEOUT_MS,
-  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean; checkInput?: () => void;
+  o: { settledTurn?: boolean; codexRateLimitRecovery?: boolean; checkInput?: () => boolean | void;
     selectSteer?: (screen: string) => boolean } = {},
 ): Promise<AgentTuiReadyWaitResult> {
   const result = await waitAgentTuiReadyImpl(
     meta.kind,
-    () => { o.checkInput?.(); return captureScreen(name, AGENT_TUI_READY_LINES); },
+    () => o.checkInput?.() === false ? "" : captureScreen(name, AGENT_TUI_READY_LINES),
     sleep,
     { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, selectSteer: o.selectSteer,
       launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
@@ -4963,10 +4977,9 @@ async function waitAgentTuiReadyAfterCodexRateLimitRecovery(
   name: string,
   meta: AgentMetadata,
   timeoutMs: number,
-  o: { settledTurn?: boolean; checkInput?: () => void; selectSteer?: (screen: string) => boolean } = {},
+  o: { settledTurn?: boolean; checkInput?: () => boolean | void; selectSteer?: (screen: string) => boolean } = {},
 ): Promise<{ ready: AgentTuiReadyWaitResult; codexRateLimitModelSwitch: boolean }> {
-  o.checkInput?.();
-  let codexRateLimitModelSwitch = await recoverCodexRateLimitModelSwitch(name, meta);
+  let codexRateLimitModelSwitch = o.checkInput?.() === false ? false : await recoverCodexRateLimitModelSwitch(name, meta);
   // 上限のmodalを閉じた直後は、画面が落ち着くのを11回の確かめで待つ。
   let ready = await waitAgentTuiReady(name, meta, timeoutMs, codexRateLimitModelSwitch ? { ...o, settledTurn: false, codexRateLimitRecovery: true } : o);
   if (!ready.ready && !ready.steer && !codexRateLimitModelSwitch) {
@@ -6755,7 +6768,7 @@ async function dispatchAgentTurnInLock(
     // 上限のpanelを閉じた直後（Grok）は、画面が落ち着くのを11回の確かめで待つ。
     const recovery = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
       name, meta, o.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, { settledTurn: !limitDialog,
-        ...(pendingSend ? { checkInput: () => assertAgentSendHarness(name, meta),
+        ...(pendingSend ? { checkInput: () => assertAgentSendHarness(name, meta, false, true),
           selectSteer: (screen: string) => agentPaneObservation(meta.kind, screen).state === "busy"
             && agentSendTurnRunning(meta, screen) } : {}) },
     );
@@ -6968,7 +6981,7 @@ async function sendAgentMessageInLock(
   o: { raw?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend; preface?: string | null; follow?: boolean },
 ): Promise<AgentSendReceipt> {
   const meta = loadAgentMetadata(name);
-  assertAgentSendHarness(name, meta);
+  assertAgentSendHarness(name, meta, false, true);
   // 前面回復は busy 判定より先（bash 前面のままだと画面の実行中マーカーを読んでも打鍵が届かない）。
   const paneInputRecovery = await ensureAgentOwnsPaneInput(name, meta.kind);
   if (meta.kind === "claude") paneInputRecovery.push(...await clearClaudeSelectMenuBeforeInput(name));
@@ -6985,16 +6998,18 @@ async function sendAgentMessageInLock(
 // The same generation and existing process must still own this pending input.
 // Unknown native process observations remain unknown; only proven exit is a
 // death refusal. This check runs before waiting and inside each input admission.
-function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false): void {
+function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false, waiting = false): boolean {
   const current = observeSession(name);
   if (current.exists && current.launch_id !== meta.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
-  if (!current.exists || current.harness_alive === false) {
+  const starting = current.reason === "harness_start_unconfirmed";
+  if (!current.exists || current.harness_alive === false || (starting && !waiting)) {
     throw new AitermError(
       (inputStarted ? `agent session '${name}' の ${agentLabel(meta.kind)} への入力完了を確認できません。本文を再送しないでください。`
         : `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`) +
         `\nstate=${current.state} reason=${current.reason}`, 2,
     );
   }
+  return !starting;
 }
 
 function agentSendTurnRunning(meta: AgentMetadata, screen: string): boolean {
@@ -7570,6 +7585,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           // Stamp its exact native creator before binding and any later input.
           if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
           meta.agent_executable = bin;
+          // Cursor retains its existing unresolved native-process contract.
+          if (isWin && kind !== "cursor") meta.windows_launch_exit_tracked = true;
           // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
           meta.fast = opts.fast_state === true;
           meta.model = opts.base_model !== undefined ? opts.base_model : model;
@@ -7594,7 +7611,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         full = windowsAgentLaunchLine(cwd, [
           ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
         ],
-          windowsAgentArgv(argv, () => resolveWinPaneShell("bash")));
+          windowsAgentArgv(argv, () => resolveWinPaneShell("bash")),
+          meta ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
       } else {
         const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
         const envPrefix = agentEnvPrefix(meta, sid, envVars);

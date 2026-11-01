@@ -568,6 +568,7 @@ are separate identities. `process_identity` selects the harness for agents, or t
 for an ordinary terminal, using the pane when no child leader exists. An identity contains `pid`, `process_group_id`,
 `started_identity`, and `argv_digest`; unresolved identities are null. Windows PIDs are native and its process-group field
 is null. Start identity uses POSIX `LC_ALL=C ps lstart` or Windows UTC ISO milliseconds; the argv digest is SHA-256 hex.
+New managed Windows launches of Claude, Codex, Grok, and Antigravity keep missing native processes unknown until their launch shell records that the same CLI invocation returned. Pending input uses the existing readiness deadline; it is still checked before paste and Enter. Older launch metadata keeps its previous behavior.
 
 Pass `activity.cursor` into the next observation to obtain `output_changed` and `cpu_delta_seconds`; first observations and
 recreated panes return null differences. `cpu_seconds` is the current subtree's cumulative CPU. If a process disappeared

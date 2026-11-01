@@ -1879,9 +1879,9 @@ export function absentHarnessAlive(meta: AgentMetadata, platform: NodeJS.Platfor
   return platform === "win32" && meta.kind === "cursor" ? null : false;
 }
 
-export function observeSession(name: string, cursor?: string): SessionObservation {
+// Input admission needs the same native ownership proof, without activity capture or child-delivery scans.
+function observeSessionNative(name: string) {
   assertSessionName(name);
-  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
   const listed = listSessionsResult().sessions.find(session => session.session_id === name);
   const result: SessionObservation = {
     schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
@@ -1892,7 +1892,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
       background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
       post_startup_process_count: null },
   };
-  if (!listed) return result;
+  if (!listed) return { result, native: null };
   const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
   if (pane.code !== 0) throw new AitermError("paneの生存情報を取得できません", 2);
   const [pidText, dead] = pane.stdout.trim().split("\t");
@@ -1904,13 +1904,13 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   result.launch_id = meta?.launch_id ?? null;
   if (dead === "1") {
     result.state = "dead"; result.reason = "pane_dead"; result.harness_alive = meta ? false : null;
-    return result;
+    return { result, native: null };
   }
   const rows = readRuntimeProcesses();
   const root = rows.find(row => row.pid === panePid);
   result.pane_alive = root ? true : null;
   result.state = "unknown"; result.reason = root ? "ordinary_pty" : "native_pane_process_unresolved";
-  if (!root) return result;
+  if (!root) return { result, native: null };
   result.pane_process = processIdentity(root);
   const subtree = processSubtree(rows, root.pid);
   const candidates = meta ? selectHarnessProcesses(meta, rows, subtree) : [];
@@ -1929,6 +1929,15 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     result.process_identity = leaders.length > 1 ? null : processIdentity(leaders[0] ?? root);
     if (leaders.length > 1) result.reason = "process_identity_ambiguous";
   }
+  return { result, native: { rows, root, subtree, meta, agent } };
+}
+
+export function observeSession(name: string, cursor?: string): SessionObservation {
+  assertSessionName(name);
+  const previous = cursor === undefined ? null : decodeActivityCursor(cursor, name);
+  const { result, native } = observeSessionNative(name);
+  if (!native) return result;
+  const { rows, root, subtree, meta, agent } = native;
   const captured = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200");
   if (captured.code !== 0) throw new AitermError("paneの活動観測を取得できません", 2);
   const screen = captured.stdout;
@@ -6997,7 +7006,7 @@ async function sendAgentMessageInLock(
 // Unknown native process observations remain unknown; only proven exit is a
 // death refusal. This check runs before waiting and inside each input admission.
 function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted = false, waiting = false): boolean {
-  const current = observeSession(name);
+  const current = observeSessionNative(name).result;
   if (current.exists && current.launch_id !== meta.launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const starting = current.reason === "harness_start_unconfirmed";
   if (!current.exists || current.harness_alive === false || (starting && !waiting)) {

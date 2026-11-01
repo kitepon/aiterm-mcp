@@ -1,6 +1,7 @@
 name: Windows input boundary diagnostic
 on:
-  workflow_dispatch:
+  push:
+    branches: [diag/windows-input-boundary-20261101]
 permissions:
   actions: read
   contents: read

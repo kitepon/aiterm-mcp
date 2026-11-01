@@ -3,6 +3,8 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -920,7 +922,7 @@ test("sendAgentMessage: Claudeが実行中の表示でもturnの印が無けれ�
 });
 
 // 実行中の送信を待ち行列へ入れ、2回目のEnterで現在turnへ送る偽Grok。
-function makeFakeGrokSteerTuiBin(queueDelayMs = 0) {
+function makeFakeGrokSteerTuiBin(queueDelayMs = 0, race = false) {
   const stem = `fake-grok-steer-${Date.now().toString(36)}`;
   const bin = path.join(process.env.TMPDIR, `${stem}.cjs`);
   const log = path.join(process.env.TMPDIR, `${stem}.log`);
@@ -928,7 +930,17 @@ function makeFakeGrokSteerTuiBin(queueDelayMs = 0) {
     bin,
     `#!${process.execPath}
 const fs = require("node:fs");
+const path = require("node:path");
 if (process.argv[2] === "models") { console.log("Available models:\\n  * grok-4.5 (default)"); process.exit(0); }
+const race = ${JSON.stringify(race)};
+let events, history;
+if (race) {
+ const session = process.argv[process.argv.indexOf("--session-id") + 1];
+ const dir = path.join(process.env.GROK_HOME, "sessions", encodeURIComponent(process.cwd()), session);
+ fs.mkdirSync(dir, { recursive: true }); events = path.join(dir, "events.jsonl"); history = path.join(dir, "chat_history.jsonl");
+ fs.writeFileSync(events, JSON.stringify({type:"turn_started",turn_number:0}) + "\\n"); fs.writeFileSync(history, "");
+}
+const emit = row => fs.appendFileSync(events, JSON.stringify(row) + "\\n");
 const out = (s) => process.stdout.write(s + "\\n");
 let line = ""; let queued = null;
 process.stdin.setRawMode(true); process.stdin.resume();
@@ -936,6 +948,16 @@ out("Grok Build"); out("    ◆ Run sleep 5 (1 of 9)"); out("    ⠋ Run sleep 5
 process.stdin.on("data", (chunk) => {
   for (const ch of chunk.toString("utf8").replace(/\\x1b\\[20[01]~/g, "")) {
     if (ch !== "\\r") { if (ch >= " ") line += ch; continue; }
+    if (race && line) {
+      const body = line; line = ""; fs.appendFileSync(${JSON.stringify(log)}, "accepted:" + body + "\\n");
+      emit({type:"turn_ended",outcome:"completed",ts:"old"});
+      if (race !== "unknown") {
+        fs.appendFileSync(history, JSON.stringify({type:"user",content:body,prompt_index:1}) + "\\n");
+        emit({type:"turn_started",turn_number:1});
+        setTimeout(() => emit({type:"turn_ended",outcome:"completed",ts:"new"}), 150);
+      }
+      process.stdout.write("\\x1b[2J\\x1b[H"); out("Grok Build"); out("Grok 4.6 (high)"); out("❯ "); continue;
+    }
     if (line) { queued = line; line = ""; fs.appendFileSync(${JSON.stringify(log)}, "queued:" + queued + "\\n"); const shown = queued; setTimeout(() => { out("    #1 " + shown); out("   Queued · Enter to send now"); }, ${queueDelayMs}); continue; }
     if (queued) { fs.appendFileSync(${JSON.stringify(log)}, "send_now:" + queued + "\\n"); out("     ❯ " + queued); for (let i = 0; i < 12; i++) out("    ◆ Run sleep 5 (" + (i + 2) + " of 9)"); out("    ⠋ Thinking… 1.7s  4.0s ⇣28.4k [stop]"); queued = null; }
   }
@@ -945,6 +967,68 @@ process.stdin.on("data", (chunk) => {
   );
   return { bin, log };
 }
+
+for (const race of ["accepted", "unknown", "delivery-failure"]) test(`Grok busy/end race: ${race}`, { skip: skipGrokFakeBin }, async () => {
+  const saved = process.env.GROK_BIN, fake = makeFakeGrokSteerTuiBin(0, race);
+  process.env.GROK_BIN = fake.bin;
+  try {
+    await withFakeGrokHome(async () => {
+      const [sid] = core.openAgent("grok", { agent_done: true });
+      try {
+        await core.readOutput(sid, { wait: true, until: "[stop]", timeout: 5, raw: true });
+        if (race === "accepted") {
+          const registered = [];
+          const receipt = await core.sendAgentMessage(sid, "GROK_RACE_BODY", { follow: true, before_send: async boundary => { registered.push(boundary); } });
+          assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
+          assert.equal(registered.length, 1);
+          assert.equal(registered[0].event_cursor, receipt.event_cursor);
+          const result = await core.observeAgentDone(sid, { timeout: 2, cursor: receipt.event_cursor,
+            expected_launch_id: receipt.launch_id });
+          assert.equal(result.turn_id, "new");
+          await assert.rejects(core.observeAgentDone(sid, { timeout: 0, cursor: receipt.event_cursor,
+            expected_launch_id: "f".repeat(32) }), /EXECUTION_STALE_GENERATION/);
+          await assert.rejects(core.observeAgentDone(sid, { timeout: 0, cursor: 0, steer: "f".repeat(16),
+            expected_launch_id: receipt.launch_id }), /STEER_NOT_FOUND/);
+        } else if (race === "delivery-failure") {
+          let failure;
+          await assert.rejects(core.sendAgentMessage(sid, "GROK_RACE_BODY", { before_send: async () => { throw new Error("fixture delivery failure"); } }), error => {
+            assert.match(error.message, /^STEER_NOT_QUEUED vendor=grok/);
+            assert.equal(error.code, 2);
+            assert.equal(error.cause.message, "fixture delivery failure");
+            failure = error.sendFailure;
+            return true;
+          });
+          const result = await core.observeAgentDone(sid, { timeout: 2, cursor: failure.event_cursor, steer: failure.steer_id, expected_launch_id: failure.launch_id });
+          assert.equal(result.turn_id, "new");
+        } else {
+          const client = new Client({ name: "steer-race-regression", version: "1" });
+          const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/index.js")], env: { ...process.env }, stderr: "pipe" });
+          try {
+            await client.connect(transport);
+            const result = await client.callTool({ name: "pty_send", arguments: { session_id: sid, text: "GROK_RACE_BODY", require_agent: true },
+              _meta: { "aiterm/caller": "BellTeam" } });
+            assert.equal(result.isError, true);
+            assert.match(result.content[0].text, /^aiterm: STEER_NOT_QUEUED vendor=grok/);
+            const failure = result.structuredContent;
+            assert.equal(failure.code, "STEER_NOT_QUEUED");
+            assert.equal(failure.effect, "possible");
+            assert.equal(failure.outcome, "outcome_unknown");
+            assert.equal(failure.launch_id, readAgentMeta(sid).launch_id);
+            assert.equal(typeof failure.steer_id, "string");
+            assert.ok(failure.wait_process.args.includes(failure.launch_id));
+            const waited = spawnSync(failure.wait_process.executable, [...failure.wait_process.args, "--timeout", "0"], { env: process.env, encoding: "utf8" });
+            assert.equal(waited.status, 5, waited.stderr);
+            assert.equal(JSON.parse(waited.stdout).outcome, "running");
+          } finally { await client.close(); }
+        }
+        assert.deepEqual(fs.readFileSync(fake.log, "utf8").trim().split("\n"), ["accepted:GROK_RACE_BODY"]);
+      } finally { core.closeSession(sid); }
+    });
+  } finally {
+    if (saved === undefined) delete process.env.GROK_BIN; else process.env.GROK_BIN = saved;
+    fs.rmSync(fake.bin, { force: true }); fs.rmSync(fake.log, { force: true });
+  }
+});
 
 test("sendAgentMessage: 実行中のGrokへは待ち行列へ入れた後にsend nowで現在turnへ送る", { skip: skipGrokFakeBin }, async () => {
   const savedBin = process.env.GROK_BIN;

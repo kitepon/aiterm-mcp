@@ -313,8 +313,8 @@ test("Claude Code: 会話の記録が短くなった時と、利用上限の知�
   assert.equal(limit.rate_limit, "You've hit your session limit");
 });
 
-test("GrokとCursorは、打った後の最初の完了を、文を取った番の終わりとして返す", async () => {
-  for (const kind of ["grok", "cursor"]) {
+test("Cursorは、打った後の最初の完了を、文を取った番の終わりとして返す", async () => {
+  for (const kind of ["cursor"]) {
     const seat = { meta: { kind, aiterm_session: `sf_${kind}`, launch_id: launchId() } };
     const waiting = waitSteer(seat, { steer_id: "0123456789abcdef", at: at(0), event_cursor: 7, interim_from: "v1:7:u:2", needle: "" });
     const result = await waiting.result;
@@ -371,6 +371,9 @@ test("aiterm-wait: --steer を受け、--operation とは併用できない", ()
   assert.deepEqual(parseArgs(["--session", "s1", "--cursor", "12", "--steer", "0123456789abcdef"]),
     { session: "s1", operationId: null, timeout: 600, cursor: 12, steer: "0123456789abcdef" });
   assert.equal(parseArgs(["--session", "s1"]).steer, null);
+  assert.equal(parseArgs(["--session", "s1", "--launch", "a".repeat(32)]).expectedLaunchId, "a".repeat(32));
+  assert.throws(() => parseArgs(["--session", "s1", "--launch", "bad"]), /--launch/);
+  assert.throws(() => parseArgs(["--session", "s1", "--launch", "a".repeat(32), "--launch", "b".repeat(32)]), /--launch/);
   assert.throws(() => parseArgs(["--session", "s1", "--steer", "xyz"]), /--steer が不正/);
   assert.throws(() => parseArgs(["--session", "s1", "--steer", "0123456789abcdef", "--operation", `sha256:${"a".repeat(64)}`]), /併用できません/);
 });

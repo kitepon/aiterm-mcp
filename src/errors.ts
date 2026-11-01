@@ -3,6 +3,14 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 
 export class AitermError extends Error {
   code: number;
+  sendFailure?: {
+    schema: "aiterm.agent-send-error.v1";
+    code: "STEER_NOT_QUEUED" | "STEER_STILL_QUEUED";
+    outcome: "outcome_unknown";
+    effect: "possible";
+    session_id: string; launch_id: string; vendor: string; harness: string;
+    event_cursor: number | null; steer_id: string | null; interim_from: string | null;
+  };
   configurationFailure?: {
     schema: "aiterm.agent-configure-error.v1";
     session_id: string;

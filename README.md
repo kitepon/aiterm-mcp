@@ -268,6 +268,8 @@ Cursorが誤りでturnを終えた時（記録の`turn_ended`が`status: "error"
 
 ## Two ways to use it
 
+Grok can finish its current turn while `pty_send` is submitting input. Aiterm correlates the newly appended full user message with the native turn number and returns `agent_dispatch` for a proven new turn, without sending again. `STEER_NOT_QUEUED` and `STEER_STILL_QUEUED` preserve `isError:true` and their existing text prefix; `structuredContent` adds `aiterm.agent-send-error.v1`, a string `code`, `outcome:"outcome_unknown"`, `effect:"possible"`, and the original session/launch. A Grok observation handle is returned only when its pre-input record was saved; unavailable handles are null. Do not resend unknown input. Its waiter remains pending until the input's native acceptance is proven and cannot use the preceding turn's completion. Cursor errors retain null recovery handles until native acceptance can be proven.
+
 ### 1. Drive SSH, containers, and REPLs in one persistent terminal — the primitive
 
 This is the base, and it works with just the platform backend — tmux on POSIX or psmux on native Windows. `pty_open` grabs one local terminal; `ssh host`, `docker exec -it x bash`, or a REPL are just text you `pty_send` into it — **once**. Every command after that rides the same already-authenticated session. Session kind is never a tool-level distinction.

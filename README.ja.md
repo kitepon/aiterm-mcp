@@ -238,6 +238,8 @@ MCP clientが起動し直すまで旧版のcodeで動き（`running_servers`）�
 
 ## 2 つの使い方
 
+Grokへの`pty_send`中に前のturnが終わった場合、送信後の本文全体とnative turn番号を照合し、新turnでの受理を確認できれば`agent_dispatch`を返す。本文は再送しない。`STEER_NOT_QUEUED`・`STEER_STILL_QUEUED`は既存の`isError:true`と本文prefixを保ち、`structuredContent`に`aiterm.agent-send-error.v1`、文字列の`code`、`outcome:"outcome_unknown"`、`effect:"possible"`、元session/launchを返す。Grokの送信前記録を保存できた場合だけ観測用の手がかりを付け、取得不能はnullとする。不明の本文は再送しない。観測は本文のnative受理を確認するまで未完了を保ち、前のturnの完了を流用しない。Cursorの成否不明エラーでは、native受理を確定する観測経路が未対応のため手がかりはnull。
+
 ### 1. SSH・コンテナ・REPL を 1 本の永続端末で操作する — 土台
 
 これが土台で、platform backend（POSIXのtmux／Windows nativeのpsmux）だけで動く——他の CLI は要らない。`pty_open` がローカル端末を 1 個握り、`ssh host`・`docker exec -it x bash`・REPL は、その中へ `pty_send` で打ち込む「ただのテキスト」——**一度だけ**。以降のコマンドは同じ認証済みセッションを通る。セッション種別をツールで区別しない。

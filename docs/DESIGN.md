@@ -201,9 +201,11 @@ Claude Codeはtool処理中に画面の実行中表示が消え、Stop hookの�
 待つ上限は、起動から最初の描画を待つ上限と貼り付けの上限の和で、越えたら`AGENT_SEND_BUSY`で未送信を返す。判断の記録はADR 0088（`docs/adr/0088-one-agent-send-per-session.md`）。
 CodexとClaude Codeは次のtool境界で同じturnへ取り込む。Cursorは「follow-ups」枠へ入った文を「enter steer」で現在turnへ移し、`turn_ended`は最後に1回書く。
 待ち行列の表示は5秒待ち、子のturnが続いている間だけ30秒まで延ばす（表示が遅い端末がある。turnが終わっていれば、文は新しいturnとして始まっている）。
-Grokは待ち行列へ入れた後に「send now」を押す。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
+Grokは待ち行列へ入れた後に「send now」を押す。押す直前に元launchとqueueの現在表示を再確認する。旧turnは`cancelled`（`cancellation_context.trigger=send_now`）で閉じ、
 新turnが作業を継ぐので、完了判定はこの継ぎ目を完了と数えない。Grokが待ち行列へ入れない時とCursorの入力欄に本文が残る時は`steered`を返さない。
 Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼び出し側は通常のdispatchだけを使う。
+Grokのbusy判定後にturnが終わる競合では、送信前のhistory byte位置と本文全体のdigestを保存し、新しい実user行の`prompt_index`と送信後eventの`turn_started.turn_number`を照合する。新turnでの受理が確定した時だけ、その開始位置を使ったdispatch receiptと親配送登録へ移す。本文やEnterを再送しない。Grokの差し込みwaiterも同じ照合を使い、古い完了や短い本文prefixを受理証拠にしない。欠測・曖昧・旧控え・控え消失は未確定とし、旧turn待ちへのfallbackをしない。生成する観測processの`--launch`は元世代へ固定する。
+queueの未確認/残留は`aiterm.agent-send-error.v1`（文字列code、outcome_unknown/effect possible、元session/launch）を既isError/prefixへ追加する。Grokの保存済み送信前位置だけを観測に渡し、Cursorの未知な受理へ旧turnのwaiterを渡さない。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
 Codex・Grok・Cursorの席は、新しいturnを送るたびに入力受付を確かめる。起動の途中の入力欄を採らないよう、500msおきに11回続けて
 入力待ちを読む（ADR 0014）。席のharnessが自分の記録で「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は、

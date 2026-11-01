@@ -16,6 +16,7 @@ interface WaitCommand {
   timeout: number;
   cursor: number | null;
   steer: string | null;
+  expectedLaunchId?: string;
 }
 
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -31,13 +32,17 @@ export function parseArgs(argv: string[]): WaitCommand {
   let timeout: number | null = null;
   let cursor: number | null = null;
   let steer: string | null = null;
+  let expectedLaunchId: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer") {
+    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer" || a === "--launch") {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} に値がありません。${USAGE}`);
       i++;
-      if (a === "--session") {
+      if (a === "--launch") {
+        if (expectedLaunchId !== undefined || !/^[0-9a-f]{32}$/.test(v)) throw new Error(`--launch が不正又は重複しています。${USAGE}`);
+        expectedLaunchId = v;
+      } else if (a === "--session") {
         if (session !== null) throw new Error(`--session が重複しています。${USAGE}`);
         if (!SESSION_RE.test(v)) throw new Error(`--session が不正です。${USAGE}`);
         session = v;
@@ -65,7 +70,7 @@ export function parseArgs(argv: string[]): WaitCommand {
   }
   if (session === null) throw new Error(`--session は必須です。${USAGE}`);
   if (steer !== null && operationId !== null) throw new Error(`--steer は --operation と併用できません。${USAGE}`);
-  return { session, operationId, timeout: timeout ?? 600, cursor, steer };
+  return { session, operationId, timeout: timeout ?? 600, cursor, steer, ...(expectedLaunchId ? { expectedLaunchId } : {}) };
 }
 
 function emit(value: unknown): void {
@@ -94,12 +99,13 @@ export async function main(argv: string[]): Promise<void> {
       timeout: cmd.timeout,
       cursor: cmd.cursor,
       steer: cmd.steer,
+      expected_launch_id: cmd.expectedLaunchId,
     });
   } catch (e) {
     // Grok は利用上限に達すると auth 正本を自壊させることがあり（2026-08-22 実測）、
     // metadata検証が認証不在で止まる。現在のviewportに上限パネルがある場合だけ
     // rate_limitedとして返し、古いlogで現在の認証エラーを置き換えない。
-    if (e instanceof AitermError && /Grok 認証正本/.test(e.message)) {
+    if (!cmd.expectedLaunchId && e instanceof AitermError && /Grok 認証正本/.test(e.message)) {
       const limited = detectAgentRateLimit("grok", cmd.session);
       if (limited) {
         emit({

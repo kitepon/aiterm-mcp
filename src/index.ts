@@ -147,10 +147,10 @@ function deliveryIdLine(delivery: DeliveryRequest | null): string {
   return `\ndelivery_id=${id}` + (wait ? `\nwait_process（ターンを終える前に背景で起動）: ${waitProcessCommandLine(wait)}` : "");
 }
 
-function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
+function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null, launchId?: string): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
   if (eventCursor === null) return { wait_process: null, wait_command: null };
   if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
-  return { wait_process: core.agentWaitProcess(session, eventCursor), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` };
+  return { wait_process: core.agentWaitProcess(session, eventCursor, { launchId }), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` };
 }
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown> };
@@ -188,6 +188,10 @@ function ok(s: string): ToolResult {
 }
 function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
+  const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
+  if (sendFailure) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    structuredContent: { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
+      ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null } };
   const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
@@ -482,7 +486,7 @@ registerRemoteAwareTool(
         const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface,
           follow: interimCallerFromMeta(extra._meta) });
         if (receipt.schema === "aiterm.agent-steer.v1") {
-          const follow = receipt.follow ?? null;
+          const follow = interimCallerFromMeta(extra._meta) ? receipt.follow ?? null : null;
           return {
             content: [
               {
@@ -497,7 +501,7 @@ registerRemoteAwareTool(
               mode: "agent_steer" as const,
               session_id: receipt.session_id,
               event_cursor: follow ? follow.event_cursor : null,
-              wait_process: follow ? core.agentWaitProcess(receipt.session_id, follow.event_cursor, {}, follow.steer_id) : null,
+              wait_process: follow ? core.agentWaitProcess(receipt.session_id, follow.event_cursor, { launchId: receipt.launch_id }, follow.steer_id) : null,
               launch_id: receipt.launch_id,
               vendor: receipt.vendor,
               harness: receipt.harness,
@@ -507,7 +511,7 @@ registerRemoteAwareTool(
             ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, interim_from: follow.interim_from } } } : {}),
           };
         }
-        const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor);
+        const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor, receipt.launch_id);
         return {
           content: [
             {

@@ -257,7 +257,7 @@ import {
 } from "./harnesses/cursor.js";
 import { interimFromNow, readInterimWords, recordInterimBoundary } from "./interim-words.js";
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
-import { codexSeatTurn, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
+import { codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
 import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
@@ -4105,7 +4105,7 @@ export function windowsStartProcessArgumentList(args: string[]): string {
 export function agentWaitProcess(
   session: string,
   cursor: number,
-  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform } = {},
+  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform; launchId?: string } = {},
   steer: string | null = null,
 ): AgentWaitProcess {
   const executable = runtime.executable ?? liveNodeExecutable();
@@ -4117,6 +4117,7 @@ export function agentWaitProcess(
     String(cursor),
     // 差し込みを取った番の終わりを待つ（ADR 0122）。
     ...(steer ? ["--steer", steer] : []),
+    ...(runtime.launchId ? ["--launch", runtime.launchId] : []),
   ];
   return {
     executable,
@@ -4203,9 +4204,11 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
 // steerを渡した時は、その差し込み（pty_sendの返りのsteer_id）を取った番の終わりを待つ（ADR 0122。steer-follow.ts）。
 export async function observeAgentDone(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string } = {},
 ): Promise<AgentWaitObservation> {
+  if (o.expected_launch_id && !fs.existsSync(agentMetadataPath(name, o.expected_launch_id))) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const meta = loadAgentMetadata(name);
+  if (o.expected_launch_id && meta.launch_id !== o.expected_launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
@@ -4217,9 +4220,10 @@ export async function observeAgentDone(
   if (o.steer != null) {
     if (operationId) throw new AitermError("steer は operation_id と併用できません", 2);
     const plain = (cursor: number, timeoutSeconds: number): Promise<AgentWaitObservation> =>
-      observeAgentDone(name, { timeout: timeoutSeconds, cursor, signal: o.signal });
+      observeAgentDone(name, { timeout: timeoutSeconds, cursor, signal: o.signal, expected_launch_id: meta.launch_id });
     const entry = readSteerEntry(meta, o.steer);
     if (!entry) {
+      if (meta.kind === "grok") throw new AitermError("STEER_NOT_FOUND: Grokの差し込み控えがありません。旧turnの完了は使いません。", 2);
       // 控えが無い（古くて消えた）。位置が渡されていれば、今までの待ち（その位置より後の最初の完了）で返す。
       if (o.cursor == null) throw new AitermError("STEER_NOT_FOUND: この席に、その差し込みの控えがありません。", 2);
       return { ...await plain(o.cursor, timeout), steer: { placement: "unknown", taken_at: null } };
@@ -6748,6 +6752,7 @@ async function dispatchAgentTurnInLock(
     const { ready } = recovery;
     if (ready.steer && pendingSend) return steerRunningTurn(name, meta, text, {
       raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: pendingSend.follow,
+      before_send: o.before_send,
     });
     if (!ready.ready) {
       if (codexRateLimitModelSwitch) {
@@ -6962,7 +6967,7 @@ async function sendAgentMessageInLock(
   // Codexは回答を流している間、画面に動作中の行を出さない。その間に届いた文を、Codexは動いているturnへ取り込む（ADR 0101）。
   if (!running && meta.kind === "codex" && await codexTurnRunningBehindIdleScreen(name, meta, screen)) running = true;
   if (running) {
-    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow });
+    return steerRunningTurn(name, meta, text, { raw: o.raw, pane_input_recovery: paneInputRecovery, preface: o.preface, follow: o.follow, before_send: o.before_send });
   }
   return dispatchAgentTurnInLock(name, text, { raw: o.raw, before_send: o.before_send, pane_input_recovery: paneInputRecovery, preface: o.preface }, { follow: o.follow });
 }
@@ -7029,11 +7034,10 @@ async function steerRunningTurn(
   name: string,
   meta: AgentMetadata,
   text: string,
-  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null; follow?: boolean },
-): Promise<AgentSteerReceipt> {
+  o: { raw?: boolean; pane_input_recovery: string[]; preface?: string | null; follow?: boolean; before_send?: import("./agent-shared.js").BeforeAgentSend },
+): Promise<AgentSendReceipt> {
   const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.raw });
-  text = prefaced.body;
-  prepareSendText(text, { raw: o.raw });
+  text = prepareSendText(prefaced.body, { raw: o.raw });
   const receipt: AgentSteerReceipt = {
     schema: "aiterm.agent-steer.v1" as const,
     session_id: meta.aiterm_session,
@@ -7041,7 +7045,7 @@ async function steerRunningTurn(
     vendor: meta.kind,
     harness: agentHarness(meta.kind),
     pane_input_recovery: o.pane_input_recovery,
-    ...(o.follow ? { follow: recordSteerPosition(meta, text) } : {}),
+    ...(o.follow || meta.kind === "grok" ? { follow: recordSteerPosition(meta, text) } : {}),
   };
   // Claudeのoperation相関は変えない。差し込みは実行中turnの一部であり、新しいturnを予約しない。
   await submitAgentComposerText(name, meta.kind, text, {
@@ -7055,23 +7059,54 @@ async function steerRunningTurn(
     : meta.kind === "cursor" ? cursorSteerQueued : null;
   if (queued) {
     const label = meta.kind === "cursor" ? "Cursor" : "Grok";
-    // Cursorはturn_endedを記録へ書いた後も画面にbusy表示を残すので、記録で見る。Grokは画面で見る。
+    // Native completion takes precedence over a stale busy indicator.
     const stillRunning = (): boolean => meta.kind === "cursor"
       ? latestCursorCompletion(meta, readTranscriptLines) === null
-      : isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
-    if (!await waitSteerScreen(name, queued, stillRunning)) {
-      throw new AitermError(
+      : !grokTurnSettled(meta) && isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES));
+    const entry = meta.kind === "grok" && receipt.follow ? readSteerEntry(meta, receipt.follow.steer_id) : null;
+    const accepted: { current: ReturnType<typeof grokSteerAcceptance> } = { current: null };
+    const sawQueue = await waitSteerScreen(name, screen => {
+      accepted.current = entry ? grokSteerAcceptance(meta, entry) : null;
+      return accepted.current !== null || queued(screen);
+    }, stillRunning);
+    if (accepted.current) {
+      if (accepted.current.placement === "same_turn") return receipt;
+      const boundary = { session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
+        harness: agentHarness(meta.kind), event_cursor: accepted.current.event_cursor, operation_id: null };
+      try {
+        // The native input already started a new turn; bind its delivery without submitting again.
+        assertAgentSendHarness(name, meta, true);
+        await o.before_send?.(boundary);
+        assertAgentSendHarness(name, meta, true);
+      } catch (cause) {
+        const error = new AitermError(`STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n本文は新turnで受理されましたが、完了配送の登録を確認できません。本文を再送しないでください。`, 2);
+        error.cause = cause;
+        error.sendFailure = steerUnknownFailure(meta, "STEER_NOT_QUEUED", receipt.follow);
+        throw error;
+      }
+      recordInterimBoundary(meta, accepted.current.event_cursor, null);
+      return { schema: "aiterm.agent-dispatch.v1", ...boundary, submit_residue: null, pane_input_recovery: receipt.pane_input_recovery };
+    }
+    if (!sawQueue) {
+      const error = new AitermError(
         `STEER_NOT_QUEUED vendor=${meta.kind} session=${name}\n` +
           `差し込む文が${label}の待ち行列へ入ったことを確認できません。子のturnが送る直前に終わっていた時は、` +
-          `文は新しいturnとして始まっており、その完了は通知されません。再送する前にpty_read(screen:true)で確かめてください。`, 2,
+          `文が新しいturnとして始まった可能性があります。受理は不明です。本文を再送しないでください。`, 2,
       );
+      error.sendFailure = steerUnknownFailure(meta, "STEER_NOT_QUEUED", receipt.follow);
+      throw error;
     }
-    await withExecutionNativeAdmission(name, () => sendKey(name, "Enter"));
+    await withExecutionNativeAdmission(name, () => {
+      assertAgentSendHarness(name, meta, true);
+      if (queued(captureScreen(name, AGENT_TUI_READY_LINES))) sendKey(name, "Enter");
+    });
     if (!await waitSteerScreen(name, screen => !queued(screen), stillRunning)) {
-      throw new AitermError(
+      const error = new AitermError(
         `STEER_STILL_QUEUED vendor=${meta.kind} session=${name}\n` +
-          `差し込む文が${label}の待ち行列に残っています。現在のturnが終わると別turnとして実行されます。`, 2,
+          `差し込む文が${label}の待ち行列に残っています。受理は不明です。本文を再送しないでください。`, 2,
       );
+      error.sendFailure = steerUnknownFailure(meta, "STEER_STILL_QUEUED", receipt.follow);
+      throw error;
     }
   }
   // Cursorだけは実行中でも入力欄の残留を確実に見分けられる（dispatchと同じ扱い）。Codex／Claudeは
@@ -7087,6 +7122,14 @@ async function steerRunningTurn(
     }
   }
   return receipt;
+}
+
+function steerUnknownFailure(meta: AgentMetadata, code: "STEER_NOT_QUEUED" | "STEER_STILL_QUEUED", follow: AgentSteerReceipt["follow"]): NonNullable<AitermError["sendFailure"]> {
+  // Cursor has no proven acceptance reader yet; never expose an old-turn waiter for unknown input.
+  const tracked = meta.kind === "grok" ? follow : null;
+  return { schema: "aiterm.agent-send-error.v1", code, outcome: "outcome_unknown", effect: "possible",
+    session_id: meta.aiterm_session, launch_id: meta.launch_id, vendor: meta.kind, harness: agentHarness(meta.kind),
+    event_cursor: tracked?.event_cursor ?? null, steer_id: tracked?.steer_id ?? null, interim_from: tracked?.interim_from ?? null };
 }
 
 export async function runClaudeOperation({

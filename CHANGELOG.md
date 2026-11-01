@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Correlate Grok input with its accepted native turn when the preceding turn ends during submission; never substitute the preceding completion or resend the input.
+- Preserve `STEER_NOT_QUEUED` / `STEER_STILL_QUEUED` errors with typed unknown-effect receipts and a launch-bound Grok observation handle when available.
+
 ## [0.62.3] - 2026-10-31
 
 ### Fixed

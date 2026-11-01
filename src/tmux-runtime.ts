@@ -689,16 +689,17 @@ export function adaptShellSubmission(name: string, text: string, options: {
   return atomicShellMultiline(text, options.shell || paneShellForSubmission(name));
 }
 
-export function appendMarkSentinel(text: string, foreground: string): string {
+export function appendMarkSentinel(text: string, foreground: string, id?: string): string {
   // 複数行入力の末尾はheredoc／here-string終端になり得るため、独立した次行へ置く。
   const separator = text.includes("\n") ? "\n" : "; ";
+  const suffix = id === undefined ? "" : ` id=${id}`;
   if (POWERSHELL_COMMANDS.has(foreground)) {
     // command echoに完成済みrc=<数字>を含めない。{0}を実行時formatして早期誤完了を防ぐ。
     return text + separator +
-      "if ($?) { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 0)) }" +
-      " else { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>' -f 1)) }";
+      `if ($?) { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>${suffix}' -f 0)) }` +
+      ` else { [Console]::WriteLine([Environment]::NewLine + ('<<<AITERM_DONE rc={0}>>>${suffix}' -f 1)) }`;
   }
-  return text + separator + `printf '\\n<<<AITERM_DONE rc=%d>>>\\n' "$?"`;
+  return text + separator + `printf '\\n<<<AITERM_DONE rc=%d>>>${suffix}\\n' "$?"`;
 }
 
 // Windows の fs.Stats.mode は POSIX permission bit を持たず、常に 666/777 相当を報告する

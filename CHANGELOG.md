@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include the managed `launch_id` snapshot in structured `pty_list` results; older remote results without the field remain valid.
 
 ### Fixed
+- Bind each new shell completion mark to its submission so a delayed earlier mark cannot complete a newer command or remove its pending mark.
 - Recognize an explicitly configured native harness executable by its full process path, including renamed Windows binaries, instead of reporting it exited.
 - Keep a read with an empty pending output stream unconfirmed instead of completing from a stale shell name; late output remains observable within the existing deadline.
 - Avoid repeating native seat observation when selecting the Goal adapter; retain all adapter binding and readback checks.

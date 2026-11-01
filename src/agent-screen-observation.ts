@@ -159,17 +159,19 @@ export async function waitAgentTuiReadyImpl(
   let readyStreak = 0;
   let settledStreak = 0;
   let lastScreen = "";
+  // Synchronous screen/identity and transcript reads can return after the deadline.
+  const inTime = () => timeoutMs === 0 || now() < deadline;
   for (;;) {
     lastScreen = sample();
     samples++;
     if (kind === "grok") assertGrokSandboxNotRejected(lastScreen);
-    if (opts.selectSteer?.(lastScreen)) return { ready: false, samples, lastScreen, steer: true };
+    if (opts.selectSteer?.(lastScreen)) return { ready: false, samples, lastScreen, ...(inTime() ? { steer: true as const } : {}) };
     if (isAgentTuiIdleReady(kind, lastScreen)) {
       readyStreak++;
-      if (readyStreak >= stableSamples) return { ready: true, samples, lastScreen };
+      if (readyStreak >= stableSamples) return { ready: inTime(), samples, lastScreen };
       if (opts.turnSettled?.()) {
         settledStreak++;
-        if (settledStreak >= settledSamples) return { ready: true, samples, lastScreen };
+        if (settledStreak >= settledSamples) return { ready: inTime(), samples, lastScreen };
       } else if (settledStreak > 0) {
         // 記録の上でturnが始まった。短い間隔で数えた分を、11回の確かめへ持ち越さない。
         settledStreak = 0;

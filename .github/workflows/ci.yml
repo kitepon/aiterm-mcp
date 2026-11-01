@@ -20,6 +20,10 @@ on:
           - macos-native
           - linux-workstation
           - windows-native
+      test_files:
+        description: JSON array of selected test files; empty runs all tests
+        type: string
+        default: ""
       comparison_base:
         description: 手動実行で比較する元commit/ref
         type: string
@@ -58,6 +62,7 @@ jobs:
     with:
       environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
       comparison_base: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_base || '' }}
+      test-files: ${{ github.event_name == 'workflow_dispatch' && inputs.test_files || '' }}
       dependency-command: npm run ci:dependencies
       documentation-command: npm run test:docs
       full-command: >-

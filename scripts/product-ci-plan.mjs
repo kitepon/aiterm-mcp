@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -101,7 +101,7 @@ function everyEnvironmentVerified(environments, priorFull) {
     && entries.every(([environment, run]) => ALL_ENVIRONMENTS.includes(environment) && Number.isSafeInteger(run) && run > 0);
 }
 
-// 手動実行と定期実行は、選んだ環境で必ず全テストを回す（createPlan）。push・pull requestは試験を絞る事があるので数えない。
+// Only jobs named full count; selected dispatch/PR/push results cannot satisfy a full regression.
 const FULL_TEST_EVENTS = Object.freeze(['workflow_dispatch', 'schedule']);
 
 // 同じcommitの全テストがもう通っている環境と、その実行の番号を返す。
@@ -356,11 +356,17 @@ function createPlan(environment) {
   }
 
   if (environment.EVENT_NAME === 'workflow_dispatch') {
+    const files = environment.DISPATCH_TEST_FILES ? JSON.parse(environment.DISPATCH_TEST_FILES) : null;
+    if (environment.DISPATCH_TEST_FILES && (!Array.isArray(files) || files.length === 0 || !files.every(file =>
+      typeof file === 'string' && /^(?:test|scripts)\/(?:[\w-]+\/)*[\w.-]+\.test\.mjs$/.test(file)
+      && statSync(file, { throwIfNoEntry: false })?.isFile() === true))) {
+      throw new Error('DISPATCH_TEST_FILES must name existing test files');
+    }
     return {
       ...fullPlan([], '手動実行', requestedEnvironments(environment.REQUESTED_ENVIRONMENT)),
       comparisonBase: base,
-      testScope: 'all',
-      testFiles: [],
+      testScope: files === null ? 'all' : 'selected',
+      testFiles: files ?? [],
     };
   }
 

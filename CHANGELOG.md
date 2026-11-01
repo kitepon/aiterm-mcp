@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-11-01
+
 - Preserve Windows registry protection before native identity checks, batch exact process births, and confirm native shutdown before cleaning a closed seat.
 ### Added
 - Hibernate managed Claude and Codex conversations after 30 idle minutes on Linux, macOS and Windows; resume the same vendor conversation and saved settings on the next send. Preserve logical listings and explicit environment values while dormant.
@@ -2987,7 +2989,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...HEAD
+[0.63.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...v0.63.0
 [0.62.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...v0.62.6
 [0.62.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...v0.62.5
 [0.62.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.3...v0.62.4

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {decideIdleSeat,idleMinutes,checkIdleSeat} from '../dist/agent-idle.js';
 
 const ended='2026-10-31T00:00:00.000Z', now=Date.parse(ended)+30*60000;
-const seat=()=>({launch_id:'a'.repeat(32),created_at:ended,vendor_session_id:'thread',resume_ready:true,
+const seat=()=>({launch_id:'a'.repeat(32),created_at:ended,vendor_session_id:'thread',resume_ready:true,native_configuration_confirmed:true,
  activity:{tracked:true,last_input_at:'2026-10-30T23:59:00.000Z',last_turn_end_at:ended},
  state:'idle',reason:'composer_ready',attached:false,turn_settled:true,pending_child_deliveries:0,
  post_startup_process_count:0,window_activity_at:Date.parse(ended)});
@@ -22,7 +22,7 @@ test('all protected states, unknown observations, inputs without completion and 
   ...['busy','blocked','dead','missing','unknown'].map(state=>({state})),{reason:'draft_present'},
   {attached:true},{attached:null},{pending_child_deliveries:1},{pending_child_deliveries:null},
   {post_startup_process_count:1},{post_startup_process_count:null},{vendor_session_id:null},
-  {resume_ready:false},{turn_settled:false},{turn_settled:null},
+  {resume_ready:false},{native_configuration_confirmed:false},{turn_settled:false},{turn_settled:null},
   {activity:{tracked:true,last_input_at:'2026-10-31T00:01:00Z',last_turn_end_at:ended}},
   {activity:{tracked:true,last_input_at:'invalid',last_turn_end_at:ended}},
   {activity:{tracked:true,last_input_at:null,last_turn_end_at:'invalid'}},
@@ -92,8 +92,8 @@ test('a replacement after tree exit cannot receive the old hibernation record',a
  assert.equal((await f.run()).outcome,'unconfirmed');assert.deepEqual(f.effects,['begin','stop','unconfirmed']);
 });
 test('background work or a child delivery added after begin refuses the first signal and cancels only the preparation',async()=>{
- for(const field of ['post_startup_process_count','pending_child_deliveries']){
-  const f=fixture();f.runtime.stop=async(verify,didIssue)=>{f.current[field]=1;verify();didIssue();return true;};
+ for(const field of ['post_startup_process_count','pending_child_deliveries','native_configuration_confirmed']){
+  const f=fixture();f.runtime.stop=async(verify,didIssue)=>{f.current[field]=field==='native_configuration_confirmed'?false:1;verify();didIssue();return true;};
   assert.equal((await f.run()).outcome,'skipped');assert.deepEqual(f.effects,['begin','cancel','skipped']);
  }
 });

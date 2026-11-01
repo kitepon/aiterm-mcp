@@ -5,6 +5,7 @@ export interface IdleSeatSnapshot {
   created_at: string;
   vendor_session_id: string | null;
   resume_ready: boolean;
+  native_configuration_confirmed: boolean;
   activity: AgentActivity;
   state: "busy" | "idle" | "blocked" | "dead" | "missing" | "unknown" | "hibernated";
   reason: string;
@@ -50,6 +51,7 @@ export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30
   const due = Date.parse(anchor) + minutes * 60_000;
   if (!Number.isFinite(due)) return result;
   if (expectedAnchor !== undefined && expectedAnchor !== anchor) return { ...result, reason: "superseded_timer", anchor, due_at: due };
+  if (now >= due && !seat.native_configuration_confirmed) return { ...result, reason: "native_configuration_unconfirmed", anchor, due_at: due };
   return { ...result, outcome: now < due ? "not_due" : "ready", reason: now < due ? "before_deadline" : "idle_timeout", anchor, due_at: due };
 }
 

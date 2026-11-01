@@ -542,7 +542,7 @@ sessionへ登録する名前の配列で、`pty_list({ env_keys: ["JOB_OWNER"] }
 `background_cpu_delta_complete`はpane開始から60秒以降に生成された子孫だけの同じ観測で、起動時MCPを除外する。
 `token_hint`は画面の直近token表示値またはnull。画面本文や生argvを解析する必要はない。
 
-休止を確定した会話席は、同じsession ID・harness・会話ID・明示登録envを`pty_list`に残す。`pty_observe`は`state=hibernated`、`reason=idle_timeout`、`exists=true`を返す。pane/harnessの生存はfalse、process本人性3項目とtoken_hintはnull。未配送数と起動後process数は0、CPU累積は0、cursorと活動差分はnull。停止途中・復帰途中・失敗・native世代の不一致はunknownとする。休止席のcloseはCLIを起こさず論理席を消す。同名を明示した`agent_launch`は保存した会話と設定で再開し、harness・設定・project・明示env名の矛盾は入力前に`AGENT_RESUME_CONFLICT`で断る。`pty_open`で休止会話席を上書きしない。通常の`pty_read`・制御キー・承認操作は、休止中や世代未確定では`AGENT_RESUME_UNCONFIRMED`で断る。履歴は既存のtranscriptオプションで読める。停止ボタンは確定休止席を起こさず閉じずidleで返し、途中や不整合は拒否する。通常POSIXのmanaged Claude/Codex初回起動も実端末の作成本人性を保持し、証拠欠測では休止しない。自動採番は論理席の名前も避ける。実harnessとconsumerの受入前のため、自動休止は現在無効。
+休止を確定した会話席は、同じsession ID・harness・会話ID・明示登録envを`pty_list`に残す。`pty_observe`は`state=hibernated`、`reason=idle_timeout`、`exists=true`を返す。pane/harnessの生存はfalse、process本人性3項目とtoken_hintはnull。未配送数と起動後process数は0、CPU累積は0、cursorと活動差分はnull。停止途中・復帰途中・失敗・native世代の不一致はunknownとする。休止席のcloseはCLIを起こさず論理席を消す。同名を明示した`agent_launch`は保存した会話と設定で再開し、harness・設定・project・明示env名の矛盾は入力前に`AGENT_RESUME_CONFLICT`で断る。`pty_open`で休止会話席を上書きしない。通常の`pty_read`・制御キー・承認操作は、休止中や世代未確定では`AGENT_RESUME_UNCONFIRMED`で断る。履歴は既存のtranscriptオプションで読める。停止ボタンは確定休止席を起こさず閉じずidleで返し、途中や不整合は拒否する。通常POSIXのmanaged Claude/Codex初回起動も実端末の作成本人性を保持し、証拠欠測では休止しない。自動採番は論理席の名前も避ける。休止直前には実CLIの現在設定も確認し、不一致や確認不能なら席を保持する。実harnessとconsumerの受入前のため、自動休止は現在無効。
 
 agent sessionを閉じると失うものは、次の2項目で分かる。`activity.post_startup_process_count`は、`agent_launch`の起動準備が
 完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。数えないものは2つ。Codex自身の

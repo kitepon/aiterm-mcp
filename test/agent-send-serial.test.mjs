@@ -66,6 +66,7 @@ process.env.CODEX_HOME = fakeCodexHome;
 
 const coreUrl = new URL("../dist/core.js", import.meta.url);
 const core = await import(coreUrl.href);
+const {tmuxCommand} = await import('../dist/tmux-runtime.js');
 core.__testSetAgentTuiReadyStableSamples(1);
 const skip = hasTmux ? undefined : "tmux 未インストール";
 const testUid = () => (typeof process.getuid === "function" ? process.getuid() : 0);
@@ -87,7 +88,9 @@ function claudeMarkerPath(sid) {
 }
 
 async function markFakeClaudeReady(sid) {
-  core.send(sid, agentFixturePrint("Claude Code\n❯ ready\n"), { force: true, raw: true, preserveAgentOperation: true });
+  // The fixture renders readiness independently of the product's admitted input.
+  assert.equal(tmuxCommand(true,'send-keys','-t',sid,'-l','--',agentFixturePrint("Claude Code\n❯ ready\n")).code,0);
+  assert.equal(tmuxCommand(true,'send-keys','-t',sid,'Enter').code,0);
   await core.readOutput(sid, { wait: true, until: "ready", timeout: 5, raw: true });
 }
 

@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
+import {AsyncResource} from 'node:async_hooks';
 import * as core from '../dist/core.js';
 import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publishAgentGeneration} from '../dist/agent-shared.js';
 import {readAgentLifecycle,writeAgentLifecycle,writeAgentResumeAttempt,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
@@ -18,19 +19,37 @@ import {SOCK,resolveTmux} from '../dist/tmux-runtime.js';
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
-async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,seatName}={}){
+async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,seatName,nativeSettings}={}){
  const tag='idle-core-'+ ++serial,bin=join(process.env.HOME,tag+'-codex.sh'),driver=join(process.env.HOME,tag+'-driver.mjs');
  const keys=join(process.env.HOME,tag+'-input'),spawnFlag=join(process.env.HOME,tag+'-spawn'),spawned=join(process.env.HOME,tag+'-spawned');
  fs.mkdirSync(process.env.CODEX_HOME,{recursive:true});
  fs.writeFileSync(bin,`#!/bin/sh\n'${process.execPath.replaceAll("'","'\\''")}' '${driver}' "$@"\n`,{mode:0o700});
  fs.writeFileSync(driver,`import fs from 'node:fs';import {spawn} from 'node:child_process';
-let line='',added=false;
+let line='',added=false,menu=false,query='';
+let selected;const reset=()=>selected={'model-with-reasoning':true,'current-dir':true,'thread-name':true,'fast-mode':false};reset();
+const settings=${JSON.stringify(nativeSettings??{model:'fixture-model',effort:'high',fast:false})};
 fs.appendFileSync(${JSON.stringify(keys+'-launches')},JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),room:process.env.PEERTABLE_ROOM??null,member:process.env.PEERTABLE_MEMBER??null,unset:process.env.AITERM_TEST_UNSET??null})+'\\n');
 ${resumeBlocked?'if(process.argv.includes("resume"))process.exit(0);':''}
-const draw=()=>process.stdout.write(${resumeBlocked?'process.argv.includes("resume") ? "\\x1b[H\\x1b[2Junknown blocked view" : ':''}'\\x1b[H\\x1b[2JOpenAI Codex\\n› '+line+'\\x1b[K\\n  mock-model default · /tmp/proj\\x1b[K\\n\\x1b[J');
+const draw=()=>{
+ if(menu)fs.writeFileSync(${JSON.stringify(keys+'-menu-open')},'1');else fs.rmSync(${JSON.stringify(keys+'-menu-open')},{force:true});
+ const model=settings.model+' '+settings.effort+(settings.fast?' Fast':'');
+ const footer=[selected['model-with-reasoning']?model:null,selected['current-dir']?process.cwd():null,selected['thread-name']?'thread name':null,selected['fast-mode']?(settings.fast?'Fast':'Standard'):null].filter(Boolean).join(' · ');
+ const rows=Object.entries(selected).filter(([id])=>!query||id.includes(query));
+ const screen=menu?'Configure Status Line\\nSelect which items to display in the status line.\\n\\n'+(query||'Type to search')+'\\n\\n'+rows.map(([id,on],i)=>(i===0?'› ':'  ')+'['+(on?'x':' ')+'] '+id+'  Current setting').join('\\n')+'\\n\\n'+footer+'\\nspace toggle · ←/→ reorder · enter save · esc cancel'
+ : 'OpenAI Codex\\n› '+line+'\\x1b[K\\n  '+model+' · /tmp/proj\\x1b[K\\n\\x1b[J';
+ process.stdout.write('\\x1b[H\\x1b[2J'+(${resumeBlocked?'process.argv.includes("resume") ? "unknown blocked view" : ':''}screen));
+};
 process.stdin.setRawMode(true);process.stdin.resume();draw();
 process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\\[20[01]~/g,'')){
- if(ch==='\\r'){fs.appendFileSync(${JSON.stringify(keys)},line+'\\n');line='';}else if(ch>=' '){line+=ch;}}
+ if(ch==='\\x1b'){menu=false;query='';}
+ else if(menu){
+  if(ch==='\\x7f'||ch==='\\b')query=query.slice(0,-1);
+  else if(ch===' '&&query in selected)selected[query]=!selected[query];
+  else if(ch==='\\r')throw new Error('fixture refuses saving preview');
+  else if(ch>=' ')query+=ch;
+ }else if(ch==='\\r'){
+  if(line==='/statusline'){menu=true;query='';reset();}else fs.appendFileSync(${JSON.stringify(keys)},line+'\\n');line='';
+ }else if(ch>=' '){line+=ch;}}
  fs.writeFileSync(${JSON.stringify(keys+'-draft')},line);draw();});
 setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  added=true;const child=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
@@ -199,6 +218,48 @@ test('closing a vanished initial native terminal cleans only the unchanged regis
  assert.equal(core.closeSessionResult(f.name).outcome,'already_closed');
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),false);
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+for(const settings of [
+ {model:'different-model',effort:'high',fast:false},
+ {model:'fixture-model',effort:'low',fast:false},
+ {model:'fixture-model',effort:'high',fast:true},
+])test(`idle does not use an old turn context after native settings change to ${JSON.stringify(settings)}`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t,{nativeSettings:settings});
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'skipped');
+ assert.equal(core.observeSession(f.name).harness_alive,true);assert.equal(readAgentLifecycle(f.meta),null);
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
+});
+
+for(const change of ['screen','attachment'])test(`a native ${change} change after settings inspection prevents the first stop signal`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t),original=childProcess.spawnSync,rename=fs.renameSync,bin=resolveTmux();let prepared=false;
+ t.mock.method(fs,'renameSync',function(from,to){const r=rename(from,to);if(to===f.lifecycle)prepared=true;return r;});
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){const r=original(binary,args,options);
+  if(prepared&&binary===bin&&r.status===0){
+   if(change==='screen'&&args.includes('capture-pane'))return {...r,stdout:r.stdout+'\nNative settings changed\n'};
+   if(change==='attachment'&&args.includes('display-message')&&args.some(x=>x.includes('session_last_attached'))){
+    const parts=r.stdout.trim().split('\t');parts[3]=String(Math.floor(Date.now()/1000)+1);return {...r,stdout:parts.join('\t')+'\n'};
+   }
+  }
+  return r;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'skipped');assert.equal(prepared,true);
+ assert.equal(core.observeSession(f.name).harness_alive,true);assert.equal(readAgentLifecycle(f.meta),null);
+});
+
+for(const operation of ['force','key'])test(`another same-process ${operation} operation cannot join the idle inspector's admission`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t),foreign=new AsyncResource('separate-input-request'),original=childProcess.spawnSync,bin=resolveTmux();let checked=false,failure;
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){const result=original(binary,args,options);
+  if(!checked&&binary===bin&&args.includes('capture-pane')&&result.stdout?.includes('Configure Status Line')){
+   checked=true;foreign.runInAsyncScope(()=>{try{
+    if(operation==='force')core.send(f.name,'FOREIGN_INPUT',{force:true,enter:false,raw:true});else core.sendKey(f.name,'X');
+   }catch(error){failure=error;}});
+  }
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();foreign.emitDestroy();});
+ const result=await core.checkAgentIdle(f.expected);
+ assert.equal(checked,true);assert.match(failure?.message??'',/AGENT_RESUME_UNCONFIRMED/);
+ assert.equal(result.outcome,'hibernated');
 });
 
 test('ordinary core hibernates only the expected idle pane, retaining its resume data', {skip,timeout:30000},async t=>{

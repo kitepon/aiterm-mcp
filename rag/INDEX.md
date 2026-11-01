@@ -660,3 +660,26 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [tmux command argument parser](sources/tmux/tmux-command-argument-parser-20261031.md) — trailing semicolonをcommand separatorにしない公式argv escapeの条件。
   - 出典: <https://raw.githubusercontent.com/tmux/tmux/master/cmd-parse.y>
   - 効きどころ: 保存envがセミコロンやbackslash＋セミコロンで終わっても元の値を維持する。
+
+
+## native-settings — 6件
+
+- [Codex 0.166 native status/card.rs](sources/native-settings/codex-0166-status-card.md) — 公式0.166のnative設定表示と足元の状態表示。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/status/card.rs>
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
+- [Codex 0.166 native chatwidget/status_surfaces.rs](sources/native-settings/codex-0166-chatwidget-status_surfaces.md) — 公式0.166のnative設定表示と足元の状態表示。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/chatwidget/status_surfaces.rs>
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
+- [Codex 0.166 native bottom_pane/effort_status_line.rs](sources/native-settings/codex-0166-bottom_pane-effort_status_line.md) — 公式0.166のnative設定表示と足元の状態表示。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/effort_status_line.rs>
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
+- [Codex 0.166 native bottom_pane/status_line_setup.rs](sources/native-settings/codex-0166-bottom_pane-status_line_setup.md) — 公式0.166のnative設定表示と足元の状態表示。
+  - 出典: <https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/status_line_setup.rs>
+  - 効きどころ: 現在設定と古いturn記録を区別し、未確認の席を休止しない。
+- [Claude Code fast mode native menu](sources/native-settings/claude-fast-mode-native-20261101.md) — fastの現在値確認とmodel変更時の連動。
+  - 出典: <https://code.claude.com/docs/en/fast-mode.md>
+  - 効きどころ: 状態確認を設定変更と取り違えず、通常設定を保持して休止する。
+
+- [Claude Code configuration files and directory scope](sources/native-settings/claude-config-directory-scope.md) — 設定ディレクトリとglobal状態の公式仕様。
+  - 出典: <https://code.claude.com/docs/en/settings>
+  - 効きどころ: CLAUDE_CONFIG_DIRの未指定と明示指定を区別して同じprofileを復元する。

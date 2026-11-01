@@ -39,3 +39,17 @@ test('missing defaults and explicitly requested credentials cannot produce a res
   if(names.length)assert.equal(readAgentResumeTemplate(m),null);
  }
 });
+
+test('Claude resume preserves an unset config selector separately from its resolved directory',()=>{
+ const m={...meta,aiterm_session:'claude-config-selector',kind:'claude',vendor_session_id:'11111111-2222-4333-8444-555555555555'};
+ for(const selector of [null,'relative-config',process.env.CLAUDE_CONFIG_DIR]){
+  const env=selector===null?{}:{CLAUDE_CONFIG_DIR:selector};
+  captureAgentResumeTemplate(m,'high',[],process.env.CLAUDE_CONFIG_DIR,env);
+  const template=readAgentResumeTemplate(m);
+  assert.deepEqual(template.environment,{CLAUDE_CONFIG_DIR:selector});
+  assert.equal(refreshAgentResumeRecipe(m).environment.CLAUDE_CONFIG_DIR,selector);
+ }
+ const before=readAgentResumeTemplate(m);
+ writeAgentResumeTemplate(m,{...before,environment:{}});
+ assert.equal(refreshAgentResumeRecipe(m),null,'a missing selector cannot be inferred from the resolved path');
+});

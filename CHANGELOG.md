@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Preserve Claude configuration selection across resume and reject onboarding screens as composer readiness.
+
 ### Added
+- Check native model, effort and speed displays before an idle shutdown under the existing send admission. Cancel previews without saving settings, and retain seats on mismatches, unsupported displays or intervening screen/attachment changes. Automatic activation remains disabled.
 - Bind initial managed Claude/Codex launches on POSIX to their actual native creation receipt under the send admission; protect launch, input, close and the first idle check from same-name replacements. Preserve logical names during automatic naming and old state during launch/hibernation races.
 - Refuse native screen reads, control keys and approval actions on dormant or uncertain generations, and pin resumed operations to the saved native receipt. Preserve an idle stop result for confirmed hibernation and keep damaged lifecycle records managed.
 - Resume an explicitly named hibernated conversation through agent_launch while preserving its result tuple and initial-prompt receipts; refuse conflicting launch settings before input. Preserve registered environment keys and membership throughout resume.

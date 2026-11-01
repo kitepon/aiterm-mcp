@@ -593,3 +593,11 @@ test("Codex long-lived composer accepts spaced native display names and keeps ob
     assert.equal(codexTuiReady(`› Ask Codex to do anything\n${footer}`), false, footer);
   }
 });
+
+test('Claude security notes after an old shell marker are onboarding, not a ready composer',()=>{
+ const screen='❯ old shell prompt\nWelcome to Claude Code v2.1.316\n\n Security notes:\n\n 1. Claude can make mistakes.\n Press Enter to continue…\n';
+ assert.equal(claudeTuiReady(screen),false);
+ assert.deepEqual(claudePaneObservation(screen),{state:'blocked',reason:'vendor_onboarding_required'});
+ assert.equal(claudeStartupAction(screen,true),null);
+ assert.equal(claudeTuiReady(screen+'\n────────────\n❯ \n────────────\n'),true,'past notes do not hide the current composer');
+});

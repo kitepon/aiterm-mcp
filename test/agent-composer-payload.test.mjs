@@ -14,7 +14,6 @@ const core = await import('../dist/core.js');
 const actualSpawn = cp.spawnSync;
 const quote = text => "'" + text.replaceAll('\\', '/').replaceAll("'", "'\\''") + "'";
 
-test.after(() => { if (available) core.killAll(); });
 for (const [suffix, body] of [['single', '日本語の本文'], ['multiline', "日本語\n2行目'$変数"]]) {
   test(`agent composer ${suffix}: stale PowerShell foreground does not rewrite sanitized TUI bytes`, { skip: !available }, async () => {
     const name = 'composer_' + suffix;

@@ -135,7 +135,7 @@ export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string |
   if (envNames.some(name => /(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(name))) return;
   writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
     executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
-    environment: Object.fromEntries(envNames.map(name => [name, env[name] ?? null])), state: "confirmed" });
+    environment: Object.fromEntries([...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])].map(name => [name, env[name] ?? null])), state: "confirmed" });
 }
 export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
   const complete = !!model && !!effort;
@@ -147,11 +147,13 @@ export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe
   const template = readAgentResumeTemplate(meta);
   if (!template) {
     const recipe = readAgentResumeRecipe(meta);
-    return recipe?.model && recipe.reasoning_effort ? recipe : null;
+    return recipe?.model && recipe.reasoning_effort
+      && (meta.kind !== "claude" || Object.hasOwn(recipe.environment, "CLAUDE_CONFIG_DIR")) ? recipe : null;
   }
   if (template.state !== "confirmed" || !template.model || !template.reasoning_effort || template.model !== meta.model
     || template.executable !== meta.agent_executable || template.cwd !== meta.cwd || typeof meta.fast !== "boolean") return null;
-  if (meta.kind === "claude" && !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort)) return null;
+  if (meta.kind === "claude" && (!Object.hasOwn(template.environment, "CLAUDE_CONFIG_DIR")
+    || !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort))) return null;
   const { state, ...settings } = template;
   const candidate = agentResumeRecipeSchema.safeParse({ ...settings, schema: "aiterm.agent-resume.v1",
     vendor_session_id: meta.vendor_session_id, fast: meta.fast });

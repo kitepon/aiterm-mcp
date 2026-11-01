@@ -2875,6 +2875,108 @@
       "fetched": "2026-09-19"
     },
     {
+      "slug": "claude-config-directory-scope",
+      "topic": "native-settings",
+      "title": "Claude Code configuration files and directory scope",
+      "source_url": "https://code.claude.com/docs/en/settings",
+      "source_type": "official-docs",
+      "path": "sources/native-settings/claude-config-directory-scope.md",
+      "tags": [
+        "claude",
+        "configuration",
+        "resume"
+      ],
+      "summary": "Official configuration directory and separate global state file semantics.",
+      "relevance": "Preserve unset CLAUDE_CONFIG_DIR as distinct from an explicitly selected configuration directory.",
+      "chars": 207722,
+      "fetched": "2026-11-01"
+    },
+    {
+      "slug": "claude-fast-mode-native-20261101",
+      "topic": "native-settings",
+      "title": "Claude Code fast mode native menu",
+      "source_url": "https://code.claude.com/docs/en/fast-mode.md",
+      "source_type": "official_docs",
+      "path": "sources/native-settings/claude-fast-mode-native-20261101.md",
+      "tags": [
+        "claude",
+        "native-settings",
+        "idle-seat"
+      ],
+      "summary": "fastの現在値確認とmodel変更時の連動",
+      "relevance": "状態確認を設定変更と取り違えず、通常設定を保持して休止する",
+      "chars": 20919,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "codex-0166-bottom_pane-effort_status_line",
+      "topic": "native-settings",
+      "title": "Codex 0.166 native bottom_pane/effort_status_line.rs",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/effort_status_line.rs",
+      "source_type": "official_source",
+      "path": "sources/native-settings/codex-0166-bottom_pane-effort_status_line.md",
+      "tags": [
+        "codex",
+        "native-settings",
+        "idle-seat"
+      ],
+      "summary": "公式0.166のnative設定表示と足元の状態表示",
+      "relevance": "現在設定と古いturn記録を区別し、未確認の席を休止しない",
+      "chars": 8729,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "codex-0166-bottom_pane-status_line_setup",
+      "topic": "native-settings",
+      "title": "Codex 0.166 native bottom_pane/status_line_setup.rs",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/bottom_pane/status_line_setup.rs",
+      "source_type": "official_source",
+      "path": "sources/native-settings/codex-0166-bottom_pane-status_line_setup.md",
+      "tags": [
+        "codex",
+        "native-settings",
+        "idle-seat"
+      ],
+      "summary": "公式0.166のnative設定表示と足元の状態表示",
+      "relevance": "現在設定と古いturn記録を区別し、未確認の席を休止しない",
+      "chars": 30061,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "codex-0166-chatwidget-status_surfaces",
+      "topic": "native-settings",
+      "title": "Codex 0.166 native chatwidget/status_surfaces.rs",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/chatwidget/status_surfaces.rs",
+      "source_type": "official_source",
+      "path": "sources/native-settings/codex-0166-chatwidget-status_surfaces.md",
+      "tags": [
+        "codex",
+        "native-settings",
+        "idle-seat"
+      ],
+      "summary": "公式0.166のnative設定表示と足元の状態表示",
+      "relevance": "現在設定と古いturn記録を区別し、未確認の席を休止しない",
+      "chars": 54315,
+      "fetched": "2026-10-31"
+    },
+    {
+      "slug": "codex-0166-status-card",
+      "topic": "native-settings",
+      "title": "Codex 0.166 native status/card.rs",
+      "source_url": "https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/tui/src/status/card.rs",
+      "source_type": "official_source",
+      "path": "sources/native-settings/codex-0166-status-card.md",
+      "tags": [
+        "codex",
+        "native-settings",
+        "idle-seat"
+      ],
+      "summary": "公式0.166のnative設定表示と足元の状態表示",
+      "relevance": "現在設定と古いturn記録を区別し、未確認の席を休止しない",
+      "chars": 38684,
+      "fetched": "2026-10-31"
+    },
+    {
       "slug": "openssh-controlmaster-config",
       "topic": "platform",
       "title": "OpenSSH ControlMaster・ControlPath・ControlPersist 公式仕様",
@@ -3797,5 +3899,5 @@
       "fetched": "2026-10-25"
     }
   ],
-  "updated": "2026-10-31"
+  "updated": "2026-11-01"
 }

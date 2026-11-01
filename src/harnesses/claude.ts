@@ -421,9 +421,16 @@ function claudeComposerBox(screen: string): boolean {
   return marker > 0 && rule.test(lines[marker - 1]) && lines.slice(marker + 1).some(line => rule.test(line));
 }
 
+function claudeSecurityNotes(screen: string): boolean {
+  const lines = screen.split(/\r?\n/u);
+  const lastMarker = lines.map(line => /^\s*❯/u.test(line)).lastIndexOf(true);
+  return lines.slice(lastMarker + 1).some(line => /^\s*Security notes:\s*$/.test(line))
+    && /Press (?:Enter|Return) to continue/u.test(lines.slice(lastMarker + 1).join("\n"));
+}
+
 export function claudeTuiReady(screen: string): boolean {
   if (!screen.includes("Claude Code") && !claudeComposerBox(screen)) return false;
-  if (claudeLoginMethodMenu(screen)) return false;
+  if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return false;
   const lastMarker = screen.split(/\r?\n/u).filter((line) => /^\s*❯/u.test(line)).at(-1)?.trim();
   if (!lastMarker) return false;
   // Claude Code 2.1.251 のworkspace trust UIも選択カーソルに❯を使う。
@@ -485,7 +492,7 @@ function claudeInterruptHint(screen: string): boolean {
 
 export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
   const tail = screen.split("\n").slice(-32).join("\n");
-  if (claudeLoginMethodMenu(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
+  if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
     return { state: "blocked", reason: "tool_approval" };
   if (claudeTuiBusy(screen)) return { state: "busy", reason: "turn_running" };

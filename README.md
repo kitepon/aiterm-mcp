@@ -618,6 +618,7 @@ For Claude Code's first-run text-style menu, it confirms the item already select
 If the CLI then requests an account login method, the launch reports `vendor_onboarding_required`; complete that choice in the official interactive Claude Code CLI.
 The input-readiness wait is 30 seconds. Only when it expires while the agent has not drawn anything yet (a busy host), the launch
 waits up to 50 seconds from startup. If nothing is drawn by then, it still returns `initial_prompt=not_sent` and keeps the session.
+Positive readiness deadlines are checked again after screen and transcript reads; a late ready or busy result cannot authorize input.
 A prompt-free launch without this option retains `startup.status="not_checked"`. `initial_prompt.status` distinguishes
 `not_requested`, `not_sent`, `submitted_unconfirmed`, and `started`. Failure responses retain structured session information.
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。

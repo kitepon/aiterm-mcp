@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include the managed `launch_id` snapshot in structured `pty_list` results; older remote results without the field remain valid.
 
 ### Fixed
+- Reject readiness or steer admission when a screen or transcript read finishes after a positive readiness deadline.
 - Reject queued agent operations if the session was recreated while they waited, before they can act on the replacement launch.
 - Keep Windows test temp directories until the preloaded runner finishes so another MSYS process cannot retain a deleted `/tmp` mount.
 - Keep native Windows harness startup distinct from confirmed exit using a launch-bound shell return record, while retaining readiness deadlines and checks before input.

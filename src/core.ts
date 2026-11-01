@@ -625,7 +625,7 @@ function offsetpath(name: string): string {
 function lastcmdpath(name: string): string {
   return path.join(SOCKDIR, name + ".lastcmd");
 }
-// mark:true 送信中フラグ。存在すれば waitCompletion が sentinel 完了検出（MARK_DONE_RE）を有効化する。
+// mark:trueの送信ID。旧producerの"1"もpending flagとして読み取る。
 function markpath(name: string): string {
   return path.join(SOCKDIR, name + ".mark");
 }
@@ -827,7 +827,12 @@ async function waitCompletion(
   }
   // mark:true 送信中なら sentinel 完了検出を有効化する。エコー（rc=%d）でなく実出力（rc=<数字>）だけに
   // 一致する数字アンカー MARK_DONE_RE を使うため、until のようにエコー部分一致で早期誤完了しない（B1）。
-  const markActive = fs.existsSync(markpath(name));
+  let markId: string | null = null;
+  try { markId = fs.readFileSync(markpath(name), "utf8").trim(); } catch { /* no pending mark */ }
+  const markActive = markId !== null;
+  // shortcut: legacy "1" lacks correlation; retire the fallback after legacy pending commands are gone.
+  const markDone = markId === "1" ? MARK_DONE_RE : /^[0-9a-f]{32}$/.test(markId ?? "")
+    ? new RegExp(`${MARK_DONE_RE.source} id=${markId}(?:\\r?\\n|$)`) : null;
   for (;;) {
     let size = 0;
     try {
@@ -857,9 +862,9 @@ async function waitCompletion(
         }
       }
       // mark を until より先に判定（sentinel は確証つき完了。until はユーザ指定でエコー誤爆余地あり）。
-      if (markActive && MARK_DONE_RE.test(neu)) {
+      if (markActive && markDone?.test(neu)) {
         try {
-          fs.unlinkSync(markpath(name)); // 同一 sentinel での再発火を防ぐ
+          if (fs.readFileSync(markpath(name), "utf8").trim() === markId) fs.unlinkSync(markpath(name));
         } catch {
           /* noop */
         }
@@ -1161,7 +1166,8 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     o.beforePtyWrite?.();
     writeLastcmd(name, o.launchShell ? atomicShellMultiline(text, o.launchShell) : text);
     if (o.rtk) text = rtkRewrite(text);
-    if (o.mark) text = appendMarkSentinel(text, fg);
+    const markId = o.mark ? randomBytes(16).toString("hex") : null;
+    if (markId !== null) text = appendMarkSentinel(text, fg, markId);
     assertSendTextSize(text, o.rtk || o.mark ? "変換後の送信文字列" : "送信文字列");
     const reportedText = text;
     // Agent composer paste is literal text even if native foreground metadata
@@ -1174,9 +1180,9 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
     });
     if (o.mark) {
       try {
-        fs.writeFileSync(markpath(name), "1"); // waitCompletion に sentinel 完了検出を有効化させる
+        fs.writeFileSync(markpath(name), markId!);
       } catch {
-        /* noop（フラグ書けなくても until/quiescence 経路は生きる） */
+        throw new AitermError("完了印の送信IDを保存できません。文字列は送信していません。", 2);
       }
     } else {
       // 非 mark 送信は、未消化の古い mark 完了待ちを無効化する（前コマンドの sentinel を待ち続けない）。

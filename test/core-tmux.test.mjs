@@ -354,6 +354,40 @@ test("closeSession: 非存在でも冪等", { skip }, () => {
 });
 
 // ---------------------------------------------------------------- mark + 完了検出（sentinel 自動検出）
+for (const earlierReader of [false, true]) test(`read wait: an older pending mark cannot complete a newer command${earlierReader ? " with a prior reader" : ""}`, { skip }, async () => {
+  const session = "selftest_mark_generation";
+  const release = path.join(SANDBOX, "release-old-mark");
+  const shellRelease = release.replaceAll("\\", "/").replaceAll("'", "'\\''");
+  core.openSession(session);
+  try {
+    core.send(session, `printf 'OLD_%s\\n' START; while [ ! -f '${shellRelease}' ]; do sleep 0.01; done`, { mark: true });
+    assert.match(await core.readOutput(session, { wait: true, until: "OLD_START", timeout: 5, raw: true }), /OLD_START/);
+    const olderRead = earlierReader ? core.readOutput(session, { wait: true, timeout: 5 }) : null;
+    core.send(session, "sleep 0.6; printf 'CURRENT_%s\\n' DONE", { mark: true });
+    fs.writeFileSync(release, "release");
+    if (olderRead) await olderRead;
+    const output = await core.readOutput(session, { wait: true, timeout: 5, full: earlierReader });
+    assert.match(output, /CURRENT_DONE/, output);
+    assert.match(output, /is_complete=True via mark/, output);
+  } finally {
+    core.closeSession(session);
+    fs.rmSync(release, { force: true });
+  }
+});
+
+test("send mark: a persistence failure refuses before writing the command", { skip }, () => {
+  const session = "selftest_mark_write_failure";
+  const mark = path.join(SOCKDIR, session + ".mark");
+  core.openSession(session);
+  fs.mkdirSync(mark);
+  try {
+    assert.throws(() => core.send(session, "echo MUST_NOT_SEND", { mark: true }), /送信IDを保存できません。文字列は送信していません/);
+  } finally {
+    fs.rmSync(mark, { recursive: true });
+    core.closeSession(session);
+  }
+});
+
 test("send mark + read wait: sentinel を自動検出し is_complete=True via mark", { skip }, async () => {
   const rt = "selftest_rt";
   core.openSession(rt);

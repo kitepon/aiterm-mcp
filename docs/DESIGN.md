@@ -86,6 +86,7 @@ agent入力欄への`bracketedPaste`は、制御文字の除去後も本文の�
 
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
+新しいmarkは送信IDを完了印と待機fileへ結び、旧commandの印を次の完了へ使わない。旧producerのpending flagは読取り互換を保ち、旧readの完了で新しい待機fileを消さない。ID保存失敗は入力前拒否。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。
 静止による完了は読取りcursor以後の新しい出力を必要とし、native pipeが初回出力前に空のままでもshell名だけで完了へ進めない。
 sentinelの方言は端末runtimeが実効shellから決める。SSH先の現在の標準PowerShell promptを

@@ -133,12 +133,14 @@ MSYSのusertemp mountは同ユーザーのprocess間で共有される。別のT
 factory-runnerの最小反例では、先行Bashを生かしたままその所有TEMPだけを削除すると、後続Bashの/tmpが同じ削除済みrootを指し、
 `could not find /tmp`と一覧のENOENTになった。恒常Host TEMP/ACLの不整合ではない。
 
-Windowsでは、`--import ./test/seat-env.mjs --test`の親走者が作る一時rootをAITERM_TEST_RUN_ROOTで子へ渡す。
+Windowsでは、`node scripts/run-seat-tests.mjs --test ...`が試験走者より先に前処理を読み、一時rootをAITERM_TEST_RUN_ROOTで子へ渡す。
 子はその下に別のrootを作り、TEMP/TMP/HOME/state/socket/harnessと資格を従来どおり個別に隔離する。
 子の終了時はrootを削除せず、全試験子が終わった親走者の終了時に所有treeを削除する。POSIXのprocess終了時cleanupは変えない。
-CI・npm test・文書試験・公開試験の既入口はすべて親へpreloadしている。Windowsの複数fileを直接流す時も同じpreloadを使う。
+`node --import seat-env.mjs --test`のpreloadはworkerだけで実行され、親を初期化しない。CI・npm test・文書試験・公開試験は共通のrun-seat-tests入口を使う。Windowsの複数fileを直接流す時も同じ入口を使う。
 資格の持込み・Host設定/標準runtimeの変更・timeout延長/skipは追加しない。子rootの分離、子終了後の保持、親終了後のtree削除を前処理試験で確認する。
 
 個別fixtureがTEMP/TMPを差し替える場合も、MSYSを起こす可能性がある値には同じ走者寿命のprivate TEMPを使う。
 state-root隔離試験のforeign TEMPと、公式Codexのhook/配送/relay試験のTEMP/TMPをこの範囲へ揃える。
 個別state/TMPDIR/HOME/configは引き続きfixtureごとに分け、短命なstate用rootの削除は共有/tmpへ波及させない。
+
+共有寿命の回帰は通常node子ではなく、実際の2つのnode:test workerで確認する。Windowsでは旧worker-only preloadが同じ保持assertで失敗する負の対照も行う。

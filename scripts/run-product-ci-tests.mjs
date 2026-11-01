@@ -52,7 +52,7 @@ const scope = process.env.PRODUCT_CI_TEST_SCOPE;
 const build = () => {
   run(process.execPath, ['scripts/clean-build.mjs']);
   run(process.execPath, ['node_modules/typescript/bin/tsc']);
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/seat-env.test.mjs']);
+  run(process.execPath, ['scripts/run-seat-tests.mjs', '--test', 'test/seat-env.test.mjs']);
 };
 if (!['all', 'metadata', 'selected'].includes(scope)) throw new Error(`PRODUCT_CI_TEST_SCOPE が不正です: ${scope || '未指定'}`);
 requireKnownSystemGitHooks();
@@ -63,10 +63,10 @@ if (scope === 'all') {
     'scripts/verify-release-commit.test.mjs',
     ...readdirSync('test').filter((file) => file.endsWith('.test.mjs')).map((file) => `test/${file}`),
   ];
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
+  run(process.execPath, ['scripts/run-seat-tests.mjs', '--test', ...files]);
 } else if (scope === 'metadata') {
   build();
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
+  run(process.execPath, ['scripts/run-seat-tests.mjs', '--test', 'test/release-metadata.test.mjs', 'test/repository-contract.test.mjs']);
 } else if (scope === 'selected') {
   const files = JSON.parse(process.env.PRODUCT_CI_TEST_FILES ?? '[]');
   // 空の名前、試験fileでない名前、無いfileを`node --test`へ渡さない。空の引数は、file systemの根から試験fileを拾わせる。
@@ -77,5 +77,5 @@ if (scope === 'all') {
   }
   requireTerminalBackend();
   build();
-  run(process.execPath, ['--import', './test/seat-env.mjs', '--test', ...files]);
+  run(process.execPath, ['scripts/run-seat-tests.mjs', '--test', ...files]);
 }

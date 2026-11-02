@@ -53,9 +53,9 @@ Codex receiverはstdio App Serverを所有し、finallyでstdin終了、2秒後S
 
 `withDeliveryEffect` のadmission未指定は従来動作。required resolver欠測、二重作用、lease外出力を拒否する。serialized wake profileはcallbackを送れないためrequiredを保持する。Claude/Cursorのchannelとadmissionの未接続組合せ、Cursor複数scopeでのadmissionは明示拒否であり、分割ついでに有効化しない。
 
-## 未確認と次の整理材料
+## 確認範囲と既知の制限
 
-図は現在の作用順序である。private execution・remote内部も初読を完了した。[採用設計](refactor-rationale.md)ではrecord契約とchannel状態を分離する。全caller/test/fixtureの独立照合、BellTeamの実consumer、3OSでの動作受入は未確認。Windows73failの根因は未確定である。
+図は現在の作用順序である。private execution・remote内部も初読を完了した。[採用設計](refactor-rationale.md)に従い、A4bでrecord契約、S1でchannel状態を分離した。変更窓口は関連試験と型/保存契約を照合済み。全caller/test/fixtureの独立照合、BellTeamの実consumer、3OSでの動作受入は未確認。Windows73failの根因は未確定である。
 
 ## A4b候補の所有者
 

@@ -9,14 +9,14 @@
 | 状態・データ | 現在の所有者と読書き | 受渡しと保持条件 |
 | --- | --- | --- |
 | `<session>.<launch>.agent.json` | harness metadata constructorと`agent-shared.ts`、`agent-metadata-reader.loadAgentMetadata` | session/kind/vendor会話/設定/lineage。現在の同名nativeだけから元launchを補わない |
-| `<session>.active-launch.json` | `agent-shared.ts:365 publishAgentGeneration` / `selectAgentMetadataFile` | 完成したnext metadataの後だけpointerを公開。旧/新のharness・vendor・lineage・resumed_fromを検証。複数世代でpointer欠測/破損時はfallbackしない |
+| `<session>.active-launch.json` | `agent-shared.ts publishAgentGeneration` / `selectAgentMetadataFile` | 完成したnext metadataの後だけpointerを公開。旧/新のharness・vendor・lineage・resumed_fromを検証。複数世代でpointer欠測/破損時はfallbackしない |
 | `.resume-native.json` | `agent-lifecycle.ts` / `prepareAgentLaunch`のcreated callback / `resumeAgentInLock` | native ID/session/server PID/pane ID/PIDと出生本人性。`verifyCreatedNative`は現在の全項目を照合し、dead-pane closeだけpane終了を許容 |
 | `.resume-template.json` / `.resume.json` | `captureAgentResumeTemplate` / `finishAgentResumeConfiguration` / `refreshAgentResumeRecipe` | model/effort/fast/cwd/executable/config rootと明示env。秘密名のenvをrecipeへ永続化しない。confirmed以外から復帰可能と補完しない |
 | `.lifecycle.json` | `core.checkAgentIdle`のbegin/finish/cancel、`agent-lifecycle.ts`のschema/read/write | stopping→hibernated。停止作用前だけcancelでstoppingを消せる。作用後不明なら停止中の記録を保持 |
 | `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。failed/resumingを自動再試行しない |
 | `.activity.jsonl` | `agent-activity.ts` | created/input/turn_endをappend。完成eventのdigestで重複を数えない。metadata snapshotをhookとsenderが上書きし合わない |
 | `.idle-clock.json`とsleep worker | `agent-idle-clock.ts` / `core.serviceAgentIdleClock` | token・owner PID/出生本人性・anchor/wake時刻。既send lock下でarm/retire。clock自体を独立した入力受付にしない |
-| 同processの送信行列 | `core.ts:3481 agentSendQueues` / `withAgentSendLock` | 到着順に前の処理を待つ。timeoutした待機者の後ろも前の所有者を追い越さない |
+| 同processの送信行列 | `core.ts agentSendQueues` / `withAgentSendLock` | 到着順に前の処理を待つ。timeoutした待機者の後ろも前の所有者を追い越さない |
 | agent send file lock / `.reap` | `tryCreateOwnedLock` / `acquireAgentSendFileLock` / `releaseOwnedLock` | O_EXCL/tokenで所有。死亡/PID再利用を確認してreap、照会不能なら生存扱い。stuck reap markは自動回収しない |
 | 普通PTY send lock / agent wait lock | `acquireSessionSendFileLock` / `probeWaitLock` / `liveWaitLocks` | agent send lockや私的transaction lockと別の対象。foreign live wait/sendはcloseを拒否 |
 | 私的metadata transaction lock | `execution-lock.ts`、store/participant caller | inode/owner原本を照合。明示recoverはnative PID不在を2回確認して非空quarantineへrename。native作用/入力/完了/graph回復の証明にはしない |

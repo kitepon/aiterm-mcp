@@ -12,8 +12,10 @@ A1 metadata reader11、A2 PTY表示12、A3設定UI/既定復元20、A4a remote s
 
 今回保持した契約: 公開tool/入力/返却/例外、保存形式と世代/本人性、既定復元・作用前/後unknown・cleanup、未送信と不明、受付/完了/画面反映の区別。新tool/API/flag/依存/版は追加しない。
 
-全図とコードのAstra最終整合は未確認。本番反映/一般配布は既存の承認手順による。
+全図とコードの[Astra最終整合](final-review.md)を完了した。本番反映/一般配布は既存の承認手順による。
 
 文書仕上げで全28図を再描画。候補163sourceのSHA/size・全3523関数位置・静的解決先、製品間参照を確認した。追加8moduleを通る[静的runtime import/reexport](evidence/candidate-runtime-edges.json)に循環は無い。動的解決や実行時の全経路を証明するものではない。
 
-[描画・目視の来歴](evidence/candidate-diagram-provenance.json): 20図のDOTは初読時、8図は実装時の目視済み原本と同一。移管で新しい配置は作らず、再描画結果を保存した。
+[Sol仕上げ時の描画・目視の来歴](evidence/candidate-diagram-provenance.json): 20図のDOTは初読時、8図は実装時の目視済み原本と同一。移管で新しい配置は作らず、再描画結果を保存した。
+
+Astraレビューでnpm入口文書3件の未同梱相対リンクと古い調査状態を修正し、文書閉包9件成功。native詳細図1枚を再描画・目視した。残る27図はSol仕上げから同一。runtime試験の再走は不要と判断した根拠を[最終レビュー](final-review.md)へ記録した。

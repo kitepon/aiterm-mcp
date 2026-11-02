@@ -16,4 +16,4 @@
 
 Steer製品の正本は[隣接候補repoの入口](../../../steer-refactor-20261102/docs/architecture/README.md)。別repositoryのため同梱必須ではない。公開repositoryは https://github.com/kitepon/aiterm-steer-delivery 。本体の機能担当接点と運用の承認/予定はBotの進行記録で管理し、製品内部図を本体へ複製しない。
 
-ソース調査の基準はce575ce8、候補ではA1–A4bを実装済み。source-index.jsonのheadはsource snapshot時点を示し、その後の文書だけのcommitはsource SHAに影響しない。図とコードの最終Astra整合は受入前。
+ソース調査の基準はce575ce8、候補ではA1–A4bを実装済み。source-index.jsonのheadはsource snapshot時点を示し、その後の文書だけのcommitはsource SHAに影響しない。[Astra最終整合](final-review.md)を完了し、完成候補をレビュー担当へ引き渡す。公開/本番の受入とは区別する。

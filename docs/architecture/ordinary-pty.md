@@ -8,7 +8,7 @@
 
 | 責任 | 実関数・保存状態 | callerへ戻すもの・作用 |
 | --- | --- | --- |
-| 通常session作成 | `openSession` / `openSessionInternal`（core 987–1140付近）、tmux-runtime | env名・session名を検証しnative作成。既存の保存会話席を新規PTYで上書きしない。作成時の特定失敗では自分が作った席を片付ける |
+| 通常session作成 | `openSession` / `openSessionInternal`（候補行はsource-index参照）、tmux-runtime | env名・session名を検証しnative作成。既存の保存会話席を新規PTYで上書きしない。作成時の特定失敗では自分が作った席を片付ける |
 | 入力の前処理 | `prepareSendText` / `splitAgentPreface` / `splitPtyText` | raw/control処理、UTF-8 codepointを切らない256byte分割、64KiB上限。prefaceは本文と別の打鍵になる場合がある |
 | 入力直列化・境界 | `send` / `acquireSessionSendFileLock` / `withAgentNativeOperation` | 同sessionのordinary send lock、各作用直前のadmission。managed Claudeは通常sendを拒否し専用operationを保持 |
 | 入力作用 | POSIX load-buffer/paste-buffer、Windows direct worker | load/paste途中の失敗とEnter失敗を区別。先行chunkやprefaceが入った可能性は消えない。自動再送しない |
@@ -34,7 +34,7 @@ ordinary sendの死んだlockは一覧probeから自動unlinkしない。ABAで�
 
 `reduceOutput`は既読表示をblank/run圧縮、長い出力の先頭30/末尾20行、長行の先頭1200/末尾600文字等へ縮める。rawの保持、親への回答返送、harnessの完了正本を変更しない。`rtk.ts`の読取縮約と`send({rtk:true})`の外部rewriteは別の責任として図示した。
 
-関連する試験入口は`core-pure`、`core-readoutput`、`core-tmux`、`session-environment`、`session-list-launch`、`windows-shell-submission`、`psmux-send-worker`、`pty-observation`、`rtk`等。変更窓口が決まってから全caller/fixture/exportを照合する。今は試験の全精査・実行結果ではない。
+関連する試験入口は`core-pure`、`core-readoutput`、`core-tmux`、`session-environment`、`session-list-launch`、`windows-shell-submission`、`psmux-send-worker`、`pty-observation`、`rtk`等。A2の表示境界はverificationの関連12試験で確認済み。それ以外の無変更窓口の全試験を再走した記録ではない。
 
 ## A2の所有者
 

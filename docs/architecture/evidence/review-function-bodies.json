@@ -1,0 +1,188 @@
+[
+  {
+    "product": "aiterm",
+    "identicalCount": 1170,
+    "moved": [
+      {
+        "from": "src/core.ts:estimateTokens",
+        "to": "src/pty-output.ts:estimateTokens",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:stripControl",
+        "to": "src/pty-output.ts:stripControl",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:collapseBlanks",
+        "to": "src/pty-output.ts:collapseBlanks",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:dedupRuns",
+        "to": "src/pty-output.ts:dedupRuns",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:surrogateSafeEnd",
+        "to": "src/pty-output.ts:surrogateSafeEnd",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:surrogateSafeStart",
+        "to": "src/pty-output.ts:surrogateSafeStart",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:elideLongLines",
+        "to": "src/pty-output.ts:elideLongLines",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:reduceOutput",
+        "to": "src/pty-output.ts:reduceOutput",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:normalizeInitialPromptState",
+        "to": "src/agent-metadata-reader.ts:normalizeInitialPromptState",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:loadAgentLineageFields",
+        "to": "src/agent-metadata-reader.ts:loadAgentLineageFields",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:loadAgentMetadata",
+        "to": "src/agent-metadata-reader.ts:loadAgentMetadata",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:tryLoadAgentMetadata",
+        "to": "src/agent-metadata-reader.ts:tryLoadAgentMetadata",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:lineCounts",
+        "to": "src/agent-model-ui.ts:lineCounts",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:configureClaudeForSessionOnly",
+        "to": "src/harnesses/claude-configure.ts:configureClaudeForSessionOnly",
+        "bodyIdentical": false
+      },
+      {
+        "from": "src/core.ts:restoreUserDefaults",
+        "to": "src/user-config.ts:restoreUserDefaults",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:keepingUserDefaults",
+        "to": "src/user-config.ts:keepingUserDefaults",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/core.ts:configureCodexModel",
+        "to": "src/harnesses/codex-configure.ts:configureCodexModel",
+        "bodyIdentical": false
+      },
+      {
+        "from": "src/core.ts:chooseCodexModel",
+        "to": "src/harnesses/codex-configure.ts:chooseCodexModel",
+        "bodyIdentical": false
+      },
+      {
+        "from": "src/parent-delivery.ts:readRecord",
+        "to": "src/parent-delivery-record.ts:readRecord",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/parent-delivery.ts:answerMessage",
+        "to": "src/parent-delivery-record.ts:answerMessage",
+        "bodyIdentical": true
+      }
+    ],
+    "changed": [
+      "src/harnesses/claude-configure.ts:configureClaudeForSessionOnly",
+      "src/core.ts:configureAgentInLock",
+      "src/harnesses/codex-configure.ts:configureCodexModel",
+      "src/harnesses/codex-configure.ts:chooseCodexModel"
+    ],
+    "missing": [],
+    "newFunctions": [
+      "src/core.ts:agentModelUi"
+    ]
+  },
+  {
+    "product": "steer",
+    "identicalCount": 171,
+    "moved": [
+      {
+        "from": "src/channel.ts:channelDir",
+        "to": "src/channel-state.ts:channelDir",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:processIdentity",
+        "to": "src/channel-state.ts:processIdentity",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:mkdirs",
+        "to": "src/channel-state.ts:mkdirs",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:readChannel",
+        "to": "src/channel-state.ts:readChannel",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:channelClosed",
+        "to": "src/channel-state.ts:channelClosed",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:closeChannel",
+        "to": "src/channel-state.ts:closeChannel",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:channelDeliveryState",
+        "to": "src/channel-state.ts:channelDeliveryState",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:withdrawFromChannel",
+        "to": "src/channel-state.ts:withdrawFromChannel",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:alreadyEmitted",
+        "to": "src/channel-state.ts:alreadyEmitted",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:claimPending",
+        "to": "src/channel-state.ts:claimPending",
+        "bodyIdentical": true
+      },
+      {
+        "from": "src/channel.ts:settle",
+        "to": "src/channel-state.ts:settle",
+        "bodyIdentical": true
+      }
+    ],
+    "changed": [
+      "src/channel.ts:openChannel",
+      "src/channel.ts:sendToChannel"
+    ],
+    "missing": [],
+    "newFunctions": [
+      "src/channel-state.ts:persistChannel",
+      "src/channel-state.ts:enqueueChannel"
+    ]
+  }
+]

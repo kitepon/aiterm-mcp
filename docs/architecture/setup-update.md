@@ -42,4 +42,4 @@ parent-delivery CLIはCodex verify/submit/state/providerを返す。UUID・絶�
 
 mcp-lazy向けdelivery-wakeはnative子processなしでowner記録を読み、closed/PID不在/取得可能な出生差からorphanを探し、wake claimをmkdirで取得する。30秒TTLは**起床担当claim**の更新で、配送完了・native停止・execution lockの時間切れ回復ではない。既claim整理/mtime更新という書込も持つ。先行起床のexit0を配送完了のreceiptにしない。
 
-全caller/test/fixture・公開release工程の照合は次段階。導入・更新・hook/資格/Host操作・公開は今回0。
+A4aの契約import以外のsetup/update動作は不変。全setup fixture/公開release実行の再受入は未実施。導入・更新・hook/資格/Host操作・公開は今回0。

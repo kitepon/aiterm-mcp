@@ -22,7 +22,7 @@ source generationが一致してcaller_boundならsource verified、boundary欠�
 
 relationのreserved/unsentはopenのみ。completedにはbound run、interruptedにはbound launchが必要。retiredには未送確定または終端+closed fenceが必要。launch全体の停止計画は途中の完了関係も未完descendantへ繋ぐ場合だけ保持する。全終端のcycleは期限切れとして落とす。source/target世代やboundaryが欠測ならgapを返し、未bound childの世代edgeを捏造しない。pure planはnative停止を行わない。
 
-v1 cascade closeのstopped、v2 interruptのconfirmedは別schemaである。v2は現session/launch/会話の保持と、実interruption、関係coverage complete、unresolvedなしを要求する。Escape/C-cの受付だけではconfirmedにならない。公開との接続状況はservice/tools/dispatchを精読して確定する。
+v1 cascade closeのstopped、v2 interruptのconfirmedは別schemaである。v2は現session/launch/会話の保持と、実interruption、関係coverage complete、unresolvedなしを要求する。Escape/C-cの受付だけではconfirmedにならない。公開との接続状況はprivate-admissionとprivate-stopに記す。
 
 ## 保存と途中失敗
 
@@ -44,4 +44,4 @@ participant inventoryは孤立したin-flight parent effectも表示する。pro
 
 ## 詳細と調査の残り
 
-[受付・作用・返却](private-admission.md) → [親配送とnative endpoint](private-parent-delivery.md) → [通常cancel/private中断/管理close](private-stop.md)。service（1450行）、全33private moduleとcore該当本体を初読した。通常core/OS/runtimeも後続初読を完了した。[採用設計](refactor-rationale.md)ではprivateの既存責任分割を維持する。全caller/test/fixture/export独立照合・実装・実稼働試験は未完。
+[受付・作用・返却](private-admission.md) → [親配送とnative endpoint](private-parent-delivery.md) → [通常cancel/private中断/管理close](private-stop.md)。service（1450行）、全33private moduleとcore該当本体を初読した。通常core/OS/runtimeも後続初読を完了した。[採用設計](refactor-rationale.md)ではprivateの既存責任分割を維持する。private本体は変更対象外。A4bで変えた記録接点は限定検証済みで、全private caller/fixtureの独立受入・実稼働試験は未実施。

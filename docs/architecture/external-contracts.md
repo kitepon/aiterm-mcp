@@ -8,7 +8,7 @@
 
 Bridgeはlocal.sqlite、配送予約・排他・通話DB/receiptを所有する。Steerはprofileで与えられたstate_root下のchannelとhook、inbox/claim/emitted/closed、出力状態を所有する。Bridgeから渡るprofile/channel ID/delivery ID/textと公式の返却が接点であり、双方のDB/fileを一つの共有状態へ変えない。
 
-リターが挙げたBridgeの6個mjsの呼ぶSteer exportは基準 `src/index.ts` の再exportで提供される。名前ごとのcompiler照合は `integrations/refactor-20261102/bridge-export-check.json` に保存する。引数・返り全fieldと例外の実fixture確認はまだ終えていない。
+リターが挙げたBridgeの6個mjsの呼ぶSteer exportは基準 `src/index.ts` の再exportで提供される。名前ごとのcompiler照合は `integrations/refactor-20261102/bridge-export-check.json` に保存する。S1で既存channel14件、settle失敗1件、Bridge公開surface6件を確認した。変更境界の型・保存値・例外は維持したが、Bridge内部の全field/実fixtureを独立に再検証したものではない。
 
 | 接点 | Steerの現在の実装 | 維持する意味 |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ Bridgeはlocal.sqlite、配送予約・排他・通話DB/receiptを所有する�
 
 Bridgeは公開MCP `pty_list` / `agent_launch` / `pty_send(require_agent=true)` / `pty_close` を使う。`initial_prompt`、`startup`、送信失敗の未送信/不明を保持する。Aitermの`AgentResumeError`と既存`sendFailure`は別契約で、どちらも単一の成功へ丸めない。
 
-BellTeamはBot/session-slotと配送ジョブ・設定要求を所有する。Aitermはnative席・process本人性・入力・観測・公開receiptを所有する。現在の接点はMCP request/result、`aiterm/caller` metadata、steer/seat-turns/interim metadata、親完了返却。BellTeam内部の全callerとfailure境界は未調査で、後続で実コードの読み取りだけ行う。
+BellTeamはBot/session-slotと配送ジョブ・設定要求を所有する。Aitermはnative席・process本人性・入力・観測・公開receiptを所有する。現在の接点はMCP request/result、`aiterm/caller` metadata、steer/seat-turns/interim metadata、親完了返却。BellTeam内部の全caller/failure境界は本製品の調査対象外。本表の公開契約と本体担当の正本を接続し、今回変更した製品内callerを各段階で照合した。
 
 公開0.63.2のlaunch receiptにはlaunch_idがなく、現在の`pty_observe`にstring|nullとして提供する。型付きresume未送信拒否はsession/launch/input/recoveryを持つ。この区別と既consumerが依存する文面・metadataを維持する。
 
@@ -46,10 +46,10 @@ Steer6734ee86の公開面で確認できた既存の口は次のとおり。
 | Aiterm配送の既知delivery詳細 | `codexDeliveryDetailViaAiterm` | Aiterm providerへの照会で、Bridge profileのSteer stateを包括して列挙する代替ではない |
 | channelの既知IDの内容/状態 | `channelRoot(profile)`、`readChannel`、`channelClosed`、`channelDeliveryState` | rootと単一ID読取は提供。全channel ID集合とowner集合の前後一致を返す公開export/CLIはない |
 
-既存APIで同じ包括的な安全確認を置換できるとは確認できなかった。今回は保存形式依存を図と保持契約へ明記し、変更前に相手と調整する。公的列挙口を新設するかという設計判断はAstra工程で比較し、今回の事実照合だけで新機能の追加や相手内部の改修を既定にしない。状態射影のnullを保存recordの不在や過去の未作用の証拠へ置換しない。
+既存APIで同じ包括的な安全確認を置換できるとは確認できなかった。今回は保存形式依存を図と保持契約へ明記し、変更前に相手と調整する。Astra設計では新しい包括列挙APIを作らず、保存形式依存を保持する案を採用した。相手内部の改修は不要。状態射影のnullを保存recordの不在や過去の未作用の証拠へ置換しない。
 
 path算出の前提も保持する。Steerは `sha256(fs.realpathSync(home))`、Bridge recover.py:26は `Path(subscription['codex_home']).resolve()` 後に `sha256(os.fsencode(home))`。双方にpath正規化があることは読取確認済み。OSごとのencoding/表記まで全同値と証明したものではなく、Symlink/Windows表記を含めた既存契約の照合項目として残す。
 
 ## 06:53 UTC Bridge設計の接点保持
 
-リターからAstra設計の結果を受領し、Bridge側design.mdの接点方針を読取照合した。公開export/CLI引数/返却とclaims/pending/settled前後確認・全UUID/owner集合は変更しない。今回は新しい包括列挙APIを要求しない。Bridge側LinuxのASCII/日本語/direct/symlink4例一致は相手側の検証結果として記録し、当席の独立試験やmacOS/Windowsの一致へ拡張しない。全field/例外fixtureの独立照合は継続中。相手内部の変更依頼・操作は0。
+リターからAstra設計の結果を受領し、Bridge側design.mdの接点方針を読取照合した。公開export/CLI引数/返却とclaims/pending/settled前後確認・全UUID/owner集合は変更しない。今回は新しい包括列挙APIを要求しない。Bridge側LinuxのASCII/日本語/direct/symlink4例一致は相手側の検証結果として記録し、当席の独立試験やmacOS/Windowsの一致へ拡張しない。Bridge内部の全field/例外fixtureの独立再検証は未実施。S1の直接境界と公開surfaceの確認を全consumer受入へ拡張しない。相手内部の変更依頼・操作は0。

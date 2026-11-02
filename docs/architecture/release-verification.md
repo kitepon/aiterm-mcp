@@ -2,7 +2,7 @@
 
 # 配布・検証の入口とWindows基準失敗
 
-基準Aiterm ce575ce8 / Steer6734ee86。[現在図](release-verification.svg) / [PNG](release-verification.png)。これは既存の供給経路と試験条件の調査であり、今回の公開・試験・稼働操作は0。
+基準Aiterm ce575ce8 / Steer6734ee86。[現在図](release-verification.svg) / [PNG](release-verification.png)。これは既存の供給経路と基準調査の記録。候補の限定検証はverification.mdにまとめ、公開・稼働操作は0。
 
 ## 配布物とexportの保持
 
@@ -45,6 +45,6 @@ Owner原文「定義した機能の入出力が守られれば該当機能の試
 
 ## 調査の限界と設計への引渡し
 
-全tracked実装130＋25fileを全文初読し、26図・実関数対応へ反映した。release/config/CI/pack/test隔離と主要fixture入口は初読、全219/24補助testファイルの精査ではない。補助全pathとSHA-sizeはaiterm/steer-auxiliary-inventory.jsonに保存し、変更する窓口の全caller/test/fixture/export精査は手順4へ残す。prototype/experiments/archive/RAGの全履歴、untracked native CLI/setup補助は全調査済み扱いにしない。
+全tracked実装130＋25fileを全文初読し、26図・実関数対応へ反映した。release/config/CI/pack/test隔離と主要fixture入口は初読、全219/24補助testファイルの精査ではない。補助全pathとSHA-sizeはaiterm/steer-auxiliary-inventory.jsonに保存し、変更窓口のcaller/test/fixture/export精査と試験はA1–S1の検証原本へ記録した。prototype/experiments/archive/RAGの全履歴、untracked native CLI/setup補助は全調査済み扱いにしない。
 
-次工程はAstra xhighの責務/接続/代替案設計。混在・重複・迂回・不要受渡しを実コードから評価し、公開契約/保存形式/validation/例外を維持する段階変更を決める。設計・実装・最終整合・動作受入はまだ完了していない。
+採用設計の6段階は実装済み。現在の責任と関数位置はsource-index、検証と最終整合結果はverificationを正本とする。基準の全source初読と、限定された候補試験の範囲を区別する。

@@ -31,7 +31,7 @@ sourceの普通input issued slotには、同世代の相互送信を妨げない
 
 `execution-effect` のALS frameは、session、issue/preparation callback、許可native ID、最初のbefore_send位置、最初の失敗を所有する。`guardTmuxExecution` は実command queueを走査し、exact session selectorまたは先にbindしたnative IDへ限定する。unknown/run-shell/kill-server等への迂回を拒否し、global optionも既環境更新用途に制限する。interrupt frameは指定native IDへの指定key一回と観測commandのみ。native作用が準備callback内に現れたら拒否する。
 
-`tmux-runtime.runTmux` はguard→pinned pane routing→native条件queueの順で変換する。POSIX sttyのようにtmux外の作用は`beforeExecutionEffect`で対象TTYと世代を直前再確認する。共通runtime全体の精読はまだ残るので、この境界の確認をOS全体の確認へ拡張しない。
+`tmux-runtime.runTmux` はguard→pinned pane routing→native条件queueの順で変換する。POSIX sttyのようにtmux外の作用は`beforeExecutionEffect`で対象TTYと世代を直前再確認する。共通runtimeも基準初読済みだが、この境界の確認を全OSの動作受入へ拡張しない。
 
 新規作成はpreparation時のserver出生/absenceと、実`new-session -P -F`のnative ID・session名・server PID receiptを照合する。cold serverはその実receipt PIDを再観測して固定する。native ID保存後、managed metadata公開時にlaunchをbindする。新しい同名観測だけで自分が作成した世代へ採用しない。実receiptはsource停止が後着しても保存するが、次の作用許可にはしない。mounted graphはresume transitionを持たず、休止復帰をcreationに偽装しない。
 

@@ -49,7 +49,7 @@ respondは送信lock→元metadata inode/時刻とnative/server/pane出生identi
 
 ## remote
 
-remote.tsは接続入力検証、SSH/stdio中継、完了観測の再接続を所有し、現地Aitermがnative席/metadata/vendor transcriptを所有する。接続先host/user/portをkeyにmemory cache、平文passphraseはMCP memoryだけ。passphrase_env/鍵path等の非秘密設定は親配送boundaryへ保存され得るので、説明の「接続情報を保存しない」を全metadata非保持へ広げない。ControlMaster/socketとaskpass scriptは現地席とは別のruntime stateで、secret本文をfileへ保存しない。
+remote-contract.tsが接続入力契約を、remote.tsがSSH/stdio中継と完了観測の再接続を所有し、現地Aitermがnative席/metadata/vendor transcriptを所有する。接続先host/user/portをkeyにmemory cache、平文passphraseはMCP memoryだけ。passphrase_env/鍵path等の非秘密設定は親配送boundaryへ保存され得るので、説明の「接続情報を保存しない」を全metadata非保持へ広げない。ControlMaster/socketとaskpass scriptは現地席とは別のruntime stateで、secret本文をfileへ保存しない。
 
 callRemoteToolは一回のMCP requestを転送しfinallyで自分のclient接続をcloseする。lost sendを自動で再送しない。観測だけは同じcursorでSSH255再接続、有限deadline/abortを維持し、abortは自分のSSH childを止める。現地回答はstructured textと、双方にturn IDがある場合の一致を確認する現実装であり、localの厳密なcompletion/session/launch検証と同じ完全性とはしない。
 
@@ -57,7 +57,7 @@ indexのremote send/launchは現地dispatch後に親配送登録を行うため�
 
 ## 未確認
 
-harness通常moduleのmodel/auth/status parser全文、steer-follow/interim、private executionとOS native実装、配布入口は後続初読を完了した。全caller/fixtureの独立照合と候補受入は未確認。[採用設計](refactor-rationale.md)は設定UIとremote入力契約を分離する。認証・goal・設定・SSHの実操作は0。Windows73件は原因不明の基準で、今回の読取から修理済みとはしない。
+harness通常moduleのmodel/auth/status parser全文、steer-follow/interim、private executionとOS native実装、配布入口は後続初読を完了した。全caller/fixtureの独立照合と候補受入は未確認。[採用設計](refactor-rationale.md)に従いA3で設定UI、A4aでremote入力契約を分離し、変更した窓口は関連試験と型/schema照合を完了した。認証・goal・設定・SSHの実操作は0。Windows73件は原因不明の基準で、今回の読取から修理済みとはしない。
 
 ## A3/A4aの候補対応
 

@@ -1,0 +1,50 @@
+[
+  {
+    "product": "aiterm",
+    "file": "CHANGELOG.md",
+    "pass": true
+  },
+  {
+    "product": "aiterm",
+    "file": "README.ja.md",
+    "pass": true
+  },
+  {
+    "product": "aiterm",
+    "file": "README.md",
+    "pass": true
+  },
+  {
+    "product": "aiterm",
+    "file": "docs/00_overview.md",
+    "pass": false,
+    "message": "docs/00_overview.mdの相対link architecture/README.md はnpm pack内のdocs/architecture/README.mdで解決できません"
+  },
+  {
+    "product": "aiterm",
+    "file": "docs/DESIGN.md",
+    "pass": true
+  },
+  {
+    "product": "aiterm",
+    "file": "docs/RELEASE.md",
+    "pass": true
+  },
+  {
+    "product": "steer",
+    "file": "CHANGELOG.md",
+    "pass": true
+  },
+  {
+    "product": "steer",
+    "file": "README.ja.md",
+    "pass": false,
+    "message": "README.ja.mdの相対link docs/architecture/README.md はnpm pack内のdocs/architecture/README.mdで解決できません"
+  },
+  {
+    "product": "steer",
+    "file": "README.md",
+    "pass": false,
+    "message": "README.mdの相対link docs/architecture/README.md はnpm pack内のdocs/architecture/README.mdで解決できません"
+  }
+]

@@ -1,0 +1,461 @@
+{
+  "reviewerModel": "gpt-6-astra",
+  "effort": "xhigh",
+  "nativeContextAt": "2026-11-02T11:30:18.776Z",
+  "reviewedSourceHeads": {
+    "aiterm": "155c828c8ca82ee1d4f22cd4b81b3d234e354056",
+    "steer": "133e36f722e256ace9ce6995d9f5b04f0fe9f00f"
+  },
+  "result": "candidate consistency complete; acceptance and publication separate",
+  "runtimeChangesDuringReview": 0,
+  "runtimeTestsReused": 85,
+  "packedMarkdownChecks": {
+    "redFailures": 3,
+    "greenPassed": 9
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "scope": "npm Markdown closure",
+      "status": "fixed docs only"
+    },
+    {
+      "id": "F2",
+      "scope": "stale baseline positions and survey state",
+      "status": "fixed docs and native diagram only"
+    }
+  ],
+  "newRuntimeBlockingFindings": [],
+  "manualPngReview": [
+    "aiterm/current-overview",
+    "aiterm/model-configuration",
+    "aiterm/native-runtime",
+    "aiterm/private-stop",
+    "steer/channel"
+  ],
+  "diagramDotReviewCount": 28,
+  "diagramRerendered": [
+    "aiterm/native-runtime"
+  ],
+  "diagramUnchangedFromSol": 27,
+  "sourceFiles": 163,
+  "indexedFunctionBodies": 3523,
+  "limits": [
+    "no new 3OS/vendor/real consumer acceptance",
+    "original Windows 73 failures cause unknown",
+    "no production/publish/host/live seat mutation",
+    "static index and function comparison are not whole-runtime equivalence proof"
+  ],
+  "reviewEvidence": {
+    "review-function-bodies.json": {
+      "sha256": "d9dcda1ff061c1c9b7d4d378a7d02fa56cc471873b4c414e20120f716a1d296b",
+      "bytes": 5451
+    },
+    "review-pack-links-red.json": {
+      "sha256": "5ca049ef7cfac3801d68fd1218e6cb198b472d423ce755ae4f580d79d6757155",
+      "bytes": 1142
+    },
+    "review-pack-links-green.json": {
+      "sha256": "1cd982902262087d582d0d41cef82e53ee7f2877828a6fbf9cb3456f148ec2fe",
+      "bytes": 717
+    },
+    "native-final-review-applied.json": {
+      "sha256": "f2d82c3655c3b1821059cbda5585c58d49a12c7f2c7baca7c396af9d5832c635",
+      "bytes": 357
+    }
+  },
+  "diagrams": {
+    "aiterm-refactor-20261102/lifecycle-states": {
+      ".dot": {
+        "sha256": "fa739ba5cdb1fc6d0e4d65ab23a3285621e1803a150367aee8e79d3b68ec1a55",
+        "bytes": 2518
+      },
+      ".svg": {
+        "sha256": "962ee32b8be53b3f9102d9d48af42667f979ad32e00de2f10090d043e19850f8",
+        "bytes": 20125
+      },
+      ".png": {
+        "sha256": "f505fff0e1f30165f0973d8449ad1ea2b2720f8946fc23277d213cff673b5301",
+        "bytes": 173997
+      }
+    },
+    "aiterm-refactor-20261102/private-foundation": {
+      ".dot": {
+        "sha256": "07f0cd64c782c8fb96e8e1d27d822bdf36d9089b7983cdee14e1b655bc778255",
+        "bytes": 2137
+      },
+      ".svg": {
+        "sha256": "612870670f5c0b8480b9ea5d8572026465a8a5f0f33def23e260630ef241ccd3",
+        "bytes": 12582
+      },
+      ".png": {
+        "sha256": "c162be855272309e4f84c634728ee43a088d0563d6f3a7cddfe8267f2385b396",
+        "bytes": 154504
+      }
+    },
+    "aiterm-refactor-20261102/private-parent": {
+      ".dot": {
+        "sha256": "77a3338c2497b52e2ec4f269879e4b63ca98d512d2dbb63299ab0ed719b60d7f",
+        "bytes": 2195
+      },
+      ".svg": {
+        "sha256": "8917d3a173401903cdaf3026e8a14684b19c97a230a33949efe2078a45653d0d",
+        "bytes": 13405
+      },
+      ".png": {
+        "sha256": "64dd8521ef140b8ac74e5498b951dc74b2c1130ad11cbb5893aa7fbf91ebad04",
+        "bytes": 160049
+      }
+    },
+    "aiterm-refactor-20261102/parent-delivery": {
+      ".dot": {
+        "sha256": "81dae24fe22307bfe7b030b8ac303f77ffc7c95ed138fb4487fc4bc0c5492012",
+        "bytes": 2908
+      },
+      ".svg": {
+        "sha256": "87b0385cf63ad7e28a47871ca5c32c58245f1bf5d2b1353b694cdd7daa0059cf",
+        "bytes": 20810
+      },
+      ".png": {
+        "sha256": "77e186c35f314ee7785b87032973dd2fe8cb40e1c4ca8c1f839f6a65192a0d5c",
+        "bytes": 216656
+      }
+    },
+    "aiterm-refactor-20261102/close-interrupt": {
+      ".dot": {
+        "sha256": "217a99bce8d24da063707ec5d1542d744b82baf4bd8313671ebb753392bab5e6",
+        "bytes": 2200
+      },
+      ".svg": {
+        "sha256": "801b72ea260f092cf736a9bf4f26e41f273ab839b698f2dfd8a2342973606556",
+        "bytes": 18286
+      },
+      ".png": {
+        "sha256": "1b2c26f73b0cfaf0e7f14a8ea3488a4c11669ec95dc4ccaf7bfe9ee667613553",
+        "bytes": 158507
+      }
+    },
+    "aiterm-refactor-20261102/model-configuration": {
+      ".dot": {
+        "sha256": "660c25a1f62700a8791341f7ad011ce24e1992a5020692508b1b4844713eab90",
+        "bytes": 1925
+      },
+      ".svg": {
+        "sha256": "bfd7d2e469ccab95545230a2db6b37a7fd166d42851cc2dfff0d10421cec4e77",
+        "bytes": 13086
+      },
+      ".png": {
+        "sha256": "95ed70bc068c00dfd8bfd85d8866d0f1c9e59875611c667a5850ba8f12d9346a",
+        "bytes": 125057
+      }
+    },
+    "aiterm-refactor-20261102/runtime-errors": {
+      ".dot": {
+        "sha256": "525e56253d058c6b2033bdf043855a2be10a5757de006f02e659cfaed72da968",
+        "bytes": 1873
+      },
+      ".svg": {
+        "sha256": "04ca5a784eedf015fbcff43cf6e639f1c29f0f5fe04961f9d25764434b76443d",
+        "bytes": 11445
+      },
+      ".png": {
+        "sha256": "4d0e87507433a1f815819eed80b236940798baa60cce88f1c2e91263ff2133e3",
+        "bytes": 133432
+      }
+    },
+    "aiterm-refactor-20261102/release-verification": {
+      ".dot": {
+        "sha256": "57c1e9a3add119bc1576d571ed5aa9c054a522a2d7df136920d1adb0e328052c",
+        "bytes": 2160
+      },
+      ".svg": {
+        "sha256": "9a5d1a0f14551673d08edbce8abce04fe02fb37b89e5efd378a382210fbee078",
+        "bytes": 13985
+      },
+      ".png": {
+        "sha256": "5d2877aa9d2d930c5c01c92158faaf9f6a1fb18fae28dac09d780af53f9384d3",
+        "bytes": 155182
+      }
+    },
+    "aiterm-refactor-20261102/native-runtime": {
+      ".dot": {
+        "sha256": "c45deea78acfede57ff673a7a2c436915d683e23ef5969bb9d692a1c2f3babfd",
+        "bytes": 2141
+      },
+      ".svg": {
+        "sha256": "995afcc67fea86dd65a875bf193ad3c2fd9cc53673a5f75289ad6b082b2b6064",
+        "bytes": 13320
+      },
+      ".png": {
+        "sha256": "98edaf8a3c3c4e36e90f176fca3f8f8a060a46eab41862cfdfb3885430ee1b22",
+        "bytes": 156847
+      }
+    },
+    "aiterm-refactor-20261102/ordinary-pty": {
+      ".dot": {
+        "sha256": "8bffe527aa621ecccb4e12a9a041f7ea3b25750af73e2f2f6bc557fa39647e93",
+        "bytes": 2045
+      },
+      ".svg": {
+        "sha256": "c3138ff04863bfd7fc422567fae6850e612458d40d8839e842aa4141eab83812",
+        "bytes": 13217
+      },
+      ".png": {
+        "sha256": "ac8742c0916df6a657314304d305381d9eec8a48959e867e3fe2c846680b3744",
+        "bytes": 147059
+      }
+    },
+    "aiterm-refactor-20261102/observation-results": {
+      ".dot": {
+        "sha256": "d52a76492bf03a281ac1ea902614b7a4623ab0079f4ab76128cf495079673e0c",
+        "bytes": 2397
+      },
+      ".svg": {
+        "sha256": "8b89fde3fec6a46958441e06c5a00c665ef347818120c8c0510715ed29fcf71d",
+        "bytes": 16608
+      },
+      ".png": {
+        "sha256": "f0361d044d406e9073fb4da666dedbaf194211f9fbd9c0e79826fd0c71f8fbc8",
+        "bytes": 183033
+      }
+    },
+    "aiterm-refactor-20261102/authentication": {
+      ".dot": {
+        "sha256": "6d9cc9cd74edaa5d6a9340735f8b0fef7ef096592289eb99f43b1d14e33cd200",
+        "bytes": 2055
+      },
+      ".svg": {
+        "sha256": "24b3361a99888124fdff69d1ad993119a55f93b12c4ececb631c2a8d9400a5c4",
+        "bytes": 13540
+      },
+      ".png": {
+        "sha256": "0fbde70b8c4d486eca3d4d619d150a74fc867e797b27ff7dbbeda7b7cb6bd6ff",
+        "bytes": 145246
+      }
+    },
+    "aiterm-refactor-20261102/remote": {
+      ".dot": {
+        "sha256": "e23093229584ee8cd0e317dd3f7b2d1f058edf19601e47041548e48699ae0567",
+        "bytes": 2007
+      },
+      ".svg": {
+        "sha256": "11ca70fa7ff9ca5f261336757dcca386101661382571f8b4d6b47af8ba69ccfe",
+        "bytes": 13576
+      },
+      ".png": {
+        "sha256": "2f9f5495a16c1716c0ad329d18bb8ecdb2a9ac4f69201ea0e04de7b6d188f6d3",
+        "bytes": 132928
+      }
+    },
+    "aiterm-refactor-20261102/approval-operation": {
+      ".dot": {
+        "sha256": "cd3d6c5c5ecca2084b7b93de76683ae0f43c5a5288364de0163855338d550295",
+        "bytes": 1914
+      },
+      ".svg": {
+        "sha256": "2a20b9b7a3551e592e57ada5dbb159e1a6796d5842ebea1597f78f245964e627",
+        "bytes": 12831
+      },
+      ".png": {
+        "sha256": "e341435c03d363e0b671d2da13987d450592e1171ddf87b92b06a9603fa22476",
+        "bytes": 138956
+      }
+    },
+    "aiterm-refactor-20261102/private-admission": {
+      ".dot": {
+        "sha256": "59930e0b7279b69a860076fd95aae1e7f2ab95bcece19b97507d6f998184f7aa",
+        "bytes": 2359
+      },
+      ".svg": {
+        "sha256": "92d60848258378562a1cc1f9224155096c350420d7f9afd5059246331d9a7ea8",
+        "bytes": 14866
+      },
+      ".png": {
+        "sha256": "33954beb443cb91a1291c4f055c2768819e356db3e53aad20f6740ccaccdb5c5",
+        "bytes": 173612
+      }
+    },
+    "aiterm-refactor-20261102/launch-identity-input": {
+      ".dot": {
+        "sha256": "701a59b7e2b003b91b278347e5113262ff90f3ace6962540a8044a4d49605c97",
+        "bytes": 2355
+      },
+      ".svg": {
+        "sha256": "7ee11c1bc0524837ee94442350194d03b68fb12d82440f3de9db0ada159bd8f6",
+        "bytes": 17163
+      },
+      ".png": {
+        "sha256": "9c797b5da7661252ebb091f72ef72a791d4adfe4e68213438f35c7791403fd2b",
+        "bytes": 166911
+      }
+    },
+    "aiterm-refactor-20261102/metadata-reader": {
+      ".dot": {
+        "sha256": "416f513a0f9ce17a5aa6e6a34349c598fd64efc77dda038e392a02a4594bb117",
+        "bytes": 1262
+      },
+      ".svg": {
+        "sha256": "1aacc8d0e001bcd66f47d2f34118ea1563901480f6f4fdbadb88e38b0dbf9e46",
+        "bytes": 8667
+      },
+      ".png": {
+        "sha256": "a9abc55fd3c806cf3c1473b883ae3d1afd3d2f17e09e475e7b4d76d540fac146",
+        "bytes": 91432
+      }
+    },
+    "aiterm-refactor-20261102/current-overview": {
+      ".dot": {
+        "sha256": "5ec292ce594ab24dd629a53807600526ee4bae11fb2d02102e04adf2a2f8c148",
+        "bytes": 3932
+      },
+      ".svg": {
+        "sha256": "9781e4d15ad59820d919ffc9f5214a4e685b240cf073ef5e2c0a1e24bc75288d",
+        "bytes": 28520
+      },
+      ".png": {
+        "sha256": "c22a36b48b79b5d752b5fbb66d77c8fa5f26184f6a7548079b562d7d69609a1c",
+        "bytes": 310769
+      }
+    },
+    "aiterm-refactor-20261102/send-admission": {
+      ".dot": {
+        "sha256": "d0eb72e37b7e95fbdec50bd0ca1d9dd4a9bf4f47ab472e9d127e1bf34d716269",
+        "bytes": 2392
+      },
+      ".svg": {
+        "sha256": "0f8d7b89e8b7ae54817f853dba8dfd611fe29fcfa5aa59b80cd297de12a2feec",
+        "bytes": 18835
+      },
+      ".png": {
+        "sha256": "057ca69dcf73bd2597e2455be38c22ebe9675747a7b6f230b646c438e1283063",
+        "bytes": 169237
+      }
+    },
+    "aiterm-refactor-20261102/steer-interim": {
+      ".dot": {
+        "sha256": "425b1aff2976cbcf898ab452171f2f08c36308ced1a4dcfbbfc05a42ed0bf5fe",
+        "bytes": 2045
+      },
+      ".svg": {
+        "sha256": "4efc169303fcc841f96beccdec966e877f16cb98b9e4e6fa597db11c6c0f0fe1",
+        "bytes": 14285
+      },
+      ".png": {
+        "sha256": "49646a67db2f3aaa2a84913f9e0e35f23b7d7af36d73ea7e9cd93cfd1fd2e4b4",
+        "bytes": 144882
+      }
+    },
+    "aiterm-refactor-20261102/private-stop": {
+      ".dot": {
+        "sha256": "ae4314e7a40fc7d84e00bb0acf3c3ee714da05595193e3d5146ce5bb24074e8d",
+        "bytes": 2502
+      },
+      ".svg": {
+        "sha256": "d7b15ddeaf14f8137c774a6ec09f459329d8deab4ff6d5d635a7a4388db0bc46",
+        "bytes": 14801
+      },
+      ".png": {
+        "sha256": "b9f30416faa1a824b7d7c2e1a4fa13501ae489d86cdad84f943851bc32cff8b4",
+        "bytes": 169979
+      }
+    },
+    "aiterm-refactor-20261102/vendor-completion": {
+      ".dot": {
+        "sha256": "46164dbc99a466bf68eac1a57352cece6e07a0ae2217dde9fcdb4a9d6d063106",
+        "bytes": 2120
+      },
+      ".svg": {
+        "sha256": "22c3d7daa30629c5f13ebbd0851a3258b19514bcb0d9973146f1817651a11a35",
+        "bytes": 14602
+      },
+      ".png": {
+        "sha256": "3acfb1c9104e8190d10dd7801aada64627d01138eae0ddae273fb67bf416a30f",
+        "bytes": 152773
+      }
+    },
+    "aiterm-refactor-20261102/codex-relay": {
+      ".dot": {
+        "sha256": "47a20ef68ffd263f6190a5cae3ab4fbeeaf47062cc096984a647ac003952c3b5",
+        "bytes": 1666
+      },
+      ".svg": {
+        "sha256": "c2ad1e946b0f8750d3efd23e8dee60fa0a243a001b1d3e2d4dbc500eab967a7a",
+        "bytes": 10221
+      },
+      ".png": {
+        "sha256": "ddba0968451c7c6609b4f143fe236797ad6a81ee7815c6fdb6043271d43ca918",
+        "bytes": 120468
+      }
+    },
+    "aiterm-refactor-20261102/goal-configuration": {
+      ".dot": {
+        "sha256": "bf38568944004267db108dae563b4c3b1fb6d75dfd16761a0389404a07f443e7",
+        "bytes": 2585
+      },
+      ".svg": {
+        "sha256": "04928ad4d3dada08734f07b774a317842e604b32046b5086e1c20b4634a3bbd1",
+        "bytes": 16652
+      },
+      ".png": {
+        "sha256": "0f658bb719e871a1237657b9647d3d01297f926ccd7a1173267cbd3aacdc5be6",
+        "bytes": 182098
+      }
+    },
+    "aiterm-refactor-20261102/setup-update": {
+      ".dot": {
+        "sha256": "404974ac29e5279bbacb7ac6911ffacc507c78c4e3f2d7330ab210810962df92",
+        "bytes": 2117
+      },
+      ".svg": {
+        "sha256": "62c0b731ff78259cf976c6ea728b6a594dfa98d06b23ad9dab57efeacf450a13",
+        "bytes": 13693
+      },
+      ".png": {
+        "sha256": "84299d7ad69d67a340a4d2b0970d35449ebc12b0cf4beffd77ccf74e94bccc96",
+        "bytes": 158578
+      }
+    },
+    "steer-refactor-20261102/steer-setup-runtime": {
+      ".dot": {
+        "sha256": "bdeb3927f744f661310e1dff51b8299433c305f40745290ea4e7cbe065649acd",
+        "bytes": 2162
+      },
+      ".svg": {
+        "sha256": "676aaa1fab526ebf84f855f92175c0105df7bd9b21653c2953eae5ba5cfd0399",
+        "bytes": 14717
+      },
+      ".png": {
+        "sha256": "18e8a4c8405b9da333213e7c60fec9a079412f8152928fcb6b9faa7a9d05ea8c",
+        "bytes": 157707
+      }
+    },
+    "steer-refactor-20261102/channel": {
+      ".dot": {
+        "sha256": "9c9ddadc1e2eb7c0eea9bf4f397834758da7e68d4818d336379229b1783d341b",
+        "bytes": 1887
+      },
+      ".svg": {
+        "sha256": "73d05193981efd2fd62d4e2d22a13abb9da194ef6c273caf756b8860a9b4224e",
+        "bytes": 14671
+      },
+      ".png": {
+        "sha256": "02519fedda57041f4444dc6f918869fced9f6ceced08bea889cdbad768186220",
+        "bytes": 150487
+      }
+    },
+    "steer-refactor-20261102/steer-receivers": {
+      ".dot": {
+        "sha256": "0d9e13357e9a0eba8016c83be28e28064ea33257b316e99f42a0c07a9eba0c4a",
+        "bytes": 2529
+      },
+      ".svg": {
+        "sha256": "4afbca7b67fb57ad383dd8521889399d041a77f9ca2decc4c204cd166aa7ad38",
+        "bytes": 18441
+      },
+      ".png": {
+        "sha256": "0efd5f73f346c2c7b9dcd42b25b3245c1033ffe5902b1fbb687ef567216f2d7e",
+        "bytes": 185853
+      }
+    }
+  }
+}

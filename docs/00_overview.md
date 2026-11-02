@@ -5,7 +5,7 @@ dotagentsは任意の工場統合を担うが、Aitermの製品正典や実行�
 
 ## 現行正典
 
-- [機能図と実装対応](architecture/README.md): 全体図、機能別詳細、全sourceの責務・関数索引、リファクタリング候補の検証範囲。
+- [機能図と実装対応](https://github.com/kitepon/aiterm-mcp/blob/main/docs/architecture/README.md): 全体図、機能別詳細、全sourceの責務・関数索引、リファクタリング候補の検証範囲。
 - [README](../README.md)／[日本語README](../README.ja.md): 公開API、`aiterm-setup`による依存準備とAI登録、利用、復旧。
 - [AGENTS](https://github.com/kitepon/aiterm-mcp/blob/main/AGENTS.md): AI作業者向けの製品境界と変更規律。
 - [DESIGN](DESIGN.md): 現行アーキテクチャと不変条件。

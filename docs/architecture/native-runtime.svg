@@ -13,10 +13,10 @@
 <!-- core -->
 <g id="node1" class="node">
 <title>core</title>
-<path fill="#edf4ff" stroke="black" d="M487.1,-617.6C487.1,-617.6 195.88,-617.6 195.88,-617.6 189.88,-617.6 183.88,-611.6 183.88,-605.6 183.88,-605.6 183.88,-578.4 183.88,-578.4 183.88,-572.4 189.88,-566.4 195.88,-566.4 195.88,-566.4 487.1,-566.4 487.1,-566.4 493.1,-566.4 499.1,-572.4 499.1,-578.4 499.1,-578.4 499.1,-605.6 499.1,-605.6 499.1,-611.6 493.1,-617.6 487.1,-617.6"/>
+<path fill="#edf4ff" stroke="black" d="M486.93,-617.6C486.93,-617.6 196.05,-617.6 196.05,-617.6 190.05,-617.6 184.05,-611.6 184.05,-605.6 184.05,-605.6 184.05,-578.4 184.05,-578.4 184.05,-572.4 190.05,-566.4 196.05,-566.4 196.05,-566.4 486.93,-566.4 486.93,-566.4 492.93,-566.4 498.93,-572.4 498.93,-578.4 498.93,-578.4 498.93,-605.6 498.93,-605.6 498.93,-611.6 492.93,-617.6 486.93,-617.6"/>
 <text xml:space="preserve" text-anchor="middle" x="341.49" y="-602.8" font-family="DejaVu Sans" font-size="12.00">Core caller: validated intent / session / launch</text>
 <text xml:space="preserve" text-anchor="middle" x="341.49" y="-588.4" font-family="DejaVu Sans" font-size="12.00">Logical input and observation contracts</text>
-<text xml:space="preserve" text-anchor="middle" x="341.49" y="-574" font-family="DejaVu Sans" font-size="12.00">Remaining ordinary core bodies still under review</text>
+<text xml:space="preserve" text-anchor="middle" x="341.49" y="-574" font-family="DejaVu Sans" font-size="12.00">Ordinary core boundaries mapped in ordinary&#45;pty</text>
 </g>
 <!-- gate -->
 <g id="node2" class="node">

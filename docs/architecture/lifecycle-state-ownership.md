@@ -13,7 +13,7 @@
 | `.resume-native.json` | `agent-lifecycle.ts` / `prepareAgentLaunch`のcreated callback / `resumeAgentInLock` | native ID/session/server PID/pane ID/PIDと出生本人性。`verifyCreatedNative`は現在の全項目を照合し、dead-pane closeだけpane終了を許容 |
 | `.resume-template.json` / `.resume.json` | `captureAgentResumeTemplate` / `finishAgentResumeConfiguration` / `refreshAgentResumeRecipe` | model/effort/fast/cwd/executable/config rootと明示env。秘密名のenvをrecipeへ永続化しない。confirmed以外から復帰可能と補完しない |
 | `.lifecycle.json` | `core.checkAgentIdle`のbegin/finish/cancel、`agent-lifecycle.ts`のschema/read/write | stopping→hibernated。停止作用前だけcancelでstoppingを消せる。作用後不明なら停止中の記録を保持 |
-| `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。failed/resumingを自動再試行しない |
+| `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。resuming/未公開nextは再試行しない。公開failedは下記の明示された正常要求と再検証で回復する |
 | `.activity.jsonl` | `agent-activity.ts` | created/input/turn_endをappend。完成eventのdigestで重複を数えない。metadata snapshotをhookとsenderが上書きし合わない |
 | `.idle-clock.json`とsleep worker | `agent-idle-clock.ts` / `core.serviceAgentIdleClock` | token・owner PID/出生本人性・anchor/wake時刻。既send lock下でarm/retire。clock自体を独立した入力受付にしない |
 | 同processの送信行列 | `core.ts agentSendQueues` / `withAgentSendLock` | 到着順に前の処理を待つ。timeoutした待機者の後ろも前の所有者を追い越さない |
@@ -78,3 +78,13 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 元failedは変更せず、strict `.resume-resolution.json`を別に保存・読戻す。`hasCompletedResumeRecovery`を通常resumeとdormant判定で共有し、後続configureで変わるcurrent recipeを履歴の失効条件にしない。close cleanupが新記録も片付ける。同名agent_launchの設定衝突検査を維持して同じ復帰処理へ接続する。画面parserは`harnesses/idle-settings.ts:codexRecoveryComposer`、現在thread/設定previewも同module。cold復帰とcheckpointは未実装。
 
 実入口回帰は`test/agent-idle-core.test.mjs`末尾、strict保存と旧attempt保持は`test/agent-resume-resolution.test.mjs`、現在会話/UI/入力parserは`test/codex-resume-settings.test.mjs`。既三resume caller、dormantを使うobserve/list/設定/closeと公開6fieldの直接境界を確認対象とする。実vendor/3OS/本番受入は別。
+
+## failedから同vendorを新nativeへ復帰する候補（R1-C）
+
+`core.prepareColdCodexRecovery`は既send lock内で、元failed対応・recipe・現在世代とnative不在を確認する。`assertFailedCodexNativeAbsent`は既native一覧のknown/同名不在、旧pane PIDが残る場合の実出生、Linux通常resume argvに残るvendor UUIDのprocessを照合し、孤児/unknownも拒否する。読めないprocess表を空として扱わない。metadata準備作用直前にも同じ確認を行う。
+
+Bの`.resume-recovery-origin.json`は元A.failed attempt/native/recipe/proof digestを束縛するcold sourceであり、正常停止完了ではない。`agent-lifecycle.confirmedAgentResumeRecoveryOrigin`がstrict schema/参照を確認し、`core.resumeSourceRecord`と`codexResumedProof`が正規hibernationと区別する。既resume本体で新C、新出生、同vendor、C.resumed_from=Bを作り、B.attemptを進める。A.failedとBの旧出生は歴史として保持する。
+
+`harnesses/codex.codexNativeRootRecord`が既厳密root選択を共有し、公開済み内部`codexInterruptionRecord`の完了/中断返却意味は維持する。`captureCodexRecoveryProof`は元rootの安定した末尾を新floorにし、元新taskの欠測や未完をtask_completeへ変換しない。新世代は復帰前の完了を受け取らない。元root置換/partial/別会話/複数rootは拒否する。
+
+直接回帰：`agent-idle-core.test.mjs`のcold正常系・orphan/一覧unknown/root置換/vendor mismatch拒否、`codex-resume-proof.test.mjs`の初手前/未完task/cold provenanceと新floor。checkpoint/H1の保存・sealed source契約は未提供で、このcandidateをtmpfs消失後の商用供給成功へ拡張しない。

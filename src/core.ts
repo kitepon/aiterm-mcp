@@ -43,7 +43,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -177,7 +177,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexCompletedTurnId,
-  captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
+  captureCodexRecoveryProof, captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -606,6 +606,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".resume-attempt.json") ||
           f.endsWith(".resume-failure.json") ||
           f.endsWith(".resume-resolution.json") ||
+          f.endsWith(".resume-recovery-origin.json") ||
           f.endsWith(".resume-native.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
@@ -3570,6 +3571,21 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
         if (meta && !readAgentLifecycle(meta)) {
           if (!fs.existsSync(SOCKDIR) && !meta.resumed_from) throw new AitermError(
             `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`, 2);
+          const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED", "復帰対象のnativeを確認できません。本文は送信していません。", name, meta.launch_id);
+          let failed: boolean;
+          try {
+            failed = !!failedCodexResumeRecipe(meta);
+            const old = meta.resumed_from ? readAgentResumeAttempt({ aiterm_session: name, launch_id: meta.resumed_from }) : null;
+            if (old?.state === "failed" && old.next_launch_id === meta.launch_id && !hasCompletedResumeRecovery(meta) && !failed) throw uncertain();
+          } catch { throw uncertain(); }
+          if (failed) {
+            const native = observeExecutionNativeSessions();
+            if (native.state !== "known") throw uncertain();
+            if (!native.sessions.some(row => row.session_id === name)) return await run();
+            let entered = false;
+            try { return await withAgentResumeTarget(meta, () => { entered = true; return run(); }); }
+            catch (error) { if (entered) throw error; throw uncertain(); }
+          }
           return await withAgentResumeTarget(meta, run);
         }
         return await run();
@@ -6587,7 +6603,7 @@ function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExite
   return withNativeSessionTarget(native, () => verifyAgentResumeNative(meta, native, meta.launch_id, allowExitedPane), body, allowExitedPane);
 }
 
-function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecycle) {
+function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin) {
   const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した休止会話の再開情報を確認できません。", 2);
   const recipe = readAgentResumeRecipe(meta);
   if (lifecycle.socket !== SOCK || !recipe || recipe.launch_id !== meta.launch_id || recipe.kind !== meta.kind
@@ -6607,26 +6623,77 @@ function hasCompletedResumeRecovery(meta: AgentMetadata): boolean {
   const resolution = readAgentResumeResolution(meta);
   if (!resolution) return false;
   if (meta.kind !== "codex" || meta.resumed_from !== resolution.previous_launch_id) return false;
-  const origin = { aiterm_session: meta.aiterm_session, launch_id: resolution.previous_launch_id };
-  const attempt = readAgentResumeAttempt(origin), life = readAgentLifecycle(origin), recipe = readAgentResumeRecipe(origin);
+  const origin = previousResumeMetadata(meta);
+  const attempt = readAgentResumeAttempt(origin), life = resumeSourceRecord(origin), recipe = readAgentResumeRecipe(origin);
   const native = readAgentResumeNative(meta);
   return !!attempt && attempt.state === "failed" && attempt.next_launch_id === meta.launch_id
-    && agentResumeRecordDigest(attempt) === resolution.attempt_digest && life?.state === "hibernated"
+    && agentResumeRecordDigest(attempt) === resolution.attempt_digest && !!life
+    && (life.schema !== "aiterm.agent-lifecycle.v1" || life.state === "hibernated")
     && life.socket === SOCK && life.recipe_digest === resolution.recipe_digest
     && life.resume_proof_digest === resolution.resume_proof_digest && !!recipe
     && recipe.vendor_session_id === resolution.vendor_session_id && agentResumeRecipeDigest(recipe) === resolution.recipe_digest
     && !!native && agentResumeRecordDigest(native) === resolution.native_digest;
 }
 
+function previousResumeMetadata(meta: AgentMetadata): AgentMetadata {
+  if (!meta.resumed_from || !/^[a-f0-9]{32}$/.test(meta.resumed_from) || meta.resumed_from === meta.launch_id)
+    throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  const file = agentMetadataPath(meta.aiterm_session, meta.resumed_from), stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4 * 1024 * 1024) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  const source = JSON.parse(fs.readFileSync(file, "utf8")) as AgentMetadata;
+  if (source.kind !== meta.kind || source.aiterm_session !== meta.aiterm_session || source.launch_id !== meta.resumed_from
+    || source.codex_home !== meta.codex_home || source.hook_route !== meta.hook_route
+    || ["agent_role", "parent_session_id", "delegation_depth", "lineage", "delegation_allowed"].some(key => (source as any)[key] !== (meta as any)[key]))
+    throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  return source;
+}
+
+function resumeSourceRecord(meta: AgentMetadata): AgentLifecycle | AgentResumeRecoveryOrigin | null {
+  return readAgentLifecycle(meta) ?? confirmedAgentResumeRecoveryOrigin(meta);
+}
+
+function assertFailedCodexNativeAbsent(meta: AgentMetadata): void {
+  const unavailable = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED", "元のnative不在を確認できません。本文は送信していません。", meta.aiterm_session, meta.launch_id);
+  const current = observeExecutionNativeSessions(), native = readAgentResumeNative(meta);
+  if (!native || current.state !== "known" || current.sessions.some(row => row.session_id === meta.aiterm_session)) throw unavailable();
+  const processes = readRuntimeProcesses();
+  // Linux's normal resume argv retains the exact vendor UUID, including orphaned CLI processes.
+  if (processes.some(row => row.command.includes(meta.vendor_session_id!))) throw unavailable();
+  if (processes.some(row => row.pid === native.pane_pid)) {
+    const identity = processStartIdentities([native.pane_pid], process.platform)[0];
+    if (!identity || identity === native.pane_started_identity) throw unavailable();
+  }
+}
+
+function prepareColdCodexRecovery(meta: AgentMetadata): AgentResumeRecoveryOrigin {
+  const recipe = failedCodexResumeRecipe(meta), native = readAgentResumeNative(meta);
+  if (!recipe || !native || !meta.resumed_from) throw new AgentResumeError("AGENT_RESUME_UNCONFIRMED", "復帰元を確認できません。本文は送信していません。", meta.aiterm_session, meta.launch_id);
+  assertFailedCodexNativeAbsent(meta);
+  const attempt = readAgentResumeAttempt({ aiterm_session: meta.aiterm_session, launch_id: meta.resumed_from })!;
+  const proof = captureCodexRecoveryProof(meta);
+  assertFailedCodexNativeAbsent(meta);
+  if (!isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta) || !isDeepStrictEqual(failedCodexResumeRecipe(meta), recipe))
+    throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  const value: AgentResumeRecoveryOrigin = { schema: "aiterm.agent-resume-recovery-origin.v1", launch_id: meta.launch_id,
+    previous_launch_id: meta.resumed_from, socket: SOCK, at: new Date().toISOString(), failed_attempt_digest: agentResumeRecordDigest(attempt),
+    recipe_digest: agentResumeRecipeDigest(readAgentResumeRecipe(meta)!), resume_proof_digest: codexResumeProofDigest(proof),
+    previous_native_digest: agentResumeRecordDigest(native) };
+  writeAgentResumeRecoveryOrigin(meta, value);
+  if (!isDeepStrictEqual(confirmedAgentResumeRecoveryOrigin(meta), value)) throw new ExecutionError("EXECUTION_STALE_GENERATION");
+  return value;
+}
+
 function failedCodexResumeRecipe(meta: AgentMetadata) {
   if (process.platform !== "linux" || meta.kind !== "codex" || !meta.resumed_from || meta.fast !== false
     || readAgentLifecycle(meta) || readAgentResumeAttempt(meta)) return null;
-  const source = { ...meta, launch_id: meta.resumed_from };
-  const attempt = readAgentResumeAttempt(source), life = readAgentLifecycle(source);
-  if (attempt?.state !== "failed" || attempt.next_launch_id !== meta.launch_id || life?.state !== "hibernated") return null;
+  const source = previousResumeMetadata(meta);
+  const attempt = readAgentResumeAttempt(source), life = resumeSourceRecord(source);
+  if (attempt?.state !== "failed" || attempt.next_launch_id !== meta.launch_id || !life
+    || (life.schema === "aiterm.agent-lifecycle.v1" && life.state !== "hibernated")) return null;
   const recipe = confirmedAgentResumeRecipe(source, life);
   const current = readAgentResumeRecipe(meta);
-  if (!current || recipe.fast || current.launch_id !== meta.launch_id
+  if (!current || recipe.fast || current.launch_id !== meta.launch_id || meta.vendor_session_id !== recipe.vendor_session_id
+    || meta.cwd !== recipe.cwd || meta.agent_executable !== recipe.executable || meta.model !== recipe.model || meta.codex_home !== recipe.configuration_root
     || !isDeepStrictEqual({ ...recipe, launch_id: meta.launch_id }, current)) return null;
   return recipe;
 }
@@ -6638,8 +6705,8 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
     "同じ会話の復帰準備を確認できません。本文は送信していません。", name, meta.launch_id);
   const recipe = failedCodexResumeRecipe(meta), native = readAgentResumeNative(meta);
   if (!recipe || !native) throw unavailable();
-  const source = { ...meta, launch_id: meta.resumed_from! };
-  const attempt = readAgentResumeAttempt(source)!, life = readAgentLifecycle(source)!;
+  const source = previousResumeMetadata(meta);
+  const attempt = readAgentResumeAttempt(source)!, life = resumeSourceRecord(source)!;
   const verify = () => {
     verifyAgentResumeNative(meta, native);
     if (!isDeepStrictEqual(loadAgentMetadata(name), meta) || !isDeepStrictEqual(readAgentResumeAttempt(source), attempt)
@@ -6698,7 +6765,8 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
 }
 
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
-  const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
+  const previous = loadAgentMetadata(name);
+  let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
   const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED",
     "前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", name, previous.launch_id);
   const ownAttempt = readAgentResumeAttempt(previous);
@@ -6708,14 +6776,19 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       if (attempt?.next_launch_id !== previous.launch_id) throw uncertain();
       if (attempt.state !== "ready" && !hasCompletedResumeRecovery(previous)) {
         if (ownAttempt || attempt.state !== "failed") throw uncertain();
-        try { return await completeFailedCodexResume(previous, readyTimeout); }
-        catch { throw uncertain(); }
+        try {
+          const native = observeExecutionNativeSessions();
+          if (native.state !== "known") throw uncertain();
+          if (native.sessions.some(row => row.session_id === name)) return await completeFailedCodexResume(previous, readyTimeout);
+          lifecycle = prepareColdCodexRecovery(previous);
+        } catch { throw uncertain(); }
       }
     }
     if (ownAttempt) throw uncertain();
-    return previous;
+    if (!lifecycle) return previous;
   }
-  if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
+  if ((lifecycle.schema === "aiterm.agent-lifecycle.v1" && lifecycle.state !== "hibernated") || ownAttempt) throw uncertain();
+  const cold = lifecycle.schema === "aiterm.agent-resume-recovery-origin.v1";
   let phase: ResumeFailurePhase = "recipe_validation";
   let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
   let readiness: AgentResumeFailure["readiness"] = null, attemptedAt: string | null = null;
@@ -6759,8 +6832,9 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     phase = "generation_preparation";
     await withExecutionNativeAdmission(name, () => {
       if (!isDeepStrictEqual(loadAgentMetadata(name), previous) || sessionExists(name)) throw uncertain();
-      if (readAgentLifecycle(previous)?.state !== "hibernated"
+      if (!isDeepStrictEqual(resumeSourceRecord(previous), lifecycle)
         || agentResumeRecipeDigest(readAgentResumeRecipe(previous)!) !== lifecycle.recipe_digest) throw uncertain();
+      if (cold) assertFailedCodexNativeAbsent(previous);
       if (previous.kind === "codex" && codexResumeProofDigest(readCodexResumeProof(previous)) !== lifecycle.resume_proof_digest) throw uncertain();
       publishAgentGeneration(previous);
       next = previous.kind === "claude"

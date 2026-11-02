@@ -3,11 +3,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {captureCodexResumeProof,readCodexResumeProof,codexResumeProofDigest,codexRootTranscript,codexBoundTranscript,
+import {captureCodexRecoveryProof,captureCodexResumeProof,readCodexResumeProof,codexResumeProofDigest,codexRootTranscript,codexBoundTranscript,
  latestCodexCompletion,codexCompletedTurnId,codexRunningTurn,codexInterruptionRecord,observeCodexDone,bindCodexTranscriptSession,
  codexTranscriptText} from '../dist/harnesses/codex.js';
 import {writeAgentMetadata,agentMetadataPath} from '../dist/agent-shared.js';
-import {writeAgentResumeRecipe,agentResumeRecipeDigest,writeAgentLifecycle} from '../dist/agent-lifecycle.js';
+import {writeAgentResumeRecipe,agentResumeRecipeDigest,writeAgentLifecycle,writeAgentResumeAttempt,writeAgentResumeNative,writeAgentResumeRecoveryOrigin,agentResumeRecordDigest} from '../dist/agent-lifecycle.js';
 import {observeSteerDone} from '../dist/steer-follow.js';
 import {readInterimWords} from '../dist/interim-words.js';
 let serial=0;
@@ -126,4 +126,28 @@ test('an unfinished, forked, unmarked or ambiguous native root is not a resumabl
   f=>{fs.writeFileSync(path.join(f.dir,'rollout-unfinished.jsonl'),JSON.stringify({type:'session_meta',payload:{id:'other',originator:'codex-tui',source:'cli'}})+'\n');}]){
   const f=fixture();change(f);assert.throws(()=>captureCodexResumeProof(f.meta),/AGENT_RESUME_UNCONFIRMED/);
  }
+});
+
+test('cold proof accepts an inherited root before a new task and never claims completion for an unfinished turn',()=>{
+ const f=resumed();assert.equal(codexInterruptionRecord(f.next),null);
+ const first=captureCodexRecoveryProof(f.next);assert.equal(first.cursor,fs.statSync(f.file).size);assert.equal(first.last_turn_id,'original');
+ f.append([f.event('task_started','unfinished')]);
+ const proof=captureCodexRecoveryProof(f.next);assert.equal(proof.last_turn_id,'unfinished');assert.ok(proof.cursor>first.cursor);
+ assert.throws(()=>captureCodexResumeProof(f.next),/AGENT_RESUME_UNCONFIRMED/);
+});
+test('cold source retains failed history and excludes every pre-create completion for its new generation',()=>{
+ const f=resumed();f.append([f.event('task_started','prior'),f.event('task_complete','prior')]);
+ const proof=captureCodexRecoveryProof(f.next),recipe={...f.recipe,launch_id:f.next.launch_id};writeAgentResumeRecipe(f.next,recipe);
+ const attempt={schema:'aiterm.agent-resume-attempt.v1',launch_id:f.meta.launch_id,next_launch_id:f.next.launch_id,state:'failed',at:new Date().toISOString(),recipe_digest:agentResumeRecipeDigest(f.recipe)};
+ writeAgentResumeAttempt(f.meta,attempt);
+ const native={schema:'aiterm.agent-resume-native.v1',launch_id:f.next.launch_id,native_id:'$2',session_id:f.next.aiterm_session,server_pid:12,server_started_identity:'server-old',pane_id:'%2',pane_pid:13,pane_started_identity:'pane-old'};writeAgentResumeNative(f.next,native);
+ writeAgentResumeRecoveryOrigin(f.next,{schema:'aiterm.agent-resume-recovery-origin.v1',launch_id:f.next.launch_id,previous_launch_id:f.meta.launch_id,socket:'fixture-socket',at:new Date().toISOString(),
+ failed_attempt_digest:agentResumeRecordDigest(attempt),recipe_digest:agentResumeRecipeDigest(recipe),resume_proof_digest:codexResumeProofDigest(proof),previous_native_digest:agentResumeRecordDigest(native)});
+ const current={...f.next,launch_id:'d'.repeat(32),resumed_from:f.next.launch_id};
+ assert.equal(codexRootTranscript(current),f.file);assert.equal(latestCodexCompletion(current,lines),null);
+ f.append([f.event('task_complete','prior')]);assert.equal(latestCodexCompletion(current,lines),null);
+ f.append([f.event('task_started','new'),f.event('task_complete','new')]);assert.equal(codexCompletedTurnId(current),'new');
+});
+test('partial and replaced inherited histories cannot be checkpointed as cold proof',()=>{
+ const f=resumed();fs.appendFileSync(f.file,'{"type":');assert.throws(()=>captureCodexRecoveryProof(f.next),/AGENT_RESUME_UNCONFIRMED/);
 });

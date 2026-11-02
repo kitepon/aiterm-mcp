@@ -182,3 +182,32 @@ export function writeAgentResumeResolution(meta: Launch, input: AgentResumeResol
   if (value.launch_id !== meta.launch_id) throw unavailable();
   writeJson0600(file(meta, ".resume-resolution.json"), value);
 }
+
+const recoveryOriginSchema = z.object({ schema: z.literal("aiterm.agent-resume-recovery-origin.v1"),
+  launch_id: launchId, previous_launch_id: launchId, socket: z.string().min(1), at: z.iso.datetime(),
+  failed_attempt_digest: z.string().regex(/^[a-f0-9]{64}$/), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/), previous_native_digest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict().refine(value => value.launch_id !== value.previous_launch_id);
+export type AgentResumeRecoveryOrigin = z.infer<typeof recoveryOriginSchema>;
+export function readAgentResumeRecoveryOrigin(meta: Launch): AgentResumeRecoveryOrigin | null {
+  const value = read(meta, ".resume-recovery-origin.json", recoveryOriginSchema);
+  if (value && value.launch_id !== meta.launch_id) throw unavailable();
+  return value;
+}
+export function writeAgentResumeRecoveryOrigin(meta: Launch, input: AgentResumeRecoveryOrigin): void {
+  const value = recoveryOriginSchema.parse(input);
+  if (value.launch_id !== meta.launch_id) throw unavailable();
+  writeJson0600(file(meta, ".resume-recovery-origin.json"), value);
+}
+/** This authorizes a cold resume source, never a successful stop or native liveness. */
+export function confirmedAgentResumeRecoveryOrigin(meta: AgentMetadata): AgentResumeRecoveryOrigin | null {
+  const origin = readAgentResumeRecoveryOrigin(meta);
+  if (!origin) return null;
+  const attempt = readAgentResumeAttempt({ aiterm_session: meta.aiterm_session, launch_id: origin.previous_launch_id });
+  const recipe = readAgentResumeRecipe(meta), native = readAgentResumeNative(meta);
+  if (meta.kind !== "codex" || meta.resumed_from !== origin.previous_launch_id || !attempt || attempt.state !== "failed"
+    || attempt.next_launch_id !== meta.launch_id || agentResumeRecordDigest(attempt) !== origin.failed_attempt_digest
+    || !recipe || recipe.vendor_session_id !== meta.vendor_session_id || agentResumeRecipeDigest(recipe) !== origin.recipe_digest
+    || !native || agentResumeRecordDigest(native) !== origin.previous_native_digest) throw unavailable();
+  return origin;
+}

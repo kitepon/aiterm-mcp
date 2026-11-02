@@ -35,7 +35,7 @@ import {
   agentHarness,
 } from "../agent-shared.js";
 import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext, HarnessPaneObservation } from "../agent-shared.js";
-import { readAgentLifecycle, readAgentResumeRecipe, agentResumeRecipeDigest } from "../agent-lifecycle.js";
+import { confirmedAgentResumeRecoveryOrigin, readAgentLifecycle, readAgentResumeRecipe, agentResumeRecipeDigest } from "../agent-lifecycle.js";
 
 export function realCodexHome(): string {
   return process.env.CODEX_HOME || path.join(process.env.HOME ?? os.homedir(), ".codex");
@@ -478,11 +478,7 @@ function codexLatestTurnBoundary(meta: AgentMetadata, reach: "tail" | "whole"): 
  * neither their timestamps nor a cached vendor_session_id prove the live
  * harness endpoint after /new. A later native endpoint adapter may disambiguate.
  */
-export function codexInterruptionRecord(meta: AgentMetadata): {
-  session_id: string; file: { device: number; inode: number };
-  event_cursor: number;
-  boundary: { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: string; reason: string | null };
-} | null {
+function codexNativeRootRecord(meta: AgentMetadata, requireBoundary: boolean) {
   if (meta.kind !== "codex" || meta.hook_route !== "shared_codex_home" || !meta.codex_home) return null;
   try {
     const origin = codexResumedProof(meta);
@@ -549,9 +545,10 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
     const after = fs.statSync(file);
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-      || !boundary || !Number.isSafeInteger(boundary.event_cursor) || boundary.event_cursor < 0
-      || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
-      || (boundary.type === "turn_aborted" && typeof boundary.reason !== "string")) return null;
+      || (requireBoundary && !boundary)
+      || (boundary && (!Number.isSafeInteger(boundary.event_cursor) || boundary.event_cursor < 0
+        || typeof boundary.turn_id !== "string" || !boundary.turn_id || boundary.turn_id.length > 256
+        || (boundary.type === "turn_aborted" && typeof boundary.reason !== "string")))) return null;
     // Re-resolve the candidate set, without the ordinary launch-verdict cache.
     const last = listStrict();
     if (JSON.stringify(last) !== JSON.stringify(files)) return null;
@@ -563,10 +560,22 @@ export function codexInterruptionRecord(meta: AgentMetadata): {
     const final = fs.statSync(file);
     if (after.dev !== final.dev || after.ino !== final.ino || after.size !== final.size
       || after.mtimeMs !== final.mtimeMs || after.ctimeMs !== final.ctimeMs) return null;
-    return { session_id: session, file: { device: before.dev, inode: before.ino }, event_cursor: boundary.event_cursor,
-      boundary: { type: boundary.type, turn_id: boundary.turn_id,
-        reason: typeof boundary.reason === "string" ? boundary.reason : null } };
+    return { session_id: session, file: { device: before.dev, inode: before.ino }, path: file, end: final.size,
+      inherited_last_turn_id: origin?.last_turn_id ?? null,
+      event_cursor: boundary?.event_cursor ?? null,
+      boundary: boundary ? { type: boundary.type, turn_id: boundary.turn_id as string,
+        reason: typeof boundary.reason === "string" ? boundary.reason : null } : null };
   } catch { return null; }
+}
+
+export function codexInterruptionRecord(meta: AgentMetadata): {
+  session_id: string; file: { device: number; inode: number };
+  event_cursor: number;
+  boundary: { type: "task_started" | "task_complete" | "turn_aborted"; turn_id: string; reason: string | null };
+} | null {
+  const value = codexNativeRootRecord(meta, true);
+  if (!value || !value.boundary || value.event_cursor === null) return null;
+  return { session_id: value.session_id, file: value.file, event_cursor: value.event_cursor, boundary: value.boundary };
 }
 
 /**
@@ -1410,10 +1419,12 @@ function codexResumedProof(meta: AgentMetadata): CodexResumeProof | null {
       || previous.codex_home !== meta.codex_home || previous.hook_route !== meta.hook_route
       || ["agent_role", "parent_session_id", "delegation_depth", "lineage", "delegation_allowed"].some(key =>
         (previous as any)[key] !== (meta as any)[key])) throw resumeProofUnavailable();
-    const life = readAgentLifecycle(previous), recipe = readAgentResumeRecipe(previous), proof = readCodexResumeProof(previous);
-    if (life?.state !== "hibernated" || !recipe || recipe.kind !== "codex" || recipe.vendor_session_id !== previous.vendor_session_id
-      || recipe.configuration_root !== meta.codex_home || life.recipe_digest !== agentResumeRecipeDigest(recipe)
-      || life.resume_proof_digest !== codexResumeProofDigest(proof)) throw resumeProofUnavailable();
+    const life = readAgentLifecycle(previous), origin = life ? null : confirmedAgentResumeRecoveryOrigin(previous);
+    const source = life?.state === "hibernated" ? life : origin;
+    const recipe = readAgentResumeRecipe(previous), proof = readCodexResumeProof(previous);
+    if (!source || !recipe || recipe.kind !== "codex" || recipe.vendor_session_id !== previous.vendor_session_id
+      || recipe.configuration_root !== meta.codex_home || source.recipe_digest !== agentResumeRecipeDigest(recipe)
+      || source.resume_proof_digest !== codexResumeProofDigest(proof)) throw resumeProofUnavailable();
     return proof;
   } catch { throw resumeProofUnavailable(); }
 }
@@ -1459,6 +1470,25 @@ export function captureCodexResumeProof(meta: AgentMetadata): CodexResumeProof {
     const proof = codexResumeProofSchema.parse({ schema: "aiterm.codex-resume-proof.v1", launch_id: meta.launch_id,
       session_id: evidence.session_id, file, device: before.dev.toString(), inode: before.ino.toString(), cursor: Number(before.size),
       prefix_bytes: bytes, prefix_sha256: digest, last_turn_id: evidence.boundary.turn_id });
+    writeJson0600(codexResumeProofPath(meta), proof);
+    return readCodexResumeProof(meta);
+  } catch { throw resumeProofUnavailable(); }
+}
+
+/** Freeze the inherited root at cold recovery; it does not assert task completion. */
+export function captureCodexRecoveryProof(meta: AgentMetadata): CodexResumeProof {
+  try {
+    const value = codexNativeRootRecord(meta, false);
+    const turn = value?.boundary?.turn_id ?? value?.inherited_last_turn_id;
+    if (!value || value.session_id !== meta.vendor_session_id || !turn || value.end < 1
+      || readFileRange(value.path, value.end - 1, value.end).toString() !== "\n") throw resumeProofUnavailable();
+    const before = fs.statSync(value.path, { bigint: true }), bytes = Math.min(value.end, 1024 * 1024);
+    if (Number(before.dev) !== value.file.device || Number(before.ino) !== value.file.inode || before.size !== BigInt(value.end)) throw resumeProofUnavailable();
+    const digest = createHash("sha256").update(readFileRange(value.path, 0, bytes)).digest("hex"), after = fs.statSync(value.path, { bigint: true });
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) throw resumeProofUnavailable();
+    const proof = codexResumeProofSchema.parse({ schema: "aiterm.codex-resume-proof.v1", launch_id: meta.launch_id,
+      session_id: value.session_id, file: value.path, device: before.dev.toString(), inode: before.ino.toString(), cursor: value.end,
+      prefix_bytes: bytes, prefix_sha256: digest, last_turn_id: turn });
     writeJson0600(codexResumeProofPath(meta), proof);
     return readCodexResumeProof(meta);
   } catch { throw resumeProofUnavailable(); }

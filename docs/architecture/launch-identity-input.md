@@ -19,3 +19,5 @@
 基準CI `41397057670` Windowsでは `process-start.test.mjs` の自身の出生本人性がnullになり、初期native作成callbackで拒否する多数のcase、argv fixture期限・PTY入力/出力の失敗を観測した。これは故障箇所の候補位置であり、原因を確定したものではない。元ログと5snapshot/24filesは `integrations/papillon-resume-20261102/publication/` に保全済み。基準のまま修理を混ぜず、停止・取消・作成後cleanupとresumeの例外順序は下記詳細へ接続した。
 
 06:35工程の詳細は [状態所有・途中失敗・取消・cleanup](lifecycle-state-ownership.md)、[関数と静的caller/test参照](source-index.md)へ追加した。初期native本人性取得と、その後のmetadata/CLI起動行のcatchは別の位置にあり、同じcleanupが必ず走ると説明しない。
+
+R1-C候補は公開済みfailedかつnative不在のCodexへ新出生のnativeを作り、同vendor IDを再開する。元failedをhibernatedへ変更せず、正規recovery-originとfresh root floorを既resume作成へ渡す。詳細/返却/unknown/cleanupは[lifecycle正本](lifecycle-state-ownership.md)へ接続する。生きている同名別nativeの採用や旧本文の再送は行わない。

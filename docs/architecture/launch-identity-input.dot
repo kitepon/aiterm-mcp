@@ -15,7 +15,7 @@ digraph launch {
  after [label="Caller observes submit residue / turn start\nreceipt distinguishes not_sent / unconfirmed / started"];
  receipt [label="index.ts: structuredContent / fail\nlaunch receipt has no launch_id field"];
  observe [label="pty_observe\ncurrent launch ID / existence / native identity\nseparate observation, no screen or raw argv"];
- request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="dormant path"];
+ request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery"];
  create -> mux;mux -> identity [label="created receipt"];
  identity -> fail [label="null / unavailable"];fail -> receipt;
  identity -> launch [label="both identities available"];

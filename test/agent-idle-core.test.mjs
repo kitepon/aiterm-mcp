@@ -823,3 +823,54 @@ test('failed published resume recovers after its same native becomes ready witho
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2,'no third CLI');
  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['CURRENT_BODY']);
 });
+
+test('failed published Codex resumes the same vendor in a new native after the old native is gone',{skip,timeout:20000},async t=>{
+ const f=await fixture(t,{resumeLater:true});core.openSession('cold-server-guard');
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ await assert.rejects(core.dispatchAgentTurn(f.name,'OLD_REJECTED',{raw:true,ready_timeout:250}),e=>e.resumeFailure?.input==='not_sent');
+ const attemptFile=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json');
+ const failedBytes=fs.readFileSync(attemptFile,'utf8'),attempt=JSON.parse(failedBytes);
+ const before=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,attempt.next_launch_id).replace(/\.agent\.json$/,'.resume-native.json'),'utf8'));
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',f.name]).status,0);
+ fs.writeFileSync(f.keys+'-allow-ready','1');
+ const receipt=await core.dispatchAgentTurn(f.name,'CURRENT_COLD_BODY',{raw:true,ready_timeout:2000});
+ assert.notEqual(receipt.launch_id,attempt.next_launch_id);
+ const current=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,receipt.launch_id),'utf8'));
+ const native=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,receipt.launch_id).replace(/\.agent\.json$/,'.resume-native.json'),'utf8'));
+ assert.equal(current.vendor_session_id,f.meta.vendor_session_id);assert.equal(current.resumed_from,attempt.next_launch_id);
+ assert.notEqual(native.pane_started_identity+':'+native.pane_pid,before.pane_started_identity+':'+before.pane_pid);
+ assert.equal(fs.readFileSync(attemptFile,'utf8'),failedBytes);
+ assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['CURRENT_COLD_BODY']);
+ const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,3);
+ assert(launches[2].argv.includes('resume'));assert(launches[2].argv.includes(f.meta.vendor_session_id));
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,attempt.next_launch_id).replace(/\.agent\.json$/,'.lifecycle.json')),false);
+});
+
+for(const obstruction of ['orphan','unknown-list','root-replaced','vendor-mismatch'])test('cold failed recovery refuses '+obstruction+' without creating or sending',{skip,timeout:20000},async t=>{
+ const f=await fixture(t,{resumeLater:true});core.openSession('cold-negative-guard');
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ await assert.rejects(core.dispatchAgentTurn(f.name,'OLD',{raw:true,ready_timeout:250}),e=>e.resumeFailure?.input==='not_sent');
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',f.name]).status,0);
+ fs.writeFileSync(f.keys+'-allow-ready','1');
+ if(obstruction==='orphan'){
+  const child=childProcess.spawn(process.execPath,['-e','setInterval(()=>{},1000)',f.meta.vendor_session_id],{stdio:'ignore'});
+  t.after(()=>child.kill());await new Promise(resolve=>child.once('spawn',resolve));
+ }
+ if(obstruction==='unknown-list'){
+  const original=childProcess.spawnSync;t.mock.method(childProcess,'spawnSync',function(bin,args,options){
+   if(bin===resolveTmux()&&args.includes('list-sessions'))return {status:2,stdout:'',stderr:'fixture list unavailable'};
+   return original(bin,args,options);
+  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ }
+ if(obstruction==='vendor-mismatch'){
+  const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
+  const changed=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,attempt.next_launch_id),'utf8'));
+  writeAgentMetadata({...changed,vendor_session_id:'11111111-2222-4333-8444-999999999999'});
+ }
+ if(obstruction==='root-replaced'){const body=fs.readFileSync(f.rollout);fs.renameSync(f.rollout,f.rollout+'.original');fs.writeFileSync(f.rollout,body);}
+ try {
+  await assert.rejects(core.dispatchAgentTurn(f.name,'MUST_NOT_SEND',{raw:true,ready_timeout:500}),e=>e.resumeFailure?.input==='not_sent');
+  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2);
+  assert.equal(fs.existsSync(f.keys),false);
+ } finally { if(obstruction==='unknown-list'){t.mock.restoreAll();syncBuiltinESMExports();} }
+});

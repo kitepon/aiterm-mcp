@@ -26,6 +26,12 @@ digraph lifecycle {
   recovery -> resolution [label="same conversation + ready"];
   recovery -> failed [label="dead / busy / mismatch / unknown",style=dashed];
   resolution -> active [label="shared lifecycle admission"];
+  absent [label="R1-C: known native absence\nNo surviving pane birth / resume UUID process\nRecheck under native admission",fillcolor="#eaf7ed"];
+  origin [label="B.resume-recovery-origin + fresh Codex proof floor\nOld A.failed unchanged / no fabricated B.hibernated\nNew C.resumed_from=B; fresh native birth",fillcolor="#eaf7ed"];
+  failed -> absent [label="later normal request, old native gone"];
+  absent -> origin [label="generation / recipe / unique root confirmed"];
+  absent -> failed [style=dashed,label="unknown / orphan / conflict"];
+  origin -> resume [label="shared resume creation path"];
   failure_record [label="Local first-saved resume failure\nphase / safe cause / readiness / old-next IDs\nbody not_sent, native outcome unknown\nbest effort; existing error + attempt unchanged",fillcolor="#eaf7ed"];
   failed -> failure_record [label="recordAgentResumeFailure"];
   resume -> failure_record [label="new-attempt preflight failure only",style=dashed];

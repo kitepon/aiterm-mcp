@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.63.3] - 2026-11-03
 
 ### Fixed
+- Execute the offline resume CLI through the ordinary npm bin symlink as well as its direct script path.
 - Recover published failed Linux Codex resumes on the next ordinary send or same-name launch. Revalidate the live conversation, native birth, empty composer and saved settings, or create a new native for the same vendor conversation when the old native is known absent. Preserve failed history and never replay a previous request.
 - Restore mismatched model and effort with confirmed native goal protection. Reject unavailable goal reads before settings or input; keep the ordinary configure contract unchanged.
 - Preserve the first safely recorded resume failure without storing input, raw exceptions or credentials.

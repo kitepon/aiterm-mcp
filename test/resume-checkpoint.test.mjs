@@ -181,3 +181,12 @@ test('template credential names are refused just like recipe credential names',(
  f.records.push(resumeCheckpointRecord(id,'template',Buffer.from(JSON.stringify({...settings,schema:'aiterm.agent-resume-template.v1',state:'confirmed',environment:{API_KEY:'FIXTURE_ONLY'}}))));
  assert.throws(()=>encodeResumeCheckpoint(f));
 });
+
+// npm's installed bin is a symlink on POSIX; the entry must execute through that path.
+test('resume-state CLI executes through the installed-style bin symlink', t => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'aiterm-resume-bin-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const bin=path.join(dir,'aiterm-resume-state');
+  fs.symlinkSync(path.resolve('dist/resume-state-cli.js'),bin);
+  const result=spawnSync(process.execPath,[bin,'--invalid'],{encoding:'utf8'});
+  assert.equal(result.status,2);assert.equal(result.stdout,'');assert.equal(result.stderr,RESUME_STATE_ERROR);
+});

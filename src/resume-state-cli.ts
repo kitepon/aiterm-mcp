@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {fileURLToPath} from 'node:url';
+import {realpathSync} from 'node:fs';
 import {createOfflineResumeCheckpoint,restoreOfflineResumeCheckpoint} from './resume-checkpoint-files.js';
 import {RESUME_CHECKPOINT_MAX_BYTES,resumeCheckpointDigest} from './resume-checkpoint.js';
 export const RESUME_STATE_ERROR='aiterm: RESUME_STATE_UNCONFIRMED\n';
@@ -36,4 +37,9 @@ export async function main(args=process.argv.slice(2)):Promise<number>{
   }catch{try{await output(process.stderr,RESUME_STATE_ERROR);}catch{}return 2;}
   finally{process.stdout.removeListener('error',quiet);process.stderr.removeListener('error',quiet);}
 }
-if(process.argv[1]===fileURLToPath(import.meta.url))process.exitCode=await main();
+function invokedDirectly():boolean {
+  if(!process.argv[1])return false;
+  try{return realpathSync(process.argv[1])===realpathSync(fileURLToPath(import.meta.url));}
+  catch{return false;}
+}
+if(invokedDirectly())process.exitCode=await main();

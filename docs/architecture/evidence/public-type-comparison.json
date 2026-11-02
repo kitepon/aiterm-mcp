@@ -1,0 +1,32 @@
+[
+  {
+    "name": "aiterm",
+    "base": "ce575ce8abc91b13f8a4e1c7b7b20c4330ee86fd",
+    "modules": [
+      "core.ts",
+      "remote.ts",
+      "parent-delivery.ts"
+    ],
+    "normalization": "equivalent zod namespace qualifiers and moved ChannelDeliveryState alias only",
+    "counts": {
+      "core.ts": 133,
+      "remote.ts": 22,
+      "parent-delivery.ts": 5
+    },
+    "differences": []
+  },
+  {
+    "name": "steer",
+    "base": "6734ee86a77928640877415fb83981475f7cb142",
+    "modules": [
+      "index.ts",
+      "channel.ts"
+    ],
+    "normalization": "equivalent zod namespace qualifiers and moved ChannelDeliveryState alias only",
+    "counts": {
+      "index.ts": 176,
+      "channel.ts": 19
+    },
+    "differences": []
+  }
+]

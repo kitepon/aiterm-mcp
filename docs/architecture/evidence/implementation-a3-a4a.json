@@ -1,0 +1,188 @@
+{
+  "observedAt": "2026-11-02T10:38:36.153302+00:00",
+  "base": "21cc1fe",
+  "head": "aaba15768f52c68a6b8ec72800b2998bdebacf08",
+  "stages": {
+    "A3": {
+      "commit": "2f18b12",
+      "build": "passed",
+      "tests": {
+        "claudeAndGoal": 13,
+        "codexPublicConfigure": 5,
+        "newUiAndDefaults": 2,
+        "totalPassed": 20,
+        "failedFinal": 0
+      },
+      "initialFixtureFailure": "new scripted effort row lacked existing required two-space description delimiter; corrected fixture only; defaults success retained without rerun",
+      "commands": [
+        "npm run build",
+        "node scripts/run-seat-tests.mjs --test test/claude-configure-session-only.test.mjs test/configure-goal-core.test.mjs",
+        "node scripts/run-seat-tests.mjs --test test/agent-model-ui.test.mjs (defaults passed; new Codex fixture failed then corrected)",
+        "node --import ./test/seat-env.mjs --test --test-name-pattern=^Codex_UI test/agent-model-ui.test.mjs (actual pattern: ^Codex UI)",
+        "node --import ./test/seat-env.mjs --test --test-name-pattern=^agent_configure:_Codex test/core-agent.test.mjs (actual pattern: ^agent_configure: Codex)"
+      ]
+    },
+    "A4a": {
+      "commit": "aaba157",
+      "build": "passed",
+      "tests": {
+        "passed": 1,
+        "assertions": "existing schema rejection cases plus old/new export object identity"
+      },
+      "initialBuildFailure": "prepended import displaced index shebang; restored shebang to first line before successful build",
+      "commands": [
+        "npm run build",
+        "node --import ./test/seat-env.mjs --test --test-name-pattern=^接続先はoption test/remote.test.mjs"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "bytes": 13134,
+      "sha256": "97c0e150c2b7bcc855c514b721da88e017513bbea2df2f3897a303fddec53a9b"
+    },
+    {
+      "path": "docs/architecture/current-overview.dot",
+      "bytes": 3891,
+      "sha256": "25e8a47c55e748670f9a0d5e3910ceabc56107192d687c0eb57b61e10717c117"
+    },
+    {
+      "path": "docs/architecture/current-overview.png",
+      "bytes": 304670,
+      "sha256": "9987bfa496fadb3b2f8efd317f7d725ed1433693350c60d3d978fa30a8c74262"
+    },
+    {
+      "path": "docs/architecture/current-overview.svg",
+      "bytes": 27909,
+      "sha256": "cde1c1d7c65bd32a077535691f1fd194c10d184696d23017d5ac57949a7d82fb"
+    },
+    {
+      "path": "docs/architecture/goal-configuration.dot",
+      "bytes": 2585,
+      "sha256": "bf38568944004267db108dae563b4c3b1fb6d75dfd16761a0389404a07f443e7"
+    },
+    {
+      "path": "docs/architecture/goal-configuration.png",
+      "bytes": 182098,
+      "sha256": "0f658bb719e871a1237657b9647d3d01297f926ccd7a1173267cbd3aacdc5be6"
+    },
+    {
+      "path": "docs/architecture/goal-configuration.svg",
+      "bytes": 16652,
+      "sha256": "04928ad4d3dada08734f07b774a317842e604b32046b5086e1c20b4634a3bbd1"
+    },
+    {
+      "path": "docs/architecture/model-configuration.dot",
+      "bytes": 1925,
+      "sha256": "660c25a1f62700a8791341f7ad011ce24e1992a5020692508b1b4844713eab90"
+    },
+    {
+      "path": "docs/architecture/model-configuration.md",
+      "bytes": 2113,
+      "sha256": "3d619dc556e7e8f2792345f743e0a2016b511bf771ed1bbfe206bc6b430e8b62"
+    },
+    {
+      "path": "docs/architecture/model-configuration.png",
+      "bytes": 125057,
+      "sha256": "95ed70bc068c00dfd8bfd85d8866d0f1c9e59875611c667a5850ba8f12d9346a"
+    },
+    {
+      "path": "docs/architecture/model-configuration.svg",
+      "bytes": 13086,
+      "sha256": "bfd7d2e469ccab95545230a2db6b37a7fd166d42851cc2dfff0d10421cec4e77"
+    },
+    {
+      "path": "docs/architecture/remote.dot",
+      "bytes": 2007,
+      "sha256": "e23093229584ee8cd0e317dd3f7b2d1f058edf19601e47041548e48699ae0567"
+    },
+    {
+      "path": "docs/architecture/remote.png",
+      "bytes": 132928,
+      "sha256": "2f9f5495a16c1716c0ad329d18bb8ecdb2a9ac4f69201ea0e04de7b6d188f6d3"
+    },
+    {
+      "path": "docs/architecture/remote.svg",
+      "bytes": 13576,
+      "sha256": "11ca70fa7ff9ca5f261336757dcca386101661382571f8b4d6b47af8ba69ccfe"
+    },
+    {
+      "path": "docs/architecture/render-results.json",
+      "bytes": 843,
+      "sha256": "821424e40df72fedda4c3bdac5ac3dcd7594588e73bce9ca49a904b8fb91e609"
+    },
+    {
+      "path": "src/agent-model-ui.ts",
+      "bytes": 484,
+      "sha256": "cbe72450ba123ca82a10626a0d08ac1303bf03c21bc378a23c7e22a023adf613"
+    },
+    {
+      "path": "src/core.ts",
+      "bytes": 432069,
+      "sha256": "feec6e44bc8e19cba4299f37989373160e7d177a9b79aa3195861db036dcf3f4"
+    },
+    {
+      "path": "src/harnesses/claude-configure.ts",
+      "bytes": 9697,
+      "sha256": "45c4ee29b357f56c0b264a98ca19f2910dbf5b1d79fc5afc86b5456d3c0c7684"
+    },
+    {
+      "path": "src/harnesses/codex-configure.ts",
+      "bytes": 4355,
+      "sha256": "a56de52acd818a3c0ab7602b683dbb15f3f5071899afdb678da127a434873da8"
+    },
+    {
+      "path": "src/index.ts",
+      "bytes": 88182,
+      "sha256": "966b1ee60bdfb3c039cd37ea2b8ede7e20d54d81ede921ca933fd14261faf5c1"
+    },
+    {
+      "path": "src/parent-delivery.ts",
+      "bytes": 54340,
+      "sha256": "4e590ebf6ecb47b7cfab124959eac3e901cf815629ce3c02cb350a3ccaec05f3"
+    },
+    {
+      "path": "src/remote-contract.ts",
+      "bytes": 1537,
+      "sha256": "0bfda52724fce89183244ad4ac03fb19a8e08045f21009786e0fede456857816"
+    },
+    {
+      "path": "src/remote.ts",
+      "bytes": 16735,
+      "sha256": "c01201e711e553150db5d0dc6dd093927342f826dee34380ca47e53755d94ba6"
+    },
+    {
+      "path": "src/update-cli.ts",
+      "bytes": 3699,
+      "sha256": "ccb6cb15e5c14d118a4a4d1353394873c6c69f52870778d8a9f311b0e31616cf"
+    },
+    {
+      "path": "src/update.ts",
+      "bytes": 15144,
+      "sha256": "dd842d43d5694310e32b90b39157972953110945acb8860844efaddc951fff4f"
+    },
+    {
+      "path": "src/user-config.ts",
+      "bytes": 6097,
+      "sha256": "bc37e9c2a146f2e017d0b881b4a07d355bf98efbc65a479d6e6ce96aa0a5deab"
+    },
+    {
+      "path": "test/agent-model-ui.test.mjs",
+      "bytes": 2279,
+      "sha256": "d222638ae62c36887c74a6483cb2e9f4f1d41e52450b883a2ac1bc5523192f07"
+    },
+    {
+      "path": "test/remote.test.mjs",
+      "bytes": 15061,
+      "sha256": "9b640bdf628e5fffbdc1d1c0522f2c982508691d0cc2a8ced1d846ce6d80f0a4"
+    }
+  ],
+  "unverified": [
+    "A4b/S1 implementation and related fixture review",
+    "package manifests and final Astra consistency",
+    "original Windows 73 failure cause",
+    "new OS/vendor live acceptance"
+  ],
+  "productPublishOrLiveOperations": 0
+}

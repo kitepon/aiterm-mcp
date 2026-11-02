@@ -1,0 +1,22 @@
+digraph close {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.6,ranksep=0.45,label="Current close versus immediate interruption: effects and evidence",labelloc=t,fontname="DejaVu Sans",fontsize=17];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ close [label="closeSessionResult\nrecord existed flag"];
+ guard [label="assertSessionClosable\nforeign live wait/send refuses close"];
+ logical [label="Dormant or proven native absence?\nvalidate lifecycle + attempt + generation\nrecheck no same-name replacement"];
+ pinned [label="Managed: saved native birth proof\nOrdinary PTY: existing name path"];
+ stop [label="Optional Windows Claude exit request\nkill-session; Windows server exit confirmation"];
+ cleanup [label="finish: per-seat files mostly best-effort\nlock cleanup checks token / owner liveness"];
+ receipt [label="closed / already_closed\nnot proof that every file deletion succeeded"];
+ refusal [label="Refuse / native_close_unconfirmed\nretain original uncertainty",fillcolor="#ffe9e9"];
+ interrupt [label="interruptSessionNow\nnot queued behind ordinary send"];
+ target [label="Observe current native ID + metadata\noptional expected launch check"];
+ screen [label="C-c harness: idle → no key\nbusy → one standard cancel key\nunknown → refuse"];
+ key [label="Pinned native key acknowledgement\ninterruption:unconfirmed\nsession_preserved:unconfirmed",fillcolor="#fff0d8"];
+ idle [label="No cancel key issued\noutcome: idle",fillcolor="#eaf7ed"];
+ close -> guard;guard -> logical [label="no foreign owner"];guard -> refusal [label="live foreign lock"];logical -> cleanup [label="logical close only"];logical -> pinned [label="live native"];
+ logical -> refusal [label="unknown / replacement"];pinned -> stop;stop -> cleanup [label="normal finish"];stop -> refusal [label="required close not confirmed"];cleanup -> receipt;
+ interrupt -> target;target -> screen;screen -> key [label="busy + owned native"];target -> refusal [label="unconfirmed"];screen -> refusal [label="unknown"];
+ target -> idle [label="native absent"];screen -> idle [label="idle composer"];
+}

@@ -1,0 +1,12 @@
+digraph relay {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Legacy Codex relay: configuration, direct ancestry and transport",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ config [label="Common enable / disable / status\nConflict check; retain previous GUI value\nBuild + isolated initialize/EOF probe\nSave → persist → GUI readback → live check"];
+ posix [label="POSIX exec launcher\nOfficial CLI remains direct child of Desktop\nRelay is CLI child; private Unix socket"];
+ win [label="Windows native parent/handle adapter\nSuspended child → job + stdio handle list → resume\nOfficial CLI and launcher have DIFFERENT PIDs\nToken / loopback endpoint / connection record"];
+ verify [label="Connection read: owner / ACL / process birth\nBinary + endpoint + token reference + Desktop ancestry\nValidate only, no ACL repair during read"];
+ stdio [label="Shared JSONL ↔ WebSocket relay\nStdout backpressure pauses socket\nRetry initial connect only; never replay sent RPCs"];
+ end [label="EOF / binary frame / close / stdout error\nOne stop promise + transport cleanup\nOS adapter owns CLI lifetime / child handles"];
+ status [label="Ready differs from saved configuration\nRestart_required is a result, not an operation here\nNormal official hooks migrate away from legacy relay",fillcolor="#eeeeee"];
+ config -> posix;config -> win;win -> verify;posix -> stdio;verify -> stdio;stdio -> end;end -> status;config -> status [style=dashed,label="readback/live result"];
+}

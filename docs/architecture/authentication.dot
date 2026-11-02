@@ -1,0 +1,17 @@
+digraph auth {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.55,label="Current official authentication: native ownership and secret input",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ start [label="agent_auth start\nresolve CLI + cwd + official status\nrelogin skips status; AGY relogin unsupported"];
+ native [label="Unauthenticated / onboarding needed\ncreate dedicated PTY, disable terminal logging\npersist auth metadata → official login process"];
+ state [label="status: current pane + metadata/native generation\ndead/status/signal + official auth status\nmay transition login → onboarding in same auth seat"];
+ receipt [label="waiting / blocked / authenticated / failed\nsafe URL / code / choices + exact binding/digest\ncredentials remain vendor-owned"];
+ respond [label="respond: lock + expected binding/digest/choice\ncheck birth + foreground and fresh prompt\nWindows foreground input remains unsupported"];
+ input [label="Disable logging; check again before each effect\ncode: buffer → paste once → Enter → delete buffer\nchoice: fresh bounded steps; no raw host keys"];
+ observe [label="Post-input status readback on original generation\nno second input submission"];
+ cancel [label="cancel: verify dedicated auth metadata\nclose auth seat; absent seat removes auth record\nno credentials rollback implied"];
+ unknown [label="Before input: not_issued\nafter input or readback lost: unknown\nretain no-auto-resend distinction",fillcolor="#fff0d8"];
+ start -> receipt [label="already authenticated"];start -> native;native -> state;state -> receipt;
+ receipt -> respond [label="caller supplies bound response"];respond -> input;input -> observe;observe -> receipt;
+ respond -> unknown [style=dashed,label="pre-effect refusal"];input -> unknown [style=dashed,label="effect attempted"];observe -> unknown [style=dashed];receipt -> cancel [style=dashed];
+}

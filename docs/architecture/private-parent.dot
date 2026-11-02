@@ -1,0 +1,16 @@
+digraph parent {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Private parent return: provenance, queue and native hook effects",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ ingress [label="MCP ingress frozen parent provenance\nOriginal request / source launch / client / process births\nCurrent harness lineage + independently verified endpoint"];
+ bind [label="Actual before_send: existing delivery UUID\nParent launch + child pre-send Point + endpoint digest\nNo payload in execution store"];
+ child [label="Child input accepted → canonical service receipt\nChild completion reobserves this exact Point\nNever rekey to stronger pre-send or guessed turn"];
+ queue [label="Parent adapter: one return request using same delivery ID\nSource = canonical child; target = original parent launch\nClaude current queue endpoint proof implemented\nCodex/Cursor ingress alone does not enable queue"];
+ stages [label="Worker dequeue / emit / wake\nCheck accepted return + actor / endpoint / native context\nPersist per-ID issued effects + one parent slot\nCommit accepted after actual effect returns"];
+ unknown [label="Already issued / accepted / unknown → no repeat\nCommit failure retains slot / uncertainty\nPreserve genuine native receipt",fillcolor="#fff0dd"];
+ hook [label="Accepted hook reference = hook context\nNot recipient turn acceptance / completion / fence\nMissing native context remains unsupported"];
+ parent [label="Parent consumer work / display\nNeeds its own actual acceptance and completion evidence\nSaved child Stop / emitted text cannot substitute",fillcolor="#eeeeee"];
+ diagnosis [label="Claim / Claude historical records diagnosis\nCorrelate references, SHA/bytes, files, actors\nclearance retained / retry none / native fence unknown"];
+ ingress -> bind;bind -> child;child -> queue;queue -> stages;stages -> hook;hook -> parent [style=dashed,label="acceptance not established here"];
+ queue -> unknown;stages -> unknown;bind -> diagnosis;child -> diagnosis;stages -> diagnosis;
+}

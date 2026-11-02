@@ -2,6 +2,34 @@
   "graphviz": "16.1.0",
   "results": [
     {
+      "file": "approval-operation.dot",
+      "width": 1537,
+      "height": 680,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "authentication.dot",
+      "width": 1029,
+      "height": 1051,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "close-interrupt.dot",
+      "width": 1716,
+      "height": 819,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "codex-relay.dot",
+      "width": 995,
+      "height": 873,
+      "svg": true,
+      "png": true
+    },
+    {
       "file": "current-overview.dot",
       "width": 2960,
       "height": 1417,
@@ -12,6 +40,20 @@
       "file": "goal-configuration.dot",
       "width": 1425,
       "height": 816,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "launch-identity-input.dot",
+      "width": 1161,
+      "height": 1189,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "lifecycle-states.dot",
+      "width": 1172,
+      "height": 1237,
       "svg": true,
       "png": true
     },
@@ -30,6 +72,20 @@
       "png": true
     },
     {
+      "file": "native-runtime.dot",
+      "width": 1200,
+      "height": 920,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "observation-results.dot",
+      "width": 1701,
+      "height": 849,
+      "svg": true,
+      "png": true
+    },
+    {
       "file": "ordinary-pty.dot",
       "width": 1143,
       "height": 1013,
@@ -44,9 +100,79 @@
       "png": true
     },
     {
+      "file": "private-admission.dot",
+      "width": 1341,
+      "height": 1105,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "private-foundation.dot",
+      "width": 1560,
+      "height": 775,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "private-parent.dot",
+      "width": 1461,
+      "height": 924,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "private-stop.dot",
+      "width": 1876,
+      "height": 571,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "release-verification.dot",
+      "width": 893,
+      "height": 1164,
+      "svg": true,
+      "png": true
+    },
+    {
       "file": "remote.dot",
       "width": 1215,
       "height": 795,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "runtime-errors.dot",
+      "width": 1232,
+      "height": 787,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "send-admission.dot",
+      "width": 1683,
+      "height": 965,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "setup-update.dot",
+      "width": 1211,
+      "height": 1135,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "steer-interim.dot",
+      "width": 1300,
+      "height": 775,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "vendor-completion.dot",
+      "width": 2292,
+      "height": 683,
       "svg": true,
       "png": true
     }

@@ -1,0 +1,13 @@
+digraph runtime_errors {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Runtime errors: collection, storage, diagnosis, reporting and receipt",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ event [label="MCP/core fixed allowlisted error CODE\nNo arbitrary payload / argv / path / raw exception"];
+ worker [label="Record worker: spawn receipt ≠ committed record\nPOSIX / Windows bounded deadline\nFixed failure diagnostic; worker-only cleanup"];
+ store [label="Private aggregate store + ticket queue\nValidate schema / fingerprint / sequence / ack\nCapacity preserves unacknowledged records\nWindows state reads ALSO apply/read back DACL"];
+ diagnostic [label="Diagnostic worker → exact small result\nready / not_applicable / unverified\nCLI snapshot / ack / resolve / reopen are distinct"];
+ report [label="Separate report worker, reporting opt-in\nPrivate credential read validates without repair\nFixed report fields / cumulative snapshot / report ID\nHMAC request; intervals + dedicated report lock"];
+ server [label="Configured BugHub report endpoint\n200 alone is not receipt\naccepted + same report ID + response HMAC"];
+ ack [label="Only verified receipt advances snapshot ack cursor\nConcurrent later records remain pending\nOperator resolved is not repair verification",fillcolor="#eeeeee"];
+ unknown [label="Timeout / transport / unverifiable response → unknown\n401/403 halt until credential changes; 429 rate-limited\nNo ack; later report uses new ID + current aggregate",fillcolor="#fff0dd"];
+ event -> worker;worker -> store;store -> diagnostic;store -> report;report -> server;server -> ack;ack -> store [label="monotonic ack"];server -> unknown;report -> unknown;
+}

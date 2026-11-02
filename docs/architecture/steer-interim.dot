@@ -1,0 +1,18 @@
+digraph steer_interim {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.4,ranksep=0.5,label="Current steer following and interim presentation",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ admission [label="Core send lock + before-input position\nPer-launch steer ledger / interim boundary\nWrite failure does not block send"];
+ send [label="Native queue / composer input\nReceipt: admission, not completed work"];
+ claude [label="Claude: queued input → remove or user\nTaken text → answer SHA + matching Stop\nCodex: user prefix → tagged/open turn ID\nThen matching task_complete"];
+ grok [label="Grok: new history full-input digest\nUnique prompt_index / turn_number\nsend_now → same_turn; otherwise next_turn\nNo match: unknown, never old completion"];
+ fallback [label="Cursor: confirmed queue turn → plain wait\nUnreadable / unmatched Claude-Codex route\nExisting fallback keeps placement unknown"];
+ outcome [label="Follow result + placement\nsame_turn / next_turn / unknown\nnot_taken only under existing evidence / grace\nAbort stops observer only"];
+ interim [label="BellTeam caller _meta only\nDispatch boundary OR opaque from + after seq\nClaude tool_use / Codex commentary\nGrok tool_calls / Cursor later tool_use"];
+ ui [label="BellTeam owns interim presentation\nNo final answer / reasoning in interim\nInvalid from does not select another turn",fillcolor="#eeeeee"];
+ seat [label="Codex seat turn: transcript boundary + cache\nRead-only vendor binding; no process liveness\nCrashed harness may leave running mark"];
+ admission -> send;admission -> claude;admission -> grok;admission -> fallback;
+ send -> claude [style=dashed,label="vendor records input"];send -> grok [style=dashed];
+ claude -> outcome;grok -> outcome;fallback -> outcome;outcome -> ui;
+ admission -> interim [label="boundary"];seat -> interim [label="turn start from"];interim -> ui;
+}

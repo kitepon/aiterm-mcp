@@ -1,0 +1,16 @@
+digraph setup_update {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Setup and update: package, registration, runtime and adoption",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ setup [label="Setup entry / explicit hooks-only entry\nStage errors → reason_code; no all-stage rollback"];
+ dependency [label="Backend dependency probe → official install → same probe\nExplicit binary overrides must work\nOnly product source surveyed, no installation run"];
+ global [label="Installed global package realpath + stable Node\nReject source checkout / temporary npm cache"];
+ probe [label="Registered MCP runtime probe\nTemporary PTY open → send → read → close\nBackend ready is separate from client registration"];
+ client [label="5-client registration and hooks\nPreserve unknown JSON / other servers / same lazy wrapper\nBackup / atomic rename / official CLI readback"];
+ steer [label="Delivery provider descriptor + official Codex hooks\nRegister / approve before disabling old relay\nReady / failed / unsupported / restart_required"];
+ update [label="Update entry: resolve concrete version once\nLocal first; remote targets in parallel\nCheck mode does not install"];
+ install [label="Same global prefix npm install → verify package version\nRun NEW setup code in separate process\nPackage status and setup_status remain separate"];
+ remote [label="SSH existing remote shell / updater\nExtract remote JSON, not SSH exit alone\nNo automatic replay after uncertain outcome"];
+ adoption [label="Result is package / setup evidence\nOld running MCP code remains until client reload\nPTY survival ≠ all consumers adopted new runtime",fillcolor="#eeeeee"];
+ setup -> dependency;dependency -> global;global -> probe;probe -> client;client -> steer;setup -> client [style=dashed,label="hooks-only: no dependency/probe/MCP changes"];
+ update -> install;update -> remote;install -> setup;remote -> adoption;steer -> adoption;
+}

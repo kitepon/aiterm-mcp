@@ -1,0 +1,26 @@
+digraph launch {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.45,label="Current launch → identity → input boundaries (initial detail)",labelloc=t,fontname="DejaVu Sans",fontsize=17];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#526070"];
+ request [label="index.ts: launchAgent\nMCP validation / request context"];
+ entry [label="core.ts: openAgentWithInitialPrompt → openAgent\nnew launch / dormant resume / optional prompt"];
+ create [label="openAgent: withNativeSessionCreation\ncreate → openSessionInternal (managed Claude / Codex)"];
+ mux [label="tmux-runtime.ts: tmuxNewSession\ncreate terminal; captureNativeSessionReceipt"];
+ identity [label="core.ts: created callback → processStartIdentities\nserver PID + pane PID → native birth identities",fillcolor="#fff2d7"];
+ fail [label="Missing identity → refuse / propagate error\nWindows baseline: initial native failures\nroot cause unknown",fillcolor="#ffe6e6"];
+ launch [label="core.ts: create / send launch command\nmetadata / settings / original vendor environment"];
+ ready [label="prepareAgentInput / waitAgentTuiReady\nTUI observation + native harness observation"];
+ resume [label="resumeAgentInLock\nstandard-speed busy Codex needs native running turn",fillcolor="#f2ecff"];
+ input [label="submitAgentComposerText\npaste → visibility check / delay → Enter"];
+ after [label="Caller observes submit residue / turn start\nreceipt distinguishes not_sent / unconfirmed / started"];
+ receipt [label="index.ts: structuredContent / fail\nlaunch receipt has no launch_id field"];
+ observe [label="pty_observe\ncurrent launch ID / existence / native identity\nseparate observation, no screen or raw argv"];
+ request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="dormant path"];
+ create -> mux;mux -> identity [label="created receipt"];
+ identity -> fail [label="null / unavailable"];fail -> receipt;
+ identity -> launch [label="both identities available"];
+ launch -> ready;resume -> ready;ready -> input [label="optional body, readiness proven"];
+ ready -> receipt [label="promptless startup / blocked"];
+ input -> after;after -> receipt;
+ observe -> identity [label="other read path, not old receipt completion",style=dashed];
+}

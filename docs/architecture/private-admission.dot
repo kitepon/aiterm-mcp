@@ -1,0 +1,17 @@
+digraph admission {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Private admission: request, native effects, receipt and uncertainty",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ ingress [label="Explicit injected MCP dispatcher\nFreeze SDK request / source / parent before await\nReject unsupported target / remote / borrowed ref"];
+ register [label="Register exact existing request + expected generation\nSame request → lookup only; conflict → refuse\nPayload stays outside shared metadata"];
+ prepare [label="Deferred preparing: no issued target slot\nPreflight / readiness / before_send metadata\nCancel tombstones this request's unissued stages"];
+ gate [label="Synchronous native gate\nRecheck source / target / stop / slot / birth\nCommit issued slot before first native effect\nRecheck again after each asynchronous wait"];
+ effect [label="Native command / one-shot callback\nExact name or previously bound native ID\nNew-session receipt stamps actual created ID/server\nRefused frame stays poisoned"];
+ bind [label="Clean native return → observe generation\nSame original slot / record / target → commit accepted\nRemove slot; keep original canonical boundary"];
+ unknown [label="Action possible, binding or commit failed\nKeep unknown operation + blocking slot\nNo replay from status or reconstruction",fillcolor="#fff0dd"];
+ result [label="MCP caller: preserve genuine success receipt\nAdd execution_error for status-only uncertainty\nHandler error stays an error; no resend permission",fillcolor="#eeeeee"];
+ completion [label="Later finish: reobserve exact canonical completion\nParent return outstanding → fence unknown\nRetire settled relation when no pending work\nRelation lifetime ≠ all native actors terminated"];
+ ingress -> register;register -> prepare;prepare -> gate;gate -> effect;effect -> gate [style=dashed,label="next command after wait"];
+ effect -> bind;bind -> result;effect -> unknown [label="throw after issue"];bind -> unknown [label="cannot bind / commit"];unknown -> result;
+ prepare -> result [label="unissued → not_started / not_sent"];bind -> completion;completion -> result [style=dashed,label="status / finish"];
+}

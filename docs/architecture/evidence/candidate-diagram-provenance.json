@@ -1,0 +1,17 @@
+{
+  "currentDiagrams": 28,
+  "unchangedInitialSurveyDot": 20,
+  "sameAsImplementationStageVisuallyInspectedDot": [
+    "aiterm/current-overview",
+    "aiterm/goal-configuration",
+    "aiterm/metadata-reader",
+    "aiterm/model-configuration",
+    "aiterm/ordinary-pty",
+    "aiterm/parent-delivery",
+    "aiterm/remote",
+    "steer/channel"
+  ],
+  "newLayoutsThisDocumentationMigration": 0,
+  "renderedAgain": 28,
+  "visualInspectionReuse": "Initial and implementation-stage visual reviews retained; DOT equality verified, no claim of a second full visual review."
+}

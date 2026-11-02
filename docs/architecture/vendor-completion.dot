@@ -1,0 +1,17 @@
+digraph vendor_completion {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.35,ranksep=0.45,label="Current vendor completion contracts (source survey)",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ launch [label="Core: validated session / launch / saved home\nNative input admission and receipt\nAdapter owns vendor format interpretation"];
+ claude [label="Claude: fixed session UUID + saved real cwd\nStop writes owner-only result before done event\nMatch operation + result SHA / bytes\nAPI errors may have no Stop"];
+ codex [label="Codex: launch-marked root rollout\nByte cursor + task_complete / aborted + turn ID\nResume proof excludes retired turn\nOrdinary tracking differs from strict stop identity"];
+ grok [label="Grok: fixed UUID / events + chat_history\nByte cursor + turn_ended\nsend_now cancellation continues turn\nExact answer uses turn_number / prompt_index"];
+ cursor [label="Cursor: unique launch-marked transcript → fixed ID\nUSER COUNT cursor, not byte EOF\nNew user + terminal turn_ended\nAnswer: last completed text block"];
+ agy [label="Antigravity: SessionStart validates workspace / path\nStop: fullyIdle + user step + execution\nPer-turn result before event (existing result skips)\nNative answer from bounded transcript tail"];
+ wait [label="Wait outcome with correlation\ndone / error / rate_limited / closed\nrunning / timeout / not_taken\nObserver abort does not stop vendor"];
+ read [label="Core answer recovery matches completion\nEmpty text differs from unavailable\nWaiter does not persist vendor binding"];
+ host [label="BellTeam / other caller\nOwns job result and presentation\nNo receipt → completion → display shortcut",fillcolor="#eeeeee"];
+ launch -> claude;launch -> codex;launch -> grok;launch -> cursor;launch -> agy;
+ claude -> wait;codex -> wait;grok -> wait;cursor -> wait;agy -> wait;
+ wait -> read [label="confirmed done"];wait -> host [label="typed status"];read -> host [label="answer result"];
+}

@@ -1,0 +1,142 @@
+{
+  "observedAt": "2026-11-02T10:58:16.170240+00:00",
+  "stages": {
+    "A4b": {
+      "product": "aiterm",
+      "base": "aaba157",
+      "head": "77d889681e58b1d59f2e2780373d449eb5dac9a6",
+      "build": "passed",
+      "testsPassed": {
+        "directRecord": 2,
+        "publicManager": 11,
+        "privateManagerAndCheckpoint": 7,
+        "total": 20
+      },
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "bytes": 13302,
+          "sha256": "8cb43dde9847b9438957a058eeaf16a73eec9a21f3f81b0f388db9ccae15beb5"
+        },
+        {
+          "path": "docs/architecture/current-overview.dot",
+          "bytes": 3932,
+          "sha256": "5ec292ce594ab24dd629a53807600526ee4bae11fb2d02102e04adf2a2f8c148"
+        },
+        {
+          "path": "docs/architecture/current-overview.png",
+          "bytes": 310769,
+          "sha256": "c22a36b48b79b5d752b5fbb66d77c8fa5f26184f6a7548079b562d7d69609a1c"
+        },
+        {
+          "path": "docs/architecture/current-overview.svg",
+          "bytes": 28520,
+          "sha256": "9781e4d15ad59820d919ffc9f5214a4e685b240cf073ef5e2c0a1e24bc75288d"
+        },
+        {
+          "path": "docs/architecture/parent-delivery.dot",
+          "bytes": 2908,
+          "sha256": "81dae24fe22307bfe7b030b8ac303f77ffc7c95ed138fb4487fc4bc0c5492012"
+        },
+        {
+          "path": "docs/architecture/parent-delivery.md",
+          "bytes": 1485,
+          "sha256": "a5c408c2aeaf33decc3c242a7787c09d39e0d1dcdc037d212ea7ba93e0300304"
+        },
+        {
+          "path": "docs/architecture/parent-delivery.png",
+          "bytes": 216656,
+          "sha256": "77e186c35f314ee7785b87032973dd2fe8cb40e1c4ca8c1f839f6a65192a0d5c"
+        },
+        {
+          "path": "docs/architecture/parent-delivery.svg",
+          "bytes": 20810,
+          "sha256": "87b0385cf63ad7e28a47871ca5c32c58245f1bf5d2b1353b694cdd7daa0059cf"
+        },
+        {
+          "path": "docs/architecture/render-results.json",
+          "bytes": 973,
+          "sha256": "83dae19d9e348649215add29fa6530d69376ac8b0c3326d1293b6a49a311c392"
+        },
+        {
+          "path": "src/parent-delivery-record.ts",
+          "bytes": 3950,
+          "sha256": "48094ecefd5799c281b6acc9332f2720c6a7e074a890c60ad1c7a960b2f837cd"
+        },
+        {
+          "path": "src/parent-delivery.ts",
+          "bytes": 51031,
+          "sha256": "01392384cced8a24af34440568123d1c46125999c7e588b7381ae883ba9e5c68"
+        },
+        {
+          "path": "test/parent-delivery-record.test.mjs",
+          "bytes": 2884,
+          "sha256": "8a054a3d50b829d9a8d0a9433d266615a8c3fa92aafdb2c875688ef83028614a"
+        }
+      ]
+    },
+    "S1": {
+      "product": "steer",
+      "base": "6734ee86",
+      "head": "5ad5a95df0844869e8bd50744d824daf6d5d00d1",
+      "build": "passed",
+      "testsPassed": {
+        "channel": 14,
+        "settleBoundary": 1,
+        "bridgeSurface": 6,
+        "total": 21
+      },
+      "files": [
+        {
+          "path": "docs/architecture/channel.dot",
+          "bytes": 1887,
+          "sha256": "9c9ddadc1e2eb7c0eea9bf4f397834758da7e68d4818d336379229b1783d341b"
+        },
+        {
+          "path": "docs/architecture/channel.md",
+          "bytes": 1813,
+          "sha256": "5a80888023ca8cc6dcecf263f3c493dcb893b502673fa120719d83fad470a60c"
+        },
+        {
+          "path": "docs/architecture/channel.png",
+          "bytes": 150487,
+          "sha256": "02519fedda57041f4444dc6f918869fced9f6ceced08bea889cdbad768186220"
+        },
+        {
+          "path": "docs/architecture/channel.svg",
+          "bytes": 14671,
+          "sha256": "73d05193981efd2fd62d4e2d22a13abb9da194ef6c273caf756b8860a9b4224e"
+        },
+        {
+          "path": "docs/architecture/render-results.json",
+          "bytes": 193,
+          "sha256": "c4ec37c2443bdd81ff201f926864187f94b082e479a0b06955f2bf9702d4c6c8"
+        },
+        {
+          "path": "src/channel-state.ts",
+          "bytes": 9978,
+          "sha256": "e68f45d7e01bdbeae68861ae4012acbba2aaa43541206565898117dadb1d9855"
+        },
+        {
+          "path": "src/channel.ts",
+          "bytes": 19589,
+          "sha256": "6388699cb61969864f366d20e7b4f8823ed5c69535a4c9e855c65f2a441bb7d6"
+        },
+        {
+          "path": "test/channel.test.mjs",
+          "bytes": 18289,
+          "sha256": "1a05f5f33d5fe5c3dbfa9311905469c89c285d8c849d4507597244cbf9c54eac"
+        }
+      ]
+    }
+  },
+  "runtimeOperations": 0,
+  "unverified": [
+    "canonical architecture migration and final source/diagram correspondence",
+    "final Astra consistency",
+    "original Windows 73 failure cause",
+    "new three OS/vendor live acceptance"
+  ],
+  "packageBoundary": "package-boundary.json",
+  "publicTypeComparison": "public-type-comparison.json"
+}

@@ -1,0 +1,20 @@
+digraph stop {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Cancel-key path, private interruption proof and destructive maintenance",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ ordinary [label="Native delivery server: immediate agent_stop\nOne child-first snapshot; deduplicate sessions\nOptional goal pause only for trusted user origin"];
+ key [label="Core normal cancel key pinned to native ID\nClaude/Codex Escape; others C-c only if busy\nIdle → idle; uncertain C-c pane → refuse\nNo journal, drain, retry or close escalation"];
+ ack [label="sent / partial / failed / idle\nKey receipt does not prove interruption or preservation",fillcolor="#eeeeee"];
+ default [label="Private v2 default service.stop\nRead-only plan, unsupported\nNo key and no stopping barrier"];
+ opt [label="Explicit private interruptCascade injection\nSelect exact native run / original managed reservation\nUnsupported harness / missing alias stays unknown"];
+ journal [label="Snapshot old requests / returns; tombstone unissued\ndraining → preparing → durable issued + slot\nOne synchronous Escape → accepted, slot still unknown"];
+ proof [label="Native interrupted + closed fence + preserved session\nSame run / endpoint / process births, repeated proof\nNo pending or unadmitted ancestor/descendant branch"];
+ limit [label="Current core proof: fence unknown / preservation unconfirmed\nClaude marker is before-input reservation only\nNo native confirmed claim from fake proof tests",fillcolor="#fff0dd"];
+ settle [label="Settle only with complete proof\nRelease temporary run barrier; old request tombstones stay"];
+ close [label="Private v1 closeCascade / explicit management close\nSeparate destructive maintenance primitive\nExpected generation + native ID + absence + commit\nNever an interrupt fallback",fillcolor="#fff0dd"];
+ close_result [label="v1 maintenance close: stopped / partial / unconfirmed\nOr exact management closed-launch receipt\nSeparate from cancel-key result",fillcolor="#eeeeee"];
+ diagnosis [label="v2 result: unconfirmed / unsupported\nNo native action was attempted",fillcolor="#eeeeee"];
+ ordinary -> key;key -> ack;opt -> journal;journal -> proof;proof -> settle [label="all conditions"];proof -> limit [label="current adapters lack proof"];
+ default -> diagnosis;
+ close -> close_result;
+}

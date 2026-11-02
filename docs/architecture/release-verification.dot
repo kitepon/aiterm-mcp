@@ -1,0 +1,33 @@
+digraph release_verification {
+graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.48,labelloc=t,fontname="DejaVu Sans",fontsize=18]; node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+graph [label="Release and verification: source, payload, publication and evidence"];
+ source [label="Fixed source + public contracts
+Aiterm ce575 / Steer 6734
+All 130 + 25 implementation files first-read"];
+ scope [label="Changed API contract + direct boundary decides tests
+CI planner: paths → OS set / reverse-import test set
+Selected success is not full success"];
+ isolation [label="Explicit repository tests only; seat-env first
+Temporary HOME/state; deny real harness; no wake
+Fixtures own CLI, transcript, shell and cleanup"];
+ results [label="Read exact job and case evidence
+Windows baseline: 846 pass / 73 fail / 569 skip
+Cause unknown; no repair mixed into refactor",fillcolor="#fff0dd"];
+ build [label="Build → dist + harness imports / Steer declarations
+Aiterm npm files list differs from recursive MCPB
+Metadata, pack closure and pinned tgz integrity"];
+ candidate [label="Reviewable complete candidate
+Existing approval procedure before production
+Current refactor has no publishing or live operations",fillcolor="#eeeeee"];
+ tag [label="Existing release script: main/clean/origin/tag checks
+Metadata sync + build checks → tag / MCPB / GitHub release
+Script success does not await npm / Registry"];
+ npm [label="Tag CI: version + main ancestry → npm provenance
+Public package is a separate artifact"];
+ registry [label="Release CI: wait for npm → OIDC → Registry
+Only specific duplicate is idempotent success"];
+ smoke [label="Public package smoke + consumer readback
+Scope follows changed boundary; supply ≠ consumer acceptance
+NOT executed or authorized by this survey"];
+ source -> scope;scope -> isolation;isolation -> results;source -> build;results -> candidate;build -> candidate;candidate -> tag [label="after approval"];tag -> npm;tag -> registry;npm -> registry [label="availability"];npm -> smoke;registry -> smoke;
+}

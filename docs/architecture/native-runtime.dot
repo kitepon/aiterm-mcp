@@ -1,0 +1,15 @@
+digraph native_runtime {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.5,label="Native runtime: routing, environment, input and observation",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ core [label="Core caller: validated intent / session / launch\nLogical input and observation contracts\nRemaining ordinary core bodies still under review"];
+ gate [label="Execution authorization → pinned native pane/session\nReceiving server birth condition → command\nRouting itself does not grant authorization"];
+ env [label="Caller UTF-8 locale and clean session environment\nTemporary update-environment; preserve global values\nCreate receipt before target-specific setup\nGuarded/pinned creation does not recreate"];
+ backend [label="POSIX tmux -S / Windows psmux -L\nResolve executable; distinguish dependency / output overflow\nMac GUI bootstrap and psmux access workaround\nSource read only; no host operations performed"];
+ worker [label="Windows direct payload worker\nFixed authenticated peer; 256-byte chunks\nAUTH OK differs from command acceptance\nPartial / unknown → fail without resend"];
+ processes [label="Process table / selected PID birth / CPU / lineage\nMissing birth ≠ absent; actor absence needs ESRCH\nInternal command → public digest\nSafe OS code/status/signal/bytes on probe refusal"];
+ shell [label="Current shell dialect / atomic multiline / sentinel\nNative key or input receipt ≠ vendor completion\nWindows log sink settle is only output observation"];
+ display [label="Read display reducer (RTK) after control/frame strip\nKnown format + never-worse check\nRaw output / agent answer remain separate"];
+ result [label="Caller gets typed state / command result / display\nNo process liveness → turn success shortcut",fillcolor="#eeeeee"];
+ core -> gate;gate -> env;env -> backend;gate -> backend;backend -> worker;backend -> processes;backend -> shell;
+ processes -> result;worker -> result;shell -> display;display -> result;
+}

@@ -1,0 +1,82 @@
+{
+  "status": "passed",
+  "results": [
+    {
+      "product": "aiterm",
+      "scope": "static runtime imports/reexports; dynamic resolution is not covered",
+      "newModuleEdges": [
+        [
+          "src/agent-metadata-reader.ts",
+          [
+            "src/errors.ts",
+            "src/execution-close.ts",
+            "src/harnesses/claude.ts",
+            "src/harnesses/grok.ts",
+            "src/agent-shared.ts"
+          ]
+        ],
+        [
+          "src/agent-model-ui.ts",
+          []
+        ],
+        [
+          "src/harnesses/claude-configure.ts",
+          [
+            "src/errors.ts",
+            "src/agent-shared.ts",
+            "src/agent-resolver.ts",
+            "src/harnesses/claude.ts"
+          ]
+        ],
+        [
+          "src/harnesses/codex-configure.ts",
+          [
+            "src/errors.ts",
+            "src/agent-shared.ts",
+            "src/agent-model-ui.ts",
+            "src/agent-metadata-reader.ts",
+            "src/agent-resolver.ts",
+            "src/harnesses/codex.ts"
+          ]
+        ],
+        [
+          "src/parent-delivery-record.ts",
+          [
+            "src/errors.ts",
+            "src/remote-contract.ts",
+            "src/claude-parent-receiver.ts",
+            "src/cursor-parent-receiver.ts",
+            "src/execution-contract.ts",
+            "src/execution-parent-source.ts",
+            "src/execution-inventory.ts"
+          ]
+        ],
+        [
+          "src/pty-output.ts",
+          []
+        ],
+        [
+          "src/remote-contract.ts",
+          []
+        ]
+      ],
+      "movedModuleCycles": []
+    },
+    {
+      "product": "steer",
+      "scope": "static runtime imports/reexports; dynamic resolution is not covered",
+      "newModuleEdges": [
+        [
+          "src/channel-state.ts",
+          [
+            "src/files.ts",
+            "src/process.ts",
+            "src/profile.ts",
+            "src/errors.ts"
+          ]
+        ]
+      ],
+      "movedModuleCycles": []
+    }
+  ]
+}

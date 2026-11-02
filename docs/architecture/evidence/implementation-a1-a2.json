@@ -1,0 +1,126 @@
+{
+  "observedAt": "2026-11-02T10:21:31.893450+00:00",
+  "base": "ce575ce8abc91b13f8a4e1c7b7b20c4330ee86fd",
+  "head": "21cc1fefb5f9954205cc901b25a71485495d4275",
+  "stages": {
+    "A1": {
+      "commit": "c954024",
+      "build": "passed",
+      "tests": {
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0
+      },
+      "commands": [
+        "npm run build",
+        "node scripts/run-seat-tests.mjs --test test/agent-metadata-reader.test.mjs test/agent-generation.test.mjs test/agent-resume-template.test.mjs"
+      ]
+    },
+    "A2": {
+      "commit": "21cc1fe",
+      "build": "passed",
+      "tests": {
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0
+      },
+      "commands": [
+        "npm run build",
+        "node --import ./test/seat-env.mjs --test --test-name-pattern=^(stripControl|reduceOutput): test/core-pure.test.mjs"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "bytes": 12676,
+      "sha256": "0019c9fee0a634e62879b7df10d69f3806ee93a428fcbb907768224a62d1f480"
+    },
+    {
+      "path": "docs/architecture/current-overview.dot",
+      "bytes": 3778,
+      "sha256": "59327ce2591b62f416e34eff03e096c257803b4b47fce0e9b3e39e503cf2cb73"
+    },
+    {
+      "path": "docs/architecture/current-overview.png",
+      "bytes": 291452,
+      "sha256": "774bf4fb0ee1555fe0a062ef494552ae820ae4f8753c93e6ae969ef6aacdba23"
+    },
+    {
+      "path": "docs/architecture/current-overview.svg",
+      "bytes": 27587,
+      "sha256": "ca008a9172fea0935699f5d29731943c873acfbf821b1751f4c6c04c8d963808"
+    },
+    {
+      "path": "docs/architecture/metadata-reader.dot",
+      "bytes": 1262,
+      "sha256": "416f513a0f9ce17a5aa6e6a34349c598fd64efc77dda038e392a02a4594bb117"
+    },
+    {
+      "path": "docs/architecture/metadata-reader.md",
+      "bytes": 1916,
+      "sha256": "664ab6dab651b5d543fe2f2639e60553e4d76dab914afdf2c4542c42ac75ffdf"
+    },
+    {
+      "path": "docs/architecture/metadata-reader.png",
+      "bytes": 91432,
+      "sha256": "a9abc55fd3c806cf3c1473b883ae3d1afd3d2f17e09e475e7b4d76d540fac146"
+    },
+    {
+      "path": "docs/architecture/metadata-reader.svg",
+      "bytes": 8667,
+      "sha256": "1aacc8d0e001bcd66f47d2f34118ea1563901480f6f4fdbadb88e38b0dbf9e46"
+    },
+    {
+      "path": "docs/architecture/ordinary-pty.dot",
+      "bytes": 2045,
+      "sha256": "8bffe527aa621ecccb4e12a9a041f7ea3b25750af73e2f2f6bc557fa39647e93"
+    },
+    {
+      "path": "docs/architecture/ordinary-pty.png",
+      "bytes": 147059,
+      "sha256": "ac8742c0916df6a657314304d305381d9eec8a48959e867e3fe2c846680b3744"
+    },
+    {
+      "path": "docs/architecture/ordinary-pty.svg",
+      "bytes": 13217,
+      "sha256": "c3138ff04863bfd7fc422567fae6850e612458d40d8839e842aa4141eab83812"
+    },
+    {
+      "path": "docs/architecture/render-results.json",
+      "bytes": 458,
+      "sha256": "7a156d046ffc33580a6d12a5011e051c53c96b8e971eea69ab29cc32960fc064"
+    },
+    {
+      "path": "src/agent-metadata-reader.ts",
+      "bytes": 14187,
+      "sha256": "789a5d3e620fd4aef95137487fc48674bb05c7f859c1650672fff8d6cdda2ce4"
+    },
+    {
+      "path": "src/agent-shared.ts",
+      "bytes": 27027,
+      "sha256": "f510f87cae25870db09c710c895c531ec3303a408e54f73f6024d6d301b3bb17"
+    },
+    {
+      "path": "src/core.ts",
+      "bytes": 447017,
+      "sha256": "5d280533348b4b35c75608642f83fd57bf6c36b5466d0eb3e21fdb8404c84a36"
+    },
+    {
+      "path": "src/pty-output.ts",
+      "bytes": 4476,
+      "sha256": "ae0616c7cc51a8b86aded3bcb29c5337887aded871d5350542bcc1769379495b"
+    },
+    {
+      "path": "test/agent-metadata-reader.test.mjs",
+      "bytes": 4537,
+      "sha256": "fdf74d373c1058d0190400702af6d952acfe0351ca670c694dbedaffeee792ab"
+    }
+  ],
+  "limits": [
+    "No full CI, real vendor or OS/host acceptance run",
+    "A3/A4a/A4b/S1, packaging and final Astra consistency pending",
+    "Original Windows 73 failures remain unexplained"
+  ],
+  "liveOperations": 0
+}

@@ -1,0 +1,1450 @@
+{
+  "run": 41397057670,
+  "sourceLog": "/srv/bellteam/bots/bot-c2adbe04/integrations/papillon-resume-20261102/publication/main-windows-original.log",
+  "observationOnly": true,
+  "cause": "unknown",
+  "cases": [
+    {
+      "test": "test/agent-launch-exit.test.mjs",
+      "line": 41,
+      "column": 1,
+      "originalLogLine": 1699,
+      "name": "✖ owned Windows launch distinguishes pre-spawn, live CLI, and returned CLI without resending (56041.4544ms)",
+      "firstError": "Error: agent session 'launch_exit_native' の Codex TUI が入力受付状態になりません。文字列は送信していません。少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。",
+      "stack": [
+        "at dispatchAgentTurnInLock (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7080:19)",
+        "at async file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:3421:28",
+        "at async withAgentSendLock (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:3416:20)",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/agent-launch-exit.test.mjs:70:21)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    },
+    {
+      "test": "test/agent-launch-line.test.mjs",
+      "line": 59,
+      "column": 1,
+      "originalLogLine": 1714,
+      "name": "✖ openAgent codex: 起動commandは1物理行で打たれ、argvは偽CLIのfileでbyteのまま届く (3679.4112ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-launch-line.test.mjs",
+      "line": 85,
+      "column": 1,
+      "originalLogLine": 1732,
+      "name": "✖ openAgent claude: --append-system-promptの複数行instructionも1物理行の起動からbyteのまま届く (4649.0491ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-launch-line.test.mjs",
+      "line": 108,
+      "column": 1,
+      "originalLogLine": 1750,
+      "name": "✖ Windows Grok: native executable receives literal argv and its original auth/update environment (26004.4419ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: fake CLI argv completion was not observed within the existing 5-second deadline",
+      "stack": [
+        "at readArgvFixture (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-support.mjs:151:10)",
+        "at async file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/agent-launch-line.test.mjs:138:9",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/agent-launch-line.test.mjs:134:5)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 146,
+      "column": 1,
+      "originalLogLine": 1766,
+      "name": "✖ 起動直後のClaudeへ2通が重なっても、後の1通は断られず差し込みで届く (4979.8061ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 178,
+      "column": 1,
+      "originalLogLine": 1784,
+      "name": "✖ 別のprocessから起動直後のClaudeへ2通が重なっても、どちらも断られない (6503.5783ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 228,
+      "column": 1,
+      "originalLogLine": 1802,
+      "name": "✖ 入力受付のCodexへ2通が重なっても、1通ずつ別の行で届く (4730.8987ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 247,
+      "column": 1,
+      "originalLogLine": 1820,
+      "name": "✖ 起動時promptの準備中に届いた1通は、起動時promptを送り終えてから差し込みで届く (4401.0704ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 301,
+      "column": 1,
+      "originalLogLine": 1838,
+      "name": "✖ 持ち主が終了したlockは片付けて送る (4958.7823ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 315,
+      "column": 1,
+      "originalLogLine": 1856,
+      "name": "✖ 別のprocessが送信中のまま待つ上限を越えたら、打たずに断る。sessionは閉じられる (5906.2887ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 342,
+      "column": 1,
+      "originalLogLine": 1874,
+      "name": "✖ 同じprocessの前の1通が上限を越えて続く時も、後の1通は打たずに断り、その次の1通は順番を保つ (4397.874ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 367,
+      "column": 1,
+      "originalLogLine": 1892,
+      "name": "✖ 順番待ちの送信は、同名で作り直したagentへ移らない (5614.5689ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 403,
+      "column": 1,
+      "originalLogLine": 1910,
+      "name": "✖ 送信が入力受付待ちの間もsessionは閉じられ、その送信は打たずに終わってlockを外す (6378.7678ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 420,
+      "column": 1,
+      "originalLogLine": 1928,
+      "name": "✖ 片付けの途中で残った印は自動で消さず、pty_closeで片付く (4611.4638ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 442,
+      "column": 1,
+      "originalLogLine": 1946,
+      "name": "✖ 画面が無くなった席も閉じられ、残った印とlockが片付く (5150.3523ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 454,
+      "column": 1,
+      "originalLogLine": 1964,
+      "name": "✖ 終了した持ち主のpidを別のprocessが使っている時は、本人でないと確かめて片付けて送る (4492.3832ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7930:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at nativeSessionArgs (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:105:13)",
+        "at runTmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:357:12)",
+        "at tmuxCommandWithInput (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:351:12)",
+        "at tmuxCommand (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:507:12)",
+        "at tmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:122:12)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:839:16) {"
+      ]
+    },
+    {
+      "test": "test/agent-send-serial.test.mjs",
+      "line": 470,
+      "column": 1,
+      "originalLogLine": 1982,
+      "name": "✖ pidを使い回されたlockと古い片付けの印は、生きて見えてもpty_closeで片付く (3721.8005ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 26,
+      "column": 1,
+      "originalLogLine": 2000,
+      "name": "✖ dispatch/observe: Codex task_complete 到着まで transcript 正本を待つ (6387.4305ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 67,
+      "column": 1,
+      "originalLogLine": 2018,
+      "name": "✖ dispatch: この起動でturnを1つ終えたCodexの席は11回の確かめを待たずに送り、記録でturnが動いている間は待つ (5569.7361ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 129,
+      "column": 1,
+      "originalLogLine": 2036,
+      "name": "✖ dispatch/observe: Claudeの同一PTY follow-upをStop resultと相関して回収する (4837.688ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 154,
+      "column": 1,
+      "originalLogLine": 2054,
+      "name": "✖ dispatch/observe: Claude timeout後は再送せず後着resultを同一sessionから回収する (4359.5812ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 176,
+      "column": 1,
+      "originalLogLine": 2072,
+      "name": "✖ Claude operation回収: 古いR1を新しいO2へ誤帰属せずO2だけを返す (7051.9239ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 205,
+      "column": 1,
+      "originalLogLine": 2090,
+      "name": "✖ dispatch/observe: Claude operation_idをmarker・完了suffix・timeout後回収へ通す (4362.9077ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 238,
+      "column": 1,
+      "originalLogLine": 2108,
+      "name": "✖ runClaudeOperation: timeoutしたissueはaccepted、同じoperationだけをpendingからexact resultへ回収する (5712.6245ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 292,
+      "column": 1,
+      "originalLogLine": 2126,
+      "name": "✖ runClaudeOperation: 未dispatchとreceiptだけのoperationをunknown理由別に固定する (6124.3709ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 334,
+      "column": 1,
+      "originalLogLine": 2144,
+      "name": "✖ runClaudeOperation: 別active operationとmalformed markerをstructured結果へ降格しない (4956.6741ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 370,
+      "column": 1,
+      "originalLogLine": 2162,
+      "name": "✖ Claude operation E2E fixture: core dispatch markerを実Stop hookが消費し同じIDで回収する (5290.4061ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 392,
+      "column": 1,
+      "originalLogLine": 2180,
+      "name": "✖ dispatch/observe: 別operationのStop eventを期待operationの完了にしない (4540.3175ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7930:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at nativeSessionArgs (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:105:13)",
+        "at runTmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:357:12)",
+        "at tmuxCommandWithInput (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:351:12)",
+        "at tmuxCommand (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:507:12)",
+        "at tmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:122:12)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:839:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-dispatch.test.mjs",
+      "line": 417,
+      "column": 1,
+      "originalLogLine": 2198,
+      "name": "✖ Claude operation interrupt: active中の通常入力を拒否しC-c後もStopまでmarkerを保持する (5013.0179ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7930:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:67:5)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 32,
+      "column": 1,
+      "originalLogLine": 2216,
+      "name": "✖ openAgentWithInitialPrompt: TUI ready 失敗は明示エラーにし prompt を送らず session を残す (7714.4333ms)",
+      "firstError": "TypeError [Error]: Cannot read properties of undefined (reading 'status')",
+      "stack": [
+        "at Object.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:43:41)",
+        "at expectedException (node:assert:578:17)",
+        "at expectsError (node:assert:703:21)",
+        "at strict.rejects (node:assert:769:3)",
+        "at async file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:36:7",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:33:3)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 62,
+      "column": 44,
+      "originalLogLine": 2228,
+      "name": "✖ openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trustを、選択の移動を確かめてから承認する（最初のDown取り落とし=false） (5673.0993ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 62,
+      "column": 44,
+      "originalLogLine": 2246,
+      "name": "✖ openAgentWithInitialPrompt: Claudeの無人起動確認とworkspace trustを、選択の移動を確かめてから承認する（最初のDown取り落とし=true） (4156.5272ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 117,
+      "column": 1,
+      "originalLogLine": 2264,
+      "name": "✖ openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeoutを待たず理由と直し方を返す (6755.3938ms)",
+      "firstError": "TypeError [Error]: Cannot read properties of undefined (reading 'reason')",
+      "stack": [
+        "at Object.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:128:43)",
+        "at expectedException (node:assert:578:17)",
+        "at expectsError (node:assert:703:21)",
+        "at strict.rejects (node:assert:769:3)",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:125:5)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 189,
+      "column": 1,
+      "originalLogLine": 2275,
+      "name": "✖ openAgentWithInitialPrompt: 終了したharnessの残画面へpromptを送らない (7835.1267ms)",
+      "firstError": "TypeError [Error]: Cannot read properties of undefined (reading 'status')",
+      "stack": [
+        "at Object.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:197:43)",
+        "at expectedException (node:assert:578:17)",
+        "at expectsError (node:assert:703:21)",
+        "at strict.rejects (node:assert:769:3)",
+        "at async file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:196:7",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:195:5)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 238,
+      "column": 1,
+      "originalLogLine": 2287,
+      "name": "✖ openAgentWithInitialPrompt: 送信後の実行表示だけを開始確認に使う (4460.8066ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 256,
+      "column": 1,
+      "originalLogLine": 2305,
+      "name": "✖ openAgentWithInitialPrompt: prompt を shell argv に載せず pending event_cursor を返す (5336.1201ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 305,
+      "column": 1,
+      "originalLogLine": 2323,
+      "name": "✖ portable fork: Codex TUIへThroughline contextをmissionより前に一度だけ送る (6363.4272ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 352,
+      "column": 1,
+      "originalLogLine": 2341,
+      "name": "✖ portable fork: 補足JSON pathを解釈せずThroughlineへ渡す (5650.0764ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-initial-prompt.test.mjs",
+      "line": 545,
+      "column": 1,
+      "originalLogLine": 2359,
+      "name": "✖ openAgentWithInitialPrompt: Claude初回promptを対話PTYへ送りpending event_cursorを返す (13030.6829ms)",
+      "firstError": "Error [TelemetryOwnedError]: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at telemetryOwnedFailure (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/errors.js:47:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7873:67)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at withExecutionNativeAdmission (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/execution-effect.js:127:16)",
+        "at admitted (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:8052:40)",
+        "at launch (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:8070:16)",
+        "at Module.openAgentWithInitialPrompt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:8122:31)",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-initial-prompt.test.mjs:552:30) {",
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at verifyAgentResumeNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6814:5)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7928:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at hasVerifiedNativeSessionTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:43:5)",
+        "at withAgentNativeOperation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:3350:22)",
+        "at send (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:941:16)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7861:17)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 84,
+      "column": 1,
+      "originalLogLine": 2393,
+      "name": "✖ openAgent claude: 共有認証で複数sessionを反復起動できる (9002.5685ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 111,
+      "column": 1,
+      "originalLogLine": 2411,
+      "name": "✖ managed Claude: /login と /logout の解釈はClaude Codeに委ねる (5044.6221ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 125,
+      "column": 1,
+      "originalLogLine": 2429,
+      "name": "✖ readAgentTranscript: Claude完了event直後のmarker削除raceを待って回収する (4386.4319ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 148,
+      "column": 1,
+      "originalLogLine": 2447,
+      "name": "✖ openAgent claude agent_done: 通常settingsへStop hookとlineageを追加する (5950.9028ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 183,
+      "column": 1,
+      "originalLogLine": 2465,
+      "name": "✖ openAgent claude agent_done: user MCPをsnapshotせず通常configへ委ねる (6761.2838ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7930:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:67:5)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 218,
+      "column": 1,
+      "originalLogLine": 2483,
+      "name": "✖ openAgent claude agent_done: 通常user configをlauncher自身はparseも書換えもしない (4728.7111ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 233,
+      "column": 1,
+      "originalLogLine": 2501,
+      "name": "✖ openAgent claude: 相関済みlaunch replayは同じsession receiptを返しCLIを再送しない (6240.2525ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: native作成結果を確認できません。",
+      "stack": [
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7926:27)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at nativeSessionArgs (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:105:13)",
+        "at runTmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:357:12)",
+        "at tmuxCommandWithInput (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:351:12)",
+        "at tmuxCommand (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:507:12)",
+        "at tmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:122:12)",
+        "at sessionExists (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:128:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7775:51)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 525,
+      "column": 1,
+      "originalLogLine": 2519,
+      "name": "✖ openAgent codex agent_done: cleanup は共有 CODEX_HOME の auth/config を残す (5241.5692ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-launch-state.test.mjs",
+      "line": 564,
+      "column": 1,
+      "originalLogLine": 2537,
+      "name": "✖ killAll: 同じstateを使う別socketのagent登録を残す (19292.1529ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/errors.js:47",
+      "stack": [
+        "at telemetryOwnedFailure (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/errors.js:47:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7873:67)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/[eval1]:1:115 {",
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at verifyAgentResumeNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6814:5)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7928:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at hasVerifiedNativeSessionTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:43:5)",
+        "at withAgentNativeOperation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:3350:22)",
+        "at send (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:941:16)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7861:17)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {",
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-launch-state.test.mjs:576:12)",
+        "at Test.runInAsyncScope (node:async_hooks:227:14)",
+        "at Test.run (node:internal/test_runner/test:1402:25)",
+        "at Test.processPendingSubtests (node:internal/test_runner/test:974:18)",
+        "at Test.postRun (node:internal/test_runner/test:1542:19)",
+        "at Test.run (node:internal/test_runner/test:1467:12)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 25,
+      "column": 1,
+      "originalLogLine": 2592,
+      "name": "✖ observeAgentDone: 送信前の古い task_complete を follow-up done と誤認しない (6906.8681ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 53,
+      "column": 1,
+      "originalLogLine": 2610,
+      "name": "✖ observeAgentDone: Codexの利用上限はtask_completeの記録で見分け、画面の文字では判定しない (5219.6678ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 85,
+      "column": 1,
+      "originalLogLine": 2628,
+      "name": "✖ observeAgentDone: Codexのturnがサービスの誤りや通信の失敗で終わったら、完了ではなくerrorで返す (4255.8585ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 129,
+      "column": 1,
+      "originalLogLine": 2646,
+      "name": "✖ observeAgentDone: Codexのused_percentが100%でも、上限の知らせが無いturnは完了にする (4083.5182ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 149,
+      "column": 1,
+      "originalLogLine": 2664,
+      "name": "✖ observeAgentDone: 送信直後の task_complete を transcript cursor から回収する (5970.6384ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 179,
+      "column": 1,
+      "originalLogLine": 2682,
+      "name": "✖ observeAgentDone: follow-up は前turn後の transcript cursorだけを回収する (4711.6495ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 207,
+      "column": 1,
+      "originalLogLine": 2700,
+      "name": "✖ observeAgentDone: 後発sub-agent transcriptのtask_completeをroot turnへ誤帰属しない (5181.2348ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 238,
+      "column": 1,
+      "originalLogLine": 2718,
+      "name": "✖ agent wait lock: 生きた別プロセスの lock は pid 診断付きで close/killAll を塞ぐ (5324.2324ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 269,
+      "column": 1,
+      "originalLogLine": 2736,
+      "name": "✖ observeAgentDone: partial transcript JSONL fragment は次 poll まで保持する (5384.5049ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 297,
+      "column": 1,
+      "originalLogLine": 2754,
+      "name": "✖ observeAgentDone: malformed 完結 transcript JSONL は malformed_events に数える (3927.7232ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent-observe.test.mjs",
+      "line": 315,
+      "column": 1,
+      "originalLogLine": 2772,
+      "name": "✖ observeAgentDone: oversized transcript JSONL 行も malformed_events に数える (10403.3249ms)",
+      "firstError": "Error [TelemetryOwnedError]: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at telemetryOwnedFailure (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/errors.js:47:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7873:67)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-observe.test.mjs:317:24",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-support.mjs:187:17",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-observe.test.mjs:316:3)",
+        "at async Test.run (node:internal/test_runner/test:1409:7) {",
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at verifyAgentResumeNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6814:5)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7928:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at nativeSessionArgs (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:105:13)",
+        "at runTmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:357:12)",
+        "at tmuxCommandWithInput (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:351:12)",
+        "at tmuxCommand (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:507:12)",
+        "at tmux (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:122:12) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 156,
+      "column": 1,
+      "originalLogLine": 2806,
+      "name": "✖ Codex上限接近modal: 版とcursor位置を問わず一時keepだけで同じsessionへ本文を一度送る (10428.6066ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 190,
+      "column": 1,
+      "originalLogLine": 2824,
+      "name": "✖ Codex上限接近modal: agent_approvalはreasonだけを返し選択肢を公開しない (6410.4946ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 226,
+      "column": 1,
+      "originalLogLine": 2842,
+      "name": "✖ Codex上限接近modal: readyへ戻らなければ本文を送らずtyped errorにする (5437.5003ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7930:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:67:5)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 255,
+      "column": 1,
+      "originalLogLine": 2860,
+      "name": "✖ agent_configure: Codex上限接近modalを一時keep後に同じsessionで設定する (5221.2146ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 291,
+      "column": 1,
+      "originalLogLine": 2878,
+      "name": "✖ agent_configure: Codex modelのみ変更は現在highを保持する (5862.595ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 327,
+      "column": 1,
+      "originalLogLine": 2896,
+      "name": "✖ agent_configure: Codex modelのみ変更は保持不能と通知不一致を区別する (4919.0597ms)",
+      "firstError": "Error: AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。",
+      "stack": [
+        "at Object.created (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7906:27)",
+        "at captureNativeSessionReceipt (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:66:11)",
+        "at tmuxNewSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:667:13)",
+        "at openSessionInternal (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:792:23)",
+        "at openSession (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:756:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7772:31)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42) {"
+      ]
+    },
+    {
+      "test": "test/core-agent.test.mjs",
+      "line": 352,
+      "column": 1,
+      "originalLogLine": 2914,
+      "name": "✖ agent_configure: Codexが別modelの通知を返した時は変更後unknownを保持する (14408.5022ms)",
+      "firstError": "Error [TelemetryOwnedError]: AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。",
+      "stack": [
+        "at telemetryOwnedFailure (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/errors.js:47:12)",
+        "at create (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7873:67)",
+        "at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:65:14)",
+        "at withNativeSessionCreation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:49:26)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7903:20",
+        "at Module.openAgent (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7617:42)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent.test.mjs:359:20",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent-support.mjs:187:17",
+        "at async TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-agent.test.mjs:358:5)",
+        "at async Test.run (node:internal/test_runner/test:1409:7) {",
+        "at unavailable (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6817:31)",
+        "at verifyCreatedNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6830:15)",
+        "at verifyAgentResumeNative (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:6814:5)",
+        "at Object.verify (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:7928:21)",
+        "at verifyNativeTarget (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:25:15)",
+        "at sendPsmuxPayload (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/tmux-runtime.js:518:9)",
+        "at writePty (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:981:34)",
+        "at file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:1041:17",
+        "at withAgentNativeOperation (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:3354:16)",
+        "at send (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/dist/core.js:941:16) {"
+      ]
+    },
+    {
+      "test": "test/core-space-path.test.mjs",
+      "line": 31,
+      "column": 1,
+      "originalLogLine": 2948,
+      "name": "✖ openSession: 空白入り一時パスでも pipe-pane が出力を捕捉する (9066.5145ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: 空白パスでも捕捉:",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-space-path.test.mjs:37:12)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {"
+      ]
+    },
+    {
+      "test": "test/core-tmux.test.mjs",
+      "line": 118,
+      "column": 1,
+      "originalLogLine": 2963,
+      "name": "✖ send: 6,000文字の入力を途中欠落させずPTYへ送る (33740.7512ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: 長いcommandの末尾まで実行される: \"factory-runner@fox MINGW64 /c/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp (main)\\n$\\n[aiterm selftest_long_input: 2 行 / ~24 tok (raw 3 行 / ~50 tok)] [is_complete=False via timeout]\"",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/core-tmux.test.mjs:133:12)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    },
+    {
+      "test": "test/launcher-structured.test.mjs",
+      "line": 26,
+      "column": 1,
+      "originalLogLine": 2977,
+      "name": "✖ claude_agent: text contentを維持しClaude managed launch receiptをstructuredContentで返す (9384.67ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: {\"content\":[{\"type\":\"text\",\"text\":\"aiterm: AGENT_RESUME_UNCONFIRMED: native作成結果を確認できません。\"}],\"isError\":true}",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/launcher-structured.test.mjs:73:12)",
+        "at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {"
+      ]
+    },
+    {
+      "test": "test/launcher-structured.test.mjs",
+      "line": 142,
+      "column": 1,
+      "originalLogLine": 2997,
+      "name": "✖ agent_launch: cursor-cli harnessを共通入口からCursor adapterへ振り分ける (18192.2684ms)",
+      "firstError": "Error: MCP response timeout: stdout=\"{\\\"result\\\":{\\\"protocolVersion\\\":\\\"2024-11-05\\\",\\\"capabilities\\\":{\\\"tools\\\":{\\\"listChanged\\\":true}},\\\"serverInfo\\\":{\\\"name\\\":\\\"aiterm\\\",\\\"version\\\":\\\"0.63.1\\\"}},\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1}\\n\" stderr=\"\"",
+      "stack": [
+        "at Timeout.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/launcher-structured.test.mjs:364:14)",
+        "at listOnTimeout (node:internal/timers:685:17)",
+        "at process.processTimers (node:internal/timers:618:7)"
+      ]
+    },
+    {
+      "test": "test/powershell-pty.test.mjs",
+      "line": 33,
+      "column": 1,
+      "originalLogLine": 3004,
+      "name": "✖ PowerShellの複数行は記述順に実行し、完了印と変数を保持する (23652.748ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: . ([scriptblock]::Create([T. ([scriptblock]::Create([Te. ([scriptblock]::Create([Text. ([scriptblock]::Create([Text.Encodin. ([scriptblock]::Create([Text.Encoding]::UTF. ([scriptblock]::Create([Text.Encoding]::UTF8.Get. ([scriptblock]::Create([Text.Encoding]::UTF8.GetStr. ([scriptblock]::Create([Text.Encoding]::UTF8.GetStri. ([scriptblock]::Create([Text.Encoding]::UTF8.GetStrin. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString(. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([C. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Conv. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]:. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::F. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::Fro. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase6. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64Str. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64Strin. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('W0Nvb. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('W0NvbnNvb. ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('W0NvbnNvbGVdOjpJ",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/powershell-pty.test.mjs:50:12)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    },
+    {
+      "test": "test/process-start.test.mjs",
+      "line": 8,
+      "column": 1,
+      "originalLogLine": 3019,
+      "name": "✖ batched native births retain exact single-process identities and unknown entries (5509.4614ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/process-start.test.mjs:13:9)",
+        "at Test.runInAsyncScope (node:async_hooks:227:14)",
+        "at Test.run (node:internal/test_runner/test:1402:25)",
+        "at Test.start (node:internal/test_runner/test:1262:17)",
+        "at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {"
+      ]
+    },
+    {
+      "test": "test/pty-observation.test.mjs",
+      "line": 181,
+      "column": 1,
+      "originalLogLine": 3038,
+      "name": "✖ 通常PTYの自己識別と明示キーだけの環境照会 (18994.424ms)",
+      "firstError": "AssertionError [ERR_ASSERTION]: > .. (. ([. ([scri. ([script. ([scriptblock. ([scriptblock]::C. ([scriptblock]::Create. ([scriptblock]::Create([Text. ([scriptblock]::Create([Text.. ([scriptblock]::Create([Text.Encodi. ([scriptblock]::Create([Text.Encodin. ([scriptblock]::Create([Text.Encoding. ([scriptblock]::Create([Text.Encoding]:. ([scriptblock]::Create([Text.Encoding]::. ([scriptblock]::Create([Text.Encoding]::U",
+      "stack": [
+        "at TestContext.<anonymous> (file:///C:/actions-runner-dotagents-u/_work/aiterm-mcp/aiterm-mcp/test/pty-observation.test.mjs:198:10)",
+        "at async Test.run (node:internal/test_runner/test:1409:7)",
+        "at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {"
+      ]
+    }
+  ]
+}

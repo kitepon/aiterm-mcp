@@ -1,0 +1,19 @@
+> 候補の機能説明。基準初読の記述に、A1–S1の所有者変更を反映した。全fixture/実OSの網羅確認を意味しない。
+
+# Codex旧relayのtransport・process・設定
+
+基準ce575ce8。図 [relay](codex-relay.svg) / [PNG](codex-relay.png)。通常配送は公式Steer hookへ移行する経路を持ち、この旧relayは互換設定/復元のため残る。コード精読のみで、Desktop/登録/認証を操作していない。
+
+共通configureRelayはstatus/enable/disableの順序を所有する。enableは競合GUI変数を拒否し、binary検証→launcher build/probe→以前のCODEX_CLI_PATHを保存→永続登録→GUI値readback→live確認。disableは自分が保存した値と現値の一致を要し、他人の変更を上書きしない。保存済み設定とlive反映は別で、restart_requiredを返せる。
+
+POSIX launcherはexecを使い公式CLIをDesktopの直接の子に保ち、stdioをrelay子へ分けてUnix socketへ接続する。Windowsはkernel parent attributeで公式CLIをlauncherの元親の直接の子、relayをCLIの子にし、必要なstdio handleだけを複製する。suspended作成→job登録→handle整理→resume、途中失敗は未成功childを終了してhandleを解放する。launcherとCLIは同PIDではない。relayの終了時は保持jobでCLI/子を回収する。通常agent seatのcloseと混同しない。
+
+引数変換はapp-serverのstdio起動だけを対象とし、help/version/管理subcommandはそのまま、既listenやws認証指定は拒否する。受信JSONLは共通relayCodexStdioが中継し、stdout backpressureをsocket pause/resumeへ繋ぐ。接続前のENOENT/ECONNREFUSEDだけを15秒内で待ち、送信済みRPCを再送しない。binary応答・接続断・stdout障害・EOFは終了とstop callbackへ収束する。
+
+POSIX停止adapterは親PID一致を要しSIGTERMを既定2回、Windowsはlauncherが保持するprocess handle/jobに依存する。これはrelay自身のlifetime契約で、通常入力やターン中断へ2回送信を流用しない。接続前のinitialize/EOF順序、接続後の一回 connected callback、finally cleanupを維持する。
+
+Windowsは一時session directory・token・loopback WebSocket endpoint・connection recordを所有する。port予約解除後の競合は公式server起動失敗として扱う。読取時にroot/file/tokenのowner/ACL、server出生・binary・command内endpoint/token参照を照合し、資格はAuthorization headerだけに使う。読取検証はACL修理を行わず、setup時のprivate化と分離する。parent process経路とDesktopの直接親を確認し、任意の同名CLIへ接続しない。
+
+Windows Desktop binaryはMSIX配布元4fileと展開済みcacheのSHA一致・一意候補を検査する。展開/更新はDesktop所有で、Aitermが勝手に展開しない。C# launcherはsource digestに結ぶpathへ標準compilerで生成し、同sourceの既成果を利用する。Macはbundle ID/codesign/CLI versionを検査してlauncherを作る。保存されたlauncherやNodeの版と、現在の公式CLIが一致するかは各live/statusが確認する。
+
+模擬HOMEでのverifyRelayLauncherはinitializeとEOF終了を検査するsetup内probeだが、今回は実行0。失敗時のfile/child cleanupやprevious設定保持は既実装の範囲に留め、全故障の自動rollback・元会話再開を保証しない。

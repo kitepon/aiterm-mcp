@@ -1,0 +1,15 @@
+digraph private_foundation {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.5,label="Private execution foundation — current contracts and ownership",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ ingress [label="Transport request / fixed source context\nAsyncLocalStorage snapshot (no latest-job lookup)\nWire schema + typed error / effect uncertainty"];
+ service [label="Service / dispatcher / effect gate / parent workers\nAll 33 private modules first-read\nDefault MCP main does not mount private factory",fillcolor="#edf4ff"];
+ contract [label="Pure relation contract + snapshot planner\nlaunch vs run boundary; reservation vs invocation\ncompleted / interrupted vs fence vs retired\nMissing generation / descendant / outcome → gaps"];
+ store [label="Scoped FileExecutionStore\nRelations / issued slots / interruptions / participants\nExisting delivery companion metadata, never text queue\nShort lock; no elapsed-time theft"];
+ checkpoint [label="Initialized marker before graph commit\nTemp → file sync → rename → ancestor directory sync\nPost-rename failure: possible; no rollback/replay\nWindows checkpoint unsupported (not CI causality)"];
+ runtime [label="Runtime validates injected core observe / wait\nFixed generation before / after / final\nExact operation / turn / steer; no unknown placement\nDone/error completion ≠ closed invocation fence"];
+ inventory [label="Participant inventory: declarations + unresolved refs\nNative PID / birth match only\nDiscovery unproven / fence unknown / coverage incomplete"];
+ result [label="Caller gets typed record / error / plan\nNot proof of native completion or full coverage\nNo runtime operations performed in this survey",fillcolor="#eeeeee"];
+ ingress -> service ;service -> contract ;service -> store ;service -> runtime ;
+ store -> checkpoint;store -> inventory;contract -> result;runtime -> result;inventory -> result;checkpoint -> result [label="metadata durability / failure only"];
+}

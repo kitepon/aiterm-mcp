@@ -1,0 +1,20 @@
+{
+  "npmDryRunNewModulesPresent": true,
+  "mcpbStageNewModulesByteIdentical": true,
+  "newAitermRuntimeModules": [
+    "agent-metadata-reader.js",
+    "pty-output.js",
+    "agent-model-ui.js",
+    "harnesses/claude-configure.js",
+    "harnesses/codex-configure.js",
+    "remote-contract.js",
+    "parent-delivery-record.js"
+  ],
+  "newSteerRuntimeAndDeclaration": [
+    "channel-state.js",
+    "channel-state.d.ts"
+  ],
+  "npmLifecycleScriptsRun": false,
+  "published": false,
+  "mcpbSignedOrPacked": false
+}

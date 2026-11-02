@@ -1,0 +1,26 @@
+digraph send {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.55,ranksep=0.4,label="Current agent input: ownership, dispatch, steer and receipts",labelloc=t,fontname="DejaVu Sans",fontsize=17];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ input [label="sendAgentMessage / dispatchAgentTurn\nvalidate target + preface before waiting"];
+ queue [label="withAgentSendLock\nsame-process FIFO + file owner token"];
+ refusal [label="busy / stuck reap / stale generation\nrequest body not issued",fillcolor="#ffe9e9"];
+ pin [label="resume if dormant → pin current native\nharness observation + foreground recovery"];
+ route [label="Current running turn?\nTUI + vendor completion evidence"];
+ dispatch [label="dispatchAgentTurnInLock\nready → completion cursor → before_send\nClaude marker + interim boundary"];
+ steer [label="steerRunningTurn\npreserve current operation\noptional follow cursor"];
+ submit [label="submitAgentComposerText\nper-effect checks → paste → visibility/delay → Enter"];
+ verify [label="Residue / hook / queue acceptance\nGrok or Cursor: queued → standard send-now"];
+ result [label="Dispatch or steer receipt\ninput acknowledgement, not work completion"];
+ unknown [label="Input may have been accepted\nSTEER_NOT_QUEUED / STEER_STILL_QUEUED\ntyped unknown; no text resend",fillcolor="#fff0d8"];
+ exception [label="Other thrown errors\npreserve recorded input state and original error\nno general not_sent inference",fillcolor="#f4edf7"];
+ release [label="finally: token-aware release + FIFO leave\nnever remove replacement owner's lock"];
+ input -> queue;queue -> refusal [label="ownership unavailable"];queue -> pin [label="owned + generation matches"];pin -> route;route -> dispatch [label="not running"];route -> steer [label="running"];
+ dispatch -> submit;steer -> submit;submit -> verify;verify -> result [label="receipt evidence"];verify -> unknown [label="after-input uncertainty"];
+ refusal -> release;result -> release;unknown -> release;
+ pin -> refusal [label="pre-input refusal",style=dashed];
+ dispatch -> refusal [label="ready / before_send refusal",style=dashed];
+ submit -> exception [label="paste / Enter failure",style=dashed];
+ verify -> exception [label="other post-input failure",style=dashed];
+ exception -> release;
+}

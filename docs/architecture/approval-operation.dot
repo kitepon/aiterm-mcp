@@ -1,0 +1,28 @@
+digraph approval_operation {
+graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.48,labelloc=t,fontname="DejaVu Sans",fontsize=18]; node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+graph [label="Approval and Claude durable operation: observation, effect, recovery"];
+ caller [label="Caller: inspect/respond or issue/recover
+Public schemas and action validation"];
+ inspect [label="Codex: current launch + canonical dialog digest
+Claude: active operation + current Yes/No digest
+No persistent always-allow choice"];
+ respond [label="Respond: native context + send lock
+Re-read operation/dialog, compare digest
+Send menu keys, then submitted receipt"];
+ changed [label="Changed / unsupported / unavailable → blocked or error
+Submitted ≠ vendor completion
+Receipt write after effect may fail",fillcolor="#fff0dd"];
+ reserve [label="Claude issue: active marker + O_EXCL dispatch receipt
+Same/other active operation refuses replay
+Marker failure rolls back new receipt only"];
+ send [label="Shared composer submission → dispatch receipt
+Preserve event cursor and submit_residue
+Anonymous v2 only from exact private frame"];
+ hook [label="Harness completion / Stop record + marker consumption
+Keep launch, operation, vendor-session correlation"];
+ recover [label="recover never accepts text
+active → pending; no receipt → unknown/not_found
+receipt without result → unknown/result_unknown
+matched completion → bounded transcript"];
+ caller -> inspect [label="inspect"];inspect -> respond [label="respond with digest"];respond -> changed [label="changed/failure"];respond -> caller [label="submitted"];caller -> reserve [label="issue"];reserve -> send;send -> hook;send -> caller [label="accepted, not completed"];hook -> recover;caller -> recover [label="read only"];recover -> caller;
+}

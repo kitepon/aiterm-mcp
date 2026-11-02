@@ -1,0 +1,27 @@
+{
+  "graphviz": "16.1.0",
+  "results": [
+    {
+      "file": "channel.dot",
+      "width": 1100,
+      "height": 1099,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "configuration.dot",
+      "width": 916,
+      "height": 1012,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "ownership.dot",
+      "width": 2327,
+      "height": 1127,
+      "svg": true,
+      "png": true
+    }
+  ],
+  "selfCheck": "passed"
+}

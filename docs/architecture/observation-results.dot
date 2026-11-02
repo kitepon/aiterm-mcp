@@ -1,0 +1,20 @@
+digraph observation {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.55,ranksep=0.5,label="Current observations: native liveness, screen, completion and answer",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ meta [label="Strict session / active launch metadata\nvalidate paths, generation, lineage, saved home\nno newest-file fallback"];
+ native [label="pty_observe: native listing + pane + process table\nselect one harness; PID / birth / argv digest\nmissing / dead / ambiguous / unknown stay distinct"];
+ screen [label="Capture screen → harness pane parser\nbusy / idle / blocked / unknown\nactivity digest + CPU delta with same pane birth"];
+ dormant [label="Dormant record / recipe / no native rechecked\nhibernated only with matching evidence\notherwise unknown; discard old activity delta"];
+ wait [label="observeAgentDone / aiterm-wait\nfixed launch + cursor / operation / steer\nscan newline-complete events or vendor transcript"];
+ end [label="done / error / closed / rate_limited\nrunning (timeout=0) / timeout / not_taken\nabort only stops observer"];
+ activity [label="done/error: append turn_end + request idle clock\nrecord failure does not erase completion\nwaiter does not own metadata binding or send lock"];
+ answer [label="readAgentTranscriptResult\nmatch completion / session / launch / turn / operation\nrecover late harness binding, then read native answer"];
+ body [label="text + answer_empty + correlation fields\nempty answer distinct from unavailable\nraw text for parent delivery; display for humans"];
+ terminal [label="Ordinary pty_read\nscreen OR log range/increment + read offset\noptional sentinel / until / shell settle / timeout"];
+ host [label="MCP content / structuredContent / optional host _meta\nBellTeam owns presentation and job completion\nno liveness → turn success → display shortcut",fillcolor="#f0f0f0"];
+ meta -> native;native -> screen;meta -> dormant;meta -> wait;wait -> end;end -> activity;
+ end -> answer [label="done only for answer capture"];meta -> answer;answer -> body;body -> host;
+ screen -> host;dormant -> host;end -> host [style=dashed,label="typed result, no answer inferred"];
+ terminal -> host;screen -> terminal [style=dashed,label="screen sampling only"];
+}

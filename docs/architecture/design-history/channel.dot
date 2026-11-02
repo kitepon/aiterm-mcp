@@ -1,0 +1,27 @@
+digraph channel {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.4,ranksep=0.55,fontname="DejaVu Sans",fontsize=18,label="Proposed Steer channel split — file protocol and API unchanged",labelloc=t];
+ node [shape=box,style="rounded,filled",fillcolor="#f1f3f5",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#4b5563"];
+ caller [label="Public SDK / hook-main / Bridge adapter\nSame signatures, errors and state values"];
+ admission [label="channel.ts\nValidate parent / request / closed\nCodex -> existing official queue"];
+ queued [label="channel-state.ts\nNon-Codex inbox: queued\nSame delivery-ID dedup and file naming",fillcolor="#deedff"];
+ claim [label="channel-state.ts\nHardlink claim + owner PID/birth\nState: sending",fillcolor="#deedff"];
+ withdraw [label="channel-state.ts\nwithdraw races for same claim\ntrue only before output effect",fillcolor="#deedff"];
+ receiver [label="channel.ts\nClaude waiter / Cursor hook / background receiver\nOwns binding, waiter lifetime and output"];
+ emit [label="channel.ts: emitClaimed\nAwait output callback\nDefault noop retains current meaning",fillcolor="#fff1d5"];
+ settled [label="channel-state.ts\nWrite emitted record, then remove claim\nEmitted does not prove vendor start",fillcolor="#deedff"];
+ unknown [label="channel-state.ts\nRetain claim with unknown\nPropagate existing exception behavior",fillcolor="#ffe9e4"];
+ state [label="Public state / withdraw / close\nNo receipt or payload format migration"];
+ caller -> admission;
+ admission -> queued [label="non-Codex enqueue"];
+ queued -> claim [label="receiver claim"];
+ queued -> withdraw [label="caller withdraw"];
+ claim -> receiver [label="claimed items"];
+ receiver -> emit;
+ emit -> settled [label="callback fulfilled"];
+ emit -> unknown [label="callback rejected"];
+ settled -> state;
+ unknown -> state;
+ withdraw -> state;
+ state -> caller [label="same projection / result"];
+}

@@ -1,0 +1,23 @@
+digraph lifecycle {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.45,label="Current hibernation / resume records and effect boundaries",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ active [label="Current active launch\nmetadata + native proof + activity"];
+ eligible [label="decideIdleSeat / checkAgentIdle\nidle, unattached, no child/background work\nsettled turn + recipe + configuration + deadline"];
+ stopping [label="begin: persist lifecycle = stopping\nbefore any stop signal"];
+ effect [label="stopProcessTree + pinned native close\nverify generation/identity before each effect"];
+ rollback [label="cancelAgentStopping\nonly if no stop effect was issued",fillcolor="#eaf7ed"];
+ unknown [label="unconfirmed / stopping retained\nno automatic resume / replay",fillcolor="#fff0d8"];
+ asleep [label="finish: native/tree absence confirmed\npersist lifecycle = hibernated"];
+ resume [label="resumeAgentInLock under existing send lock\nverify old recipe/proof/attempt + native absence"];
+ staged [label="Persist next metadata + recipe\nold attempt = resuming\nold pointer still selected"];
+ created [label="Create native → birth proof → resume CLI line\nsame vendor conversation, new native/launch"];
+ published [label="publishAgentGeneration(old,next)\nnext pointer visible before ready"];
+ ready [label="prepareAgentInput / restore fast if needed\nthen old attempt = ready"];
+ failed [label="Catch: attempt = failed if writable\nresuming also blocks replay\nreturn typed input:not_sent",fillcolor="#ffe9e9"];
+ active -> eligible;eligible -> active [label="not due / unknown",style=dashed];eligible -> stopping [label="ready"];stopping -> effect;
+ effect -> asleep [label="exit confirmed"];effect -> rollback [label="pre-effect failure"];rollback -> active [label="cancel persisted"];rollback -> unknown [label="cancel failed"];effect -> unknown [label="effect issued + incomplete"];
+ asleep -> resume [label="new normal input request"];resume -> staged;resume -> unknown [label="precondition not proven"];
+ staged -> created;created -> published;published -> ready;ready -> active [label="current generation accepted"];
+ staged -> failed [label="failure",style=dashed];created -> failed [label="failure",style=dashed];published -> failed [label="failure",style=dashed];ready -> failed [label="final record failure",style=dashed];
+}

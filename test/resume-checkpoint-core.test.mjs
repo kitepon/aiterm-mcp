@@ -3,6 +3,7 @@ import './seat-env.mjs';
 import {createOfflineResumeCheckpoint,restoreOfflineResumeCheckpoint} from '../dist/resume-checkpoint-files.js';
 import {resumeCheckpointDigest} from '../dist/resume-checkpoint.js';
 import test from 'node:test';
+import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {join} from 'node:path';
@@ -19,7 +20,7 @@ import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
 
-const skip=process.platform==='win32'?'POSIX tmux fixture':false;
+const skip=process.platform!=='linux'?'Linux Codex recovery fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
 async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,resumeLater=false,resumeBusy=false,seatName,nativeSettings}={}){
@@ -80,7 +81,7 @@ setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')
  assert.equal(live.state,'idle',JSON.stringify(live));assert.equal(live.harness_alive,true);
  const meta=JSON.parse(fs.readFileSync(agentMetadataPath(name,live.launch_id),'utf8'));
  const ended=new Date(Date.now()-3600000).toISOString();
- meta.created_at=ended;meta.vendor_session_id='11111111-2222-4333-8444-'+String(serial).padStart(12,'0');
+ meta.created_at=ended;meta.vendor_session_id=randomUUID();
  meta.startup_processes=Object.keys(JSON.parse(Buffer.from(live.activity.cursor,'base64url').toString()).processes);
  writeAgentMetadata(meta);
  const directory=join(process.env.CODEX_HOME,'sessions');fs.mkdirSync(directory,{recursive:true});

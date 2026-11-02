@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import {processStartIdentity} from "./process-start.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync } from "node:child_process";
+import type { SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { AitermError } from "./errors.js";
@@ -114,10 +115,14 @@ export function windowsConsoleHost(row: RuntimeProcess): boolean {
 
 export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
   if (!isWin) {
+    const started = performance.now();
     const result = spawnSync(POSIX_PS, includeSession ? POSIX_SESSION_TABLE_ARGS : POSIX_TABLE_ARGS, {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
     });
-    if (result.error || result.status !== 0) throw new AitermError("OSのprocess一覧を取得できません", 2);
+    if (result.error || result.status !== 0) {
+      reportProcessProbeFailure(includeSession ? "session_table" : "table", started, result);
+      throw new AitermError("OSのprocess一覧を取得できません", 2);
+    }
     return parsePosixProcessTable(result.stdout, includeSession);
   }
   const script = [
@@ -146,6 +151,18 @@ export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
       command, cpu_seconds: row.cpu_seconds, argv_digest: createHash("sha256").update(command).digest("hex"),
     };
   });
+}
+
+let reportedProcessFailures = 0;
+function reportProcessProbeFailure(probe: string, started: number, result: SpawnSyncReturns<string>): void {
+  if (reportedProcessFailures++ >= 20) return;
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  try {
+    process.stderr.write(JSON.stringify({ schema: "aiterm.process-probe-failure.v1", at: new Date().toISOString(),
+      pid: process.pid, probe, ms: performance.now() - started, status: result.status, signal: result.signal,
+      code: code ? (["ETIMEDOUT", "EAGAIN", "ENOBUFS", "ENOENT", "EACCES"].includes(code) ? code : "other") : null,
+      stdout_bytes: Buffer.byteLength(result.stdout ?? ""), stderr_bytes: Buffer.byteLength(result.stderr ?? "") }) + "\n");
+  } catch { /* Diagnostic failure must not replace the original error. */ }
 }
 
 /** A held Process handle on Windows prevents a PID replacement from becoming the target. */
@@ -191,11 +208,13 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
   const wanted = [...new Set(pids)].filter(pidExists);
   if (wanted.length === 0) return [];
   if (!isWin) {
+    const started = performance.now();
     const result = spawnSync(POSIX_PS, [...POSIX_IDENTITY_ARGS, wanted.join(",")], {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000,
     });
     // 該当するprocessが一つも無い時、psは何も出さずstatus 1で終わる。
     if (result.error || (result.status !== 0 && !(result.status === 1 && !result.stdout.trim()))) {
+      reportProcessProbeFailure("identity", started, result);
       throw new AitermError("OSのprocess一覧を取得できません", 2);
     }
     return result.stdout.split("\n").filter(line => line.trim()).map(line => {

@@ -1,10 +1,11 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 
 const hasBackend = spawnSync(process.platform === "win32" ? "psmux" : "tmux", ["-V"]).status === 0;
@@ -35,6 +36,11 @@ test("PowerShellの複数行は記述順に実行し、完了印と変数を保�
   const timing = { open_started_at: Date.now() };
   core.openSession(session, "pwsh");
   timing.open_returned_at = Date.now();
+  const receipt = path.join(runtime.SOCKDIR, session + ".timing.json");
+  const observer = process.platform === "win32" ? spawn(process.execPath,
+    [fileURLToPath(new URL('../scripts/powershell-log-timing.mjs', import.meta.url)), runtime.SOCKDIR, session, receipt],
+    { stdio: ['pipe', 'ignore', 'inherit'], windowsHide: true }) : null;
+  const observed = observer ? new Promise((resolve, reject) => { observer.once('error', reject); observer.once('close', code => code === 0 ? resolve() : reject(new Error(`timing observer exit ${code}`))); }) : null;
   try {
     timing.warm_send_started_at = Date.now();
     core.send(session, "[Console]::WriteLine('準備' + '完了')", { mark: true });
@@ -60,7 +66,15 @@ test("PowerShellの複数行は記述順に実行し、完了印と変数を保�
     t.diagnostic(JSON.stringify(await capturePtyFailure(core, session, { boundary: 'PowerShell multiline mark', timing })));
     throw error;
   } finally {
-    core.closeSession(session);
+    try {
+      if (observer) {
+        observer.stdin.end();
+        await observed;
+        t.diagnostic(fs.readFileSync(receipt, 'utf8').trim());
+      }
+    } finally {
+      core.closeSession(session);
+    }
   }
 });
 

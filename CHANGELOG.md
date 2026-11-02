@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-11-02
+
 ### Fixed
 - Accept a resumed Codex turn that is already running only when the saved conversation, a new native turn boundary and the live launch identity agree. Keep uncertain resumes blocked without resending input.
 - Return typed `aiterm.agent-resume-error.v1` failures with the current request's input status, so consumers do not classify resume failures by parsing error text.
@@ -3003,7 +3005,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...HEAD
+[0.63.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...v0.63.2
 [0.63.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...v0.63.1
 [0.63.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...v0.63.0
 [0.62.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...v0.62.6

@@ -4,6 +4,8 @@
 
 ## 方針
 
+2026-11-02追補：Codexの通常速度の復帰では、native自身が入力を取り込んで既にbusyなら、保存会話proofのcursor後の新しいtask_startedと、固定した生存native本人性を確認して既存のsteer判定へ戻す。idleまで待ってfailedへ固定しない。画面だけ・旧turn・fast未復元はこの判定を通さない。既に動く利用者の子processをstartup baselineへ取り込まないため、この経路のbaselineは未知を維持し、この世代の自動休止はしない。failed attemptを自動解除せず、本文・CLIを再発行しない。失敗の公開結果はaiterm.agent-resume-error.v1へ今回本文input:not_sentとinspect_sessionを付け、native復帰の作用や他の入力の結果へ拡張しない。
+
 Ownerは2026-10-31、最後の番の終了から30分、新しい入力も番もないAiterm管理会話席を、子孫processごと止め、次の入力で同じvendor会話を再開するよう指示した。普通のpty_open、常駐receiver、OS daemonは含めない。busy、blocked/approval、後から始まったbackground作業、未配送の子結果、人のattach、再開に必要な会話ID欠測では休止しない。固まりの疑いは報告だけとする。既存の実席を手動で整理する権限へ拡張しない。
 
 ## 時刻の正本

@@ -549,6 +549,8 @@ Windowsで新しく起動するClaude・Codex・Grok・Antigravityは、本人pr
 
 休止を確定した会話席は、同じsession ID・harness・会話ID・明示登録envを`pty_list`に残す。`pty_observe`は`state=hibernated`、`reason=idle_timeout`、`exists=true`を返す。pane/harnessの生存はfalse、process本人性3項目とtoken_hintはnull。未配送数と起動後process数は0、CPU累積は0、cursorと活動差分はnull。停止途中・復帰途中・失敗・native世代の不一致はunknownとする。休止席のcloseはCLIを起こさず論理席を消す。同名を明示した`agent_launch`は保存した会話と設定で再開し、harness・設定・project・明示env名の矛盾は入力前に`AGENT_RESUME_CONFLICT`で断る。`pty_open`で休止会話席を上書きしない。通常の`pty_read`・制御キー・承認操作は、休止中や世代未確定では`AGENT_RESUME_UNCONFIRMED`で断る。履歴は既存のtranscriptオプションで読める。停止ボタンは確定休止席を起こさず閉じずidleで返し、途中や不整合は拒否する。全対応OSのmanaged Claude/Codex初回起動も実端末の作成本人性を保持し、証拠欠測では休止しない。自動採番は論理席の名前も避ける。休止直前には実CLIの現在設定も確認し、不一致や確認不能なら席を保持する。Linux・macOS・Windowsのmanaged Claude/Codex会話席は最後の番の終了から30分で休止し、次の送信で同じ会話へ戻る。正の有限値の`AITERM_IDLE_MINUTES`で分数を変更できる。応答中・承認待ち・attach中・未配送・作業中の子孫・作成証拠欠測・設定未確認の席は保持する。他のharness、通常PTY、mounted execution graphは対象外。`aiterm-idle-check --session <name> --launch <32hex>`で同じ保護付き判定を一度実行できる。
 
+Codexは復帰中にnativeの待機入力で番を始める場合がある。通常速度では、保存会話のproof、休止cursor後の新しい`task_started`、同じ生存native起動を確認したbusyだけを復帰完了とする。busy画面だけでは受理しない。この経路では利用者の作業を起動時processへ分類せず、post-startup数は未知、この起動の自動休止は無効のまま保つ。fastの復元には引き続きidleの入力欄が必要。失敗attemptは自動解除しない。復帰失敗は`isError: true`と、schema `aiterm.agent-resume-error.v1`、code `AGENT_RESUME_UNCONFIRMED`又は`AGENT_RESUME_FAILED`、`session_id`、`launch_id`、`input: "not_sent"`、`recovery: "inspect_session"`の`structuredContent`を返す。未送信は今回の本文だけを指し、CLI未起動や他のnative入力の未処理を意味しない。席を確認し、自動再送や再起動をしない。
+
 agent sessionを閉じると失うものは、次の2項目で分かる。`activity.post_startup_process_count`は、`agent_launch`の起動準備が
 完了した時点（初手を送る前）に居なかったprocessの数。起動直後の1分に始めた裏の作業も数える。数えないものは2つ。Codex自身の
 補助process（`codex-code-mode-host`）と、中継`mcp-lazy`の直接の子（初めて使う時に起こすMCPの本体と、先行起動の判定）。

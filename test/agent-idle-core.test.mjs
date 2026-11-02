@@ -19,7 +19,7 @@ import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
-async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,seatName,nativeSettings}={}){
+async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,resumeBusy=false,seatName,nativeSettings}={}){
  const tag='idle-core-'+ ++serial,bin=join(process.env.HOME,tag+'-codex.sh'),driver=join(process.env.HOME,tag+'-driver.mjs');
  const keys=join(process.env.HOME,tag+'-input'),spawnFlag=join(process.env.HOME,tag+'-spawn'),spawned=join(process.env.HOME,tag+'-spawned');
  fs.mkdirSync(process.env.CODEX_HOME,{recursive:true});
@@ -30,13 +30,20 @@ let selected;const reset=()=>selected={'model-with-reasoning':true,'current-dir'
 const settings=${JSON.stringify(nativeSettings??{model:'fixture-model',effort:'high',fast:false})};
 fs.appendFileSync(${JSON.stringify(keys+'-launches')},JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),room:process.env.PEERTABLE_ROOM??null,member:process.env.PEERTABLE_MEMBER??null,unset:process.env.AITERM_TEST_UNSET??null})+'\\n');
 ${resumeBlocked?'if(process.argv.includes("resume"))process.exit(0);':''}
+const resumedBusy=process.argv.includes('resume')?${JSON.stringify(resumeBusy)}:false;
+if(resumedBusy==='bound'){
+ const directory=process.env.CODEX_HOME+'/sessions';
+ const session=process.argv[process.argv.indexOf('resume')+1];
+ const file=fs.readdirSync(directory).find(name=>name.endsWith('-'+session+'.jsonl'));
+ fs.appendFileSync(directory+'/'+file,JSON.stringify({timestamp:new Date().toISOString(),type:'event_msg',payload:{type:'task_started',turn_id:'native-queued-turn'}})+'\\n');
+}
 const draw=()=>{
  if(menu)fs.writeFileSync(${JSON.stringify(keys+'-menu-open')},'1');else fs.rmSync(${JSON.stringify(keys+'-menu-open')},{force:true});
  const model=settings.model+' '+settings.effort+(settings.fast?' Fast':'');
  const footer=[selected['model-with-reasoning']?model:null,selected['current-dir']?process.cwd():null,selected['thread-name']?'thread name':null,selected['fast-mode']?(settings.fast?'Fast':'Standard'):null].filter(Boolean).join(' · ');
  const rows=Object.entries(selected).filter(([id])=>!query||id.includes(query));
  const screen=menu?'Configure Status Line\\nSelect which items to display in the status line.\\n\\n'+(query||'Type to search')+'\\n\\n'+rows.map(([id,on],i)=>(i===0?'› ':'  ')+'['+(on?'x':' ')+'] '+id+'  Current setting').join('\\n')+'\\n\\n'+footer+'\\nspace toggle · ←/→ reorder · enter save · esc cancel'
- : 'OpenAI Codex\\n› '+line+'\\x1b[K\\n  '+model+' · /tmp/proj\\x1b[K\\n\\x1b[J';
+ : 'OpenAI Codex\\n'+(resumedBusy?'◦ Working (1s • esc to interrupt)\\n':'')+'› '+line+'\\x1b[K\\n  '+model+' · /tmp/proj\\x1b[K\\n\\x1b[J';
  process.stdout.write('\\x1b[H\\x1b[2J'+(${resumeBlocked?'process.argv.includes("resume") ? "unknown blocked view" : ':''}screen));
 };
 process.stdin.setRawMode(true);process.stdin.resume();draw();
@@ -404,6 +411,32 @@ test('send resumes the same conversation once, preserves old records and restore
  const listed=core.listSessionsResult(['PEERTABLE_ROOM','PEERTABLE_MEMBER','AITERM_TEST_UNSET']).sessions.find(row=>row.session_id===f.name);
  assert.deepEqual(listed.environment,{PEERTABLE_ROOM:"saved room ' $() ; #{pane_id} \\ literal",PEERTABLE_MEMBER:';',AITERM_TEST_UNSET:null});
  const accepted=fs.readFileSync(f.keys,'utf8').trim().split('\n');assert.deepEqual(accepted,['first-body','second-body']);
+});
+
+for(const proof of ['bound','unbound'])test(`resume verifies a native queued turn before accepting a busy Codex (${proof})`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t,{resumeBusy:proof});
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const request=core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt:null,ready_timeout:300});
+ if(proof==='unbound'){
+  await assert.rejects(request,error=>{
+   assert.match(error.message,/AGENT_RESUME_FAILED/);
+   assert.deepEqual(error.resumeFailure,{schema:'aiterm.agent-resume-error.v1',code:'AGENT_RESUME_FAILED',
+    session_id:f.name,launch_id:core.observeSessionGeneration(f.name).launch_id,input:'not_sent',recovery:'inspect_session'});
+   return true;
+  });
+ }else{
+  const result=await request;
+  assert.equal(result[5].status,'ready');
+  assert.equal(result[4].status,'not_requested');
+  const seen=core.observeSession(f.name);
+  assert.equal(seen.state,'busy');assert.equal(seen.harness_alive,true);
+  assert.equal(seen.activity.post_startup_process_count,null,'queued work cannot be saved as startup scaffolding');
+  assert.notEqual(seen.launch_id,f.meta.launch_id);
+  const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json')));
+  assert.equal(attempt.state,'ready');assert.equal(attempt.next_launch_id,seen.launch_id);
+ }
+ assert.equal(fs.existsSync(f.keys),false,'readiness never submits or replays a body');
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2);
 });
 
 test('an external observer retains membership while the published resume is not ready',{skip,timeout:20000},async t=>{

@@ -32,6 +32,16 @@ export class AgentAuthenticationPreflightError extends AitermError {
   }
 }
 
+/** Resume failures occur before the caller's body reaches the input path. */
+export class AgentResumeError extends AitermError {
+  readonly resumeFailure;
+  constructor(code: "AGENT_RESUME_UNCONFIRMED" | "AGENT_RESUME_FAILED", message: string, sessionId: string, launchId: string) {
+    super(`${code}: ${message}`, 2);
+    this.resumeFailure = { schema: "aiterm.agent-resume-error.v1" as const, code,
+      session_id: sessionId, launch_id: launchId, input: "not_sent" as const, recovery: "inspect_session" as const };
+  }
+}
+
 export class TelemetryOwnedError extends AitermError {
   readonly telemetryCode: RuntimeErrorCode;
   constructor(message: string, code: number, telemetryCode: RuntimeErrorCode, cause?: unknown) {

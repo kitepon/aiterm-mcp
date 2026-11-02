@@ -50,7 +50,7 @@ import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
-import { AitermError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -5172,11 +5172,17 @@ async function waitStartupSelection(name: string, selected: RegExp): Promise<boo
   return false;
 }
 
-async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts): Promise<AgentStartupResult> {
+async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts,
+  acceptRunningCodex = false): Promise<AgentStartupResult> {
   await ensureAgentOwnsPaneInput(name, meta.kind);
-  let ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
+  // A resumed Codex can consume its native queue before the composer becomes idle.
+  const running = (screen: string) => acceptRunningCodex && meta.kind === "codex" && !!meta.resumed_from
+    && codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null;
+  const wait = () => waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS,
+    { selectSteer: running });
+  let ready = await wait();
   const handled = new Set<string>();
-  while (!ready.ready) {
+  while (!ready.ready && !ready.steer) {
     const action = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true)
@@ -5202,14 +5208,16 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
       await withExecutionNativeAdmission(name, () => sendKey(name, action.keys.at(-1)!, { preserveAgentOperation: true }));
       await sleep(AGENT_SUBMIT_DELAY_MS);
     }
-    ready = await waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS);
+    ready = await wait();
   }
-  if (!ready.ready) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
+  if (!ready.ready && !ready.steer) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
   const live = observeNativeSession(name);
-  if (live.harness_alive !== true || live.harness_process === null || live.state !== "idle")
+  if (live.harness_alive !== true || live.harness_process === null
+    || (live.state !== "idle" && !(ready.steer && live.state === "busy" && codexRunningTurn(meta) !== null)))
     return { status: "blocked", reason: live.reason };
   // ここまでに居るprocessは起動時の足場（harness・MCP・起動時hook）。初手を送る前に控える。
-  if (live.activity.cursor !== null) {
+  // shortcut: a native queued turn can already own children, so leave its startup baseline unknown until a future lifecycle can distinguish them.
+  if (live.activity.cursor !== null && !ready.steer) {
     meta.startup_processes = Object.keys(decodeActivityCursor(live.activity.cursor, name).processes);
     meta.startup_process_shapes = startupProcessShapes(meta.startup_processes, readRuntimeProcesses());
     writeAgentMetadata(meta);
@@ -7284,7 +7292,8 @@ function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecyc
 
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
-  const uncertain = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", 2);
+  const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED",
+    "前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", name, previous.launch_id);
   const ownAttempt = readAgentResumeAttempt(previous);
   if (!lifecycle) {
     if (previous.resumed_from) {
@@ -7365,7 +7374,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       published = true;
     });
     const resumed: AgentMetadata = next!;
-    const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout });
+    const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout }, !recipe.fast);
     if (ready.status !== "ready") throw uncertain();
     // Launch argv pins standard speed; restore fast only after the native composer is ready.
     if (recipe.fast) {
@@ -7382,7 +7391,9 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   } catch (error) {
     const issued = attempt as AgentResumeAttempt | null;
     if (issued) try { writeAgentResumeAttempt(previous, { ...issued, state: "failed", at: new Date().toISOString() }); } catch { /* resuming also blocks replay */ }
-    throw new AitermError(`AGENT_RESUME_FAILED: 同じ会話への復帰を確認できません。本文は送信していません。再送せず席の状態を確認してください。${error instanceof ExecutionError ? ` ${error.code}` : ""}`, 2);
+    throw new AgentResumeError("AGENT_RESUME_FAILED",
+      `同じ会話への復帰を確認できません。本文は送信していません。再送せず席の状態を確認してください。${error instanceof ExecutionError ? ` ${error.code}` : ""}`,
+      name, next?.launch_id ?? previous.launch_id);
   }
   });
 }

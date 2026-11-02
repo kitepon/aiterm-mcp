@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Accept a resumed Codex turn that is already running only when the saved conversation, a new native turn boundary and the live launch identity agree. Keep uncertain resumes blocked without resending input.
+- Return typed `aiterm.agent-resume-error.v1` failures with the current request's input status, so consumers do not classify resume failures by parsing error text.
+
 ## [0.63.1] - 2026-11-02
 
 ### Added

@@ -5,9 +5,10 @@ digraph overview {
  client [label="MCP client / BellTeam\nowns Bot orchestration",fillcolor="#f3f3f3"];
  bridge [label="grokbot-bridge\nDB / reservations / receipt",fillcolor="#f3f3f3"];
  subgraph cluster_a {
-  label="Aiterm candidate · A1 metadata reader";labeljust=l;margin=22;color="#82a2d0";
+  label="Aiterm candidate · A1 + A2 reader / output";labeljust=l;margin=22;color="#82a2d0";
   mcp [label="MCP entry\nindex.ts: createAitermServer"];
   lifecycle [label="Agent / PTY lifecycle\ncore.ts: launch, dispatch, resume, close"];
+  output [label="PTY display: pty-output.ts\ncontrol removal / output reduction\ncore export and native result unchanged",fillcolor="#eaf8f1"];
   reader [label="Metadata reader\nagent-metadata-reader.ts: select / validate / project\nno native operation, no negative cache",fillcolor="#eaf8f1"];
   state [label="Metadata / generation / idle state\nagent-shared.ts, agent-lifecycle.ts"];
   runtime [label="Native terminal + process identity\ntmux-runtime.ts, process-*.ts"];
@@ -27,6 +28,7 @@ digraph overview {
  bridge -> mcp [label="pty_list / launch / send / close",dir=both];
  mcp -> lifecycle [label="validated arguments"];
  lifecycle -> state [label="persist / generation",dir=both];
+ lifecycle -> output [label="display only"];
  lifecycle -> reader [label="read / exception or null",dir=both];
  reader -> state [label="select current generation"];
  lifecycle -> runtime [label="create / observe / input / stop",dir=both];

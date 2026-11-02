@@ -1,0 +1,31 @@
+digraph ordinary_pty {
+graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.48,labelloc=t,fontname="DejaVu Sans",fontsize=18]; node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+graph [label="Ordinary PTY: admission, partial input, completion and display"];
+ api [label="MCP index / internal caller
+Validate name, options, context and pending initial prompt"];
+ lock [label="send: ordinary session file lock
+managed Claude refuses ordinary input
+lastcmd before optional external rtk rewrite"];
+ mark [label="Prepare UTF-8 text, optional marker ID + shell sentinel
+64 KiB validation; save marker before effect
+RTK INPUT rewrite differs from read-side reducer"];
+ native [label="Native admission before each effect
+POSIX: unique buffer load → paste → pause
+Windows: authenticated fixed peer → chunks → response"];
+ enter [label="After full body → recheck → Enter
+Returns input receipt, not vendor completion"];
+ partial [label="Chunk / preface / Enter failure
+Earlier bytes can remain; no automatic replay
+Cleanup temporary buffer, release own-token lock",fillcolor="#fff0dd"];
+ wait [label="waitCompletion: monotonic deadline + log
+marker ID + rc → until literal/regex → existence/stability
+Restat log after foreground probe"];
+ result [label="complete / timeout / nested / dead / quiescent
+marker completion ≠ rc zero
+until may match echo; stability ≠ agent turn completion",fillcolor="#eeeeee"];
+ read [label="readOutput: delta + offset OR current screen
+raw / controls / frame removal / bounded output
+pty-output.ts: stripControl / reduceOutput (core re-export)
+rtk.ts: separate semantic reducer; native result unchanged"];
+ api -> lock;lock -> mark;mark -> native;native -> enter;native -> partial;enter -> partial [label="on failure"];enter -> wait [label="caller requests wait"];wait -> result;result -> read;read -> api [label="caller result"];partial -> api [label="error with partial possibility"];
+}

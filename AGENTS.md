@@ -55,7 +55,8 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/setup.ts`／`src/setup-cli.ts`: 導入の順序・公開結果。`src/setup-platform.ts`: OSと公式導入経路。
   `src/setup-integrations.ts`: AI別のMCP登録と読戻し。
 - `src/index.ts`: MCP toolとschema。
-- `src/core.ts`: PTY、入出力整形、出力削減、完了検出、harness共通進行。入力欄への投入（貼付→反映の確認→Enter）は
+- `src/pty-output.ts`: 制御文字除去と表示縮約。coreの既存exportを保ち、入力・完了判定・RTK意味別縮約と分離する。
+- `src/core.ts`: PTY、入出力進行、完了検出、harness共通進行。入力欄への投入（貼付→反映の確認→Enter）は
   `submitAgentComposerText`の1つの順序を、起動時prompt・dispatch・差し込みの送信口が共有する。席へ渡すAitermの環境変数は
   `agentEnvEntries`の1つの一覧から、POSIXの前置きとWindowsのPowerShell行を作る。
 - `src/agent-screen-observation.ts`: sampleと時計を受け取るTUI準備・入力残存・画面安定の観測。打鍵やmetadata更新はcoreが持つ。

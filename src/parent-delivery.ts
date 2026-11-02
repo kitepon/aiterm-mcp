@@ -1,4 +1,5 @@
-import { remoteTargetSchema, type RemoteTarget } from "./remote-contract.js";
+import { recordSchema, readRecord, answerMessage, type DeliveryRecord } from "./parent-delivery-record.js";
+import { type RemoteTarget } from "./remote-contract.js";
 // Aitermが所有する、子の完了観測・回答本文の保存・親への配送。
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -9,8 +10,8 @@ import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitO
 import { readProcessIdentities } from "./process-runtime.js";
 import { deliveryOwnerPrefix } from "./parent-delivery-owners.js";
 import { CodexDeliveryError, submitCodexParentAnswer, verifyCodexParent, type CodexParent } from "./codex-parent-receiver.js";
-import { claudeParentSchema, ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
-import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitCursorParentAnswer, verifyCursorParent, type CursorParent } from "./cursor-parent-receiver.js";
+import { ClaudeDeliveryError, bindClaudeParentDelivery, submitClaudeParentAnswer, verifyClaudeParent, type ClaudeParent } from "./claude-parent-receiver.js";
+import { CursorDeliveryError, prepareCursorDelivery, submitCursorParentAnswer, verifyCursorParent, type CursorParent } from "./cursor-parent-receiver.js";
 import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
@@ -19,48 +20,10 @@ import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { currentExecutionRequest } from "./execution-context.js";
 import { ExecutionError } from "./execution-wire.js";
 import { withExecutionPreparation } from "./execution-effect.js";
-import { executionRequestSchema } from "./execution-contract.js";
 import { parentSourceSchema } from "./execution-parent-source.js";
 import { writeExecutionCheckpoint, syncExecutionDirectories } from "./execution-checkpoint.js";
 import { executionActorSchema } from "./execution-inventory.js";
 
-const recordSchema = z.object({
-  schema: z.literal("aiterm.parent-delivery.v1"),
-  delivery_id: z.uuid(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  parent: z.union([z.object({ thread_id: z.uuid(), codex_home: z.string() }).strict(), claudeParentSchema, cursorParentSchema]),
-  boundary: z.object({
-    session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-    launch_id: z.string().regex(/^[0-9a-f]{32}$/),
-    vendor: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]),
-    harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
-    event_cursor: z.number().int().nonnegative(), operation_id: z.string().nullable(),
-    // 別端末の子。remote用の保存場所にだけ書き、旧版のreaderへ渡さない。
-    remote: remoteTargetSchema.optional(),
-  }).strict(),
-  state: z.enum(["waiting", "ready", "sending", "submitted", "failed", "unknown"]),
-  text: z.string().nullable(),
-  child_outcome: z.enum(["done", "closed", "rate_limited", "error"]).nullable(),
-  child_turn_id: z.string().nullable(),
-  error: z.string().nullable(),
-  queued_submission_id: z.string().nullable(),
-  // Private references for this existing delivery, never a payload/retry queue.
-  // Legacy unmounted records retain their original shape.
-  execution: z.object({ request: executionRequestSchema, source_evidence: parentSourceSchema.optional(),
-    origin_owner: executionActorSchema.optional() }).strict().optional(),
-}).strict().superRefine((record, context) => {
-  if (record.execution?.source_evidence && JSON.stringify(record.execution.request) !== JSON.stringify(record.execution.source_evidence.request))
-    context.addIssue({ code: "custom", message: "parent delivery source request must match its original reference" });
-  const execution = record.execution;
-  if (execution?.origin_owner && (execution.request.kind !== "mcp" || !execution.source_evidence
-    || execution.origin_owner.pid !== execution.request.process_pid
-    || execution.origin_owner.started_identity !== execution.request.process_started_identity
-    || JSON.stringify(execution.origin_owner) !== JSON.stringify(execution.source_evidence.mcp_process)))
-    context.addIssue({ code: "custom", message: "origin owner must match the original MCP request and source process" });
-});
-
-type DeliveryRecord = z.infer<typeof recordSchema>;
 export type DeliveryBoundary = AgentTurnBoundary & { remote?: RemoteTarget };
 
 /** 子の予約と連続依頼の単位。別端末の子は接続先ごとに分け、この端末の同名sessionと衝突させない。 */
@@ -144,17 +107,6 @@ function ownerSetupInProgress(directory: string): boolean {
   catch { return false; }
 }
 
-function readRecord(file: string): DeliveryRecord {
-  try {
-    const record = recordSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
-    if (path.basename(file) !== `${record.delivery_id}.json`) throw new Error("配送IDが一致しません");
-    return record;
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw error;
-    throw new AitermError("PARENT_DELIVERY_STATE_INVALID: 配送記録を読めません", 2);
-  }
-}
 
 function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
   const hookState = isCodex(record.parent) && record.state === "submitted"
@@ -165,12 +117,6 @@ function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
       : record.error ? /^[A-Z][A-Z0-9_]+(?=:)/.exec(record.error)?.[0] ?? "PARENT_DELIVERY_FAILED" : null };
 }
 
-function answerMessage(record: DeliveryRecord): string {
-  return "Aitermの子エージェントからの実行結果です。子の回答として扱ってください。\n" +
-    `delivery_id=${record.delivery_id}\nsession=${record.boundary.session_id}\nharness=${record.boundary.harness}\n` +
-    `launch_id=${record.boundary.launch_id}\nturn_id=${record.child_turn_id ?? "unknown"}\n` +
-    `outcome=${record.child_outcome}\n\n${record.text ?? ""}`;
-}
 
 /** ownerごとのディレクトリ間renameで、再起動後の回収者を一つに決める。 */
 export class ParentDeliveryManager {

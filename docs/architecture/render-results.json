@@ -3,7 +3,7 @@
   "results": [
     {
       "file": "current-overview.dot",
-      "width": 2856,
+      "width": 2952,
       "height": 1399,
       "svg": true,
       "png": true
@@ -33,6 +33,13 @@
       "file": "ordinary-pty.dot",
       "width": 1143,
       "height": 1013,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "parent-delivery.dot",
+      "width": 1604,
+      "height": 1117,
       "svg": true,
       "png": true
     },

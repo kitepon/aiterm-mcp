@@ -5,7 +5,7 @@ digraph overview {
  client [label="MCP client / BellTeam\nowns Bot orchestration",fillcolor="#f3f3f3"];
  bridge [label="grokbot-bridge\nDB / reservations / receipt",fillcolor="#f3f3f3"];
  subgraph cluster_a {
-  label="Aiterm candidate · A1–A4b reader / output / configuration / remote contract";labeljust=l;margin=22;color="#82a2d0";
+  label="Aiterm candidate · A1–A4b";labeljust=l;margin=22;color="#82a2d0";
   mcp [label="MCP entry\nindex.ts: createAitermServer"];
   lifecycle [label="Agent / PTY lifecycle\ncore.ts: launch, dispatch, resume, close"];
   output [label="PTY display: pty-output.ts\ncontrol removal / output reduction\ncore export and native result unchanged",fillcolor="#eaf8f1"];
@@ -17,10 +17,10 @@ digraph overview {
   pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];
  }
  subgraph cluster_s {
-  label="Steer 0.5.1 · 6734ee86";labeljust=l;labelloc=b;margin=22;color="#84bda3";
+  label="Steer 0.5.1 candidate · S1";labeljust=l;labelloc=b;margin=22;color="#84bda3";
   sdk [label="SDK exports / Codex CLI\nindex.ts, cli.ts",fillcolor="#eaf8f1"];
   receiver [label="Vendor receiver / official hooks\n*-receiver.ts, *-hooks.ts",fillcolor="#eaf8f1"];
-  channels [label="Channel state + output\nchannel.ts: inbox → claim → settle",fillcolor="#eaf8f1"];
+  channels [label="Channel output: channel.ts\nStorage transitions: channel-state.ts\ninbox → claim → emit → settle",fillcolor="#eaf8f1"];
   hookstate [label="Codex hook state\ncodex-hook-state.ts: inputs / claims / pending / settled",fillcolor="#eaf8f1"];
  }
  vendor [label="Vendor CLI / native queue / hook protocol\nCodex, Claude, Cursor, Grok, Antigravity",fillcolor="#fff4dc"];

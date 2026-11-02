@@ -1,5 +1,5 @@
 digraph configuration {
- graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.55,fontname="DejaVu Sans",fontsize=18,label="Model configuration ownership — A3 implementation",labelloc=t];
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.55,fontname="DejaVu Sans",fontsize=18,label="Model configuration ownership — current / failed resume",labelloc=t];
  node [shape=box,style="rounded,filled",fillcolor="#f1f3f5",fontname="DejaVu Sans",fontsize=12];
  edge [fontname="DejaVu Sans",fontsize=10,color="#4b5563"];
  request [label="configureAgent\nValidate session / generation / input-ready"];
@@ -13,8 +13,14 @@ digraph configuration {
  failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend",fillcolor="#ffe9e4"];
  preview [label="idle-settings.ts: shared native preview\ninspectCodexResumeSettings: fresh thread-id + settings\nCancel without save; missing / mismatch => null",fillcolor="#deedff"];
  repair [label="R1-L: completeFailedCodexResume\nOwns native pin / composer gate / admission",style="rounded,filled",fillcolor="#fff1d5"];
- repair -> preview [label="current thread + matching settings"];
- preview -> failure [label="unknown / no ready after cancel"];
+ repair -> preview [label="fresh thread + explicit standard speed"];
+ restore_resume [label="R1-L settings mismatch
+Existing keepingCodexDefaults + configureCodexModel
+Re-preview thread / model / effort / speed",fillcolor="#deedff"];
+ preview -> restore_resume [label="same thread; known model / effort mismatch"];
+ restore_resume -> codex [label="guarded native UI"];
+ restore_resume -> preview [label="verify final native settings"];
+ preview -> failure [label="unknown / other thread / fast / no ready"];
  request -> lock;
  lock -> port;
  port -> claude;

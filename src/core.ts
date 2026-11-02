@@ -6747,8 +6747,19 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
       key: (...keys: string[]) => { verify(); sendMenuChoice(name, ...keys); },
       ready,
     };
-    const actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
+    let actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
     verify();
+    if (!actual || actual.fast !== false) throw unavailable();
+    if (actual.model?.toLowerCase() !== recipe.model?.toLowerCase() || actual.reasoning_effort !== recipe.reasoning_effort) {
+      if (!recipe.model || !recipe.reasoning_effort) throw unavailable();
+      await keepingCodexDefaults(recipe.executable, recipe.configuration_root, ["model", "model_reasoning_effort"],
+        () => configureCodexModel(name, recipe.model, recipe.reasoning_effort, verify,
+          { ...ui, waitForText: text => waitForScreenText(name, text) }));
+      verify();
+      if (!await ready()) throw unavailable();
+      actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
+      verify();
+    }
     if (!actual || actual.model?.toLowerCase() !== recipe.model?.toLowerCase()
       || actual.reasoning_effort !== recipe.reasoning_effort || actual.fast !== recipe.fast) throw unavailable();
     // Do not recapture startup processes: this same native may already own children.

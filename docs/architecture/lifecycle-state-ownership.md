@@ -73,9 +73,9 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 
 ## 公開済みfailed Codexの同native復帰候補（R1-L）
 
-`core.failedCodexResumeRecipe`がLinux/Codex/standard speed・current/previous/old failed/recipe/proofを固定し、`completeFailedCodexResume`が既send lock/native出生pin内で入力待ちと現在会話・設定を再確認する。元task完了の新規発生を条件にしない。死んだCLI・busy・別会話・設定不一致・不明なcomposerは本文前拒否。入力へ命令を貼る前とEnter前を確認し、既存draftと合成された文字列をsubmitしない。
+`core.failedCodexResumeRecipe`がLinux/Codex/standard speed・current/previous/old failed/recipe/proofを固定し、`completeFailedCodexResume`が既send lock/native出生pin内で入力待ちと現在会話・設定を再確認する。元task完了の新規発生を条件にしない。死んだCLI・busy・別会話・不明なcomposerは本文前拒否。設定不一致は現在threadとstandardを確定後、既model設定adapter/利用者既定保持で復元し、新previewで再検証する。別thread/fastは設定前拒否。入力へ命令を貼る前とEnter前を確認し、既存draftと合成された文字列をsubmitしない。
 
-元failedは変更せず、strict `.resume-resolution.json`を別に保存・読戻す。`hasCompletedResumeRecovery`を通常resumeとdormant判定で共有し、後続configureで変わるcurrent recipeを履歴の失効条件にしない。close cleanupが新記録も片付ける。同名agent_launchの設定衝突検査を維持して同じ復帰処理へ接続する。画面parserは`harnesses/idle-settings.ts:codexRecoveryComposer`、現在thread/設定previewも同module。cold復帰とcheckpointは未実装。
+元failedは変更せず、strict `.resume-resolution.json`を別に保存・読戻す。`hasCompletedResumeRecovery`を通常resumeとdormant判定で共有し、後続configureで変わるcurrent recipeを履歴の失効条件にしない。close cleanupが新記録も片付ける。同名agent_launchの設定衝突検査を維持して同じ復帰処理へ接続する。画面parserは`harnesses/idle-settings.ts:codexRecoveryComposer`、現在thread/設定previewも同module。cold復帰とcheckpoint/restoreは別節の独立経路を参照。
 
 実入口回帰は`test/agent-idle-core.test.mjs`末尾、strict保存と旧attempt保持は`test/agent-resume-resolution.test.mjs`、現在会話/UI/入力parserは`test/codex-resume-settings.test.mjs`。既三resume caller、dormantを使うobserve/list/設定/closeと公開6fieldの直接境界を確認対象とする。実vendor/3OS/本番受入は別。
 
@@ -88,3 +88,5 @@ Bの`.resume-recovery-origin.json`は元A.failed attempt/native/recipe/proof dig
 `harnesses/codex.codexNativeRootRecord`が既厳密root選択を共有し、公開済み内部`codexInterruptionRecord`の完了/中断返却意味は維持する。`captureCodexRecoveryProof`は元rootの安定した末尾を新floorにし、元新taskの欠測や未完をtask_completeへ変換しない。新世代は復帰前の完了を受け取らない。元root置換/partial/別会話/複数rootは拒否する。
 
 直接回帰：`agent-idle-core.test.mjs`のcold正常系・orphan/一覧unknown/root置換/vendor mismatch拒否、`codex-resume-proof.test.mjs`の初手前/未完task/cold provenanceと新floor。checkpoint/H1の保存・sealed source契約は未提供で、このcandidateをtmpfs消失後の商用供給成功へ拡張しない。
+
+R1-L直接回帰では、同名launchでresolutionを完成→通常configureでcurrent recipe変更→sendを確認し、元startup baselineを保持するready-save失敗からは次の正常休止/同vendor resumeも確認した。baseline欠測の初期失敗は既unknownを保ち、復帰後に子をbaselineへ取り込まない。全既失敗を無条件に休止可能にする変更ではない。

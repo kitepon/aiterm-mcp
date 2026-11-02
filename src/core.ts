@@ -1,3 +1,4 @@
+import { recordAgentResumeFailure, safeResumeReadiness, type AgentResumeFailure, type ResumeFailurePhase } from "./agent-resume-diagnostic.js";
 import { configureClaudeForSessionOnly } from "./harnesses/claude-configure.js";
 import { configureCodexModel } from "./harnesses/codex-configure.js";
 import { lineCounts, type AgentModelUi } from "./agent-model-ui.js";
@@ -603,6 +604,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
           f.endsWith(".resume-attempt.json") ||
+          f.endsWith(".resume-failure.json") ||
           f.endsWith(".resume-native.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
@@ -6613,6 +6615,18 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     return previous;
   }
   if (lifecycle.state !== "hibernated" || ownAttempt) throw uncertain();
+  let phase: ResumeFailurePhase = "recipe_validation";
+  let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
+  let readiness: AgentResumeFailure["readiness"] = null, attemptedAt: string | null = null;
+  let attemptRecord: AgentResumeFailure["attempt_record"] = "not_created", recorded = false;
+  const recordFailure = (error: unknown) => {
+    if (recorded) return;
+    recorded = true;
+    recordAgentResumeFailure({ session_id: name, launch_id: next?.launch_id ?? previous.launch_id,
+      previous_launch_id: previous.launch_id, next_launch_id: next?.launch_id ?? null, phase, readiness,
+      attempted_at: attemptedAt, attempt_record: attemptRecord }, error);
+  };
+  try {
   assertExecutionResumeSupported();
   const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
   if (sessionExists(name)) throw uncertain();
@@ -6628,9 +6642,9 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   }
   const lineage: AgentLineageContext = { agentRole: "subagent", parentSessionId: previous.parent_session_id!,
     delegationDepth: previous.delegation_depth!, lineage: previous.lineage!, delegationAllowed: true };
-  let next: AgentMetadata | null = null, attempt: AgentResumeAttempt | null = null;
   let native: AgentResumeNative | null = null, published = false;
-  return withNativeSessionCreation(name, receipt => {
+  return await withNativeSessionCreation(name, receipt => {
+    phase = "native_identity";
     const [server, pane] = processStartIdentities([receipt.server_pid, receipt.pane_pid], process.platform);
     if (!next || !server || !pane) throw uncertain();
     native = { schema: "aiterm.agent-resume-native.v1", launch_id: next.launch_id, ...receipt,
@@ -6641,6 +6655,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     verifyAgentResumeNative(next, native, published ? next.launch_id : previous.launch_id);
   }, async () => {
   try {
+    phase = "generation_preparation";
     await withExecutionNativeAdmission(name, () => {
       if (!isDeepStrictEqual(loadAgentMetadata(name), previous) || sessionExists(name)) throw uncertain();
       if (readAgentLifecycle(previous)?.state !== "hibernated"
@@ -6661,9 +6676,12 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       writeAgentResumeRecipe(next, { ...recipe, launch_id: next.launch_id });
       attempt = { schema: "aiterm.agent-resume-attempt.v1", launch_id: previous.launch_id, next_launch_id: next.launch_id,
         state: "resuming", at: new Date().toISOString(), recipe_digest: lifecycle.recipe_digest };
+      phase = "attempt_save"; attemptRecord = "unknown";
       writeAgentResumeAttempt(previous, attempt);
       const shell = isWin ? "pwsh" : "bash";
+      phase = "native_create"; attemptedAt = new Date().toISOString();
       openSessionInternal(name, shell, [], true);
+      phase = "environment_setup";
       const environment: [string, string | null][] = [...Object.entries(recipe.environment),
         ...(next.kind === "codex" ? [["CODEX_HOME", recipe.configuration_root] as [string, string]] : []), ...agentEnvEntries(next, name)];
       for (const [key, value] of environment) {
@@ -6671,6 +6689,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
         if (stored.code !== 0) throw uncertain();
       }
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
+      phase = "vendor_start";
       const argv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
         : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
       const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")),
@@ -6679,18 +6698,23 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
           + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
       agentLaunchLines.set(name, atomicShellMultiline(full, shell));
       send(name, full, { enter: true, mark: false, force: true, rtk: false, raw: true, launchShell: shell, preserveAgentOperation: true });
+      phase = "generation_publish";
       publishAgentGeneration(previous, next);
       published = true;
     });
     const resumed: AgentMetadata = next!;
+    phase = "readiness";
     const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout }, !recipe.fast);
+    readiness = safeResumeReadiness(ready);
     if (ready.status !== "ready") throw uncertain();
     // Launch argv pins standard speed; restore fast only after the native composer is ready.
     if (recipe.fast) {
+      phase = "configuration_restore";
       const failed = await applyLaunchFast(name, resumed);
       if (failed || resumed.fast !== true) throw uncertain();
     }
     if (loadAgentMetadata(name).launch_id !== resumed.launch_id) throw uncertain();
+    phase = "ready_save";
     writeAgentResumeTemplate(resumed, { schema: "aiterm.agent-resume-template.v1", launch_id: resumed.launch_id, state: "confirmed",
       kind: recipe.kind, executable: recipe.executable, cwd: recipe.cwd, configuration_root: recipe.configuration_root,
       model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
@@ -6699,12 +6723,14 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     return resumed;
   } catch (error) {
     const issued = attempt as AgentResumeAttempt | null;
-    if (issued) try { writeAgentResumeAttempt(previous, { ...issued, state: "failed", at: new Date().toISOString() }); } catch { /* resuming also blocks replay */ }
+    if (issued) try { writeAgentResumeAttempt(previous, { ...issued, state: "failed", at: new Date().toISOString() }); attemptRecord = "failed"; } catch { /* resuming also blocks replay */ }
+    recordFailure(error);
     throw new AgentResumeError("AGENT_RESUME_FAILED",
       `同じ会話への復帰を確認できません。本文は送信していません。再送せず席の状態を確認してください。${error instanceof ExecutionError ? ` ${error.code}` : ""}`,
       name, next?.launch_id ?? previous.launch_id);
   }
   });
+  } catch (error) { recordFailure(error); throw error; }
 }
 
 export async function dispatchAgentTurn(

@@ -25,7 +25,10 @@ for(const platform of ['linux','win32'])test(`native process read failures retai
     assert(error.message.includes('{'),'OS probe failure details were discarded');
     const fields=JSON.parse(error.message.slice(error.message.indexOf('{')));
     assert.deepEqual(fields,{probe,code:nativeCode==='PRIVATE'?'UNKNOWN':nativeCode,
-     status:result.status,signal:result.signal,stdout_bytes:7,stderr_bytes:7});return true;
+     status:result.status,signal:result.signal,stdout_bytes:7,stderr_bytes:7});
+    assert(error instanceof m.ProcessProbeError);
+    assert.deepEqual(error.processFailure,{code:fields.code,status:fields.status,signal:fields.signal});
+    assert(Object.isFrozen(error.processFailure));return true;
    });
   }
   assert.equal(reads,16);

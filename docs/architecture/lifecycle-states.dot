@@ -20,4 +20,7 @@ digraph lifecycle {
  asleep -> resume [label="new normal input request"];resume -> staged;resume -> unknown [label="precondition not proven"];
  staged -> created;created -> published;published -> ready;ready -> active [label="current generation accepted"];
  staged -> failed [label="failure",style=dashed];created -> failed [label="failure",style=dashed];published -> failed [label="failure",style=dashed];ready -> failed [label="final record failure",style=dashed];
+  failure_record [label="Local first-saved resume failure\nphase / safe cause / readiness / old-next IDs\nbody not_sent, native outcome unknown\nbest effort; existing error + attempt unchanged",fillcolor="#eaf7ed"];
+  failed -> failure_record [label="recordAgentResumeFailure"];
+  resume -> failure_record [label="new-attempt preflight failure only",style=dashed];
 }

@@ -34,3 +34,7 @@ OS/nativeとprocess・通常shell・RTKは [native runtime](native-runtime.md)�
 ## 採用6段階の責任分離
 
 全体図の編集正本は[Aiterm候補のDOT](current-overview.dot)へ移管した。旧diagramsのDOT/SVG/PNGは同正本へのsymbolic link。起動記録の読取は[製品内の詳細・コード対応](metadata-reader.md)へ辿る。coreは進行と書込、readerは選択・検証・投影を所有する。全詳細図も各製品repoのdocs/architectureへ移管済み。A2の純表示はpty-output、A3のUIはagent-model-uiとharness configure、既定復元はuser-config、A4aのschemaはremote-contract、A4bのrecordはparent-delivery-record、S1の保存・遷移はSteer channel-stateが所有する。進行・副作用の順序と公開再exportは保持した。
+
+## failed復帰の安全記録候補 D1
+
+`agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。

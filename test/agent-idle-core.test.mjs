@@ -392,7 +392,14 @@ test('a failed physical resume cannot start another CLI or accept either queued 
  const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);assert.equal(launches.length,2);
  assert.equal(fs.existsSync(f.keys),false);
  const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
- assert.equal(attempt.state,'failed');core.closeSession(f.name);
+ assert.equal(attempt.state,'failed');
+ const diagnosticFile=agentMetadataPath(f.name,attempt.next_launch_id).replace(/\.agent\.json$/,'.resume-failure.json');
+ const diagnostic=JSON.parse(fs.readFileSync(diagnosticFile,'utf8'));
+ assert.equal(diagnostic.phase,'readiness');assert.equal(diagnostic.readiness.status,'blocked');
+ assert.equal(diagnostic.native_outcome,'unknown');assert.equal(diagnostic.attempt_record,'failed');
+ assert.equal(diagnostic.previous_launch_id,f.meta.launch_id);assert.equal(diagnostic.launch_id,attempt.next_launch_id);
+ assert(!JSON.stringify(diagnostic).includes('never-first'));core.closeSession(f.name);
+ assert.equal(fs.existsSync(diagnosticFile),false);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json')),false);
 });
 
@@ -402,6 +409,7 @@ test('send resumes the same conversation once, preserves old records and restore
  const receipts=await Promise.all(['first-body','second-body'].map(text=>core.sendAgentMessage(f.name,text,{raw:true})));
  assert.equal(receipts[0].launch_id,receipts[1].launch_id);assert.notEqual(receipts[0].launch_id,f.meta.launch_id);
  const current=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,receipts[0].launch_id),'utf8'));
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,current.launch_id).replace(/\.agent\.json$/,'.resume-failure.json')),false);
  assert.equal(current.vendor_session_id,f.meta.vendor_session_id);assert.equal(current.resumed_from,f.meta.launch_id);
  assert.equal(current.lineage,f.meta.lineage);assert.equal(current.delegation_depth,f.meta.delegation_depth);
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
@@ -527,6 +535,38 @@ test('failure to persist the actual native receipt leaves a blocked attempt and 
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);assert.equal(fs.existsSync(f.keys),false);
  const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
  assert.equal(attempt.state,'failed');
+ const diagnostic=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,attempt.next_launch_id).replace(/\.agent\.json$/,'.resume-failure.json'),'utf8'));
+ assert.equal(diagnostic.phase,'native_identity');assert.equal(diagnostic.readiness,null);
+ assert.equal(diagnostic.native_outcome,'unknown');assert.equal(diagnostic.attempt_record,'failed');
+ assert.equal(diagnostic.cause.kind,'system');assert.equal(diagnostic.cause.code,'UNKNOWN');
+});
+
+for(const failure of ['ready_save','failed_save','diagnostic_save'])test(`resume diagnostics preserve primary failure when ${failure} fails`,{skip,timeout:15000},async t=>{
+ const f=await fixture(t,{resumeBlocked:failure==='diagnostic_save'});
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const original=fs.renameSync;let refused=0;
+ t.mock.method(fs,'renameSync',function(from,to){
+  if(to.endsWith('.resume-attempt.json')){
+   const state=JSON.parse(fs.readFileSync(from,'utf8')).state;
+   if(state==='ready'||(failure==='failed_save'&&state==='failed')){refused++;throw Object.assign(new Error('SECRET save refused'),{code:'EACCES'});}
+  }
+  if(failure==='diagnostic_save'&&to.endsWith('.resume-failure.json')){refused++;throw new Error('SECRET diagnostic refused');}
+  return original(from,to);
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ await assert.rejects(core.dispatchAgentTurn(f.name,'NEVER_BODY',{raw:true,ready_timeout:500}),error=>{
+  assert.equal(error.resumeFailure?.code,'AGENT_RESUME_FAILED');assert(!error.message.includes('SECRET'));return true;
+ });
+ assert.ok(refused>0);assert.equal(fs.existsSync(f.keys),false);
+ const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json'),'utf8'));
+ assert.equal(attempt.state,failure==='failed_save'?'resuming':'failed');
+ const diagnosticFile=agentMetadataPath(f.name,attempt.next_launch_id).replace(/\.agent\.json$/,'.resume-failure.json');
+ if(failure==='diagnostic_save')assert.equal(fs.existsSync(diagnosticFile),false);
+ else{
+  const diagnostic=JSON.parse(fs.readFileSync(diagnosticFile,'utf8'));
+  assert.equal(diagnostic.phase,'ready_save');assert.equal(diagnostic.readiness.status,'ready');
+  assert.equal(diagnostic.attempt_record,failure==='failed_save'?'unknown':'failed');
+  assert.equal(diagnostic.cause.code,'EACCES');assert.equal(diagnostic.native_outcome,'unknown');
+ }
 });
 
 test('a generation change during resume publication prevents the old request from submitting',{skip,timeout:15000},async t=>{

@@ -66,3 +66,7 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 - generic closeの`finish`ではkill-sessionの非0を一律例外にはしておらず、私的management targetの時に明示拒否する。これを今回の抽出で黙って変えない。改善/不具合判定は別commitの議題に分ける。
 - Windows出生本人性はstatus/JSON/行数/order/形式等の不成立がnullへ射影される。基準73件の欠測原因はこのコード読取で確定しない。
 - 後続調査で全vendor・private execution・親配送を含む155実装fileの初読を完了した。全caller/test/fixtureの独立照合と実動作受入は未確認。[全体の設計判断](refactor-rationale.md)に保持する責任を記録した。
+
+## failed復帰の安全記録候補 D1
+
+`agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。

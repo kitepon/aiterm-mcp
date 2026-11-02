@@ -33,3 +33,7 @@ MCP診断は別workerのexact小結果を待ち、timeout/未知schema/巨大std
 manual最短1分/auto1時間、送信mutexの2分stale引取は**reporter専用**。execution/native lock回復へ同じ時間基準を流用しない。受領不明時はackを進めず、次機会に現累計を新report_idで送る。これは本文配送再送とは違い、累計報告の既契約である。
 
 CLIのsnapshot/ack/resolve/reopen/report/reportingは別作用を持つ。operator_resolvedは人の記録状態で、自動修理や再試験成功の証明ではない。未知例外は固定codeへ射影し、資格/保存本文を反射しない。Windows73failとの因果照合は未完、今回runtime試験/報告通信0。
+
+## failed復帰の安全記録候補 D1
+
+`agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。

@@ -10,4 +10,8 @@ digraph runtime_errors {
  ack [label="Only verified receipt advances snapshot ack cursor\nConcurrent later records remain pending\nOperator resolved is not repair verification",fillcolor="#eeeeee"];
  unknown [label="Timeout / transport / unverifiable response → unknown\n401/403 halt until credential changes; 429 rate-limited\nNo ack; later report uses new ID + current aggregate",fillcolor="#fff0dd"];
  event -> worker;worker -> store;store -> diagnostic;store -> report;report -> server;server -> ack;ack -> store [label="monotonic ack"];server -> unknown;report -> unknown;
+  resume_failure [label="agent-resume-diagnostic.ts: lifecycle-local record\nFirst saved failure per launch, not telemetry\nNo worker / reporting / arbitrary error body",fillcolor="#eaf7ed"];
+  resume_source [label="core.resumeAgentInLock catch\nTyped ProcessProbeError retains existing safe details\nOriginal exception / attempt behavior preserved"];
+  resume_source -> resume_failure [label="best effort"];
+  resume_failure -> store [label="no automatic aggregate/report",style=dashed,arrowhead=tee];
 }

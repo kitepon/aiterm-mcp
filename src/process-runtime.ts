@@ -112,6 +112,12 @@ export function windowsConsoleHost(row: RuntimeProcess): boolean {
   return path.posix.basename(name).toLowerCase() === "conhost.exe";
 }
 
+export class ProcessProbeError extends AitermError {
+  constructor(message: string, readonly processFailure: Readonly<{ code: string | null; status: number | null; signal: NodeJS.Signals | null }>) {
+    super(message, 2);
+  }
+}
+
 function processReadError(probe: string, result: SpawnSyncReturns<string>): AitermError {
   const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
   // Native error messages and stderr can contain argv and credentials.
@@ -119,7 +125,8 @@ function processReadError(probe: string, result: SpawnSyncReturns<string>): Aite
     ? (code && ["ETIMEDOUT", "ENOBUFS", "EAGAIN", "ENOENT", "EACCES", "ENOMEM", "EMFILE", "ENFILE", "E2BIG", "EPERM"].includes(code) ? code : "UNKNOWN") : null,
     status: result.status ?? null, signal: result.signal ?? null,
     stdout_bytes: Buffer.byteLength(result.stdout ?? ""), stderr_bytes: Buffer.byteLength(result.stderr ?? "") };
-  return new AitermError(`${isWin ? "Windowsのnative process" : "OSのprocess"}一覧を取得できません ${JSON.stringify(detail)}`, 2);
+  return new ProcessProbeError(`${isWin ? "Windowsのnative process" : "OSのprocess"}一覧を取得できません ${JSON.stringify(detail)}`,
+    Object.freeze({ code: detail.code, status: detail.status, signal: detail.signal }));
 }
 
 export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {

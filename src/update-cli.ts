@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { updateLocal, updateRemote, resolveTargetVersion, VERSION_RE, UpdateError, type UpdateResult } from "./update.js";
-import { remoteTargetSchema } from "./remote.js";
+import { remoteTargetSchema } from "./remote-contract.js";
 
 const usage = "使い方: aiterm-update [--version <版|latest>] [--host <ssh接続名>]... [--no-local] [--check] [--json]\n" +
   "この端末と、指定したSSH接続先のAitermを同じ版へ更新し、各端末でaiterm-setupを実行し直します。\n" +

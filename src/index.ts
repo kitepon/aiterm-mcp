@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { remoteInputDescription, remoteInputSchema, type RemoteTarget } from "./remote-contract.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { AitermError, AgentAuthenticationPreflightError, AgentResumeError } from "./errors.js";
 /**
@@ -29,7 +30,7 @@ import type { createExecutionDispatcher } from "./execution-dispatch.js";
 import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
-import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteInputDescription, remoteInputSchema, remoteLabel, remoteWaitProcess, type RemoteCallResult, type RemoteTarget } from "./remote.js";
+import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";

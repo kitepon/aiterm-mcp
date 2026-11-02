@@ -4,7 +4,7 @@
     {
       "file": "current-overview.dot",
       "width": 2856,
-      "height": 1379,
+      "height": 1399,
       "svg": true,
       "png": true
     },
@@ -33,6 +33,13 @@
       "file": "ordinary-pty.dot",
       "width": 1143,
       "height": 1013,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "remote.dot",
+      "width": 1215,
+      "height": 795,
       "svg": true,
       "png": true
     }

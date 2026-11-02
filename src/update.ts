@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "./remote-contract.js";
 // Aitermの更新。npmのglobal導入を新しい版へ入れ替え、新しい版のaiterm-setupで登録と実動作を確かめ直す。
 // 別端末はSSHで同じ手順を現地に実行させる。接続先は呼び出しごとに受け取り、保存しない。
 import { spawn, spawnSync } from "node:child_process";
@@ -6,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
 import { powershellInvocation } from "./setup-platform.js";
-import { remoteLabel, remoteShell, sshInvocation, type RemoteShell, type RemoteTarget } from "./remote.js";
+import { remoteLabel, remoteShell, sshInvocation, type RemoteShell } from "./remote.js";
 
 export const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SPEC_RE = /^(?:latest|next|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;

@@ -128,3 +128,5 @@ GitHub Actionsは変更した実装の依存関係から必要なテストを選
 dotagentsの工場CIは製品gateの結果を横断受入へ使えるが、製品workflowの正本ではない。
 releaseは[docs/RELEASE.md](docs/RELEASE.md)のmain祖先gate、3環境CI、npm provenance、GitHub Release＋
 MCPB、Official MCP Registry、公開package smokeまでを満たす。
+
+remote入力のschema/type/説明は`src/remote-contract.ts`が所有し、`src/remote.ts`は既存名を再exportする。SSH中継・資格memory・接続状態はremoteが持つ。[接続図](docs/architecture/remote.svg)。

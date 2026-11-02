@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import * as remoteContract from "../dist/remote-contract.js";
 import { TelemetryOwnedError } from "../dist/errors.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
 
@@ -20,6 +21,7 @@ after(() => {
 });
 
 test("接続先はoptionとして解釈される形と改行入りのsshオプションを受け付けない", () => {
+  assert.equal(remoteInputSchema, remoteContract.remoteInputSchema);
   assert.equal(remoteInputSchema.safeParse({ host: "rabbit" }).success, true);
   assert.equal(remoteInputSchema.safeParse({ host: "-oProxyCommand=sh" }).success, false);
   assert.equal(remoteInputSchema.safeParse({ host: "rabbit", ssh_options: ["ProxyJump=main-server"] }).success, true);

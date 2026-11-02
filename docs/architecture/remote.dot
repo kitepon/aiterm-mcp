@@ -1,0 +1,18 @@
+digraph remote {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.55,label="Current SSH relay: remote producer and local parent ownership",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ ingress [label="Local MCP remote wrapper\nvalidate input; reject unsupported requests\nnonsecret target may be saved in delivery boundary"];
+ ssh [label="remote.ts: SSH invocation + remote shell discovery\npassphrase only in memory / child environment\nPOSIX ControlMaster; script contains no secret"];
+ call [label="callRemoteTool once over stdio MCP\nfinally close own client connection\nnever replay a lost input request"];
+ producer [label="Remote Aiterm owns native seat / metadata\nCLI / hook / transcript / receipts\nclient disconnection does not close remote seat",fillcolor="#f0f0f0"];
+ bind [label="After remote dispatch/launch\nlocal parent manager registers observed launch\nregistration failure does not mean input was not sent"];
+ wait [label="Remote wait: same cursor across SSH 255 reconnect\nfinite deadline / abort; abort stops own SSH child\nparse typed wait result, not transport exit alone"];
+ answer [label="Remote pty_read transcript/raw\nstructured text + turn match when both IDs present\nnot identical to strict local completion binding"];
+ parent [label="Local parent delivery owns answer persistence\nremote-prefixed roots + target/child key\nSteer delivers to local parent"];
+ contract [label="remote-contract.ts\nschema / types / description only\nno transport or core dependency"];
+ record [label="parent-delivery record / update CLI"];
+ record -> contract [label="schema import"];
+ ingress -> contract [label="validate input"];
+ ingress -> ssh;ssh -> call;call -> producer;producer -> bind;bind -> wait;wait -> producer [style=dashed,label="observation only"];producer -> answer;answer -> parent;bind -> parent;
+}

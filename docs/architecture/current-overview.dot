@@ -5,7 +5,7 @@ digraph overview {
  client [label="MCP client / BellTeam\nowns Bot orchestration",fillcolor="#f3f3f3"];
  bridge [label="grokbot-bridge\nDB / reservations / receipt",fillcolor="#f3f3f3"];
  subgraph cluster_a {
-  label="Aiterm candidate · A1–A3 reader / output / configuration";labeljust=l;margin=22;color="#82a2d0";
+  label="Aiterm candidate · A1–A4a reader / output / configuration / remote contract";labeljust=l;margin=22;color="#82a2d0";
   mcp [label="MCP entry\nindex.ts: createAitermServer"];
   lifecycle [label="Agent / PTY lifecycle\ncore.ts: launch, dispatch, resume, close"];
   output [label="PTY display: pty-output.ts\ncontrol removal / output reduction\ncore export and native result unchanged",fillcolor="#eaf8f1"];
@@ -13,7 +13,7 @@ digraph overview {
   state [label="Metadata / generation / idle state\nagent-shared.ts, agent-lifecycle.ts"];
   runtime [label="Native terminal + process identity\ntmux-runtime.ts, process-*.ts"];
   parents [label="Child completion + parent delivery\nparent-delivery.ts, parent-delivery-cli.ts"];
-  manage [label="Auth / model / goal / remote\ncore admission + harness configure adapters\nuser-config.ts: snapshot / restore\nseparate inspect, mutation and readback"];
+  manage [label="Auth / model / goal / remote\ncore admission + harness configure adapters\nuser-config.ts: snapshot / restore\nremote-contract.ts: input contract\nseparate inspect, mutation and readback"];
   pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];
  }
  subgraph cluster_s {

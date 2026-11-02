@@ -1,3 +1,4 @@
+import { remoteTargetSchema, type RemoteTarget } from "./remote-contract.js";
 // Aitermが所有する、子の完了観測・回答本文の保存・親への配送。
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -13,7 +14,7 @@ import { cursorParentSchema, CursorDeliveryError, prepareCursorDelivery, submitC
 import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
-import { answerAnywhere, observeAnywhere, remoteKey, remoteTargetSchema, type RemoteTarget } from "./remote.js";
+import { answerAnywhere, observeAnywhere, remoteKey } from "./remote.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { currentExecutionRequest } from "./execution-context.js";
 import { ExecutionError } from "./execution-wire.js";

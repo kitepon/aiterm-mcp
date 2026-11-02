@@ -5,7 +5,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartProcessArgumentList, type AgentWaitObservation } from "./core.js";
@@ -14,32 +13,8 @@ import { currentUid } from "./state-root.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
-// ssh_configの接続名、DNS名、IPv4/IPv6。先頭の`-`はsshのoptionとして解釈されるため受け付けない。
-const hostPattern = /^(?!-)[A-Za-z0-9._%:\[\]-]{1,255}$/;
-const sshOptionPattern = /^[A-Za-z][A-Za-z0-9]*=[^\r\n]*$/;
-const envNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** 記録に残してよい接続情報。パスフレーズ本文は含めない。 */
-export const remoteTargetSchema = z.object({
-  host: z.string().regex(hostPattern),
-  user: z.string().regex(/^(?!-)[A-Za-z0-9._@\\-]{1,128}$/).optional(),
-  port: z.number().int().min(1).max(65535).optional(),
-  identity_file: z.string().min(1).optional(),
-  passphrase_env: z.string().regex(envNamePattern).optional(),
-  ssh_options: z.array(z.string().regex(sshOptionPattern)).max(32).optional(),
-}).strict();
-export type RemoteTarget = z.infer<typeof remoteTargetSchema>;
-
-export const remoteInputSchema = remoteTargetSchema.extend({
-  passphrase: z.string().min(1).optional(),
-}).strict().refine((value) => !(value.passphrase && value.passphrase_env), {
-  message: "passphraseとpassphrase_envは同時に指定できません",
-});
-export type RemoteInput = z.infer<typeof remoteInputSchema>;
-
-export const remoteInputDescription =
-  "別端末のAitermで実行する時のSSH接続情報。hostだけならssh_configの接続名として使う。" +
-  "Aitermは接続情報を保存・管理しない。passphraseは会話記録に残るため、ssh-agentかpassphrase_env（環境変数名）を推奨する。";
+import { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type RemoteTarget, type RemoteInput } from "./remote-contract.js";
+export { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type RemoteTarget, type RemoteInput } from "./remote-contract.js";
 
 // 平文で受け取ったパスフレーズは、このMCP processのメモリにだけ置く。ControlMasterが落ちた後の再接続に使う。
 const passphrases = new Map<string, string>();

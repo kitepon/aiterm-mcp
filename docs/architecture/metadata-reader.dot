@@ -1,0 +1,15 @@
+digraph metadata {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,label="A1: metadata read ownership",labelloc=t,fontname="DejaVu Sans"];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans"];
+ edge [fontname="DejaVu Sans",fontsize=10];
+ callers [label="core.ts: launch / resume / send / observe / close / configure\nexisting synchronous caller and error boundary"];
+ cache [label="core.ts: agentReadMetadataSuffix\ndisplay-only negative cache, same TTL/invalidation"];
+ reader [label="agent-metadata-reader.ts\nloadAgentMetadata / tryLoadAgentMetadata\nselect → validate → vendor projection"];
+ shared [label="agent-shared.ts\nsecure state paths / generation selection / lineage rule\nwriter stays here; reader does not write"];
+ vendors [label="claude.ts: expected managed paths / operation ID\ngrok.ts: recorded-home auth-path validation\nno CLI or terminal creation"];
+ disk [label="per-launch .agent.json + active generation\nlegacy fields / current launch / resumed_from"];
+ error [label="load: unchanged exception/code\ntry: any read failure → null\ncaller decides rejection / cleanup / receipt"];
+ callers -> reader;cache -> reader;
+ reader -> shared;reader -> vendors;shared -> disk;
+ reader -> error;error -> callers;
+}

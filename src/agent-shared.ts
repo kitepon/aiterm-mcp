@@ -233,6 +233,8 @@ export function shq(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+export const AGENT_LINEAGE_RE = /^[A-Za-z0-9_.:-]+(?:>[A-Za-z0-9_.:-]+)*$/;
+
 export const LAUNCH_ID_RE = /^[0-9a-f]{32}$/;
 export const AGENT_DONE_POLL_MS = 100;
 // 完了待ちの中で画面を読む間隔。画面を読むたびにtmux（capture-pane）を1回起動するので、完了の見回りとは別に持つ。

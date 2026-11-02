@@ -1,0 +1,20 @@
+{
+  "graphviz": "16.1.0",
+  "results": [
+    {
+      "file": "current-overview.dot",
+      "width": 2468,
+      "height": 1360,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "metadata-reader.dot",
+      "width": 1624,
+      "height": 501,
+      "svg": true,
+      "png": true
+    }
+  ],
+  "selfCheck": "passed"
+}

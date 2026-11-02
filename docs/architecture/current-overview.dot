@@ -1,0 +1,49 @@
+digraph overview {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.4,ranksep=0.65,label="Current product boundaries — source first-read complete",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#eef4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#556070"];
+ client [label="MCP client / BellTeam\nowns Bot orchestration",fillcolor="#f3f3f3"];
+ bridge [label="grokbot-bridge\nDB / reservations / receipt",fillcolor="#f3f3f3"];
+ subgraph cluster_a {
+  label="Aiterm candidate · A1 metadata reader";labeljust=l;margin=22;color="#82a2d0";
+  mcp [label="MCP entry\nindex.ts: createAitermServer"];
+  lifecycle [label="Agent / PTY lifecycle\ncore.ts: launch, dispatch, resume, close"];
+  reader [label="Metadata reader\nagent-metadata-reader.ts: select / validate / project\nno native operation, no negative cache",fillcolor="#eaf8f1"];
+  state [label="Metadata / generation / idle state\nagent-shared.ts, agent-lifecycle.ts"];
+  runtime [label="Native terminal + process identity\ntmux-runtime.ts, process-*.ts"];
+  parents [label="Child completion + parent delivery\nparent-delivery.ts, parent-delivery-cli.ts"];
+  manage [label="Auth / model / goal / remote\ncore feature owners + native adapters\nseparate inspect, mutation and readback"];
+  pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];
+ }
+ subgraph cluster_s {
+  label="Steer 0.5.1 · 6734ee86";labeljust=l;labelloc=b;margin=22;color="#84bda3";
+  sdk [label="SDK exports / Codex CLI\nindex.ts, cli.ts",fillcolor="#eaf8f1"];
+  receiver [label="Vendor receiver / official hooks\n*-receiver.ts, *-hooks.ts",fillcolor="#eaf8f1"];
+  channels [label="Channel state + output\nchannel.ts: inbox → claim → settle",fillcolor="#eaf8f1"];
+  hookstate [label="Codex hook state\ncodex-hook-state.ts: inputs / claims / pending / settled",fillcolor="#eaf8f1"];
+ }
+ vendor [label="Vendor CLI / native queue / hook protocol\nCodex, Claude, Cursor, Grok, Antigravity",fillcolor="#fff4dc"];
+ client -> mcp [label="tool request / structured receipt",dir=both];
+ bridge -> mcp [label="pty_list / launch / send / close",dir=both];
+ mcp -> lifecycle [label="validated arguments"];
+ lifecycle -> state [label="persist / generation",dir=both];
+ lifecycle -> reader [label="read / exception or null",dir=both];
+ reader -> state [label="select current generation"];
+ lifecycle -> runtime [label="create / observe / input / stop",dir=both];
+ runtime -> vendor [label="native terminal / PID",dir=both];
+ lifecycle -> parents [label="turn boundary + completion",dir=both];
+ parents -> sdk [label="product profile + parent + delivery ID",dir=both];
+ sdk -> receiver [label="verify / queue / hook"];
+ sdk -> channels [label="open / send / receive / state"];
+ receiver -> vendor [label="queue receipt / emitted output",dir=both];
+ channels -> receiver [label="claim and output"];
+ receiver -> hookstate [label="read / persist",dir=both];
+ bridge -> sdk [label="SDK + CLI; no internal-state edits",dir=both];
+ bridge -> hookstate [label="read-only storage-format dependency",style=dashed];
+ bridge -> channels [label="UUID-directory enumeration (read only)",style=dashed];
+ mcp -> manage [label="feature requests / typed receipts",dir=both];
+ manage -> lifecycle [label="shared seat / native admission"];
+ pending -> lifecycle [label="setup probe / private native adapters"];
+ mcp -> pending [label="diagnostics / reporting trigger"];
+ pending -> sdk [label="hook setup / provider contracts"];
+}

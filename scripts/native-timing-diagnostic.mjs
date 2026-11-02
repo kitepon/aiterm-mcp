@@ -1,4 +1,4 @@
-// Diagnostic branch only: observe existing calls without printing argv or output.
+// Diagnostic observer, imported only after the test worker has loaded seat-env.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

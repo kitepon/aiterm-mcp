@@ -607,6 +607,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".resume-failure.json") ||
           f.endsWith(".resume-resolution.json") ||
           f.endsWith(".resume-recovery-origin.json") ||
+          f.endsWith(".resume-restore.json") ||
           f.endsWith(".resume-native.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
@@ -627,7 +628,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".steers.jsonl") ||
           f.endsWith(".auth.json")
         ) fs.unlinkSync(p);
-        else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home")) {
+        else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
           fs.rmSync(p, { recursive: true, force: true });
         }
       } catch {

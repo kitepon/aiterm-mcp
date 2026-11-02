@@ -39,4 +39,4 @@ OS/nativeとprocess・通常shell・RTKは [native runtime](native-runtime.md)�
 
 `agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。
 
-H1の部分候補は[offline checkpoint reader](resume-checkpoint.md)。strict bundleと読取専用source検証を追加した。公開CLI/restore/供給接続はまだ提供していない。native停止は供給callerの前提で、checkpoint成功へ補完しない。
+H1の部分候補は[offline checkpoint reader](resume-checkpoint.md)。strict bundleと読取専用source検証を追加した。未公開候補CLI/非起動restoreを追加した。供給の停止/保存/起動前接続は外部runtimeと未結合。native停止は供給callerの前提で、checkpoint成功へ補完しない。

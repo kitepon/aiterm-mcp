@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 515)">
 <title>checkpoint</title>
 <polygon fill="white" stroke="none" points="-21.6,21.6 -21.6,-515 736,-515 736,21.6 -21.6,21.6"/>
-<text xml:space="preserve" text-anchor="middle" x="357.2" y="-476.8" font-family="DejaVu Sans" font-size="14.00">H1 partial candidate: offline checkpoint reader</text>
+<text xml:space="preserve" text-anchor="middle" x="357.2" y="-476.8" font-family="DejaVu Sans" font-size="14.00">H1 candidate: offline checkpoint and restore</text>
 <!-- caller -->
 <g id="node1" class="node">
 <title>caller</title>
@@ -89,15 +89,15 @@
 <!-- future -->
 <g id="node7" class="node">
 <title>future</title>
-<path fill="#eeeeee" stroke="black" d="M671.71,-64.8C671.71,-64.8 371.87,-64.8 371.87,-64.8 365.87,-64.8 359.87,-58.8 359.87,-52.8 359.87,-52.8 359.87,-12 359.87,-12 359.87,-6 365.87,0 371.87,0 371.87,0 671.71,0 671.71,0 677.71,0 683.71,-6 683.71,-12 683.71,-12 683.71,-52.8 683.71,-52.8 683.71,-58.8 677.71,-64.8 671.71,-64.8"/>
-<text xml:space="preserve" text-anchor="middle" x="521.79" y="-43.2" font-family="DejaVu Sans" font-size="12.00">PLANNED, NOT PROVIDED</text>
-<text xml:space="preserve" text-anchor="middle" x="521.79" y="-28.8" font-family="DejaVu Sans" font-size="12.00">Public stream CLI / restore journal</text>
-<text xml:space="preserve" text-anchor="middle" x="521.79" y="-14.4" font-family="DejaVu Sans" font-size="12.00">Bootstrap adoption / package / R1&#45;C integration</text>
+<path fill="#eeeeee" stroke="black" d="M689.12,-64.8C689.12,-64.8 354.46,-64.8 354.46,-64.8 348.46,-64.8 342.46,-58.8 342.46,-52.8 342.46,-52.8 342.46,-12 342.46,-12 342.46,-6 348.46,0 354.46,0 354.46,0 689.12,0 689.12,0 695.12,0 701.12,-6 701.12,-12 701.12,-12 701.12,-52.8 701.12,-52.8 701.12,-58.8 695.12,-64.8 689.12,-64.8"/>
+<text xml:space="preserve" text-anchor="middle" x="521.79" y="-43.2" font-family="DejaVu Sans" font-size="12.00">resume&#45;state&#45;cli.ts / restoreOfflineResumeCheckpoint</text>
+<text xml:space="preserve" text-anchor="middle" x="521.79" y="-28.8" font-family="DejaVu Sans" font-size="12.00">Bounded stream / target + digest / native absence</text>
+<text xml:space="preserve" text-anchor="middle" x="521.79" y="-14.4" font-family="DejaVu Sans" font-size="12.00">Journal + staged files; current metadata last</text>
 </g>
 <!-- result&#45;&gt;future -->
 <g id="edge6" class="edge">
 <title>result&#45;&gt;future</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M521.79,-101.67C521.79,-94.01 521.79,-85.3 521.79,-76.73"/>
+<path fill="none" stroke="black" d="M521.79,-101.67C521.79,-94.01 521.79,-85.3 521.79,-76.73"/>
 <polygon fill="black" stroke="black" points="525.29,-76.75 521.79,-66.75 518.29,-76.75 525.29,-76.75"/>
 </g>
 </g>

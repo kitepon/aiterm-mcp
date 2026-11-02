@@ -1,5 +1,5 @@
 digraph checkpoint {
- graph [rankdir=TB,bgcolor="white",pad=0.3,fontname="DejaVu Sans",label="H1 partial candidate: offline checkpoint reader",labelloc=t];
+ graph [rankdir=TB,bgcolor="white",pad=0.3,fontname="DejaVu Sans",label="H1 candidate: offline checkpoint and restore",labelloc=t];
  node [shape=box,style="rounded,filled",fillcolor="#eaf2ff",fontname="DejaVu Sans",fontsize=12,margin="0.25,0.15"];
  edge [fontname="DejaVu Sans",fontsize=10];
  caller [label="Supply caller prerequisite\nExact old runtime stopped / all writers absent\nRetained source mounted readonly"];
@@ -8,9 +8,9 @@ digraph checkpoint {
  schemas [label="Existing lifecycle / native / attempt / template\nresolution / origin / Codex proof / failure schemas"];
  vendor [label="Retained vendor root\nExact device / inode / prefix / stable file"];
  result [label="Validated compact bundle + LF\nSaved bytes do not prove runtime stop"];
- future [fillcolor="#eeeeee",label="PLANNED, NOT PROVIDED\nPublic stream CLI / restore journal\nBootstrap adoption / package / R1-C integration"];
+ future [fillcolor="#eeeeee",label="resume-state-cli.ts / restoreOfflineResumeCheckpoint\nBounded stream / target + digest / native absence\nJournal + staged files; current metadata last"];
  caller -> files -> codec -> result;
  schemas -> codec;
  files -> vendor [label="read / verify only"];
- result -> future [style=dashed];
+ result -> future;
 }

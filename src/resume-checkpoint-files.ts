@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {resumeCheckpointSchema,resumeCheckpointSuffixes,resumeCheckpointRecord,resumeCheckpointRecordPath,
-  validateResumeCheckpoint,encodeResumeCheckpoint,resumeCheckpointDigest,RESUME_CHECKPOINT_FILE_BYTES,
+  validateResumeCheckpoint,encodeResumeCheckpoint,decodeResumeCheckpoint,resumeCheckpointDigest,RESUME_CHECKPOINT_FILE_BYTES,
   RESUME_CHECKPOINT_MAX_BYTES,type ResumeCheckpoint} from './resume-checkpoint.js';
 function refuse():never {throw new Error('RESUME_STATE_UNCONFIRMED');}
 function directory(file:string,uid:number):void {
@@ -72,4 +72,56 @@ export function createOfflineResumeCheckpoint(session_id:string,launch_id:string
   verifyResumeCheckpointRoots(bundle);
   for(const [file,bytes] of reads){const again=readRecord(file,uid,bytes===null);if(bytes===null?again!==null:!again?.equals(bytes))refuse();}
   return encodeResumeCheckpoint(bundle);
+}
+
+/** Caller holds the runtime's startup admission: no bootstrap, normal client, or second restore runs concurrently. */
+export function restoreOfflineResumeCheckpoint(bytes:Buffer,expected:{session_id:string;launch_id:string;sha256:string},
+  observeNative:()=>{state:'known';sessions:{session_id:string}[]}|{state:'unknown'}):'restored'|'already_restored' {
+  const bundle=decodeResumeCheckpoint(bytes),scope=bundle.scope;
+  if(process.platform!=='linux'||process.getuid?.()!==scope.uid||process.env.AITERM_STATE_BASE!==scope.state_base
+    ||expected.session_id!==scope.session_id||expected.launch_id!==scope.launch_id||expected.sha256!==resumeCheckpointDigest(bytes)
+    ||scope.socket!==path.join(process.env.TMPDIR??'/tmp','claude-tmux-sockets','claude.sock'))refuse();
+  directory(scope.state_base,scope.uid);verifyResumeCheckpointRoots(bundle);
+  const absent=()=>{const n=observeNative();if(n.state!=='known'||n.sessions.some(s=>s.session_id===scope.session_id))refuse();};
+  absent();
+  const root=path.join(scope.state_base,`aiterm-mcp-${scope.uid}`),dir=path.join(root,'agents');
+  for(const p of [root,dir]){try{fs.mkdirSync(p,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}directory(p,scope.uid);}
+  const journal=path.join(dir,scope.session_id+'.resume-restore.json'),stage=path.join(dir,scope.session_id+'.resume-restore.d');
+  const state={schema:'aiterm.resume-restore.v1',session_id:scope.session_id,launch_id:scope.launch_id,sha256:expected.sha256};
+  let prior=readRecord(journal,scope.uid,true);
+  const allowed=new Set(bundle.records.map(r=>path.basename(resumeCheckpointRecordPath(scope,r))));
+  allowed.add(path.basename(journal));allowed.add(path.basename(stage));
+  const names=()=>fs.readdirSync(dir).filter(n=>n.startsWith(scope.session_id+'.'));
+  if(names().some(n=>!allowed.has(n)))refuse();
+  if(prior){
+    const value=JSON.parse(prior.toString('utf8'));
+    if(JSON.stringify(value)!==JSON.stringify(state))refuse();
+  }else if(names().some(n=>n!==path.basename(stage)))refuse();
+  try{fs.mkdirSync(stage,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}
+  directory(stage,scope.uid);
+  for(const n of fs.readdirSync(stage)){
+    if(!['journal.pending','record.pending'].includes(n))refuse();readRecord(path.join(stage,n),scope.uid,false);
+  }
+  const syncDir=()=>{const fd=fs.openSync(dir,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}};
+  const publish=(file:string,data:Buffer,pending:string)=>{
+    const tmp=path.join(stage,pending),fd=fs.openSync(tmp,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_TRUNC|fs.constants.O_NOFOLLOW,0o600);
+    try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    try{fs.linkSync(tmp,file);syncDir();}finally{fs.unlinkSync(tmp);}
+  };
+  if(!prior)publish(journal,Buffer.from(JSON.stringify(state)+'\n'),'journal.pending');
+  const pointer=bundle.records.find(r=>r.kind==='generation')!;
+  const current=bundle.records.find(r=>r.kind==='metadata'&&r.launch_id===scope.launch_id)!;
+  const ordered=[pointer,...bundle.records.filter(r=>r!==pointer&&r!==current),current];
+  let changed=false;
+  // Detect every conflict before the first target-record write. Same-digest partial records remain exact-byte only.
+  for(const r of ordered){const old=readRecord(resumeCheckpointRecordPath(scope,r),scope.uid,true);
+    if(old&&!old.equals(Buffer.from(r.bytes_base64,'base64')))refuse();}
+  for(const r of ordered){
+    absent();const file=resumeCheckpointRecordPath(scope,r),data=Buffer.from(r.bytes_base64,'base64');
+    if(readRecord(file,scope.uid,true))continue;
+    publish(file,data,'record.pending');
+    changed=true;
+  }
+  for(const r of ordered)if(!readRecord(resumeCheckpointRecordPath(scope,r),scope.uid,false)!.equals(Buffer.from(r.bytes_base64,'base64')))refuse();
+  absent();return changed?'restored':'already_restored';
 }

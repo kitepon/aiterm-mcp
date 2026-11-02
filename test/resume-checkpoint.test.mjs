@@ -106,3 +106,52 @@ test('failed chains reject processing, recipe changes and missing native receipt
   const r=f.records.find(r=>r.kind==='recipe'&&r.launch_id===f.scope.launch_id);const v=JSON.parse(Buffer.from(r.bytes_base64,'base64'));v.reasoning_effort='low';Object.assign(r,resumeCheckpointRecord(r.launch_id,'recipe',Buffer.from(JSON.stringify(v))));
  }]){const f=failedFixture();mutation(f);assert.throws(()=>encodeResumeCheckpoint(f));}
 });
+import {restoreOfflineResumeCheckpoint} from '../dist/resume-checkpoint-files.js';
+import {parseResumeStateArgs,RESUME_STATE_ERROR} from '../dist/resume-state-cli.js';
+const absent=()=>({state:'known',sessions:[]});
+function restoreFixture(){const x=onDisk(),bytes=createOfflineResumeCheckpoint('offline',id),expected={session_id:'offline',launch_id:id,sha256:resumeCheckpointDigest(bytes)};
+ fs.rmSync(path.dirname(x.agents),{recursive:true});return {...x,bytes,expected};}
+test('restore publishes exact original bytes and only the same digest is idempotent',()=>{
+ const x=restoreFixture();try{
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'restored');
+  for(const r of x.f.records)assert.deepEqual(fs.readFileSync(resumeCheckpointRecordPath(x.f.scope,r)),Buffer.from(r.bytes_base64,'base64'));
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'already_restored');
+  assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,{...x.expected,sha256:'0'.repeat(64)},absent));
+  const r=x.f.records.find(r=>r.kind==='metadata');fs.appendFileSync(resumeCheckpointRecordPath(x.f.scope,r),' ');
+  assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent));
+ }finally{x.done();}
+});
+test('restore rejects target, native and missing root before creating destination state',()=>{
+ const x=restoreFixture();try{
+  for(const [e,n] of [[{...x.expected,launch_id:'b'.repeat(32)},absent],[x.expected,()=>({state:'unknown'})],[x.expected,()=>({state:'known',sessions:[{session_id:'offline'}]})]])assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,e,n));
+  assert.equal(fs.existsSync(x.agents),false);fs.renameSync(x.root,x.root+'.gone');assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent));assert.equal(fs.existsSync(x.agents),false);
+ }finally{x.done();}
+});
+test('same digest resumes completed partial files without changing old failed history',()=>{
+ const x=restoreFixture();try{
+  let calls=0;assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,x.expected,()=>++calls>2?{state:'unknown'}:absent()));
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'restored');
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'already_restored');
+ }finally{x.done();}
+});
+test('CLI exact arguments and safe error bytes are bounded',()=>{
+ assert.equal(Buffer.byteLength(RESUME_STATE_ERROR),33);
+ assert.deepEqual(parseResumeStateArgs(['checkpoint','--session','offline','--launch',id]),{operation:'checkpoint',session_id:'offline',launch_id:id});
+ for(const args of [['checkpoint','--session','offline','--launch',id,'--sha256','0'.repeat(64)],['restore','--session','offline','--launch',id],['checkpoint','--session','offline','--session','offline','--launch',id],['close']])assert.throws(()=>parseResumeStateArgs(args));
+});
+import {spawnSync} from 'node:child_process';
+const cliArgs=['dist/resume-state-cli.js'];
+test('real process CLI separates private bundle and receipt then restores without native startup',()=>{
+ const x=onDisk();try{
+  const cp=spawnSync(process.execPath,[...cliArgs,'checkpoint','--session','offline','--launch',id],{env:process.env,maxBuffer:18*1024*1024});
+  assert.equal(cp.status,0,cp.stderr.toString());assert.deepEqual(decodeResumeCheckpoint(cp.stdout).scope,x.f.scope);
+  const receipt=JSON.parse(cp.stderr);assert.equal(receipt.outcome,'saved');assert.equal(receipt.checkpoint_sha256,resumeCheckpointDigest(cp.stdout));assert.equal(Object.keys(receipt).length,6);assert.ok(cp.stderr.length<=512);
+  fs.rmSync(path.dirname(x.agents),{recursive:true});
+  const rs=spawnSync(process.execPath,[...cliArgs,'restore','--session','offline','--launch',id,'--sha256',receipt.checkpoint_sha256],{env:process.env,input:cp.stdout,maxBuffer:4096});
+  assert.equal(rs.status,0,rs.stderr.toString());assert.equal(rs.stderr.length,0);assert.equal(JSON.parse(rs.stdout).outcome,'restored');assert.ok(rs.stdout.length<=512);
+  const again=spawnSync(process.execPath,[...cliArgs,'restore','--session','offline','--launch',id,'--sha256',receipt.checkpoint_sha256],{env:process.env,input:cp.stdout,maxBuffer:4096});
+  assert.equal(again.status,0,again.stderr.toString());assert.equal(JSON.parse(again.stdout).outcome,'already_restored');
+  const bad=spawnSync(process.execPath,[...cliArgs,'restore','--session','offline','--launch',id,'--sha256',receipt.checkpoint_sha256],{env:process.env,input:Buffer.from('secret invalid input'),maxBuffer:4096});
+  assert.equal(bad.status,2);assert.equal(bad.stdout.length,0);assert.equal(bad.stderr.toString(),RESUME_STATE_ERROR);
+ }finally{x.done();}
+});

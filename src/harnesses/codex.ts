@@ -1397,7 +1397,7 @@ export function restoreCodexDefaultInFile(configPath: string, key: CodexDefaultK
 export const CODEX_INTERRUPT_KEY = "Escape" as const;
 
 
-const codexResumeProofSchema = z.object({ schema: z.literal("aiterm.codex-resume-proof.v1"),
+export const codexResumeProofSchema = z.object({ schema: z.literal("aiterm.codex-resume-proof.v1"),
   launch_id: z.string().regex(/^[a-f0-9]{32}$/), session_id: z.string().uuid(),
   file: z.string().refine(value => path.isAbsolute(value)), device: z.string().regex(/^\d+$/), inode: z.string().regex(/^\d+$/),
   cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),

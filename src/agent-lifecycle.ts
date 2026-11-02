@@ -63,7 +63,7 @@ export function cancelAgentStopping(meta: Launch, anchor: string): void {
   fs.unlinkSync(file(meta, ".lifecycle.json"));
 }
 
-const resumeAttemptSchema = z.object({ schema: z.literal("aiterm.agent-resume-attempt.v1"), launch_id: launchId,
+export const resumeAttemptSchema = z.object({ schema: z.literal("aiterm.agent-resume-attempt.v1"), launch_id: launchId,
   next_launch_id: launchId, state: z.enum(["resuming", "ready", "failed"]), at: z.iso.datetime(),
   recipe_digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 export type AgentResumeAttempt = z.infer<typeof resumeAttemptSchema>;
@@ -77,7 +77,7 @@ export function writeAgentResumeAttempt(meta: Launch, value: AgentResumeAttempt)
   writeJson0600(file(meta, ".resume-attempt.json"), resumeAttemptSchema.parse(value));
 }
 
-const resumeNativeSchema = z.object({ schema: z.literal("aiterm.agent-resume-native.v1"), launch_id: launchId,
+export const resumeNativeSchema = z.object({ schema: z.literal("aiterm.agent-resume-native.v1"), launch_id: launchId,
   native_id: z.string().regex(/^\$\d+$/), session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   server_pid: z.number().int().positive(), server_started_identity: z.string().min(1),
   pane_id: z.string().regex(/^%\d+$/), pane_pid: z.number().int().positive(), pane_started_identity: z.string().min(1),
@@ -115,7 +115,7 @@ export function retireAgentIdleClock(meta: Launch, token?: string): void {
 }
 
 
-const resumeTemplateSchema = agentResumeRecipeSchema.omit({ vendor_session_id: true, fast: true }).extend({
+export const resumeTemplateSchema = agentResumeRecipeSchema.omit({ vendor_session_id: true, fast: true }).extend({
   schema: z.literal("aiterm.agent-resume-template.v1"), state: z.enum(["confirmed", "unconfirmed"]),
 }).strict();
 export type AgentResumeTemplate = z.infer<typeof resumeTemplateSchema>;
@@ -163,7 +163,7 @@ export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe
   return candidate.data;
 }
 
-const resumeResolutionSchema = z.object({ schema: z.literal("aiterm.agent-resume-resolution.v1"),
+export const resumeResolutionSchema = z.object({ schema: z.literal("aiterm.agent-resume-resolution.v1"),
   launch_id: launchId, previous_launch_id: launchId, vendor_session_id: z.string().uuid(),
   attempt_digest: z.string().regex(/^[a-f0-9]{64}$/), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
   resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/), native_digest: z.string().regex(/^[a-f0-9]{64}$/), at: z.iso.datetime(),
@@ -183,7 +183,7 @@ export function writeAgentResumeResolution(meta: Launch, input: AgentResumeResol
   writeJson0600(file(meta, ".resume-resolution.json"), value);
 }
 
-const recoveryOriginSchema = z.object({ schema: z.literal("aiterm.agent-resume-recovery-origin.v1"),
+export const recoveryOriginSchema = z.object({ schema: z.literal("aiterm.agent-resume-recovery-origin.v1"),
   launch_id: launchId, previous_launch_id: launchId, socket: z.string().min(1), at: z.iso.datetime(),
   failed_attempt_digest: z.string().regex(/^[a-f0-9]{64}$/), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
   resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/), previous_native_digest: z.string().regex(/^[a-f0-9]{64}$/),

@@ -69,7 +69,7 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 
 ## failed復帰の安全記録候補 D1
 
-`agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。
+`agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。D1単独時点で公開読取D2と同会話修復は未提供だった。現在候補のR1は後続節、D2は別枝。
 
 ## 公開済みfailed Codexの同native復帰候補（R1-L）
 
@@ -87,6 +87,6 @@ Bの`.resume-recovery-origin.json`は元A.failed attempt/native/recipe/proof dig
 
 `harnesses/codex.codexNativeRootRecord`が既厳密root選択を共有し、公開済み内部`codexInterruptionRecord`の完了/中断返却意味は維持する。`captureCodexRecoveryProof`は元rootの安定した末尾を新floorにし、元新taskの欠測や未完をtask_completeへ変換しない。新世代は復帰前の完了を受け取らない。元root置換/partial/別会話/複数rootは拒否する。
 
-直接回帰：`agent-idle-core.test.mjs`のcold正常系・orphan/一覧unknown/root置換/vendor mismatch拒否、`codex-resume-proof.test.mjs`の初手前/未完task/cold provenanceと新floor。checkpoint/H1の保存・sealed source契約は未提供で、このcandidateをtmpfs消失後の商用供給成功へ拡張しない。
+直接回帰：`agent-idle-core.test.mjs`のcold正常系・orphan/一覧unknown/root置換/vendor mismatch拒否、`codex-resume-proof.test.mjs`の初手前/未完task/cold provenanceと新floor。H1 offline保存/復元はresume-checkpoint正本へ。online sealは提供せず、実供給の停止とboot採用はcaller責任であり商用供給成功へ拡張しない。
 
 R1-L直接回帰では、同名launchでresolutionを完成→通常configureでcurrent recipe変更→sendを確認し、元startup baselineを保持するready-save失敗からは次の正常休止/同vendor resumeも確認した。baseline欠測の初期失敗は既unknownを保ち、復帰後に子をbaselineへ取り込まない。全既失敗を無条件に休止可能にする変更ではない。

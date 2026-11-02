@@ -15,7 +15,8 @@ digraph configuration {
  repair [label="R1-L: completeFailedCodexResume\nOwns native pin / composer gate / admission",style="rounded,filled",fillcolor="#fff1d5"];
  repair -> preview [label="fresh thread + explicit standard speed"];
  restore_resume [label="R1-L settings mismatch
-Existing keepingCodexDefaults + configureCodexModel
+Existing goal pause / native turn-end check / owned resume
+keepingCodexDefaults + configureCodexModel
 Re-preview thread / model / effort / speed",fillcolor="#deedff"];
  preview -> restore_resume [label="same thread; known model / effort mismatch"];
  restore_resume -> codex [label="guarded native UI"];

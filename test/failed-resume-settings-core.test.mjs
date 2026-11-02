@@ -178,3 +178,41 @@ for(const mismatch of ['thread','fast'])test('recovery refuses '+mismatch+' mism
  await assert.rejects(core.dispatchAgentTurn(f.name,'UNSENT',{raw:true,ready_timeout:2000}),e=>e.resumeFailure?.input==='not_sent');
  assert.equal(fs.existsSync(f.keys+'-model-commands'),false);assert.equal(fs.existsSync(f.keys),false);assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
 });
+
+for(const ending of ['complete','unfinished','pause-rejected'])test('failed settings recovery protects the active goal: '+ending,{skip,timeout:25000},async t=>{
+ const f=await failedReady(t,{model:'other-model',effort:'low'});
+ const {createServer}=await import('node:http'),{once}=await import('node:events'),{WebSocketServer}=await import('ws');
+ const control=join(process.env.CODEX_HOME,'app-server-control');fs.mkdirSync(control,{recursive:true,mode:0o700});
+ const socket=join(control,'app-server-control.sock'),http=createServer(),ws=new WebSocketServer({server:http});
+ const effects=[],turn='goal-recovery',stamp=new Date().toISOString();
+ const event=type=>JSON.stringify({timestamp:stamp,type:'event_msg',payload:{type,turn_id:turn,last_agent_message:'Done'}})+'\n';
+ fs.appendFileSync(f.rollout,event('task_started'));
+ let goal={threadId:f.meta.vendor_session_id,objective:'Original',status:'active',tokenBudget:null,tokensUsed:0,timeUsedSeconds:0,createdAt:1,updatedAt:1};
+ ws.on('connection',client=>client.on('message',bytes=>{
+  const {id,method,params}=JSON.parse(bytes.toString());if(id===undefined)return;let result;
+  if(method==='initialize')result={userAgent:'fixture'};
+  else if(method==='thread/loaded/list')result={data:[f.meta.vendor_session_id],nextCursor:null};
+  else if(method==='thread/read')result={thread:{id:f.meta.vendor_session_id,source:'cli'}};
+  else if(method==='thread/goal/get')result={goal};
+  else if(method==='thread/goal/set'){
+   assert.equal(params.threadId,f.meta.vendor_session_id);effects.push(params.status);
+   if(ending!=='pause-rejected')goal={...goal,status:params.status,updatedAt:goal.updatedAt+1};
+   if(params.status==='paused'&&ending==='complete')fs.appendFileSync(f.rollout,event('task_complete'));
+   result={goal};
+  }else throw Error('Unexpected RPC '+method);
+  client.send(JSON.stringify({id,result}));
+ }));
+ http.listen(socket);await once(http,'listening');fs.chmodSync(socket,0o600);
+ t.after(async()=>{for(const c of ws.clients)c.terminate();await new Promise(r=>ws.close(r));await new Promise(r=>http.close(r));});
+ if(ending==='complete'){
+  const receipt=await core.dispatchAgentTurn(f.name,'GOAL_PROTECTED_BODY',{raw:true,ready_timeout:2000});
+  assert.equal(receipt.launch_id,f.attempt.next_launch_id);
+  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['GOAL_PROTECTED_BODY']);
+  assert.deepEqual(effects,['paused','active']);
+ }else{
+  await assert.rejects(core.dispatchAgentTurn(f.name,'UNSENT',{raw:true,ready_timeout:2000}),e=>e.resumeFailure?.input==='not_sent');
+  assert.equal(fs.existsSync(f.keys+'-model-commands'),false);assert.equal(fs.existsSync(f.keys),false);
+  assert.deepEqual(effects,ending==='unfinished'?['paused','active']:['paused']);
+ }
+ assert.equal(goal.status,'active');assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
+});

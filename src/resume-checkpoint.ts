@@ -2,6 +2,7 @@
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {z} from 'zod';
+import {AGENT_LINEAGE_RE} from './agent-shared.js';
 import {agentResumeRecipeSchema, agentLifecycleSchema, resumeAttemptSchema, resumeNativeSchema,
   resumeTemplateSchema, resumeResolutionSchema, recoveryOriginSchema, agentResumeRecipeDigest} from './agent-lifecycle.js';
 import {codexResumeProofSchema} from './harnesses/codex.js';
@@ -21,9 +22,9 @@ const metadata = z.object({kind:z.literal('codex'),aiterm_session:session,launch
   resumed_from:launch.optional(),initial_prompt:z.enum(['none','not_sent','done']),initial_prompt_delivery:initialDelivery.optional(),
   initial_prompt_cursor:z.number().int().safe().nonnegative().nullable().optional(),agent_executable:absolute,
   launch_operation_id:z.string().nullable().optional(),launch_request_digest:digest.nullable().optional(),
-  hook_route:z.literal('shared_codex_home'),completion_route:z.literal('codex_transcript').optional(),
-  agent_role:z.literal('subagent').optional(),parent_session_id:session.optional(),delegation_depth:z.number().int().positive().optional(),
-  lineage:z.string().min(1).max(4096).optional(),delegation_allowed:z.literal(true).optional(),node_platform:z.literal('linux'),
+  hook_route:z.literal('shared_codex_home'),completion_route:z.literal('codex_transcript'),
+  agent_role:z.literal('subagent'),parent_session_id:session,delegation_depth:z.number().int().safe().positive(),
+  lineage:z.string().min(1).max(4096).regex(AGENT_LINEAGE_RE),delegation_allowed:z.literal(true),node_platform:z.literal('linux'),
   codex_home:absolute,fast:z.literal(false),model:z.string().nullable().optional(),startup_processes:z.array(z.string()).optional(),
   startup_process_shapes:z.array(processShape).optional(),
 }).strict();
@@ -72,6 +73,7 @@ export function validateResumeCheckpoint(input:unknown):ResumeCheckpoint {
   while(id!==undefined){
     if(visited.has(id)||visited.size>=64)refuse();visited.add(id);
     const m=get(id,'metadata'),recipe=get(id,'recipe');
+    if(m.initial_prompt_delivery!==undefined&&m.initial_prompt_cursor===undefined)refuse();
     if(m.aiterm_session!==scope.session_id||m.vendor_session_id!==scope.vendor_session_id||m.codex_home!==scope.configuration_root
       ||m.event_file!==resumeCheckpointRecordPath(scope,{launch_id:id,kind:'metadata'}).replace(/\.agent\.json$/,'.events.jsonl')
       ||recipe.kind!=='codex'||recipe.vendor_session_id!==scope.vendor_session_id||recipe.configuration_root!==scope.configuration_root
@@ -98,7 +100,8 @@ export function validateResumeCheckpoint(input:unknown):ResumeCheckpoint {
     const proof=get(id,'proof',false);
     if(proof&&(proof.session_id!==scope.vendor_session_id||!proof.file.startsWith(scope.configuration_root+path.sep+'sessions'+path.sep)))refuse();
     const template=get(id,'template',false);
-    if(template&&(template.kind!=='codex'||template.configuration_root!==scope.configuration_root))refuse();
+    if(template&&(template.kind!=='codex'||template.configuration_root!==scope.configuration_root
+      ||Object.keys(template.environment).some(key=>/(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(key))))refuse();
     const failure=get(id,'failure',false);if(failure&&failure.session_id!==scope.session_id)refuse();
     if(id===scope.launch_id){
       if(pointer.previous_launch_id!==(m.resumed_from??null)||attempt)refuse();

@@ -11,7 +11,7 @@ function fixture(){
  const scope={session_id:'offline',launch_id:id,uid:1000,node_platform:'linux',state_base:'/state',socket:'/tmp/claude-tmux-sockets/claude.sock',configuration_root:'/codex',vendor_session_id:vendor};
  const recipe={schema:'aiterm.agent-resume.v1',launch_id:id,kind:'codex',vendor_session_id:vendor,executable:'/bin/codex',cwd:'/work',configuration_root:'/codex',model:'sol',reasoning_effort:'high',fast:false,environment:{}};
  const proof={schema:'aiterm.codex-resume-proof.v1',launch_id:id,session_id:vendor,file:'/codex/sessions/root.jsonl',device:'1',inode:'2',cursor:100,prefix_bytes:10,prefix_sha256:'1'.repeat(64),last_turn_id:'turn'};
- const meta={kind:'codex',aiterm_session:'offline',launch_id:id,event_file:'/state/aiterm-mcp-1000/agents/offline.'+id+'.events.jsonl',created_at:'2026-11-02T15:00:00.000Z',cwd:'/work',vendor_session_id:vendor,initial_prompt:'none',agent_executable:'/bin/codex',hook_route:'shared_codex_home',node_platform:'linux',codex_home:'/codex',fast:false,model:'sol'};
+ const meta={kind:'codex',aiterm_session:'offline',launch_id:id,event_file:'/state/aiterm-mcp-1000/agents/offline.'+id+'.events.jsonl',created_at:'2026-11-02T15:00:00.000Z',cwd:'/work',vendor_session_id:vendor,initial_prompt:'none',agent_executable:'/bin/codex',hook_route:'shared_codex_home',completion_route:'codex_transcript',agent_role:'subagent',parent_session_id:'host-root',delegation_depth:1,lineage:'host-root>codex:offline',delegation_allowed:true,node_platform:'linux',codex_home:'/codex',fast:false,model:'sol'};
  const hash=v=>resumeCheckpointDigest(Buffer.from(JSON.stringify(v)));
  const life={schema:'aiterm.agent-lifecycle.v1',launch_id:id,state:'hibernated',socket:scope.socket,at:meta.created_at,anchor:'turn',native_id:'$1',pane:{pid:10,process_group_id:10,started_identity:'linux:1',argv_digest:'2'.repeat(64)},recipe_digest:hash(recipe),resume_proof_digest:hash(proof)};
  const records=Object.entries({generation:{schema:'aiterm.agent-generation.v1',launch_id:id,previous_launch_id:null},metadata:meta,recipe,proof,lifecycle:life}).map(([kind,value])=>resumeCheckpointRecord(id,kind,Buffer.from(JSON.stringify(value,null,2)+'\n')));
@@ -154,4 +154,30 @@ test('real process CLI separates private bundle and receipt then restores withou
   const bad=spawnSync(process.execPath,[...cliArgs,'restore','--session','offline','--launch',id,'--sha256',receipt.checkpoint_sha256],{env:process.env,input:Buffer.from('secret invalid input'),maxBuffer:4096});
   assert.equal(bad.status,2);assert.equal(bad.stdout.length,0);assert.equal(bad.stderr.toString(),RESUME_STATE_ERROR);
  }finally{x.done();}
+});
+
+for(const kind of ['journal','record'])test('crash-left '+kind+' staging hardlink never changes a published record',()=>{
+ const x=restoreFixture();try{
+  let calls=0;assert.throws(()=>restoreOfflineResumeCheckpoint(x.bytes,x.expected,()=>++calls>2?{state:'unknown'}:absent()));
+  const pointer=resumeCheckpointRecordPath(x.f.scope,x.f.records.find(r=>r.kind==='generation'));
+  const journal=path.join(x.agents,'offline.resume-restore.json');
+  const published=kind==='journal'?journal:pointer,before=fs.readFileSync(published);
+  fs.linkSync(published,path.join(x.agents,'offline.resume-restore.d',kind+'.pending'));
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'restored');
+  assert.deepEqual(fs.readFileSync(published),before);
+  for(const r of x.f.records)assert.deepEqual(fs.readFileSync(resumeCheckpointRecordPath(x.f.scope,r)),Buffer.from(r.bytes_base64,'base64'));
+  assert.equal(restoreOfflineResumeCheckpoint(x.bytes,x.expected,absent),'already_restored');
+ }finally{x.done();}
+});
+test('checkpoint refuses metadata the ordinary Codex reader cannot load',()=>{
+ for(const patch of [m=>delete m.completion_route,m=>delete m.lineage,m=>m.lineage='bad lineage',m=>{m.initial_prompt_delivery={status:'not_sent',reason:'fixture',turn_started:false};delete m.initial_prompt_cursor;}]){
+  const f=fixture();change(f,'metadata',patch);assert.throws(()=>encodeResumeCheckpoint(f));
+ }
+ const f=fixture();change(f,'metadata',m=>{m.initial_prompt_delivery={status:'not_sent',reason:'fixture',turn_started:false};m.initial_prompt_cursor=null;});assert.ok(encodeResumeCheckpoint(f));
+});
+test('template credential names are refused just like recipe credential names',()=>{
+ const f=fixture(),recipe=JSON.parse(Buffer.from(f.records.find(r=>r.kind==='recipe').bytes_base64,'base64'));
+ const {vendor_session_id,fast,...settings}=recipe;
+ f.records.push(resumeCheckpointRecord(id,'template',Buffer.from(JSON.stringify({...settings,schema:'aiterm.agent-resume-template.v1',state:'confirmed',environment:{API_KEY:'FIXTURE_ONLY'}}))));
+ assert.throws(()=>encodeResumeCheckpoint(f));
 });

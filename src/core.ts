@@ -6019,6 +6019,13 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
 /** Goal operations share the existing seat admission and original launch ID. */
 export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic",
   expectedGoal?: import("./agent-goal.js").NativeGoal): Promise<AgentGoalWireResult> {
+  return agentGoalInContext(input, origin, expectedGoal);
+}
+
+async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "automatic",
+  expectedGoal?: import("./agent-goal.js").NativeGoal, sendHeld = false): Promise<AgentGoalWireResult> {
+  if (sendHeld && (!agentSendHeld.has(input.session_id) || agentSendOwner.getStore() !== activeAgentSendOwner.get(input.session_id)))
+    throw new ExecutionError("EXECUTION_STALE_GENERATION");
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
   const resolve = (): GoalTarget | null => {
@@ -6135,6 +6142,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
   const harness = resolve()?.harness;
+  if (sendHeld && harness !== "codex-cli") throw new ExecutionError("EXECUTION_STALE_GENERATION");
   if(harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
     read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
     canClear:target=>grokGoalClearReady(grokPort(target).ui),
@@ -6167,7 +6175,7 @@ export async function agentGoal(input: AgentGoalInput, origin: "user" | "automat
   }, supported, fields), command => submitCodexGoalCommand(goalUi(target), command),
   (before, objective) => editCodexGoalObjective(goalUi(target), before, objective),
   objective => createCodexGoalObjective(goalUi(target), objective)) }, origin);
-  return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
+  return input.action === "inspect" || sendHeld ? run() : withAgentSendLock(input.session_id, run);
 }
 
 /** Whole-app stop uses native goal state, not the host's displayed snapshot. */
@@ -6750,29 +6758,45 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
     let actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
     verify();
     if (!actual || actual.fast !== false) throw unavailable();
-    if (actual.model?.toLowerCase() !== recipe.model?.toLowerCase() || actual.reasoning_effort !== recipe.reasoning_effort) {
-      if (!recipe.model || !recipe.reasoning_effort) throw unavailable();
-      await keepingCodexDefaults(recipe.executable, recipe.configuration_root, ["model", "model_reasoning_effort"],
-        () => configureCodexModel(name, recipe.model, recipe.reasoning_effort, verify,
-          { ...ui, waitForText: text => waitForScreenText(name, text) }));
+    const settingsDiffer = actual.model?.toLowerCase() !== recipe.model?.toLowerCase() || actual.reasoning_effort !== recipe.reasoning_effort;
+    const complete = async () => {
+      if (settingsDiffer) {
+        if (!recipe.model || !recipe.reasoning_effort) throw unavailable();
+        await keepingCodexDefaults(recipe.executable, recipe.configuration_root, ["model", "model_reasoning_effort"],
+          () => configureCodexModel(name, recipe.model, recipe.reasoning_effort, verify,
+            { ...ui, waitForText: text => waitForScreenText(name, text) }));
+        verify();
+        if (!await ready()) throw unavailable();
+        actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
+        verify();
+      }
+      if (!actual || actual.model?.toLowerCase() !== recipe.model?.toLowerCase()
+        || actual.reasoning_effort !== recipe.reasoning_effort || actual.fast !== recipe.fast) throw unavailable();
+      // Do not recapture startup processes: this same native may already own children.
+      writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id,
+        state: "confirmed", kind: "codex", executable: recipe.executable, cwd: recipe.cwd,
+        configuration_root: recipe.configuration_root, model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
       verify();
-      if (!await ready()) throw unavailable();
-      actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
-      verify();
-    }
-    if (!actual || actual.model?.toLowerCase() !== recipe.model?.toLowerCase()
-      || actual.reasoning_effort !== recipe.reasoning_effort || actual.fast !== recipe.fast) throw unavailable();
-    // Do not recapture startup processes: this same native may already own children.
-    writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id,
-      state: "confirmed", kind: "codex", executable: recipe.executable, cwd: recipe.cwd,
-      configuration_root: recipe.configuration_root, model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
-    verify();
-    writeAgentResumeResolution(meta, { schema: "aiterm.agent-resume-resolution.v1", launch_id: meta.launch_id,
-      previous_launch_id: source.launch_id, vendor_session_id: recipe.vendor_session_id,
-      attempt_digest: agentResumeRecordDigest(attempt), recipe_digest: life.recipe_digest,
-      resume_proof_digest: life.resume_proof_digest!, native_digest: agentResumeRecordDigest(native), at: new Date().toISOString() });
-    if (!hasCompletedResumeRecovery(meta)) throw unavailable();
-    return meta;
+      writeAgentResumeResolution(meta, { schema: "aiterm.agent-resume-resolution.v1", launch_id: meta.launch_id,
+        previous_launch_id: source.launch_id, vendor_session_id: recipe.vendor_session_id,
+        attempt_digest: agentResumeRecordDigest(attempt), recipe_digest: life.recipe_digest,
+        resume_proof_digest: life.resume_proof_digest!, native_digest: agentResumeRecordDigest(native), at: new Date().toISOString() });
+      if (!hasCompletedResumeRecovery(meta)) throw unavailable();
+      return meta;
+    };
+    if (!settingsDiffer) return complete();
+    return configureWithPausedGoal({
+      goal: (action, expected) => {
+        verify();
+        return agentGoalInContext({ session_id: name, launch_id: meta.launch_id, action,
+          expected_thread_id: recipe.vendor_session_id }, "user", expected, true);
+      },
+      waitForTurnEnd: async () => {
+        verify();
+        // A paused goal may leave an idle-looking pane before its native turn ends.
+        if (!codexTurnSettled(meta)) throw unavailable();
+      },
+    }, complete);
   });
 }
 

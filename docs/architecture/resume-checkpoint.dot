@@ -8,7 +8,7 @@ digraph checkpoint {
  schemas [label="Existing lifecycle / native / attempt / template\nresolution / origin / Codex proof / failure schemas"];
  vendor [label="Retained vendor root\nExact device / inode / prefix / stable file"];
  result [label="Validated compact bundle + LF\nSaved bytes do not prove runtime stop"];
- future [fillcolor="#eeeeee",label="resume-state-cli.ts / restoreOfflineResumeCheckpoint\nBounded stream / target + digest / native absence\nJournal + staged files; current metadata last"];
+ future [fillcolor="#eeeeee",label="resume-state-cli.ts / restoreOfflineResumeCheckpoint\nBounded stream / target + digest / native absence\nCaller startup admission; journal + fresh staging inode\nSame-digest crash resume; current metadata last"];
  caller -> files -> codec -> result;
  schemas -> codec;
  files -> vendor [label="read / verify only"];

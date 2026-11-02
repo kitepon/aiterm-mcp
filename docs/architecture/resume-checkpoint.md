@@ -1,4 +1,4 @@
-# Offline checkpoint reader component (H1, partial candidate)
+# Offline checkpoint reader component (H1, candidate under review)
 
 [Rendered diagram](resume-checkpoint.svg) / [DOT](resume-checkpoint.dot).
 
@@ -15,3 +15,5 @@ The public candidate `aiterm-resume-state` bin is `dist/resume-state-cli.js` (no
 Close/kill cleanup includes the restore journal and its staging directory. Boot adoption and preventing replay after normal bootstrap are runtime responsibilities; the CLI's `already_restored` only means its exact restored files remain unchanged.
 
 Direct checks: `test/resume-checkpoint.test.mjs`, 16 passed; build exit 0. `test/resume-checkpoint-core.test.mjs`, one isolated integration passed: checkpoint → target state loss → restore → normal R1-C, new launch/birth, same vendor, old failed bytes unchanged, current body once, close cleanup. Its fake Codex fixture is a finite copy of the existing idle-core fixture. Initial reader socket and integration explicit-base fixture failures remain recorded. No real vendor/container/Host acceptance is claimed.
+
+Crash retry discards only validated private staging names and creates each pending file with O_EXCL. A leftover hardlink is never opened for truncation. The codec requires the ordinary Codex reader completion route and complete valid lineage; explicit credential variable names are rejected in templates as well as recipes.

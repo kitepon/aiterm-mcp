@@ -15,6 +15,7 @@ digraph overview {
   parents [label="Child completion + parent delivery\nparent-delivery.ts: manager / receipt\nparent-delivery-record.ts: schema / read / message"];
   manage [label="Auth / model / goal / remote\ncore admission + harness configure adapters\nuser-config.ts: snapshot / restore\nremote-contract.ts: input contract\nseparate inspect, mutation and readback"];
   resume_diag [label="Resume failure records\nagent-resume-diagnostic.ts\nphase / safe cause / readiness; no body",fillcolor="#eaf8f1"];
+  checkpoint [label="Offline resume CLI: resume-state-cli.ts\nStrict codec + readonly checkpoint / startup restore\nresume-checkpoint.ts, resume-checkpoint-files.ts",fillcolor="#eaf8f1"];
   pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];
  }
  subgraph cluster_s {
@@ -49,6 +50,9 @@ digraph overview {
  pending -> lifecycle [label="setup probe / private native adapters"];
  mcp -> pending [label="diagnostics / reporting trigger"];
  pending -> sdk [label="hook setup / provider contracts"];
+  client -> checkpoint [label="offline stream; supply owns stopped source / startup admission"];
+  checkpoint -> state [label="bounded records / exact bytes / current last",dir=both];
+  checkpoint -> vendor [label="retained rollout identity read only",style=dashed];
   lifecycle -> resume_diag [label="best effort; original error preserved"];
   resume_diag -> state [label="per-launch local state / existing close cleanup"];
 }

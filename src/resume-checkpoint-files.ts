@@ -101,10 +101,12 @@ export function restoreOfflineResumeCheckpoint(bytes:Buffer,expected:{session_id
   directory(stage,scope.uid);
   for(const n of fs.readdirSync(stage)){
     if(!['journal.pending','record.pending'].includes(n))refuse();readRecord(path.join(stage,n),scope.uid,false);
+    // A crash may leave this name hard-linked to an already published record.
+    fs.unlinkSync(path.join(stage,n));
   }
   const syncDir=()=>{const fd=fs.openSync(dir,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}};
   const publish=(file:string,data:Buffer,pending:string)=>{
-    const tmp=path.join(stage,pending),fd=fs.openSync(tmp,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_TRUNC|fs.constants.O_NOFOLLOW,0o600);
+    const tmp=path.join(stage,pending),fd=fs.openSync(tmp,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
     try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
     try{fs.linkSync(tmp,file);syncDir();}finally{fs.unlinkSync(tmp);}
   };

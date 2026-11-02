@@ -1,0 +1,19 @@
+digraph configuration {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.6,ranksep=0.5,label="Current goal and configuration: provenance, effects and readback",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
+ goal [label="agent_goal: schema + trusted host origin\nexact session/launch + vendor binding\nCLI owns goal; no Aiterm goal loop"];
+ target [label="Resolve fresh native process + TTY owner\nper-effect generation / home / session checks\nunsupported or unproven binding refuses"];
+ read [label="Codex: attached API or topology-only fallback\nClaude/Grok: same CLI status UI under send lock\ninspect may issue query UI, not goal mutation"];
+ mutate [label="Capability + field + origin + current-state guards\nAPI or exact native UI action once\nold snapshot removed before submission"];
+ readback [label="Native read / mutation ack → canonical readback\nsame generation and expected fields required\nobserved / confirmed applied / unknown / not_issued"];
+ config [label="agent_configure: validate request + pin launch\nCodex active goal: inspect → pause owned goal\nwait turn end outside send lock"];
+ lock [label="Shared agent send FIFO / file lock\nbusy: release and retry until existing deadline\ndormant/resuming: refuse; no new native launch"];
+ before [label="Before setting effect: resume template unconfirmed\nmark configuration mayHaveChanged\nClaude/Codex picker adapters; core owns fast/native"];
+ defaults [label="user-config.ts: file lock + snapshot/action/restore defaults\npreserve unrelated concurrent settings\nsome restoration remains existing best-effort"];
+ restore [label="Success: confirmed resume recipe\nresume only same goal paused by this request\nchanged / unavailable goal is not auto-restored"];
+ fail [label="Goal: unavailable / rejected / outcome_unknown\nConfigure before effect: not_applied / not_started\nConfigure after boundary: outcome_unknown / possible\noriginal errors retained; no blind retry",fillcolor="#fff0d8"];
+ goal -> target;target -> read;read -> mutate [label="non-inspect, authorized"];mutate -> readback;read -> readback [label="inspect result"];
+ config -> lock;lock -> before;before -> defaults;defaults -> restore;
+ config -> goal [style=dashed,label="goal pause / restore"];before -> fail [style=dashed];restore -> fail [style=dashed,label="restore unconfirmed"];target -> fail [style=dashed];mutate -> fail [style=dashed,label="unconfirmed submission"];
+}

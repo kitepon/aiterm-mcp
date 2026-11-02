@@ -1,0 +1,26 @@
+digraph configuration {
+ graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.55,fontname="DejaVu Sans",fontsize=18,label="Model configuration ownership — A3 implementation",labelloc=t];
+ node [shape=box,style="rounded,filled",fillcolor="#f1f3f5",fontname="DejaVu Sans",fontsize=12];
+ edge [fontname="DejaVu Sans",fontsize=10,color="#4b5563"];
+ request [label="configureAgent\nValidate session / generation / input-ready"];
+ lock [label="core: native + send lock, goal protection\nuser-config: snapshot + action + restore"];
+ port [label="agent-model-ui.ts: AgentModelUi (internal type)\nread screen / submit complete command / menu keys\nExisting ready or text wait supplied by core",fillcolor="#deedff"];
+ claude [label="harnesses/claude-configure.ts\nOpen picker -> inspect rows / effort\nRequire session-only -> recheck selection",fillcolor="#deedff"];
+ codex [label="harnesses/codex-configure.ts\nOpen picker -> preserve current effort if needed\nResolve missing model only on existing fallback",fillcolor="#deedff"];
+ sideeffect [label="beforeChange at original position\nClaude: before s\nCodex: before final effort key / Enter",fillcolor="#fff1d5"];
+ observe [label="Observe new vendor notice\nClaude session-only result + ready\nCodex increased notice count"];
+ result [label="core: preserve metadata / goal / defaults ordering\nReturn same public result or exception"];
+ failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend",fillcolor="#ffe9e4"];
+ request -> lock;
+ lock -> port;
+ port -> claude;
+ port -> codex;
+ claude -> sideeffect;
+ codex -> sideeffect;
+ sideeffect -> observe;
+ observe -> result;
+ claude -> failure [label="refusal / unreadable"];
+ codex -> failure [label="refusal / unreadable"];
+ observe -> failure [label="notice / ready missing"];
+ failure -> result [label="same exception; original restore behavior"];
+}

@@ -59,6 +59,7 @@ Aitermの製品判断・実行・releaseを制御せず、通常利用の必須�
 - `src/core.ts`: PTY、入出力進行、完了検出、harness共通進行。入力欄への投入（貼付→反映の確認→Enter）は
   `submitAgentComposerText`の1つの順序を、起動時prompt・dispatch・差し込みの送信口が共有する。席へ渡すAitermの環境変数は
   `agentEnvEntries`の1つの一覧から、POSIXの前置きとWindowsのPowerShell行を作る。
+- `src/agent-model-ui.ts`／`src/harnesses/*-configure.ts`: Claude/Codexのmodel選択UI。coreが既存native作用を供給し、排他・goal・記録はcoreに残す。[設定図](docs/architecture/model-configuration.md)。
 - `src/agent-screen-observation.ts`: sampleと時計を受け取るTUI準備・入力残存・画面安定の観測。打鍵やmetadata更新はcoreが持つ。
   harness別の画面の読みの振り分け（`agentPaneObservation`・`isAgentTuiBusy`）もこのmoduleだけが持ち、coreは`kind`を渡して呼ぶ。
 - `src/harnesses/`: Claude／Codex／Grok／Cursor／Antigravity固有の起動、ready、完了、transcript、catalog。

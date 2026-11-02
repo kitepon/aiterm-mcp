@@ -103,3 +103,26 @@ export function restoreJsonSetting(file: string, before: Buffer | null, key: str
   writeInPlace(file, `${JSON.stringify(edited, null, 2)}\n`);
   return true;
 }
+
+export const USER_DEFAULT_SETTLE_MS = 400;
+const USER_DEFAULT_RESTORE_PASSES = 3;
+
+export async function restoreUserDefaults(restore: () => void): Promise<void> {
+  for (let pass = 0; pass < USER_DEFAULT_RESTORE_PASSES; pass++) {
+    await sleep(USER_DEFAULT_SETTLE_MS);
+    try { restore(); } catch { /* 戻せなくても、切り替えの結果は返す */ }
+  }
+}
+
+export async function keepingUserDefaults<T>(
+  configPath: string, restore: (before: Buffer | null) => void, action: () => Promise<T>,
+): Promise<T> {
+  return withUserConfigLock(configPath, async () => {
+    const before = readFileOrNull(configPath);
+    try {
+      return await action();
+    } finally {
+      await restoreUserDefaults(() => restore(before));
+    }
+  });
+}

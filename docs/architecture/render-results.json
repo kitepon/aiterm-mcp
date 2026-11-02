@@ -4,7 +4,14 @@
     {
       "file": "current-overview.dot",
       "width": 2856,
-      "height": 1360,
+      "height": 1379,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "goal-configuration.dot",
+      "width": 1425,
+      "height": 816,
       "svg": true,
       "png": true
     },
@@ -12,6 +19,13 @@
       "file": "metadata-reader.dot",
       "width": 1624,
       "height": 501,
+      "svg": true,
+      "png": true
+    },
+    {
+      "file": "model-configuration.dot",
+      "width": 868,
+      "height": 1012,
       "svg": true,
       "png": true
     },

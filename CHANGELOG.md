@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-11-02
+
 ### Added
 - Add `npm run test:dev` and a Testgate wrapper declaration for development test selection while preserving the Windows test runner and the full `npm test` entry.
 
@@ -2996,7 +2998,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...HEAD
+[0.63.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...v0.63.1
 [0.63.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...v0.63.0
 [0.62.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.5...v0.62.6
 [0.62.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.4...v0.62.5

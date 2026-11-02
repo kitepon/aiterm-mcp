@@ -719,6 +719,8 @@ function estimateTokens(s: string): number {
 }
 
 export function stripControl(text: string): string {
+  // OSC/DCS等の本文内のCRを、印字された進捗断片として扱わない。
+  text = text.replace(ANSI_RE, sequence => sequence.startsWith("\x1b[") ? sequence : "");
   text = text.replace(/\r\n/g, "\n"); // CRLF 正規化
   const out: string[] = [];
   for (const line of text.split("\n")) {

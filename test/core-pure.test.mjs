@@ -65,6 +65,8 @@ test("stripControl: ConPTYのCR後のcursor表示切替は出力と完了印を�
   assert.equal(core.stripControl("done\r\x1b[?25h"), "done");
   assert.equal(core.stripControl("old\r\x1b[32mnew\x1b[0m\r\x1b[?25l"), "new");
   assert.equal(core.stripControl("old\r\x1b[2K\n"), "\n");
+  assert.equal(core.stripControl("safe\x1b]0;hidden\r\x07"), "safe");
+  assert.equal(core.stripControl(`safe\x1bPq;\r${mark}\x1b\\`), "safe");
 });
 
 // ---------------------------------------------------------------- reduceOutput: dedup

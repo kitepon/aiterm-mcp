@@ -85,6 +85,7 @@ coreの観測（`pty_observe`）・起動準備・送信口・停止は`kind`を
 agent入力欄への`bracketedPaste`は、制御文字の除去後も本文のまま渡す。nativeの前面process名が起動shellを報告していてもshell実行文へ変換しない。shell用のUTF-8初期化・複数行適合はshell送信（利用者のshell送信と、Aiterm自身のbash起動command）だけに適用する。
 
 `pty_read`は制御文字除去、反復圧縮、head＋tail、command別reducerでcontext量を減らす。
+CR後の表示制御だけの断片は既印字内容を消さず、文字による進捗上書きと明示的な行消去は維持する。同じ整形を使うmark検出でも結果と相関IDを保持する。
 完了はprocess exit、shell sentinel、literal／regex `until`、shell復帰を伴うquiescence、timeoutを区別する。
 新しいmarkは送信IDを完了印と待機fileへ結び、旧commandの印を次の完了へ使わない。旧producerのpending flagは読取り互換を保ち、旧readの完了で新しい待機fileを消さない。ID保存失敗は入力前拒否。
 要求されたsentinel／untilを静止判定より優先し、nested shellで証拠がない状態を完了へ丸めない。

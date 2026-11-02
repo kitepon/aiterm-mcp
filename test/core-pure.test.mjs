@@ -56,6 +56,17 @@ test("stripControl: CRLF 正規化と行内 CR 上書きは最終状態だけ残
   assert.equal(core.stripControl("x   \ny\t\t"), "x\ny"); // 行末空白 rstrip
 });
 
+test("stripControl: ConPTYのCR後のcursor表示切替は出力と完了印を消さない", () => {
+  const mark = `<<<AITERM_DONE rc=0>>> id=${"1".repeat(32)}`;
+  const raw = `PERSIST=50\x1b[30;1H${mark}\r\x1b[?25h\nPS C:\\>`;
+  const cleaned = core.stripControl(raw);
+  assert.match(cleaned, /PERSIST=50/u);
+  assert.ok(cleaned.includes(mark + "\n"));
+  assert.equal(core.stripControl("done\r\x1b[?25h"), "done");
+  assert.equal(core.stripControl("old\r\x1b[32mnew\x1b[0m\r\x1b[?25l"), "new");
+  assert.equal(core.stripControl("old\r\x1b[2K\n"), "\n");
+});
+
 // ---------------------------------------------------------------- reduceOutput: dedup
 test("reduceOutput: 同一行 N(>=3) 連続を 1 行＋件数に畳む", () => {
   const [body] = core.reduceOutput("a\na\na\na\na", "t1");

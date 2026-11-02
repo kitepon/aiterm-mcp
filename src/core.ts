@@ -721,13 +721,14 @@ function estimateTokens(s: string): number {
 export function stripControl(text: string): string {
   text = text.replace(/\r\n/g, "\n"); // CRLF 正規化
   const out: string[] = [];
-  for (let line of text.split("\n")) {
-    if (line.includes("\r")) {
-      const parts = line.split("\r");
-      line = parts[parts.length - 1]; // 行中の\rは進捗上書き＝最終状態だけ残す
+  for (const line of text.split("\n")) {
+    let visibleLine = "";
+    for (const part of line.split("\r")) {
+      const visible = part.replace(ANSI_RE, "").replace(CTRL_RE, "");
+      // CRとcursor表示切替だけでは、既に印字した結果や完了印を消さない。
+      if (visible !== "" || /\x1b\[[0-2]?K/.test(part)) visibleLine = visible;
     }
-    line = line.replace(ANSI_RE, "").replace(CTRL_RE, "");
-    out.push(line.replace(/\s+$/, "")); // rstrip
+    out.push(visibleLine.replace(/\s+$/, "")); // rstrip
   }
   return out.join("\n");
 }

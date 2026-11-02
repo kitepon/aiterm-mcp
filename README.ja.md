@@ -765,6 +765,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 ### トークン削減
 
 - `pty_read` は既定で制御文字除去・連続重複圧縮・head+tail 折りたたみ（＋復元ヒント・メタ併記）をかける。
+- 復帰文字の後ろにカーソル表示の制御だけが続く場合も、既に印字された出力と完了印を保持する。
 - `pty_read({ rtk: true })` は直前に送ったコマンド別の reducer（`git status`/`git log`/`grep`/`pytest` ほか）で観測出力をさらに縮約する（rtk バイナリ非依存・自前実装）。
 - `pty_send({ rtk: true })` は既知コマンドを `rtk` 形に書き換えて送り、実行先に `rtk` があればソースで削減を効かせる（無ければ素通し）。
 

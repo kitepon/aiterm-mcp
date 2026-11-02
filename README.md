@@ -823,6 +823,7 @@ agent_launch({ "harness": "codex-cli", "remote": { "host": "rabbit" }, "cwd": "/
 ### Token reduction
 
 - `pty_read` by default strips control characters, collapses repeated lines, and folds long output into head+tail (with a restore hint and a meta line).
+- Carriage returns followed only by cursor visibility controls preserve printed output and completion marks.
 - `pty_read({ rtk: true })` further shrinks the observed output with a per-command reducer (`git status`/`git log`/`grep`/`pytest` and more) — a self-contained reimplementation that needs no `rtk` binary.
 - `pty_send({ rtk: true })` rewrites a known command into `rtk` form before sending, so reduction happens at the source if `rtk` exists there (passthrough otherwise).
 

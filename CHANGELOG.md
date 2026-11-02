@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `npm run test:dev` and a Testgate wrapper declaration for development test selection while preserving the Windows test runner and the full `npm test` entry.
 
 ### Fixed
+- Preserve printed output and correlated completion marks when ConPTY emits carriage return followed by cursor visibility controls.
 - Keep native Windows Codex catalog fixtures until the test run ends so per-test cleanup does not race executable handle release after session shutdown.
 
 ## [0.63.0] - 2026-11-01

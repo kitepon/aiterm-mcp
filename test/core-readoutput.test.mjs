@@ -43,6 +43,20 @@ test("read wait: an existing legacy mark still completes its pending command", a
   } finally { fs.rmSync(mark, { force: true }); }
 });
 
+test("read wait: ConPTY cursor visibility after CR preserves output and the correlated mark", async () => {
+  const name = "conpty_cursor_mark";
+  const mark = path.join(SOCKDIR, name + ".mark");
+  const id = "1".repeat(32);
+  fab(name, `PERSIST=50\x1b[30;1H<<<AITERM_DONE rc=0>>> id=${id}\r\x1b[?25h\nPS C:\\>`);
+  fs.writeFileSync(mark, id);
+  try {
+    const output = await core.readOutput(name, { wait: true, timeout: 0 });
+    assert.match(output, /PERSIST=50/u);
+    assert.match(output, /is_complete=True via mark/u);
+    assert.equal(fs.existsSync(mark), false);
+  } finally { fs.rmSync(mark, { force: true }); }
+});
+
 test("read wait: a shell name cannot complete an empty pending output stream", { skip: process.platform === "win32" ? "fake tmux is a POSIX script" : undefined }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "empty-wait-V"));
   const backend = path.join(root, "tmux");

@@ -11,6 +11,10 @@ digraph configuration {
  observe [label="Observe new vendor notice\nClaude session-only result + ready\nCodex increased notice count"];
  result [label="core: preserve metadata / goal / defaults ordering\nReturn same public result or exception"];
  failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend",fillcolor="#ffe9e4"];
+ preview [label="idle-settings.ts: shared native preview\ninspectCodexResumeSettings: fresh thread-id + settings\nCancel without save; missing / mismatch => null",fillcolor="#deedff"];
+ repair [label="R1 normal resume caller: NOT CONNECTED\nMust own native pin / empty composer / admission",style="rounded,dashed",fillcolor="#fff1d5"];
+ repair -> preview [style=dashed,label="planned caller"];
+ preview -> failure [label="unknown / no ready after cancel"];
  request -> lock;
  lock -> port;
  port -> claude;

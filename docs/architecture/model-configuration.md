@@ -15,3 +15,9 @@
 初期のpickerコマンド/keyとmodel選択の作用境界は区別する。beforeChangeを越えた後の失敗を未作用へ戻さず、coreが元のconfigurationFailureへ射影する。中断・取消・画面取得失敗も元の例外を伝え、既存の画面後始末とfinally復元を通す。再送はしない。readyと画面通知と公開receiptは同じ意味ではない。
 
 adapterへ渡すready/text waitはcoreの元の関数・既定timeoutのまま。catalogは元と同じfallback時点で取得する。設定fileの保存形式、3回/400ms、picker再試行の回数・待ち時間、goalと排他の順序を変更しない。
+
+## failed復帰用の現在会話・設定プレビュー（R1準備部品）
+
+`harnesses/idle-settings.ts:inspectCodexResumeSettings`は現在の`/statusline`メニューでthread-id（旧session-id）とmodel/effort/明示速度を読み、strictに一つのUUIDを照合する。既メニュー/欠測/別thread/不整合/閉じた後のready欠測はnull。Escapeで戻り、Enterで選択を保存しない。既inspectIdleSettingsと同じ有限プレビュー操作を共有する。
+
+このcommitは部品のみ。通常resume/send/launchへのcallerは未接続で、failedの永久拒否を解消済みとはしない。接続側が同native出生、空composer、input-owner/admissionと作用直前再検証を所有する。UI型だけでこれらを保証しない。実taskイベントを作らず初手前に確認できる条件を、`test/codex-resume-settings.test.mjs`で検証する。関連既callerはcore.inspectAgentIdleSettingsとtest/agent-idle-settings、公開MCP/schema/設定file/exportの変更無し。

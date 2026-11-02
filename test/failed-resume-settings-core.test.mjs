@@ -118,8 +118,30 @@ async function failedReady(t,settings,extra={}){
  for(const end=Date.now()+4000;Date.now()<end;await sleep(40)){const screen=spawnSync(resolveTmux(),['-S',SOCK,'capture-pane','-p','-t',f.name],{encoding:'utf8'}).stdout;if(screen.includes('OpenAI Codex')&&!screen.includes('unknown delayed view'))return {...f,attemptFile,failed,attempt};}
  throw Error('fixture delayed composer not ready');
 }
+async function recoveryGoal(t,f,mode='null'){
+ const {createServer}=await import('node:http'),{once}=await import('node:events'),{WebSocketServer}=await import('ws');
+ const control=join(process.env.CODEX_HOME,'app-server-control');fs.mkdirSync(control,{recursive:true,mode:0o700});
+ const socket=join(control,'app-server-control.sock'),http=createServer(),ws=new WebSocketServer({server:http});
+ let mutations=0;
+ ws.on('connection',client=>client.on('message',bytes=>{
+  const {id,method}=JSON.parse(bytes.toString());if(id===undefined)return;let result;
+  if(method==='initialize')result={userAgent:'fixture'};
+  else if(method==='thread/loaded/list')result={data:[f.meta.vendor_session_id],nextCursor:null};
+  else if(method==='thread/read')result={thread:{id:f.meta.vendor_session_id,source:'cli'}};
+  else if(method==='thread/goal/get'){
+   if(mode==='unsupported'){client.send(JSON.stringify({id,error:{code:-32601,message:'Method not found'}}));return;}
+   result={goal:mode==='unknown'?{invalid:true}:mode==='null'?null:
+    {threadId:f.meta.vendor_session_id,objective:'Original',status:'paused',tokenBudget:null,tokensUsed:0,timeUsedSeconds:0,createdAt:1,updatedAt:1}};
+  }else{mutations++;throw Error('Unexpected mutation '+method);}
+  client.send(JSON.stringify({id,result}));
+ }));
+ http.listen(socket);await once(http,'listening');fs.chmodSync(socket,0o600);
+ t.after(async()=>{for(const c of ws.clients)c.terminate();await new Promise(r=>ws.close(r));await new Promise(r=>http.close(r));});
+ return ()=>mutations;
+}
 test('same-native recovery restores model and effort while preserving user defaults',{skip,timeout:20000},async t=>{
  const f=await failedReady(t,{model:'other-model',effort:'low'});
+ await recoveryGoal(t,f);
  const config=join(process.env.CODEX_HOME,'config.toml'),before='model = "user-default"\nmodel_reasoning_effort = "medium"\n';fs.writeFileSync(config,before);
  const result=await core.dispatchAgentTurn(f.name,'RESTORED_BODY',{raw:true,ready_timeout:2000});
  assert.equal(result.launch_id,f.attempt.next_launch_id);assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
@@ -215,4 +237,20 @@ for(const ending of ['complete','unfinished','pause-rejected'])test('failed sett
   assert.deepEqual(effects,ending==='unfinished'?['paused','active']:['paused']);
  }
  assert.equal(goal.status,'active');assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
+});
+
+for(const mode of ['unknown','unsupported','null','paused'])test('failed settings recovery requires authoritative goal: '+mode,{skip,timeout:25000},async t=>{
+ const f=await failedReady(t,{model:'other-model',effort:'low'}),mutations=await recoveryGoal(t,f,mode);
+ const result=await core.agentGoal({session_id:f.name,launch_id:f.attempt.next_launch_id,action:'inspect',expected_thread_id:f.meta.vendor_session_id});
+ if(mode==='unknown'||mode==='unsupported'){
+  assert.notEqual(result.availability,'available');
+  await assert.rejects(core.dispatchAgentTurn(f.name,'UNSENT',{raw:true,ready_timeout:2000}),e=>e.resumeFailure?.input==='not_sent');
+  assert.equal(fs.existsSync(f.keys+'-model-commands'),false);assert.equal(fs.existsSync(f.keys),false);
+  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.attempt.next_launch_id).replace(/\.agent\.json$/,'.resume-resolution.json')),false);
+ }else{
+  assert.equal(result.readback,'confirmed');
+  await core.dispatchAgentTurn(f.name,'CONFIRMED_GOAL_BODY',{raw:true,ready_timeout:2000});
+  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['CONFIRMED_GOAL_BODY']);
+ }
+ assert.equal(mutations(),0);assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
 });

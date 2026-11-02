@@ -6786,10 +6786,14 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
     };
     if (!settingsDiffer) return complete();
     return configureWithPausedGoal({
-      goal: (action, expected) => {
+      goal: async (action, expected) => {
         verify();
-        return agentGoalInContext({ session_id: name, launch_id: meta.launch_id, action,
+        const result = await agentGoalInContext({ session_id: name, launch_id: meta.launch_id, action,
           expected_thread_id: recipe.vendor_session_id }, "user", expected, true);
+        verify();
+        if (action === "inspect" && (result.availability !== "available" || result.readback !== "confirmed"
+          || result.schema !== "aiterm.agent-goal-result.v1" || result.goal === undefined)) throw unavailable();
+        return result;
       },
       waitForTurnEnd: async () => {
         verify();

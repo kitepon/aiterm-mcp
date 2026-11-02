@@ -47,6 +47,7 @@ const draw=()=>{
  process.stdout.write('\\x1b[H\\x1b[2J'+(${resumeBlocked?'process.argv.includes("resume") ? "unknown blocked view" : ':''}screen));
 };
 process.stdin.setRawMode(true);process.stdin.resume();draw();
+if(resumedBusy)fs.writeFileSync(${JSON.stringify(keys+'-resume-drawn')},'1');
 process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\\[20[01]~/g,'')){
  if(ch==='\\x1b'){menu=false;query='';}
  else if(menu){
@@ -416,7 +417,24 @@ test('send resumes the same conversation once, preserves old records and restore
 for(const proof of ['bound','unbound'])test(`resume verifies a native queued turn before accepting a busy Codex (${proof})`,{skip,timeout:15000},async t=>{
  const f=await fixture(t,{resumeBusy:proof});
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
- const request=core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt:null,ready_timeout:300});
+ const rename=fs.renameSync;
+ t.mock.method(fs,'renameSync',function(from,to){
+  const result=rename(from,to);
+  if(to.endsWith('/'+f.name+'.active-launch.json')&&JSON.parse(fs.readFileSync(to)).launch_id!==f.meta.launch_id){
+   const code=`import fs from 'node:fs';import {spawnSync} from 'node:child_process';
+const deadline=Date.now()+5000;
+while(Date.now()<deadline){
+ if(fs.existsSync(${JSON.stringify(f.keys+'-resume-drawn')})){
+  const s=spawnSync(${JSON.stringify(resolveTmux())},['-S',${JSON.stringify(SOCK)},'capture-pane','-p','-t',${JSON.stringify(f.name)}],{encoding:'utf8'});
+  if(s.status===0&&s.stdout.includes('Working (1s • esc to interrupt)'))process.exit(0);
+ }
+ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);
+}process.exit(1);`;
+   assert.equal(spawnSync(process.execPath,['--input-type=module','-e',code]).status,0,'native queued frame is drawn before readiness is sampled');
+  }
+  return result;
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ const request=core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt:null,ready_timeout:0});
  if(proof==='unbound'){
   await assert.rejects(request,error=>{
    assert.match(error.message,/AGENT_RESUME_FAILED/);

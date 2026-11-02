@@ -1,7 +1,7 @@
+import './seat-env.mjs';
 // Finite copy of the existing idle-core fake Codex fixture; no vendor credentials or live seats.
 import {createOfflineResumeCheckpoint,restoreOfflineResumeCheckpoint} from '../dist/resume-checkpoint-files.js';
 import {resumeCheckpointDigest} from '../dist/resume-checkpoint.js';
-import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

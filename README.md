@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.63.2** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.63.3** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -947,4 +947,4 @@ The Linux Grok 1.0.70 inspector binds the native current-session registry to the
 
 ### Offline resume checkpoint (unreleased candidate)
 
-`aiterm-resume-state checkpoint --session ID --launch LAUNCH` emits a private bundle on stdout and a safe receipt on stderr. `aiterm-resume-state restore --session ID --launch LAUNCH --sha256 SHA` reads that bundle on stdin and emits its receipt on stdout. This Linux/Codex scope requires the explicit persistent `AITERM_STATE_BASE`, the same UID/absolute paths and retained vendor rollout identity. The caller must stop all source writers and prevent restart before checkpoint; restore runs under startup admission before bootstrap or native startup. It does not recover already-lost legacy tmpfs state or migrate pending deliveries. See the [contract and diagram](docs/architecture/resume-checkpoint.md).
+`aiterm-resume-state checkpoint --session ID --launch LAUNCH` emits a private bundle on stdout and a safe receipt on stderr. `aiterm-resume-state restore --session ID --launch LAUNCH --sha256 SHA` reads that bundle on stdin and emits its receipt on stdout. This Linux/Codex scope requires the explicit persistent `AITERM_STATE_BASE`, the same UID/absolute paths and retained vendor rollout identity. The caller must stop all source writers and prevent restart before checkpoint; restore runs under startup admission before bootstrap or native startup. It does not recover already-lost legacy tmpfs state or migrate pending deliveries. See the [contract and diagram](https://github.com/kitepon/aiterm-mcp/blob/v0.63.3/docs/architecture/resume-checkpoint.md).

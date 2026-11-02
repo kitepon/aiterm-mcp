@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.3] - 2026-11-03
+
+### Fixed
+- Recover published failed Linux Codex resumes on the next ordinary send or same-name launch. Revalidate the live conversation, native birth, empty composer and saved settings, or create a new native for the same vendor conversation when the old native is known absent. Preserve failed history and never replay a previous request.
+- Restore mismatched model and effort with confirmed native goal protection. Reject unavailable goal reads before settings or input; keep the ordinary configure contract unchanged.
+- Preserve the first safely recorded resume failure without storing input, raw exceptions or credentials.
+
+### Added
+- Add the Linux-only `aiterm-resume-state` offline checkpoint/restore CLI with bounded original record bytes, strict session/launch/digest binding and resumable exact-byte restore. The caller must stop all source writers, prevent restart, persist the state base from the first supported runtime, and restore under startup admission before normal bootstrap. Existing tmpfs state lost during the first upgrade cannot be recovered by this CLI.
+
+### Changed
+- Separate metadata reading, PTY display, model UI, remote input contracts and parent-delivery records into their owning modules while preserving public contracts. Steer remains a separately released dependency.
+
+### Upgrade and rollback
+- Checkpoint preservation is opt-in through the documented offline supply contract. A successful snapshot is not proof that the source runtime stopped. Do not replay a restore input after ordinary bootstrap.
+- Older versions do not understand the new recovery and restore records. Do not downgrade a recovered or restored state directory in place; use a separately retained compatible state and vendor conversation backup, or the ordinary explicitly chosen state reset. Published failed records are never converted to successful records.
+
 ## [0.63.2] - 2026-11-02
 
 ### Fixed
@@ -3005,7 +3022,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.3...HEAD
+[0.63.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...v0.63.3
 [0.63.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...v0.63.2
 [0.63.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...v0.63.1
 [0.63.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.62.6...v0.63.0

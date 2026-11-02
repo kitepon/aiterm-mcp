@@ -3,6 +3,7 @@
 // - CODEX_BIN 環境変数で bin を無害コマンドに偽装し、CLI 未導入環境でも cwd 検証・残骸テストを回す。
 // - tmux 実機を使うケースは core-tmux.test.mjs と同じ隔離ソケット方式（TMPDIR 退避・skip 制御）。
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
+import './native-timing-diagnostic.mjs';
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";

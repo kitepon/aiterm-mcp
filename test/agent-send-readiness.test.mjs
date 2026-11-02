@@ -1,5 +1,6 @@
 // Readiness-to-steer interleavings through the real product dispatcher and tmux.
 import './seat-env.mjs';
+import './native-timing-diagnostic.mjs';
 import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';

@@ -75,16 +75,16 @@
 <!-- sideeffect -->
 <g id="node6" class="node">
 <title>sideeffect</title>
-<path fill="#fff1d5" stroke="black" d="M240.85,-346.4C240.85,-346.4 28.87,-346.4 28.87,-346.4 22.87,-346.4 16.87,-340.4 16.87,-334.4 16.87,-334.4 16.87,-307.2 16.87,-307.2 16.87,-301.2 22.87,-295.2 28.87,-295.2 28.87,-295.2 240.85,-295.2 240.85,-295.2 246.85,-295.2 252.85,-301.2 252.85,-307.2 252.85,-307.2 252.85,-334.4 252.85,-334.4 252.85,-340.4 246.85,-346.4 240.85,-346.4"/>
-<text xml:space="preserve" text-anchor="middle" x="134.86" y="-331.6" font-family="DejaVu Sans" font-size="12.00">beforeChange at original position</text>
-<text xml:space="preserve" text-anchor="middle" x="134.86" y="-317.2" font-family="DejaVu Sans" font-size="12.00">Claude: before s</text>
-<text xml:space="preserve" text-anchor="middle" x="134.86" y="-302.8" font-family="DejaVu Sans" font-size="12.00">Codex: before final effort key / Enter</text>
+<path fill="#fff1d5" stroke="black" d="M255.85,-346.4C255.85,-346.4 43.87,-346.4 43.87,-346.4 37.87,-346.4 31.87,-340.4 31.87,-334.4 31.87,-334.4 31.87,-307.2 31.87,-307.2 31.87,-301.2 37.87,-295.2 43.87,-295.2 43.87,-295.2 255.85,-295.2 255.85,-295.2 261.85,-295.2 267.85,-301.2 267.85,-307.2 267.85,-307.2 267.85,-334.4 267.85,-334.4 267.85,-340.4 261.85,-346.4 255.85,-346.4"/>
+<text xml:space="preserve" text-anchor="middle" x="149.86" y="-331.6" font-family="DejaVu Sans" font-size="12.00">beforeChange at original position</text>
+<text xml:space="preserve" text-anchor="middle" x="149.86" y="-317.2" font-family="DejaVu Sans" font-size="12.00">Claude: before s</text>
+<text xml:space="preserve" text-anchor="middle" x="149.86" y="-302.8" font-family="DejaVu Sans" font-size="12.00">Codex: before final effort key / Enter</text>
 </g>
 <!-- claude&#45;&gt;sideeffect -->
 <g id="edge7" class="edge">
 <title>claude&#45;&gt;sideeffect</title>
-<path fill="none" stroke="#4b5563" d="M361.81,-386.99C321.82,-375.51 274.23,-361.84 232.98,-349.98"/>
-<polygon fill="#4b5563" stroke="#4b5563" points="234.11,-346.67 223.53,-347.27 232.18,-353.4 234.11,-346.67"/>
+<path fill="none" stroke="#4b5563" d="M365.97,-386.99C328.05,-375.56 282.96,-361.95 243.79,-350.14"/>
+<polygon fill="#4b5563" stroke="#4b5563" points="244.95,-346.83 234.36,-347.29 242.92,-353.53 244.95,-346.83"/>
 </g>
 <!-- failure -->
 <g id="node9" class="node">
@@ -97,22 +97,22 @@
 <!-- claude&#45;&gt;failure -->
 <g id="edge11" class="edge">
 <title>claude&#45;&gt;failure</title>
-<path fill="none" stroke="#4b5563" d="M569.33,-386.95C590.01,-377.47 609.21,-364.41 622.86,-346.4 664.38,-291.62 654.24,-256.99 631.86,-192 623.13,-166.65 603.26,-149.54 579.38,-138.04"/>
+<path fill="none" stroke="#4b5563" d="M541.35,-386.94C563.52,-377.28 585.49,-364.13 601.86,-346.4 649.28,-295.03 654.62,-258.1 631.86,-192 623.13,-166.65 603.26,-149.54 579.38,-138.04"/>
 <polygon fill="#4b5563" stroke="#4b5563" points="580.88,-134.87 570.32,-134.06 578.06,-141.28 580.88,-134.87"/>
-<text xml:space="preserve" text-anchor="middle" x="701.72" y="-266.2" font-family="DejaVu Sans" font-size="10.00">refusal / unreadable</text>
+<text xml:space="preserve" text-anchor="middle" x="694.99" y="-266.2" font-family="DejaVu Sans" font-size="10.00">refusal / unreadable</text>
 </g>
 <!-- codex&#45;&gt;sideeffect -->
 <g id="edge8" class="edge">
 <title>codex&#45;&gt;sideeffect</title>
-<path fill="none" stroke="#4b5563" d="M614.6,-389.54C609.29,-388.81 604.03,-388.1 598.86,-387.4 452.38,-367.7 414.94,-368.86 268.86,-346.4 267.41,-346.18 265.96,-345.95 264.5,-345.72"/>
-<polygon fill="#4b5563" stroke="#4b5563" points="265.09,-342.27 254.66,-344.14 263.98,-349.18 265.09,-342.27"/>
+<path fill="none" stroke="#4b5563" d="M614.6,-389.58C609.29,-388.84 604.03,-388.11 598.86,-387.4 458.99,-368.18 423.34,-368.26 283.86,-346.4 282.41,-346.17 280.96,-345.94 279.5,-345.71"/>
+<polygon fill="#4b5563" stroke="#4b5563" points="280.1,-342.26 269.67,-344.11 278.98,-349.17 280.1,-342.26"/>
 </g>
 <!-- codex&#45;&gt;failure -->
 <g id="edge12" class="edge">
 <title>codex&#45;&gt;failure</title>
-<path fill="none" stroke="#4b5563" d="M772.96,-387.09C776.81,-356.28 779.42,-303.04 759.86,-263.2 729.16,-200.66 704.09,-191.33 641.86,-160 622.59,-150.3 601.26,-142.7 579.85,-136.74"/>
-<polygon fill="#4b5563" stroke="#4b5563" points="581.03,-133.44 570.47,-134.26 579.24,-140.2 581.03,-133.44"/>
-<text xml:space="preserve" text-anchor="middle" x="815.1" y="-266.2" font-family="DejaVu Sans" font-size="10.00">refusal / unreadable</text>
+<path fill="none" stroke="#4b5563" d="M771.54,-387.09C773.73,-356.28 773.76,-303.03 753.86,-263.2 723.61,-202.65 701.92,-191.22 641.86,-160 622.65,-150.01 601.3,-142.26 579.85,-136.24"/>
+<polygon fill="#4b5563" stroke="#4b5563" points="581,-132.92 570.44,-133.72 579.19,-139.69 581,-132.92"/>
+<text xml:space="preserve" text-anchor="middle" x="809.25" y="-266.2" font-family="DejaVu Sans" font-size="10.00">refusal / unreadable</text>
 </g>
 <!-- observe -->
 <g id="node7" class="node">
@@ -125,8 +125,8 @@
 <!-- sideeffect&#45;&gt;observe -->
 <g id="edge9" class="edge">
 <title>sideeffect&#45;&gt;observe</title>
-<path fill="none" stroke="#4b5563" d="M129.42,-294.78C126.8,-282.74 123.62,-268.08 120.74,-254.84"/>
-<polygon fill="#4b5563" stroke="#4b5563" points="124.18,-254.19 118.63,-245.16 117.34,-255.67 124.18,-254.19"/>
+<path fill="none" stroke="#4b5563" d="M140.71,-294.78C136.27,-282.62 130.84,-267.78 125.96,-254.44"/>
+<polygon fill="#4b5563" stroke="#4b5563" points="129.27,-253.29 122.55,-245.1 122.69,-255.69 129.27,-253.29"/>
 </g>
 <!-- result -->
 <g id="node8" class="node">
@@ -173,16 +173,16 @@
 <!-- repair -->
 <g id="node11" class="node">
 <title>repair</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M595.23,-339.2C595.23,-339.2 296.48,-339.2 296.48,-339.2 290.48,-339.2 284.48,-333.2 284.48,-327.2 284.48,-327.2 284.48,-314.4 284.48,-314.4 284.48,-308.4 290.48,-302.4 296.48,-302.4 296.48,-302.4 595.23,-302.4 595.23,-302.4 601.23,-302.4 607.23,-308.4 607.23,-314.4 607.23,-314.4 607.23,-327.2 607.23,-327.2 607.23,-333.2 601.23,-339.2 595.23,-339.2"/>
-<text xml:space="preserve" text-anchor="middle" x="445.86" y="-324.4" font-family="DejaVu Sans" font-size="12.00">R1 normal resume caller: NOT CONNECTED</text>
-<text xml:space="preserve" text-anchor="middle" x="445.86" y="-310" font-family="DejaVu Sans" font-size="12.00">Must own native pin / empty composer / admission</text>
+<path fill="#fff1d5" stroke="black" d="M574.33,-339.2C574.33,-339.2 311.39,-339.2 311.39,-339.2 305.39,-339.2 299.39,-333.2 299.39,-327.2 299.39,-327.2 299.39,-314.4 299.39,-314.4 299.39,-308.4 305.39,-302.4 311.39,-302.4 311.39,-302.4 574.33,-302.4 574.33,-302.4 580.33,-302.4 586.33,-308.4 586.33,-314.4 586.33,-314.4 586.33,-327.2 586.33,-327.2 586.33,-333.2 580.33,-339.2 574.33,-339.2"/>
+<text xml:space="preserve" text-anchor="middle" x="442.86" y="-324.4" font-family="DejaVu Sans" font-size="12.00">R1&#45;L: completeFailedCodexResume</text>
+<text xml:space="preserve" text-anchor="middle" x="442.86" y="-310" font-family="DejaVu Sans" font-size="12.00">Owns native pin / composer gate / admission</text>
 </g>
 <!-- repair&#45;&gt;preview -->
 <g id="edge1" class="edge">
 <title>repair&#45;&gt;preview</title>
-<path fill="none" stroke="#4b5563" stroke-dasharray="5,2" d="M444.29,-302.17C443.13,-289.14 441.51,-270.94 440.08,-254.85"/>
-<polygon fill="#4b5563" stroke="#4b5563" points="443.59,-254.77 439.22,-245.12 436.62,-255.39 443.59,-254.77"/>
-<text xml:space="preserve" text-anchor="middle" x="477.16" y="-266.2" font-family="DejaVu Sans" font-size="10.00">planned caller</text>
+<path fill="none" stroke="#4b5563" d="M441.81,-302.17C441.04,-289.14 439.96,-270.94 439.01,-254.85"/>
+<polygon fill="#4b5563" stroke="#4b5563" points="442.52,-254.89 438.43,-245.12 435.53,-255.31 442.52,-254.89"/>
+<text xml:space="preserve" text-anchor="middle" x="528.8" y="-266.2" font-family="DejaVu Sans" font-size="10.00">current thread + matching settings</text>
 </g>
 </g>
 </svg>

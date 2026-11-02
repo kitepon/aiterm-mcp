@@ -20,4 +20,4 @@ adapterへ渡すready/text waitはcoreの元の関数・既定timeoutのまま�
 
 `harnesses/idle-settings.ts:inspectCodexResumeSettings`は現在の`/statusline`メニューでthread-id（旧session-id）とmodel/effort/明示速度を読み、strictに一つのUUIDを照合する。既メニュー/欠測/別thread/不整合/閉じた後のready欠測はnull。Escapeで戻り、Enterで選択を保存しない。既inspectIdleSettingsと同じ有限プレビュー操作を共有する。
 
-このcommitは部品のみ。通常resume/send/launchへのcallerは未接続で、failedの永久拒否を解消済みとはしない。接続側が同native出生、空composer、input-owner/admissionと作用直前再検証を所有する。UI型だけでこれらを保証しない。実taskイベントを作らず初手前に確認できる条件を、`test/codex-resume-settings.test.mjs`で検証する。関連既callerはcore.inspectAgentIdleSettingsとtest/agent-idle-settings、公開MCP/schema/設定file/exportの変更無し。
+準備commit3efce36は部品のみだった。R1-L候補ではcore.completeFailedCodexResumeが通常resume/send/launchからこのpreviewを呼ぶ。対応はLinux/Codex/standard・現在設定一致の同nativeに限り、設定不一致UI復元とcold/H1は未実装。接続側が同native出生、空composer、input-owner/admissionと作用直前再検証を所有する。UI型だけでこれらを保証しない。実taskイベントを作らず初手前に確認できる条件を、`test/codex-resume-settings.test.mjs`で検証する。関連既callerはcore.inspectAgentIdleSettingsとtest/agent-idle-settings、公開MCP/schema/設定file/exportの変更無し。

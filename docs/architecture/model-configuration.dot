@@ -12,8 +12,8 @@ digraph configuration {
  result [label="core: preserve metadata / goal / defaults ordering\nReturn same public result or exception"];
  failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend",fillcolor="#ffe9e4"];
  preview [label="idle-settings.ts: shared native preview\ninspectCodexResumeSettings: fresh thread-id + settings\nCancel without save; missing / mismatch => null",fillcolor="#deedff"];
- repair [label="R1 normal resume caller: NOT CONNECTED\nMust own native pin / empty composer / admission",style="rounded,dashed",fillcolor="#fff1d5"];
- repair -> preview [style=dashed,label="planned caller"];
+ repair [label="R1-L: completeFailedCodexResume\nOwns native pin / composer gate / admission",style="rounded,filled",fillcolor="#fff1d5"];
+ repair -> preview [label="current thread + matching settings"];
  preview -> failure [label="unknown / no ready after cancel"];
  request -> lock;
  lock -> port;

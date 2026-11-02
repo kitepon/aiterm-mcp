@@ -17,7 +17,7 @@ import {
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
   writeCodexTranscript, appendCodexTranscript, appendCodexDone, scheduleCodexDone, writeGrokTranscript,
-  sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
+  sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, removeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
   makeBrokenThroughlineBin, FAKE_TUI_STRIP_PASTE_MARKERS, makeFakeGrokTuiBin, makeFakeGrokFooterOnlyTuiBin,
   makeGrokCatalogBin, makeFailingGrokCatalogBin, makeFakeClaudeTuiBin, makeFakeClaudeTrustTuiBin,
   appendAgentDoneWhenLogContains, agentDoneLine, appendAgentDone, scheduleAgentDone, writeClaudeDone,
@@ -178,9 +178,7 @@ test("Codex上限接近modal: 版とcursor位置を問わず一時keepだけで�
         throw error;
       } finally {
         try { core.closeSession(sid); } catch {}
-        fs.rmSync(fake.bin, { force: true });
-        fs.rmSync(fake.driverDir, { recursive: true, force: true });
-        fs.rmSync(fake.input, { force: true });
+        removeFakeCodexRateLimitTuiBin(fake);
       }
     }
   } finally {
@@ -221,9 +219,7 @@ test("Codex上限接近modal: agent_approvalはreasonだけを返し選択肢を
     try { core.closeSession(sid); } catch {}
     if (savedBin === undefined) delete process.env.CODEX_BIN;
     else process.env.CODEX_BIN = savedBin;
-    fs.rmSync(fake.bin, { force: true });
-    fs.rmSync(fake.driverDir, { recursive: true, force: true });
-    fs.rmSync(fake.input, { force: true });
+    removeFakeCodexRateLimitTuiBin(fake);
   }
 });
 
@@ -252,9 +248,7 @@ test("Codex上限接近modal: readyへ戻らなければ本文を送らずtyped 
     try { core.closeSession(sid); } catch {}
     if (savedBin === undefined) delete process.env.CODEX_BIN;
     else process.env.CODEX_BIN = savedBin;
-    fs.rmSync(fake.bin, { force: true });
-    fs.rmSync(fake.driverDir, { recursive: true, force: true });
-    fs.rmSync(fake.input, { force: true });
+    removeFakeCodexRateLimitTuiBin(fake);
   }
 });
 
@@ -289,9 +283,7 @@ test("agent_configure: Codex上限接近modalを一時keep後に同じsessionで
       try { core.closeSession(sid); } catch {}
       if (savedBin === undefined) delete process.env.CODEX_BIN;
       else process.env.CODEX_BIN = savedBin;
-      fs.rmSync(fake.bin, { force: true });
-      fs.rmSync(fake.driverDir, { recursive: true, force: true });
-      fs.rmSync(fake.input, { force: true });
+      removeFakeCodexRateLimitTuiBin(fake);
     }
   }
 });
@@ -327,9 +319,7 @@ test("agent_configure: Codex modelのみ変更は現在highを保持する", { s
       try { core.closeSession(sid); } catch {}
       if (savedBin === undefined) delete process.env.CODEX_BIN;
       else process.env.CODEX_BIN = savedBin;
-      fs.rmSync(fake.bin, { force: true });
-      fs.rmSync(fake.driverDir, { recursive: true, force: true });
-      fs.rmSync(fake.input, { force: true });
+      removeFakeCodexRateLimitTuiBin(fake);
     }
   }
 });
@@ -354,9 +344,7 @@ test("agent_configure: Codex modelのみ変更は保持不能と通知不一致�
       try { core.closeSession(sid); } catch {}
       if (savedBin === undefined) delete process.env.CODEX_BIN;
       else process.env.CODEX_BIN = savedBin;
-      fs.rmSync(fake.bin, { force: true });
-      fs.rmSync(fake.driverDir, { recursive: true, force: true });
-      fs.rmSync(fake.input, { force: true });
+      removeFakeCodexRateLimitTuiBin(fake);
     }
   }
 });
@@ -379,7 +367,7 @@ test("agent_configure: Codexが別modelの通知を返した時は変更後unkno
   } finally {
     if (sid) core.closeSession(sid);
     if (savedBin === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = savedBin;
-    fs.rmSync(fake.bin, { force: true }); fs.rmSync(fake.driverDir, { recursive: true, force: true }); fs.rmSync(fake.input, { force: true });
+    removeFakeCodexRateLimitTuiBin(fake);
   }
 });
 

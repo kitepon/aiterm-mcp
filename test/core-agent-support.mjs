@@ -470,6 +470,14 @@ class Fixture {
   return { bin, input, driverDir };
 }
 
+function removeFakeCodexRateLimitTuiBin(fake) {
+  // Native Windows launchers release image handles after the server exits; the run root owns their cleanup.
+  if (process.platform === "win32" && path.extname(fake.bin) === ".exe") return;
+  fs.rmSync(fake.bin, { force: true });
+  fs.rmSync(fake.driverDir, { recursive: true, force: true });
+  fs.rmSync(fake.input, { force: true });
+}
+
 function makeFakeThroughlineBin(
   context = "## Throughline Context\nSOURCE_CONTEXT_MARKER",
   expectedSupplementFile = null,
@@ -857,7 +865,7 @@ export {
   makeGrokHomeWithoutAuth, withFakeCodexHome, withFakeCodexTuiHome, withFakeGrokHome,
   withGrokHomeWithoutAuth, agentStateFiles, settledListSessions, readAgentMeta, writeAgentMeta, bindTranscriptTurn,
   writeCodexTranscript, appendCodexTranscript, appendCodexDone, scheduleCodexDone, writeGrokTranscript,
-  sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
+  sessionLogPath, makeFakeCodexTuiBin, makeFakeCodexRateLimitTuiBin, removeFakeCodexRateLimitTuiBin, makeFakeThroughlineBin,
   makeBrokenThroughlineBin, FAKE_TUI_STRIP_PASTE_MARKERS, makeFakeGrokTuiBin, makeFakeGrokFooterOnlyTuiBin,
   makeGrokCatalogBin, makeFailingGrokCatalogBin, makeFakeClaudeTuiBin, makeFakeClaudeTrustTuiBin,
   appendAgentDoneWhenLogContains, agentDoneLine, appendAgentDone, scheduleAgentDone, writeClaudeDone,

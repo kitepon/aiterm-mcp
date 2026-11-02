@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add `npm run test:dev` and a Testgate wrapper declaration for development test selection while preserving the Windows test runner and the full `npm test` entry.
+
 ## [0.63.0] - 2026-11-01
 
 - Preserve Windows registry protection before native identity checks, batch exact process births, and confirm native shutdown before cleaning a closed seat.

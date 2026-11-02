@@ -28,6 +28,12 @@ npm link           # put the `aiterm-mcp` command on PATH locally, pointing at y
 claude mcp add --scope user --transport stdio aiterm -- aiterm-mcp
 ```
 
+For repeated development checks, run `npm run build` after source changes, then
+`npm run test:dev`. Testgate 0.3.27 or later can select affected tests through this
+entry; without Testgate it runs the release-commit tests and `test/*.test.mjs`.
+The existing runner retains Windows temporary directories until all test workers
+finish. Run `npm test` for the final full check; CI keeps its existing entry.
+
 ## Where the code lives
 
 | File | Responsibility |

@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 529.4)">
 <title>checkpoint</title>
 <polygon fill="white" stroke="none" points="-21.6,21.6 -21.6,-529.4 736,-529.4 736,21.6 -21.6,21.6"/>
-<text xml:space="preserve" text-anchor="middle" x="357.2" y="-491.2" font-family="DejaVu Sans" font-size="14.00">H1 candidate: offline checkpoint and restore</text>
+<text xml:space="preserve" text-anchor="middle" x="357.2" y="-491.2" font-family="DejaVu Sans" font-size="14.00">H1: offline checkpoint and restore</text>
 <!-- caller -->
 <g id="node1" class="node">
 <title>caller</title>

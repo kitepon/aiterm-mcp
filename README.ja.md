@@ -870,3 +870,12 @@ Claude作成/目的文編集はcomposerとnative goal dialogの全行を確認�
 Claudeのgoal入力は公式PID別の現在session記録も確認し、native session ID・process開始tick・PID namespaceを各入力境界で照合する。会話切替はgoal入力前に拒否し、入力後の所有喪失はunknownを保持する。会話を勝手に切り戻さない。この開始形式は現在Linuxで検証済みで、未検証OS/記録はunavailableとする。
 
 Grok 1.0.70のLinux読取は公式active_sessions.jsonのPID・開始tick・cwd・会話を元のTUIへ結ぶ。入力欄がidleなら、同じ会話への新しい公式status応答から「ゴールなし」又は既存goalを確認する。goal.nativeは保存snapshot、goal.current_statusは元workerの新しい状態・phase・token数・経過表示であり、保存phaseや会計を現在値へ代入しない。既にfullscreenのTUIなら、元workerを止めずに公式Goal詳細を開閉して実行中の状態も読む。current_status.sourceはgoal detail、正確なphaseとtokens_usedはnullとし、phase_display/status_display/budget_displayへ丸めを含むUI原文を保持する。画面モードを勝手に替えず、空の入力欄を保つ。minimalのbusy時は命令をキューへ積まず取得不能。ユーザー由来のclearだけは、同じ元workerの公式statusがUserPaused/Idleで空の入力欄で公式local命令を一回送る。新しいdurable clear応答・native state消失に加え、続く新しいstatusのgoalなしを確認する。作用が不明なら再送やGoal復元をせずunknownとする。他の変更操作は未対応。通常launcherからのmetadata結合は手修正なしで確認済み。他OSはnative登録と入力所有が未受入のため取得不能とし、Grok全対応とはしない。
+
+
+### オフラインでの復帰状態の保存と復元
+
+`aiterm-resume-state checkpoint --session ID --launch LAUNCH` は非公開の保存データを標準出力へ、本文を含まない結果を標準エラーへ出す。`aiterm-resume-state restore --session ID --launch LAUNCH --sha256 SHA` は保存データを標準入力から読み、結果を標準出力へ出す。成功は終了コード0、拒否は2と固定文字列 `aiterm: RESUME_STATE_UNCONFIRMED`＋LF（33 bytes）。保存データはLF込み16 MiBまで、結果は512 bytesまでである。
+
+対象はLinux/Codex。明示した永続保存先 `AITERM_STATE_BASE`、同じUIDと絶対パス、元のCodex会話記録の保持が必要。呼出側は保存前に元runtimeの全書込processを停止し、再起動を防ぐ。復元は新runtimeの起動時排他を取得してから、通常の初期化やnative起動より前に行う。保存成功は全process停止の証明にはならない。
+
+初回更新で既に失われた旧tmpfsの状態と、未配送の回答は復元しない。通常の初期化後に復元入力を再使用しない。復元した保存先を旧版へそのまま戻さず、互換性のある別の保存先と会話の控えを使うか、利用者が明示して状態を初期化する。詳細は[保存・復元の契約と図](https://github.com/kitepon/aiterm-mcp/blob/v0.63.3/docs/architecture/resume-checkpoint.md)と[更新・巻き戻し条件](CHANGELOG.md)を参照する。

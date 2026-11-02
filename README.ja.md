@@ -540,6 +540,7 @@ Windowsで新しく起動するClaude・Codex・Grok・Antigravityは、本人pr
 一意な子process group leader、子がなければpaneを指す。identityは`pid`、`process_group_id`、
 `started_identity`、`argv_digest`を持ち、特定不能はnull。WindowsのPIDはnative PIDで、process groupはnull。
 開始識別はPOSIXの`LC_ALL=C ps lstart`、WindowsのUTC ISOミリ秒、argv digestはSHA-256のhexである。
+native process照会の失敗には、照会種別、OS error code、子processの終了code/信号、出力byte数を添える。生出力・引数・資格は含めず、既存の拒否と終了codeは維持する。
 
 `activity.cursor`を次の照会へ渡すと、`output_changed`と`cpu_delta_seconds`を返す。初回と再作成後はnull。
 `cpu_seconds`は現在のsubtreeの累積値で、区間中にprocessが消えた場合、増分は観測できた分だけとなり

@@ -574,6 +574,7 @@ for an ordinary terminal, using the pane when no child leader exists. An identit
 is null. Start identity uses POSIX `LC_ALL=C ps lstart` or Windows UTC ISO milliseconds; the argv digest is SHA-256 hex.
 New managed Windows launches of Claude, Codex, Grok, and Antigravity keep missing native processes unknown until their launch shell records that the same CLI invocation returned. Pending input uses the existing readiness deadline; it is still checked before paste and Enter. Older launch metadata keeps its previous behavior.
 Input admission uses fresh native ownership and its dedicated readiness screen; an unrelated activity-capture failure does not block it. Public `pty_observe` still requires the full activity observation.
+Native process-read errors include the probe kind, OS error code, child exit status/signal and output byte counts. Raw output, arguments and credentials are excluded; the existing refusal and exit code remain unchanged.
 
 Pass `activity.cursor` into the next observation to obtain `output_changed` and `cpu_delta_seconds`; first observations and
 recreated panes return null differences. `cpu_seconds` is the current subtree's cumulative CPU. If a process disappeared

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import {processStartIdentity} from "./process-start.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { AitermError } from "./errors.js";
@@ -112,12 +112,22 @@ export function windowsConsoleHost(row: RuntimeProcess): boolean {
   return path.posix.basename(name).toLowerCase() === "conhost.exe";
 }
 
+function processReadError(probe: string, result: SpawnSyncReturns<string>): AitermError {
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  // Native error messages and stderr can contain argv and credentials.
+  const detail = { probe, code: result.error
+    ? (code && ["ETIMEDOUT", "ENOBUFS", "EAGAIN", "ENOENT", "EACCES", "ENOMEM", "EMFILE", "ENFILE", "E2BIG", "EPERM"].includes(code) ? code : "UNKNOWN") : null,
+    status: result.status ?? null, signal: result.signal ?? null,
+    stdout_bytes: Buffer.byteLength(result.stdout ?? ""), stderr_bytes: Buffer.byteLength(result.stderr ?? "") };
+  return new AitermError(`${isWin ? "Windowsのnative process" : "OSのprocess"}一覧を取得できません ${JSON.stringify(detail)}`, 2);
+}
+
 export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
   if (!isWin) {
     const result = spawnSync(POSIX_PS, includeSession ? POSIX_SESSION_TABLE_ARGS : POSIX_TABLE_ARGS, {
       encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
     });
-    if (result.error || result.status !== 0) throw new AitermError("OSのprocess一覧を取得できません", 2);
+    if (result.error || result.status !== 0) throw processReadError(includeSession ? "session_table" : "table", result);
     return parsePosixProcessTable(result.stdout, includeSession);
   }
   const script = [
@@ -129,7 +139,7 @@ export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
   const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {
     encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
   });
-  if (result.error || result.status !== 0) throw new AitermError("Windowsのnative process一覧を取得できません", 2);
+  if (result.error || result.status !== 0) throw processReadError(includeSession ? "session_table" : "table", result);
   let rows: unknown;
   try { rows = JSON.parse(result.stdout); } catch { throw new AitermError("Windows process一覧のJSONを読めません", 2); }
   if (!Array.isArray(rows)) throw new AitermError("Windows process一覧が配列ではありません", 2);
@@ -196,7 +206,7 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
     });
     // 該当するprocessが一つも無い時、psは何も出さずstatus 1で終わる。
     if (result.error || (result.status !== 0 && !(result.status === 1 && !result.stdout.trim()))) {
-      throw new AitermError("OSのprocess一覧を取得できません", 2);
+      throw processReadError("identity", result);
     }
     return result.stdout.split("\n").filter(line => line.trim()).map(line => {
       const match = /^\s*(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s*$/.exec(line);
@@ -230,7 +240,7 @@ export function readProcessIdentities(pids: number[]): { pid: number; started_id
   const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {
     encoding: "utf8", timeout: 15000, windowsHide: true,
   });
-  if (result.error || result.status !== 0) throw new AitermError("Windowsのnative process一覧を取得できません", 2);
+  if (result.error || result.status !== 0) throw processReadError("identity", result);
   let rows: unknown;
   try { rows = JSON.parse(result.stdout); } catch { throw new AitermError("Windows process一覧のJSONを読めません", 2); }
   if (!Array.isArray(rows)) throw new AitermError("Windows process一覧が配列ではありません", 2);
@@ -286,7 +296,7 @@ export function processElapsedSeconds(pid: number): number | null {
   });
   const text = (result.stdout ?? "").trim();
   // 該当するprocessが無い時、psは何も出さずstatus 1で終わる。
-  if (result.error || (result.status !== 0 && !(result.status === 1 && !text))) throw new AitermError("OSのprocess一覧を取得できません", 2);
+  if (result.error || (result.status !== 0 && !(result.status === 1 && !text))) throw processReadError("elapsed", result);
   if (!text) return null;
   const elapsed = parsePosixElapsed(text);
   if (elapsed === null) throw new AitermError("processの経過時間の形式を認識できません", 2);

@@ -70,3 +70,11 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 ## failed復帰の安全記録候補 D1
 
 `agent-resume-diagnostic.ts`は新しい復帰処理の失敗だけを世代別`.resume-failure.json`へbest-effort保存する。最初に保存できた1件を残し、既failed/resuming継続拒否で上書きしない。phase/許可reason/型付き元codeだけを持ち、本文・path・生例外を保存しない。本文not_sentとnative_outcome unknownを区別する。元例外・attemptの作用順・6field公開返却は維持。正常成功の記録は作らない。既close cleanupが対象fileも片付ける。既runtime集計/collection/reportingには接続しない。公開読取D2はこのcommitでは未提供、同会話修復は証明不足で未提供。
+
+## 公開済みfailed Codexの同native復帰候補（R1-L）
+
+`core.failedCodexResumeRecipe`がLinux/Codex/standard speed・current/previous/old failed/recipe/proofを固定し、`completeFailedCodexResume`が既send lock/native出生pin内で入力待ちと現在会話・設定を再確認する。元task完了の新規発生を条件にしない。死んだCLI・busy・別会話・設定不一致・不明なcomposerは本文前拒否。入力へ命令を貼る前とEnter前を確認し、既存draftと合成された文字列をsubmitしない。
+
+元failedは変更せず、strict `.resume-resolution.json`を別に保存・読戻す。`hasCompletedResumeRecovery`を通常resumeとdormant判定で共有し、後続configureで変わるcurrent recipeを履歴の失効条件にしない。close cleanupが新記録も片付ける。同名agent_launchの設定衝突検査を維持して同じ復帰処理へ接続する。画面parserは`harnesses/idle-settings.ts:codexRecoveryComposer`、現在thread/設定previewも同module。cold復帰とcheckpointは未実装。
+
+実入口回帰は`test/agent-idle-core.test.mjs`末尾、strict保存と旧attempt保持は`test/agent-resume-resolution.test.mjs`、現在会話/UI/入力parserは`test/codex-resume-settings.test.mjs`。既三resume caller、dormantを使うobserve/list/設定/closeと公開6fieldの直接境界を確認対象とする。実vendor/3OS/本番受入は別。

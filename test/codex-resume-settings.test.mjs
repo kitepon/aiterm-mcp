@@ -1,7 +1,7 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectCodexResumeSettings} from '../dist/harnesses/idle-settings.js';
+import {inspectCodexResumeSettings,codexRecoveryComposer} from '../dist/harnesses/idle-settings.js';
 const expected={model:'gpt-6.1-sol',reasoning_effort:'high',fast:false};
 const vendor='11111111-2222-4333-8444-555555555555';
 function codexUi(settings=expected,thread=vendor){
@@ -58,4 +58,14 @@ test('a preview is not returned when the composer fails to return after cancel',
 test('extra or duplicate thread identity in the current preview remains unknown',async()=>{
  const ui=codexUi(),screen=ui.screen;ui.screen=()=>screen().replace(vendor,vendor+' · '+vendor);
  assert.equal(await inspectCodexResumeSettings(vendor,ui),null);assert.equal(await ui.ready(),true);
+});
+
+test('recovery input gate reads only the latest bounded composer and retains draft content',()=>{
+ const screen=text=>'OpenAI Codex\n› '+text+'\nfixture-model high · /project';
+ assert.equal(codexRecoveryComposer(screen('')),'');
+ assert.equal(codexRecoveryComposer(screen('/statusline')),'/statusline');
+ assert.equal(codexRecoveryComposer(screen('draft /statusline')),'draft /statusline');
+ assert.equal(codexRecoveryComposer(screen('first\nwrapped second line')),null);
+ assert.equal(codexRecoveryComposer(screen('/statusline')+'\n› fresh draft'),'fresh draft');
+ assert.equal(codexRecoveryComposer('unknown view'),null);
 });

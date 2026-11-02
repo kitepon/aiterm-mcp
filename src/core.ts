@@ -7,7 +7,7 @@ export { stripControl, reduceOutput } from "./pty-output.js";
 import { loadAgentMetadata, tryLoadAgentMetadata } from "./agent-metadata-reader.js";
 import { nativePaneTarget } from "./native-session.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { inspectIdleSettings, type IdleSettings } from "./harnesses/idle-settings.js";
+import { inspectIdleSettings, inspectCodexResumeSettings, codexRecoveryComposer, type IdleSettings } from "./harnesses/idle-settings.js";
 import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_READY_POLL_MS,
   isAgentTuiReady, isAgentTuiBusy, isAgentTuiIdleReady, agentPaneObservation, waitAgentTuiReadyImpl,
   detectAgentSubmitResidueImpl, waitCursorPromptVisibleImpl, settleAgentDoneScreenImpl,
@@ -43,7 +43,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -177,7 +177,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexCompletedTurnId,
-  captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest,
+  captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -605,6 +605,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".resume.json") ||
           f.endsWith(".resume-attempt.json") ||
           f.endsWith(".resume-failure.json") ||
+          f.endsWith(".resume-resolution.json") ||
           f.endsWith(".resume-native.json") ||
           f.endsWith(".resume-template.json") ||
           f.endsWith(".codex-resume.json") ||
@@ -1859,7 +1860,7 @@ function agentDormantState(meta: AgentMetadata): "hibernated" | "stopping" | "re
   if (meta.resumed_from) {
     const previous = readAgentResumeAttempt({ aiterm_session: meta.aiterm_session, launch_id: meta.resumed_from });
     if (!previous || previous.next_launch_id !== meta.launch_id) return "unknown";
-    if (previous.state !== "ready") return previous.state;
+    if (previous.state !== "ready" && !hasCompletedResumeRecovery(meta)) return previous.state;
   }
   return null;
 }
@@ -6601,6 +6602,101 @@ function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecyc
   return recipe;
 }
 
+/** A completion is historical: later legitimate configuration does not revoke it. */
+function hasCompletedResumeRecovery(meta: AgentMetadata): boolean {
+  const resolution = readAgentResumeResolution(meta);
+  if (!resolution) return false;
+  if (meta.kind !== "codex" || meta.resumed_from !== resolution.previous_launch_id) return false;
+  const origin = { aiterm_session: meta.aiterm_session, launch_id: resolution.previous_launch_id };
+  const attempt = readAgentResumeAttempt(origin), life = readAgentLifecycle(origin), recipe = readAgentResumeRecipe(origin);
+  const native = readAgentResumeNative(meta);
+  return !!attempt && attempt.state === "failed" && attempt.next_launch_id === meta.launch_id
+    && agentResumeRecordDigest(attempt) === resolution.attempt_digest && life?.state === "hibernated"
+    && life.socket === SOCK && life.recipe_digest === resolution.recipe_digest
+    && life.resume_proof_digest === resolution.resume_proof_digest && !!recipe
+    && recipe.vendor_session_id === resolution.vendor_session_id && agentResumeRecipeDigest(recipe) === resolution.recipe_digest
+    && !!native && agentResumeRecordDigest(native) === resolution.native_digest;
+}
+
+function failedCodexResumeRecipe(meta: AgentMetadata) {
+  if (process.platform !== "linux" || meta.kind !== "codex" || !meta.resumed_from || meta.fast !== false
+    || readAgentLifecycle(meta) || readAgentResumeAttempt(meta)) return null;
+  const source = { ...meta, launch_id: meta.resumed_from };
+  const attempt = readAgentResumeAttempt(source), life = readAgentLifecycle(source);
+  if (attempt?.state !== "failed" || attempt.next_launch_id !== meta.launch_id || life?.state !== "hibernated") return null;
+  const recipe = confirmedAgentResumeRecipe(source, life);
+  const current = readAgentResumeRecipe(meta);
+  if (!current || recipe.fast || current.launch_id !== meta.launch_id
+    || !isDeepStrictEqual({ ...recipe, launch_id: meta.launch_id }, current)) return null;
+  return recipe;
+}
+
+
+async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: number): Promise<AgentMetadata> {
+  const name = meta.aiterm_session;
+  const unavailable = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED",
+    "同じ会話の復帰準備を確認できません。本文は送信していません。", name, meta.launch_id);
+  const recipe = failedCodexResumeRecipe(meta), native = readAgentResumeNative(meta);
+  if (!recipe || !native) throw unavailable();
+  const source = { ...meta, launch_id: meta.resumed_from! };
+  const attempt = readAgentResumeAttempt(source)!, life = readAgentLifecycle(source)!;
+  const verify = () => {
+    verifyAgentResumeNative(meta, native);
+    if (!isDeepStrictEqual(loadAgentMetadata(name), meta) || !isDeepStrictEqual(readAgentResumeAttempt(source), attempt)
+      || !isDeepStrictEqual(failedCodexResumeRecipe(meta), recipe)) throw unavailable();
+    const proof = readCodexResumeProof(source);
+    if (codexRootTranscript(meta) !== proof.file) throw unavailable();
+  };
+  const ready = async () => {
+    const result = await waitAgentTuiReady(name, meta, readyTimeout);
+    const live = observeNativeSession(name);
+    return result.ready && live.state === "idle" && live.reason === "composer_ready" && live.harness_alive === true;
+  };
+  return withAgentResumeTarget(meta, async () => {
+    verify();
+    const initial = observeNativeSession(name);
+    if (initial.harness_alive !== true || initial.state !== "idle" || initial.reason !== "composer_ready") throw unavailable();
+    if (!await ready()) throw unavailable();
+    const ui = {
+      screen: () => captureScreen(name, AGENT_TUI_READY_LINES),
+      command: async (command: string) => {
+        await withExecutionNativeAdmission(name, () => {
+          verify();
+          const draft = codexRecoveryComposer(captureScreen(name, AGENT_TUI_READY_LINES));
+          // shortcut: only the accepted native empty composer/placeholder layout; other layouts remain unknown.
+          if (draft !== "" && draft !== "Ask Codex to do anything") throw unavailable();
+          send(name, command, { enter: false, force: true, raw: true, mark: false, rtk: false, preserveAgentOperation: true });
+        });
+        await sleep(AGENT_SUBMIT_DELAY_MS);
+        await withExecutionNativeAdmission(name, () => {
+          verify();
+          // Never submit a slash command concatenated with an existing draft.
+          if (codexRecoveryComposer(captureScreen(name, AGENT_TUI_READY_LINES)) !== command) throw unavailable();
+          sendKey(name, "Enter", { preserveAgentOperation: true });
+        });
+      },
+      text: (text: string) => { verify(); send(name, text, { enter: false, force: true, raw: true, mark: false, rtk: false, preserveAgentOperation: true }); },
+      key: (...keys: string[]) => { verify(); sendMenuChoice(name, ...keys); },
+      ready,
+    };
+    const actual = await inspectCodexResumeSettings(recipe.vendor_session_id, ui);
+    verify();
+    if (!actual || actual.model?.toLowerCase() !== recipe.model?.toLowerCase()
+      || actual.reasoning_effort !== recipe.reasoning_effort || actual.fast !== recipe.fast) throw unavailable();
+    // Do not recapture startup processes: this same native may already own children.
+    writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id,
+      state: "confirmed", kind: "codex", executable: recipe.executable, cwd: recipe.cwd,
+      configuration_root: recipe.configuration_root, model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
+    verify();
+    writeAgentResumeResolution(meta, { schema: "aiterm.agent-resume-resolution.v1", launch_id: meta.launch_id,
+      previous_launch_id: source.launch_id, vendor_session_id: recipe.vendor_session_id,
+      attempt_digest: agentResumeRecordDigest(attempt), recipe_digest: life.recipe_digest,
+      resume_proof_digest: life.resume_proof_digest!, native_digest: agentResumeRecordDigest(native), at: new Date().toISOString() });
+    if (!hasCompletedResumeRecovery(meta)) throw unavailable();
+    return meta;
+  });
+}
+
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
   const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED",
@@ -6609,7 +6705,12 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   if (!lifecycle) {
     if (previous.resumed_from) {
       const attempt = readAgentResumeAttempt({ aiterm_session: name, launch_id: previous.resumed_from });
-      if (attempt?.state !== "ready" || attempt.next_launch_id !== previous.launch_id) throw uncertain();
+      if (attempt?.next_launch_id !== previous.launch_id) throw uncertain();
+      if (attempt.state !== "ready" && !hasCompletedResumeRecovery(previous)) {
+        if (ownAttempt || attempt.state !== "failed") throw uncertain();
+        try { return await completeFailedCodexResume(previous, readyTimeout); }
+        catch { throw uncertain(); }
+      }
     }
     if (ownAttempt) throw uncertain();
     return previous;
@@ -7850,9 +7951,9 @@ export async function openAgentWithInitialPrompt(
     if (saved && (readAgentLifecycle(saved) || agentDormantState(saved))) {
       return withAgentSendLock(name, async () => {
         const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
-        if (!isDeepStrictEqual(previous, saved) || lifecycle?.state !== "hibernated" || readAgentResumeAttempt(previous))
+        if (!isDeepStrictEqual(previous, saved) || (lifecycle?.state !== "hibernated" && !failedCodexResumeRecipe(previous)) || readAgentResumeAttempt(previous))
           throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の再開世代を確認できません。", 2);
-        const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
+        const recipe = lifecycle ? confirmedAgentResumeRecipe(previous, lifecycle) : failedCodexResumeRecipe(previous)!;
         if (kind !== previous.kind || sourceSessionId !== null
           || (opts.model != null && opts.model.trim() !== recipe.model)
           || (opts.reasoning_effort != null && opts.reasoning_effort.trim() !== recipe.reasoning_effort)

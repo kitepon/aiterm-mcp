@@ -20,6 +20,12 @@ digraph lifecycle {
  asleep -> resume [label="new normal input request"];resume -> staged;resume -> unknown [label="precondition not proven"];
  staged -> created;created -> published;published -> ready;ready -> active [label="current generation accepted"];
  staged -> failed [label="failure",style=dashed];created -> failed [label="failure",style=dashed];published -> failed [label="failure",style=dashed];ready -> failed [label="final record failure",style=dashed];
+  recovery [label="Published failed Codex / Linux / standard speed\nSame native birth + inherited root + empty composer\nFresh thread-id / model / effort / speed preview",fillcolor="#eaf7ed"];
+  resolution [label="Persist and read back bound resume-resolution\nOld failed attempt unchanged\nNo spawn / no old body / retain startup baseline",fillcolor="#eaf7ed"];
+  failed -> recovery [label="later normal send / same-name launch"];
+  recovery -> resolution [label="same conversation + ready"];
+  recovery -> failed [label="dead / busy / mismatch / unknown",style=dashed];
+  resolution -> active [label="shared lifecycle admission"];
   failure_record [label="Local first-saved resume failure\nphase / safe cause / readiness / old-next IDs\nbody not_sent, native outcome unknown\nbest effort; existing error + attempt unchanged",fillcolor="#eaf7ed"];
   failed -> failure_record [label="recordAgentResumeFailure"];
   resume -> failure_record [label="new-attempt preflight failure only",style=dashed];

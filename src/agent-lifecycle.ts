@@ -162,3 +162,23 @@ export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe
   if (!previous || agentResumeRecipeDigest(previous) !== agentResumeRecipeDigest(candidate.data)) writeAgentResumeRecipe(meta, candidate.data);
   return candidate.data;
 }
+
+const resumeResolutionSchema = z.object({ schema: z.literal("aiterm.agent-resume-resolution.v1"),
+  launch_id: launchId, previous_launch_id: launchId, vendor_session_id: z.string().uuid(),
+  attempt_digest: z.string().regex(/^[a-f0-9]{64}$/), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/), native_digest: z.string().regex(/^[a-f0-9]{64}$/), at: z.iso.datetime(),
+}).strict().refine(value => value.launch_id !== value.previous_launch_id);
+export type AgentResumeResolution = z.infer<typeof resumeResolutionSchema>;
+export function agentResumeRecordDigest(value: AgentResumeAttempt | AgentResumeNative): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+export function readAgentResumeResolution(meta: Launch): AgentResumeResolution | null {
+  const value = read(meta, ".resume-resolution.json", resumeResolutionSchema);
+  if (value && value.launch_id !== meta.launch_id) throw unavailable();
+  return value;
+}
+export function writeAgentResumeResolution(meta: Launch, input: AgentResumeResolution): void {
+  const value = resumeResolutionSchema.parse(input);
+  if (value.launch_id !== meta.launch_id) throw unavailable();
+  writeJson0600(file(meta, ".resume-resolution.json"), value);
+}

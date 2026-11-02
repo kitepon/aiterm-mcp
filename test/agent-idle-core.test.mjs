@@ -19,17 +19,18 @@ import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
-async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,resumeBusy=false,seatName,nativeSettings}={}){
+async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,resumeLater=false,resumeBusy=false,seatName,nativeSettings}={}){
  const tag='idle-core-'+ ++serial,bin=join(process.env.HOME,tag+'-codex.sh'),driver=join(process.env.HOME,tag+'-driver.mjs');
  const keys=join(process.env.HOME,tag+'-input'),spawnFlag=join(process.env.HOME,tag+'-spawn'),spawned=join(process.env.HOME,tag+'-spawned');
  fs.mkdirSync(process.env.CODEX_HOME,{recursive:true});
  fs.writeFileSync(bin,`#!/bin/sh\n'${process.execPath.replaceAll("'","'\\''")}' '${driver}' "$@"\n`,{mode:0o700});
  fs.writeFileSync(driver,`import fs from 'node:fs';import {spawn} from 'node:child_process';
 let line='',added=false,menu=false,query='';
-let selected;const reset=()=>selected={'model-with-reasoning':true,'current-dir':true,'thread-name':true,'fast-mode':false};reset();
+let selected;const reset=()=>selected={'model-with-reasoning':true,'current-dir':true,'thread-name':true,'fast-mode':false,...(${JSON.stringify(resumeLater)}?{'thread-id':false}:{})};reset();
 const settings=${JSON.stringify(nativeSettings??{model:'fixture-model',effort:'high',fast:false})};
 fs.appendFileSync(${JSON.stringify(keys+'-launches')},JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),room:process.env.PEERTABLE_ROOM??null,member:process.env.PEERTABLE_MEMBER??null,unset:process.env.AITERM_TEST_UNSET??null})+'\\n');
 ${resumeBlocked?'if(process.argv.includes("resume"))process.exit(0);':''}
+let delayed=process.argv.includes('resume')&&${JSON.stringify(resumeLater)};
 const resumedBusy=process.argv.includes('resume')?${JSON.stringify(resumeBusy)}:false;
 if(resumedBusy==='bound'){
  const directory=process.env.CODEX_HOME+'/sessions';
@@ -40,11 +41,11 @@ if(resumedBusy==='bound'){
 const draw=()=>{
  if(menu)fs.writeFileSync(${JSON.stringify(keys+'-menu-open')},'1');else fs.rmSync(${JSON.stringify(keys+'-menu-open')},{force:true});
  const model=settings.model+' '+settings.effort+(settings.fast?' Fast':'');
- const footer=[selected['model-with-reasoning']?model:null,selected['current-dir']?process.cwd():null,selected['thread-name']?'thread name':null,selected['fast-mode']?(settings.fast?'Fast':'Standard'):null].filter(Boolean).join(' · ');
+ const footer=[selected['model-with-reasoning']?model:null,selected['current-dir']?process.cwd():null,selected['thread-name']?'thread name':null,selected['fast-mode']?(settings.fast?'Fast':'Standard'):null,selected['thread-id']?process.argv[process.argv.indexOf('resume')+1]:null].filter(Boolean).join(' · ');
  const rows=Object.entries(selected).filter(([id])=>!query||id.includes(query));
  const screen=menu?'Configure Status Line\\nSelect which items to display in the status line.\\n\\n'+(query||'Type to search')+'\\n\\n'+rows.map(([id,on],i)=>(i===0?'› ':'  ')+'['+(on?'x':' ')+'] '+id+'  Current setting').join('\\n')+'\\n\\n'+footer+'\\nspace toggle · ←/→ reorder · enter save · esc cancel'
  : 'OpenAI Codex\\n'+(resumedBusy?'◦ Working (1s • esc to interrupt)\\n':'')+'› '+line+'\\x1b[K\\n  '+model+' · /tmp/proj\\x1b[K\\n\\x1b[J';
- process.stdout.write('\\x1b[H\\x1b[2J'+(${resumeBlocked?'process.argv.includes("resume") ? "unknown blocked view" : ':''}screen));
+ process.stdout.write('\\x1b[H\\x1b[2J'+(delayed?'unknown delayed view':(${resumeBlocked?'process.argv.includes("resume") ? "unknown blocked view" : ':''}screen)));
 };
 process.stdin.setRawMode(true);process.stdin.resume();draw();
 if(resumedBusy)fs.writeFileSync(${JSON.stringify(keys+'-resume-drawn')},'1');
@@ -59,7 +60,7 @@ process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\
   if(line==='/statusline'){menu=true;query='';reset();}else fs.appendFileSync(${JSON.stringify(keys)},line+'\\n');line='';
  }else if(ch>=' '){line+=ch;}}
  fs.writeFileSync(${JSON.stringify(keys+'-draft')},line);draw();});
-setInterval(()=>{if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
+setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')})){delayed=false;draw();}if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
  added=true;const child=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
@@ -803,4 +804,22 @@ test('public registration follows the published launch while old and staged meta
  assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/,'cannot request a replacement seat via AGENT_SESSION_REQUIRED');
  fs.unlinkSync(agentMetadataPath(f.name,f.meta.launch_id));
  assert.throws(()=>core.isAgentSession(f.name),/AGENT_RESUME_UNCONFIRMED/);
+});
+
+
+test('failed published resume recovers after its same native becomes ready without replaying the rejected body',{skip,timeout:20000},async t=>{
+ const f=await fixture(t,{resumeLater:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ await assert.rejects(core.dispatchAgentTurn(f.name,'REJECTED_OLD_BODY',{raw:true,ready_timeout:250}),e=>e.resumeFailure?.input==='not_sent');
+ const attemptPath=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json');
+ const failure=fs.readFileSync(attemptPath,'utf8'),attempt=JSON.parse(failure);assert.equal(attempt.state,'failed');
+ fs.writeFileSync(f.keys+'-allow-ready','1');
+ let screen='';for(const until=Date.now()+4000;Date.now()<until;await sleep(40)){
+  screen=spawnSync(resolveTmux(),['-S',SOCK,'capture-pane','-p','-t',f.name],{encoding:'utf8'}).stdout;
+  if(screen.includes('OpenAI Codex')&&screen.includes('fixture-model'))break;
+ }
+ assert(screen.includes('OpenAI Codex'),'same native reached a normal composer after the failed call');
+ const receipt=await core.dispatchAgentTurn(f.name,'CURRENT_BODY',{raw:true,ready_timeout:1000});
+ assert.equal(receipt.launch_id,attempt.next_launch_id);assert.equal(fs.readFileSync(attemptPath,'utf8'),failure,'old failed history is immutable');
+ assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2,'no third CLI');
+ assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['CURRENT_BODY']);
 });

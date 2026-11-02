@@ -137,3 +137,14 @@ export async function inspectCodexResumeSettings(vendorSessionId: string, ui: Id
   if (!!match[3] !== (tier === 'Fast')) return null;
   return { model: match[1], reasoning_effort: match[2], fast: tier === 'Fast' };
 }
+
+export function codexRecoveryComposer(screen: string): string | null {
+  const lines = screen.trimEnd().split("\n");
+  let index = lines.length - 1;
+  while (index >= 0 && !/^\s*[›>](?!_)(?!\s*\d+\.)/.test(lines[index])) index--;
+  if (index < 0) return null;
+  const tail = lines.slice(index + 1).filter(line => line.trim());
+  if (tail.some(line => !/^\s*\S+\s+(?:none|default|minimal|low|medium|high|xhigh|max|ultra)(?: Fast)? · /.test(line)
+    && !/^\s*\? for shortcuts\s*$/.test(line))) return null;
+  return lines[index].replace(/^\s*[›>]\s?/, "").trimEnd();
+}

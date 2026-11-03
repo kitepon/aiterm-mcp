@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.6] - 2026-11-03
+
 - Make the existing read-only diagnostics PTY probe finite and socket-exact: share a 5000 ms subprocess budget across backend resolution and one listing, and stop treating broad connection errors as absence. Opt-in `format:"v2"` adds safe PTY reason codes and the timeout budget; default v1 fields and the parent-hook text stay unchanged. No PTY warming or provider calls.
 
 ## [0.63.5] - 2026-11-03
@@ -3030,7 +3032,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.6...HEAD
+[0.63.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.5...v0.63.6
 [0.63.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.3...v0.63.5
 [0.63.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...v0.63.3
 [0.63.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...v0.63.2

@@ -587,3 +587,5 @@ Grok clear uses the existing host-origin contract and only a fresh UserPaused/Id
 休止の直前には、保存templateではなく元nativeのmodel/effort/fast表示を、同じ送信admissionとcreate receiptで確認する。harnesses/idle-settings.tsが保存しないnative表示の確認/取消しを所有し、coreは既存の入力とready確認を供給する。確認後の画面やattach履歴が最初のsignal前に変われば停止しない。未対応表示や現在設定の欠測はskipし、native表示用の命令を活動時刻へ数えない。詳細と現時点の受入限界はADR0138。
 
 Claude resume preserves the original CLAUDE_CONFIG_DIR selector (including unset) separately from its resolved path; incomplete old selectors remain unavailable. Security notes block startup even when an older shell marker remains above them.
+
+Factory diagnostics keep the v1 default projection and the separate parent-hook text. Optional format v2 adds fixed PTY reason codes and the 5000ms subprocess budget. Native resolution and the single scoped listing consume one deadline; unknown/permission/timeout failures do not prove absence. This uses ordinary native reads and no execution graph, PTY creation or credentials. The subprocess budget is not a hard real-time bound on OS filesystem calls or the complete diagnostics response.

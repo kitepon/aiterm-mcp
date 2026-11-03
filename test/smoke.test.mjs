@@ -217,7 +217,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む19
   assert.equal(agentConfigure.inputSchema.properties.session_id.pattern, "^[A-Za-z0-9_-]{1,64}$");
   assert.ok(agentConfigure.inputSchema.properties.model.anyOf.some((entry) => entry.type === "string"));
   assert.ok(agentConfigure.inputSchema.properties.reasoning_effort.anyOf.some((entry) => entry.type === "string"));
-  assert.equal(agentConfigure.outputSchema.properties.schema.const, "aiterm.agent-configure-result.v1");
+  assert.deepEqual(agentConfigure.outputSchema.properties.schema.enum, ["aiterm.agent-configure-result.v1", "aiterm.agent-configure-error.v1", "aiterm.agent-configure-request-result.v1"]);
   assert.deepEqual(agentConfigure.outputSchema.properties.provider.enum, ["claude", "codex", "grok", "cursor", "antigravity"]);
   assert.deepEqual(agentConfigure.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
   const agentLaunch = toolsResp.result.tools.find((t) => t.name === "agent_launch");

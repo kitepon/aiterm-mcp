@@ -40,3 +40,7 @@ screen-observationはsample/sleep/clockを引数で受け、native入力を持�
 MCP createAitermServerはschema・親配送・remote wrapper・typed error変換を所有し、importだけではstdio/diagnostics/reporterを起動しない。mainは既定factoryを起動し、private execution factoryを渡さない。private実装が存在することと、通常製品の経路で有効なことを分ける。oncloseは親配送managerのcloseを呼び、native席を一律closeしない。
 
 通常PTYのwaitCompletion内部、reducer/RTK、private executionも後続初読を完了した。全caller/test/fixture独立照合は未確認。実装初読と公開schema読了を全caller/全fixtureの確認とはしていない。Windows73failの原因は未確定のまま。
+
+## FactoryのPTY readiness
+
+`diagnostics {}`は既factory v1と親hookの2textを維持する。同toolの`format:"v2"`は第1textをfactory v2にし、PTYの固定`reason_code`を追加する。tmux-runtimeが選択binary/同socketのread-only一覧と依存解決を共通5000msのsubprocess予算/1MiB上限で実行、coreが成功・厳密不在・依存/権限/期限/信号/出力過大/未知を射影する。stdout/exit1/選択SOCKの完全一致が揃ったcoldだけnot_applicable。広いfailed-to-connectや他socket/相反stdoutを不在扱いしない。native書込・PTY作成・認証/AI無し、OSの同期syscallやschedulingのhard realtime保証はしない。legacy非診断nativeの期限/返却は維持。

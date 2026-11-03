@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Make the existing read-only diagnostics PTY probe finite and socket-exact: share a 5000 ms subprocess budget across backend resolution and one listing, and stop treating broad connection errors as absence. Opt-in `format:"v2"` adds safe PTY reason codes and the timeout budget; default v1 fields and the parent-hook text stay unchanged. No PTY warming or provider calls.
+
 ## [0.63.5] - 2026-11-03
 
 - Add opt-in request-bound `agent_configure` receipts and read-only reconciliation. Persist the original UUID, expected launch and normalized settings digest before native input; never reapply an existing ID. Missing, corrupt or unfinished records remain unknown. Native issuance stays `later_effect: unconfirmed` even after a successful handler; current settings inspection remains unsupported. Durable tracked apply is POSIX-only; existing configuration remains available on Windows.

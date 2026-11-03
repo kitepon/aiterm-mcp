@@ -3,6 +3,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as core from "../dist/core.js";
+import { SOCK } from "../dist/tmux-runtime.js";
 import { liveNodeExecutable } from "../dist/live-node.js";
 import * as claudeHarness from "../dist/harnesses/claude.js";
 import * as grokHarness from "../dist/harnesses/grok.js";
@@ -14,7 +15,7 @@ test("factory diagnostics: PTY server不在はnot_applicableかつ件数null", (
   const diagnostic = core.readOnlyPtyListDiagnostic(() => ({
     code: 1,
     stdout: "",
-    stderr: "no server running on /tmp/aiterm.sock",
+    stderr: `no server running on ${SOCK}`,
   }));
   assert.deepEqual(diagnostic, { status: "not_applicable", session_count: null });
 });

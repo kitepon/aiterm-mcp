@@ -65,6 +65,7 @@ import {
   WIN_NS,
   tmuxSpawnEnv,
   tmuxCommand,
+  readOnlyTmuxList, PtyDiagnosticError, type PtyDiagnosticFailure,
   tmuxCommandWithInput,
   sendPsmuxPayload,
   loadPtyBufferChunk,
@@ -2400,21 +2401,29 @@ export type DiagnosticStatus = "ready" | "not_applicable" | "unverified";
  * session 名・前面コマンド・PTY 出力を診断応答へ持ち出さないため、factory が安全に readiness を
  * 見られる。socket 不在は「セッション未設定」であって障害ではない。
  */
-export function readOnlyPtyListDiagnostic(runTmux = tmux): { status: DiagnosticStatus; session_count: number | null } {
+export function readOnlyPtyListDiagnostic(runTmux: typeof tmux = readOnlyTmuxList, detailed = false): {
+  status: DiagnosticStatus; session_count: number | null;
+  reason_code?: "listed" | "socket_absent" | PtyDiagnosticFailure;
+} {
+  const result = (status: DiagnosticStatus, session_count: number | null,
+    reason_code: "listed" | "socket_absent" | PtyDiagnosticFailure) =>
+    detailed ? { status, session_count, reason_code } : { status, session_count };
   try {
     const r = runTmux("list-sessions", "-F", "#{session_name}");
-    if (r.code === 0) {
-      return { status: "ready", session_count: r.stdout.split(/\r?\n/).filter(Boolean).length };
+    if (r.code === 0 && r.stderr.trim() === "") {
+      return result("ready", r.stdout.split(/\r?\n/).filter(Boolean).length, "listed");
     }
-    // tmux は専用 socket に server がいない通常状態を exit 1 で返す。その他の失敗を「空」と
-    // 偽装しないため、メッセージを公開せず unverified に留める。
-    if (/no server running|failed to connect/i.test(r.stderr)) {
-      return { status: "not_applicable", session_count: null };
+    if (absentExecutionServer(r)) {
+      return result("not_applicable", null, "socket_absent");
     }
-  } catch {
-    // tmux/psmux 未導入等。絶対 path や生 stderr を診断 JSON に出さない。
+    if (r.code === 1 && r.stdout.trim() === "" && [
+      `error connecting to ${SOCK} (Permission denied)`, `failed to connect to ${SOCK}: Permission denied`,
+      `error connecting to ${SOCK} (Operation not permitted)`,
+    ].includes(r.stderr.trim())) return result("unverified", null, "permission_denied");
+  } catch (error) {
+    return result("unverified", null, error instanceof PtyDiagnosticError ? error.reasonCode : "native_failure");
   }
-  return { status: "unverified", session_count: null };
+  return result("unverified", null, "native_failure");
 }
 
 /** 別processが待機中・送信中のsessionは閉じない。閉じる前の操作（下のClaude Codeへの終了の鍵）より先に確かめる。 */

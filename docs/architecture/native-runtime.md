@@ -49,3 +49,7 @@ POSIXはLC_ALL=Cのpsで出生/CPU/commandを解釈し、Macのsession IDはkern
 Windows73fail原因は未確定。OS設定/権限/実席・追加full・timeout緩和は0。
 
 coreの`send({rtk:true})`は別の任意入力変換である。単一行だけ外部`rtk rewrite`へ渡し、5秒/1MiBの既存上限、成功0または3かつ非空の時だけ書換え、起動不能/timeout等は元の命令をそのまま使う。読取縮約とこの送信前変換を一つの「読取専用RTK」として扱わない。[通常PTY入出力](ordinary-pty.md)参照。
+
+## PTY診断だけの有限実行
+
+通常nativeの期限/返却は維持する。readOnlyTmuxListだけがbinary version解決と同socket一覧1回へ共通5000ms deadline・SIGKILL・1MiB上限を渡し、内部固定失敗型へ写す。依存失敗をtelemetryへ書いて通す副作用は無い。coreが同scopeの厳密不在/安全な理由を射影し、公開format v1/v2は[観測図](observation-results.md)が所有する。vendor照会とruntime-store workerは各既存期限、OS syscall/schedulingのhard realtime保証はしない。

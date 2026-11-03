@@ -13,6 +13,9 @@ digraph observation {
  body [label="text + answer_empty + correlation fields\nempty answer distinct from unavailable\nraw text for parent delivery; display for humans"];
  terminal [label="Ordinary pty_read\nscreen OR log range/increment + read offset\noptional sentinel / until / shell settle / timeout"];
  host [label="MCP content / structuredContent / optional host _meta\nBellTeam owns presentation and job completion\nno liveness → turn success → display shortcut",fillcolor="#f0f0f0"];
+ diagnostics [label="diagnostics {}: fixed factory v1 + parent hooks\nformat:v2 opts into PTY safe reason_code\nno PTY creation / no raw path or stderr"];
+ probe [label="Read-only scoped native list\nshared 5000ms subprocess budget incl. resolution\nexact code/stdout/socket absence or unverified"];
+ diagnostics -> probe;probe -> host [label="ready / not_applicable / unverified"];
  meta -> native;native -> screen;meta -> dormant;meta -> wait;wait -> end;end -> activity;
  end -> answer [label="done only for answer capture"];meta -> answer;answer -> body;body -> host;
  screen -> host;dormant -> host;end -> host [style=dashed,label="typed result, no answer inferred"];

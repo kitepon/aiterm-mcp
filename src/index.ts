@@ -213,8 +213,8 @@ function fail(e: unknown): ToolResult {
  * Factory 向けの read-only 診断。JSON の field は意図的に allowlist 制で、絶対 path、環境変数、
  * token、コマンド本文、PTY 出力、raw log、認証状態を公開しない。
  */
-async function factoryDiagnostics(): Promise<string> {
-  const ptyList = core.readOnlyPtyListDiagnostic();
+async function factoryDiagnostics(format: "v1" | "v2" = "v1"): Promise<string> {
+  const ptyList = core.readOnlyPtyListDiagnostic(undefined, format === "v2");
   const claude = core.harnessLauncherDiagnostic("claude");
   const codex = core.harnessLauncherDiagnostic("codex");
   const grok = core.harnessLauncherDiagnostic("grok");
@@ -223,11 +223,11 @@ async function factoryDiagnostics(): Promise<string> {
   const runtimeErrors = await runtimeErrorStoreDiagnostic();
   const overall = ptyList.status === "unverified" || runtimeErrors.status === "unverified" ? "unverified" : "ready";
   return JSON.stringify({
-    diagnostic_schema: "aiterm-mcp.factory-diagnostics.v1",
+    diagnostic_schema: format === "v2" ? "aiterm-mcp.factory-diagnostics.v2" : "aiterm-mcp.factory-diagnostics.v1",
     version: pkg.version,
     overall,
     mcp: { transport: "stdio", initialize: "ready", tool_call: "ready" },
-    pty_list: { access: "read_only", ...ptyList },
+    pty_list: { access: "read_only", ...ptyList, ...(format === "v2" ? { timeout_ms: 5000 } : {}) },
     runtime_error_store: runtimeErrors,
     vendor_dependencies: {
       claude: {
@@ -364,11 +364,11 @@ server.registerTool(
     description:
       "Factory 向け read-only 診断。安全な状態語彙だけを機械可読 JSON で返す（PTY 内容・認証情報・path・環境値は返さない）。" +
       "2つ目のtextは親配送hook（Claude Code・Cursor）の登録状態で、caller_status が setup_required なら呼出元からのagent送信は拒否される。aiterm-setup を実行する。",
-    inputSchema: {},
+    inputSchema: { format: z.enum(["v1", "v2"]).optional().describe("既定v1は既存の固定fieldを維持。v2はPTY診断の安全なreason_codeを含む。") },
   },
   // 1つ目は項目を固定したfactory向けの契約。親配送hookの状態は別のtextに分け、既存の読み手の形を変えない。
-  async () => ({ content: [
-    { type: "text" as const, text: await factoryDiagnostics() },
+  async ({ format }) => ({ content: [
+    { type: "text" as const, text: await factoryDiagnostics(format) },
     { type: "text" as const, text: JSON.stringify(parentDeliveryDiagnostic(deliveryParentKind(server.server.getClientVersion()?.name))) },
   ] }),
 );

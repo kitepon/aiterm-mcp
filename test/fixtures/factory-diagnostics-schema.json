@@ -9,25 +9,83 @@
     "runtime_error_store",
     "vendor_dependencies"
   ],
-  "status_values": ["ready", "not_applicable", "unverified"],
+  "status_values": [
+    "ready",
+    "not_applicable",
+    "unverified"
+  ],
   "mcp": {
     "transport": "stdio",
     "initialize": "ready",
     "tool_call": "ready"
   },
-  "mcp_fields": ["transport", "initialize", "tool_call"],
+  "mcp_fields": [
+    "transport",
+    "initialize",
+    "tool_call"
+  ],
   "pty_list": {
     "access": "read_only"
   },
-  "pty_list_fields": ["access", "status", "session_count"],
-  "runtime_error_store_fields": ["status", "collection", "record_count", "unacknowledged_count"],
-  "vendor_keys": ["antigravity", "claude", "codex", "cursor", "grok"],
-  "vendor_fields": ["status", "optional", "required_for"],
+  "pty_list_fields": [
+    "access",
+    "status",
+    "session_count"
+  ],
+  "runtime_error_store_fields": [
+    "status",
+    "collection",
+    "record_count",
+    "unacknowledged_count"
+  ],
+  "vendor_keys": [
+    "antigravity",
+    "claude",
+    "codex",
+    "cursor",
+    "grok"
+  ],
+  "vendor_fields": [
+    "status",
+    "optional",
+    "required_for"
+  ],
   "vendor_required_for": {
-    "antigravity": ["agent_launch"],
-    "claude": ["claude_agent"],
-    "codex": ["codex_agent"],
-    "cursor": ["agent_launch"],
-    "grok": ["grok_agent"]
+    "antigravity": [
+      "agent_launch"
+    ],
+    "claude": [
+      "claude_agent"
+    ],
+    "codex": [
+      "codex_agent"
+    ],
+    "cursor": [
+      "agent_launch"
+    ],
+    "grok": [
+      "grok_agent"
+    ]
+  },
+  "v2": {
+    "diagnostic_schema": "aiterm-mcp.factory-diagnostics.v2",
+    "pty_list_fields": [
+      "access",
+      "status",
+      "session_count",
+      "reason_code",
+      "timeout_ms"
+    ],
+    "reason_codes": [
+      "listed",
+      "socket_absent",
+      "dependency_unavailable",
+      "permission_denied",
+      "timeout",
+      "output_limit",
+      "signal",
+      "native_failure"
+    ],
+    "timeout_ms": 5000
   }
 }

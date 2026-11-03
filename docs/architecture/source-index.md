@@ -2591,3 +2591,5 @@
 | [resolveWindowsPowerShell7](../../src/windows-powershell.ts#L28) | 28 | 14 |
 | [fail](../../src/windows-powershell.ts#L35) | 35 | 1 |
 | [windowsPowerShell7Command](../../src/windows-powershell.ts#L50) | 50 | 2 |
+
+PTY readiness修理は既index/core/tmux-runtime内。readOnlyTmuxListは解決/一覧共通deadlineと固定失敗型、readOnlyPtyListDiagnosticは厳密同socket不在と安全理由、factoryDiagnosticsは同toolのv1互換/v2射影を所有する。[観測契約](observation-results.md)と[native境界](native-runtime.md)参照。新module無し。

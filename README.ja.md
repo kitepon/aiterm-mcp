@@ -619,6 +619,8 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 
 `diagnostics` は PTY やエージェントを起動しない。パッケージ版、MCP 呼出 readiness、read-only な PTY 一覧要約、bounded runtime-error-store status、任意 vendor launcher の可用性だけを返す。path・環境値・認証情報・コマンド本文・PTY 出力・raw log は意図的に返さない。通常未設定の任意依存は `not_applicable`、安全に確定できない状態は `unverified` と表す。
 
+`diagnostics({format:"v2"})`は同じ2つのtextを保ち、第1textを`aiterm-mcp.factory-diagnostics.v2`にする。`pty_list`には固定`reason_code`（`listed`／`socket_absent`／`dependency_unavailable`／`permission_denied`／`timeout`／`output_limit`／`signal`／`native_failure`）と`timeout_ms:5000`を追加する。binary解決とread-only一覧1回で共通5000msのsubprocess予算・1MiB出力上限を使い、PTYは作らない。不在はexit1・空stdout・選択socketの完全一致した不在文言が揃う場合だけ。他socket・権限/接続拒否・相反出力・未知はunverifiedのまま、生文言は返さない。`{}`／`{format:"v1"}`は既存fieldとschemaを維持し、不在判定だけを厳密化する。v2使用前に同接続のtoolが`format`を宣言していることと返却v2 schemaを確認する。旧serverは未知引数を捨て得る。vendor解決とruntime storeは既存の別の有限期限を持ち、5000msはPTY subprocessの予算であってMCP全体又はOSのhard realtime保証ではない。
+
 結果のtextは2つある。1つ目は上の内容で、項目を固定したfactory向けのJSON（`aiterm-mcp.factory-diagnostics.v1`）。2つ目は親配送hookの状態（`aiterm-mcp.parent-delivery-diagnostics.v1`）で、Claude Code・Cursorそれぞれの`status`（`ready`／`setup_required`／`not_applicable`／`unverified`）と`reason_code`、呼出元のclientに当たる`caller_status`を返す。`caller_status`が`setup_required`なら、そのclientからのagent送信は拒否されるので`aiterm-setup`を実行する。hookの状態は1つ目の`overall`には含めない。
 
 ### ローカル runtime error snapshot

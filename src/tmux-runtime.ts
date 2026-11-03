@@ -139,9 +139,29 @@ export function psmuxVersionSupported(output: string): boolean {
 }
 let winPsmuxOk = false;
 let winPsmuxVersion: string | null = null;
-export function ensureWinPsmux(observe = true): void {
+export const PTY_DIAGNOSTIC_TIMEOUT_MS = 5000;
+export type PtyDiagnosticFailure = "dependency_unavailable" | "permission_denied" | "timeout" | "output_limit" | "signal" | "native_failure";
+export class PtyDiagnosticError extends Error {
+  constructor(readonly reasonCode: PtyDiagnosticFailure) { super("PTY diagnostic unavailable"); }
+}
+function diagnosticSpawnOptions(deadline?: number) {
+  if (deadline === undefined) return {};
+  const remaining = Math.ceil(deadline - performance.now());
+  if (remaining <= 0) throw new PtyDiagnosticError("timeout");
+  return { timeout: remaining, killSignal: "SIGKILL" as const, maxBuffer: 1024 * 1024 };
+}
+function diagnosticSpawnFailure(result: SpawnSyncReturns<string>, deadline?: number, dependency = false): void {
+  if (deadline === undefined) return;
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const reason = code === "ETIMEDOUT" ? "timeout" : code === "ENOBUFS" ? "output_limit"
+    : code === "EACCES" || code === "EPERM" ? "permission_denied" : code === "ENOENT" ? "dependency_unavailable"
+    : result.error ? "native_failure" : result.signal ? "signal" : dependency && result.status !== 0 ? "dependency_unavailable" : null;
+  if (reason) throw new PtyDiagnosticError(reason);
+}
+export function ensureWinPsmux(observe = true, deadline?: number): void {
   if (winPsmuxOk) return;
-  const r = spawnSync(psmuxBin(), ["-V"], { encoding: "utf8", timeout: 10000 });
+  const r = spawnSync(psmuxBin(), ["-V"], { encoding: "utf8", timeout: 10000, ...diagnosticSpawnOptions(deadline) });
+  diagnosticSpawnFailure(r, deadline, true);
   if (r.error) {
     const code = (r.error as NodeJS.ErrnoException).code;
     if (code === "ENOENT")
@@ -153,8 +173,10 @@ export function ensureWinPsmux(observe = true): void {
   }
   if (r.status !== 0)
     ptyDependencyError("psmux -V が失敗しました。`psmux -V` が通るか確認してください。", observe);
-  if (!psmuxVersionSupported(r.stdout ?? ""))
+  if (!psmuxVersionSupported(r.stdout ?? "")) {
+    if (deadline !== undefined) throw new PtyDiagnosticError("dependency_unavailable");
     ptyDependencyError("psmux 3.3.8以上が必要です。winget upgrade --id marlocarlo.psmux --source winget で更新してください。", observe);
+  }
   winPsmuxVersion = /^psmux (\d+\.\d+\.\d+)(?:\s|$)/mu.exec(r.stdout ?? "")?.[1] ?? null;
   winPsmuxOk = true;
 }
@@ -301,11 +323,12 @@ function tmuxMissingMessage(): string {
 // 解決順: AITERM_TMUX（明示指定）→ PATH 上の tmux → Homebrew 既定パス。一度だけ実行しキャッシュする。
 // 見つからなければ tmuxMissingMessage で投げる（黙ってフォールバックせず、原因が見えるようにする）。
 let tmuxBin: string | null = null;
-export function resolveTmux(observe = true): string {
+export function resolveTmux(observe = true, deadline?: number): string {
   if (tmuxBin) return tmuxBin;
   const override = process.env.AITERM_TMUX;
   if (override) {
-    const r = spawnSync(override, ["-V"], { encoding: "utf8", timeout: 5000 });
+    const r = spawnSync(override, ["-V"], { encoding: "utf8", timeout: 5000, ...diagnosticSpawnOptions(deadline) });
+    diagnosticSpawnFailure(r, deadline, true);
     if (!r.error && r.status === 0) return (tmuxBin = override);
     ptyDependencyError(
       `AITERM_TMUX に指定された tmux を起動できません: ${override}（\`${override} -V\` が通りません）`,
@@ -313,19 +336,22 @@ export function resolveTmux(observe = true): string {
     );
   }
   // CLI/開発時は PATH 上の tmux をそのまま使う（最優先）。
-  const onPath = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 5000 });
+  const onPath = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 5000, ...diagnosticSpawnOptions(deadline) });
+  if (onPath.signal || ["ETIMEDOUT", "ENOBUFS"].includes((onPath.error as NodeJS.ErrnoException | undefined)?.code ?? ""))
+    diagnosticSpawnFailure(onPath, deadline);
   if (!onPath.error && onPath.status === 0) return (tmuxBin = "tmux");
   // GUI 起動などで PATH に Homebrew の bin が無い場合、既定の場所を探す。
   // 使う場合は黙らず stderr へ告知する（stdout は JSON-RPC 専用＝index.ts の制約）。
   for (const cand of ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]) {
     try {
       fs.accessSync(cand, fs.constants.X_OK);
-      console.error(`aiterm: tmux が PATH 上に無いため ${cand} を使用します`);
+      if (deadline === undefined) console.error(`aiterm: tmux が PATH 上に無いため ${cand} を使用します`);
       return (tmuxBin = cand);
     } catch {
       /* 次の候補へ */
     }
   }
+  diagnosticSpawnFailure(onPath, deadline, true);
   ptyDependencyError(tmuxMissingMessage(), observe);
 }
 
@@ -359,6 +385,7 @@ function runTmux(
   input: string | undefined,
   args: string[],
   session?: NodeJS.ProcessEnv,
+  deadline?: number,
 ): { code: number; stdout: string; stderr: string } {
   // Authorize the logical/native session before routing it to its pinned pane.
   args = nativeSessionArgs(guardTmuxExecution(args));
@@ -367,18 +394,19 @@ function runTmux(
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。
   // Windows は tmux CLI 互換の native psmux を -L namespace 隔離で叩く（WSL 非依存）。
   let r;
-  const spawnOpts = { encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, input, env: session ?? tmuxSpawnEnv() };
+  const spawnOpts = () => ({ encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, input, env: session ?? tmuxSpawnEnv(), ...diagnosticSpawnOptions(deadline) });
   if (isWin) {
-    ensureWinPsmux(observe);
-    r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts);
+    ensureWinPsmux(observe, deadline);
+    r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts());
   } else {
     // resolveTmux() は tmux を解決できなければ明確な AitermError を投げる（POSIX 版の事前確認）。
-    const bin = resolveTmux(observe);
+    const bin = resolveTmux(observe, deadline);
     // -f は tmux 本体の引数で、server を起こす時にだけ読まれる（new-session の -f は別物で、config を指さない）。
     const argv = session ? ["-f", TMUX_EMPTY_CONFIG, "-S", SOCK, ...args] : ["-S", SOCK, ...args];
     r = (session && macGuiServerWanted(bin) && startTmuxInMacGui(bin, argv, session))
-      || spawnSync(bin, argv, spawnOpts);
+      || spawnSync(bin, argv, spawnOpts());
   }
+  diagnosticSpawnFailure(r, deadline);
   // ENOBUFS（出力が 64MiB 超）を「code=1 の失敗」へ握り潰すと部分/空 stdout を正常扱いしてしまう。区別して投げる。
   // EXPECTED-FAILURE: 外部システム境界（tmux 出力過大）
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOBUFS") {
@@ -394,6 +422,12 @@ function runTmux(
   if (native?.target && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable();
   if (native?.target && r.status !== 0) verifyNativeTarget(native);
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/** One read-only probe; resolution and listing consume the same subprocess budget. */
+export function readOnlyTmuxList(): { code: number; stdout: string; stderr: string } {
+  return runTmux(false, undefined, ["list-sessions", "-F", "#{session_name}"], undefined,
+    performance.now() + PTY_DIAGNOSTIC_TIMEOUT_MS);
 }
 
 // macOS の login keychain は GUI（Aqua）の security session からしか読めない。SSH 等から立てた

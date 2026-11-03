@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
 import { isDeepStrictEqual } from "node:util";
 import { ExecutionError } from "./execution-wire.js";
+import { beforeConfigurationEffect, hasConfigurationEffects } from "./configuration-effect.js";
 import type { ExecutionNativeServer, ExecutionNativeBinding } from "./execution-close.js";
 
 export interface ExecutionCreationBindings {
@@ -283,6 +284,7 @@ export function executionManagementCloseTarget(session: string): string | undefi
   return scope?.session === session ? scope.managementCloseTarget : undefined;
 }
 export function beforeExecutionEffect(session: string, verify?: () => void): void {
+  beforeConfigurationEffect();
   const scope = scopes.getStore();
   if (!scope) { if (required) throw new ExecutionError("EXECUTION_UNSUPPORTED"); return; }
   if (scope.session !== session) refuse(scope, "EXECUTION_CONFLICT");
@@ -305,6 +307,11 @@ const targetCommands = new Set(["send-keys", "paste-buffer", "respawn-pane", "ki
  * into tmux's prefix-match for a different seat. Native IDs need a prior bind.
  */
 export function guardTmuxExecution(input: string[]): string[] {
+  if (hasConfigurationEffects()) for (let start = 0; start < input.length;) {
+    if (!metadataOrRead.has(input[start])) beforeConfigurationEffect();
+    const end = input.indexOf(";", start);
+    start = end < 0 ? input.length : end + 1;
+  }
   const scope = scopes.getStore();
   if (!scope && !required) return input;
   const args = [...input];

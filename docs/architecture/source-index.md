@@ -1,5 +1,7 @@
 # 実装の所有者と関数対応
 
+現在の設定receipt追加分は[設定図](model-configuration.md)と[公開契約](../configure-reconcile.md)へ接続する。`src/configure-request.ts`（原要求receiptの保存/読取）と`src/configuration-effect.ts`（要求局所のnative作用前記録/終端拒否）を追加。以下のSHA/行番号表とJSONは作成時のsnapshotで、新規moduleの現在対応は上記を正本とする。
+
 候補source 137 file。解析対象は下表のSHA256で固定。名前付き関数・メソッドを列挙し、匿名callbackを含む全本体と静的callはsource-index.json。静的解析は動作試験/全fixture精読の代用ではない。
 
 ## src/agent-activity.ts

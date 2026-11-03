@@ -209,7 +209,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.63.3** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.63.5** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 
@@ -643,6 +643,8 @@ Aitermは、既定では実行時エラーをどこへも送らない。送る�
 `agent_launch`は選んだharnessの対話TUIを新しい永続PTYに起動し、`session_id`を返す。harnessはagent loop・認証・hook・session・transcriptを所有し、modelは独立。以後は他sessionと同じ`pty_read`／`pty_send`で操作する。
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })`はharness標準操作で起動中のClaude／Codex／Grok／Cursor／Antigravityを変更し、PTYと会話contextを維持する。
+
+新しいconsumerは初回前に原要求の`request`（UUID・期待launch・設定digest）を保存し、`action: "reconcile"`で保存結果だけを照会できる。発行前に同じ接続のtool schema対応を確認し、未提供なら未発行として止める。handler終端だけで発行済みnative入力の後発作用を除外せず、現在設定の観測も未対応と明示する。追跡付きapplyはPOSIX・対象へのlocal接続に限定する。原要求bindingが欠けた旧事故は救済しない。[原要求と照会の契約](docs/configure-reconcile.md)を参照。
 
 Codex v1のgoalがactiveの席では、`agent_configure`がgoalを一時停止し、現在の番の終了記録を最長30分待ってから設定を替え、同じgoalを再開します。番を待つ間も差し込みは通ります。途中で変更されたgoalは保持し、再開できなかった時は設定変更の結果とgoalの状態をエラー本文に残します。他のharnessでは通常の入力待ち上限を維持するため、番が続くgoalは停止または完了にしてから設定を替えてください。
 

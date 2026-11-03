@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.63.3** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.63.5** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -688,6 +688,8 @@ enables collection on that host.
 `agent_launch` starts a selected harness's interactive coding-agent TUI inside a fresh persistent PTY and returns its `session_id`. The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is independent. The TUI is a full-screen app, so read it with `pty_read({ screen: true })` for the rendered view.
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
+
+New consumers can opt into an original `request` binding (UUID, expected launch, settings digest) and use `action: "reconcile"` to read the saved outcome without input or replay. Negotiate the exact tool schema before the first call. Handler completion does not prove that previously issued native input cannot act later; current settings inspection remains unsupported. Tracked apply is POSIX-only and uses a local target connection. Existing incidents without the original binding cannot be recovered this way. See the [request/reconcile contract](docs/configure-reconcile.md).
 
 For an active Codex v1 goal, `agent_configure` temporarily pauses the goal, waits for the current native turn to end (up to 30 minutes), applies settings through the same send queue, and resumes that goal. Steering remains available during the wait. A changed goal is preserved; a failed or uncertain restoration is reported with the configuration outcome. Other harnesses retain the normal readiness limit: stop or complete a continuously running goal before configuring them.
 

@@ -1,5 +1,11 @@
 # model設定の所有者
 
+## 原要求に固定した設定receipt
+
+既`agent_configure`へopt-inの`request`と`action=reconcile`を追加する。[公開入出力と保証限界](../configure-reconcile.md)が契約正本。`configure-request.ts`は原要求UUID/期待launch/要求digest、排他的claim、専用receiptの保存とbounded読取を所有する。`configuration-effect.ts`はその要求のnative作用前checkpointと、保存失敗/終端後の局所継続拒否を所有する。`execution-effect.ts`の既native入口から呼ぶがexecution graphや参加登録は有効にしない。
+
+core.configureAgentはopt-inの期待launchを最初のmetadataと照合し、既generation gateへ接続する。legacy callerの設定動作と返却は保持。tracked applyはPOSIXの既file/directory同期を用い、Windowsでは作用前unsupported。reconcileはrootを作らずfileを読むだけ。current設定はunsupported、元handlerのterminalとnative入力消費は別であり、native作用が一度でも発行され得た要求はlater_effect=unconfirmedのまま返す。receipt不在/破損/途中はunknown。同IDを新しい設定へ再発行しない。
+
 [全体図](current-overview.svg) → [設定操作](model-configuration.svg) / [goalとの接続](goal-configuration.svg)。編集正本は同名DOT。
 
 | 実ファイル・関数 | 責任と接続 |

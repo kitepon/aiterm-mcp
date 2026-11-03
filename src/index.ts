@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { remoteInputDescription, remoteInputSchema, type RemoteTarget } from "./remote-contract.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
+import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
 import { AitermError, AgentAuthenticationPreflightError, AgentResumeError } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
@@ -292,6 +293,11 @@ function registerRemoteAwareTool(name: string, config: any, handler: (args: any,
 /** 配送の登録や事前確保が要るtoolだけ専用の中継にし、他は同じtoolをそのまま現地へ呼ぶ。 */
 function remoteToolHandler(name: string): RemoteToolHandler {
   switch (name) {
+    case "agent_configure": return async (target, args) => {
+      // Older remote servers strip unknown input fields and could apply without tracking.
+      if (args.request || args.action === "reconcile") throw new Error("REMOTE_UNSUPPORTED: tracked configuration requires the exact local connection; not issued");
+      return forwardRemote(target, name, args);
+    };
     case "pty_send": return sendRemote;
     case "pty_close": return async (target, args) => {
       await remoteParentDelivery?.beforeChange(deliveryKey(args.session_id, target));
@@ -1056,23 +1062,28 @@ registerRemoteAwareTool(
       "その選び方が無い版、選ぶ画面に無いmodel、そのmodelで選べないeffortは、何も変えずに断る。" +
       "fastだけの指定も受ける。" + fastModeDesc,
     inputSchema: {
+      action: z.enum(["apply", "reconcile"]).optional().describe("省略は従来apply。reconcileはrequestへ固定した保存結果だけを読み、入力や再適用を行わない"),
+      request: configurationRequestSchema.optional().describe("追跡する新規apply/reconcileの原要求。idは初回発行前に保存するUUID、launch_idは期待世代、digestは正規化した要求値のSHA256。旧事故への後付け不可"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       model: z.string().min(1).nullish().describe("変更後のmodel。省略時はmodelを変更しない"),
       reasoning_effort: z.string().min(1).nullish().describe("変更後のreasoning effort。省略時はeffortを変更しない"),
       fast: z.boolean().nullish().describe("変更後のfast。省略時は、その席の今の状態を変えない"),
     },
-    outputSchema: {
-      schema: z.literal("aiterm.agent-configure-result.v1"),
-      session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-      provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
-      model: z.string().nullable(),
-      reasoning_effort: z.string().nullable(),
-      fast: z.boolean().nullable().optional().describe("切り替えた後の、席のfastの状態。Aitermが確かめた事の無い席（前の版が起こした席）はnull"),
-    },
+    outputSchema: configurationToolOutputSchema,
   },
-  async ({ session_id, model, reasoning_effort, fast }) => {
+  async ({ action, request, session_id, model, reasoning_effort, fast }) => {
     try {
+      if (action === "reconcile") {
+        if (!request || model != null || reasoning_effort != null || fast != null) throw new Error("CONFIGURATION_RECONCILE_INVALID: request required; settings forbidden");
+        const result = reconcileConfigurationRequest({ ...request, session_id });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result } };
+      }
+      if (request) {
+        const tracked = await applyConfigurationRequest({ ...request, session_id }, { model, reasoning_effort, fast },
+          () => core.configureAgent(session_id, { model, reasoning_effort, fast }, request.launch_id));
+        return { content: [{ type: "text" as const, text: tracked.error?.message ?? JSON.stringify(tracked.receipt) }],
+          structuredContent: { ...tracked.receipt }, ...(tracked.error ? { isError: true } : {}) };
+      }
       const result = await core.configureAgent(session_id, { model, reasoning_effort, fast });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],

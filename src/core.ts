@@ -6202,6 +6202,7 @@ function agentConfigureNotReady(name: string): AitermError {
 export async function configureAgent(
   name: string,
   opts: { model?: string | null; reasoning_effort?: string | null; fast?: boolean | null },
+  expectedLaunchId?: string,
 ): Promise<AgentConfigureResult> {
   let mayHaveChanged = false;
   const beforeChange = () => { mayHaveChanged = true; };
@@ -6222,6 +6223,7 @@ export async function configureAgent(
     // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
     // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
     const meta = loadAgentMetadata(name);
+    if (expectedLaunchId !== undefined && meta.launch_id !== expectedLaunchId) throw new ExecutionError("EXECUTION_STALE_GENERATION");
     const checkGeneration = () => {
       assertExecutionContext(name);
       if (tryLoadAgentMetadata(name)?.launch_id !== meta.launch_id || observeSessionGeneration(name).launch_id !== meta.launch_id)

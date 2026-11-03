@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.5] - 2026-11-03
+
+- Add opt-in request-bound `agent_configure` receipts and read-only reconciliation. Persist the original UUID, expected launch and normalized settings digest before native input; never reapply an existing ID. Missing, corrupt or unfinished records remain unknown. Native issuance stays `later_effect: unconfirmed` even after a successful handler; current settings inspection remains unsupported. Durable tracked apply is POSIX-only; existing configuration remains available on Windows.
+- Keep legacy configure results unchanged and describe their existing typed errors in the output schema so SDK validation can retain them. Tracked remote forwarding is refused before connection because old servers may strip the new fields.
+
 ## [0.63.3] - 2026-11-03
 
 ### Fixed
@@ -3023,7 +3028,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.5...HEAD
+[0.63.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.3...v0.63.5
 [0.63.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...v0.63.3
 [0.63.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.1...v0.63.2
 [0.63.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.0...v0.63.1

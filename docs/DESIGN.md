@@ -184,6 +184,8 @@ Codex model-only configuration reads the native current effort before navigating
 
 4harness共通の`agent_configure`は、変更を発行し得る境界に達したかを要求内で保持する。失敗は`aiterm.agent-configure-error.v1`の`not_applied/not_started`又は`outcome_unknown/possible`で返し、後者には部分適用を含む。これは要求単位の保守的な分類で、以前の実設定や他要求の状態は証明しない。成功型は維持し、Codexの完了は指定ID・effortに一致する新規native通知を確認する。別modelの通知や残画面では成功にしない。
 
+opt-inの原要求receiptと読取専用reconcileは[公開契約](configure-reconcile.md)・[設定図](https://github.com/kitepon/aiterm-mcp/blob/main/docs/architecture/model-configuration.md)へ接続する。初回のUUID/期待launch/digestを耐久保存し、同IDを再適用しない。handlerとfinallyの終端、native作用発行、現在設定観測は別に返す。native入力発行後は成功してもlater_effect=unconfirmed、現在設定はunsupported。この局所記録を全execution graphへ結合しない。directory sync未対応のWindowsとtracked remoteは作用前拒否、legacy configureは維持。
+
 Codex v1のactive goalは設定替えの間だけ一時停止する。`configure-goal.ts`がpause→nativeの番終了待ち→既存の設定替え→resumeを持つ。coreは同じlaunch/threadへの束縛と番終了記録を供給し、待機中は送信lockを持たない。pause/resumeは既存のCLI goal adapterで一度だけ発行し、mutation直前のnative readbackが比較元から変われば発行しない。設定替え失敗でも自分のpauseの復元を試み、別goalや変更されたgoalは再開しない。公開schemaは維持し、設定とgoalの不確定な結果はエラー本文で併記する（ADR 0137）。
 
 無活動判定用の時刻は、起動世代ごとのactivity.jsonlに追記する。agent-activity.tsがlast_input_atとlast_turn_end_atを返し、metadata全体を書き戻す処理とは独立する。親からの初手・dispatch・steerのPTY書込み境界と、Claude Stop/既存のnative完了観測だけが記録する。同じ番の完了を繰り返し読んでも起点を更新せず、途中出力・画面描画・設定命令では更新しない。履歴欠測と破損は未知として扱い、時刻記録失敗で既に得た完了結果を失わせない。Claude/Codexの3OS実会話復帰・公開論理席とconsumer受入に基づき、通常起動では自動休止を有効にする（ADR 0138）。node:testのfixtureはcontrollerを明示駆動し、無人timerを作らない。

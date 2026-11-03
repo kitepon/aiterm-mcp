@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.63.6** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.63.7** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -267,6 +267,10 @@ Codexがサービスの誤りや通信の失敗でturnを打ち切った時は�
 Cursorが誤りでturnを終えた時（記録の`turn_ended`が`status: "error"`）も同じで、完了待ちは`error`を返し、文の頭の角括弧の名前（`unavailable`など）を`error_kind`に載せる。利用上限の文は`rate_limited`、席で止めたturn（`User aborted request`）は今までどおり`done`。
 
 ## Two ways to use it
+
+Failed Codex and Claude turns may add `failure` to the existing wait result. Its `category` is `capacity`, `rate_limited`, `transient` or `other`; `execution` reports observed work as `started` or leaves it `unknown`. A provider rejection never proves that earlier tools did not run. `terminal` refers only to the observed turn; `future_effects:"unknown"` preserves uncertainty about queued input, retries and other producers. No input is automatically replayed by Aiterm.
+
+Claude dispatch and prompt-launch receipts include `input_id`. Keep the receipt's `wait_process`, or pass that ID to `aiterm-wait --input <id> --cursor <original cursor>` with the original session and launch. This prevents a later anonymous turn at the same event cursor from becoming the old request's result. Its saved transcript boundary also catches an API error written before the waiter starts. The failure boundary identifies the Aiterm input observation, not native input acceptance. Missing or legacy evidence is not upgraded. Parent receipts and notices preserve the classification. A caller can continue unfinished work from the retained conversation or saved handoff after applying its normal stop and configuration conditions; replaying the original message is a separate decision.
 
 Grok can finish its current turn while `pty_send` is submitting input. Aiterm correlates the newly appended full user message with the native turn number and returns `agent_dispatch` for a proven new turn, without sending again. `STEER_NOT_QUEUED` and `STEER_STILL_QUEUED` preserve `isError:true` and their existing text prefix; `structuredContent` adds `aiterm.agent-send-error.v1`, a string `code`, `outcome:"outcome_unknown"`, `effect:"possible"`, and the original session/launch. A Grok observation handle is returned only when its pre-input record was saved; unavailable handles are null. Do not resend unknown input. Its waiter remains pending until the input's native acceptance is proven and cannot use the preceding turn's completion. Cursor errors retain null recovery handles until native acceptance can be proven.
 

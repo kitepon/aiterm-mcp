@@ -767,6 +767,10 @@ export function claudeSessionTranscriptPath(meta: AgentMetadata): string | null 
 export interface ClaudeApiError {
   text: string;
   at: string | null;
+  status: number | null;
+  session_id: string | null;
+  uuid: string | null;
+  parent_uuid: string | null;
 }
 
 export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
@@ -777,7 +781,7 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
   } catch {
     return null;
   }
-  if (record?.type !== "assistant" || record?.isApiErrorMessage !== true) return null;
+  if (record?.type !== "assistant" || record?.isApiErrorMessage !== true || record.isSidechain === true) return null;
   const content = record?.message?.content;
   const text = typeof content === "string"
     ? content
@@ -788,7 +792,17 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
   return {
     text: text.trim() || (status != null ? `API Error: ${String(status)}` : "API Error"),
     at: typeof record?.timestamp === "string" ? record.timestamp : null,
+    status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+    session_id: typeof record.sessionId === "string" ? record.sessionId : null,
+    uuid: typeof record.uuid === "string" ? record.uuid : null,
+    parent_uuid: typeof record.parentUuid === "string" ? record.parentUuid : null,
   };
+}
+
+export function claudeFailureCategory(error: ClaudeApiError): "capacity" | "rate_limited" | "transient" | "other" {
+  if (error.status === 429 || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:usage|session) limit\b)/i.test(error.text)) return "rate_limited";
+  if (error.status === 529) return "capacity";
+  return error.status !== null && error.status >= 500 ? "transient" : "other";
 }
 
 // Stopが発火しないエラー終了を、現在のturn開始後の会話記録だけから判定する。
@@ -806,7 +820,7 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
   lines.pop(); // 改行まで書かれた記録だけを扱う。
   for (const line of lines.reverse()) {
     const error = claudeApiErrorFromLine(line);
-    if (error?.at && Date.parse(error.at) >= startedAtMs) return error;
+    if (error?.at && (error.session_id === null || error.session_id === meta.vendor_session_id) && Date.parse(error.at) >= startedAtMs) return error;
   }
   return null;
 }

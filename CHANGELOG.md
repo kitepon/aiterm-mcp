@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.7] - 2026-11-03
+
+- Preserve capacity, usage-limit and transient failure classifications through wait, steer and parent delivery without treating an error as permission to replay input. Claude dispatches retain an input ID and the pre-submit transcript boundary so failures written before the waiter starts are observed. Bound waiters reject another input's completion; legacy outcomes and exit codes are unchanged.
+
 ## [0.63.6] - 2026-11-03
 
 - Make the existing read-only diagnostics PTY probe finite and socket-exact: share a 5000 ms subprocess budget across backend resolution and one listing, and stop treating broad connection errors as absence. Opt-in `format:"v2"` adds safe PTY reason codes and the timeout budget; default v1 fields and the parent-hook text stay unchanged. No PTY warming or provider calls.
@@ -3032,7 +3036,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.7...HEAD
+[0.63.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.6...v0.63.7
 [0.63.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.5...v0.63.6
 [0.63.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.3...v0.63.5
 [0.63.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.2...v0.63.3

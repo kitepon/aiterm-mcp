@@ -31,6 +31,7 @@ import type { createExecutionDispatcher } from "./execution-dispatch.js";
 import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
+import { failureObservationSchema } from "./parent-delivery-record.js";
 import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
@@ -149,10 +150,10 @@ function deliveryIdLine(delivery: DeliveryRequest | null): string {
   return `\ndelivery_id=${id}` + (wait ? `\nwait_process（ターンを終える前に背景で起動）: ${waitProcessCommandLine(wait)}` : "");
 }
 
-function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null, launchId?: string): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
+function completionWait(delivery: DeliveryRequest | null, session: string, eventCursor: number | null, launchId?: string, inputId?: string): { wait_process: ReturnType<typeof core.agentWaitProcess> | null; wait_command: string | null } {
   if (eventCursor === null) return { wait_process: null, wait_command: null };
   if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
-  return { wait_process: core.agentWaitProcess(session, eventCursor, { launchId }), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` };
+  return { wait_process: core.agentWaitProcess(session, eventCursor, { launchId, inputId }), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` + (inputId ? ` --input ${inputId}` : "") };
 }
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown> };
@@ -183,6 +184,7 @@ const parentDeliveryOutputSchema = z.object({
   delivery_id: z.string(), state: z.enum(["waiting", "ready", "sending", "submitted", "failed", "unknown"]),
   child_outcome: z.enum(["done", "closed", "rate_limited", "error"]).nullable(),
   child_turn_id: z.string().nullable(), queued_submission_id: z.string().nullable(), error_code: z.string().nullable(),
+  child_failure: failureObservationSchema.optional(), child_error_kind: z.string().nullable().optional(), child_vendor_session_id: z.string().nullable().optional(),
 });
 
 function ok(s: string): ToolResult {
@@ -332,12 +334,12 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   try {
     // 現地がdispatchを選んだのは子がidleだった時なので、前の依頼はもう保存できる。残っていれば登録しない。
     if (delivery) await remoteParentDelivery!.beforeChange(key, true);
-    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor);
+    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor, null, structured.input_id);
   } catch (e) {
     delivery?.failed(e);
     return fail(new Error(`別端末へのdispatchは済みましたが、回答配送を登録できませんでした: ${e instanceof Error ? e.message : String(e)}`));
   }
-  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor, structured.input_id);
   return {
     content: [...result.content, remoteNote(target, result), { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }],
     structuredContent: { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) },
@@ -345,16 +347,16 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
 }
 
 /** 別端末の子の依頼を、この端末の親への配送に登録する。launch_idは現地の完了観測から取る。 */
-async function registerRemoteDelivery(delivery: DeliveryRequest, target: RemoteTarget, sessionId: string, eventCursor: number, operationId: string | null = null): Promise<void> {
-  const probe = await observeRemoteAgentDone(target, sessionId, { cursor: eventCursor, operation_id: operationId, timeout: 0 });
+async function registerRemoteDelivery(delivery: DeliveryRequest, target: RemoteTarget, sessionId: string, eventCursor: number, operationId: string | null = null, inputId?: string): Promise<void> {
+  const probe = await observeRemoteAgentDone(target, sessionId, { cursor: eventCursor, operation_id: operationId, timeout: 0, input_id: inputId });
   await delivery.before_send({ session_id: sessionId, launch_id: probe.launch_id, vendor: probe.vendor, harness: probe.harness,
-    event_cursor: eventCursor, operation_id: operationId, remote: target });
+    event_cursor: eventCursor, operation_id: operationId, ...(inputId ? { input_id: inputId } : {}), remote: target });
 }
 
-async function remoteCompletionWait(delivery: DeliveryRequest | null, target: RemoteTarget, sessionId: string, eventCursor: number | null) {
+async function remoteCompletionWait(delivery: DeliveryRequest | null, target: RemoteTarget, sessionId: string, eventCursor: number | null, inputId?: string) {
   if (eventCursor === null) return { wait_process: null, wait_command: null };
   if (delivery) return { wait_process: delivery.wait_process(), wait_command: null };
-  const waitProcess = await remoteWaitProcess(target, sessionId, eventCursor);
+  const waitProcess = await remoteWaitProcess(target, sessionId, eventCursor, inputId);
   return { wait_process: waitProcess, wait_command: `ssh ${remoteLabel(target)} aiterm-wait --session ${sessionId} --cursor ${eventCursor}` };
 }
 
@@ -458,6 +460,7 @@ registerRemoteAwareTool(
       mode: z.enum(["sent", "agent_dispatch", "agent_steer"]),
       session_id: z.string(),
       event_cursor: z.number().int().nullable(),
+      input_id: z.string().regex(/^[a-f0-9]{32}$/).optional(),
       wait_process: waitProcessOutputSchema,
       parent_delivery: parentDeliveryOutputSchema.optional(),
       launch_id: z.string().nullable(),
@@ -520,7 +523,7 @@ registerRemoteAwareTool(
             ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, interim_from: follow.interim_from } } } : {}),
           };
         }
-        const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor, receipt.launch_id);
+        const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor, receipt.launch_id, receipt.input_id);
         return {
           content: [
             {
@@ -537,6 +540,7 @@ registerRemoteAwareTool(
             mode: "agent_dispatch" as const,
             session_id: receipt.session_id,
             event_cursor: receipt.event_cursor,
+            ...(receipt.input_id ? { input_id: receipt.input_id } : {}),
             wait_process: waited.wait_process,
             ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
             launch_id: receipt.launch_id,
@@ -1195,12 +1199,12 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   const structured = result.structuredContent as any;
   if (!structured) return { content: [...result.content, remoteNote(target, result)], isError: true };
   try {
-    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor);
+    if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor, null, structured.input_id);
   } catch (e) {
     delivery?.failed(e);
     return fail(new Error(`別端末でagentは起動しましたが、回答配送を登録できませんでした（session_id=${structured.session_id}）: ${e instanceof Error ? e.message : String(e)}`));
   }
-  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor);
+  const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor, structured.input_id);
   // 現地が開始未確認を誤りで返す版（0.54.0以前）でも、ここでは誤りにしない（ADR 0093）。案内が無ければ足す。
   const unconfirmed = core.launchStartUnconfirmed(structured);
   const noted = result.content.some(item => item.type === "text" && item.text.includes(core.INITIAL_PROMPT_UNCONFIRMED_MARK));
@@ -1226,6 +1230,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     await core.maintainAgentIdleClocks();
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
     if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
+    let inputId: string | undefined;
     const [sid, hint, eventCursor, submitResidue, initialDelivery, startup, fastState] = await core.openAgentWithInitialPrompt(kind, {
       prompt: initialPrompt,
       throughline_source_session,
@@ -1235,7 +1240,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       fast: fast ?? undefined,
       env_vars,
       trust_project,
-      before_send: delivery?.before_send,
+      before_send: async boundary => { inputId = boundary.input_id; await delivery?.before_send(boundary); },
       cwd: cwd ?? undefined,
       session_name: session_name ?? undefined,
       launch_operation_id: launch_operation_id ?? undefined,
@@ -1248,7 +1253,8 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       session_id: sid,
       managed_completion: true,
       event_cursor: eventCursor,
-      ...completionWait(delivery, sid, eventCursor),
+      ...completionWait(delivery, sid, eventCursor, undefined, inputId),
+      ...(inputId ? { input_id: inputId } : {}),
       ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
       submit_residue: submitResidue,
       initial_prompt: initialDelivery,
@@ -1356,6 +1362,7 @@ function registerAgentTool(
         // 起動時promptでturnが走っている時だけ非null。wait_processがmachine向けprocess境界、
         // wait_commandは人間向け互換表示。
         event_cursor: z.number().int().nullable(),
+        input_id: z.string().regex(/^[a-f0-9]{32}$/).optional(),
         wait_process: waitProcessOutputSchema,
         wait_command: z.string().nullable(),
         parent_delivery: parentDeliveryOutputSchema.optional(),
@@ -1408,6 +1415,7 @@ server.registerTool(
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       managed_completion: z.boolean(),
       event_cursor: z.number().int().nullable(),
+        input_id: z.string().regex(/^[a-f0-9]{32}$/).optional(),
       wait_process: waitProcessOutputSchema,
       wait_command: z.string().nullable(),
       parent_delivery: parentDeliveryOutputSchema.optional(),

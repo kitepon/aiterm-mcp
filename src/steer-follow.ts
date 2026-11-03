@@ -26,7 +26,7 @@ import {
   sleep,
 } from "./agent-shared.js";
 import type { AgentDoneEvent, AgentMetadata, AgentSteerFate, AgentWaitObservation } from "./agent-shared.js";
-import { claudeApiErrorFromLine, claudeSessionTranscriptPath } from "./harnesses/claude.js";
+import { claudeApiErrorFromLine, claudeFailureCategory, claudeSessionTranscriptPath } from "./harnesses/claude.js";
 import {
   codexBoundTranscript,
   codexCompletionEvent,
@@ -39,6 +39,7 @@ import {
   codexTurnError,
   codexTurnErrorLine,
   codexUsageLimit,
+  codexFailureCategory,
 } from "./harnesses/codex.js";
 import { interimFromToken, parseInterimFrom } from "./interim-words.js";
 import { grokEventsTranscript, grokSessionDirectory, grokUserPrompt } from "./harnesses/grok.js";
@@ -348,9 +349,11 @@ async function observeCodexSteerDone(
     const observed = { ...baseObservation(meta), vendor_session_id: done.vendor_session_id ?? meta.vendor_session_id ?? null,
       turn_id: done.turn_id, malformed_events: malformedEvents, at: done.at, steer };
     const limited = codexUsageLimit(record);
-    if (limited) return { ...observed, outcome: "rate_limited", rate_limit: limited };
+    const category = codexFailureCategory(record);
+    const failure = category ? { category, execution: "unknown" as const, boundary: null, terminal: true, future_effects: "unknown" as const } : undefined;
+    if (limited) return { ...observed, outcome: "rate_limited", rate_limit: limited, failure };
     const failed = codexTurnError(record);
-    return failed ? { ...observed, outcome: "error", error: codexTurnErrorLine(failed), error_kind: failed.info } : { ...observed, outcome: "done" };
+    return failed ? { ...observed, outcome: "error", error: codexTurnErrorLine(failed), error_kind: failed.info, failure } : { ...observed, outcome: "done" };
   };
   const pending = (outcome: AgentWaitObservation["outcome"]): AgentWaitObservation =>
     ({ ...baseObservation(meta), outcome, malformed_events: malformedEvents, steer: taken?.fate ?? fate("unknown") });
@@ -518,7 +521,9 @@ async function observeClaudeSteerDone(
       if (!taken || parsed?.type !== "assistant" || parsed.isSidechain === true) continue;
       // Stopが来ない終わり方（APIエラー）は、今までの待ちと同じく、誤りとして返す。
       const failed = claudeApiErrorFromLine(line);
-      if (failed) return { ...observed("error", null, taken), at: failed.at, error: failed.text };
+      if (failed && (failed.session_id === null || failed.session_id === meta.vendor_session_id)) return {
+        ...observed("error", null, taken), at: failed.at, error: failed.text, error_kind: failed.status ? `http_${failed.status}` : null,
+        failure: { category: claudeFailureCategory(failed), execution: "unknown", boundary: null, terminal: false, future_effects: "unknown" } };
       const text = claudeTextBlocks(parsed.message?.content);
       const at = stamp ? Date.parse(stamp) : NaN;
       answers.set(createHash("sha256").update(text, "utf8").digest("hex"), Number.isFinite(at) ? at : -Infinity);

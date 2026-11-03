@@ -108,6 +108,27 @@ test("子が回答を空で終えた時は、完了として知らせの文を�
   assert.equal(records(h.root)[0].value.child_outcome, "done");
 });
 
+test("typed child failure survives saving and delivery; mismatched evidence never reaches either", async t => {
+  for (const mismatch of [false, true]) {
+    const b = { ...boundary("failure-child"), input_id: "b".repeat(32) };
+    const failure = { category: "capacity", execution: "started", terminal: true, future_effects: "unknown",
+      boundary: { event_cursor: b.event_cursor, operation_id: null, turn_id: "failed-turn", input_id: (mismatch ? "c" : "b").repeat(32) } };
+    const h = setup(t, { observe: async () => ({ ...observation(b, "error", "failed-turn"), failure, error: "capacity", error_kind: "server_overloaded" }) });
+    const manager = h.create(), request = manager.request(parent());
+    await request.before_send(b);
+    await until(() => h.submitted.length === 1);
+    const saved = records(h.root)[0].value;
+    if (mismatch) {
+      assert.equal(saved.child_failure, undefined); assert.doesNotMatch(h.submitted[0].text, /failure=/);
+      assert.match(h.submitted[0].text, /AGENT_RESULT_UNAVAILABLE/);
+    } else {
+      assert.deepEqual(saved.child_failure, failure); assert.equal(saved.child_vendor_session_id, "vendor-session");
+      assert.deepEqual(manager.status("failure-child")[0].child_failure, failure);
+      assert.match(h.submitted[0].text, /failure=.*"execution":"started"/);
+    }
+  }
+});
+
 test("Claude親の初手とfollow-upをそれぞれのhookへ渡し、前の本文を保持する", async t => {
   const h = setup(t, { submit: submitClaudeParentAnswer });
   const root = path.join(h.root, 'hooks');

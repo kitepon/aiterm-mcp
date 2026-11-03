@@ -2,6 +2,16 @@
 
 # 観測・完了・回答の現在構造
 
+## capacity・利用上限・一時失敗
+
+既`AgentWaitObservation`にoptional `failure`を加える。harness adapterが実error記録からcategoryを分類し、core/steerの観測、parent-delivery-recordの保存・検証とreceipt/通知まで同じ値を保持する。outcomeとwait CLI exitの既存対応は維持する。provider失敗は`execution:not_started`を発行しない。既tool/assistant記録は`started`、欠測は`unknown`。`terminal`は当該turn記録だけで、`future_effects:unknown`は旧invocationの遅いhook、queue、native自動再試行、別producerを排除する証拠がない意味である。
+
+Codexは既task_complete.errorの種類/固定capacity文言から分類する。boundaryは元wait cursorとその最初の完了turnとの観測相関で、本文受理・未実行の証明ではない。会話自動追跡で読取先が変わればboundary=null。steerは分類を保持しても境界の受理証明へ昇格せずboundary=null。
+
+Claudeは初手/dispatchの入力前、既operation marker v3へ生成したinput_id、元event_cursor/op、vendor会話、transcript cursor/BigInt由来のdevice/inode文字列を必須保存する。保存失敗なら入力前に拒否する。before_sendの親watchがmarker作成より先でも、期限/signal内で出現を待ってから送信前位置を採用する。APIエラーはroot・同sessionの記録だけを読み、最初のuser以後のparent UUID鎖を照合する。後続の別user入力は対応を失効し、tool_resultだけは同じ鎖として追う。正規root user/error鎖が欠ければboundary=null/terminal=false。画面上限だけでも同様。これはnativeの本文受理/旧producer停止receiptではない。
+
+Stop hookはv3 markerのinput_idをagent_doneへ保持し、bound waiterは成功eventも同じIDだけを読む。markerが次の入力へ変われば拒否する。hookが記録したIDはその時のAiterm予約との対応で、native turn取消/非波及/将来作用fenceへは使わない。旧v1/v2 markerは互換読取し、旧StopにIDを後付けしない。新しい呼出元は返りのwait_processをそのまま実行する。remoteも同じinput IDを転送し、親watch/beforeChange/再構築は保存した元IDを保持する。
+
 基準Aiterm ce575ce8。図は [観測と結果](observation-results.svg) / [PNG](observation-results.png)。公開index全文、agent-shared/resolver/screen-observationとwait CLIを初読し、coreの観測・metadata・完了・回答取得の該当本体を辿った。通常5harnessとsteer-follow/interimの全parserも初読し、[vendor詳細](harness-contracts.md)へ分岐を追記した。全fixture照合は未完。
 
 | 問い | 窓口と所有 | 何を返すか / 何を確定しないか |

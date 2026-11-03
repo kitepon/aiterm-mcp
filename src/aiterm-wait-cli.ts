@@ -17,13 +17,14 @@ interface WaitCommand {
   cursor: number | null;
   steer: string | null;
   expectedLaunchId?: string;
+  inputId?: string;
 }
 
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 const STEER_RE = /^[0-9a-f]{16}$/;
 const USAGE =
-  "usage: aiterm-wait --session <name> [--cursor <event_cursor>] [--operation sha256:<64hex>] [--timeout <sec>]" +
+  "usage: aiterm-wait --session <name> [--cursor <event_cursor>] [--input <32hex>] [--operation sha256:<64hex>] [--timeout <sec>]" +
   "（--timeout 0 は待たずに一度だけ観測する照会で、未完了は outcome=running / exit 5）";
 
 export function parseArgs(argv: string[]): WaitCommand {
@@ -33,13 +34,17 @@ export function parseArgs(argv: string[]): WaitCommand {
   let cursor: number | null = null;
   let steer: string | null = null;
   let expectedLaunchId: string | undefined;
+  let inputId: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer" || a === "--launch") {
+    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer" || a === "--launch" || a === "--input") {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} に値がありません。${USAGE}`);
       i++;
-      if (a === "--launch") {
+      if (a === "--input") {
+        if (inputId !== undefined || !/^[0-9a-f]{32}$/.test(v)) throw new Error(`--input が不正又は重複しています。${USAGE}`);
+        inputId = v;
+      } else if (a === "--launch") {
         if (expectedLaunchId !== undefined || !/^[0-9a-f]{32}$/.test(v)) throw new Error(`--launch が不正又は重複しています。${USAGE}`);
         expectedLaunchId = v;
       } else if (a === "--session") {
@@ -70,7 +75,8 @@ export function parseArgs(argv: string[]): WaitCommand {
   }
   if (session === null) throw new Error(`--session は必須です。${USAGE}`);
   if (steer !== null && operationId !== null) throw new Error(`--steer は --operation と併用できません。${USAGE}`);
-  return { session, operationId, timeout: timeout ?? 600, cursor, steer, ...(expectedLaunchId ? { expectedLaunchId } : {}) };
+  if (inputId && (steer !== null || cursor === null)) throw new Error(`--input requires --cursor without --steer. ${USAGE}`);
+  return { session, operationId, timeout: timeout ?? 600, cursor, steer, ...(expectedLaunchId ? { expectedLaunchId } : {}), ...(inputId ? { inputId } : {}) };
 }
 
 function emit(value: unknown): void {
@@ -100,6 +106,7 @@ export async function main(argv: string[]): Promise<void> {
       cursor: cmd.cursor,
       steer: cmd.steer,
       expected_launch_id: cmd.expectedLaunchId,
+      input_id: cmd.inputId,
     });
   } catch (e) {
     // Grok は利用上限に達すると auth 正本を自壊させることがあり（2026-08-22 実測）、

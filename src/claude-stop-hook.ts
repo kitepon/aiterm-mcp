@@ -96,6 +96,7 @@ function appendEvent(file: string, event: unknown): void {
 
 interface OperationMarker {
   operationId: string | null;
+  inputId?: string;
   dev: number;
   ino: number;
 }
@@ -116,10 +117,10 @@ function readOperationMarker(file: string): OperationMarker | null {
     }
     const body = fs.readFileSync(fd!, "utf8");
     const value = JSON.parse(body) as Record<string, unknown>;
-    // Reading/consuming the v2 reservation is compatibility only. Its cursor
-    // is deliberately absent from agent_done/result and proves no interruption.
+    // v1/v2 remain readable. The v3 input ID correlates this reservation;
+    // none of these markers proves native interruption or a producer fence.
     const marker = parseClaudeOperationMarker(value);
-    return { operationId: marker.operationId, dev: st.dev, ino: st.ino };
+    return { operationId: marker.operationId, ...(marker.inputId ? { inputId: marker.inputId } : {}), dev: st.dev, ino: st.ino };
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   } finally {
@@ -211,6 +212,7 @@ async function main(): Promise<void> {
     operation_id: operationId,
     reason: "Stop",
     done_status: "turn_done",
+    ...(operationMarker?.inputId ? { input_id: operationMarker.inputId } : {}),
     stop_hook_active: !!payload.stop_hook_active,
     result_digest: resultDigest,
     result_bytes: resultBytes,

@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import mutableFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { capturePtyFailure } from "./pty-failure-evidence.mjs";
 import {
   ARGV_FIXTURE_DONE, readArgvFixture, hasTmux, savedHome, fakeHome, argvPrinterBin, fakeClaudeBin, fakeGrokBin, core, codexHarness, skip,
@@ -21,6 +23,124 @@ import {
   invokeClaudeStopHook, claudeDispatchReceiptPath, appendClaudeDoneWhenLogContains, markFakeAgentReady,
   fileSnapshot,
 } from "./core-agent-support.mjs";
+
+test("Claude: a pre-wait API failure keeps its input binding; an old waiter cannot adopt a later anonymous input", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    const error = (extra = {}) => ({ type: "assistant", isApiErrorMessage: true, sessionId: meta.vendor_session_id,
+      uuid: "error-1", parentUuid: "user-1", timestamp: new Date().toISOString(), apiErrorStatus: 429,
+      message: { content: [{ type: "text", text: "You've reached your Fable limit. Run /usage-credits to continue or switch models with /model." }] }, ...extra });
+    fs.writeFileSync(transcript, JSON.stringify(error({ uuid: "old-error" })) + "\n");
+    const receipt = await core.dispatchAgentTurn(sid, "CLAUDE_API_FAILURE");
+    assert.match(receipt.input_id, /^[a-f0-9]{32}$/);
+    const append = value => fs.appendFileSync(transcript, JSON.stringify(value) + "\n");
+    append(error({ isSidechain: true })); append(error({ sessionId: "different-session" }));
+    assert.equal((await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 })).outcome, "running");
+    append({ type: "user", uuid: "user-1", parentUuid: "old-error", sessionId: meta.vendor_session_id, message: { content: "new input" } });
+    append(error());
+    const failed = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
+    assert.equal(failed.outcome, "error"); assert.equal(failed.error_kind, "http_429");
+    assert.deepEqual(failed.failure, { category: "rate_limited", execution: "unknown", terminal: true, future_effects: "unknown",
+      boundary: { event_cursor: receipt.event_cursor, operation_id: null, turn_id: null, input_id: receipt.input_id } });
+    assert.deepEqual((await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 })).failure, failed.failure);
+    await assert.rejects(core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: "f".repeat(32), timeout: 0 }), /AGENT_WAIT_INPUT_CHANGED/);
+    const marker = path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`);
+    const next = JSON.parse(fs.readFileSync(marker)); next.input_id = "e".repeat(32); fs.writeFileSync(marker, JSON.stringify(next));
+    await assert.rejects(core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 }), /AGENT_WAIT_INPUT_CHANGED/);
+  } finally { core.closeSession(sid); }
+});
+
+test("Claude: tool work before capacity remains started, and malformed ancestry never becomes a bound terminal", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  for (const scenario of ["valid", "wrong_parent", "later_input", "tool_result"]) {
+    const [sid] = core.openAgent("claude", { agent_done: true });
+    try {
+      await markFakeAgentReady(sid, "claude");
+      const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+      fs.mkdirSync(path.dirname(transcript), { recursive: true }); fs.writeFileSync(transcript, "");
+      const receipt = await core.dispatchAgentTurn(sid, "CLAUDE_PARTIAL_WORK");
+      const rows = [
+        { type: "user", sessionId: meta.vendor_session_id, uuid: "user", parentUuid: null },
+        { type: "assistant", sessionId: meta.vendor_session_id, uuid: "tool", parentUuid: "user", message: { content: [{ type: "tool_use", id: "tool-id", name: "write" }] } },
+      ];
+      if (scenario === "later_input" || scenario === "tool_result") rows.push({ type: "user", sessionId: meta.vendor_session_id,
+        uuid: "later", parentUuid: "tool", message: { content: scenario === "tool_result" ? [{ type: "tool_result", tool_use_id: "tool-id", content: "ok" }] : "different request" } });
+      rows.push({ type: "assistant", sessionId: meta.vendor_session_id, uuid: "failure",
+        parentUuid: scenario === "wrong_parent" ? "other" : rows.at(-1).uuid, isApiErrorMessage: true, apiErrorStatus: 529 });
+      fs.appendFileSync(transcript, rows.map(JSON.stringify).join("\n") + "\n");
+      const failed = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
+      assert.equal(failed.failure.category, "capacity"); assert.equal(failed.failure.execution, "started");
+      const bound = scenario === "valid" || scenario === "tool_result";
+      assert.equal(failed.failure.terminal, bound); assert.equal(failed.failure.boundary === null, !bound);
+      assert.equal(failed.failure.future_effects, "unknown");
+    } finally { core.closeSession(sid); }
+  }
+});
+
+test("Claude: failure to capture the transcript boundary refuses input before native submission", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const file = claudeSessionTranscriptPath(readAgentMeta(sid));
+    fs.mkdirSync(file, { recursive: true });
+    await assert.rejects(core.dispatchAgentTurn(sid, "MUST_NOT_SEND_UNCAPTURED_INPUT"), /CLAUDE_TRANSCRIPT_INVALID/);
+    assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /MUST_NOT_SEND_UNCAPTURED_INPUT/);
+  } finally { core.closeSession(sid); }
+});
+
+test("Claude: parent watch may start before input reservation, and success stays bound after Stop consumes it", { skip: skipAgentDone }, async () => {
+  const { ParentDeliveryManager } = await import("../dist/parent-delivery.js");
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR, "native-failure-parent-"));
+  const submitted = [];
+  const manager = new ParentDeliveryManager({ root, dependencies: {
+    observe: core.observeAgentDone, verify: async () => {}, answer: async () => ({ text: "new successful answer" }),
+    submit: async (_parent, _id, text) => { submitted.push(text); return { queued_submission_id: "fixture" }; },
+  } });
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const request = manager.request({ thread_id: "11111111-2222-4333-8444-555555555551", codex_home: root });
+    const receipt = await core.dispatchAgentTurn(sid, "CLAUDE_PARENT_SUCCESS", { before_send: request.before_send });
+    assert.equal(submitted.length, 0, "the observer must wait for reservation and native completion");
+    const meta = readAgentMeta(sid);
+    const hook = invokeClaudeStopHook(meta, "new successful answer", meta.vendor_session_id);
+    assert.equal(hook.status, 0, hook.stderr);
+    const done = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
+    assert.equal(done.outcome, "done"); assert.equal(done.input_id, receipt.input_id);
+    const deadline = Date.now() + 3000;
+    while (!submitted.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(submitted.length, 1); assert.match(submitted[0], /outcome=done/);
+    assert.doesNotMatch(submitted[0], /AGENT_RESULT_UNAVAILABLE/);
+    await assert.rejects(core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: "f".repeat(32), timeout: 0 }), /AGENT_WAIT_INPUT_CHANGED/);
+  } finally { await manager.close(); core.closeSession(sid); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude: Stop between event stat and marker read still returns the saved matching success", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  const original = mutableFs.statSync;
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const receipt = await core.dispatchAgentTurn(sid, "CLAUDE_STOP_DURING_OBSERVATION"), meta = readAgentMeta(sid);
+    let interrupted = false;
+    mutableFs.statSync = (file, ...options) => {
+      const before = original(file, ...options);
+      if (file === meta.event_file && !interrupted) {
+        interrupted = true;
+        const hook = invokeClaudeStopHook(meta, "completed during observation", meta.vendor_session_id);
+        assert.equal(hook.status, 0, hook.stderr);
+      }
+      return before;
+    };
+    syncBuiltinESMExports();
+    const done = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
+    assert.equal(interrupted, true); assert.equal(done.outcome, "done"); assert.equal(done.input_id, receipt.input_id);
+  } finally { mutableFs.statSync = original; syncBuiltinESMExports(); core.closeSession(sid); }
+});
 
 test("observeAgentDone: 送信前の古い task_complete を follow-up done と誤認しない", { skip: skipAgentDone }, async (t) => {
   await withFakeCodexHome(async () => {

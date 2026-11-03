@@ -45,6 +45,7 @@ export interface AgentTurnBoundary {
   harness: AgentHarness;
   event_cursor: number;
   operation_id: string | null;
+  input_id?: string;
 }
 
 export type BeforeAgentSend = (boundary: AgentTurnBoundary) => Promise<void>;
@@ -409,6 +410,7 @@ export interface AgentDoneEvent {
   vendor_session_id: string | null;
   turn_id: string | null;
   operation_id: string | null;
+  input_id?: string;
   reason: string;
   // turn_error: harness自身の記録でturnがエラー終了と分かった（Grok turn_ended outcome=error）。
   done_status: "turn_done" | "turn_error";
@@ -435,6 +437,7 @@ export interface AgentWaitObservation {
   // not_taken は、差し込みを追う待ち（aiterm-wait --steer）だけが返す。「打った文が、会話の記録に入っていない」（ADR 0122）。
   outcome: "done" | "running" | "timeout" | "closed" | "rate_limited" | "error" | "not_taken";
   operation_id: string | null;
+  input_id?: string;
   vendor_session_id: string | null;
   turn_id: string | null;
   malformed_events: number;
@@ -444,10 +447,21 @@ export interface AgentWaitObservation {
   error: string | null;
   // outcome=error の時、harness が記録に書いたエラーの種類。Codex（task_completeのcodex_error_info。internal_server_error・
   // http_connection_failed など）と、Cursor（turn_endedのerrorの頭の角括弧の名前。unavailable・resource_exhausted など）。
-  // 画面に出す文（error）から切り出さずに見分けるための項目で、無ければnull。
+  // Claudeは構造化apiErrorStatusからhttp_<status>。画面文の解析ではなく、無ければnull。
   error_kind: string | null;
+  // Classification is not replay authority: a finished turn can have tool effects or queued successors.
+  failure?: AgentFailureObservation;
   // 差し込みを追う待ちだけが足す。その差し込みを、どの番が取ったか（ADR 0122）。
   steer?: AgentSteerFate;
+}
+
+export interface AgentFailureObservation {
+  category: "capacity" | "rate_limited" | "transient" | "other";
+  execution: "not_started" | "started" | "unknown";
+  boundary: { event_cursor: number; operation_id: string | null; turn_id: string | null; input_id?: string } | null;
+  terminal: boolean;
+  // A transcript terminal does not fence native retries, queued input or other producers.
+  future_effects: "unknown";
 }
 
 /**

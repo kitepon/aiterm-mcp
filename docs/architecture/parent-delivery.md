@@ -2,6 +2,10 @@
 
 # 子の回答保存と親配送の現在構造
 
+capacity等のtyped failureは`child_failure`、安全な元種類は`child_error_kind`、会話IDは`child_vendor_session_id`として保存し、status receiptと親通知へ渡す。failure境界がある時は元recordのevent_cursor/operation/input_id/child turnへの完全一致を候補copyで検証してから保存recordを変更する。不一致ならそのfailureを保存・配送しない。旧recordのshapeは追加情報がないまま維持する。
+
+Claudeの入力IDはbefore_send→保存boundary→watch/beforeChange/再構築→bound waitへ通す。watchはmarker作成前に始まり得るため、observerが出現を待つ。Stopの入力IDを照合して、同cursorの後続入力の成功を古い要求へ採用しない。分類・turn終端は未実行や旧producer停止の証明ではなく、親配送managerは新しい本文再送・harness切替・回復queueを所有しない。継続の方針はconsumerが既停止/設定条件に従って決める。
+
 基準Aiterm ce575ce8、Steer6734ee86。図は [親配送](parent-delivery.svg) / [PNG](parent-delivery.png)、[vendor受信](../../../steer-refactor-20261102/docs/architecture/steer-receivers.svg) / [PNG](../../../steer-refactor-20261102/docs/architecture/steer-receivers.png)。`parent-delivery.ts` とSteer全25実装fileを全文初読した。private execution adapter内部も後続初読を完了した。全caller/test/fixtureの独立照合と実機配送は未確認である。
 
 ## 所有と窓口

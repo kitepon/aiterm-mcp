@@ -31,7 +31,7 @@ export function deliveryKey(sessionId: string, remote?: RemoteTarget): string {
   return remote ? `remote-${remoteKey(remote)}-${sessionId}` : sessionId;
 }
 const boundaryKey = (boundary: DeliveryRecord["boundary"]) => deliveryKey(boundary.session_id, boundary.remote);
-export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id"> & { error_code: string | null };
+export type ParentDeliveryReceipt = Pick<DeliveryRecord, "delivery_id" | "state" | "child_outcome" | "child_turn_id" | "queued_submission_id" | "child_failure" | "child_error_kind" | "child_vendor_session_id"> & { error_code: string | null };
 type OwnedRecord = { record: DeliveryRecord; file: string; controller: AbortController; capture?: Promise<void>; task?: Promise<void>; delivery?: Promise<void>; checkpointUnknown?: boolean };
 type Owner = {
   pid: number; started_identity: string; closed: boolean;
@@ -113,6 +113,8 @@ function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
     ? codexHookDeliveryState(record.parent.codex_home, record.parent.thread_id, record.delivery_id) : null;
   return { delivery_id: record.delivery_id, state: hookState ?? record.state, child_outcome: record.child_outcome,
     child_turn_id: record.child_turn_id, queued_submission_id: record.queued_submission_id,
+    ...(record.child_failure ? { child_failure: record.child_failure, child_error_kind: record.child_error_kind,
+      child_vendor_session_id: record.child_vendor_session_id } : {}),
     error_code: hookState === "unknown" ? "CODEX_HOOK_DELIVERY_UNCONFIRMED"
       : record.error ? /^[A-Z][A-Z0-9_]+(?=:)/.exec(record.error)?.[0] ?? "PARENT_DELIVERY_FAILED" : null };
 }
@@ -399,6 +401,7 @@ export class ParentDeliveryManager {
       try {
         const completion = await this.deps.observe(boundary.session_id, {
           cursor: boundary.event_cursor, operation_id: boundary.operation_id,
+          ...(boundary.input_id ? { input_id: boundary.input_id } : {}),
           timeout: Infinity, signal: job.controller.signal, ...(boundary.remote ? { remote: boundary.remote } : {}),
         });
         await this.capture(job, completion);
@@ -413,12 +416,21 @@ export class ParentDeliveryManager {
     if (job.capture) return job.capture;
     if (job.record.state !== "waiting") return;
     job.capture = (async () => {
-      if (completion.launch_id !== job.record.boundary.launch_id) throw new AitermError("PARENT_DELIVERY_LAUNCH_CHANGED: 子のlaunchが置換されました", 2);
+      if (completion.launch_id !== job.record.boundary.launch_id || completion.session_id !== job.record.boundary.session_id)
+        throw new AitermError("PARENT_DELIVERY_LAUNCH_CHANGED: 子のlaunchが置換されました", 2);
+      if (job.record.boundary.input_id && completion.input_id !== job.record.boundary.input_id)
+        throw new AitermError("PARENT_DELIVERY_INPUT_CHANGED: 完了は元の入力に対応していません", 2);
       // not_takenは差し込みを追う待ちだけが返す。親配送の待ちは差し込みを追わないので、来ない。
       if (completion.outcome === "running" || completion.outcome === "timeout" || completion.outcome === "not_taken") throw new AitermError("PARENT_DELIVERY_NOT_COMPLETED: 子の完了を確認できません", 2);
       const record = job.record;
+      if (completion.failure) recordSchema.parse({ ...record, child_failure: completion.failure, child_turn_id: completion.turn_id });
       record.child_outcome = completion.outcome;
       record.child_turn_id = completion.turn_id;
+      if (completion.failure) {
+        record.child_failure = structuredClone(completion.failure);
+        record.child_error_kind = completion.error_kind ?? null;
+        record.child_vendor_session_id = completion.vendor_session_id;
+      }
       if (completion.outcome === "done") {
         const answer = await this.deps.answer(record.boundary.session_id, { completion, operation_id: completion.operation_id, raw: true,
           ...(record.boundary.remote ? { remote: record.boundary.remote } : {}) });
@@ -479,6 +491,7 @@ export class ParentDeliveryManager {
       if (boundaryKey(job.record.boundary) !== key || job.record.state !== "waiting") continue;
       const boundary = job.record.boundary;
       const completion = await this.deps.observe(boundary.session_id, { cursor: boundary.event_cursor, operation_id: boundary.operation_id, timeout: 0,
+        ...(boundary.input_id ? { input_id: boundary.input_id } : {}),
         ...(boundary.remote ? { remote: boundary.remote } : {}) });
       if (completion.outcome !== "running" && completion.outcome !== "timeout") {
         await this.capture(job, completion);

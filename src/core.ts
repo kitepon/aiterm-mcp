@@ -237,6 +237,7 @@ import {
   claudeSessionTranscriptPath,
   claudeApiErrorFromLine,
   claudeApiErrorAfter,
+  claudeFailureCategory,
   type ClaudeApiError,
 } from "./harnesses/claude.js";
 import {
@@ -1459,10 +1460,11 @@ function observeManagedClaudeInterruption(point: ExecutionPoint) {
     };
     try {
       const before = { marker: identity(marker, false), receipt: receipt ? identity(receipt, true) : null };
-      if (!matchesClaudeInterruptionMarker(readClaudeOperationMarker(meta), point)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+      const parsed = readClaudeOperationMarker(meta);
+      if (!matchesClaudeInterruptionMarker(parsed, point)) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       const after = { marker: identity(marker, false), receipt: receipt ? identity(receipt, true) : null };
       if (!isDeepStrictEqual(before, after)) throw new ExecutionError("EXECUTION_CONFLICT");
-      return after;
+      return { ...after, protocol: parsed?.inputId ? "aiterm.claude-operation-marker.v3" as const : "aiterm.claude-operation-marker.v2" as const };
     } catch (error) {
       if (error instanceof ExecutionError) throw error;
       throw new ExecutionError("EXECUTION_UNSUPPORTED");
@@ -1496,7 +1498,7 @@ function observeManagedClaudeInterruption(point: ExecutionPoint) {
   if (!operation) return { ...common, schema: "aiterm.claude-anonymous-interruption-observation.v1" as const,
     endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: null },
     native_boundary: { type: "anonymous_turn_reserved" as const, event_cursor: point.boundary.event_cursor },
-    marker_protocol: "aiterm.claude-operation-marker.v2" as const, loaded_hook: "unconfirmed" as const };
+    marker_protocol: after.files.protocol, loaded_hook: "unconfirmed" as const };
   return { ...common, schema: "aiterm.claude-managed-interruption-observation.v1" as const,
     endpoint: { session_id: null, operation_marker: reference(after.files.marker), dispatch_receipt: reference(after.files.receipt!) },
     native_boundary: { type: "managed_operation_reserved" as const, operation_id: operation } };
@@ -2935,16 +2937,29 @@ const DEFAULT_AGENT_DONE_TIMEOUT = 600;
 const agentMetadataNegativeCache = new Map<string, number>();
 
 
-function writeClaudeOperationMarker(meta: AgentMetadata, operationId: string | null): void {
+function writeClaudeOperationMarker(meta: AgentMetadata, operationId: string | null, eventCursor?: number, inputId?: string): void {
   if (meta.kind !== "claude") throw new AitermError("operation_id はClaude agent sessionだけで使用できます", 2);
   const operation = operationId === null ? null : validateOperationId(operationId);
-  // Only the same private request frame can supply this anonymous reference.
-  // Unmounted/legacy execution keeps v1; never infer a cursor from file size.
+  // Private interruption retains its original request frame; v3 also captures
+  // the public dispatch observation, never native input acceptance.
   const captured = operation === null ? readExecutionSendBoundary(meta.aiterm_session) : null;
   if (captured && (!isDeepStrictEqual(captured.launch, { session_id: meta.aiterm_session, launch_id: meta.launch_id })
     || !captured.boundary || captured.boundary.operation_id !== null || captured.boundary.turn_id !== null
     || captured.boundary.steer_id !== null)) throw new ExecutionError("EXECUTION_CONFLICT");
-  withExecutionPreparation(meta.aiterm_session, () => writeJson0600(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id), captured ? {
+  if (captured && eventCursor !== undefined && captured.boundary!.event_cursor !== eventCursor) throw new ExecutionError("EXECUTION_CONFLICT");
+  let transcript: ClaudeOperationMarker["transcript"] = null;
+  const file = claudeSessionTranscriptPath(meta);
+  if (eventCursor !== undefined && file && meta.vendor_session_id) {
+    let stat: fs.BigIntStats | null;
+    try { stat = fs.statSync(file, { bigint: true }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; stat = null; }
+    if (stat && !stat.isFile()) throw new AitermError("CLAUDE_TRANSCRIPT_INVALID: input boundary is not a file", 2);
+    if (stat && !Number.isSafeInteger(Number(stat.size))) throw new AitermError("CLAUDE_TRANSCRIPT_INVALID: input boundary is too large", 2);
+    transcript = { session_id: meta.vendor_session_id, cursor: Number(stat?.size ?? 0), device: stat?.dev.toString() ?? null, inode: stat?.ino.toString() ?? null };
+  }
+  withExecutionPreparation(meta.aiterm_session, () => writeJson0600(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id), eventCursor !== undefined ? {
+    schema: "aiterm.claude-operation-marker.v3", operation_id: operation, event_cursor: eventCursor, input_id: inputId, transcript,
+  } : captured ? {
     schema: "aiterm.claude-operation-marker.v2", operation_id: null, event_cursor: captured.boundary!.event_cursor,
   } : { schema: "aiterm.claude-operation-marker.v1", operation_id: operation }));
 }
@@ -2978,7 +2993,7 @@ function readClaudeOperationMarker(meta: AgentMetadata): ClaudeOperationMarker |
   }
 }
 
-function reserveClaudeOperation(meta: AgentMetadata, operationId: string): void {
+function reserveClaudeOperation(meta: AgentMetadata, operationId: string, eventCursor?: number, inputId?: string): void {
   const validated = validateOperationId(operationId);
   const active = readClaudeOperationMarker(meta);
   if (active?.operationId === validated) {
@@ -3004,14 +3019,14 @@ function reserveClaudeOperation(meta: AgentMetadata, operationId: string): void 
     throw new AitermError(`operation ${validated} は既にdispatch済みです。再送しません。`, 2);
   }
   try {
-    writeClaudeOperationMarker(meta, validated);
+    writeClaudeOperationMarker(meta, validated, eventCursor, inputId);
   } catch (error) {
     try { fs.unlinkSync(receipt); } catch { /* marker未作成時のrollback失敗は元エラーを優先 */ }
     throw error;
   }
 }
 
-function reserveAnonymousClaudeTurn(meta: AgentMetadata): void {
+function reserveAnonymousClaudeTurn(meta: AgentMetadata, eventCursor?: number, inputId?: string): void {
   const active = readClaudeOperationMarker(meta);
   if (active) {
     throw new AitermError(
@@ -3020,7 +3035,7 @@ function reserveAnonymousClaudeTurn(meta: AgentMetadata): void {
       2,
     );
   }
-  writeClaudeOperationMarker(meta, null);
+  writeClaudeOperationMarker(meta, null, eventCursor, inputId);
 }
 
 function managedClaudeOperation(name: string): ClaudeOperationMarker | null | undefined {
@@ -3692,6 +3707,7 @@ function parseAgentDoneEvent(line: string, meta: AgentMetadata): AgentDoneParseR
       turn_id: typeof ev.turn_id === "string" ? ev.turn_id : null,
       operation_id:
         typeof ev.operation_id === "string" && OPERATION_ID_RE.test(ev.operation_id) ? ev.operation_id : null,
+      ...(typeof ev.input_id === "string" && /^[a-f0-9]{32}$/.test(ev.input_id) ? { input_id: ev.input_id } : {}),
       reason: typeof ev.reason === "string" ? ev.reason : "Stop",
       done_status: ev.done_status === "turn_error" ? "turn_error" : "turn_done",
       stop_hook_active: !!ev.stop_hook_active,
@@ -3707,6 +3723,7 @@ function scanAgentDoneLines(
   lines: string[],
   meta: AgentMetadata,
   expectedOperationId: string | null = null,
+  expectedInputId?: string,
 ): AgentDoneScanResult {
   let malformedEvents = 0;
   let candidate: AgentDoneEvent | null = null;
@@ -3724,6 +3741,7 @@ function scanAgentDoneLines(
     const ev = parsed.event;
     if (!ev) continue;
     if (expectedOperationId && ev.operation_id !== expectedOperationId) continue;
+    if (expectedInputId && ev.input_id !== expectedInputId) continue;
     if (meta.vendor_session_id) return { event: ev, malformedEvents, ambiguousHarnessSession: false };
     if (
       candidate?.vendor_session_id &&
@@ -4208,7 +4226,7 @@ export function windowsStartProcessArgumentList(args: string[]): string {
 export function agentWaitProcess(
   session: string,
   cursor: number,
-  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform; launchId?: string } = {},
+  runtime: { executable?: string; cliPath?: string; platform?: NodeJS.Platform; launchId?: string; inputId?: string } = {},
   steer: string | null = null,
 ): AgentWaitProcess {
   const executable = runtime.executable ?? liveNodeExecutable();
@@ -4221,6 +4239,7 @@ export function agentWaitProcess(
     // 差し込みを取った番の終わりを待つ（ADR 0122）。
     ...(steer ? ["--steer", steer] : []),
     ...(runtime.launchId ? ["--launch", runtime.launchId] : []),
+    ...(runtime.inputId ? ["--input", runtime.inputId] : []),
   ];
   return {
     executable,
@@ -4307,7 +4326,7 @@ export function detectAgentRateLimit(kind: AgentKind, aitermSession: string): st
 // steerを渡した時は、その差し込み（pty_sendの返りのsteer_id）を取った番の終わりを待つ（ADR 0122。steer-follow.ts）。
 export async function observeAgentDone(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string; input_id?: string } = {},
 ): Promise<AgentWaitObservation> {
   if (o.expected_launch_id && !fs.existsSync(agentMetadataPath(name, o.expected_launch_id))) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const result = await observeAgentDoneInternal(name, o);
@@ -4324,9 +4343,11 @@ export async function observeAgentDone(
 
 async function observeAgentDoneInternal(
   name: string,
-  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string } = {},
+  o: { operation_id?: string | null; timeout?: number; cursor?: number | null; steer?: string | null; signal?: AbortSignal; expected_launch_id?: string; input_id?: string } = {},
 ): Promise<AgentWaitObservation> {
   const meta = loadAgentMetadata(name);
+  if (o.input_id !== undefined && (!/^[a-f0-9]{32}$/.test(o.input_id) || meta.kind !== "claude" || o.steer != null))
+    throw new AitermError("AGENT_WAIT_INPUT_INVALID: input_id requires a Claude dispatch boundary", 2);
   if (o.expected_launch_id && meta.launch_id !== o.expected_launch_id) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const operationId = o.operation_id == null ? null : validateOperationId(o.operation_id);
   if (operationId && meta.kind !== "claude") {
@@ -4377,11 +4398,20 @@ async function observeAgentDoneInternal(
   let cursor = startOffset;
   let carry = "";
   let malformedEvents = 0;
-  // Claudeの会話記録はこの観測開始時点の末尾から先だけを読む。過去turnのAPIエラー行を今回の
-  // 終了と誤認しないため。dispatch直後に待機を始める親（receiptのwait_process）を前提にする。
+  // New Claude input reservations retain the pre-submit transcript offset.
+  // Legacy waits start at EOF and never acquire a missing input binding.
   const transcriptFile = claudeSessionTranscriptPath(meta);
-  let transcriptCursor = transcriptFile ? safeStatSize(transcriptFile) : 0;
+  let marker = meta.kind === "claude" ? readClaudeOperationMarker(meta) : null;
+  let capturedTranscript = marker?.transcript;
+  let matchesBoundary = !!capturedTranscript && capturedTranscript.session_id === meta.vendor_session_id
+    && marker!.operationId === operationId && (o.cursor != null ? marker!.eventCursor === o.cursor : operationId !== null);
+  let transcriptCursor = matchesBoundary ? capturedTranscript!.cursor : transcriptFile ? safeStatSize(transcriptFile) : 0;
   let transcriptCarry = "";
+  let parentUuid: string | null = null;
+  let sawUser = false;
+  let sawExecution = false;
+  let transcriptBound = matchesBoundary && (operationId !== null || (o.input_id !== undefined && marker?.inputId === o.input_id));
+  let transcriptIdentity = capturedTranscript?.device === null ? null : capturedTranscript;
   // 利用上限の知らせは画面でしか分からない。画面を読むとtmuxを起動するので、完了の見回りより間隔を空ける。
   // 実被弾: 完了の見回り（100ms）のたびに読んでいて、待ち1本が1秒に約10回tmuxを起動していた（4本でコンテナのCPUが148%）。
   const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
@@ -4398,17 +4428,33 @@ async function observeAgentDoneInternal(
     harness: agentHarness(meta.kind),
     outcome,
     operation_id: ev?.operation_id ?? operationId,
+    ...(o.input_id ? { input_id: o.input_id } : {}),
     vendor_session_id: ev?.vendor_session_id ?? meta.vendor_session_id ?? null,
     turn_id: ev?.turn_id ?? null,
     malformed_events: malformedEvents,
     at: ev?.at ?? apiError?.at ?? null,
     rate_limit: rateLimit,
     error: apiError?.text ?? null,
-    error_kind: null,
+    error_kind: apiError?.status ? `http_${apiError.status}` : null,
+    ...(apiError ? { failure: { category: claudeFailureCategory(apiError), execution: sawExecution ? "started" as const : "unknown" as const,
+      boundary: transcriptBound && sawUser && apiError.session_id === meta.vendor_session_id && parentUuid !== null && apiError.parent_uuid === parentUuid && apiError.uuid !== null ? {
+        event_cursor: marker!.eventCursor!, operation_id: operationId, turn_id: null, input_id: marker!.inputId } : null,
+      terminal: transcriptBound && sawUser && apiError.session_id === meta.vendor_session_id && parentUuid !== null && apiError.parent_uuid === parentUuid && apiError.uuid !== null,
+      future_effects: "unknown" as const } } : {}),
   });
   for (;;) {
     o.signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
+    if (o.input_id && !marker) {
+      marker = readClaudeOperationMarker(meta);
+      capturedTranscript = marker?.transcript;
+      matchesBoundary = !!capturedTranscript && capturedTranscript.session_id === meta.vendor_session_id
+        && marker!.operationId === operationId && marker!.eventCursor === o.cursor && marker!.inputId === o.input_id;
+      if (matchesBoundary) {
+        transcriptCursor = capturedTranscript!.cursor; transcriptBound = true;
+        transcriptIdentity = capturedTranscript!.device === null ? null : capturedTranscript;
+      }
+    }
     const size = safeStatSize(meta.event_file);
     if (size < cursor) {
       cursor = 0;
@@ -4422,19 +4468,42 @@ async function observeAgentDoneInternal(
       cursor = size;
       const parts = carry.split("\n");
       carry = parts.pop() ?? "";
-      const scanned = scanAgentDoneLines(parts, meta, operationId);
+      const scanned = scanAgentDoneLines(parts, meta, operationId, o.input_id);
       malformedEvents += scanned.malformedEvents;
       if (scanned.ambiguousHarnessSession) {
         throw new AitermError("agent event file に複数の vendor_session_id が混在しています。該当セッションを閉じて起動し直してください。", 2);
       }
+      if (o.input_id && !scanned.event && parts.some(line => parseAgentDoneEvent(line, meta).event !== null))
+        throw new AitermError("AGENT_WAIT_INPUT_CHANGED: completion belongs to another or unconfirmed input", 2);
       if (scanned.event) return scanned.event.done_status === "turn_error"
         ? { ...observation("error", scanned.event), error: `Antigravity execution ended: ${scanned.event.reason}`, error_kind: scanned.event.reason }
         : observation("done", scanned.event);
     }
+    if (o.input_id) {
+      const current = readClaudeOperationMarker(meta);
+      if ((current && (current.inputId !== o.input_id || current.eventCursor !== o.cursor)) || (!current && marker)) {
+        // Stop saves its event before consuming the marker; capture that event
+        // if it arrived after this iteration's event-file read.
+        if (safeStatSize(meta.event_file) > cursor) continue;
+        throw new AitermError("AGENT_WAIT_INPUT_CHANGED: original input marker was replaced", 2);
+      }
+      if (!current) {
+        if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
+        await sleep(AGENT_DONE_POLL_MS); continue;
+      }
+    }
     if (transcriptFile && fs.existsSync(transcriptFile)) {
-      const transcriptSize = safeStatSize(transcriptFile);
+      const transcriptStat = fs.statSync(transcriptFile, { bigint: true });
+      const transcriptSize = Number(transcriptStat.size);
+      if (!transcriptStat.isFile() || !Number.isSafeInteger(transcriptSize)) throw new AitermError("CLAUDE_TRANSCRIPT_INVALID: cannot read input boundary", 2);
+      if (transcriptBound && transcriptIdentity
+        && (transcriptStat.dev.toString() !== transcriptIdentity.device || transcriptStat.ino.toString() !== transcriptIdentity.inode)) {
+        transcriptBound = false; parentUuid = null; transcriptCursor = transcriptSize; transcriptCarry = "";
+      }
+      if (transcriptBound && !transcriptIdentity) transcriptIdentity = { ...capturedTranscript!, device: transcriptStat.dev.toString(), inode: transcriptStat.ino.toString() };
       if (transcriptSize < transcriptCursor) {
-        transcriptCursor = 0;
+        transcriptBound = false; parentUuid = null;
+        transcriptCursor = transcriptSize;
         transcriptCarry = "";
       }
       if (transcriptSize > transcriptCursor) {
@@ -4444,7 +4513,24 @@ async function observeAgentDoneInternal(
         transcriptCarry = lines.pop() ?? "";
         for (const line of lines) {
           const apiError = claudeApiErrorFromLine(line);
-          if (apiError) return observation("error", null, null, apiError);
+          if (apiError && (apiError.session_id === null || apiError.session_id === meta.vendor_session_id))
+            return observation("error", null, null, apiError);
+          let record: any;
+          try { record = JSON.parse(line); } catch { transcriptBound = false; continue; }
+          if (record.isSidechain === true || (record.sessionId && record.sessionId !== meta.vendor_session_id)) continue;
+          if (record.type === "user" || record.type === "assistant") {
+            if (typeof record.uuid !== "string" || (parentUuid !== null && record.parentUuid !== parentUuid)) transcriptBound = false;
+            if (!sawUser && record.type !== "user") transcriptBound = false;
+            if (record.sessionId !== meta.vendor_session_id) transcriptBound = false;
+            if (record.type === "user") {
+              const content = record.message?.content;
+              const toolResult = Array.isArray(content) && content.length > 0 && content.every((part: any) => part?.type === "tool_result");
+              if (sawUser && !toolResult) transcriptBound = false;
+              sawUser = true;
+            }
+            if (record.type === "assistant") sawExecution = true;
+            parentUuid = typeof record.uuid === "string" ? record.uuid : null;
+          }
         }
       }
     }
@@ -4453,7 +4539,8 @@ async function observeAgentDoneInternal(
     // 最初の周回では必ず見る（timeout=0の照会も1回は見る）。
     if (rateLimitDue()) {
       const limited = detectAgentRateLimit(meta.kind, meta.aiterm_session);
-      if (limited) return observation("rate_limited", null, limited);
+      if (limited) return { ...observation("rate_limited", null, limited), failure: { category: "rate_limited", execution: "unknown",
+        boundary: null, terminal: false, future_effects: "unknown" } };
     }
     if (performance.now() >= deadline) return observation(timeout === 0 ? "running" : "timeout");
     await sleep(AGENT_DONE_POLL_MS);
@@ -4911,15 +4998,16 @@ async function sendInitialAgentPromptInLock(
   await o.after_ready?.(name, meta);
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
+  const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   try {
     prepareSendText(promptText, { raw: false });
     await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-      harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null });
+      harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null, ...(inputId ? { input_id: inputId } : {}) });
     captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
       event_cursor: startOffset, operation_id: null, turn_id: null, steer_id: null } });
     if (meta.kind === "claude") {
       prepareSendText(text, { raw: false });
-      reserveAnonymousClaudeTurn(meta);
+      reserveAnonymousClaudeTurn(meta, startOffset, inputId);
     }
     setInitialDelivery(meta, { status: "submitted_unconfirmed", reason: "dispatch_in_progress", turn_started: null }, startOffset);
     await sendAgentPromptText(name, promptText, meta.kind, meta);
@@ -4958,7 +5046,7 @@ async function sendInitialAgentPromptInLock(
       setInitialPromptState(meta, "failed");
       throw new AitermError(userHookBlockedMessage(`initial_prompt=failed vendor=${meta.kind} harness=${agentHarness(meta.kind)}`, "起動時prompt", state.detail), 2);
     }
-    const completed = await observeAgentDone(name, { cursor: startOffset, timeout: 0 });
+    const completed = await observeAgentDone(name, { cursor: startOffset, timeout: 0, input_id: inputId });
     if (completed.outcome === "done") {
       delivery = { status: "started", reason: "turn_completed", turn_started: true }; break;
     }
@@ -5003,6 +5091,7 @@ export interface AgentDispatchReceipt {
   // harness別完了正本の境界（byte offsetとは限らない。Cursorはuser turn数）。
   event_cursor: number;
   operation_id: string | null;
+  input_id?: string;
   // submit座礁観測。true=composerに残存を確認（未submitの疑い）/ false=残存を観測せず
   // （submit成立の保証ではない）/ null=判定不能。
   submit_residue: boolean | null;
@@ -7077,8 +7166,9 @@ async function dispatchAgentTurnInLock(
     ? `${subagentInstruction(meta)}\n\n${prefaced.body}`
     : prefaced.body;
   prepareSendText(dispatchText, { raw: o.raw });
+  const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId });
+    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId, ...(inputId ? { input_id: inputId } : {}) });
   await submitAgentComposerText(name, meta.kind, dispatchText, {
     inputMeta: meta,
     force: o.force, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
@@ -7093,8 +7183,8 @@ async function dispatchAgentTurnInLock(
         // receipt／active markerだけを残して、来ないStopを待つ状態を作らない。
         prepareSendText(text, { raw: o.raw });
         if (operationId) {
-          reserveClaudeOperation(meta, operationId);
-        } else reserveAnonymousClaudeTurn(meta);
+          reserveClaudeOperation(meta, operationId, startOffset, inputId);
+        } else reserveAnonymousClaudeTurn(meta, startOffset, inputId);
       }
     },
   });
@@ -7112,6 +7202,7 @@ async function dispatchAgentTurnInLock(
     harness: agentHarness(meta.kind),
     event_cursor: startOffset,
     operation_id: operationId,
+    ...(inputId ? { input_id: inputId } : {}),
     submit_residue: residue.residue,
     pane_input_recovery: paneInputRecovery,
   };

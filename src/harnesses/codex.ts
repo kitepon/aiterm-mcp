@@ -423,6 +423,19 @@ export function codexUsageLimit(record: any): string | null {
   return error?.info === "usage_limit_exceeded" ? error.message : null;
 }
 
+export function codexFailureCategory(record: any): "capacity" | "rate_limited" | "transient" | "other" | null {
+  const error = codexTurnError(record);
+  if (!error) return null;
+  if (error.info === "usage_limit_exceeded" || error.info === "rate_limit_exceeded") return "rate_limited";
+  if (error.info === "server_overloaded"
+    || error.message === "Selected model is at capacity. Please try a different model.") return "capacity";
+  const status = record.payload.error.codex_error_info?.http_connection_failed?.http_status_code;
+  if (status === 429) return "rate_limited";
+  if (typeof status === "number" && status >= 400 && status < 500) return "other";
+  return ["internal_server_error", "http_connection_failed", "response_stream_disconnected", "response_stream_connection_failed"].includes(error.info ?? "")
+    ? "transient" : "other";
+}
+
 // 完了待ちが、会話の切り替えを確かめる間隔。送った文はすぐ記録へ書かれるので、普通のturnはここへ来ない。
 const CODEX_SWITCH_CHECK_MS = 3_000;
 // 完了待ちが、記録を1回に読む大きさ。
@@ -646,6 +659,7 @@ export async function observeCodexDone(
   let cursor = startOffset;
   let carry: Buffer = Buffer.alloc(0);
   let malformedEvents = 0;
+  let sawExecution = false;
   let discardLeadingFragment = false;
   let initializedBoundary = false;
   // 待ち始めてからrolloutが1行も増えない時、会話が切り替わっていないかを見る時刻（ADR 0105）。
@@ -747,6 +761,8 @@ export async function observeCodexDone(
           }
           try {
             const record = JSON.parse(line);
+            if (record.type === "response_item" && (record.payload?.role === "assistant"
+              || ["function_call", "custom_tool_call", "local_shell_call", "reasoning"].includes(record.payload?.type))) sawExecution = true;
             const done = codexCompletionEvent(meta, harnessSessionId, record);
             if (done && completedAfter !== null) {
               const at = Date.parse(record.timestamp);
@@ -756,11 +772,16 @@ export async function observeCodexDone(
               // 上限の知らせはこのturnの終わりにだけ書かれる。画面やpane logの文字は、上限が明けた後も
               // 残り、道具の出力や依頼文にも現れるので見ない（2026-09-28）。
               const limited = codexUsageLimit(record);
-              if (limited) return observation("rate_limited", done, limited);
+              const category = codexFailureCategory(record);
+              const failure = category ? { category, execution: sawExecution ? "started" as const : "unknown" as const,
+                boundary: requestedCursor == null || completedAfter !== null ? null : {
+                  event_cursor: requestedCursor, operation_id: null, turn_id: done.turn_id },
+                terminal: true, future_effects: "unknown" as const } : undefined;
+              if (limited) return { ...observation("rate_limited", done, limited), failure };
               // サービスの誤りや通信の失敗で終わったturnも、Codexはtask_completeを書く（errorつき、回答は無い）。
               // 完了として返すと、失敗が空の回答に見える。Claude CodeのAPIエラーと同じく、typedな終了として返す（ADR 0103）。
               const failed = codexTurnError(record);
-              return failed ? observation("error", done, null, failed) : observation("done", done);
+              return failed ? { ...observation("error", done, null, failed), failure } : observation("done", done);
             }
           } catch {
             malformedEvents++;

@@ -29,6 +29,22 @@ let serial = 0;
 const launchId = () => (++serial).toString(16).padStart(32, "0");
 const TEXT = "追加の頼み：  表も\n付けて、数は3つに絞ってくだされ";
 
+test("Codex: capacity is a terminal failure, never replay permission, with or without earlier tool work", async () => {
+  for (const tool of [false, true]) {
+    const seat = codexSeat();
+    const cursor = fs.statSync(seat.file).size;
+    seat.append(started("failed-turn", 0), codexUser("failed-turn", "original input", 1));
+    if (tool) seat.append(JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "write", arguments: "{}" } }));
+    seat.append(complete("failed-turn", 3, { last_agent_message: null,
+      error: { message: "Selected model is at capacity. Please try a different model.", codex_error_info: "server_overloaded" } }));
+    const result = await observeCodexDone(seat.meta, 0, cursor);
+    assert.equal(result.outcome, "error"); assert.equal(result.error_kind, "server_overloaded");
+    assert.deepEqual(result.failure, { category: "capacity", execution: tool ? "started" : "unknown", terminal: true,
+      boundary: { event_cursor: cursor, operation_id: null, turn_id: "failed-turn" }, future_effects: "unknown" });
+    assert.equal((await observeCodexDone(seat.meta, 0, fs.statSync(seat.file).size)).outcome, "running");
+  }
+});
+
 /** 待ちを起こす。今までの待ちへ渡した時は、渡された位置を覚えて、決めた結果を返す。 */
 function waitSteer(seat, entry, options = {}) {
   const handed = [];

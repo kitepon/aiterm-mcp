@@ -183,12 +183,14 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 
-export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number): string {
+export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number, inputId?: string): string {
   if (!SESSION_RE.test(session)) throw new AitermError("REMOTE_SESSION_INVALID: session名が不正です", 2);
   if (operationId !== null && !OPERATION_RE.test(operationId)) throw new AitermError("REMOTE_OPERATION_INVALID: operation_idが不正です", 2);
+  if (inputId !== undefined && (!/^[a-f0-9]{32}$/.test(inputId) || cursor === null)) throw new AitermError("REMOTE_INPUT_INVALID: input_id requires its original cursor", 2);
   const parts = ["--session", session, "--timeout", String(timeout)];
   if (cursor !== null) parts.push("--cursor", String(cursor));
   if (operationId !== null) parts.push("--operation", operationId);
+  if (inputId !== undefined) parts.push("--input", inputId);
   if (shell !== "posix") return `aiterm-wait ${parts.join(" ")}`;
   // npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある。見つからなければ同じpackageのCLIを使う。
   const resolve = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
@@ -196,9 +198,9 @@ export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: n
 }
 
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */
-export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
+export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number, inputId?: string): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
   // 別processには鍵のパスフレーズを渡せない。ssh-agentか、張ってあるControlMasterの接続に相乗りする。
-  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600), { passphrase: false });
+  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId), { passphrase: false });
   return { executable: "ssh", args, windows_start_process_argument_list: process.platform === "win32" ? windowsStartProcessArgumentList(args) : null };
 }
 
@@ -228,7 +230,7 @@ export async function observeRemoteAgentDone(target: RemoteTarget, session: stri
   for (;;) {
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const remaining = infinite ? 86_400 : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400));
+    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400), options.input_id);
     const { code, stdout, stderr } = await runSsh(target, command, options.signal);
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const line = stdout.trim().split("\n").pop() ?? "";

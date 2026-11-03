@@ -39,3 +39,12 @@ test('private source and origin owner must match the original request; no privat
     {...execution,source_evidence:{...source,mcp_process:{...actor,pid:23}}},
   ]) assert.equal(recordSchema.safeParse({...base,execution:changed}).success,false);
 });
+
+test('failure boundary must retain the exact original input and turn',()=>{
+  const input_id='b'.repeat(32), failure={category:'rate_limited',execution:'unknown',terminal:false,future_effects:'unknown',
+    boundary:{event_cursor:0,operation_id:null,turn_id:null,input_id}};
+  const value={...base,boundary:{...base.boundary,input_id},child_outcome:'error',child_failure:failure};
+  assert.equal(recordSchema.safeParse(value).success,true);
+  for(const changed of [{event_cursor:1},{operation_id:'different'},{turn_id:'different'},{input_id:'c'.repeat(32)}])
+    assert.equal(recordSchema.safeParse({...value,child_failure:{...failure,boundary:{...failure.boundary,...changed}}}).success,false);
+});

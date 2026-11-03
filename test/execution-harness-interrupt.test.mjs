@@ -840,7 +840,7 @@ test('anonymous Claude accepted Esc survives service reconstruction without retr
   const state = await store.transaction(state => structuredClone(state), { readOnly: true });
   assert.equal(state.interruptions.length, 1); assert.equal(state.interruptions[0].phase, 'accepted'); assert.equal(state.slots[0].state, 'unknown');
 });
-test('actual anonymous core before_send writes private v2 with the original cursor; unmounted input keeps legacy v1', posix, async t => {
+test('actual anonymous core before_send retains the original cursor in a v3 input reservation', posix, async t => {
   for (const injected of [false, true]) {
     const f = fixture(t, 'claude'); rmSync(f.marker); writeFileSync(f.meta.event_file, '\n');
     f.control.allowInput = true; mkdirSync(SOCKDIR, { recursive: true });
@@ -862,8 +862,9 @@ test('actual anonymous core before_send writes private v2 with the original curs
       assert.ok(target); assert.equal(target.boundary.operation_id, null); assert.equal(target.boundary.turn_id, null);
     } else await core.dispatchAgentTurn(f.name, 'synthetic input', { raw: true, pane_input_recovery: [] });
     const marker = JSON.parse(readFileSync(f.marker));
-    assert.deepEqual(marker, injected ? { schema: 'aiterm.claude-operation-marker.v2', operation_id: null, event_cursor: target.boundary.event_cursor }
-      : { schema: 'aiterm.claude-operation-marker.v1', operation_id: null });
+    assert.equal(marker.schema, 'aiterm.claude-operation-marker.v3'); assert.equal(marker.operation_id, null);
+    assert.match(marker.input_id, /^[a-f0-9]{32}$/);
+    if (injected) assert.equal(marker.event_cursor, target.boundary.event_cursor);
     assert.ok(f.control.inputCommands.length); assert.deepEqual(f.keys, []);
   }
 });
@@ -907,7 +908,7 @@ test('real SDK anonymous pty_send binds the v2 original cursor into the same pri
     assert.equal(stopped.structuredContent.targets[0].session_preserved, 'unconfirmed'); assert.deepEqual(f.keys, ['Escape']);
     const record = await service.execute({ action: 'status', request: submitted._meta['aiterm/execution_binding'].request });
     assert.deepEqual(record.relation.target, target); assert.equal(record.relation.lifecycle, 'tracking');
-    assert.equal(JSON.parse(readFileSync(f.marker)).schema, 'aiterm.claude-operation-marker.v2');
+    assert.equal(JSON.parse(readFileSync(f.marker)).schema, 'aiterm.claude-operation-marker.v3');
     assert.ok(stopped.structuredContent.unresolved.some(x => x.reason === 'claude_hook_version_unconfirmed'));
   } finally { await client.close(); await server.close(); }
 });

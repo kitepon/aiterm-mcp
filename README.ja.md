@@ -8,6 +8,12 @@
 
 # Aiterm
 
+Codex・Claudeの失敗した番では、既存の待機結果へ`failure`を追加します。`category`は`capacity`／`rate_limited`／`transient`／`other`、`execution`は記録に作業があれば`started`、分からなければ`unknown`です。providerの拒否だけで、それ以前の道具が未実行だったとは判断しません。`terminal`は観測した番の終了だけを示し、`future_effects:"unknown"`は待ち行列・自動再試行・ほかの送信元の作用を未確認のまま残します。
+
+Claudeの送信・初手つき起動の返りには`input_id`が付きます。返りの`wait_process`を保持するか、元のsession・launch・cursorと一緒に`aiterm-wait --input <id>`へ渡してください。APIエラー直後は匿名入力のcursorが同じになることがありますが、古い入力を次の番の成功へ結び直しません。送信前の会話記録の位置から読むため、待機開始前のAPIエラーも拾います。この境界はAitermの入力観測との対応であり、nativeによる本文受理の証明ではありません。旧記録や欠測を新しい証拠へ変換しません。
+
+分類は親配送の保存・返りにも残ります。Aitermは元本文を自動再送しません。呼出元は通常の停止・設定の条件を守り、残された会話や保存した引継ぎから未了の仕事を続けられます。
+
 [![CI](https://github.com/kitepon/aiterm-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon/aiterm-mcp/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/aiterm-mcp.svg)](https://www.npmjs.com/package/aiterm-mcp)
 [![週間ダウンロード](https://img.shields.io/npm/dw/aiterm-mcp.svg)](https://www.npmjs.com/package/aiterm-mcp)
@@ -209,7 +215,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.63.6** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.63.7** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 

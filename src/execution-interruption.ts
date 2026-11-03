@@ -60,7 +60,7 @@ export const claudeAnonymousInterruptionObservationSchema = z.object({
   }).strict(),
   recorded_state: z.literal("unconfirmed"),
   native_boundary: z.object({ type: z.literal("anonymous_turn_reserved"), event_cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
-  marker_protocol: z.literal("aiterm.claude-operation-marker.v2"), loaded_hook: z.literal("unconfirmed"),
+  marker_protocol: z.enum(["aiterm.claude-operation-marker.v2", "aiterm.claude-operation-marker.v3"]), loaded_hook: z.literal("unconfirmed"),
   invocation_fence: z.literal("unknown"), session_preserved: z.literal("unconfirmed"),
 }).strict().superRefine((value, context) => {
   const boundary = value.run.boundary;

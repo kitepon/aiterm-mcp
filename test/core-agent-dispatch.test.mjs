@@ -561,12 +561,14 @@ test("Claude anonymous turn: timeout中はdurable operationを開始せず遅延
       vendor_session_id: meta.vendor_session_id,
       consume_marker: false,
     });
-    await core.dispatchAgentTurn(sid, "CLAUDE_ANONYMOUS_TIMEOUT");
+    const anonymousReceipt = await core.dispatchAgentTurn(sid, "CLAUDE_ANONYMOUS_TIMEOUT");
     const marker = path.join(path.dirname(meta.result_file), `${sid}.${meta.launch_id}.claude-operation.json`);
-    assert.deepEqual(JSON.parse(fs.readFileSync(marker, "utf8")), {
-      schema: "aiterm.claude-operation-marker.v1",
-      operation_id: null,
-    });
+    const reservation = JSON.parse(fs.readFileSync(marker, "utf8"));
+    assert.equal(reservation.schema, "aiterm.claude-operation-marker.v3");
+    assert.equal(reservation.operation_id, null);
+    assert.equal(reservation.event_cursor, anonymousReceipt.event_cursor);
+    assert.equal(reservation.input_id, anonymousReceipt.input_id);
+    assert.equal(reservation.transcript.session_id, meta.vendor_session_id);
     await assert.rejects(
       () => core.dispatchAgentTurn(sid, "MUST_NOT_OVERWRITE_ANONYMOUS", { operation_id: operationId }),
       /operation_idなし.*未解決/,

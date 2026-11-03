@@ -17,9 +17,9 @@ Same/other active operation refuses replay
 Marker failure rolls back new receipt only"];
  send [label="Shared composer submission → dispatch receipt
 Preserve event cursor and submit_residue
-Anonymous v2 only from exact private frame"];
+v3: input_id + pre-submit transcript identity/cursor\nLegacy v1/v2 remain readable"];
  hook [label="Harness completion / Stop record + marker consumption
-Keep launch, operation, vendor-session correlation"];
+Keep launch, operation, vendor-session and v3 input_id\nBound wait never borrows another input's Stop"];
  recover [label="recover never accepts text
 active → pending; no receipt → unknown/not_found
 receipt without result → unknown/result_unknown

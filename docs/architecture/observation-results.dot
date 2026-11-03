@@ -6,8 +6,9 @@ digraph observation {
  native [label="pty_observe: native listing + pane + process table\nselect one harness; PID / birth / argv digest\nmissing / dead / ambiguous / unknown stay distinct"];
  screen [label="Capture screen → harness pane parser\nbusy / idle / blocked / unknown\nactivity digest + CPU delta with same pane birth"];
  dormant [label="Dormant record / recipe / no native rechecked\nhibernated only with matching evidence\notherwise unknown; discard old activity delta"];
- wait [label="observeAgentDone / aiterm-wait\nfixed launch + cursor / operation / steer\nscan newline-complete events or vendor transcript"];
+ wait [label="observeAgentDone / aiterm-wait\nfixed launch + cursor / operation / steer\nClaude input_id: match marker and Stop ID\nwait for pre-input reservation, then saved transcript offset"];
  end [label="done / error / closed / rate_limited\nrunning (timeout=0) / timeout / not_taken\nabort only stops observer"];
+ failure [label="Optional failure: capacity / rate_limited / transient / other\nstarted or unknown; never infer not_started\noriginal observation boundary or null; turn terminal only\nfuture_effects unknown: no queue / producer fence"];
  activity [label="done/error: append turn_end + request idle clock\nrecord failure does not erase completion\nwaiter does not own metadata binding or send lock"];
  answer [label="readAgentTranscriptResult\nmatch completion / session / launch / turn / operation\nrecover late harness binding, then read native answer"];
  body [label="text + answer_empty + correlation fields\nempty answer distinct from unavailable\nraw text for parent delivery; display for humans"];
@@ -17,6 +18,7 @@ digraph observation {
  probe [label="Read-only scoped native list\nshared 5000ms subprocess budget incl. resolution\nexact code/stdout/socket absence or unverified"];
  diagnostics -> probe;probe -> host [label="ready / not_applicable / unverified"];
  meta -> native;native -> screen;meta -> dormant;meta -> wait;wait -> end;end -> activity;
+ end -> failure [label="failed turns"];failure -> host [label="preserved by parent capture / receipt"];
  end -> answer [label="done only for answer capture"];meta -> answer;answer -> body;body -> host;
  screen -> host;dormant -> host;end -> host [style=dashed,label="typed result, no answer inferred"];
  terminal -> host;screen -> terminal [style=dashed,label="screen sampling only"];

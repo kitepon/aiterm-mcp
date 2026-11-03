@@ -5,8 +5,8 @@ digraph parent {
  request [label="prepare(parent): recover + verify\nrequest: freeze parent + optional execution source"];
  before [label="before_send: per-child registration FIFO\nbeforeChange: previous answer must be captured\npersist original record + exclusive claim"];
  bind [label="Public: Claude / Cursor binding\nPrivate: graph + companion admission\nthen state = waiting"];
- watch [label="watch fixed session / launch / operation / cursor\nobserve child completion; read genuine answer"];
- ready [label="Persist answer / child outcome: ready\nrelease child claim; next child input may proceed"];
+ watch [label="watch fixed session / launch / operation / cursor / input_id\nClaude may await input reservation; match Stop ID\nobserve child completion; read genuine answer"];
+ ready [label="Validate failure against original boundary before mutation\nPersist answer / child outcome / failure / error kind / conversation\nready: release child claim; next child input may proceed"];
  sending [label="Persist sending → submit parent once\nSteer owns vendor queue / hook / output"];
  result [label="submitted / failed / unknown\narchive result; status projects Codex hook state\nreceipt is not parent work completion"];
  unknown [label="Dispatch / bind / checkpoint uncertain\nretain original diagnosis; no body replay",fillcolor="#fff0d8"];
@@ -14,7 +14,7 @@ digraph parent {
  recover [label="Other owner: heartbeat + PID + birth identity\nalive/new unjudged skipped; ended/unverified paths\nrename original record to one recovery owner"];
  route [label="Recovered sending → unknown, no resend\nwaiting → watch; ready → verify then deliver\nprivate requires source / graph recovery admission"];
  retain [label="Private checkpoint uncertainty retains claim\nold owner directory removal separately guarded\nbest-effort cleanup is not delivery replay"];
- record [label="parent-delivery-record.ts\nstrict schema / source-owner references\nfilename + ID / ENOENT vs invalid / answer framing"];
+ record [label="parent-delivery-record.ts\nstrict schema / source-owner references\nfilename + ID / ENOENT vs invalid / answer framing\nfailure retained in status and parent notice; no replay authority"];
  before -> record [label="schema"];recover -> record [label="read / same rejection"];sending -> record [label="answerMessage"];
  request -> before;before -> bind;bind -> watch;watch -> ready;ready -> sending;sending -> result;
  bind -> unknown [label="uncertain preparation",style=dashed];watch -> ready [label="observe failure saved as error notice",style=dashed];watch -> unknown [label="dispatch failed callback aborts",style=dashed];

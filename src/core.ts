@@ -317,7 +317,6 @@ const SESSION_SEND_LOCK_POLL_MS = 25;
 // 同じagent sessionへの送信が重なった時に、前の1通を待つ上限（ADR 0088）。
 // 起動から最初の描画を待つ上限と、貼り付けの上限の和。前の1通が正常に進んでいる間は待ち切れる長さにする。
 const AGENT_SEND_LOCK_WAIT_MS = AGENT_TUI_FIRST_DRAW_TIMEOUT_MS + SESSION_SEND_LOCK_WAIT_MS;
-const AGENT_SEND_LOCK_POLL_MS = 50;
 
 const PASTE_MARKERS_RE = /\x1b\[20[01]~/g;
 
@@ -1097,7 +1096,7 @@ export function send(name: string, text: string, o: SendOpts = {}): string {
       );
     }
   }
-  const releaseSendLock = acquireSessionSendFileLock(name);
+  const releaseSendLock = isAgentSession(name) ? () => {} : acquireSessionSendFileLock(name);
   try {
     // managed Claudeの通常送信は、lastcmd/mark/PTYのどれにも触れる前に拒否する。
     // 拒否した呼び出しが古いmarkを消したり偽のmarkを残すと、後続readが存在しない
@@ -3380,7 +3379,7 @@ function acquireSessionSendFileLock(name: string): () => void {
 // ── 同じagent sessionへの送信を1本ずつ通す（ADR 0088） ────
 // 振り分け（差し込みか新しいturnか）から送り終えるまでの間に、入力受付待ちなどの待ちが挟まる。
 // その間に次の1通が同じ状態を読むと、Claudeはturnの印の取り合いで後の1通が断られ、他のharnessは同じ入力欄へ2回貼る。
-// 同じprocessの中は着いた順の待ち行列、別のprocessの間はfileで排他し、後の1通は前の1通が終わってから振り分け直す。
+// Process-local order/ownership remains; independent MCP/remote clients serialize the same managed seat themselves.
 const agentSendQueues = new Map<string, Promise<void>>();
 const agentSendHeld = new Set<string>();
 const agentSendOwner = new AsyncLocalStorage<symbol>();
@@ -3494,48 +3493,6 @@ function agentSendBusyError(name: string, pid: number | null, waitMs: number, un
   );
 }
 
-async function acquireAgentSendFileLock(name: string, deadline: number, waitMs: number, untouched = AGENT_SEND_UNSENT): Promise<() => void> {
-  const p = agentSendLockPath(name);
-  let checkedOwner: string | null = null;
-  let checkedOwnerReplaced = false;
-  for (;;) {
-    let token: string | null;
-    try {
-      token = tryCreateOwnedLock(p);
-    } catch (e) {
-      // socketの置き場が無ければ、守る相手のsessionにも届かない。lockを取らずに進め、送信側の今まで通りの断りを返す。
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return () => {};
-      throw e;
-    }
-    if (token !== null) return () => releaseOwnedLock(p, token);
-    const probe = probeAgentSendLock(name);
-    let dead = !probe.live;
-    let replacedToken: string | null = null;
-    // 生きて見える持ち主は、初めて見た時に1回、本人かを確かめる。結果は覚え、待つ間にOSへ照会し直さない。
-    if (!dead && probe.pid != null) {
-      const owner = `${probe.pid}@${probe.at}`;
-      if (owner !== checkedOwner) {
-        checkedOwner = owner;
-        checkedOwnerReplaced = agentSendLockOwnerReplaced(probe);
-      }
-      if (checkedOwnerReplaced) {
-        dead = true;
-        replacedToken = probe.token ?? null;
-      }
-    }
-    if (dead && reapDeadAgentSendLock(name, replacedToken) === "stuck") {
-      throw new AitermError(
-        `agent session '${name}' に、終了した送信のlockを片付ける途中で残った印があります。` +
-          `自動回収は並行送信の混線を招くため行いません。文字列は送信していません。` +
-          `pty_listで対象を確認し、pty_closeでsessionを閉じてから同じIDで再作成してください`,
-        2,
-      );
-    }
-    if (performance.now() >= deadline) throw agentSendBusyError(name, dead ? null : probe.pid, waitMs, untouched);
-    await sleep(AGENT_SEND_LOCK_POLL_MS);
-  }
-}
-
 function withAgentNativeOperation<T>(name: string, mutates: boolean, body: () => T): T {
   assertSessionName(name);
   if (!isAgentSession(name)) return body();
@@ -3550,18 +3507,15 @@ function withAgentNativeOperation<T>(name: string, mutates: boolean, body: () =>
     return withAgentResumeTarget(meta, body);
   };
   if (!mutates || owns) return execute();
-  const token = tryCreateOwnedLock(agentSendLockPath(name));
-  if (!token) throw unavailable();
   const mine = Symbol(name);
   agentSendHeld.add(name); activeAgentSendOwner.set(name, mine);
   try { return agentSendOwner.run(mine, execute); }
-  finally { activeAgentSendOwner.delete(name); agentSendHeld.delete(name); releaseOwnedLock(agentSendLockPath(name), token); }
+  finally { activeAgentSendOwner.delete(name); agentSendHeld.delete(name); }
 }
 
 async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouched = AGENT_SEND_UNSENT, pinResume = true): Promise<T> {
   const launchId = tryLoadAgentMetadata(name)?.launch_id;
   const waitMs = agentSendLockWaitMs;
-  const deadline = performance.now() + waitMs;
   const previous = agentSendQueues.get(name) ?? Promise.resolve();
   let leave!: () => void;
   const mine = new Promise<void>((resolve) => {
@@ -3583,7 +3537,6 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
     ]);
     clearTimeout(timer);
     if (!myTurn) throw agentSendBusyError(name, null, waitMs, untouched);
-    const release = await acquireAgentSendFileLock(name, deadline, waitMs, untouched);
     const mine = Symbol(name);
     agentSendHeld.add(name); activeAgentSendOwner.set(name, mine);
     try {
@@ -3594,8 +3547,6 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
       return await agentSendOwner.run(mine, async () => {
         const meta = pinResume ? tryLoadAgentMetadata(name) : null;
         if (meta && !readAgentLifecycle(meta)) {
-          if (!fs.existsSync(SOCKDIR) && !meta.resumed_from) throw new AitermError(
-            `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`, 2);
           const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED", "復帰対象のnativeを確認できません。本文は送信していません。", name, meta.launch_id);
           let failed: boolean;
           try {
@@ -3617,7 +3568,6 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
       });
     } finally {
       activeAgentSendOwner.delete(name); agentSendHeld.delete(name);
-      release();
     }
   } finally {
     clearTimeout(timer);
@@ -7193,7 +7143,7 @@ async function dispatchAgentTurnInLock(
       // 待たずに断るのは、応答が要る既知の画面（承認・確認のmodal）の時。どの画面で断ったかを残す。
       const state = agentPaneObservation(meta.kind, ready.lastScreen);
       throw new AitermError(
-        `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。` +
+        `AGENT_INPUT_NOT_READY: agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。` +
           "少し後で pty_read(screen:true) を確認し、TUI が起動済みなら再度 pty_send してください。" +
           `\nstate=${state.state} reason=${state.reason}`,
         2,
@@ -7412,7 +7362,7 @@ function assertAgentSendHarness(name: string, meta: AgentMetadata, inputStarted 
   if (!current.exists || current.harness_alive === false || (starting && !waiting)) {
     throw new AitermError(
       (inputStarted ? `agent session '${name}' の ${agentLabel(meta.kind)} への入力完了を確認できません。本文を再送しないでください。`
-        : `agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`) +
+        : `AGENT_INPUT_TARGET_UNAVAILABLE: agent session '${name}' の ${agentLabel(meta.kind)} TUI が入力受付状態になりません。文字列は送信していません。`) +
         `\nstate=${current.state} reason=${current.reason}`, 2,
     );
   }
@@ -7990,7 +7940,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   return () => {
     let initialNative: Omit<AgentResumeNative, "schema" | "launch_id"> | null = null;
     let initialLaunch: AgentMetadata | null = null, initialProof: AgentResumeNative | null = null;
-    let initialAdmission: { name: string; token: string } | null = null;
+    let initialAdmission: { name: string } | null = null;
     const create = (): [string, string] => {
       let sid: string;
       let hint: string;
@@ -8128,9 +8078,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         if (!server || !pane) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。", 2);
         initialNative = { ...receipt, server_started_identity: server, pane_started_identity: pane };
         try {
-          const token = tryCreateOwnedLock(agentSendLockPath(receipt.session_id));
-          if (!token) throw agentSendBusyError(receipt.session_id, null, 0);
-          initialAdmission = { name: receipt.session_id, token };
+          initialAdmission = { name: receipt.session_id };
           agentSendHeld.add(receipt.session_id);
           // The old launch may have entered hibernation after the public precheck.
           assertNoDormantSession(receipt.session_id);
@@ -8145,9 +8093,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       }, create);
     } finally {
       if (initialAdmission) {
-        const { name, token } = initialAdmission;
+        const { name } = initialAdmission;
         agentSendHeld.delete(name);
-        releaseOwnedLock(agentSendLockPath(name), token);
       }
     }
   };

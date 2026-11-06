@@ -175,55 +175,7 @@ test("起動直後のClaudeへ2通が重なっても、後の1通は断られず
   }
 });
 
-test("別のprocessから起動直後のClaudeへ2通が重なっても、どちらも断られない", { skip }, async (t) => {
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  const script = path.join(process.env.TMPDIR, "send-one.mjs");
-  fs.writeFileSync(script, [
-    "const core = await import(process.argv[2]);",
-    "core.__testSetAgentTuiReadyStableSamples(1);",
-    "console.log('started');",
-    "try {",
-    "  const receipt = await core.sendAgentMessage(process.argv[3], process.argv[4]);",
-    "  console.log(JSON.stringify({ ok: true, schema: receipt.schema }));",
-    "} catch (error) {",
-    "  const fs = await import('node:fs'); let native_start = null;",
-    `  try { native_start = { launch_id: fs.readFileSync(${JSON.stringify(fakeClaudeStarted)}, 'utf8').trim(), at: fs.statSync(${JSON.stringify(fakeClaudeStarted)}).mtimeMs }; } catch {}`,
-    "  console.log(JSON.stringify({ ok: false, message: error.message, at: Date.now(), native_start }));",
-    "}",
-    "",
-  ].join("\n"));
-  const run = (text) => {
-    const child = spawn(process.execPath, [script, coreUrl.href, sid, text], { env: process.env, stdio: ["ignore", "pipe", "inherit"] });
-    let stdout = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
-    return {
-      started: async () => { while (!stdout.includes("started")) await sleep(20); },
-      result: new Promise((resolve) => child.on("close", () => resolve(JSON.parse(stdout.trim().split("\n").at(-1))))),
-    };
-  };
-  let results;
-  try {
-    const one = run("echo PROCESS_ONE");
-    const two = run("echo PROCESS_TWO");
-    await Promise.all([one.started(), two.started()]);
-    await sleep(500);
-    await markFakeClaudeReady(sid);
-    results = await Promise.all([one.result, two.result]);
-    assert.deepEqual(results.map((r) => r.ok), [true, true], JSON.stringify(results));
-    // 別のprocessの間の順番は決めない。先に通った方が新しいturn、後の方が差し込みになる。
-    assert.deepEqual(results.map((r) => r.schema).sort(), ["aiterm.agent-dispatch.v1", "aiterm.agent-steer.v1"]);
-    const out = await core.readOutput(sid, { raw: true, full: true });
-    assert.match(out, /PROCESS_ONE/);
-    assert.match(out, /PROCESS_TWO/);
-    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
-  } catch (error) {
-    t.diagnostic(JSON.stringify(await capturePtyFailure(core, sid, { boundary: 'cross-process startup sends', results, native_start: claudeStart() })));
-    throw error;
-  } finally {
-    core.closeSession(sid);
-    fs.rmSync(script, { force: true });
-  }
-});
+
 
 test("入力受付のCodexへ2通が重なっても、1通ずつ別の行で届く", { skip }, async () => {
   const [sid] = core.openAgent("codex", { agent_done: true });
@@ -298,46 +250,9 @@ test("起動時promptの準備中に届いた1通は、起動時promptを送り�
   }
 });
 
-test("持ち主が終了したlockは片付けて送る", { skip }, async () => {
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  try {
-    await markFakeClaudeReady(sid);
-    writeLock(agentSendLockPath(sid), deadPid());
-    const receipt = await core.sendAgentMessage(sid, "echo AFTER_DEAD_OWNER");
-    assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
-    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
-    assert.equal(fs.existsSync(`${agentSendLockPath(sid)}.reap`), false);
-  } finally {
-    core.closeSession(sid);
-  }
-});
 
-test("別のprocessが送信中のまま待つ上限を越えたら、打たずに断る。sessionは閉じられる", { skip }, async () => {
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  const owner = spawnIdle();
-  try {
-    core.__testSetAgentSendLockWaitMs(400);
-    await markFakeClaudeReady(sid);
-    writeLock(agentSendLockPath(sid), owner.pid);
-    const started = performance.now();
-    await assert.rejects(
-      () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      // 先頭と「文字列は送信していません。」は、連携元（BellTeam）が未送信の断りを見分けるのに使う。
-      (e) => e.code === 2 && e.message.startsWith(`AGENT_SEND_BUSY: agent session '${sid}' は別プロセス（pid ${owner.pid}）`)
-        && e.message.includes("文字列は送信していません。"),
-    );
-    assert.ok(performance.now() - started >= 400, "上限まで待つ");
-    assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /MUST_NOT_ARRIVE/);
-    assert.equal(fs.existsSync(claudeMarkerPath(sid)), false, "断った1通はturnの印を取らない");
-    core.closeSession(sid);
-    assert.ok(fs.existsSync(agentSendLockPath(sid)), "生きた持ち主のlockは閉じても残す");
-  } finally {
-    core.__testSetAgentSendLockWaitMs?.(null);
-    owner.kill();
-    fs.rmSync(agentSendLockPath(sid), { force: true });
-    try { core.closeSession(sid); } catch { /* 閉じ済み */ }
-  }
-});
+
+
 
 test("同じprocessの前の1通が上限を越えて続く時も、後の1通は打たずに断り、その次の1通は順番を保つ", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
@@ -382,13 +297,13 @@ test("順番待ちの送信は、同名で作り直したagentへ移らない", 
     const queued = core.sendAgentMessage(sid, "echo OLD_QUEUED");
     settled = Promise.allSettled([first, queued]);
     core.closeSession(sid);
-    assert.throws(() => core.openAgent("claude", { agent_done: true, session_name: sid }), /AGENT_SEND_BUSY/);
+    core.openAgent("claude", { agent_done: true, session_name: sid });
+    assert.notEqual(readAgentMeta(sid).launch_id, original);
     release();
     const results = await settled;
     assert.deepEqual(results.map(result => result.status), ["rejected", "rejected"]);
-    assert.match(results[0].reason.message, /agent_done 管理セッションではありません|state=missing reason=session_missing/);
+    assert.match(results[0].reason.message, /agent_done 管理セッションではありません|state=missing reason=session_missing|AGENT_RESUME_UNCONFIRMED|EXECUTION_STALE_GENERATION/);
     assert.match(results[1].reason.message, /EXECUTION_STALE_GENERATION/);
-    core.openAgent("claude", { agent_done: true, session_name: sid });
     assert.notEqual(readAgentMeta(sid).launch_id, original);
     await markFakeClaudeReady(sid);
     assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /OLD_INFLIGHT|OLD_QUEUED/);
@@ -417,27 +332,7 @@ test("送信が入力受付待ちの間もsessionは閉じられ、その送信�
   }
 });
 
-test("片付けの途中で残った印は自動で消さず、pty_closeで片付く", { skip }, async () => {
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  const lock = agentSendLockPath(sid);
-  try {
-    await markFakeClaudeReady(sid);
-    writeLock(lock, deadPid());
-    writeLock(`${lock}.reap`, deadPid());
-    await assert.rejects(
-      () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      (e) => e.code === 2 && e.message.startsWith(`agent session '${sid}' に、終了した送信のlockを片付ける途中で残った印があります。`)
-        && e.message.includes("文字列は送信していません。") && /pty_close/.test(e.message),
-    );
-    assert.doesNotMatch(fs.readFileSync(sessionLogPath(sid), "utf8"), /MUST_NOT_ARRIVE/);
-    assert.ok(fs.existsSync(lock));
-    core.closeSession(sid);
-    assert.equal(fs.existsSync(lock), false);
-    assert.equal(fs.existsSync(`${lock}.reap`), false);
-  } finally {
-    try { core.closeSession(sid); } catch { /* 閉じ済み */ }
-  }
-});
+
 
 test("画面が無くなった席も閉じられ、残った印とlockが片付く", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
@@ -451,21 +346,7 @@ test("画面が無くなった席も閉じられ、残った印とlockが片付�
   assert.equal(fs.existsSync(`${lock}.reap`), false);
 });
 
-test("終了した持ち主のpidを別のprocessが使っている時は、本人でないと確かめて片付けて送る", { skip }, async () => {
-  const [sid] = core.openAgent("claude", { agent_done: true });
-  const unrelated = spawnIdle();
-  try {
-    await markFakeClaudeReady(sid);
-    // 1時間前に送信を始めた持ち主が終了し、そのpidを今始まったprocessが使っている形。
-    writeLock(agentSendLockPath(sid), unrelated.pid, 3600_000);
-    const receipt = await core.sendAgentMessage(sid, "echo AFTER_REUSED_PID");
-    assert.equal(receipt.schema, "aiterm.agent-dispatch.v1");
-    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
-  } finally {
-    unrelated.kill();
-    core.closeSession(sid);
-  }
-});
+
 
 test("pidを使い回されたlockと古い片付けの印は、生きて見えてもpty_closeで片付く", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
@@ -509,8 +390,8 @@ test("socketの置き場が無くなった席への送信は、lockの作成失�
     'spawnSync("tmux", ["-S", path.join(socketDir, "claude.sock"), "kill-server"]);',
     "fs.rmSync(socketDir, { recursive: true, force: true });",
     "let message = null;",
-    // 入力受付待ちを待たずに結果を得る。lockの層はsendAgentMessageと同じ。
-    'try { await core.dispatchAgentTurn(sid, "echo MUST_NOT_ARRIVE", { ready_timeout: 0 }); } catch (error) { message = error.message; }',
+    // The public input path rejects the actual absent native before any payload.
+    'try { await core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"); } catch (error) { message = error.message; }',
     "console.log(JSON.stringify({ message, socket_dir: fs.existsSync(socketDir) }));",
     "",
   ].join("\n"));
@@ -520,7 +401,7 @@ test("socketの置き場が無くなった席への送信は、lockの作成失�
     });
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout.trim().split("\n").at(-1));
-    assert.match(result.message, /入力受付状態になりません。文字列は送信していません。/);
+    assert.match(result.message, /AGENT_INPUT_TARGET_UNAVAILABLE|AGENT_RESUME_UNCONFIRMED/);
     assert.doesNotMatch(result.message, /ENOENT|agent-send\.lock/);
     assert.equal(result.socket_dir, false, "送れなかった送信が置き場を作り直さない");
   } finally {

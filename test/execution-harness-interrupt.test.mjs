@@ -2,8 +2,9 @@ import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
+import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync, symlinkSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, copyFileSync, symlinkSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentMetadataPath, agentEventPath } from '../dist/agent-shared.js';
@@ -98,6 +99,7 @@ function fixture(t, kind = 'codex') {
       native.present = false; return ok('');
     }
     if (control.allowInput && ['load-buffer', 'set-buffer', 'paste-buffer', 'delete-buffer', 'capture-pane'].includes(command[0])) {
+      if (command[0] === 'paste-buffer') control.beforePaste?.();
       control.inputCommands.push(command[0]); return ok(command[0] === 'capture-pane' ? '❯\n' : '');
     }
     if (control.allowInput && command[0] === 'list-commands') return ok('paste-buffer [-dpr] [-b buffer-name] [-t target-pane]');
@@ -1130,4 +1132,45 @@ test('generation replaced during native re-observation refuses expected close wi
     assert.ok(detailedReads >= 2); assert.equal(f.control.closeCalls, undefined); assert.deepEqual(f.keys, []);
     assert.equal(f.native.present, true);
   }
+});
+
+
+test('first Codex input checks native presence rather than the log/socket directory', posix, async t => {
+  const f = fixture(t, 'codex');
+  f.writeTurn('turn_aborted');
+  f.control.allowInput = true;
+  f.control.immediateScreen = 'OpenAI Codex\n› Ask Codex to do anything\nfixture-model high · /project';
+  rmSync(SOCKDIR, { recursive: true, force: true });
+  assert.equal(existsSync(SOCKDIR), false);
+  core.__testSetAgentTuiReadyStableSamples(1);
+  t.after(() => core.__testSetAgentTuiReadyStableSamples(null));
+  const originalMkdir = fs.mkdirSync;
+  fs.mkdirSync = (file, ...args) => {
+    assert.notEqual(file, SOCKDIR, 'no legacy directory initialization for input');
+    return originalMkdir(file, ...args);
+  };
+  syncBuiltinESMExports();
+  t.after(() => { fs.mkdirSync = originalMkdir; syncBuiltinESMExports(); });
+  let unlockedPastes = 0;
+  f.control.beforePaste = () => {
+    assert.equal(existsSync(join(SOCKDIR, f.name + '.agent-send.lock')), false);
+    assert.equal(existsSync(join(SOCKDIR, f.name + '.send.lock')), false);
+    unlockedPastes++;
+  };
+  const receipt = await core.sendAgentMessage(f.name, 'FIRST_NEW_INPUT', { raw: true });
+  assert.equal(receipt.schema, 'aiterm.agent-dispatch.v1');
+  assert.equal(receipt.launch_id, f.point.launch.launch_id);
+  assert.ok(f.control.inputCommands.includes('paste-buffer'));
+  assert.ok(f.control.inputCommands.includes('send-keys-input'));
+  assert.ok(unlockedPastes > 0);
+  assert.equal(existsSync(SOCKDIR), false);
+  f.control.inputCommands.length = 0;
+  f.control.immediateScreen = 'unrecognized startup screen';
+  await assert.rejects(core.dispatchAgentTurn(f.name, 'TUI_REFUSED', { raw: true, ready_timeout: 0 }), /AGENT_INPUT_NOT_READY/);
+  assert.deepEqual(f.control.inputCommands, []);
+  f.native.present = false;
+  rmSync(SOCKDIR, { recursive: true, force: true });
+  await assert.rejects(core.sendAgentMessage(f.name, 'NEVER_INPUT', { raw: true }), /AGENT_INPUT_TARGET_UNAVAILABLE/);
+  assert.equal(existsSync(SOCKDIR), false);
+  assert.deepEqual(f.control.inputCommands, []);
 });

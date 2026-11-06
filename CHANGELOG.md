@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.12] - 2026-11-07
+
+- Remove filesystem input locks and the legacy socket/log-directory readiness predicate from managed-agent send and fresh-launch admission. Keep process-local order, current launch/native identity and stable TUI readiness checks. Independent local MCP and remote callers now serialize the same agent seat themselves; ordinary PTY/shell and standalone auth/approval file exclusion remain unchanged.
+- Distinguish pre-input native absence (`AGENT_INPUT_TARGET_UNAVAILABLE`) from an actual TUI readiness refusal (`AGENT_INPUT_NOT_READY`) in error text. Public schemas/options are unchanged; these labels do not retrospectively identify older generic failures or prove vendor acceptance.
+
 ## [0.63.11] - 2026-11-06
 
 - Let any MCP client opt into existing host-controller routing with the initialize experimental capability `io.github.kitepon/aiterm-mcp/host-controller: {}`. The exact `bellteam` client name remains a backward-compatible alias; undeclared clients retain ordinary direct routing.
@@ -3058,7 +3063,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...HEAD
+[0.63.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...v0.63.12
 [0.63.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...v0.63.11
 [0.63.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...v0.63.10
 [0.63.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.8...v0.63.9

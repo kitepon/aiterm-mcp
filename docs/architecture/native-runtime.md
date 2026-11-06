@@ -53,3 +53,22 @@ coreの`send({rtk:true})`は別の任意入力変換である。単一行だけ�
 ## PTY診断だけの有限実行
 
 通常nativeの期限/返却は維持する。readOnlyTmuxListだけがbinary version解決と同socket一覧1回へ共通5000ms deadline・SIGKILL・1MiB上限を渡し、内部固定失敗型へ写す。依存失敗をtelemetryへ書いて通す副作用は無い。coreが同scopeの厳密不在/安全な理由を射影し、公開format v1/v2は[観測図](observation-results.md)が所有する。vendor照会とruntime-store workerは各既存期限、OS syscall/schedulingのhard realtime保証はしない。
+
+
+## Managed-agent first-input ownership
+
+Owner decision: managed-agent callers serialize operations for the same seat. Independent local MCP clients and SSH remote clients can address the same named agent (see remote.dot); no source contract proves those independent clients share a queue. Cross-process exclusion is therefore now explicitly the caller's responsibility. This is a changed input concurrency guarantee, not a native readiness inference. No new consumer queue is introduced by Aiterm.
+
+| Function | Current responsibility |
+| --- | --- |
+| `withAgentSendLock` | Process-local ordering/owner context and captured launch recheck only; no filesystem agent-send lock or SOCKDIR readiness condition. Existing native/resume proofs remain. |
+| `withAgentNativeOperation` | Same operation ownership and native selection; no agent-send file acquisition for managed mutations. |
+| `send` | Managed agent payload does not acquire the legacy session-send file lock. Ordinary PTY/shell and standalone auth/approval retain their existing file exclusion; interleaved shell commands/credential responses have effects beyond a duplicate AI command. |
+| Fresh agent launch | Native creation receipt/birth validation and dormant-state recheck stay; initial agent-send file acquisition is removed. |
+| TUI admission | Existing live harness/generation and stable readiness or active-turn steer remain before payload. Native-absence and readiness failure text get distinct AGENT_INPUT_TARGET_UNAVAILABLE / AGENT_INPUT_NOT_READY prefixes; generic errors remain inconclusive about old payloads. |
+
+Data flow: local MCP or SSH-forwarded managed input -> existing process-local order/owner -> captured launch/native/resume validation -> live harness -> stable TUI readiness or same-turn steer -> before_send/paste/submit. No .agent-send.lock/.send.lock input prerequisite, storage initialization, mkdir workaround, alternate namespace, extra delay/poller/replay, or new public field. Runtime SOCK and Windows namespace selection remain unchanged; optional legacy lastcmd logging is best effort and is not an input gate. Native transport failure is still a real failure.
+
+Historical file-lock cleanup and logical-close admission remain outside the managed input path; no user/Host state files are deleted by this source change. Existing close/metadata/recipe/native identity and private execution effect guards are unchanged.
+
+Focused synthetic regression: selected ready Codex with missing legacy directory dispatches its first input without mkdir or either input file lock; actual TUI-unready and absent-native branches send no payload. Standalone ordinary PTY retains file exclusion. Source fixture is not evidence of the old production failure branch or real vendor acceptance.

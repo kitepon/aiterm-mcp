@@ -99,3 +99,6 @@ Resume-only admission on normal launch is defined in [restart-resume-only](resta
 
 
 Resume-only0.63.10 retained working preparation may bind a Codex UUID/model only from the strict launch-bound root/current-turn configuration (restart-resume-only.md). Its existing recipe/template can carry reasoning_effort_source:vendor_default with null effort; unknown null without that origin is incomplete. Native owns binding/config proof, existing generation/lock/default preservation and cleanup; execution still owns prior-active selection and summary.
+
+
+Managed-input update: process-local owner/order remains, but agent-send file locks are no longer an input or fresh-agent-launch prerequisite. Caller serialization is required across independent MCP/SSH clients. Native generation/birth, saved resume recipe and effect admission still own target safety; a missing legacy socket/log directory is not readiness. See native-runtime.md for the current input function map/DFD. Logical close and historical cleanup are unchanged.

@@ -21,3 +21,18 @@ The flag skips opportunistic idle-clock maintenance in the tool handler so a ref
 Wire compatibility: error structuredContent is validated as success by SDK1.29 Client.callTool. The new unavailable envelope is therefore in typed _meta[aiterm/resume_unavailable], without structuredContent; success outputSchema remains unchanged. Caller retains this typed field.
 
 Remote boundary: this new flag is local-only; remote requests are rejected before connection because an older remote server could strip the unknown optional flag and launch fresh. No capability negotiation or remote fallback is added.
+
+
+## 0.63.9: saved working conversation after native loss
+
+Function change: only require_existing_resume admission may prepare a saved working target with no lifecycle. Under the same send lock, require matching harness, captured vendor UUID, no resume attempt, and a known native snapshot with the requested name absent. refreshAgentResumeRecipe must produce a complete recipe and confirmedAgentResumeRecipe must accept it. Codex uses existing captureCodexRecoveryProof, which pins the inherited conversation without requiring old task completion; no input is replayed. Unknown native absence, live target, missing vendor/config or mismatches refuse unchanged.
+
+DFD: saved metadata/confirmed template -> fresh recipe -> existing Codex cold proof -> candidate hibernated lifecycle -> existing recipe/config checks -> metadata/native absence recheck -> same lifecycle file -> existing resumeAgentInLock -> normal readiness/new-launch receipt. Ordinary flag-absent launch and idle-timeout stop/write path stay unchanged.
+
+Lifecycle representation: add an explicit origin:restart variant of the existing v1 hibernated record with the same launch/socket/recipe/proof/at/anchor fields, without old pane/native identity. It asserts verified absence and resumable configuration, not a successful idle stop or a surviving old worker. Do not fabricate PID/argv/native fields for a disappeared process. Existing idle record schema remains unchanged and strict. This is an additive record variant in the same native-owned store, no migration/new store. Older0.63.8 cannot read this new variant; do not roll it back mid-resume as a recovery action.
+
+One focused native fixture case: working Codex without lifecycle/recipe, native killed retaining metadata -> missing vendor refused -> valid saved UUID/recipe resumes same conversation with a new launch; existing idle-hibernated path still resumes. No live vendor/auth/production targets or old test sweep.
+
+The resume-only caller retains the existing queue/file lock and launch identity recheck, but passes the existing pinResume=false option: a disappeared old native must not be pinned before the locked absence/recipe decision. The resumed native is still created and verified by the existing resume path, including withAgentResumeTarget after readiness. Ordinary callers retain pinResume=true.
+
+Preparation retains assertExecutionResumeSupported before refreshing recipe/proof and the existing withExecutionPreparation gate when committing lifecycle. Config mismatch still refuses before lifecycle commit or native creation.

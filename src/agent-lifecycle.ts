@@ -16,10 +16,16 @@ export const agentResumeRecipeSchema = z.object({
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
 const identity = z.object({ pid: z.number().int().positive(), process_group_id: z.number().int().positive().nullable(),
   started_identity: z.string().min(1), argv_digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
-export const agentLifecycleSchema = z.object({ schema: z.literal("aiterm.agent-lifecycle.v1"), launch_id: launchId,
-  state: z.enum(["stopping", "hibernated"]), socket: z.string().min(1).optional(), at: z.iso.datetime(), anchor: z.string().min(1),
-  native_id: z.string().regex(/^\$\d+$/), pane: identity, resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict();
+const lifecycleFields = {
+  schema: z.literal("aiterm.agent-lifecycle.v1"), launch_id: launchId,
+  socket: z.string().min(1).optional(), at: z.iso.datetime(), anchor: z.string().min(1),
+  resume_proof_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(), recipe_digest: z.string().regex(/^[a-f0-9]{64}$/),
+};
+export const agentLifecycleSchema = z.union([
+  z.object({ ...lifecycleFields, state: z.enum(["stopping", "hibernated"]),
+    native_id: z.string().regex(/^\$\d+$/), pane: identity }).strict(),
+  z.object({ ...lifecycleFields, state: z.literal("hibernated"), origin: z.literal("restart") }).strict(),
+]);
 export type AgentLifecycle = z.infer<typeof agentLifecycleSchema>;
 type Launch = Pick<AgentMetadata, "aiterm_session" | "launch_id">;
 const file = (meta: Launch, suffix: string) => agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, suffix);

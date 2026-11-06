@@ -93,3 +93,6 @@ R1-L直接回帰では、同名launchでresolutionを完成→通常configureで
 
 
 Resume-only admission on normal launch is defined in [restart-resume-only](restart-resume-only.md); it reuses the existing send lock and lifecycle/recipe owner, without a new store or writer.
+
+
+0.63.9 restart-only admission can write an origin:restart hibernated variant after confirmed native absence and validated saved configuration. Unlike idle-timeout stopping, it has no old pane/native identity to assert. The existing lifecycle file remains the owner; exact flow is in restart-resume-only.md.

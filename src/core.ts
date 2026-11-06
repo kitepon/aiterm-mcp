@@ -6904,6 +6904,28 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
   });
 }
 
+/** Prepare only a retained conversation whose native session is confirmed absent. */
+function prepareWorkingAgentResume(meta: AgentMetadata): AgentLifecycle {
+  assertExecutionResumeSupported();
+  const unavailable = () => new AgentResumeUnavailableError(meta.aiterm_session);
+  const absent = () => {
+    const native = observeExecutionNativeSessions();
+    if (native.state !== "known" || native.sessions.some(row => row.session_id === meta.aiterm_session)) throw unavailable();
+  };
+  if ((meta.kind !== "claude" && meta.kind !== "codex") || !meta.vendor_session_id || readAgentResumeAttempt(meta)) throw unavailable();
+  absent();
+  const recipe = refreshAgentResumeRecipe(meta);
+  if (!recipe) throw unavailable();
+  const proof = meta.kind === "codex" ? captureCodexRecoveryProof(meta) : null;
+  const lifecycle: AgentLifecycle = { schema: "aiterm.agent-lifecycle.v1", state: "hibernated", origin: "restart",
+    launch_id: meta.launch_id, socket: SOCK, at: new Date().toISOString(), anchor: `restart:${meta.launch_id}`,
+    recipe_digest: agentResumeRecipeDigest(recipe), ...(proof ? { resume_proof_digest: codexResumeProofDigest(proof) } : {}) };
+  confirmedAgentResumeRecipe(meta, lifecycle);
+  absent();
+  if (!isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta)) throw unavailable();
+  return lifecycle;
+}
+
 async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -8170,10 +8192,12 @@ export async function openAgentWithInitialPrompt(
     const name = opts.session_name, saved = opts.require_existing_resume ? null : tryLoadAgentMetadata(name);
     if (opts.require_existing_resume || (saved && (readAgentLifecycle(saved) || agentDormantState(saved)))) {
       return withAgentSendLock(name, async () => {
-        let previous: AgentMetadata, recipe: AgentResumeRecipe;
+        let previous: AgentMetadata, recipe: AgentResumeRecipe, preparedLifecycle: AgentLifecycle | null = null;
         try {
           previous = loadAgentMetadata(name);
-          const lifecycle = readAgentLifecycle(previous);
+          let lifecycle = readAgentLifecycle(previous);
+          if (opts.require_existing_resume && !lifecycle && kind === previous.kind && !readAgentResumeAttempt(previous)
+            && !failedCodexResumeRecipe(previous)) lifecycle = preparedLifecycle = prepareWorkingAgentResume(previous);
           if ((saved && !isDeepStrictEqual(previous, saved)) || (lifecycle?.state !== "hibernated" && !failedCodexResumeRecipe(previous)) || readAgentResumeAttempt(previous))
             throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の再開世代を確認できません。", 2);
           recipe = lifecycle ? confirmedAgentResumeRecipe(previous, lifecycle) : failedCodexResumeRecipe(previous)!;
@@ -8192,6 +8216,13 @@ export async function openAgentWithInitialPrompt(
         if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));
+        if (preparedLifecycle) {
+          const native = observeExecutionNativeSessions();
+          if (native.state !== "known" || native.sessions.some(row => row.session_id === name)
+            || !isDeepStrictEqual(loadAgentMetadata(name), previous) || readAgentLifecycle(previous))
+            throw new AgentResumeUnavailableError(name);
+          withExecutionPreparation(name, () => writeAgentLifecycle(previous, preparedLifecycle!));
+        }
         const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
@@ -8213,7 +8244,7 @@ export async function openAgentWithInitialPrompt(
               current.initial_prompt_cursor ?? null, { status: "blocked", reason: "startup_failed" });
           }
         });
-      });
+      }, AGENT_SEND_UNSENT, !opts.require_existing_resume);
     }
   }
   // ファスト（ADR 0114）。設定の誤りは席を作る前に断る。fastへ出来ない訳がアカウントの都合なら、通常で起こして返りへ訳を入れる。

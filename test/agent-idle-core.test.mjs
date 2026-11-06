@@ -9,6 +9,7 @@ import {syncBuiltinESMExports} from 'node:module';
 import {AsyncResource} from 'node:async_hooks';
 import * as core from '../dist/core.js';
 import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publishAgentGeneration} from '../dist/agent-shared.js';
+import {loadAgentMetadata} from '../dist/agent-metadata-reader.js';
 import {readAgentLifecycle,writeAgentLifecycle,writeAgentResumeAttempt,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/execution-effect.js';
 import {readProcessIdentities} from '../dist/process-runtime.js';
@@ -873,4 +874,35 @@ for(const obstruction of ['orphan','unknown-list','root-replaced','vendor-mismat
   assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,2);
   assert.equal(fs.existsSync(f.keys),false);
  } finally { if(obstruction==='unknown-list'){t.mock.restoreAll();syncBuiltinESMExports();} }
+});
+
+test('restart-only resumes a killed working conversation without an idle recipe and preserves idle resume', {skip,timeout:30000},async t=>{
+ const f=await fixture(t);core.openSession('restart-working-bridge');
+ const recipeFile=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume.json');
+ fs.rmSync(recipeFile);
+ assert.equal(readAgentLifecycle(f.meta),null);
+ const unavailable=error=>error.resumeUnavailable?.code==='AGENT_RESUME_UNAVAILABLE';
+ // A still-live native session is never adopted as a restart target.
+ await assert.rejects(core.openAgentWithInitialPrompt('codex',{session_name:f.name,require_existing_resume:true}),unavailable);
+ assert.equal(fs.existsSync(recipeFile),false);
+ fs.appendFileSync(f.rollout,JSON.stringify({timestamp:new Date().toISOString(),type:'event_msg',payload:{type:'task_started',turn_id:'working-at-restart'}})+'\n');
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',f.name]).status,0);
+ writeAgentMetadata({...f.meta,vendor_session_id:null});
+ await assert.rejects(core.openAgentWithInitialPrompt('codex',{session_name:f.name,require_existing_resume:true}),unavailable);
+ assert.equal(readAgentLifecycle(f.meta),null);assert.equal(fs.existsSync(recipeFile),false);
+ writeAgentMetadata(f.meta);
+ await assert.rejects(core.openAgentWithInitialPrompt('codex',{session_name:f.name,require_existing_resume:true,model:'different-model'}),unavailable);
+ assert.equal(readAgentLifecycle(f.meta),null);
+ const result=await core.openAgentWithInitialPrompt('codex',{session_name:f.name,require_existing_resume:true,ready_timeout:3000});
+ assert.equal(result[0],f.name);assert.equal(result[4].status,'not_requested');assert.equal(result[5].status,'ready');
+ const next=loadAgentMetadata(f.name);
+ assert.equal(next.vendor_session_id,f.meta.vendor_session_id);assert.equal(next.resumed_from,f.meta.launch_id);
+ const oldLifecycle=readAgentLifecycle(f.meta);assert.equal(oldLifecycle.state,'hibernated');assert.equal(oldLifecycle.origin,'restart');
+ assert.equal('pane' in oldLifecycle,false);assert.equal('native_id' in oldLifecycle,false);
+ assert.equal(readAgentLifecycle(next),null);
+ assert.equal(fs.existsSync(f.keys),false,'no old business input was replayed');
+ const idle=await fixture(t);assert.equal((await core.checkAgentIdle(idle.expected)).outcome,'hibernated');
+ assert.equal(readAgentLifecycle(idle.meta).origin,undefined);
+ const idleResult=await core.openAgentWithInitialPrompt('codex',{session_name:idle.name,require_existing_resume:true,ready_timeout:3000});
+ assert.equal(idleResult[5].status,'ready');assert.equal(idleResult[4].status,'not_requested');
 });

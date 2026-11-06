@@ -32,6 +32,17 @@ export class AgentAuthenticationPreflightError extends AitermError {
   }
 }
 
+/** Admission refusal before the requested resume starts. */
+export class AgentResumeUnavailableError extends AitermError {
+  readonly resumeUnavailable;
+  constructor(sessionId: string) {
+    super("AGENT_RESUME_UNAVAILABLE: 保存した再開対象を確認できません。新規起動も本文送信もしていません。", 2);
+    this.resumeUnavailable = { schema: "aiterm.agent-resume-unavailable.v1" as const,
+      code: "AGENT_RESUME_UNAVAILABLE" as const, session_id: sessionId,
+      outcome: "unavailable" as const, effect: "not_started" as const, input: "not_sent" as const };
+  }
+}
+
 /** Resume failures occur before the caller's body reaches the input path. */
 export class AgentResumeError extends AitermError {
   readonly resumeFailure;

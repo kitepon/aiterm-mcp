@@ -43,7 +43,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -57,7 +57,7 @@ import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
-import { AitermError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -8120,6 +8120,7 @@ export async function openAgentWithInitialPrompt(
   kind: AgentKind,
   opts: {
     session_name?: string | null;
+    require_existing_resume?: boolean;
     model?: string | null;
     reasoning_effort?: string | null;
     cwd?: string | null;
@@ -8137,6 +8138,9 @@ export async function openAgentWithInitialPrompt(
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
   if (opts.session_name) await withExecutionNativeAdmission(opts.session_name, () => assertExecutionContext(opts.session_name));
   else assertExecutionContext(opts.session_name);
+  if (opts.require_existing_resume && (!opts.session_name || opts.prompt != null || opts.throughline_source_session != null
+    || opts.throughline_supplement_file != null))
+    throw new AitermError("require_existing_resume requires session_name and no prompt or Throughline fork", 2);
   const mission = opts.prompt ?? null;
   const sourceSessionId = opts.throughline_source_session ?? null;
   const supplementFile = opts.throughline_supplement_file ?? null;
@@ -8163,13 +8167,20 @@ export async function openAgentWithInitialPrompt(
   }
   if (opts.session_name) {
     assertSessionName(opts.session_name);
-    const name = opts.session_name, saved = tryLoadAgentMetadata(name);
-    if (saved && (readAgentLifecycle(saved) || agentDormantState(saved))) {
+    const name = opts.session_name, saved = opts.require_existing_resume ? null : tryLoadAgentMetadata(name);
+    if (opts.require_existing_resume || (saved && (readAgentLifecycle(saved) || agentDormantState(saved)))) {
       return withAgentSendLock(name, async () => {
-        const previous = loadAgentMetadata(name), lifecycle = readAgentLifecycle(previous);
-        if (!isDeepStrictEqual(previous, saved) || (lifecycle?.state !== "hibernated" && !failedCodexResumeRecipe(previous)) || readAgentResumeAttempt(previous))
-          throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の再開世代を確認できません。", 2);
-        const recipe = lifecycle ? confirmedAgentResumeRecipe(previous, lifecycle) : failedCodexResumeRecipe(previous)!;
+        let previous: AgentMetadata, recipe: AgentResumeRecipe;
+        try {
+          previous = loadAgentMetadata(name);
+          const lifecycle = readAgentLifecycle(previous);
+          if ((saved && !isDeepStrictEqual(previous, saved)) || (lifecycle?.state !== "hibernated" && !failedCodexResumeRecipe(previous)) || readAgentResumeAttempt(previous))
+            throw new AitermError("AGENT_RESUME_UNCONFIRMED: 保存した会話席の再開世代を確認できません。", 2);
+          recipe = lifecycle ? confirmedAgentResumeRecipe(previous, lifecycle) : failedCodexResumeRecipe(previous)!;
+        } catch (error) {
+          if (opts.require_existing_resume) throw new AgentResumeUnavailableError(name);
+          throw error;
+        }
         if (kind !== previous.kind || sourceSessionId !== null
           || (opts.model != null && opts.model.trim() !== recipe.model)
           || (opts.reasoning_effort != null && opts.reasoning_effort.trim() !== recipe.reasoning_effort)
@@ -8177,7 +8188,7 @@ export async function openAgentWithInitialPrompt(
           || (opts.cwd != null && path.resolve(opts.cwd) !== recipe.cwd)
           || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
           || (opts.env_vars !== undefined && !isDeepStrictEqual([...new Set(opts.env_vars)].sort(), Object.keys(recipe.environment).sort())))
-          throw new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
+          throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
         if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));

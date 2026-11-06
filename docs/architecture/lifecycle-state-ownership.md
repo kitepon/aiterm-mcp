@@ -90,3 +90,6 @@ Bの`.resume-recovery-origin.json`は元A.failed attempt/native/recipe/proof dig
 直接回帰：`agent-idle-core.test.mjs`のcold正常系・orphan/一覧unknown/root置換/vendor mismatch拒否、`codex-resume-proof.test.mjs`の初手前/未完task/cold provenanceと新floor。H1 offline保存/復元はresume-checkpoint正本へ。online sealは提供せず、実供給の停止とboot採用はcaller責任であり商用供給成功へ拡張しない。
 
 R1-L直接回帰では、同名launchでresolutionを完成→通常configureでcurrent recipe変更→sendを確認し、元startup baselineを保持するready-save失敗からは次の正常休止/同vendor resumeも確認した。baseline欠測の初期失敗は既unknownを保ち、復帰後に子をbaselineへ取り込まない。全既失敗を無条件に休止可能にする変更ではない。
+
+
+Resume-only admission on normal launch is defined in [restart-resume-only](restart-resume-only.md); it reuses the existing send lock and lifecycle/recipe owner, without a new store or writer.

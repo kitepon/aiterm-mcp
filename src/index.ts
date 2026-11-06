@@ -2,7 +2,7 @@
 import { remoteInputDescription, remoteInputSchema, type RemoteTarget } from "./remote-contract.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
-import { AitermError, AgentAuthenticationPreflightError, AgentResumeError } from "./errors.js";
+import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableError, AgentResumeError } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -156,7 +156,7 @@ function completionWait(delivery: DeliveryRequest | null, session: string, event
   return { wait_process: core.agentWaitProcess(session, eventCursor, { launchId, inputId }), wait_command: `aiterm-wait --session ${session} --cursor ${eventCursor}` + (inputId ? ` --input ${inputId}` : "") };
 }
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown> };
+type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, unknown>; _meta?: Record<string, unknown> };
 
 /**
  * dispatch 系の説明で共有する非ブロック規範。tool description は registerTool 時＝initialize 前に
@@ -192,6 +192,8 @@ function ok(s: string): ToolResult {
 }
 function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
+  if (e instanceof AgentResumeUnavailableError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    _meta: { "aiterm/resume_unavailable": { ...e.resumeUnavailable } } };
   if (e instanceof AgentResumeError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     structuredContent: { ...e.resumeFailure } };
   const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
@@ -1221,13 +1223,15 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume } = args;
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
       throw new core.AitermError("claude-code harnessはwrite_scopeに対応していません。指定を外してください", 2);
     }
-    await core.maintainAgentIdleClocks();
+    if (require_existing_resume && ((image?.length ?? 0) > 0 || prompt != null || throughline_source_session != null || throughline_supplement_file != null))
+      throw new core.AitermError("require_existing_resume is promptless", 2);
+    if (!require_existing_resume) await core.maintainAgentIdleClocks();
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
     if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
     let inputId: string | undefined;
@@ -1243,6 +1247,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       before_send: async boundary => { inputId = boundary.input_id; await delivery?.before_send(boundary); },
       cwd: cwd ?? undefined,
       session_name: session_name ?? undefined,
+      require_existing_resume,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
     });
@@ -1388,6 +1393,7 @@ server.registerTool(
       "remoteを付けると、SSHで入った別端末のAitermで同じ起動を行い、完了は同じ形で親へ届く。" +
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
+      require_existing_resume: z.boolean().optional().describe("Resume an existing saved conversation only; missing or unsupported target never creates a new session. Requires session_name and no prompt; local-only."),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
       prompt: z.string().nullish().describe("起動時に渡す初手プロンプト（任意）。送信後は待たずに即返る"),
       image: z.array(z.string()).optional().describe("初手プロンプトへ添付する画像ファイルの絶対パス（png/jpg/jpeg/gif/webp）"),
@@ -1427,6 +1433,9 @@ server.registerTool(
     },
   },
   async ({ harness, remote, ...args }: any, extra) => {
+    if (remote && args.require_existing_resume) return fail(typeof args.session_name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(args.session_name)
+      ? new AgentResumeUnavailableError(args.session_name)
+      : new AitermError("require_existing_resume requires session_name", 2));
     if (!remote) return launchAgent(kindForHarness(harness), args, extra);
     try { return await launchRemoteAgent(acceptRemote(remote), harness, args, extra); }
     catch (e) { return fail(e); }

@@ -178,7 +178,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexCompletedTurnId,
-  captureCodexRecoveryProof, captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
+  codexWorkingResumeConfiguration, captureCodexRecoveryProof, captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -6719,7 +6719,8 @@ function confirmedAgentResumeRecipe(meta: AgentMetadata, lifecycle: AgentLifecyc
     || recipe.vendor_session_id !== meta.vendor_session_id || lifecycle.recipe_digest !== agentResumeRecipeDigest(recipe)
     || recipe.model !== meta.model || recipe.fast !== meta.fast || recipe.cwd !== meta.cwd || recipe.executable !== meta.agent_executable
     || recipe.configuration_root !== (meta.kind === "codex" ? meta.codex_home : meta.claude_home ?? claudeConfigDir())
-    || !recipe.model || !recipe.reasoning_effort || !isUsableAgentExecutableFile(recipe.executable)
+    || !recipe.model || (!recipe.reasoning_effort && !(meta.kind === "codex" && recipe.reasoning_effort === null && recipe.reasoning_effort_source === "vendor_default"))
+    || (recipe.reasoning_effort_source !== undefined && (meta.kind !== "codex" || recipe.reasoning_effort !== null)) || !isUsableAgentExecutableFile(recipe.executable)
     || !fs.statSync(recipe.cwd).isDirectory()) throw unavailable();
   if (meta.kind === "claude" && !Object.hasOwn(recipe.environment, "CLAUDE_CONFIG_DIR")) throw unavailable();
   if (meta.kind === "codex" && (!lifecycle.resume_proof_digest
@@ -6875,7 +6876,8 @@ async function completeFailedCodexResume(meta: AgentMetadata, readyTimeout: numb
       // Do not recapture startup processes: this same native may already own children.
       writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id,
         state: "confirmed", kind: "codex", executable: recipe.executable, cwd: recipe.cwd,
-        configuration_root: recipe.configuration_root, model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
+        configuration_root: recipe.configuration_root, model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment,
+        ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
       verify();
       writeAgentResumeResolution(meta, { schema: "aiterm.agent-resume-resolution.v1", launch_id: meta.launch_id,
         previous_launch_id: source.launch_id, vendor_session_id: recipe.vendor_session_id,
@@ -6912,8 +6914,26 @@ function prepareWorkingAgentResume(meta: AgentMetadata): AgentLifecycle {
     const native = observeExecutionNativeSessions();
     if (native.state !== "known" || native.sessions.some(row => row.session_id === meta.aiterm_session)) throw unavailable();
   };
-  if ((meta.kind !== "claude" && meta.kind !== "codex") || !meta.vendor_session_id || readAgentResumeAttempt(meta)) throw unavailable();
+  if ((meta.kind !== "claude" && meta.kind !== "codex") || readAgentResumeAttempt(meta)) throw unavailable();
   absent();
+  const template = readAgentResumeTemplate(meta);
+  if (meta.kind === "codex" && (!meta.vendor_session_id || !template?.model || !template.reasoning_effort)) {
+    const retained = codexWorkingResumeConfiguration(meta);
+    if (!retained || !template || template.state !== "confirmed"
+      || (meta.vendor_session_id && meta.vendor_session_id !== retained.session_id)
+      || (meta.model && meta.model !== retained.model) || (template.model && template.model !== retained.model)
+      || template.reasoning_effort !== retained.effort || template.cwd !== meta.cwd || template.executable !== meta.agent_executable
+      || template.configuration_root !== meta.codex_home) throw unavailable();
+    withExecutionPreparation(meta.aiterm_session, () => {
+      bindCodexTranscriptSession(meta);
+      if (meta.vendor_session_id !== retained.session_id) throw unavailable();
+      meta.model = retained.model;
+      writeAgentMetadata(meta);
+      writeAgentResumeTemplate(meta, { ...template, model: retained.model,
+        ...(retained.effort === null ? { reasoning_effort_source: "vendor_default" as const } : {}) });
+    });
+  }
+  if (!meta.vendor_session_id) throw unavailable();
   const recipe = refreshAgentResumeRecipe(meta);
   if (!recipe) throw unavailable();
   const proof = meta.kind === "codex" ? captureCodexRecoveryProof(meta) : null;
@@ -6979,7 +6999,7 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
   const lineage: AgentLineageContext = { agentRole: "subagent", parentSessionId: previous.parent_session_id!,
     delegationDepth: previous.delegation_depth!, lineage: previous.lineage!, delegationAllowed: true };
   let native: AgentResumeNative | null = null, published = false;
-  return await withNativeSessionCreation(name, receipt => {
+  const resume = () => withNativeSessionCreation(name, receipt => {
     phase = "native_identity";
     const [server, pane] = processStartIdentities([receipt.server_pid, receipt.pane_pid], process.platform);
     if (!next || !server || !pane) throw uncertain();
@@ -7054,7 +7074,8 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
     phase = "ready_save";
     writeAgentResumeTemplate(resumed, { schema: "aiterm.agent-resume-template.v1", launch_id: resumed.launch_id, state: "confirmed",
       kind: recipe.kind, executable: recipe.executable, cwd: recipe.cwd, configuration_root: recipe.configuration_root,
-      model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment });
+      model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment,
+      ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
     writeAgentResumeRecipe(resumed, { ...recipe, launch_id: resumed.launch_id });
     writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
     return resumed;
@@ -7067,6 +7088,9 @@ async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TI
       name, next?.launch_id ?? previous.launch_id);
   }
   });
+  return await (recipe.reasoning_effort_source === "vendor_default"
+    ? keepingCodexDefaults(recipe.executable, recipe.configuration_root, ["model", "model_reasoning_effort"], resume)
+    : resume());
   } catch (error) { recordFailure(error); throw error; }
 }
 

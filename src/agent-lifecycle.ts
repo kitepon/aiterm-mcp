@@ -10,7 +10,7 @@ const absolute = z.string().min(1).refine(value => path.isAbsolute(value) && !va
 export const agentResumeRecipeSchema = z.object({
   schema: z.literal("aiterm.agent-resume.v1"), launch_id: launchId,
   kind: z.enum(["claude", "codex"]), vendor_session_id: z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i),
-  executable: absolute, cwd: absolute, configuration_root: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean(),
+  executable: absolute, cwd: absolute, configuration_root: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), reasoning_effort_source: z.literal("vendor_default").optional(), fast: z.boolean(),
   environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().refine(value => !value.includes("\0")).nullable()),
 }).strict();
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
@@ -147,7 +147,8 @@ export function finishAgentResumeConfiguration(meta: AgentMetadata, before: Agen
   const complete = !!model && !!effort;
   const known = before.state === "confirmed" && (!model || model === before.model || effort !== null);
   writeAgentResumeTemplate(meta, { ...before, model: model ?? before.model, reasoning_effort: effort ?? before.reasoning_effort,
-    state: complete || known ? "confirmed" : "unconfirmed" });
+    state: complete || known ? "confirmed" : "unconfirmed",
+    ...(effort ? { reasoning_effort_source: undefined } : {}) });
 }
 export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe | null {
   const template = readAgentResumeTemplate(meta);
@@ -156,10 +157,10 @@ export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe
     return recipe?.model && recipe.reasoning_effort
       && (meta.kind !== "claude" || Object.hasOwn(recipe.environment, "CLAUDE_CONFIG_DIR")) ? recipe : null;
   }
-  if (template.state !== "confirmed" || !template.model || !template.reasoning_effort || template.model !== meta.model
+  if (template.state !== "confirmed" || !template.model || (!template.reasoning_effort && !(meta.kind === "codex" && template.reasoning_effort === null && template.reasoning_effort_source === "vendor_default")) || template.model !== meta.model
     || template.executable !== meta.agent_executable || template.cwd !== meta.cwd || typeof meta.fast !== "boolean") return null;
   if (meta.kind === "claude" && (!Object.hasOwn(template.environment, "CLAUDE_CONFIG_DIR")
-    || !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort))) return null;
+    || !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort ?? ""))) return null;
   const { state, ...settings } = template;
   const candidate = agentResumeRecipeSchema.safeParse({ ...settings, schema: "aiterm.agent-resume.v1",
     vendor_session_id: meta.vendor_session_id, fast: meta.fast });

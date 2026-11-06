@@ -36,3 +36,14 @@ One focused native fixture case: working Codex without lifecycle/recipe, native 
 The resume-only caller retains the existing queue/file lock and launch identity recheck, but passes the existing pinResume=false option: a disappeared old native must not be pinned before the locked absence/recipe decision. The resumed native is still created and verified by the existing resume path, including withAgentResumeTarget after readiness. Ordinary callers retain pinResume=true.
 
 Preparation retains assertExecutionResumeSupported before refreshing recipe/proof and the existing withExecutionPreparation gate when committing lifecycle. Config mismatch still refuses before lifecycle commit or native creation.
+
+
+## 0.63.10: launch-bound identity and retained default effort
+
+Function map: require-existing preparation first proves native absence, then the existing strict Codex root resolver supplies a unique non-fork/newline-complete/cwd-matching launch-marked rollout and its current turn_context. Existing bindCodexTranscriptSession binds its UUID; the native owner retains the proven model and explicit effort or an explicit vendor_default origin for null effort. Missing/mixed/partial evidence refuses. Claude and ordinary launch are unchanged.
+
+DFD: saved working metadata -> locked absent-native admission -> strict retained root + same-turn configuration -> UUID binding/model + confirmed template with optional reasoning_effort_source:vendor_default -> existing recipe/cold proof -> final metadata/native recheck -> existing resume. vendor_default is accepted only for Codex with null effort; absence of the marker remains incomplete configuration. Resume supplies the retained model and omits an effort override, under existing keepingCodexDefaults so normal configuration defaults are preserved. No guessed effective effort or fresh fallback. Pinned effort and idle-hibernation retain their existing paths.
+
+One changed-contact case covers killed unbound working/default effort -> same UUID resume, missing/mixed/incomplete root rejection, unchanged pinned/idle path and canonical input preservation. The original failed lab request is not retried or reclassified.
+
+Retained-root configuration reads use the existing16MiB transcript increment bound; larger or changing roots refuse rather than allocating unbounded data. Explicit later configuration clears the vendor-default marker. The existing readiness/template and recipe outputs retain that marker across generation changes.

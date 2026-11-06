@@ -96,3 +96,6 @@ Resume-only admission on normal launch is defined in [restart-resume-only](resta
 
 
 0.63.9 restart-only admission can write an origin:restart hibernated variant after confirmed native absence and validated saved configuration. Unlike idle-timeout stopping, it has no old pane/native identity to assert. The existing lifecycle file remains the owner; exact flow is in restart-resume-only.md.
+
+
+Resume-only0.63.10 retained working preparation may bind a Codex UUID/model only from the strict launch-bound root/current-turn configuration (restart-resume-only.md). Its existing recipe/template can carry reasoning_effort_source:vendor_default with null effort; unknown null without that origin is incomplete. Native owns binding/config proof, existing generation/lock/default preservation and cleanup; execution still owns prior-active selection and summary.

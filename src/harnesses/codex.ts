@@ -581,6 +581,35 @@ function codexNativeRootRecord(meta: AgentMetadata, requireBoundary: boolean) {
   } catch { return null; }
 }
 
+/** Read configuration from the unique launch-bound working root without writing it. */
+export function codexWorkingResumeConfiguration(meta: AgentMetadata): { session_id: string; model: string; effort: string | null } | null {
+  const root = codexNativeRootRecord(meta, false);
+  if (!root || !root.boundary || root.end < 1 || root.end > CODEX_TRANSCRIPT_INCREMENT_MAX_BYTES) return null;
+  try {
+    const before = fs.statSync(root.path), text = fs.readFileSync(root.path, "utf8");
+    if (!text.endsWith("\n")) return null;
+    let settings: { model: string; effort: string | null } | null = null;
+    for (const line of text.trimEnd().split("\n")) {
+      const record = JSON.parse(line);
+      if (record.type === "session_meta" && record.payload?.cwd !== meta.cwd) return null;
+      if (record.type !== "turn_context" || record.payload?.turn_id !== root.boundary.turn_id) continue;
+      const context = record.payload, saved = context.collaboration_mode?.settings;
+      const effort = saved && Object.hasOwn(saved, "reasoning_effort") ? saved.reasoning_effort
+        : Object.hasOwn(context, "effort") ? context.effort : undefined;
+      if (context.cwd !== meta.cwd || typeof context.model !== "string" || !context.model
+        || (saved?.model != null && saved.model !== context.model)
+        || (effort !== null && (typeof effort !== "string" || !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(effort)))
+        || settings) return null;
+      settings = { model: context.model, effort };
+    }
+    const after = fs.statSync(root.path);
+    if (!settings || before.dev !== root.file.device || before.ino !== root.file.inode || before.size !== root.end
+      || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) return null;
+    return { session_id: root.session_id, ...settings };
+  } catch { return null; }
+}
+
 export function codexInterruptionRecord(meta: AgentMetadata): {
   session_id: string; file: { device: number; inode: number };
   event_cursor: number;

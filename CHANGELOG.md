@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.10] - 2026-11-06
+
+- Resume a killed working Codex conversation whose native metadata has not yet bound its vendor ID, using only its unique launch-marked, cwd-matching, non-fork, complete retained root rollout and same-turn settings.
+- Preserve explicitly recorded vendor-default effort as unspecified, instead of guessing an effort or refusing all default-effort conversations. Retain the model, same-conversation proof, native absence and configuration guards. Mixed, partial or missing evidence remains unavailable.
+- This extends private resume recipe/template records with an optional vendor-default origin. Use 0.63.10 or later for those records; older versions do not support them. Retained configuration reads are bounded to 16 MiB; larger roots remain unavailable.
+
 ## [0.63.9] - 2026-11-06
 
 - Let resume-only launch reconnect a saved working Claude/Codex conversation after confirmed native-session loss. Refresh the existing saved configuration, preserve same-conversation proof, and never replay the old input or fall through to fresh launch.
@@ -3047,7 +3053,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...HEAD
+[0.63.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...v0.63.10
 [0.63.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.8...v0.63.9
 [0.63.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.7...v0.63.8
 [0.63.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.6...v0.63.7

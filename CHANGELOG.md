@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.9] - 2026-11-06
+
+- Let resume-only launch reconnect a saved working Claude/Codex conversation after confirmed native-session loss. Refresh the existing saved configuration, preserve same-conversation proof, and never replay the old input or fall through to fresh launch.
+- Retain the existing idle-hibernation path and typed unavailable refusal for missing vendor IDs, live native sessions, or mismatched settings.
+- Restart-created hibernated records carry an explicit `origin:restart` variant without fabricated old process identities. Older 0.63.8 cannot read this variant; do not downgrade an affected session as a recovery action. Keep its source/state and use 0.63.9 or later.
+
 ## [0.63.8] - 2026-11-06
 
 - Add optional local `agent_launch(require_existing_resume:true)` admission under the existing send lock. Missing, invalid or unsupported saved resume targets cannot fall through to fresh creation.
@@ -3041,7 +3047,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.8...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...HEAD
+[0.63.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.8...v0.63.9
 [0.63.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.7...v0.63.8
 [0.63.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.6...v0.63.7
 [0.63.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.5...v0.63.6

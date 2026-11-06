@@ -1,3 +1,4 @@
+import { isHostControllerClient } from "./host-controller.js";
 // Goal state belongs to the CLI. This module holds no goal store or loop.
 import { z } from "zod";
 import type { AgentHarness } from "./agent-shared.js";
@@ -22,10 +23,10 @@ export type AgentGoalInput = z.infer<typeof agentGoalInputSchema>;
 export const GOAL_HOST_META_KEY = "aiterm/goal";
 const hostOrigin = z.object({ origin: z.literal("user") }).strict();
 /** Host provenance on the existing local MCP channel, not authentication.
- * BellTeam must authenticate the Owner and reject seat ingress before stamping
+ * The controller must authenticate the user and reject seat ingress before stamping
  * this metadata. A model client's metadata never upgrades its origin. */
-export function goalOriginFromHost(clientName: string | undefined, meta: unknown): "user" | "automatic" {
-  if (clientName !== "bellteam" || !meta || typeof meta !== "object") return "automatic";
+export function goalOriginFromHost(clientName: string | undefined, meta: unknown, capabilities?: unknown): "user" | "automatic" {
+  if (!isHostControllerClient(clientName, capabilities) || !meta || typeof meta !== "object") return "automatic";
   return hostOrigin.safeParse((meta as Record<string, unknown>)[GOAL_HOST_META_KEY]).success ? "user" : "automatic";
 }
 export const nativeGoalSchema = z.object({

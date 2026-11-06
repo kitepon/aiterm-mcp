@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.11] - 2026-11-06
+
+- Let any MCP client opt into existing host-controller routing with the initialize experimental capability `io.github.kitepon/aiterm-mcp/host-controller: {}`. The exact `bellteam` client name remains a backward-compatible alias; undeclared clients retain ordinary direct routing.
+- Use the initialized controller name for interim/follow metadata opt-in, with a generic fallback and the existing `BellTeam` marker retained for compatibility. This is routing identity, not authentication; all generation/source/effect guards and resume-only wire contracts remain unchanged.
+
 ## [0.63.10] - 2026-11-06
 
 - Resume a killed working Codex conversation whose native metadata has not yet bound its vendor ID, using only its unique launch-marked, cwd-matching, non-fork, complete retained root rollout and same-turn settings.
@@ -3053,7 +3058,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...HEAD
+[0.63.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...v0.63.11
 [0.63.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...v0.63.10
 [0.63.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.8...v0.63.9
 [0.63.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.7...v0.63.8

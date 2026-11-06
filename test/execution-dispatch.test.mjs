@@ -583,3 +583,43 @@ for (const change of ['stop', 'generation', 'unknown-slot', 'handler-error'])
     assert.equal(f.store.snapshot().slots[0].state, 'unknown');
     if (change === 'handler-error') assert.match(result.content[0].text, /partial configure failure/);
   });
+
+
+test('initialized host-controller capability generalizes routing and caller labels without changing legacy/direct clients', { skip: posixCheckpoint }, async t => {
+  const { HOST_CONTROLLER_CAPABILITY, isHostControllerClient, hostControllerLabel } = await import('../dist/host-controller.js');
+  const { goalOriginFromHost } = await import('../dist/agent-goal.js');
+  const { executionHostSourceFromMeta } = await import('../dist/execution-wire.js');
+  const { interimRequestFromMeta } = await import('../dist/interim-words.js');
+  for (const [name, declared, controller] of [['example-orchestrator',true,true],['ordinary-client',false,false],['bellteam',false,true]]) {
+    const server = new McpServer({name:'fixture-server',version:'fixture'});
+    const client = new Client({name,version:'fixture'}, {capabilities:declared?{experimental:{[HOST_CONTROLLER_CAPABILITY]:{}}}:{}});
+    const [a,b] = InMemoryTransport.createLinkedPair();
+    t.after(async()=>{await client.close();await server.close();});
+    await server.connect(b);await client.connect(a);
+    const capabilities=server.server.getClientCapabilities();
+    assert.equal(server.server.getClientVersion().name,name);
+    assert.equal(isHostControllerClient(name,capabilities),controller);
+    const f=fixture({clientName:name,bindings:{initializedClientCapabilities:()=>capabilities}});
+    let ingress;
+    const response=await f.dispatcher.dispatch('agent_configure',{session_id:B.session_id,model:'synthetic-model'},
+      {requestId:'declared-'+name},async()=>{
+        ingress=currentExecutionIngress();f.effect();
+        return {content:[],structuredContent:{session_id:B.session_id,launch_id:B.launch_id}};
+      });
+    assert.equal(response.isError,undefined,JSON.stringify(response));
+    assert.deepEqual(ingress.ingress.source,controller?null:point(A));
+    assert.equal(f.effects(),1);assert.deepEqual(f.live.get(B.session_id),B);
+    const hostMeta={[SOURCE]:{schema:'aiterm.execution-source.v1',source:point(A)}};
+    if(controller)assert.deepEqual(executionHostSourceFromMeta(hostMeta,name,capabilities),hostMeta[SOURCE]);
+    else assert.throws(()=>executionHostSourceFromMeta(hostMeta,name,capabilities));
+    assert.equal(goalOriginFromHost(name,{'aiterm/goal':{origin:'user'}},capabilities),controller?'user':'automatic');
+    assert.equal(goalOriginFromHost(name,{'aiterm/goal':{origin:'user',forged:true}},capabilities),'automatic');
+    assert.deepEqual(interimRequestFromMeta({'aiterm/caller':name,'aiterm/interim_after':2},name,capabilities),controller?{after:2}:null);
+    assert.deepEqual(interimRequestFromMeta({'aiterm/caller':'BellTeam'}),{after:0});
+    if(declared)assert.equal(interimRequestFromMeta({'aiterm/caller':'other'},name,capabilities),null);
+  }
+  assert.equal(hostControllerLabel(undefined),'MCP client');
+  const declared={experimental:{[HOST_CONTROLLER_CAPABILITY]:{}}};
+  assert.deepEqual(interimRequestFromMeta({'aiterm/caller':'MCP client'},undefined,declared),{after:0});
+  for(const role of [null,false,[], 'controller'])assert.equal(isHostControllerClient('other',{experimental:{[HOST_CONTROLLER_CAPABILITY]:role}}),false);
+});

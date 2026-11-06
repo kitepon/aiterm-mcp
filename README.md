@@ -227,7 +227,7 @@ collection is off by default and performs no network I/O. It ships via
 tag-triggered CI with npm provenance (OIDC Trusted Publishing); the GitHub
 Release re-registers the Official MCP Registry entry.
 
-**Status:** actively maintained · current public release **v0.63.10** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
+**Status:** actively maintained · current public release **v0.63.11** · runs on Linux · WSL2 · macOS · native Windows (tmux on POSIX, the tmux-CLI-compatible [psmux](https://github.com/psmux/psmux) on native Windows — no WSL required) · MIT · see the [CHANGELOG](CHANGELOG.md).
 
 ### Update and rollback
 
@@ -956,3 +956,8 @@ The Linux Grok 1.0.70 inspector binds the native current-session registry to the
 ### Offline resume checkpoint
 
 `aiterm-resume-state checkpoint --session ID --launch LAUNCH` emits a private bundle on stdout and a safe receipt on stderr. `aiterm-resume-state restore --session ID --launch LAUNCH --sha256 SHA` reads that bundle on stdin and emits its receipt on stdout. This Linux/Codex scope requires the explicit persistent `AITERM_STATE_BASE`, the same UID/absolute paths and retained vendor rollout identity. The caller must stop all source writers and prevent restart before checkpoint; restore runs under startup admission before bootstrap or native startup. It does not recover already-lost legacy tmpfs state or migrate pending deliveries. The bundle is limited to 16 MiB including LF; the safe receipt is at most 512 bytes. Success exits 0; refusal exits 2 with `aiterm: RESUME_STATE_UNCONFIRMED` plus LF (33 bytes). See the [contract and diagram](https://github.com/kitepon/aiterm-mcp/blob/v0.63.3/docs/architecture/resume-checkpoint.md).
+
+
+### Host-controller clients
+
+Any MCP client can opt into the existing host-orchestration routing by declaring `capabilities.experimental["io.github.kitepon/aiterm-mcp/host-controller"] = {}` during initialize. This is routing identity, not authentication; source, generation, native identity and effect guards still apply. Clients without that declaration stay on the ordinary direct path. The exact client name `bellteam` remains a backward-compatible alias. A declared controller requests interim/follow metadata with `_meta["aiterm/caller"]` equal to its initialized client name (blank/missing name: `MCP client`); the old `BellTeam` marker is also preserved for compatibility. See [function map and data flow](https://github.com/kitepon/aiterm-mcp/blob/main/docs/architecture/host-controller.md). BellTeam's own caller can adopt the capability later; that migration is separate from this release.

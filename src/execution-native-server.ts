@@ -42,7 +42,7 @@ export function createNativeDeliveryServer(dependencies: {
     };
     const result = args.pause_goals
       ? await interruptKnownSessionsAndGoals(args, { ...stop, pauseGoal: dependencies.pauseGoal ?? core.pauseAgentGoalForStop },
-        dependencies.goalOrigin ? dependencies.goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta))
+        dependencies.goalOrigin ? dependencies.goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta, server.server.getClientCapabilities()))
       : interruptKnownSessions(args, stop);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
   });

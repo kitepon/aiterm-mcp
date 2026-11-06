@@ -1,3 +1,4 @@
+import { isHostControllerClient } from "./host-controller.js";
 // Versioned Bridge/MCP contract. No dependency on core, PTY or the tool server.
 import { z } from "zod";
 import { executionLaunchSchema, executionBoundarySchema, executionPointSchema,
@@ -15,12 +16,12 @@ export const executionTransportSourceSchema = z.object({
 export type ExecutionTransportSource = z.infer<typeof executionTransportSourceSchema>;
 
 /** Local host correlation, not client authentication. The product mount calls
- * this with the initialized client name, never a tool argument. Direct CLI
+ * this with initialized client identity/capabilities, never a tool argument. Direct CLI
  * callers use their fixed stdio environment; they cannot override it here.
  */
-export function executionHostSourceFromMeta(meta: unknown, clientName: string | undefined): ExecutionTransportSource | undefined {
+export function executionHostSourceFromMeta(meta: unknown, clientName: string | undefined, capabilities?: unknown): ExecutionTransportSource | undefined {
   const value = meta && typeof meta === "object" ? (meta as Record<string, unknown>)[EXECUTION_SOURCE_META_KEY] : undefined;
-  if (clientName !== "bellteam") {
+  if (!isHostControllerClient(clientName, capabilities)) {
     if (value !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
     return undefined;
   }

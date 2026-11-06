@@ -1,3 +1,4 @@
+import { isHostControllerClient } from "./host-controller.js";
 // Request-local adapter for the serving stdio dispatcher. No live I/O, core
 // imports or public mount at import. Uncovered ordinary/native/remote targets
 // fail before the handler; they must acquire their own generation adapter.
@@ -88,6 +89,7 @@ export interface ExecutionDispatcherBindings {
   nativeIdentity: { pid: number; started_identity: string } | null;
   sourceEnvironment: Readonly<Record<string, string | undefined>>;
   initializedClientName(): string | undefined;
+  initializedClientCapabilities?(): unknown;
   observeSessionGeneration(session: string): unknown | Promise<unknown>;
   assertParticipant?(): void;
   selectAuthSessionName?(): string;
@@ -136,9 +138,9 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
     prepareControlRegistration(service) {
       if (service !== bindings.service) throw new ExecutionError("EXECUTION_UNSUPPORTED");
       bindings.assertParticipant?.();
-      return { sourceContext: extra => executionHostSourceFromMeta(extra._meta, bindings.initializedClientName()),
+      return { sourceContext: extra => executionHostSourceFromMeta(extra._meta, bindings.initializedClientName(), bindings.initializedClientCapabilities?.()),
         closeManagementRequest: (extra, session) => {
-          if (!registeredControls || !native || bindings.initializedClientName() !== "bellteam")
+          if (!registeredControls || !native || !isHostControllerClient(bindings.initializedClientName(), bindings.initializedClientCapabilities?.()))
             throw new ExecutionError("EXECUTION_UNSUPPORTED");
           return executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
             process_started_identity: native.started_identity, request_id: extra.requestId,
@@ -159,7 +161,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             if (!registeredControls || args.remote !== undefined) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             // Only the same server's registered typed handlers run here. They
             // already own metadata admission/stop; no synthetic send edge/frame.
-            executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName());
+            executionHostSourceFromMeta(fixedExtra._meta, bindings.initializedClientName(), bindings.initializedClientCapabilities?.());
             return await body(args, fixedExtra);
           }
           if (name === "agent_auth" && (args.action !== "status" || args.session_id !== undefined) && !observeAuth)
@@ -171,7 +173,9 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const route = routeFor(name, args);
           if (!route) return await body(args, fixedExtra);
           const client = bindings.initializedClientName();
-          const host = executionHostSourceFromMeta(fixedExtra._meta, client);
+          const capabilities = bindings.initializedClientCapabilities?.();
+          const controller = isHostControllerClient(client, capabilities);
+          const host = executionHostSourceFromMeta(fixedExtra._meta, client, capabilities);
           const source = host !== undefined ? host.source : directSource;
           // Partial/mismatched stdio identity is not an independent operator.
           if (host === undefined && sourceFieldsPresent && !source) throw new ExecutionError("EXECUTION_UNCONFIRMED");
@@ -179,21 +183,21 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
           const supplied = executionRefFromMeta(fixedExtra._meta);
           // A host's explicit session close is a management RPC with its own
           // existing process/request identity, not a delivery or resend.
-          const hostClose = client === "bellteam" && route.tool === "pty_close" && !supplied;
-          const hostLaunch = client === "bellteam" && route.tool === "agent_launch" && !supplied
+          const hostClose = controller && route.tool === "pty_close" && !supplied;
+          const hostLaunch = controller && route.tool === "agent_launch" && !supplied
             && args.prompt == null && args.throughline_source_session === undefined;
-          const hostConfigure = client === "bellteam" && route.tool === "agent_configure" && !supplied;
+          const hostConfigure = controller && route.tool === "agent_configure" && !supplied;
           const authOperation = name === "agent_auth";
           const authInput = (route.tool === "pty_send" || route.tool === "pty_key") && !supplied
-            && client === "bellteam" ? authGeneration(route.target) : null;
-          const hostAuth = client === "bellteam" && !supplied && authOperation;
-          const hostGoal = client === "bellteam" && route.tool === "agent_goal" && !supplied;
+            && controller ? authGeneration(route.target) : null;
+          const hostAuth = controller && !supplied && authOperation;
+          const hostGoal = controller && route.tool === "agent_goal" && !supplied;
           const hostManagement = hostClose || hostLaunch || hostConfigure || hostGoal || hostAuth || !!authInput;
           if (args.remote !== undefined && args.remote !== null) throw new ExecutionError("EXECUTION_UNSUPPORTED");
           let reference = supplied;
           let directRequest: NativeRequest | null = null;
           let frozenParent: unknown | null = null;
-          if (!reference && (client !== "bellteam" || hostManagement) && native) {
+          if (!reference && (!controller || hostManagement) && native) {
             directRequest = executionRequestSchema.options[4].parse({ kind: "mcp", process_pid: native.pid,
               process_started_identity: native.started_identity, request_id: fixedExtra.requestId,
               tool: route.tool, target_session_id: route.target });
@@ -213,7 +217,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             // External host refs are created by the real Bridge ingress. Direct
             // model requests cannot borrow another call's reservation or choose
             // a native control label to suppress an invocation edge.
-            if (client !== "bellteam" || reference.request.kind === "mcp"
+            if (!controller || reference.request.kind === "mcp"
               || (route.tool !== "agent_launch" && route.tool !== "pty_send"))
               throw new ExecutionError("EXECUTION_UNSUPPORTED");
             const record = await bindings.service.execute({ action: "status", request: reference.request });
@@ -231,7 +235,7 @@ export function createExecutionDispatcher(bindings: ExecutionDispatcherBindings)
             cancellation?.assert();
           } else {
             // BellTeam must retain its existing delivery/room/call reference.
-            if ((client === "bellteam" && !hostManagement) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
+            if ((controller && !hostManagement) || !directRequest) throw new ExecutionError("EXECUTION_UNSUPPORTED");
             const current = await observe(route.target);
             if (authOperation && route.tool !== "agent_auth.start") {
               // A missing auth PTY returns the public v1 failed/already-cancelled

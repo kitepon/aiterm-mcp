@@ -12,7 +12,7 @@
 | --- | --- |
 | [execution-contract](../../src/execution-contract.ts) | Zod schema、launch/boundary/request/関係の保持条件、純粋なunfinished抽出とcascade snapshot plan。native作用・待ち・時刻判定を持たない |
 | [execution-context](../../src/execution-context.ts) | AsyncLocalStorageに固定requestとtransport ingressを保存。source/metadata/native parentをstructuredCloneし、呼び出しごとのsnapshotを返す。新job IDや「最新job」選択を作らない |
-| [execution-wire](../../src/execution-wire.ts) | versioned request/result/meta、typed errorへの射影。host client名bellteamのsource contextと、通常stdio環境を区別する。これはtransport相関であり認証ではない |
+| [execution-wire](../../src/execution-wire.ts) | versioned request/result/meta、typed errorへの射影。宣言済みhost-controller（legacy bellteam名を含む）のsource contextと、通常stdio環境を区別する。これはtransport相関であり認証ではない |
 | [execution-store](../../src/execution-store.ts) | 同state rootとmultiplexer identityで分離した関係snapshot、stopping、slots、interruptions、participants、既parent delivery IDの付随状態。本文・配送queue・retryを保存しない |
 | [execution-checkpoint](../../src/execution-checkpoint.ts) | temp独占作成→file fsync→rename→directory/祖先fsync。完了はmetadata耐久化のOS受付で、native作用の完了ではない |
 | [execution-inventory](../../src/execution-inventory.ts) | 宣言済みprocessと残ったrequest/delivery/interruption参照を照合。native actorの出生一致はlaunch/turn/全process列挙やfenceの証明ではない |
@@ -45,3 +45,6 @@ participant inventoryは孤立したin-flight parent effectも表示する。pro
 ## 詳細と調査の残り
 
 [受付・作用・返却](private-admission.md) → [親配送とnative endpoint](private-parent-delivery.md) → [通常cancel/private中断/管理close](private-stop.md)。service（1450行）、全33private moduleとcore該当本体を初読した。通常core/OS/runtimeも後続初読を完了した。[採用設計](refactor-rationale.md)ではprivateの既存責任分割を維持する。private本体は変更対象外。A4bで変えた記録接点は限定検証済みで、全private caller/fixtureの独立受入・実稼働試験は未実施。
+
+
+Host-controller identity generalization: [function map and data flow](host-controller.md). This additive initialize capability replaces scattered client-name gates; the exact legacy BellTeam route/marker remains compatible, all native/source guards are retained.

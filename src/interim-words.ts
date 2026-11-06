@@ -1,9 +1,6 @@
-// 合間の言葉: agent sessionがturnの途中で書き、そのあと道具を使った言葉。
-// BellTeamのためにある。BellTeamは実行中のBotが何をしているかを会話画面へ出すため、
-// pty_observeのMCP要求の_metaに caller="BellTeam" を入れて呼び、結果の_metaでこれを受け取る。
-// 利用者向けのツール説明と引数には出さない（BellTeam以外のAIに指定させないため）。要らないものと見て消さないこと。
-//
-// 最後の回答と思考は含めない。APIエラーやsession limitの知らせは、記録に書かれていれば含める。
+import { isHostControllerClient, hostControllerLabel, LEGACY_INTERIM_CALLER } from "./host-controller.js";
+// Controller-requested interim words; final answers and thinking are excluded.
+// See docs/architecture/host-controller.md for the initialize role and caller marker.
 // ハーネスごとの見分け方（2026-09-28 記録で確認）:
 //   Claude Code: text block で message.stop_reason="tool_use"。isApiErrorMessage の行は知らせ。
 //   Codex:       assistant message の phase="commentary"。task_complete の error はturnを終えた知らせ。
@@ -27,9 +24,8 @@ import { codexBoundTranscript, codexRootTranscript, codexResumeCursor, codexResu
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { cursorTranscript } from "./harnesses/cursor.js";
 
-/** BellTeamが要求の_metaへ入れる呼び手の印。値が "BellTeam" の時だけ合間の言葉を返す。 */
+/** Controller caller label in request metadata; see host-controller.md. */
 export const INTERIM_CALLER_META_KEY = "aiterm/caller";
-export const INTERIM_CALLER = "BellTeam";
 /** 前回受け取った最後のseq。これより後の言葉だけを返す。 */
 export const INTERIM_AFTER_META_KEY = "aiterm/interim_after";
 /** 結果の_metaで返すキー。 */
@@ -102,18 +98,20 @@ export function agentInterimBoundaryPath(name: string, launchId: string): string
   return path.join(agentsDir(), `${name}.${launchId}.interim.json`);
 }
 
-/** 要求の_metaがBellTeamの印を持つか。 */
-export function interimCallerFromMeta(meta: unknown): boolean {
-  return !!meta && typeof meta === "object" && (meta as Record<string, unknown>)[INTERIM_CALLER_META_KEY] === INTERIM_CALLER;
+/** Controller name marker, with the historical marker retained for compatibility. */
+export function interimCallerFromMeta(meta: unknown, clientName?: string, capabilities?: unknown): boolean {
+  if (!meta || typeof meta !== "object") return false;
+  const caller = (meta as Record<string, unknown>)[INTERIM_CALLER_META_KEY];
+  return caller === LEGACY_INTERIM_CALLER || (isHostControllerClient(clientName, capabilities) && caller === hostControllerLabel(clientName));
 }
 
 /**
- * 要求の_metaがBellTeamの印を持つ時だけ、前回のseqを返す。それ以外はnull（何も足さない）。
+ * 要求の_metaがcontrollerの印を持つ時だけ、前回のseqを返す。それ以外はnull（何も足さない）。
  * 読み始める位置（aiterm/interim_from）が付いていれば、fromに入れる。付いているのに読めない時はfromがnullでfrom_invalidがtrue
  * （最後のdispatchの言葉を黙って返すと、呼び手は別の番の言葉を出してしまう）。
  */
-export function interimRequestFromMeta(meta: unknown): { after: number; from?: InterimFrom | null; from_invalid?: true } | null {
-  if (!interimCallerFromMeta(meta)) return null;
+export function interimRequestFromMeta(meta: unknown, clientName?: string, capabilities?: unknown): { after: number; from?: InterimFrom | null; from_invalid?: true } | null {
+  if (!interimCallerFromMeta(meta, clientName, capabilities)) return null;
   const record = meta as Record<string, unknown>;
   const raw = record[INTERIM_AFTER_META_KEY];
   const after = typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0 ? raw : 0;

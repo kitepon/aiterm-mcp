@@ -215,7 +215,7 @@ runtime-error store は canonical dotagents config の `collection.enabled: true
 場合だけ収集し、既定OFF、network送信は行いません。tag起点CIのnpm provenance（OIDC Trusted
 Publishing）で公開し、GitHub Release が Official MCP Registry を再登録します。
 
-**状態:** 開発継続中 · 現行公開版 **v0.63.10** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
+**状態:** 開発継続中 · 現行公開版 **v0.63.11** · 動作対象は Linux · WSL2 · macOS · Windows ネイティブ · MIT · [変更履歴](CHANGELOG.md)。
 
 ### 更新と巻き戻し
 
@@ -889,3 +889,8 @@ Grok 1.0.70のLinux読取は公式active_sessions.jsonのPID・開始tick・cwd�
 対象はLinux/Codex。明示した永続保存先 `AITERM_STATE_BASE`、同じUIDと絶対パス、元のCodex会話記録の保持が必要。呼出側は保存前に元runtimeの全書込processを停止し、再起動を防ぐ。復元は新runtimeの起動時排他を取得してから、通常の初期化やnative起動より前に行う。保存成功は全process停止の証明にはならない。
 
 初回更新で既に失われた旧tmpfsの状態と、未配送の回答は復元しない。通常の初期化後に復元入力を再使用しない。復元した保存先を旧版へそのまま戻さず、互換性のある別の保存先と会話の控えを使うか、利用者が明示して状態を初期化する。詳細は[保存・復元の契約と図](https://github.com/kitepon/aiterm-mcp/blob/v0.63.3/docs/architecture/resume-checkpoint.md)と[更新・巻き戻し条件](CHANGELOG.md)を参照する。
+
+
+### Host-controller clients
+
+Any MCP client can opt into the existing host-orchestration routing by declaring `capabilities.experimental["io.github.kitepon/aiterm-mcp/host-controller"] = {}` during initialize. This is routing identity, not authentication; source, generation, native identity and effect guards still apply. Clients without that declaration stay on the ordinary direct path. The exact client name `bellteam` remains a backward-compatible alias. A declared controller requests interim/follow metadata with `_meta["aiterm/caller"]` equal to its initialized client name (blank/missing name: `MCP client`); the old `BellTeam` marker is also preserved for compatibility. See [function map and data flow](https://github.com/kitepon/aiterm-mcp/blob/main/docs/architecture/host-controller.md). BellTeam's own caller can adopt the capability later; that migration is separate from this release.

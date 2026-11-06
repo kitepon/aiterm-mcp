@@ -498,9 +498,9 @@ registerRemoteAwareTool(
         delivery = await deliveryForRequest(extra);
         // BellTeamのため（ADR 0122）: 差し込みになった時、その文を取った番の終わりを待つ手がかりを返す。印の無い呼び手には何も足さない。
         const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface,
-          follow: interimCallerFromMeta(extra._meta) });
+          follow: interimCallerFromMeta(extra._meta, server.server.getClientVersion()?.name, server.server.getClientCapabilities()) });
         if (receipt.schema === "aiterm.agent-steer.v1") {
-          const follow = interimCallerFromMeta(extra._meta) ? receipt.follow ?? null : null;
+          const follow = interimCallerFromMeta(extra._meta, server.server.getClientVersion()?.name, server.server.getClientCapabilities()) ? receipt.follow ?? null : null;
           return {
             content: [
               {
@@ -793,10 +793,10 @@ registerRemoteAwareTool(
   },
 );
 
-// BellTeamのため（ADR 0122）: 要求の_metaに aiterm/caller="BellTeam" がある時だけ、結果の_metaへ席の今の番を載せる。
+// Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
 function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): { _meta?: Record<string, unknown> } {
-  if (!interimCallerFromMeta(requestMeta)) return {};
+  if (!interimCallerFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities())) return {};
   try {
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id)) } };
   } catch (e) {
@@ -842,10 +842,10 @@ registerRemoteAwareTool(
   },
 );
 
-// BellTeamのため: 要求の_metaに aiterm/caller="BellTeam" がある時だけ、結果の_metaへ合間の言葉を載せる。
+// Declared controller caller markers opt into interim words.
 // 説明と引数には出さない（interim-words.ts の冒頭）。それ以外の呼び手には何も足さない。
 function interimWordsMeta(sessionId: string, requestMeta: unknown): { _meta?: Record<string, unknown> } {
-  const request = interimRequestFromMeta(requestMeta);
+  const request = interimRequestFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities());
   if (!request) return {};
   try {
     // 読み始める位置が付いているのに読めない時は、最後のdispatchの言葉を返さない（呼び手が別の番の言葉を出してしまう）。
@@ -1050,7 +1050,7 @@ server.registerTool("agent_goal", {
   outputSchema: agentGoalOutputSchema,
 }, async (args, extra) => {
   try {
-    const origin = goalOrigin ? goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta);
+    const origin = goalOrigin ? goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta, server.server.getClientCapabilities());
     if (origin !== "user" && origin !== "automatic") throw new Error("Invalid trusted goal provenance");
     const result = agentGoalWireResultSchema.parse(await core.agentGoal(agentGoalInputSchema.parse(args), origin));
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result },

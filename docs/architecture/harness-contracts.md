@@ -40,10 +40,13 @@ Codexはuser行の先頭160非空白文字（4文字未満は識別不能）とt
 
 Codexのseat turnは記録上の最後のtask_started/complete/abortedを読むだけで、pane/harness livenessを見ない。harnessが落ちて完了印を書かなければrunningが残る。欠測/書込途中はnull。cache512席、会話再探索60秒、未binding再探索5秒という既存観測間隔がある。保存metadata bindingを書き換えない。
 
-[interim-words](../../src/interim-words.ts) はBellTeam caller印だけへ_metaを返し、dispatch境界または不透明なfrom位置とseqで途中の言葉を読む。Claudeはtool_use前text、Codexはcommentary、Grokは実user後でtool_callsのあるtext、Cursorは後続tool_useで確定したtextだけを対象にする。最終回答・思考は対象外、Antigravityはこの口の対応なし。不正fromを別turnのdispatch境界へ黙って戻さない。boundary書込失敗は送信を妨げず、callerはevent_cursor差を確認する。
+[interim-words](../../src/interim-words.ts) は宣言済みcontrollerのcaller印（旧BellTeam印も互換）へ_metaを返し、dispatch境界または不透明なfrom位置とseqで途中の言葉を読む。Claudeはtool_use前text、Codexはcommentary、Grokは実user後でtool_callsのあるtext、Cursorは後続tool_useで確定したtextだけを対象にする。最終回答・思考は対象外、Antigravityはこの口の対応なし。不正fromを別turnのdispatch境界へ黙って戻さない。boundary書込失敗は送信を妨げず、callerはevent_cursor差を確認する。
 
 ## 読取上限・結果不明・未確認
 
 Codex通常待ちは4MiBずつ読み、1行1MiB超をmalformed扱い、巨大未完行を破棄する一方、turn全体は固定総容量に縛らない。Grok通常待ちは開始位置以後の総増分16MiB上限。Grok差込照合は各増分4MiB以内・完全改行・一意照合を要求し、超過/曖昧ならunknown。steerのLineFollowerは4MiB chunkだが未改行carryの独自上限は持たず、interimは対象増分/履歴をまとめて読む。違いを未検証の共通streamingへ置換しない。
 
 not_takenの30秒、完了後の8秒猶予、Grok error後の描画確認、各rate-limit観測間隔などは既動作のまま。private execution、通常PTY待ち/OS/RTK/runtime errors/setup/update/releaseの入口も後続初読を完了した。全test/fixtureとの独立照合と実装受入は未確認。Windows73fail原因は未確定。実vendor/実席試験は今回0。
+
+
+Host-controller identity generalization: [function map and data flow](host-controller.md). This additive initialize capability replaces scattered client-name gates; the exact legacy BellTeam route/marker remains compatible, all native/source guards are retained.

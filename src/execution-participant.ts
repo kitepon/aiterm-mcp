@@ -70,7 +70,8 @@ export function createExecutionParticipant(input: ProducerOptions & { parentDepe
   const server = createAitermServer({ execution: server => {
     assertScope();
     dispatcher = createExecutionDispatcher({ service: producer.service, nativeIdentity: actor, sourceEnvironment,
-      initializedClientName: () => server.server.getClientVersion()?.name, observeSessionGeneration, assertParticipant: assertScope, captureNativeParent,
+      initializedClientName: () => server.server.getClientVersion()?.name,
+      initializedClientCapabilities: () => server.server.getClientCapabilities(), observeSessionGeneration, assertParticipant: assertScope, captureNativeParent,
       ...(producer.startup.selectAuthSessionName ? { selectAuthSessionName: producer.startup.selectAuthSessionName } : {}),
       ...(producer.startup.observeAuthSessionGeneration ? { observeAuthSessionGeneration: producer.startup.observeAuthSessionGeneration } : {}) });
     return { dispatcher, parentExecution: producer.execution, parentDependencies, parentStateRoot: producer.scope.state_root };

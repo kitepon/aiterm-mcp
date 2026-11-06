@@ -62,3 +62,6 @@ harness通常moduleのmodel/auth/status parser全文、steer-follow/interim、pr
 ## A3/A4aの候補対応
 
 設定UIの所有者と関数対応は[製品内設定対応](model-configuration.md)。coreはagentModelUiで元の45行screen/Enterまでの命令/menuキーと元のready/text待機を供給し、goal/lock/作用前不明化/metadata/返却を保持する。既定復元3回400msはuser-configへ移動、Codex固有復元と起動時native観測はcoreに残る。remote入力schema/type/説明はremote-contractへ移し、remote.tsは同名再export、SSHとmemoryはremoteに残る。index/update CLI/parent recordは契約正本を直接参照する。goal設定図とremote図は製品docs/architecture正本、旧diagramsはsymbolic link。
+
+
+Host-controller identity generalization: [function map and data flow](host-controller.md). This additive initialize capability replaces scattered client-name gates; the exact legacy BellTeam route/marker remains compatible, all native/source guards are retained.

@@ -7,8 +7,8 @@ digraph configuration {
  read [label="Codex: attached API or topology-only fallback\nClaude/Grok: same CLI status UI under send lock\ninspect may issue query UI, not goal mutation"];
  mutate [label="Capability + field + origin + current-state guards\nAPI or exact native UI action once\nold snapshot removed before submission"];
  readback [label="Native read / mutation ack → canonical readback\nsame generation and expected fields required\nobserved / confirmed applied / unknown / not_issued"];
- config [label="agent_configure: validate request + pin launch\nCodex active goal: inspect → pause owned goal\nwait turn end outside send lock"];
- lock [label="Shared agent send FIFO / file lock\nbusy: release and retry until existing deadline\ndormant/resuming: refuse; no new native launch"];
+ config [label="agent_configure: validate request + pin launch\nCodex active goal: inspect → pause owned goal\nwait record turn end + busy line gone, outside send lock\n(kept: orders the deferred setting before the goal's next turn)"];
+ lock [label="Shared agent send FIFO\nturn running: refuse at once (no 30 s recheck, 2026-11-07)\ndormant/resuming: refuse; no new native launch"];
  before [label="Before setting effect: resume template unconfirmed\nmark configuration mayHaveChanged\nClaude/Codex picker adapters; core owns fast/native"];
  defaults [label="user-config.ts: file lock + snapshot/action/restore defaults\npreserve unrelated concurrent settings\nsome restoration remains existing best-effort"];
  restore [label="Success: confirmed resume recipe\nresume only same goal paused by this request\nchanged / unavailable goal is not auto-restored"];

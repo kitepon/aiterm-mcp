@@ -494,22 +494,22 @@ test("Claude Codeの席: 設定替えの最中に届いた文は、替え終え�
   });
 });
 
-test("Claude Codeの席: 番が動いている席の設定替えは、番の終わりを待つ間、差し込みを止めない", { skip: ptySkip }, async () => {
+test("Claude Codeの席: 番が動いている席の設定替えは、何も打たずにすぐ断り、差し込みを止めない", { skip: ptySkip }, async () => {
   await withFastClaude({}, async ({ sid, keys, setTurnRunning }) => {
     assert.equal((await core.sendAgentMessage(sid, "TURN")).schema, "aiterm.agent-dispatch.v1");
     setTurnRunning(true);
     await core.readOutput(sid, { wait: true, until: "esc to interrupt", timeout: 5, raw: true });
-    let configuredAt = null;
-    const configuring = core.configureAgent(sid, { fast: true }).then((result) => { configuredAt = performance.now(); return result; });
-    await sleep(700);
+    // 2026-11-07（ADR 0120の直し）: 番の最中は30秒並び直さず、すぐ断る。保留した設定は呼び手が番の終わりに頼み直す。
+    const started = performance.now();
+    await assert.rejects(core.configureAgent(sid, { fast: true }), /入力待ちではありません/u);
+    assert.ok(performance.now() - started < 10_000, "30秒の見直しをしない");
     const steered = await core.sendAgentMessage(sid, "STEER");
-    const steeredAt = performance.now();
     assert.equal(steered.schema, "aiterm.agent-steer.v1");
-    assert.equal(configuredAt, null, "番が終わるまで、設定は替えない");
-    assert.equal(keys(), "TURN⏎STEER⏎");
+    assert.equal(keys(), "TURN⏎STEER⏎", "設定の命令は打っていない");
     setTurnRunning(false);
-    assert.deepEqual(await configuring, configured(sid, true));
-    assert.ok(configuredAt > steeredAt);
+    // 呼び手は番の終わりを見てから頼み直す（席が番の表示を消すのを待つ）。
+    await until("番の表示が消える", () => core.observeSession(sid).state === "idle");
+    assert.deepEqual(await core.configureAgent(sid, { fast: true }), configured(sid, true));
     assert.equal(keys(), "TURN⏎STEER⏎/fast on⏎");
   });
 });

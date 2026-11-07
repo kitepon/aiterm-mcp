@@ -6343,7 +6343,8 @@ export async function configureAgent(
         `model=${model} はfast版のIDですが、fast: false が渡されました。元のmodel IDを渡すか、fastを省いてください。設定は変えていません。`);
     }
     // 設定替えは席の入力欄へ命令を打つので、送信と同じ行列（ADR 0088）に並ぶ。替えている間に届いた文は、替え終えてから席へ入る（ADR 0120）。
-    // 番が動いている席では、行列を持ったまま番の終わりを待たない（待つ間も、その席への差し込みを通す）。
+    // 番が動いている席では、何も打たずにすぐ断る（ADR 0120の2026-11-07の直し）。待っても守る物が無く、呼び手の差し込みを止めていた。
+    // 保留した設定は、呼び手が番の終わりを見てから頼み直す。goalの席だけは、goalを止めて番の終わりを待ち、次の番より前に替える（ADR 0137）。
     const meta = loadAgentMetadata(name);
     if (expectedLaunchId !== undefined && meta.launch_id !== expectedLaunchId) throw new ExecutionError("EXECUTION_STALE_GENERATION");
     const checkGeneration = () => {
@@ -6352,29 +6353,25 @@ export async function configureAgent(
         throw new ExecutionError("EXECUTION_STALE_GENERATION");
     };
     const configure = async () => {
-      const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
-      for (;;) {
+      checkGeneration();
+      const result = await withAgentSendLock(name, async () => {
         checkGeneration();
-        const result = await withAgentSendLock(name, async () => {
-          checkGeneration();
-          const current = loadAgentMetadata(name), saved = readAgentResumeTemplate(current);
-          if (readAgentLifecycle(current) || agentDormantState(current))
-            throw new AitermError("AGENT_RESUME_REQUIRED: 設定を変える前に保存した会話席をagent_launchで再開してください。設定は変えていません。", 2);
-          let invalidated = false;
-          const result = await configureAgentInLock(name, model, effort, fast, () => {
-            if (saved && !invalidated) {
-              withExecutionPreparation(name, () => writeAgentResumeTemplate(current, { ...saved, state: "unconfirmed" }));
-              invalidated = true;
-            }
-            beforeChange();
-          });
-          if (result && saved) withExecutionPreparation(name, () => finishAgentResumeConfiguration(loadAgentMetadata(name), saved, model, effort));
-          return result;
-        }, AGENT_CONFIGURE_UNCHANGED);
-        if (result) return result;
-        if (performance.now() >= deadline) throw agentConfigureNotReady(name);
-        await sleep(AGENT_TUI_READY_POLL_MS);
-      }
+        const current = loadAgentMetadata(name), saved = readAgentResumeTemplate(current);
+        if (readAgentLifecycle(current) || agentDormantState(current))
+          throw new AitermError("AGENT_RESUME_REQUIRED: 設定を変える前に保存した会話席をagent_launchで再開してください。設定は変えていません。", 2);
+        let invalidated = false;
+        const result = await configureAgentInLock(name, model, effort, fast, () => {
+          if (saved && !invalidated) {
+            withExecutionPreparation(name, () => writeAgentResumeTemplate(current, { ...saved, state: "unconfirmed" }));
+            invalidated = true;
+          }
+          beforeChange();
+        });
+        if (result && saved) withExecutionPreparation(name, () => finishAgentResumeConfiguration(loadAgentMetadata(name), saved, model, effort));
+        return result;
+      }, AGENT_CONFIGURE_UNCHANGED);
+      if (!result) throw agentConfigureNotReady(name);
+      return result;
     };
     if (meta.kind !== "codex") return await configure();
     return await configureWithPausedGoal({
@@ -6387,7 +6384,8 @@ export async function configureAgent(
         const deadline = performance.now() + 30 * 60_000;
         for (;;) {
           checkGeneration();
-          if (codexTurnSettled(loadAgentMetadata(name))) return;
+          // 記録の終わりの後も、画面の作業中の行が一瞬残る。番の最中の設定替えはすぐ断るので、行が消えるまで待つ。
+          if (codexTurnSettled(loadAgentMetadata(name)) && !isAgentTuiBusy("codex", captureScreen(name, AGENT_TUI_READY_LINES))) return;
           if (performance.now() >= deadline) throw new AitermError("GOAL_CONFIGURE_TURN_END_UNCONFIRMED: 30分以内に現在の番の終了を確認できません。設定は変えていません。", 2);
           await sleep(AGENT_TUI_READY_POLL_MS);
         }

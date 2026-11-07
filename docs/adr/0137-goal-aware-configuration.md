@@ -21,3 +21,14 @@ Codex v1のactive goalを既存のgoal adapterで一度pauseし、同じlaunch�
 configure-goal.test.mjsは既存のgoal managerを通し、active/null/各inactive状態、番終了待ち、設定失敗、待機失敗、pause効果不明、resume失敗、goal変更、generation置換、mutation直前の競合、v2非対応を確認する。configure-goal-core.test.mjsは本物の隔離tmux、模したCodexとnative goal socketを使い、画面が入力待ちでもtask_completeを置くまで設定替えが終わらず、その後一度だけresumeすることを確かめる。
 
 実Botのgoal、資格、AGY作業、既存7席には作用していない。本物の各OSのCLIと公開版での確認は別途実施する。
+
+## 2026-11-07 の確認: 待ちを残す理由と置き場所
+
+D-steer（指揮官氏の文が動いているCodexの席へ差し込まれなかった件）で見直した。この決定の「番の終了を最長30分待つ」は、goalが
+直ちに始める次の番より前に設定を替えるための唯一の手段で、次の番が古い設定で走る事（状態の上書き）から守る。自分で抜ける道は、
+番の終わりかunknownでの30分の期限。よって残す。
+
+ただし、この待ちを文の配送の前に置くと、配送が番の終わりまで止まる。呼び手（BellTeam）は、動いている席には配送の前に`agent_configure`を
+頼まず、保留した設定を別の仕事として番の終わりに頼む。Claude Codeのgoal（pause非対応）、Grok、Cursorには、この順序を保つ契約は無く、
+`GOAL_CONFIGURE_UNSUPPORTED`で断る（goalを止めるか完了にしてから）。Codexが自分の待ち行列から始める次の番（差し込みがnext_turnになった時）
+にも順序の契約は無く、設定替えは「入力待ちではありません」で断る。

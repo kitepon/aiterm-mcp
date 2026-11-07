@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.15] - 2026-11-07
+
 - Accept readiness after consecutive idle observations span the existing five-second stabilization window, with at least two positive frames. Fast reads retain the eleven-sample path; slow reads no longer exhaust the deadline solely while collecting eleven frames. Non-idle and lost settled evidence reset the window; existing deadlines, modal/native checks and settled-turn shortcut remain unchanged. No caller/schema change or RPC-timeout extension.
 
 ## [0.63.14] - 2026-11-07
@@ -3073,7 +3075,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...HEAD
+[0.63.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...v0.63.15
 [0.63.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...v0.63.14
 [0.63.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...v0.63.13
 [0.63.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...v0.63.12

@@ -6,11 +6,13 @@
 
 core.configureAgentはopt-inの期待launchを最初のmetadataと照合し、既generation gateへ接続する。legacy callerの設定動作と返却は保持。tracked applyはPOSIXの既file/directory同期を用い、Windowsでは作用前unsupported。reconcileはrootを作らずfileを読むだけ。current設定はunsupported、元handlerのterminalとnative入力消費は別であり、native作用が一度でも発行され得た要求はlater_effect=unconfirmedのまま返す。receipt不在/破損/途中はunknown。同IDを新しい設定へ再発行しない。
 
+Codex 0.167.0は`-c`上書き付き起動ではin-process app-serverを使い、Aitermは常に`-c`を渡すためnative control socketへ接続できない。従って稼働中Codexのconfigureは既存の拒否契約を保つ。
+
 [全体図](current-overview.svg) → [設定操作](model-configuration.svg) / [goalとの接続](goal-configuration.svg)。編集正本は同名DOT。
 
 | 実ファイル・関数 | 責任と接続 |
 | --- | --- |
-| `core.ts`: configureAgent / configureAgentInLock | 入力・現在世代・入力待ち、send/native排他、goal保護、作用前の不明化、metadataと返却を保持。入力待ちの読みは送信（ADR 0101）と同じ証拠: 画面の動作中の行に加え、Codexは記録の最後の境界がturnの開始でprocessが生きている席も番の最中と読み、命令を打たずにnull（呼ぶ側はすぐに「入力待ちではありません」で断る。30秒の見直しは2026-11-07に外した） |
+| `core.ts`: configureAgent / configureAgentInLock | 入力・現在世代・入力待ち、process-local send FIFO/native排他、goal保護、作用前の不明化、metadataと返却を保持。入力待ちの読みは送信（ADR 0101）と同じ証拠: 画面の動作中の行に加え、Codexは記録の最後の境界がturnの開始でprocessが生きている席も番の最中と読み、命令を打たずにnull（呼ぶ側はすぐに「入力待ちではありません」で断る。30秒の見直しは2026-11-07に外した） |
 | `core.ts`: agentModelUi | 既存captureScreenの45行、Enterまで含むsendAgentPromptText、既存sendMenuChoiceをadapterへ接続 |
 | `agent-model-ui.ts`: AgentModelUi / lineCounts | 内部の画面/命令/keyの型と新通知数の既存集計。native状態を所有しない |
 | `harnesses/claude-configure.ts`: configureClaudeForSessionOnly | picker探索、session-only/effort再確認、s直前beforeChange、新通知・元のreadyと有限Esc後始末 |

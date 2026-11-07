@@ -505,7 +505,8 @@ test("Claude Codeの席: 番が動いている席の設定替えは、何も打�
     assert.ok(performance.now() - started < 10_000, "30秒の見直しをしない");
     const steered = await core.sendAgentMessage(sid, "STEER");
     assert.equal(steered.schema, "aiterm.agent-steer.v1");
-    assert.equal(keys(), "TURN⏎STEER⏎", "設定の命令は打っていない");
+    // The steer returns after tmux accepts Enter, not after the mock seat records it.
+    await until("差し込みのEnterが席へ届き、設定の命令は打っていない", () => keys() === "TURN⏎STEER⏎");
     setTurnRunning(false);
     // 呼び手は番の終わりを見てから頼み直す（席が番の表示を消すのを待つ）。
     await until("番の表示が消える", () => core.observeSession(sid).state === "idle");

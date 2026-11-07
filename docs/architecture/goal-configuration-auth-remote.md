@@ -23,7 +23,7 @@ managerは変更前に古いgoal snapshotを返却対象から外す。native ac
 
 ## 設定変更とgoalの一時停止
 
-`agent_configure` → configureAgentは入力値検証と元launch固定後、送信と同じFIFO/file lockで世代を再確認する。番が動いていればlockを解放してすぐ「入力待ちではありません」で断る（2026-11-07まであった30秒の並び直しは、守る物が無く呼び手の差し込みを止めていたので外した）。休止/復帰中は通常inputによる再開を要求し、configure自身ではnativeを起こさない。変更直前にresume templateをunconfirmedとしてからnative設定へ進み、成功時に新しいconfirmed recipeを保存する。
+`agent_configure` → configureAgentは入力値検証と元launch固定後、送信と同じprocess-local FIFOで世代を再確認する。agent-sendのfilesystem lockは使わない。番が動いていればFIFOを解放してすぐ「入力待ちではありません」で断る（2026-11-07まであった30秒の並び直しは、守る物が無く呼び手の差し込みを止めていたので外した）。休止/復帰中は通常inputによる再開を要求し、configure自身ではnativeを起こさない。変更直前にresume templateをunconfirmedとしてからnative設定へ進み、成功時に新しいconfirmed recipeを保存する。
 
 Codexでactive v1 goalがある場合だけ、inspect→比較付きpause→現在turn終了待ち（記録のtask_complete/interruptedに加え、画面の作業中の行が消えるまで。即時の断りが描き直しの遅れで当たらないように）→configure→同じgoalがpausedのままならresume。元々paused/noneならこの依頼はresumeしない。途中で別goal/値へ変わった場合、v2 goal、pause/restoreが不明なら専用errorで返す。configure失敗時も自分がpauseしたgoalの復元を試みるが、結果不明をactiveと補わない。goal inspectがunavailableの場合は既存仕様どおりconfigureの通常gateへ進む。
 

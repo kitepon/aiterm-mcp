@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Restore same-process exclusion for managed-agent native mutations (force `pty_send`, `pty_key`, approval respond): while another input owner in the same process holds the seat (idle inspection or a send), the operation is refused with the existing `AGENT_RESUME_UNCONFIRMED` text instead of taking over the owner. The 0.63.12 file-lock removal had dropped this refusal along with the cross-process lock. A verified creation/resume of a new native is not blocked by an older generation's owner. Cross-process serialization stays the caller's responsibility (0.63.12). Tests whose contract changed in 0.63.12/0.63.15 are updated.
+
 ## [0.63.16] - 2026-11-07
 
 - `agent_configure` on a seat whose turn is running now refuses at once with the existing not-ready error instead of rechecking for 30 seconds (ADR 0120 amendment). The recheck protected nothing and held callers that configure before delivering input. Deferred settings are re-requested by the caller after the turn ends; the Codex goal pause / turn-end wait of ADR 0137 is kept because it orders the deferred setting before the goal's next turn.

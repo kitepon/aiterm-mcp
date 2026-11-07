@@ -315,18 +315,18 @@ test("順番待ちの送信は、同名で作り直したagentへ移らない", 
   }
 });
 
-test("送信が入力受付待ちの間もsessionは閉じられ、その送信は打たずに終わってlockを外す", { skip }, async () => {
+// 0.63.12からAgentへの送信はfileのlockを持たない（native-runtime.md「Managed-agent first-input ownership」）。
+test("送信が入力受付待ちの間もsessionは閉じられ、その送信は打たずに終わってlockを作らない", { skip }, async () => {
   const [sid] = core.openAgent("claude", { agent_done: true });
   try {
     const sending = core.dispatchAgentTurn(sid, "echo MUST_NOT_ARRIVE", { ready_timeout: 3000 });
     const settled = sending.then(() => null, (error) => error);
     await sleep(300);
-    assert.ok(fs.existsSync(agentSendLockPath(sid)), "入力受付待ちの間はlockを持つ");
+    assert.equal(fs.existsSync(agentSendLockPath(sid)), false, "入力受付待ちでもfileのlockを作らない");
     core.closeSession(sid);
-    assert.ok(fs.existsSync(agentSendLockPath(sid)), "閉じる側は、続いている送信のlockを消さない");
     const error = await settled;
     assert.ok(error instanceof Error, "閉じられたsessionへは送れない");
-    assert.equal(fs.existsSync(agentSendLockPath(sid)), false, "終わった送信は自分のlockを外す");
+    assert.equal(fs.existsSync(agentSendLockPath(sid)), false);
   } finally {
     try { core.closeSession(sid); } catch { /* 閉じ済み */ }
   }
@@ -353,15 +353,8 @@ test("pidを使い回されたlockと古い片付けの印は、生きて見え�
   const lock = agentSendLockPath(sid);
   const unrelated = spawnIdle();
   try {
-    await markFakeClaudeReady(sid);
-    writeLock(lock, deadPid());
-    // 片付け役が印を持つのは一瞬。10秒前の印は、pidが生きて見えても残骸。
+    // 片付け役が印を持つのは一瞬。10秒前の印は、pidが生きて見えても残骸。送信はこの印を見ない（0.63.12）。
     writeLock(`${lock}.reap`, unrelated.pid, 10_000);
-    await assert.rejects(
-      () => core.sendAgentMessage(sid, "echo MUST_NOT_ARRIVE"),
-      (e) => e.code === 2 && /片付ける途中で残った印/.test(e.message) && e.message.includes("文字列は送信していません。"),
-    );
-    fs.rmSync(lock, { force: true });
     writeLock(lock, unrelated.pid, 3600_000);
     core.closeSession(sid);
     assert.equal(fs.existsSync(lock), false, "使い回されたpidのlockを残さない");

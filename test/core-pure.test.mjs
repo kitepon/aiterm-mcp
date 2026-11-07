@@ -297,13 +297,11 @@ test("agent_done ready gate: 一瞬のready後に再初期化したらstreakを�
 
 test("agent_done ready gate: production既定は11回連続readyを要求する", async () => {
   const ready = "Claude Code\n❯ ";
-  const result = await core.__testWaitAgentTuiReady("claude", Array(11).fill(ready), {
-    timeoutMs: 100,
-    pollMs: 0,
-  });
+  // 0.63.15から「11回、または2回以上で5秒」。既定の間隔を仮の時計で進め、11回目で5秒に届くことを見る。
+  const result = await core.__testWaitAgentTuiReady("claude", Array(11).fill(ready), { virtualClock: true });
   assert.equal(result.ready, true);
   assert.equal(result.samples, 11);
-  assert.equal(result.sleeps.length, 10);
+  assert.deepEqual(result.sleeps, Array(10).fill(500));
 });
 
 // ---------------------------------------------------------------- 起動コマンドの表示のまま＝TUI未描画（実被弾: 負荷平均300超のmacOSで30秒以内にTUIが出ず unrecognized_screen）

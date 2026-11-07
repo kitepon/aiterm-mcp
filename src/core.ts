@@ -3509,6 +3509,9 @@ function withAgentNativeOperation<T>(name: string, mutates: boolean, body: () =>
     return withAgentResumeTarget(meta, body);
   };
   if (!mutates || owns) return execute();
+  // Another same-process input owner holds this seat (the file lock removed in 0.63.12 used to refuse this).
+  // A verified creation/resume frame is pinned to its own new native, so an older generation's owner does not block it.
+  if (owner !== undefined && !verified) throw unavailable();
   const mine = Symbol(name);
   agentSendHeld.add(name); activeAgentSendOwner.set(name, mine);
   try { return agentSendOwner.run(mine, execute); }

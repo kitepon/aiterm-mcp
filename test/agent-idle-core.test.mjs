@@ -209,22 +209,21 @@ test('a missing actual create receipt never adopts the current same-name native 
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });
 
-for(const conflict of ['admission','lifecycle'])test(`initial creation preserves old state when ${conflict} changes after native creation`,{skip,timeout:15000},async t=>{
+// 0.63.12からfresh launchは別processのagent-send lockを見ない（native-runtime.md）。同じprocessは同期の作成に割り込めないので、残る競合は休止の記録だけ。
+test('initial creation preserves old state when lifecycle changes after native creation',{skip,timeout:15000},async t=>{
  const f=await fixture(t);core.openSession('initial-admission-guard');
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
  const saved=fs.readFileSync(f.lifecycle,'utf8'),savedMeta=fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id),'utf8');fs.rmSync(f.lifecycle);
- const original=childProcess.spawnSync,bin=resolveTmux(),lock=join(SOCK,'..',f.name+'.agent-send.lock');let injected=false;
+ const original=childProcess.spawnSync,bin=resolveTmux();let injected=false;
  t.mock.method(childProcess,'spawnSync',function(binary,args,options){const result=original(binary,args,options);
   if(!injected&&binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0){
-   injected=true;
-   if(conflict==='admission')fs.writeFileSync(lock,JSON.stringify({pid:process.pid,at:new Date().toISOString(),token:'fixture-other-owner'}));
-   else fs.writeFileSync(f.lifecycle,saved);
+   injected=true;fs.writeFileSync(f.lifecycle,saved);
   }
   return result;
- });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();fs.rmSync(lock,{force:true});});
- assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_SEND_BUSY|AGENT_RESUME_REQUIRED/);
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_RESUME_REQUIRED/);
  assert.equal(injected,true);assert.equal(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id),'utf8'),savedMeta);
- if(conflict==='lifecycle')assert.equal(fs.readFileSync(f.lifecycle,'utf8'),saved);
+ assert.equal(fs.readFileSync(f.lifecycle,'utf8'),saved);
  assert.equal(original(bin,['-S',SOCK,'has-session','-t',f.name]).status,1);
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });
@@ -380,18 +379,7 @@ test('a damaged dormant record cannot become an ordinary PTY or a missing seat',
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
 });
 
-test('a key from another process cannot enter during admitted agent input',{skip,timeout:15000},async t=>{
- const f=await fixture(t);let refusal;
- await core.sendAgentMessage(f.name,'only-admitted-body',{raw:true,before_send:async()=>{
-  const code=`import * as core from ${JSON.stringify(new URL('../dist/core.js',import.meta.url).href)};
-try{core.sendKeyResult(${JSON.stringify(f.name)},'Enter');console.log(JSON.stringify({accepted:true}));}
-catch(error){console.log(JSON.stringify({accepted:false,message:error.message}));}`;
-  const child=spawnSync(process.execPath,['--input-type=module','-e',code],{encoding:'utf8'});
-  assert.equal(child.status,0,child.stderr);refusal=JSON.parse(child.stdout);
- }});
- assert.equal(refusal.accepted,false);assert.match(refusal.message,/AGENT_RESUME_UNCONFIRMED/);
- assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['only-admitted-body']);
-});
+// 別processからの入力の排他は0.63.12から呼び手の受け持ち（native-runtime.md「Managed-agent first-input ownership」）。
 
 test('logical listings do not enroll a hibernation record belonging to another socket',{skip,timeout:15000},async t=>{
  const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');

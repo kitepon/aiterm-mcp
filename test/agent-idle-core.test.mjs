@@ -99,7 +99,9 @@ setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')
   lifecycle:agentMetadataPath(name,meta.launch_id).replace(/\.agent\.json$/,'.lifecycle.json')};
 }
 
-test('Codex resume gives a late idle draw 50 seconds by default and honors an explicit 30-second limit',{skip,timeout:30000},async t=>{
+// Two sequential hibernate+resume fixtures: 27s on a passing macOS runner, so 30s left no margin and a cancelled
+// subtest's cleanup then killed the next test's seat. The budget is for both subtests, not a product deadline.
+test('Codex resume gives a late idle draw 50 seconds by default and honors an explicit 30-second limit',{skip,timeout:60000},async t=>{
  for(const explicit of [false,true])await t.test(explicit?'explicit deadline':'default resume budget',async t=>{
   const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
   const original=childProcess.spawnSync,descriptor=Object.getOwnPropertyDescriptor(globalThis,'performance');

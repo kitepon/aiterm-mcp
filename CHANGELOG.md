@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.14] - 2026-11-07
+
 - Give Codex conversation resume a 50-second default readiness budget so redraw and stable-sample checks have time to complete after partial history rendering. Explicit deadlines, native/conversation checks and ordinary dispatch defaults are preserved. Eligible failed-native recovery uses the same budget; no caller schema or replay behavior changes.
 
 ## [0.63.13] - 2026-11-07
@@ -3069,7 +3071,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...HEAD
+[0.63.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...v0.63.14
 [0.63.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...v0.63.13
 [0.63.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...v0.63.12
 [0.63.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...v0.63.11

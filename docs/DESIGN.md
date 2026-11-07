@@ -224,9 +224,10 @@ Cursorのsubmitはadapterがextended keyboard protocolのEnterへ変換し、呼
 Grokのbusy判定後にturnが終わる競合では、送信前のhistory byte位置と本文全体のdigestを保存し、新しい実user行の`prompt_index`と送信後eventの`turn_started.turn_number`を照合する。新turnでの受理が確定した時だけ、その開始位置を使ったdispatch receiptと親配送登録へ移す。本文やEnterを再送しない。Grokの差し込みwaiterも同じ照合を使い、古い完了や短い本文prefixを受理証拠にしない。欠測・曖昧・旧控え・控え消失は未確定とし、旧turn待ちへのfallbackをしない。生成する観測processの`--launch`は元世代へ固定する。
 queueの未確認/残留は`aiterm.agent-send-error.v1`（文字列code、outcome_unknown/effect possible、元session/launch）を既isError/prefixへ追加する。Grokの保存済み送信前位置だけを観測に渡し、Cursorの未知な受理へ旧turnのwaiterを渡さない。
 起動直後のClaude sessionへの初回dispatchは、他harnessと同じくTUIの入力受付を確認してから貼付とEnterを送る。
-Codex・Grok・Cursorの席は、新しいturnを送るたびに入力受付を確かめる。起動の途中の入力欄を採らないよう、500msおきに11回続けて
-入力待ちを読む（ADR 0014）。席のharnessが自分の記録で「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は、
-100msおきに2回で通す（ADR 0097）。記録の上でturnが動いている間は、画面が入力待ちに見えても11回の確かめを通る。
+Codex・Grok・Cursorの席は、新しいturnを送るたびに入力受付を確かめる。起動の途中の入力欄を採らないよう、通常は500msおきに11回、
+または2回以上の連続した入力待ち観測が既定5秒の安定期間を隔てて成立することを確認する。観測が遅い時は最初と最後の読取完了時刻を使い、
+最初の読取自身の時間は安定期間に含めない。途中non-idleやsettled取消で起点を数え直す。疎な観測の間に起きて戻った描画変化は検出できない。
+席のharnessが自分の記録で「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は、100msおきに2回で通す（ADR 0097）。
 正の入力待ち期限は画面・履歴の読取が返った後にも照合し、期限後に返ったready/busyで入力やsteerを許可しない。
 入力の生存確認は公開observeと同じnative世代・本人の読取を共用し、不要な200行の活動captureや子配送集計は要求しない。専用45行の入力画面判定は保持し、公開observeは従来どおり活動観測まで行う。
 Codexの入力待ちは、入力欄の行（`›`、古い描画の`>`）がある時だけ読む。起動の見出しの`>_`は入力欄ではない。足元の警告をF2で開いた

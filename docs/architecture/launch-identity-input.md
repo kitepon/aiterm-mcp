@@ -12,6 +12,7 @@
 | 出生本人性 | `src/core.ts` のcreated callback → `src/process-start.ts:6` `processStartIdentities` | server/pane PIDからOSの開始本人性を読む。nullなら `AGENT_RESUME_UNCONFIRMED`。Windows default1000ms/PowerShell取得結果の理由保持は既実装どおり、修理しない |
 | CLI起動行 | `src/core.ts` [openAgent](../../src/core.ts#L7438) 内create/send | native本人性を確認した後にmetadataや起動行を進める。元のHOME/vendor設定を使う。入力・設定の失敗と返却はlifecycle/設定/観測の各詳細に接続 |
 | 起動準備・復帰準備 | `src/core.ts` [prepareAgentInput](../../src/core.ts#L4790)、[resumeAgentInLock](../../src/core.ts#L6602) | TUIの状態とnative harness生存を照合。復帰Codexのbusyを受けるにはnative running turnが必要 |
+| 遅い観測の安定確認 | `agent-screen-observation.waitAgentTuiReadyImpl` | 連続11観測、または2回以上の連続idleが既定5秒を隔てて成立。観測完了時刻を使い、途中non-idle/settled取消で起点をリセット。既存期限とnative作用直前の照合は維持 |
 | 本文入力 | `src/core.ts` [submitAgentComposerText](../../src/core.ts#L4692) | paste、Cursorの表示確認または既delay、Enterの順。admission/checkInput/beforePasteを維持 |
 | 開始確認・結果 | `dispatchAgentTurnInLock` / [openAgentWithInitialPrompt](../../src/core.ts#L7776) → `index.ts` | submit残存・turn開始・未確認を区別。本文を書いた事とturnの完了は異なる |
 | 後続観測 | `index.ts` `pty_observe` → `core.observeSession` | current launch/exists/native identityを読む。起動receiptの欠測を過去へ補完しない |

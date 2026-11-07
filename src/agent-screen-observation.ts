@@ -21,9 +21,9 @@ const LAUNCH_ECHO_TAIL_CHARS = 24;
 const LAUNCH_ECHO_MIN_CHARS = 8;
 export const AGENT_TUI_READY_POLL_MS = 500;
 const AGENT_TUI_READY_STABLE_SAMPLES = 11;
-// 上の11回は、起動の途中に一瞬だけ出る入力欄を採らないための確かめ（ADR 0014）。席のharnessが自分の記録で
+// 上の11回・5秒の安定期間は、起動途中の一瞬だけの入力欄を採らないための確かめ（ADR 0014）。席のharnessが自分の記録で
 // 「この起動でturnを1つ終えていて、次のturnを始めていない」と示している時は起動の途中ではないので、短い間隔で
-// 続けて確かめるだけで送る（ADR 0097）。記録で示せない時は、今までどおり11回。
+// 続けて確かめるだけで送る（ADR 0097）。記録で示せない時は、連続11回または2回以上で5秒の期間を確認する。
 const AGENT_TUI_SETTLED_STABLE_SAMPLES = 2;
 const AGENT_TUI_SETTLED_POLL_MS = 100;
 // submit座礁観測（dispatch後にcomposerへ送信textが残存していないかの有界チェック）
@@ -157,6 +157,7 @@ export async function waitAgentTuiReadyImpl(
   const firstDrawDeadline = timeoutMs >= AGENT_TUI_READY_TIMEOUT_MS ? start + AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : deadline;
   let samples = 0;
   let readyStreak = 0;
+  let readySince = 0;
   let settledStreak = 0;
   let lastScreen = "";
   // Synchronous screen/identity and transcript reads can return after the deadline.
@@ -167,18 +168,25 @@ export async function waitAgentTuiReadyImpl(
     if (kind === "grok") assertGrokSandboxNotRejected(lastScreen);
     if (opts.selectSteer?.(lastScreen)) return { ready: false, samples, lastScreen, ...(inTime() ? { steer: true as const } : {}) };
     if (isAgentTuiIdleReady(kind, lastScreen)) {
+      const observedAt = now();
+      if (readyStreak === 0) readySince = observedAt;
       readyStreak++;
       if (readyStreak >= stableSamples) return { ready: inTime(), samples, lastScreen };
       if (opts.turnSettled?.()) {
         settledStreak++;
         if (settledStreak >= settledSamples) return { ready: inTime(), samples, lastScreen };
       } else if (settledStreak > 0) {
-        // 記録の上でturnが始まった。短い間隔で数えた分を、11回の確かめへ持ち越さない。
+        // 記録の上でturnが始まった。短い道の回数と経過時間を通常の安定確認へ持ち越さない。
         settledStreak = 0;
         readyStreak = 1;
+        readySince = observedAt;
       }
+      // Slow native reads still establish the same stabilization window between positive frames.
+      if (readyStreak >= 2 && observedAt - readySince >= (stableSamples - 1) * pollMs)
+        return { ready: inTime(), samples, lastScreen };
     } else {
       readyStreak = 0;
+      readySince = 0;
       settledStreak = 0;
       // The one keep-current key can be accepted before the TUI redraws.
       // Wait for that exact handled modal to disappear; never resend its key.

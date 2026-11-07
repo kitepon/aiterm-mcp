@@ -43,7 +43,13 @@ wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自
 
 回答回収はtimeout後も本文を再送せず行える。Claudeのactive operation markerがあればStop公開とmarker消去の短い待ちを経てもactiveなら拒否する。harness sessionの後着bindingを回収側が保存する一方、完了waiterはbindingを書かない。`completion`付き内部回収はdone/session/launch、必要なturn/operationとの一致を確認し、置換は拒否する。raw=trueで親配送は縮約を避ける。人向けdisplayの空回答通知やメタと、機械向けtextを混同しない。
 
-screen-observationはsample/sleep/clockを引数で受け、native入力を持たない。ready連続観測、settled-turnによる短縮、起動echoだけの場合の初回描画待ち、既知modal、submit residueの有界観測を所有する。residue=falseは「残存未観測」、submit成功ではない。done後の画面settleも描画安定の観測で、turn完了の起点ではない。待ち時間・sample数は今回変更しない。
+screen-observationはsample/sleep/clockを引数で受け、native入力を持たない。ready連続観測、settled-turnによる短縮、起動echoだけの場合の初回描画待ち、既知modal、submit residueの有界観測を所有する。0.63.15の通常readyは連続11観測、または2回以上の連続idleで最初と最後の観測完了が5秒以上離れていれば成立する。速い観測は従来の500ms×10間隔、遅い観測は同じ安定期間を2〜3回で確認する。最初の観測自身の所要時間は期間へ入れず、non-idleとsettled取消で起点を数え直す。既存のsettled2回/100ms短縮と各期限は保持。residue=falseは「残存未観測」、submit成功ではない。done後の画面settleも描画安定の観測で、turn完了の起点ではない。
+
+### 0.63.15 readiness function map and state/data flow
+
+`core.waitAgentTuiReady` / `waitAgentTuiReadyByKind` -> supplied native screen sample + monotonic clock -> `waitAgentTuiReadyImpl`. It owns only counters/time, never input or native metadata. `readyStreak=0` -> first idle completes -> capture readySince; next consecutive idle -> existing sample-count rule OR >=2 observations spanning `(stableSamples-1)*pollMs`; established-settled path retains2samples/100ms. Non-idle resets both count and origin, known modal returnsblocked, settled true-to-false starts again at current sample. Positive deadline is rechecked after synchronous screen/transcript reads before ready/steer can authorize the next core step. Expiry returnsfalse; startup-echo extension retains its existing ceiling. There is no edge from expiry to a longer stabilization budget or from an unknown frame to input. The next native admission still checks current generation/harness before paste and Enter.
+
+This changes the sampling contract, not the RPC deadline: slow observations produce fewer samples within the same stabilization duration and do not extend the wait beyond its existing deadline. Sparse positive frames cannot exclude an unobserved intermediate redraw. MCP cancellation is not a certificate that native input was stopped; a timed-out invocation remains unknown and must not be replayed.
 
 ## 未確認
 

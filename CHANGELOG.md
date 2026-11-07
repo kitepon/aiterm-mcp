@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Accept readiness after consecutive idle observations span the existing five-second stabilization window, with at least two positive frames. Fast reads retain the eleven-sample path; slow reads no longer exhaust the deadline solely while collecting eleven frames. Non-idle and lost settled evidence reset the window; existing deadlines, modal/native checks and settled-turn shortcut remain unchanged. No caller/schema change or RPC-timeout extension.
+
 ## [0.63.14] - 2026-11-07
 
 - Give Codex conversation resume a 50-second default readiness budget so redraw and stable-sample checks have time to complete after partial history rendering. Explicit deadlines, native/conversation checks and ordinary dispatch defaults are preserved. Eligible failed-native recovery uses the same budget; no caller schema or replay behavior changes.

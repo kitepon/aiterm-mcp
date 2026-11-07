@@ -9,7 +9,7 @@ import {parentPaneEvidence} from '../dist/agent-screen-observation.js';
 const rule='────────────────', uuid='11111111-2222-4333-8444-555555555555';
 const frames={
  claude:{busy:['Claude Code','✻ Musing… (esc to interrupt)',rule,'❯ ',rule,'  bypass permissions'].join('\n'),
-  ready:['Claude Code','● finished',rule,'❯ ',rule,'  bypass permissions'].join('\n')},
+  ready:['Claude Code','✻ Cogitated for 11s · done 4:45 AM',rule,'❯ ',rule,'  bypass permissions'].join('\n')},
  grok:{busy:'Waiting for response… 12s [stop]\n│ >                      │\n╰──────── Grok 4.6 (medium) · always-approve ─╯',
   ready:'╭────────────────────────╮\n│ >                      │\n╰──────── Grok 4.6 (medium) · always-approve ─╯'},
  cursor:{busy:'Cursor Agent\n⠋ Working\n→ \nctrl+c to stop\n',ready:'Cursor Agent\n→ Add a follow-up\n'},
@@ -28,6 +28,7 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('cursor','Cursor Agent\n⠋ Working\n→ Plan, search, build anything\n'),'unknown');
  assert.equal(parentPaneEvidence('claude',frames.claude.busy.replace('Musing… (esc to interrupt)','Musing… (running UserPromptSubmit hook · 0s)')),'unknown');
  assert.equal(parentPaneEvidence('antigravity','Terms of Service\n> Allow'),'unknown');
+ assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'unknown','A plain composer is also present during a quiet unfinished wait');
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
 });
 

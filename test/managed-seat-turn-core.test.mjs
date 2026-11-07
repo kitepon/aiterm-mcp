@@ -15,7 +15,7 @@ import {antigravityBindingFile} from '../dist/harnesses/antigravity.js';
 const rule='────────────────', uuid='11111111-2222-4333-8444-555555555555';
 const frames={
  claude:{busy:['Claude Code','✻ Musing… (esc to interrupt)',rule,'❯ ',rule,'  bypass permissions'].join('\n'),
-  ready:['Claude Code','● finished',rule,'❯ ',rule,'  bypass permissions'].join('\n')},
+  ready:['Claude Code','✻ Cogitated for 11s · done 4:45 AM',rule,'❯ ',rule,'  bypass permissions'].join('\n')},
  grok:{busy:'Waiting for response… 12s [stop]\n│ >                      │\n╰──────── Grok 4.6 (medium) · always-approve ─╯',
   ready:'╭────────────────────────╮\n│ >                      │\n╰──────── Grok 4.6 (medium) · always-approve ─╯'},
  cursor:{busy:'Cursor Agent\n⠋ Working\n→ \nctrl+c to stop\n',ready:'Cursor Agent\n→ Add a follow-up\n'},
@@ -107,6 +107,11 @@ test('real metadata producer projects four original rows from mocked live native
    screens[kind]=frames[kind].busy;assert.deepEqual(row(kind).turn,first.turn);
   }
   terminals[kind]();assert.deepEqual(row(kind).turn,first.turn,'Current busy wins over late terminal');
+  if(kind==='claude'){
+   screens[kind]=frames[kind].ready.replace('✻ Cogitated for 11s · done 4:45 AM','● prior result');
+   assert.equal(row(kind).turn,null);clock+=300;assert.equal(row(kind).turn,null,'Late Stop plus a plain composer cannot settle a quiet wait');
+   screens[kind]=frames[kind].busy;assert.deepEqual(row(kind).turn,first.turn);
+  }
   screens[kind]=frames[kind].ready;assert.equal(row(kind).turn,null,'First ready is unavailable');clock+=300;
   assert.deepEqual(row(kind).turn,{state:'idle'},kind+' actual root terminal + settled ready');
   screens[kind]=frames[kind].busy;assert.notEqual(row(kind).turn.turn_id,first.turn.turn_id);

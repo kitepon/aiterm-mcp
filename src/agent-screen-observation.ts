@@ -383,6 +383,8 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   if (kind === "claude" && /running UserPromptSubmit hook/u.test(current)) return "unknown";
   const observed = agentPaneObservation(kind, current);
   if (observed.state === "blocked" || observed.state === "unknown") return "unknown";
+  if (kind === "claude" && observed.state === "idle"
+    && !/^[·✢✳✶✻✽*∗] [^…\n]+ for \d[^…\n]*$/mu.test(current)) return "unknown";
   if (kind === "cursor") {
     if (/^\s*ctrl\+c to stop\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "busy";
     if (observed.state === "busy") return "unknown";

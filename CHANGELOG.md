@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.16] - 2026-11-07
+
 - `agent_configure` on a seat whose turn is running now refuses at once with the existing not-ready error instead of rechecking for 30 seconds (ADR 0120 amendment). The recheck protected nothing and held callers that configure before delivering input. Deferred settings are re-requested by the caller after the turn ends; the Codex goal pause / turn-end wait of ADR 0137 is kept because it orders the deferred setting before the goal's next turn.
 - `agent_configure` no longer types `/model` into a Codex seat whose turn is still running while it streams a reply without the busy line. The in-lock readiness check now uses the same native evidence as send (ADR 0101: last rollout boundary is `task_started` and the process is alive) and returns the existing not-ready refusal after the existing 30-second recheck. Public schemas, refusal text and timing for idle or busy-line seats are unchanged.
 
@@ -3078,7 +3080,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...HEAD
+[0.63.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...v0.63.16
 [0.63.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...v0.63.15
 [0.63.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...v0.63.14
 [0.63.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...v0.63.13

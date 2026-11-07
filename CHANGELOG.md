@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.13] - 2026-11-07
+
 - Report current parent activity for Claude Code, Grok, Cursor and Antigravity through existing seat-turn metadata. Live original-pane observations retain opaque managed span identity/start through unchanged waits and absorbed input; unsupported tracking fields remain null. Settled native parent completion returns idle, ambiguous evidence remains unavailable. Codex tracking and waiters are unchanged.
 
 ## [0.63.12] - 2026-11-07
@@ -3065,7 +3067,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...HEAD
+[0.63.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.12...v0.63.13
 [0.63.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.11...v0.63.12
 [0.63.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.10...v0.63.11
 [0.63.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.9...v0.63.10

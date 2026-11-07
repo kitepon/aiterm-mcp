@@ -73,8 +73,8 @@ test('restart uses saved identity only with new live evidence; corrupt identity 
 });
 
 test('real metadata producer projects four original rows from mocked live native reads; no CLI or pane is launched',
- {skip:process.platform!=='linux'?'Linux native-table fixture only':false},async t=>{
- const tmux=path.join(process.env.HOME,'tmux-fixture');fs.writeFileSync(tmux,'',{mode:0o700});process.env.AITERM_TMUX=tmux;
+ async t=>{
+ const tmux=path.join(process.env.HOME,'tmux-fixture');fs.writeFileSync(tmux,'',{mode:0o700});process.env.AITERM_TMUX=tmux;process.env.AITERM_PSMUX=tmux;
  const metas={},screens={},terminals={},dead=new Set();let activeKind='claude',born='Sat Nov 7 06:00:00 2026',replaced=false,replaceAtCapture=false,clock=1800000000000,elapsed=0,readCost=0;
  const performanceDescriptor=Object.getOwnPropertyDescriptor(global,'performance');
  Object.defineProperty(global,'performance',{configurable:true,value:{now:()=>elapsed}});
@@ -110,8 +110,21 @@ test('real metadata producer projects four original rows from mocked live native
  const result=stdout=>({status:0,signal:null,stdout,stderr:'',pid:0,output:[null,stdout,'']});
  childProcess.spawnSync=(bin,args)=>{
   calls.push([bin,args]);
+  if(bin==='where.exe')return result('C:\\Program Files\\PowerShell\\7\\pwsh.exe\n');
+  if(bin.toLowerCase().endsWith('pwsh.exe')){
+   if(args.at(-1).includes('$PSVersionTable'))return result('{"edition":"Core","major":7}');
+   const script=Buffer.from(args.at(-1),'base64').toString('utf16le');
+   const started_identity=new NativeDate(born).toISOString();
+   if(script.includes('Get-CimInstance Win32_Process |'))return result(JSON.stringify([
+    {pid:222,parent_pid:1,started_identity,command:'bash',cpu_seconds:0},
+    ...dead.has(activeKind)?[]:[{pid:333,parent_pid:222,started_identity:replaced?'2026-11-07T06:00:01.000Z':started_identity,
+     command:`native-${activeKind} ${metas[activeKind].launch_id}`,cpu_seconds:0}]
+   ]));
+   if(script.includes('StartTime.ToUniversalTime'))return result(JSON.stringify([{pid:process.pid,started_identity}]));
+   throw Error('Unexpected mocked PowerShell read');
+  }
   if(bin===tmux){
-   if(args.includes('-V'))return result('tmux 3.5\n');
+   if(args.includes('-V'))return result(process.platform==='win32'?'psmux 3.3.9\n':'tmux 3.5\n');
    if(args.includes('list-sessions'))return result(Object.values(metas).map(m=>args.at(-1).includes('#{pane_current_command}')
     ?`${m.aiterm_session}\t${m.kind}\t0\t80\t24`:`$1\t${m.aiterm_session}`).join('\n')+'\n');
    const target=args[args.indexOf('-t')+1];activeKind=Object.keys(metas).find(k=>metas[k].aiterm_session===target)??activeKind;
@@ -162,5 +175,5 @@ test('real metadata producer projects four original rows from mocked live native
  fs.mkdirSync(lockDir);fs.writeFileSync(path.join(lockDir,'owner.json'),JSON.stringify({pid:2147483000,started_identity:born,token:'dead'}));
  assert.equal(withManagedSpan(meta,()=>42),42,'Dead observer lock recovers by retained inode quarantine');
  assert.ok(fs.readdirSync(managedSpanDirectory(meta)).some(name=>name.startsWith('retired-')));
- assert.ok(calls.every(([bin])=>bin===tmux||bin==='/bin/ps'));
+ assert.ok(calls.every(([bin])=>bin===tmux||bin==='/bin/ps'||bin==='where.exe'||bin.toLowerCase().endsWith('pwsh.exe')));
 });

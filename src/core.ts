@@ -4050,14 +4050,14 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
     const before = observeSessionNative(meta.aiterm_session);
     const live = before.result;
     if (live.pane_alive !== true || live.harness_alive !== true || !live.pane_process || !live.harness_process
-      || before.native?.agent?.stopped !== false || live.launch_id !== meta.launch_id) return null;
+      || before.native?.agent?.stopped === true || live.launch_id !== meta.launch_id) return null;
     const captured = tmux("capture-pane", "-p", "-J", "-t", proof ? nativePaneTarget(proof) : meta.aiterm_session);
     if (captured.code !== 0) return null;
     const evidence = parentPaneEvidence(meta.kind, captured.stdout);
     const terminal = managedSeatTerminal(meta);
-    const after = observeSessionNative(meta.aiterm_session).result;
+    const observedAfter = observeSessionNative(meta.aiterm_session), after = observedAfter.result;
     if (proof) verifyAgentResumeNative(meta, proof);
-    if (after.pane_alive !== true || after.harness_alive !== true
+    if (after.pane_alive !== true || after.harness_alive !== true || observedAfter.native?.agent?.stopped === true
       || !isDeepStrictEqual(after.pane_process, live.pane_process) || !isDeepStrictEqual(after.harness_process, live.harness_process)
       || !isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta)
       || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null

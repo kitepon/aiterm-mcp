@@ -6414,7 +6414,9 @@ async function configureAgentInLock(
   // 席の控えは、行列の順番が来てから読む（前の送信が書いた分を、古い控えで上書きしない）。
   const meta = loadAgentMetadata(name);
   bindCompletedInitialPrompt(meta);
-  if (isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))) return null;
+  // Codexは回答を流している間、動作中の行を出さない（ADR 0101）。送信と同じく記録の番の開始を見て、動いている席へ命令を打たない。
+  if (isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))
+    || (meta.kind === "codex" && codexRunningTurn(meta) !== null && observeSession(name).harness_alive === true)) return null;
   const { ready, codexRateLimitModelSwitch } = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
     name, meta, AGENT_TUI_READY_TIMEOUT_MS,
   );

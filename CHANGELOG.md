@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_configure` no longer types `/model` into a Codex seat whose turn is still running while it streams a reply without the busy line. The in-lock readiness check now uses the same native evidence as send (ADR 0101: last rollout boundary is `task_started` and the process is alive) and returns the existing not-ready refusal after the existing 30-second recheck. Public schemas, refusal text and timing for idle or busy-line seats are unchanged.
+
 ## [0.63.15] - 2026-11-07
 
 - Accept readiness after consecutive idle observations span the existing five-second stabilization window, with at least two positive frames. Fast reads retain the eleven-sample path; slow reads no longer exhaust the deadline solely while collecting eleven frames. Non-idle and lost settled evidence reset the window; existing deadlines, modal/native checks and settled-turn shortcut remain unchanged. No caller/schema change or RPC-timeout extension.

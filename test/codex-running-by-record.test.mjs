@@ -42,7 +42,8 @@ const received = (name) => path.join(process.env.TMPDIR, `${name}.hex`);
 function fakeCodex(name, mode) {
   const bin = path.join(process.env.TMPDIR, `codex-${name}.sh`);
   // execしない。起動した実行ファイル（このscript）が席のprocessとして残り、harnessとして見分けられる。
-  fs.writeFileSync(bin, ["#!/bin/sh", `'${process.execPath}' '${seat}' '${received(name)}' '${mode}'`, ""].join("\n"), { mode: 0o700 });
+  // 席以外の呼び出し（app-server。設定替えの既定の読み戻し）は、すぐに断る（偽の席のまま待たせない）。
+  fs.writeFileSync(bin, ["#!/bin/sh", 'case "$1" in app-server) exit 1;; esac', `'${process.execPath}' '${seat}' '${received(name)}' '${mode}'`, ""].join("\n"), { mode: 0o700 });
   fs.chmodSync(bin, 0o700);
   return bin;
 }
@@ -233,5 +234,24 @@ test("見直すまでの間にturnの終わりが記録へ届いたら、新し�
     const sending = core.sendAgentMessage(sid, "終わり際の文。");
     setTimeout(() => append(DONE), 150);
     assert.equal((await sending).schema, "aiterm.agent-dispatch.v1");
+  } finally { core.closeSession(sid); }
+});
+
+// 設定替え（agent_configure）も、送信と同じ証拠で番の最中を読む。回答を流している席（画面は入力待ち、記録はturnの途中）へ
+// `/model`を打つと、その文は動いているturnへ入り、選ぶ画面は出ない。番が終わるまで打たず、終わってから命令を打つ。
+test("回答を流している席への設定替えは、記録の上で番が終わるまで命令を打たない", { skip, timeout: 60_000 }, async () => {
+  const { sid, launchId } = await openSeat("configure", "stream");
+  try {
+    const append = rollout(launchId, [START]);
+    let settled = false;
+    const pending = core.configureAgent(sid, { model: "mock-model", reasoning_effort: "high" }).then(
+      () => { settled = true; }, () => { settled = true; });
+    await sleep(1500);
+    assert.equal(arrived("configure", "/model"), false, "番の最中は命令を打たない");
+    assert.equal(settled, false, "断らずに見直している");
+    append(DONE);
+    await pending;
+    for (let waited = 0; waited < 4000 && !arrived("configure", "/model"); waited += 50) await sleep(50);
+    assert.ok(arrived("configure", "/model"), "番が終わったら命令を打つ");
   } finally { core.closeSession(sid); }
 });

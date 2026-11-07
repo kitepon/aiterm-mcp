@@ -2,7 +2,7 @@ digraph configuration {
  graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.55,fontname="DejaVu Sans",fontsize=18,label="Model configuration ownership — current / failed resume",labelloc=t];
  node [shape=box,style="rounded,filled",fillcolor="#f1f3f5",fontname="DejaVu Sans",fontsize=12];
  edge [fontname="DejaVu Sans",fontsize=10,color="#4b5563"];
- request [label="configureAgent\nValidate session / generation / input-ready"];
+ request [label="configureAgent\nValidate session / generation / input-ready\nCodex: busy line OR record task_started + live process = not ready (ADR 0101)"];
  tracked [label="agent_configure + request (opt-in)\nUUID / expected launch / settings digest\nExclusive claim + durable configuration receipt",fillcolor="#deedff"];
  effect_guard [label="configuration-effect.ts\nPersist possible before every native mutation\nRefuse poisoned / post-terminal continuations",fillcolor="#fff1d5"];
  reconcile [label="action=reconcile: bounded receipt read only\nNo input / no current settings inspection\nMissing / corrupt / unfinished => unknown",fillcolor="#deedff"];

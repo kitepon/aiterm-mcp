@@ -10,7 +10,7 @@ core.configureAgentはopt-inの期待launchを最初のmetadataと照合し、�
 
 | 実ファイル・関数 | 責任と接続 |
 | --- | --- |
-| `core.ts`: configureAgent / configureAgentInLock | 入力・現在世代・入力待ち、send/native排他、goal保護、作用前の不明化、metadataと返却を保持 |
+| `core.ts`: configureAgent / configureAgentInLock | 入力・現在世代・入力待ち、send/native排他、goal保護、作用前の不明化、metadataと返却を保持。入力待ちの読みは送信（ADR 0101）と同じ証拠: 画面の動作中の行に加え、Codexは記録の最後の境界がturnの開始でprocessが生きている席も番の最中と読み、命令を打たずにnull（呼ぶ側が30秒まで見直して断る） |
 | `core.ts`: agentModelUi | 既存captureScreenの45行、Enterまで含むsendAgentPromptText、既存sendMenuChoiceをadapterへ接続 |
 | `agent-model-ui.ts`: AgentModelUi / lineCounts | 内部の画面/命令/keyの型と新通知数の既存集計。native状態を所有しない |
 | `harnesses/claude-configure.ts`: configureClaudeForSessionOnly | picker探索、session-only/effort再確認、s直前beforeChange、新通知・元のreadyと有限Esc後始末 |

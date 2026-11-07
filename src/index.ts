@@ -36,6 +36,7 @@ import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteLabel, remo
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
+import { createRuntimeAdoption, RuntimeAdoptionError, type RuntimeAdoptionConfig, type RuntimeAdoption } from "./runtime-adoption.js";
 import { cursorParentFromRequest, isCursorMcpClient, type CursorParent } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
 import { INTERIM_RESULT_META_KEY, interimCallerFromMeta, interimRequestFromMeta } from "./interim-words.js";
@@ -45,7 +46,35 @@ import { SEAT_TURNS_RESULT_META_KEY, STEER_RESULT_META_KEY } from "./steer-follo
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
 // engines "node >=18"（18.0〜18.19）を SyntaxError で壊し、旧 `assert` 構文は逆に Node 22 で
 // 除去済み＝どちらの静的構文も 18〜22 全域を満たせないため（実行時 require が唯一全域で動く）。
-const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
+const pkgRequire = createRequire(import.meta.url);
+const pkg = pkgRequire("../package.json") as { version: string };
+
+export const RUNTIME_ADOPTION_TOOL = "runtime_adoption";
+// Ordinary tools declare outputSchema and SDK clients validate structuredContent even
+// on isError, so their refusal is text-only; the control tool (no outputSchema) adds it.
+function runtimeAdoptionFailure(e: unknown, structured = false) {
+  const code = e instanceof RuntimeAdoptionError ? e.code : "RUNTIME_ADOPTION_UNAVAILABLE";
+  return { content: [{ type: "text" as const, text: JSON.stringify({ error_code: code }) }], isError: true,
+    ...(structured ? { structuredContent: { error_code: code } } : {}) };
+}
+/** Opt-in lifecycle control; absent from default tools/list. Generation/scope come from composition. */
+function registerRuntimeAdoptionTool(server: McpServer, adoption: RuntimeAdoption): void {
+  server.registerTool(RUNTIME_ADOPTION_TOOL, {
+    description: "Host-only runtime generation lifecycle (aiterm.runtime-adoption.v1). Never stops seats.",
+    inputSchema: {
+      action: z.enum(["prepare", "activate", "status", "retire"]),
+      job_id: z.string().optional(), expected: z.string().optional(),
+      live: z.array(z.unknown()).max(32).optional(),
+    },
+  }, async (args) => {
+    try {
+      const result = args.action === "prepare" ? await adoption.prepare(args)
+        : args.action === "activate" ? await adoption.activate(args)
+        : args.action === "status" ? adoption.status(args) : await adoption.retire();
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> };
+    } catch (e) { return runtimeAdoptionFailure(e, true); }
+  });
+}
 
 export interface AitermServerExecution {
   dispatcher: ReturnType<typeof createExecutionDispatcher>;
@@ -64,8 +93,12 @@ export function createAitermServer(options: {
   execution?: (server: McpServer) => AitermServerExecution;
   // Authenticated host ingress supplies provenance. No tool argument can set it.
   goalOrigin?: (extra: { _meta?: unknown; requestId?: unknown }) => "user" | "automatic";
+  // Trusted host composition only (never a tool argument). Absent = unchanged default server.
+  runtimeAdoption?: RuntimeAdoptionConfig;
 } = {}): McpServer {
 const server = new McpServer({ name: "aiterm", version: pkg.version });
+// Assigned below once manager closure exists; the request wrapper only reads it.
+let adoption: RuntimeAdoption | null = null;
 const goalOrigin = options.goalOrigin;
 if (goalOrigin !== undefined && typeof goalOrigin !== "function") throw new Error("Invalid trusted goal provenance adapter");
 const supplied = options.execution?.(server);
@@ -82,6 +115,14 @@ if (supplied && typeof supplied.dispatcher.prepareControlRegistration === "funct
 const setRequestHandler = server.server.setRequestHandler.bind(server.server) as (schema: unknown, handler: unknown) => void;
 server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown, extra: { _meta?: unknown }) => unknown) =>
   setRequestHandler(schema, schema !== CallToolRequestSchema ? handler : async (request: unknown, extra: { _meta?: unknown }) => {
+    // Lifecycle control is not counted in its own drain; every other tool needs an active generation.
+    if (adoption && (request as { params?: { name?: unknown } })?.params?.name !== RUNTIME_ADOPTION_TOOL) {
+      try { adoption.admit(); } catch (e) { return runtimeAdoptionFailure(e); }
+      return await adoption.track(handleTool(handler, request, extra));
+    }
+    return await handleTool(handler, request, extra);
+  })) as typeof server.server.setRequestHandler;
+async function handleTool(handler: (request: unknown, extra: { _meta?: unknown }) => unknown, request: unknown, extra: { _meta?: unknown }) {
     let result: { isError?: boolean } | undefined;
     let cleanupExtra = extra;
     if (execution) {
@@ -105,7 +146,7 @@ server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown,
     // file is still this request; retain it for verified owner cleanup.
     if (!execution && result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, cleanupExtra._meta); } catch { /* 見回りへ回す */ }
     return result;
-  })) as typeof server.server.setRequestHandler;
+}
 let parentDelivery: ParentDeliveryManager | null = null;
 // 別端末の子の配送。記録の保存場所を分けるため、この端末の子とは別のmanagerにする。
 let remoteParentDelivery: ParentDeliveryManager | null = null;
@@ -1479,9 +1520,8 @@ registerAgentTool(
   // 親ホストを initialize の clientInfo.name から確定させ、receipt の完了待ちコマンドを
   // そのホストの実際の起動形で名指しする（実測: claude-code は initialize → notifications/initialized
   // → tools/list の順で送るため、どの tool 呼び出しより先に確定する）。取れない時は汎用文へ落ちるだけ。
-  server.server.oninitialized = () => {
+  const startParentManagers = () => {
     const name = server.server.getClientVersion()?.name;
-    core.setParentClient(name ?? null);
     if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
       parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name),
         ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies,
@@ -1489,10 +1529,25 @@ registerAgentTool(
       if (!execution) remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
     }
   };
-  server.server.onclose = () => {
-    void parentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
-    void remoteParentDelivery?.close().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
+  server.server.oninitialized = () => {
+    core.setParentClient(server.server.getClientVersion()?.name ?? null);
+    // Standby must not start recovery/heartbeat timers or claim records; activation starts them.
+    if (!adoption || adoption.state === "active") startParentManagers();
   };
+  // One close per manager: retire awaits it, a later transport close reuses the same promise.
+  let managersClosed: Promise<void> | null = null;
+  const closeParentManagers = () => managersClosed ??= Promise.all([parentDelivery?.close(), remoteParentDelivery?.close()]).then(() => undefined);
+  server.server.onclose = () => {
+    void closeParentManagers().catch(() => process.stderr.write("aiterm: PARENT_DELIVERY_CLOSE_FAILED\n"));
+  };
+  if (options.runtimeAdoption) {
+    adoption = createRuntimeAdoption(options.runtimeAdoption, {
+      declaration: () => pkgRequire("../runtime-overlap.json"),
+      onActivate: () => { if (server.server.getClientVersion()) startParentManagers(); },
+      onRetire: closeParentManagers,
+    });
+    registerRuntimeAdoptionTool(server, adoption);
+  }
   return server;
 }
 

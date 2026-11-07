@@ -19,6 +19,7 @@ import { observeExecutionActor } from "./process-runtime.js";
 import { ExecutionError } from "./execution-wire.js";
 import { createAitermServer } from "./index.js";
 import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
+import { parseRuntimeAdoptionConfig, type RuntimeAdoptionConfig } from "./runtime-adoption.js";
 
 /** Ordinary delivery and leaf-first cancel keys have no execution-store
  * registration, participant gate, shared transaction or graph write. */
@@ -28,8 +29,9 @@ export function createNativeDeliveryServer(dependencies: {
   sendKey?: (session: string, expectedLaunchId?: string) => unknown;
   goalOrigin?: NonNullable<Parameters<typeof createAitermServer>[0]>["goalOrigin"];
   pauseGoal?: Parameters<typeof interruptKnownSessionsAndGoals>[1]["pauseGoal"];
+  runtimeAdoption?: RuntimeAdoptionConfig;
 } = {}) {
-  const server = createAitermServer({ goalOrigin: dependencies.goalOrigin });
+  const server = createAitermServer({ goalOrigin: dependencies.goalOrigin, runtimeAdoption: dependencies.runtimeAdoption });
   server.registerTool("agent_stop", {
     description: "指定sessionとその呼出先へ末端から通常の停止キーを送る。sentはキー送信結果であり終了の証明ではない。",
     inputSchema: immediateStopInputSchema.shape,
@@ -146,6 +148,8 @@ export function parseNativeExecutionArguments(args: string[]) {
     "execution-interrupt": { type: "boolean" }, "state-root": { type: "string" },
     socket: { type: "string" }, "steer-provider": { type: "string" },
     mode: { type: "string", default: "mcp" }, "codex-home": { type: "string" }, "hook-directory": { type: "string" },
+    // Opt-in lifecycle; argv (not env) so it never leaks into seats/hooks spawned by this MCP.
+    "runtime-adoption": { type: "string" }, "runtime-generation": { type: "string" }, "runtime-scope": { type: "string" },
   } });
   if (values["execution-interrupt"] !== true || !values["state-root"] || !values.socket || !values["steer-provider"]
     || [values["state-root"], values.socket, values["steer-provider"]].some(value => !path.isAbsolute(value) || /[\r\n\0]/.test(value)))
@@ -154,13 +158,21 @@ export function parseNativeExecutionArguments(args: string[]) {
     || (values.mode === "codex-hook" && (!values["codex-home"] || !values["hook-directory"]))
     || [values["codex-home"], values["hook-directory"]].some(value => value !== undefined && (!path.isAbsolute(value) || /[\r\n\0]/.test(value))))
     throw new ExecutionError("EXECUTION_INVALID");
-  return { mode: values.mode!, codexHome: values["codex-home"], hookDirectory: values["hook-directory"], expectedScope: { state_root: values["state-root"], multiplexer: { kind: "socket" as const, key: values.socket } },
+  const lifecycle = ["runtime-adoption", "runtime-generation", "runtime-scope"] as const;
+  const lifecycleCount = lifecycle.filter(name => values[name] !== undefined).length;
+  if (lifecycleCount && (lifecycleCount !== lifecycle.length || values.mode !== "mcp")) throw new ExecutionError("EXECUTION_INVALID");
+  let runtimeAdoption: RuntimeAdoptionConfig | undefined;
+  if (lifecycleCount) try {
+    runtimeAdoption = parseRuntimeAdoptionConfig({ mode: values["runtime-adoption"], generation: values["runtime-generation"],
+      scope: values["runtime-scope"], stateRoot: values["state-root"] });
+  } catch { throw new ExecutionError("EXECUTION_INVALID"); }
+  return { ...(runtimeAdoption ? { runtimeAdoption } : {}), mode: values.mode!, codexHome: values["codex-home"], hookDirectory: values["hook-directory"], expectedScope: { state_root: values["state-root"], multiplexer: { kind: "socket" as const, key: values.socket } },
     providerFile: values["steer-provider"] };
 }
 async function main() {
   const options = parseNativeExecutionArguments(process.argv.slice(2));
   if (options.mode === "mcp") {
-    await createNativeDeliveryServer().connect(new StdioServerTransport());
+    await createNativeDeliveryServer({ runtimeAdoption: options.runtimeAdoption }).connect(new StdioServerTransport());
   } else {
     const provider = await import(pathToFileURL(options.providerFile).href) as NativeProvider;
     const method = options.mode === "claude-hook" ? "runClaudeHookMain" : options.mode === "cursor-hook" ? "runCursorHookMain" : "runCodexHookMain";

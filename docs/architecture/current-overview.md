@@ -7,6 +7,7 @@
 | 現在の責務 | 実ファイル・入口 | 状態/返却 |
 | --- | --- | --- |
 | 公開MCP境界 | Aiterm `src/index.ts` `createAitermServer` / `registerRemoteAwareTool` / `launchAgent` / `fail` | schema検証、公開receipt/isError、呼出元へ返す。受付・完了を同一扱いしない |
+| Runtime generation adoption | [runtime overlap/lifecycle/setup contract](runtime-adoption.md) | Explicit host standby/activate/status/retire; default public entry unchanged; no native seat restart |
 | 席とagentの進行 | Aiterm `src/core.ts` `openAgent` / `openAgentWithInitialPrompt` / `dispatchAgentTurnInLock` / `resumeAgentInLock` / `closeSessionInternal` | session/launch/turnとnative進行、metadata・lifecycleを読む。全coreの対応はsource-indexと各詳細へ |
 | 保存する本人性と状態 | Aiterm `agent-shared.ts` / `agent-lifecycle.ts` / `state-root.ts` | launch ID、generation、idle/resume、event file。公開launch receiptへのID提供と現在観測は別契約 |
 | OSへの作用 | Aiterm `tmux-runtime.ts` / `process-start.ts` / `process-runtime.ts` / `process-tree-stop.ts` | tmux/psmux、出生本人性、process観測、停止。取得不能と不在を区別 |

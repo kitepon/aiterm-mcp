@@ -9,6 +9,7 @@
 - [goal・設定・認証・remote](goal-configuration-auth-remote.md) / [設定の分離後](model-configuration.md)
 - [起動記録reader](metadata-reader.md) / [通常PTY入出力・表示](ordinary-pty.md)
 - [親配送と記録](parent-delivery.md) / [承認・耐久operation・環境](approval-operation-environment.md)
+- [Runtime generation overlap and graceful adoption](runtime-adoption.md)
 - [private基盤](private-execution.md) / [受付](private-admission.md) / [親配送](private-parent-delivery.md) / [停止](private-stop.md)
 - [native/OS/process](native-runtime.md) / [導入・更新](setup-update.md) / [旧relay](codex-relay-runtime.md) / [障害記録](runtime-errors.md)
 - [配布と基準失敗](release-verification.md) / [製品間接点](external-contracts.md)

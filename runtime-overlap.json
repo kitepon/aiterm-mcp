@@ -1,0 +1,12 @@
+{
+  "schema": "aiterm.runtime-overlap.v1",
+  "manager_abi": "aiterm.runtime-adoption.v1",
+  "stores": {
+    "agent-metadata": { "writes": "v1", "reads": ["v1"] },
+    "execution-metadata": { "writes": "v1", "reads": ["v1"] },
+    "parent-delivery": { "writes": "v1", "reads": ["v1"] },
+    "provider-hooks": { "writes": "steer-v1", "reads": ["steer-v1"] },
+    "events": { "writes": "v1", "reads": ["v1"] },
+    "runtime-errors": { "writes": "v1", "reads": ["v1"] }
+  }
+}

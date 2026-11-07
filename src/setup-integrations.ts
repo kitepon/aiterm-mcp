@@ -1,7 +1,7 @@
 import { mergeAntigravityHooks, antigravityHookFile } from "./harnesses/antigravity.js";
 // AI clientごとの登録形式をここに閉じ込め、setup共通処理へ漏らさない。
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import * as steer from "aiterm-steer-delivery";
@@ -27,11 +27,36 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
  */
 export function sameRegistration(command: unknown, args: unknown, registration: Registration): boolean {
   if (typeof command !== "string" || !Array.isArray(args)) return false;
-  if (command === registration.command && isDeepStrictEqual(args, registration.args)) return true;
+  if (sameDirect(command, args, registration)) return true;
   if (!lazyRelayExecutable(command)) return false;
-  const direct = [registration.command, ...registration.args];
   const separator = args.indexOf("--");
-  return isDeepStrictEqual(args, direct) || (separator >= 0 && isDeepStrictEqual(args.slice(separator + 1), direct));
+  return [args, separator >= 0 ? args.slice(separator + 1) : []]
+    .some(inner => inner.length > 0 && sameDirect(inner[0], inner.slice(1), registration));
+}
+function sameDirect(command: unknown, args: unknown[], registration: Registration): boolean {
+  return command === registration.command && (isDeepStrictEqual(args, registration.args) || installationCapsuleEntry(args));
+}
+
+// Updater-installed immutable capsule (BellTeam RUNTIME_ROOT/dispatch/aiterm/v<N>/): Aiterm entry basenames
+// plus this marker. Same node + marker-listed entry = Aiterm's own registration, so setup keeps it (and
+// its timeout/env) instead of rewriting it to a disposable package dist. Unknown scripts never match.
+export const INSTALLATION_CAPSULE_FILE = "aiterm-capsule.json";
+export const INSTALLATION_CAPSULE_SCHEMA = "aiterm.installation-capsule.v1";
+export function installationCapsuleEntry(args: unknown[]): boolean {
+  const [entry, ...rest] = args;
+  if (typeof entry !== "string" || !isAbsolute(entry)) return false;
+  const name = basename(entry);
+  if (name === "index.js") { if (rest.length) return false; }
+  else if (name === "execution-native-server.js") {
+    // Persistent registrations are ordinary MCP; lifecycle standby is never written to HOME.
+    const mode = rest.indexOf("--mode");
+    if (rest[0] !== "--execution-interrupt" || rest.includes("--runtime-adoption") || (mode >= 0 && rest[mode + 1] !== "mcp")) return false;
+  } else return false;
+  try {
+    const marker = JSON.parse(readFileSync(join(dirname(entry), INSTALLATION_CAPSULE_FILE), "utf8"));
+    return record(marker) && marker.schema === INSTALLATION_CAPSULE_SCHEMA && marker.package === "aiterm-mcp"
+      && Array.isArray(marker.entries) && marker.entries.includes(name);
+  } catch { return false; }
 }
 
 export function mergeJsonMcp(file: string, registration: Registration): "configured" | "unchanged" {
@@ -55,7 +80,8 @@ export function mergeJsonMcp(file: string, registration: Registration): "configu
   const servers = (current.mcpServers ?? {}) as Record<string, unknown>;
   const previous = record(servers.aiterm) ? servers.aiterm : {};
   // 中継で包んだ同じ登録は、そのまま残す（直結へ書き戻さない）。
-  if (previous.command !== registration.command && sameRegistration(previous.command, previous.args, registration)) return "unchanged";
+  const exact = previous.command === registration.command && isDeepStrictEqual(previous.args, registration.args);
+  if (!exact && sameRegistration(previous.command, previous.args, registration)) return "unchanged";
   const updated = { ...previous, ...registration };
   if (isDeepStrictEqual(servers.aiterm, updated)) return "unchanged";
   const next = { ...current, mcpServers: { ...servers, aiterm: updated } };

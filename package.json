@@ -53,6 +53,7 @@
   "files": [
     "dist/*.js",
     "dist/harnesses/*.js",
+    "runtime-overlap.json",
     "README.md",
     "CHANGELOG.md",
     "docs/00_overview.md",

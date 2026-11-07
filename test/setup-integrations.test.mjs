@@ -243,6 +243,33 @@ test('中継（mcp-lazy）で包んだ同じ登録を、同じ登録と数える
   for (const [command, args] of [[undefined, direct], ['/usr/local/bin/mcp-lazy', undefined], [null, null], ['/usr/local/bin/mcp-lazy', 'node index.js']]) assert.equal(sameRegistration(command, args, registration), false);
 });
 
+// 2026-11-08 hot generation: HOME registrations point to an updater-owned immutable capsule.
+test('installation capsule with its marker counts as the same Aiterm registration; unknown scripts do not', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-capsule-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const capsule = join(dir, 'dispatch', 'aiterm', 'v1'), stray = join(dir, 'stray');
+  mkdirSync(capsule, { recursive: true }); mkdirSync(stray);
+  writeFileSync(join(capsule, 'aiterm-capsule.json'), JSON.stringify({ schema: 'aiterm.installation-capsule.v1', package: 'aiterm-mcp',
+    entries: ['index.js', 'execution-native-server.js'] }));
+  const native = [join(capsule, 'execution-native-server.js'), '--execution-interrupt', '--state-root', '/s', '--socket', '/k', '--steer-provider', '/p.js'];
+  assert.equal(sameRegistration(registration.command, native, registration), true);
+  assert.equal(sameRegistration(registration.command, [join(capsule, 'index.js')], registration), true);
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', ['--idle-stop', '0', '--', registration.command, ...native], registration), true, 'lazy-wrapped capsule');
+  assert.equal(sameRegistration('/other/node', native, registration), false, 'different node');
+  assert.equal(sameRegistration(registration.command, [...native, '--runtime-adoption', 'standby'], registration), false, 'standby never persistent');
+  assert.equal(sameRegistration(registration.command, [...native, '--mode', 'claude-hook'], registration), false);
+  assert.equal(sameRegistration(registration.command, [join(capsule, 'other.js')], registration), false, 'unlisted entry');
+  assert.equal(sameRegistration(registration.command, [join(stray, 'execution-native-server.js'), ...native.slice(1)], registration), false, 'no marker');
+  writeFileSync(join(stray, 'aiterm-capsule.json'), JSON.stringify({ schema: 'aiterm.installation-capsule.v1', package: 'aiterm-mcp', entries: ['index.js'] }));
+  assert.equal(sameRegistration(registration.command, [join(stray, 'execution-native-server.js'), ...native.slice(1)], registration), false, 'entry not in marker');
+  // JSON clients keep the capsule entry with its env/timeout instead of rewriting to package dist.
+  const claude = join(dir, '.claude.json');
+  const entry = { type: 'stdio', command: registration.command, args: native, env: { A: '1' }, timeout: 120000 };
+  writeFileSync(claude, JSON.stringify({ mcpServers: { aiterm: entry } }));
+  assert.equal(mergeJsonMcp(claude, { type: 'stdio', ...registration }), 'unchanged');
+  assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers.aiterm, entry);
+});
+
 test('引数なしのsetupは、中継つきの同じ登録を各clientで直結へ戻さない', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'aiterm-relay-registration-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

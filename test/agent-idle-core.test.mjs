@@ -147,6 +147,31 @@ for(const phase of ['created','metadata'])test(`a fresh launch never types into 
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });
 
+test('created-native read failures are distinct from known replacements and clear on the next readable operation',{skip,timeout:15000},async t=>{
+ const f=await fixture(t),file=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-native.json');
+ const saved=fs.readFileSync(file,'utf8'),native=JSON.parse(saved);
+ const read=fs.readFileSync,spawn=childProcess.spawnSync;let unreadable=null;
+ t.mock.method(fs,'readFileSync',function(file,...args){
+  if(unreadable!==null&&String(file)===`/proc/${unreadable}/stat`)throw Object.assign(new Error('fixture identity read failed'),{code:'EACCES'});
+  return read(file,...args);
+ });
+ t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+  if(unreadable!==null&&binary==='ps'&&args.join(' ')===`-o lstart= -p ${unreadable}`)return {status:1,stdout:'',stderr:''};
+  return spawn(binary,args,options);
+ });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+ for(const part of ['server','pane']){
+  unreadable=native[part+'_pid'];
+  assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません/);
+  unreadable=null;
+  fs.writeFileSync(file,JSON.stringify({...native,[part+'_started_identity']:'known-other-birth'}));
+  assert.throws(()=>core.sendKeyResult(f.name,'Enter'),/作成したnative端末が置き換わっています/);
+  fs.writeFileSync(file,saved);
+ }
+ assert.equal(fs.existsSync(f.keys),false,'unproven targets receive no input');
+ assert.equal(readAgentLifecycle(f.meta),null,'read failure leaves no persistent blocked state');
+ assert.doesNotThrow(()=>core.sendKeyResult(f.name,'Enter'));
+});
+
 test('a missing initial creation receipt cannot be reconstructed during idle checking',{skip,timeout:15000},async t=>{
  const f=await fixture(t);
  fs.rmSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-native.json'),{force:true});

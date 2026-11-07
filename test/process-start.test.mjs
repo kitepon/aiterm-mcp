@@ -15,9 +15,10 @@ test('batched native births retain exact single-process identities and unknown e
  assert.deepEqual(processStartIdentities([],process.platform),[]);
 });
 
-test('Windows batched birth replies reject reordered, missing and malformed identities',t=>{
- let rows;
+test('Windows batched birth replies retain budgets and reject reordered, missing and malformed identities',t=>{
+ let rows,readBudget;
  t.mock.method(childProcess,'spawnSync',(bin,args,options)=>{
+  if(options?.env?.AITERMMCP_PROCESS_IDS)readBudget=options.timeout;
   const stdout=bin==='where.exe'?'C:\\Program Files\\PowerShell\\7\\pwsh.exe\r\n'
    :options?.env?.AITERMMCP_PROCESS_IDS?JSON.stringify(rows)
    :'{"edition":"Core","major":7}';
@@ -25,6 +26,15 @@ test('Windows batched birth replies reject reordered, missing and malformed iden
  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
  rows=[{pid:11,start:'638976834123456789'},{pid:22,start:null}];
  assert.deepEqual(processStartIdentities([11,22],'win32'),['win32:638976834123456789',null]);
+ assert.equal(readBudget,10000);
+ const pair=rows;rows=rows.slice(0,1);
+ assert.equal(processStartIdentity(11,'win32'),'win32:638976834123456789');
+ assert.equal(readBudget,10000);
+ rows=pair;
+ processStartIdentities([11,22],'win32',2750);assert.equal(readBudget,2750);
+ rows=rows.slice(0,1);
+ processStartIdentity(11,'win32',1750);assert.equal(readBudget,1750);
+ rows=pair;
  for(const invalid of [[...rows].reverse(),rows.slice(0,1),[{pid:11,start:638976834},{pid:22,start:null}],
   [{pid:11,start:'bad'},{pid:22,start:null}],[rows[0],rows[0]],null]){
   rows=invalid;assert.deepEqual(processStartIdentities([11,22],'win32'),[null,null]);

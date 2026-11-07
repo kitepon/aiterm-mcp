@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import {spawnSync} from "node:child_process";
 import {resolveWindowsPowerShell7} from "./windows-powershell.js";
 
-export function processStartIdentities(pids: number[], platform: NodeJS.Platform, timeoutMs = 1000): (string | null)[] {
+export function processStartIdentities(pids: number[], platform: NodeJS.Platform, timeoutMs = platform === "win32" ? 10000 : 1000): (string | null)[] {
   if (platform !== "win32") return pids.map(pid => processStartIdentity(pid, platform, timeoutMs));
   const wanted = [...new Set(pids.filter(pid => Number.isSafeInteger(pid) && pid > 0))];
   if (!wanted.length) return pids.map(() => null);
@@ -22,7 +22,7 @@ export function processStartIdentities(pids: number[], platform: NodeJS.Platform
   return pids.map(pid => starts.get(pid) ?? null);
 }
 
-export function processStartIdentity(pid: number, platform: NodeJS.Platform, timeoutMs = 1000): string | null {
+export function processStartIdentity(pid: number, platform: NodeJS.Platform, timeoutMs = platform === "win32" ? 10000 : 1000): string | null {
   if (!Number.isInteger(pid) || pid < 1) return null;
   if (platform === "linux") {
     try {

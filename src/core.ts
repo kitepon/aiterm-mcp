@@ -6720,12 +6720,15 @@ function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_
   const pane = tmux("display-message", "-p", "-t", nativePaneTarget(native), "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
   const fields = pane.stdout.trim().split("\t");
   const exited = allowExitedPane && fields[5] === "1";
-  const [serverStarted, paneStarted] = processStartIdentities(exited ? [native.server_pid] : [native.server_pid, native.pane_pid], process.platform);
   // macOS tmux clears pane_pid after exit; only the explicit dead-pane close admits that absence.
   if (pane.code !== 0 || fields.length !== 6 || fields.slice(0, 4).join("\t") !== [native.native_id, native.session_id, native.server_pid, native.pane_id].join("\t")
     || (fields[4] !== String(native.pane_pid) && !(exited && fields[4] === ""))
-    || !["0", "1"].includes(fields[5]) || serverStarted !== native.server_started_identity
-    || (!exited && paneStarted !== native.pane_started_identity)) throw unavailable();
+    || !["0", "1"].includes(fields[5])) throw unavailable();
+  const [serverStarted, paneStarted] = processStartIdentities(exited ? [native.server_pid] : [native.server_pid, native.pane_pid], process.platform);
+  if ((serverStarted !== null && serverStarted !== native.server_started_identity)
+    || (!exited && paneStarted !== null && paneStarted !== native.pane_started_identity)) throw unavailable();
+  if (!serverStarted || (!exited && !paneStarted))
+    throw new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。", 2);
 }
 function withAgentResumeTarget<T>(meta: AgentMetadata, body: () => T, allowExitedPane = false): T {
   if (hasVerifiedNativeSessionTarget(meta.aiterm_session)) return body();

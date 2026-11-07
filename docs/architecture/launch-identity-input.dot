@@ -6,8 +6,9 @@ digraph launch {
  entry [label="core.ts: openAgentWithInitialPrompt → openAgent\nnew launch / dormant resume / optional prompt"];
  create [label="openAgent: withNativeSessionCreation\ncreate → openSessionInternal (managed Claude / Codex)"];
  mux [label="tmux-runtime.ts: tmuxNewSession\ncreate terminal; captureNativeSessionReceipt"];
- identity [label="core.ts: created callback → processStartIdentities\nserver PID + pane PID → native birth identities",fillcolor="#fff2d7"];
- fail [label="Missing identity → refuse / propagate error\nWindows baseline: initial native failures\nroot cause unknown",fillcolor="#ffe6e6"];
+ identity [label="core.ts: created callback → processStartIdentities\nserver PID + pane PID → native birth identities\nWindows default 10s; explicit caller budget wins",fillcolor="#fff2d7"];
+ verify [label="verifyCreatedNative: session/pane route, then births\nknown mismatch → replacement\nnull birth → identity-read failure"];
+ fail [label="Missing identity → refuse current operation\nno persistent blocked state; next operation reads afresh",fillcolor="#ffe6e6"];
  launch [label="core.ts: create / send launch command\nmetadata / settings / original vendor environment"];
  ready [label="prepareAgentInput / waitAgentTuiReady\nTUI observation + native harness observation"];
  resume [label="resumeAgentInLock\nstandard-speed busy Codex needs native running turn",fillcolor="#f2ecff"];
@@ -18,7 +19,10 @@ digraph launch {
  request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery"];
  create -> mux;mux -> identity [label="created receipt"];
  identity -> fail [label="null / unavailable"];fail -> receipt;
- identity -> launch [label="both identities available"];
+ identity -> verify [label="both identities recorded"];
+ verify -> launch [label="same target, readable births"];
+ verify -> fail [label="null or known mismatch"];
+ fail -> verify [label="later caller operation",style=dashed];
  launch -> ready;resume -> ready;ready -> input [label="optional body, readiness proven"];
  ready -> receipt [label="promptless startup / blocked"];
  input -> after;after -> receipt;

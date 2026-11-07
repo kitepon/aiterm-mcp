@@ -42,6 +42,8 @@ POSIXはLC_ALL=Cのpsで出生/CPU/commandを解釈し、Macのsession IDはkern
 
 空identity結果だけで不在を証明せず、private actor回復はnative kill(0)のESRCHも必要とする。親が子より新しいPID再利用は親系統から除く。background集計の既定60秒、probe/console/caffeinate等の分類条件は維持する。POSIX signalは既存group/PID、Windowsはprocess handleと出生を確認したCloseMainWindow/Killを使う。担当外ホストへのsignalを今回実行したわけではない。
 
+The shared `process-start.ts` birth reader gives Windows PowerShell a default 10000 ms per read, retaining explicit caller deadlines and the other platforms' 1000 ms default. It still returns null for unreadable identities. Managed creation and verification follow the [launch identity contract](launch-identity-input.md): a missing identity is distinct from a known replacement, and neither authorizes an operation on an unproven target.
+
 ## 表示縮約
 
 `src/rtk.ts`の読取縮約はcontrol除去とshell frame除去後の観測済みtextを受ける。pytest・grep/rg・git status/log・既定filterを分類し、未知出力はnullでcaller側へ戻す。失敗/収集errorを成功へ畳まず、上限で省いた行やcommit件数を表示する。入力やstateを保存し直さず、推定token数が増える縮約は採用しない。raw出力・parent返送本文の保持とは別の表示面である。

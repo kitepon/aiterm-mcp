@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Allow ten seconds by default for Windows process birth reads, preserving explicit caller deadlines, so PowerShell startup under load does not exhaust the former one-second budget. Created-native verification reports unreadable birth identities separately from a proven target replacement; neither sends input to an unproven target, and a later operation can read the original target afresh.
 - Restore same-process exclusion for managed-agent native mutations (force `pty_send`, `pty_key`, approval respond): while another input owner in the same process holds the seat (idle inspection or a send), the operation is refused with the existing `AGENT_RESUME_UNCONFIRMED` text instead of taking over the owner. The 0.63.12 file-lock removal had dropped this refusal along with the cross-process lock. A verified creation/resume of a new native is not blocked by an older generation's owner. Cross-process serialization stays the caller's responsibility (0.63.12). Tests whose contract changed in 0.63.12/0.63.15 are updated.
 
 ## [0.63.16] - 2026-11-07

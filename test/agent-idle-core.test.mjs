@@ -18,6 +18,8 @@ import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
 
 const skip=process.platform==='win32'?'POSIX tmux fixture':false;
+// core.failedCodexResumeRecipe recovers failed Codex resumes on Linux only (lifecycle-state-ownership.md); elsewhere the call stays unconfirmed.
+const linuxOnlyFailedRecovery=process.platform==='linux'?false:'failed Codex recovery is Linux-only';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let serial=0;
 async function fixture(t,{recipe=true,resumeEnv=false,resumeBlocked=false,resumeLater=false,resumeBusy=false,seatName,nativeSettings}={}){
@@ -554,7 +556,7 @@ test('failure to persist the actual native receipt leaves a blocked attempt and 
  assert.equal(diagnostic.cause.kind,'system');assert.equal(diagnostic.cause.code,'UNKNOWN');
 });
 
-for(const failure of ['ready_save','failed_save','diagnostic_save'])test(`resume diagnostics preserve primary failure when ${failure} fails`,{skip,timeout:15000},async t=>{
+for(const failure of ['ready_save','failed_save','diagnostic_save'])test(`resume diagnostics preserve primary failure when ${failure} fails`,{skip,timeout:20000},async t=>{
  const f=await fixture(t,{resumeBlocked:failure==='diagnostic_save'});
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
  const original=fs.renameSync;let refused=0;
@@ -566,7 +568,8 @@ for(const failure of ['ready_save','failed_save','diagnostic_save'])test(`resume
   if(failure==='diagnostic_save'&&to.endsWith('.resume-failure.json')){refused++;throw new Error('SECRET diagnostic refused');}
   return original(from,to);
  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
- await assert.rejects(core.dispatchAgentTurn(f.name,'NEVER_BODY',{raw:true,ready_timeout:500}),error=>{
+ // The save fault needs a real ready frame; macOS resume redraw takes seconds, so 500ms only ever reached readiness failure there.
+ await assert.rejects(core.dispatchAgentTurn(f.name,'NEVER_BODY',{raw:true,ready_timeout:5000}),error=>{
   assert.equal(error.resumeFailure?.code,'AGENT_RESUME_FAILED');assert(!error.message.includes('SECRET'));return true;
  });
  assert.ok(refused>0);assert.equal(fs.existsSync(f.keys),false);
@@ -819,7 +822,7 @@ test('public registration follows the published launch while old and staged meta
 });
 
 
-test('failed published resume recovers after its same native becomes ready without replaying the rejected body',{skip,timeout:20000},async t=>{
+test('failed published resume recovers after its same native becomes ready without replaying the rejected body',{skip:linuxOnlyFailedRecovery,timeout:20000},async t=>{
  const f=await fixture(t,{resumeLater:true});assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
  await assert.rejects(core.dispatchAgentTurn(f.name,'REJECTED_OLD_BODY',{raw:true,ready_timeout:250}),e=>e.resumeFailure?.input==='not_sent');
  const attemptPath=agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json');
@@ -836,7 +839,7 @@ test('failed published resume recovers after its same native becomes ready witho
  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['CURRENT_BODY']);
 });
 
-test('failed published Codex resumes the same vendor in a new native after the old native is gone',{skip,timeout:20000},async t=>{
+test('failed published Codex resumes the same vendor in a new native after the old native is gone',{skip:linuxOnlyFailedRecovery,timeout:20000},async t=>{
  const f=await fixture(t,{resumeLater:true});core.openSession('cold-server-guard');
  assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
  await assert.rejects(core.dispatchAgentTurn(f.name,'OLD_REJECTED',{raw:true,ready_timeout:250}),e=>e.resumeFailure?.input==='not_sent');

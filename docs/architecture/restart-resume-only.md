@@ -8,6 +8,7 @@
 | Existing agent_launch | Native | Optional require_existing_resume:true requires session_name and no prompt/images/Throughline fork; omitted/false preserves ordinary behavior |
 | Locked admission | Native existing agent send lock | Load current saved target/lifecycle/recipe inside lock; absent/invalid/changed/unsupported returns typed unavailable without reaching fresh creation |
 | Same-conversation resume | Existing native/harness adapters | Retain all recipe/config/lifecycle guards; existing eligible Claude/Codex recovery only; old process survival not required |
+| Resume readiness budget | `core.resumeAgentInLock` | Default Codex resume and eligible failed-resume recovery allow50s for native redraw plus stable readiness. Explicit caller deadlines, including0, override it; other harnesses retain30s. This is a readiness phase budget, not a whole-RPC deadline. |
 | Actual resume result | Original ordinary caller | Existing launch ready/not_requested on success; actual resume-start uncertainty keeps existing error semantics |
 
 ## Data flow
@@ -15,6 +16,8 @@
 Execution saved prior-working reference -> agent_launch(session_name,harness,require_existing_resume:true,no prompt) -> existing per-session send lock -> current saved eligible recipe. Missing/invalid/unsupported -> isError:true _meta[aiterm/resume_unavailable] {schema:aiterm.agent-resume-unavailable.v1,code:AGENT_RESUME_UNAVAILABLE,session_id,outcome:unavailable,effect:not_started,input:not_sent}. This effect is only the requested resume, never old business effects. There is no edge from this refusal to fresh launch.
 
 Eligible recipe -> existing config validation -> existing resumeAgentInLock -> existing same-vendor conversation/new native launch/readiness -> ordinary aiterm.agent-launch-result.v1 startup.ready + initial_prompt.not_requested. Existing UNCONFIRMED/FAILED after actual resume admission retain uncertainty and are not converted to not_started. No summary/input is sent by this native flag. Parent callback and once-summary are execution ownership.
+
+0.63.14 timing: caller timeout (if present) -> unchanged explicit readiness budget; otherwise current metadata.kind=codex ->50s, other kinds ->30s -> existing prepareAgentInput or completeFailedCodexResume -> unchanged stable samples/deadline/native proof -> ready or existing failed/inspect-session result. A partial draw no longer requires the launch-echo predicate to obtain the50s Codex resume budget. Fresh launch and subsequent ordinary dispatch retain their existing30s defaults. Current native/recipe/failed-resolution ownership and the source of every recovery decision remain unchanged.
 
 The flag skips opportunistic idle-clock maintenance in the tool handler so a refused request does not first mutate another seat. No new store, provider fallback, historical lookup, process-survival gate or production action. Focused case: MCP missing/invalid/unsupported target cannot create a fresh native session; metadata may disappear before the call; a valid saved recipe follows existing guarded branch. Source and docs ship together.
 

@@ -43,7 +43,7 @@ managed Claude/Codexの通常作成は`withNativeSessionCreation`の中で行う
 2. 既存send lockの下でstoppingを保存。signal直前にも世代・pane・recipe・入力時刻・接続等を確認し、TERM→猶予→KILLを同じ本人性の木だけへ送る。native端末が残れば同じ作成receiptで閉じる。終了確認後だけhibernatedを保存する。
 3. 停止作用を出す前の失敗ならstopping取消を試みる。作用後や取消失敗はunconfirmed/stoppingを残す。結果は`.idle-check.json`へ返し、clockはhibernated/unconfirmed/dead/missingで再armしない。
 4. 復帰要求はsend lockを保持し、旧metadata/hibernated/attempt欠測/recipe/proofとnative不在を確認。next metadata・新recipe・old attempt=resumingを保存し、native作成とvendor resume起動行を発行する。同じvendor会話IDを保持するがnative/launchは新しくなる。
-5. 起動行を出した後にold→next pointerを公開し、その後にTUI/native readyを確認する。標準速Codexだけnative running turnがあればbusyも受ける。fastの復帰はidleを経てfastへ戻す。最後にtemplate/recipeとold attempt=readyを保存する。
+5. 起動行を出した後にold→next pointerを公開し、その後にTUI/native readyを確認する。0.63.14のCodex復帰は既定50秒、他harnessは30秒。明示timeoutは0を含めて優先する。50秒は描画と連続安定確認を含む準備段階の予算で、RPC全体の保証ではない。標準速Codexだけnative running turnがあればbusyも受ける。fastの復帰はidleを経てfastへ戻す。最後にtemplate/recipeとold attempt=readyを保存する。
 6. attempt作成後の失敗はfailed保存を試み、失敗してもresumingが再送を止める。`AgentResumeError`は今回の本文をnot_sentと返す。nativeが作成・起動されたか、保留通知をvendorが別に処理したかまで取り消す意味ではない。
 
 ## dispatch・差し込み・取消・close

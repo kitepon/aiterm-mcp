@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Give Codex conversation resume a 50-second default readiness budget so redraw and stable-sample checks have time to complete after partial history rendering. Explicit deadlines, native/conversation checks and ordinary dispatch defaults are preserved. Eligible failed-native recovery uses the same budget; no caller schema or replay behavior changes.
+
 ## [0.63.13] - 2026-11-07
 
 - Report current parent activity for Claude Code, Grok, Cursor and Antigravity through existing seat-turn metadata. Live original-pane observations retain opaque managed span identity/start through unchanged waits and absorbed input; unsupported tracking fields remain null. Settled native parent completion returns idle, ambiguous evidence remains unavailable. Codex tracking and waiters are unchanged.

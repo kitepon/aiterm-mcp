@@ -97,6 +97,29 @@ setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')
   lifecycle:agentMetadataPath(name,meta.launch_id).replace(/\.agent\.json$/,'.lifecycle.json')};
 }
 
+test('Codex resume gives a late idle draw 50 seconds by default and honors an explicit 30-second limit',{skip,timeout:30000},async t=>{
+ for(const explicit of [false,true])await t.test(explicit?'explicit deadline':'default resume budget',async t=>{
+  const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+  const original=childProcess.spawnSync,descriptor=Object.getOwnPropertyDescriptor(globalThis,'performance');
+  let elapsed=0,advanced=false;
+  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>elapsed}});
+  t.mock.method(childProcess,'spawnSync',function(binary,args,options){
+   const result=original(binary,args,options);
+   if(!advanced&&args.includes('capture-pane')&&args.includes('-45')&&String(result.stdout).includes('OpenAI Codex')){
+    advanced=true;elapsed+=40000;
+   }
+   return result;
+  });
+  syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();Object.defineProperty(globalThis,'performance',descriptor);});
+  const request=core.openAgentWithInitialPrompt('codex',{session_name:f.name,require_existing_resume:true,
+   ...(explicit?{ready_timeout:30000}:{})});
+  if(explicit)await assert.rejects(request,error=>error.resumeFailure?.input==='not_sent');
+  else assert.equal((await request)[5].status,'ready');
+  assert.equal(advanced,true,'the real resume sampled the delayed native composer');
+  assert.equal(fs.existsSync(f.keys),false,'promptless resume never sends a caller body');
+ });
+});
+
 for(const phase of ['created','metadata'])test(`a fresh launch never types into or cleans up a same-name replacement at ${phase}`,{skip,timeout:15000},async t=>{
  const f=await fixture(t);core.openSession('fresh-guard-bridge');core.closeSession(f.name);
  const original=childProcess.spawnSync,rename=fs.renameSync,bin=resolveTmux(),prefix=['-S',SOCK];let replaced=false;

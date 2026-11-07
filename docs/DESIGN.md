@@ -1,5 +1,7 @@
 # Aiterm design
 
+Codex会話復帰のreadinessは既定50秒を割り当て、部分描画の後も連続安定確認を行う。呼出元の明示期限を優先し、他harnessと新規起動・通常dispatchは従来の予算を使う。通常復帰と適格なfailed同native復帰は既存の同じ処理を通り、native本人性・会話・設定・未送信/不明の契約は維持する。予算はreadiness段階だけに適用する。
+
 ## 通常配送と停止
 
 通常MCPの19 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、

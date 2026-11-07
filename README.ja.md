@@ -592,6 +592,7 @@ Claude Code初回起動の文字表示テーマ選択では、画面で選択済
 続いてログイン方式の選択が出た場合は`vendor_onboarding_required`を返す。公式の対話型Claude Code CLIで初回設定を完了する。
 入力受付の待ちは30秒。混んだ端末でagentの画面がまだ描かれていない間に切れた時だけ、起動から50秒まで待つ。
 それでも描かれなければ、今までと同じく未送信（`initial_prompt=not_sent`）で返り、sessionは残る。
+Codexの会話復帰は、画面の一部が先に描かれていても、連続安定確認を含めて既定50秒待つ。呼出元が明示した期限を優先する。新規起動と復帰後の通常dispatchの既定値は従来どおり。この予算は準備段階だけに適用し、RPC全体の所要時間を保証しない。
 WindowsのCodexもhook確認を認識し、npm shim経由の起動を一つのharnessとして識別する。
 初手の`initial_prompt.status`は`not_requested`／`not_sent`／`submitted_unconfirmed`／`started`を区別する。
 未送信の失敗もsession付きstructuredContentを保持する。

@@ -6970,8 +6970,9 @@ function prepareWorkingAgentResume(meta: AgentMetadata): AgentLifecycle {
   return lifecycle;
 }
 
-async function resumeAgentInLock(name: string, readyTimeout = AGENT_TUI_READY_TIMEOUT_MS): Promise<AgentMetadata> {
+async function resumeAgentInLock(name: string, readyTimeout?: number): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
+  readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
   const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED",
     "前の復帰処理を確認できません。本文は送信していません。再送せず席の状態を確認してください。", name, previous.launch_id);

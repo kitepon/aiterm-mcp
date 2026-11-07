@@ -53,3 +53,6 @@ path算出の前提も保持する。Steerは `sha256(fs.realpathSync(home))`、
 ## 06:53 UTC Bridge設計の接点保持
 
 リターからAstra設計の結果を受領し、Bridge側design.mdの接点方針を読取照合した。公開export/CLI引数/返却とclaims/pending/settled前後確認・全UUID/owner集合は変更しない。今回は新しい包括列挙APIを要求しない。Bridge側LinuxのASCII/日本語/direct/symlink4例一致は相手側の検証結果として記録し、当席の独立試験やmacOS/Windowsの一致へ拡張しない。Bridge内部の全field/例外fixtureの独立再検証は未実施。S1の直接境界と公開surfaceの確認を全consumer受入へ拡張しない。相手内部の変更依頼・操作は0。
+
+
+A-1 seat-turns.v1 observation spans: [exact function/DFD](observation-results.md). Non-Codex turn_id is opaque Aiterm-managed observed parent span; start is captured live observation, three tracking fields null. Kiro CurrentWork accepts all five original rows; legacy watcher is Codex-only. Positive terminal=idle; unavailable=null. No vendor UUID prerequisite.

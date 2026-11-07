@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Report current parent activity for Claude Code, Grok, Cursor and Antigravity through existing seat-turn metadata. Live original-pane observations retain opaque managed span identity/start through unchanged waits and absorbed input; unsupported tracking fields remain null. Settled native parent completion returns idle, ambiguous evidence remains unavailable. Codex tracking and waiters are unchanged.
+
 ## [0.63.12] - 2026-11-07
 
 - Remove filesystem input locks and the legacy socket/log-directory readiness predicate from managed-agent send and fresh-launch admission. Keep process-local order, current launch/native identity and stable TUI readiness checks. Independent local MCP and remote callers now serialize the same agent seat themselves; ordinary PTY/shell and standalone auth/approval file exclusion remain unchanged.

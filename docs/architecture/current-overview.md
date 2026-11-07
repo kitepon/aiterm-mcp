@@ -43,3 +43,6 @@ H1の部分候補は[offline checkpoint reader](resume-checkpoint.md)。strict b
 
 
 Host-controller initialization role, legacy compatibility and interim caller routing: [function map/data flow](host-controller.md).
+
+
+All-five seat activity follows the managed observation-span function/DFD in [observation-results](observation-results.md); Codex tracking is inherited and other four use current original-pane occupancy with null tracking.

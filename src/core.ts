@@ -9,13 +9,14 @@ import { nativePaneTarget } from "./native-session.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { inspectIdleSettings, inspectCodexResumeSettings, codexRecoveryComposer, type IdleSettings } from "./harnesses/idle-settings.js";
 import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_READY_POLL_MS,
-  isAgentTuiReady, isAgentTuiBusy, isAgentTuiIdleReady, agentPaneObservation, waitAgentTuiReadyImpl,
+  isAgentTuiReady, isAgentTuiBusy, isAgentTuiIdleReady, agentPaneObservation, parentPaneEvidence, waitAgentTuiReadyImpl,
   detectAgentSubmitResidueImpl, waitCursorPromptVisibleImpl, settleAgentDoneScreenImpl,
   type AgentScreenSample, type AgentScreenSettleResult, type AgentTuiReadyWaitResult,
   type AgentSubmitResidueResult, type CursorPromptVisibleResult } from "./agent-screen-observation.js";
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
+import { withManagedSpan, observeManagedSpan, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
  * core — CLI/MCP が共有する端末操作とharness進行（Node/TS 版）。
  *
@@ -51,7 +52,7 @@ import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExe
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
-import { antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
+import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
@@ -245,6 +246,7 @@ import {
   bindCursorTranscriptSession,
   cursorTurnBoundary,
   latestCursorCompletion,
+  cursorTranscript, cursorTranscriptSessionId,
   observeCursorDone,
   cursorTranscriptText,
   assertCursorAuthenticationReady,
@@ -629,7 +631,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".steers.jsonl") ||
           f.endsWith(".auth.json")
         ) fs.unlinkSync(p);
-        else if (f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
+        else if (f.endsWith(".seat-span.d") || f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
           fs.rmSync(p, { recursive: true, force: true });
         }
       } catch {
@@ -3968,30 +3970,102 @@ export interface SeatTurnsResult {
     session_id: string;
     launch_id: string;
     harness: AgentHarness;
-    /** 記録の上の今の番。まずCodexだけ。ほかのharnessと、記録から決められない席はnull。 */
-    turn: (Extract<SeatTurn, { state: "running" }> & { wait_process: AgentWaitProcess }) | Extract<SeatTurn, { state: "idle" }> | null;
+    /** Codex native turn/tracking, or a live-observed managed parent span with null tracking. */
+    turn: (Extract<SeatTurn, { state: "running" }> & { wait_process: AgentWaitProcess }) | ManagedSeatTurn | null;
   }>;
 }
 
 /**
- * BellTeamのため（ADR 0122）: agent sessionの、記録の上の今の番。画面は読まない。
- * BellTeamは、自分の送信で始めていない番（Aitermの子の結果が始めた番など）を、ここで見つけて追う。
- * 動いている番のwait_processは、その番の終わりで返る。
+ * Existing caller-only seat metadata. Codex keeps native tracking; other four
+ * read current original-pane activity, with observation identity and no waiter.
  */
 export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
   const seats: SeatTurnsResult["seats"] = [];
+  const observedAt = new Map<string, number>();
   for (const name of sessionIds) {
     const meta = tryLoadAgentMetadata(name);
     if (!meta) continue;
-    let turn: SeatTurn | null = null;
+    let turn: SeatTurn | ManagedSeatTurn | null = null;
     try {
       const state = agentDormantState(meta);
-      turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null) : codexSeatTurn(meta);
+      turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null)
+        : meta.kind === "codex" ? codexSeatTurn(meta) : readManagedSeatTurn(meta);
     } catch { /* 読めない席は、分からないまま返す */ }
+    if (meta.kind !== "codex") observedAt.set(name, performance.now());
     seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
-      turn: turn?.state === "running" ? { ...turn, wait_process: agentWaitProcess(name, turn.event_cursor) } : turn });
+      turn: turn?.state === "running" && turn.event_cursor !== null
+        ? { ...turn, wait_process: agentWaitProcess(name, turn.event_cursor) } : turn });
   }
+  for (const seat of seats) if (seat.harness !== "codex-cli"
+    && performance.now() - observedAt.get(seat.session_id)! >= 15_000) seat.turn = null;
   return { schema: "aiterm.seat-turns.v1", seats };
+}
+
+function managedSeatConversation(meta: AgentMetadata): string | null {
+  if (meta.kind === "antigravity") {
+    const bound = antigravityBinding(meta);
+    return bound && (!meta.vendor_session_id || meta.vendor_session_id === bound.conversation_id) ? bound.conversation_id : null;
+  }
+  if (meta.kind === "cursor") {
+    const file = cursorTranscript(meta);
+    const id = file ? cursorTranscriptSessionId(file) : null;
+    return id && (!meta.vendor_session_id || meta.vendor_session_id === id) ? id : null;
+  }
+  return meta.vendor_session_id;
+}
+
+function managedSeatTerminal(meta: AgentMetadata): string | null {
+  const file = meta.kind === "cursor" ? cursorTranscript(meta) : meta.kind === "grok" ? grokEventsTranscript(meta) : meta.event_file;
+  if (!file) return null;
+  try {
+    const before = fs.statSync(file);
+    if (!before.isFile() || before.size === 0 || readFileRange(file, before.size - 1, before.size).toString() !== "\n") return null;
+    const done = latestAgentDoneEvent(meta);
+    let identity: unknown = done ? { ...done, at: null } : null;
+    if (done && (meta.kind === "claude" || meta.kind === "antigravity")) {
+      identity = null;
+      const tail = readFileRange(file, Math.max(0, before.size - AGENT_EVENT_TAIL_BYTES), before.size).toString("utf8");
+      for (const line of tail.split("\n")) {
+        try {
+          const raw = JSON.parse(line), parsed = parseAgentDoneEvent(line, meta);
+          if (parsed.event && typeof raw.at === "string" && Number.isFinite(Date.parse(raw.at))) identity = line;
+        } catch { /* An incomplete/unrelated record is not a positive terminal. */ }
+      }
+    }
+    const after = fs.statSync(file);
+    if (!done || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) return null;
+    // Cursor/Grok adapters supply read-time `at`; it is not a lifecycle boundary.
+    return identity ? createHash("sha256").update(JSON.stringify(identity)).digest("hex") : null;
+  } catch { return null; }
+}
+
+function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
+  const started = performance.now();
+  const result = withManagedSpan(meta, file => {
+    const conversation = managedSeatConversation(meta);
+    if (!conversation) return null;
+    const proof = readAgentResumeNative(meta);
+    if (proof) verifyAgentResumeNative(meta, proof);
+    const before = observeSessionNative(meta.aiterm_session);
+    const live = before.result;
+    if (live.pane_alive !== true || live.harness_alive !== true || !live.pane_process || !live.harness_process
+      || before.native?.agent?.stopped !== false || live.launch_id !== meta.launch_id) return null;
+    const captured = tmux("capture-pane", "-p", "-J", "-t", proof ? nativePaneTarget(proof) : meta.aiterm_session);
+    if (captured.code !== 0) return null;
+    const evidence = parentPaneEvidence(meta.kind, captured.stdout);
+    const terminal = managedSeatTerminal(meta);
+    const after = observeSessionNative(meta.aiterm_session).result;
+    if (proof) verifyAgentResumeNative(meta, proof);
+    if (after.pane_alive !== true || after.harness_alive !== true
+      || !isDeepStrictEqual(after.pane_process, live.pane_process) || !isDeepStrictEqual(after.harness_process, live.harness_process)
+      || !isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta)
+      || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null
+      || performance.now() - started >= 15_000) return null;
+    const binding = JSON.stringify([meta.aiterm_session, meta.launch_id, meta.kind, conversation, proof, live.pane_process, live.harness_process]);
+    return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString());
+  });
+  return performance.now() - started < 15_000 ? result : null;
 }
 
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */

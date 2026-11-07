@@ -54,3 +54,32 @@ MCP createAitermServerはschema・親配送・remote wrapper・typed error変換
 ## FactoryのPTY readiness
 
 `diagnostics {}`は既factory v1と親hookの2textを維持する。同toolの`format:"v2"`は第1textをfactory v2にし、PTYの固定`reason_code`を追加する。tmux-runtimeが選択binary/同socketのread-only一覧と依存解決を共通5000msのsubprocess予算/1MiB上限で実行、coreが成功・厳密不在・依存/権限/期限/信号/出力過大/未知を射影する。stdout/exit1/選択SOCKの完全一致が揃ったcoldだけnot_applicable。広いfailed-to-connectや他socket/相反stdoutを不在扱いしない。native書込・PTY作成・認証/AI無し、OSの同期syscallやschedulingのhard realtime保証はしない。legacy非診断nativeの期限/返却は維持。
+
+
+## A-1 managed observation spans (Root/Kiro15:24, 2026-11-07)
+
+This section supersedes Codex-only seat activity. Public seat-turns.v1 retains row and six running keys. Codex tracking remains unchanged. Other four use an opaque Aiterm-managed observed parent-work-span ID and the captured start of the observed span, with event_cursor/interim_from/wait_process explicitly null. This is not a vendor-native UUID or historical native birth.
+
+| Function | Ownership/effect |
+| --- | --- |
+| `core.readSeatTurns` | Existing synchronous caller opt-in; Codex unchanged; other four invoke current native observation. Dormant behavior retained. |
+| `core.readManagedSeatTurn` | Existing single-worker/process/native selection, current visible frame with no scrollback, and matching post-read generation/birth. Reject failed/over15s reads, stopped/ambiguous/dead workers. Use the managed-span owner-token mutex only for identity transition serialization; a busy lock yields null, dead owner uses existing reap. Protects span identity from concurrent overwrite; owner release/dead-owner reap exits contention. No input is sent and no settings change. |
+| `agent-screen-observation.parentPaneEvidence` | Reuse native harness parser and constrain to actual composer/progress/footer. Queue/preprompt spinner/quoted output are not occupancy. Current parent busy/attached wait always wins over old completion. |
+| `managed-seat-turn.observeManagedSpan` | Atomic0600 per-launch `.seat-span.d/span.json`, original pane/worker birth/current conversation binding. Persist immutable ID/start only on positive live work, not inputs. No periodic active writes. Persistence is identity bookkeeping, never freshness. |
+| Terminal/recovery | Positive native root completion corroborated by settled whole-parent ready ends span. First ready sample is not terminal; confirm on a later valid read. Busy continuation/Stop veto/child completion does not end span. Unknown/failed read yields null and retains identity only. Restart reconciles stored binding with fresh live evidence; corrupt state stays null until a positively settled idle boundary can reset it. Changed binding captures a new observed span without borrowing old identity. |
+| `core.cleanupAgentState` | Existing logical close removes new per-launch identity file; native runtime/global/vendor files unaffected. |
+
+DFD: existing pty_list metadata -> readSeatTurns -> Codex existing tracking OR original live pane/worker -> current visible frame -> harness parent evidence + existing root completion -> post-read same generation/birth/freshness -> managed span identity -> six-key running / positive idle / raw null -> unchanged seat-turns.v1 -> Kiro all-five CurrentWork. Legacy wait remains Codex-only.
+
+State transitions: no span + positive busy => capture ID/start; active + fresh busy/attached wait => retain; active + ambiguous => raw null with identity retained; active + native terminal plus repeated settled ready => retire and idle; idle + positive busy => new ID/start. Late/child terminal while busy => retain. Invalid binding => no old identity; missing observations never become terminals. A silent wait without a distinguishable native occupancy cue stays unavailable; detached child is not parent proof. An observed span does not certify invisible native transitions between polls.
+
+Affected checks: four live-frame branches, queue/hook/output false positives, long unchanged wait and absorbed steer, positive terminal/late child/Stop veto, identity persistence/restart/current generation, loss/corruption/concurrent capture, six keys/null tracking. Build/new fixtures only; no old successful suites or native/probe/AI launch. Source candidate is not real-host latency or3OS acceptance.
+
+
+Implementation refinement before source: the observer uses a per-launch `.seat-span.d` directory with atomic0600 identity JSON. Its short cross-reader mutex publishes a fully written nonempty owner directory by rename, so no partially written lock can become authoritative. It never waits: contention returns null. Existing PID/birth observation reconciles a dead/reused owner; one atomic rename to the old directory inode's retained nonempty quarantine prevents competing recovery from moving a new owner. Normal owner release removes only its own inode/token. Quarantines remain until existing logical-close cleanup. This protects identity overwrite only; it is not an input lock, native work fence, heartbeat or activity evidence. Positive live capture happens inside the short identity transaction; successful reads do not rewrite active IDs. Unknown external state corruption stays unavailable until a positive settled idle boundary repairs identity, rather than fabricating a start. No synthetic timers refresh activity.
+
+Current-frame harness dispatch stays in the existing sole screen-dispatch owner `agent-screen-observation.ts`; `managed-seat-turn.ts` owns identity/persistence only. Native capture is rechecked against the15s budget after bookkeeping/release, and non-Codex rows that age out while later seats are read become null before the shared reply. Codex timing/tracking behavior remains inherited.
+
+Terminal witness identity comes from complete stable native records, never read-time fallback timestamps. Cursor/Grok adapter-generated observation `at` is excluded; classic hook events must have their own captured parseable `at` in the matching raw record. A partial tail or changed file generation cannot furnish a new terminal.
+
+Implemented idle needs an existing complete root completion record and repeated current readiness (>=250ms). It does not use a completed-looking UI line as a fallback. Missing completion remains null even if a composer is visible; positive current occupancy can still yield working. Existing registered vendor binding/path is reused, without claiming a live private native UUID reader. The narrow frame readers inherit installed-version UI limitations; real-host performance and3OS runtime acceptance remain unmeasured.

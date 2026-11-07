@@ -589,3 +589,6 @@ Grok clear uses the existing host-origin contract and only a fresh UserPaused/Id
 Claude resume preserves the original CLAUDE_CONFIG_DIR selector (including unset) separately from its resolved path; incomplete old selectors remain unavailable. Security notes block startup even when an older shell marker remains above them.
 
 Factory diagnostics keep the v1 default projection and the separate parent-hook text. Optional format v2 adds fixed PTY reason codes and the 5000ms subprocess budget. Native resolution and the single scoped listing consume one deadline; unknown/permission/timeout failures do not prove absence. This uses ordinary native reads and no execution graph, PTY creation or credentials. The subprocess budget is not a hard real-time bound on OS filesystem calls or the complete diagnostics response.
+
+
+A-1 all-five managed current activity: [function/DFD and state ownership](architecture/observation-results.md). Current original-pane evidence authorizes every non-Codex read; saved span identity is not freshness. Codex tracking remains unchanged.

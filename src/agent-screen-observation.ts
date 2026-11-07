@@ -3,10 +3,10 @@ import { antigravityPaneObservation } from "./harnesses/antigravity.js";
 // session, send text/keys, or mutate agent metadata; core owns those effects.
 import type { AgentKind, HarnessPaneObservation } from "./agent-shared.js";
 import { AitermError } from "./errors.js";
-import { grokTuiReady, grokTuiBusy, grokPaneObservation, grokLaunchBlockingDialog, assertGrokSandboxNotRejected, GROK_COMPOSER_MARKER_RE } from "./harnesses/grok.js";
+import { grokPromptAwaitingAccept, grokTuiReady, grokTuiBusy, grokPaneObservation, grokLaunchBlockingDialog, assertGrokSandboxNotRejected, GROK_COMPOSER_MARKER_RE } from "./harnesses/grok.js";
 import { codexTuiReady, codexTuiBusy, codexPaneObservation, codexRateLimitModelSwitchDialog, CODEX_COMPOSER_MARKER_RE } from "./harnesses/codex.js";
 import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
-import { cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
+import { cursorPromptHooksRunning, cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
 
 
 const AGENT_DONE_SETTLE_MIN_MS = 250;
@@ -352,4 +352,45 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
     throw new AitermError("test ready stable samplesが不正です", 2);
   }
   agentTuiReadyStableSamplesTestOverride = value;
+}
+
+export type ParentPaneEvidence = "busy" | "ready" | "unknown";
+
+/** Only the current native composer/progress/footer can establish occupancy. */
+// shortcut: pane snapshots cannot certify hidden native turn boundaries, use a continuous native lifecycle when that distinction is required.
+export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneEvidence {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trimEnd().split(/\r?\n/);
+  if (kind === "codex") return "unknown";
+  if (agentPaneObservation(kind, lines.slice(-32).join("\n")).state === "blocked") return "unknown";
+  let marker = -1;
+  const composer = kind === "claude" ? /^\s*❯(?:\s|$)/u
+    : kind === "grok" ? /^\s*│\s*[❯>](?:\s|$)/u
+    : kind === "cursor" ? /^\s*(?:→|->|>)(?:\s|$)/u : /^\s*>\s*$/u;
+  for (let i = lines.length - 1; i >= 0; i--) if (composer.test(lines[i])) { marker = i; break; }
+  if (marker < 0) return "unknown";
+  let start = marker;
+  if (kind === "claude") {
+    if (marker < 1 || !/^\s*─{8,}\s*$/u.test(lines[marker - 1])) return "unknown";
+    start = marker - 2;
+    while (start > 0 && (!lines[start].trim() || /^\s/u.test(lines[start]))) start--;
+  } else if (kind === "grok" || kind === "antigravity") {
+    start = marker - 1;
+    while (start > 0 && (!lines[start].trim() || /^[╭─\s]+$/u.test(lines[start]))) start--;
+  }
+  const current = lines.slice(Math.max(0, start)).join("\n");
+  if (kind === "grok" && grokPromptAwaitingAccept(current)) return "unknown";
+  if (kind === "cursor" && cursorPromptHooksRunning(screen)) return "unknown";
+  if (kind === "claude" && /running UserPromptSubmit hook/u.test(current)) return "unknown";
+  const observed = agentPaneObservation(kind, current);
+  if (observed.state === "blocked" || observed.state === "unknown") return "unknown";
+  if (kind === "cursor") {
+    if (/^\s*ctrl\+c to stop\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "busy";
+    if (observed.state === "busy") return "unknown";
+  }
+  if (kind === "grok" && observed.state === "busy"
+    && !/^\s*(?:[│┃]\s*)?(?:Waiting for response|Responding(?:…|\.\.\.)).*$/mu.test(current)) return "unknown";
+  if (kind === "antigravity" && observed.state === "busy"
+    && !/^\s*(?:[^\p{L}\p{N}\s]{1,3}\s+)?(?:Generating|Working)(?:…|\.\.\.).*$/mu.test(current)
+    && !/^\s*esc to interrupt\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "unknown";
+  return observed.state === "busy" ? "busy" : "ready";
 }

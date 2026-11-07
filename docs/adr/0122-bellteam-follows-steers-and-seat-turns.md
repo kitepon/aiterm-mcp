@@ -103,3 +103,6 @@ Codexの完了待ちは、読み始めの位置から16MiBを超えて書いた�
 
 - BellTeam側の経緯と使い方: トロニー（bot-7b140b27）の`docs/owner-turns-lost-20261013.md`
 - [ADR 0071](0071-bellteam-interim-words.md)（合間の言葉）、[ADR 0101](0101-codex-turn-running-by-record.md)、[ADR 0105](0105-codex-follow-conversation-switch.md)
+
+
+2026-11-07 Root/Kiro15:24 supersedes Codex-only seat activity: all four other harnesses may return the same six running keys with opaque managed observed parent-span ID/captured start and explicit null tracking trio. Positive settled parent terminal remains idle; unavailable remains null. See [managed-span function/DFD](../architecture/observation-results.md).

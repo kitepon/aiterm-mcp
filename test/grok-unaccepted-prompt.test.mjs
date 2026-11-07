@@ -76,6 +76,12 @@ test("完了待ち: 受け取られなかった知らせは、間を置いた2�
 const hasTmux = process.platform !== "win32" && spawnSync("tmux", ["-V"]).status === 0;
 const ptySkip = hasTmux ? false : "POSIX模擬CLIのPTY試験にはtmuxが必要";
 const DISPATCH = "aiterm.agent-dispatch.v1";
+// The fake CLI logs stdin asynchronously; a returned send does not mean its Enter is logged yet.
+async function recordedInputs(inputs, expected, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (inputs() !== expected && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(inputs(), expected);
+}
 
 // 模擬のGrok。1通目は受け取らない（releaseのfileが出来るまで受け取り待ち、出来たら文を入力欄へ戻す）。2通目からは受け取って答える。
 async function withUnacceptingGrok(run) {
@@ -170,14 +176,14 @@ test("Grokが文を受け取らない席: 受け取り待ちの間は送らず�
     const second = await core.sendAgentMessage(sid, "SECOND");
     assert.equal(second.schema, DISPATCH);
     assert.ok(second.pane_input_recovery.includes("grok_unaccepted_prompt_cleared"), JSON.stringify(second.pane_input_recovery));
-    assert.equal(inputs(), "FIRST\r\x03SECOND\r");
+    await recordedInputs(inputs, "FIRST\r\x03SECOND\r");
     const done = await core.observeAgentDone(sid, { cursor: second.event_cursor, timeout: 10 });
     assert.equal(done.outcome, "done");
     assert.equal(done.turn_id, "turn-2");
     // 知らせが画面の上に残っていても、入力欄が空なら、次の文の前に何も押さない。
     const third = await core.sendAgentMessage(sid, "THIRD");
     assert.equal(third.pane_input_recovery.includes("grok_unaccepted_prompt_cleared"), false);
-    assert.equal(inputs(), "FIRST\r\x03SECOND\rTHIRD\r");
+    await recordedInputs(inputs, "FIRST\r\x03SECOND\rTHIRD\r");
     assert.equal((await core.observeAgentDone(sid, { cursor: third.event_cursor, timeout: 10 })).outcome, "done");
   });
 });

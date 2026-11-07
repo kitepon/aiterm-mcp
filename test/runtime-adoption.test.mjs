@@ -66,6 +66,15 @@ test('overlap: invalid declarations throw RUNTIME_OVERLAP_INVALID', () => {
   assert.throws(() => decideRuntimeOverlap(candidate, [extraKey]), { message: 'RUNTIME_OVERLAP_INVALID' });
 });
 
+// Activation is durable only through the POSIX file+directory fsync checkpoint.
+const posixCheckpoint = process.platform === 'win32' ? 'activation record requires POSIX directory fsync' : false;
+test('controller: on Windows activate is unavailable and the candidate stays standby', { skip: process.platform !== 'win32' && 'Windows-only contract' }, async t => {
+  const { adoption } = controller(t);
+  await adoption.prepare({ expected: 'g1', live: ['legacy-v1'] });
+  assert.equal(await code(adoption.activate({ job_id: 'job-1', expected: 'g1' })), 'RUNTIME_ADOPTION_UNAVAILABLE');
+  assert.equal(adoption.state, 'standby');
+});
+
 test('controller: standby refuses ordinary work, activate needs a supported prepare', async t => {
   const { adoption, stateRoot } = controller(t);
   assert.equal(codeSync(() => adoption.admit()), 'RUNTIME_ADOPTION_NOT_SERVING');
@@ -78,7 +87,7 @@ test('controller: standby refuses ordinary work, activate needs a supported prep
   assert.equal(unsupported.adoption.state, 'standby');
 });
 
-test('controller: activation record is durable (0600) before onActivate, then idempotent or conflicting', async t => {
+test('controller: activation record is durable (0600) before onActivate, then idempotent or conflicting', { skip: posixCheckpoint }, async t => {
   let file, seen;
   const { adoption, stateRoot } = controller(t, { onActivate: () => { seen = existsSync(file); } });
   file = join(stateRoot, 'runtime-adoption', 'scope-a', 'job-1.json');
@@ -99,7 +108,7 @@ test('controller: activation record is durable (0600) before onActivate, then id
   assert.equal(await code(adoption.activate({ job_id: 'job-1', expected: 'g0' })), 'RUNTIME_ADOPTION_CONFLICT');
 });
 
-test('controller: status distinguishes absent from unreadable and a new active controller reconstructs a lost ACK', async t => {
+test('controller: status distinguishes absent from unreadable and a new active controller reconstructs a lost ACK', { skip: posixCheckpoint }, async t => {
   const { adoption, stateRoot, config } = controller(t);
   assert.equal(adoption.status({ job_id: 'nope' }).disposition, 'absent');
   await adoption.prepare({ expected: 'g1', live: ['legacy-v1'] });
@@ -113,7 +122,7 @@ test('controller: status distinguishes absent from unreadable and a new active c
   assert.equal(restarted.state, 'active');
 });
 
-test('controller: retire waits for tracked work, then closes the owner once', async t => {
+test('controller: retire waits for tracked work, then closes the owner once', { skip: posixCheckpoint }, async t => {
   const work = deferred(); const calls = [];
   const { adoption } = controller(t, { onRetire: async () => { calls.push('retire'); } });
   await adoption.prepare({ expected: 'g1', live: ['legacy-v1'] });
@@ -156,7 +165,7 @@ test('MCP: default server has no runtime_adoption tool', async t => {
   assert.ok(!(await client.listTools()).tools.some(tool => tool.name === 'runtime_adoption'));
 });
 
-test('MCP: configured standby serves only lifecycle control until activation, then retires', async t => {
+test('MCP: configured standby serves only lifecycle control until activation, then retires', { skip: posixCheckpoint }, async t => {
   const stateRoot = tmp(t);
   const client = await connect(t, { runtimeAdoption: { mode: 'standby', generation: 'g2', scope: 'scope-a', stateRoot } });
   assert.ok((await client.listTools()).tools.some(tool => tool.name === 'runtime_adoption'));

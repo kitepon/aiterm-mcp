@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-11-08
+
 - Seat turn (`readSeatTurns`, Claude/Grok/Cursor/Antigravity seats): a seat whose current launch has shown neither busy nor any completed turn now reports `{state: "idle"}` once its pane stays ready for 250 ms, instead of `turn: null` until its first turn. Once a span or a turn end was recorded, an unreadable turn end still reports null. Codex seats are unchanged.
 
 ## [0.64.0] - 2026-11-08
@@ -3104,7 +3106,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.1...HEAD
+[0.64.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...v0.64.0
 [0.63.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...v0.63.18
 [0.63.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...v0.63.17

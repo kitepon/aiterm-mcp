@@ -66,3 +66,18 @@ test('restart uses saved identity only with new live evidence; corrupt identity 
  assert.equal(observeManagedSpan(file,'replacement','ready','positive',at(5000)),null);
  assert.deepEqual(observeManagedSpan(file,'replacement','ready','positive',at(5300)),{state:'idle'});
 });
+
+test('fresh launch with no busy and no terminal settles ready to idle; a seen terminal or span still needs a positive one',()=>{
+ const file=path.join(directory(),'span.json');
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(0)),null,'First ready is not idle');
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(100)),null,'250 ms settle');
+ assert.deepEqual(observeManagedSpan(file,'fresh','ready',null,at(300)),{state:'idle'});
+ const first=observeManagedSpan(file,'fresh','busy',null,at(400));
+ assert.equal(first.state,'running');
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(500)),null);
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(900)),null,'Span without terminal stays unavailable');
+ observeManagedSpan(file,'fresh','ready','done',at(1000));
+ assert.deepEqual(observeManagedSpan(file,'fresh','ready','done',at(1300)),{state:'idle'});
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(1400)),null);
+ assert.equal(observeManagedSpan(file,'fresh','ready',null,at(1700)),null,'A terminal once seen cannot be replaced by an unreadable one');
+});

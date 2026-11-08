@@ -14,7 +14,7 @@ export type ManagedSeatTurn = {
 const stamp = z.string().refine(value => Number.isFinite(Date.parse(value)));
 const spanSchema = z.object({ turn_id: z.string().regex(/^managed:[a-f0-9]{32}$/), started_at: stamp }).strict();
 const recordSchema = z.object({ binding: z.string().min(1), span: spanSchema.nullable(), terminal: z.string().nullable(),
-  ready: z.object({ since: stamp, terminal: z.string() }).strict().nullable() }).strict();
+  ready: z.object({ since: stamp, terminal: z.string().nullable() }).strict().nullable() }).strict();
 const ownerSchema = z.object({ pid: z.number().int().positive(), started_identity: stamp, token: z.string() }).strict();
 export const managedSpanDirectory = (meta: Pick<AgentMetadata, "aiterm_session" | "launch_id">) =>
   agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, ".seat-span.d");
@@ -74,7 +74,8 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
     } else if (record.ready) { record.ready = null; writeJson0600(file, record); }
     return { state: "running", ...record.span!, event_cursor: null, interim_from: null, wait_process: null };
   }
-  if (!terminal || record?.span && terminal === record.terminal) return null;
+  // A launch that never showed busy nor any terminal has no turn to hide: its settled ready is idle.
+  if (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal) return null;
   if (!record) record = { binding, span: null, terminal, ready: null };
   if (!record.ready || record.ready.terminal !== terminal || Date.parse(at) < Date.parse(record.ready.since)) {
     record.ready = { since: at, terminal }; writeJson0600(file, record); return null;

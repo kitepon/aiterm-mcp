@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Seat turn (`readSeatTurns`, Claude/Grok/Cursor/Antigravity seats): a seat whose current launch has shown neither busy nor any completed turn now reports `{state: "idle"}` once its pane stays ready for 250 ms, instead of `turn: null` until its first turn. Once a span or a turn end was recorded, an unreadable turn end still reports null. Codex seats are unchanged.
+
 ## [0.64.0] - 2026-11-08
 
 - Per-seat Claude configuration roots (hosts with several Claude accounts). `agent_launch` (claude-code) and `claude_agent` accept `configuration_root`: the default root (`~/.claude`; the seat then runs with `CLAUDE_CONFIG_DIR` unset) or a directory directly under a parent listed in `AITERM_CLAUDE_CONFIG_ROOTS` (path-delimited) of the MCP process. The seat runs with that `CLAUDE_CONFIG_DIR`, and the resume recipe keeps it. Any other path, another harness, or `env_vars` containing `CLAUDE_CONFIG_DIR` together with it answer `AGENT_CONFIGURATION_ROOT_REJECTED` before a seat is created. `AITERM_CLAUDE_CONFIG_ROOTS` never reaches a seat's environment, so a seat's own Aiterm can use only the default root.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.17] - 2026-11-08
+
 - A managed seat whose native terminal vanished while its records survived (for example after a container restart emptied tmux) is no longer refused with `AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。` on every send. When the native list is known and the seat has no lifecycle or pending resume, an ordinary `pty_send`/dispatch records the existing `origin:restart` hibernation and cold-resumes the same Claude or Codex conversation, then delivers the body. A seat that cannot be resumed (other harnesses, missing vendor conversation, recipe or proof) answers `AGENT_SESSION_REQUIRED` with nothing sent and its records unchanged, so a fresh `agent_launch` under the same name reaches it. Unknown native state and live natives keep their existing checks.
 - Add an opt-in runtime generation lifecycle for hosts that update Aiterm without restarting their body or seats. `execution-native-server.js --mode mcp --runtime-adoption standby|active --runtime-generation <id> --runtime-scope <id>` registers a host-only `runtime_adoption` tool (prepare/activate/status/retire, `aiterm.runtime-adoption.v1`). Standby refuses ordinary tools and starts no parent-delivery recovery; activate writes a durable record under `<state-root>/runtime-adoption/` before acknowledging; retire waits for running tool handlers and the parent-delivery manager close and never stops native seats. The package ships `runtime-overlap.json` (`aiterm.runtime-overlap.v1`) declaring the store formats it reads and writes, so a host can require overlap with every live generation. Default startup and the public tool list are unchanged.
 - Setup now treats an updater-installed immutable installation capsule (`aiterm-capsule.json`, `aiterm.installation-capsule.v1`, listing `index.js`/`execution-native-server.js`) with the same Node as Aiterm's own registration, directly or behind `mcp-lazy`, and leaves it with its timeout/env fields in place. Unknown scripts and standby or hook-mode arguments are never treated as equivalent.
@@ -3086,7 +3088,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...HEAD
+[0.63.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...v0.63.17
 [0.63.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...v0.63.16
 [0.63.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...v0.63.15
 [0.63.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.13...v0.63.14

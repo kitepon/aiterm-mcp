@@ -35,4 +35,9 @@ digraph lifecycle {
   failure_record [label="Local first-saved resume failure\nphase / safe cause / readiness / old-next IDs\nbody not_sent, native outcome unknown\nbest effort; existing error + attempt unchanged",fillcolor="#eaf7ed"];
   failed -> failure_record [label="recordAgentResumeFailure"];
   resume -> failure_record [label="new-attempt preflight failure only",style=dashed];
+  vanished [label="Native vanished with no lifecycle (e.g. container restart)\nnormal send/dispatch under send lock: known absence\nprepareWorkingAgentResume -> lifecycle = hibernated origin:restart",fillcolor="#eaf7ed"];
+  required [label="Not resumable (harness / vendor ID / recipe / proof)\nAGENT_SESSION_REQUIRED, input not_sent, records unchanged\ncaller launches fresh under the same name",fillcolor="#fff0d8"];
+  active -> vanished [label="native list known, name absent",style=dashed];
+  vanished -> resume [label="same send continues"];
+  vanished -> required [label="preparation refused",style=dashed];
 }

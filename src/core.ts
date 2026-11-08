@@ -3567,6 +3567,8 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
             try { return await withAgentResumeTarget(meta, () => { entered = true; return run(); }); }
             catch (error) { if (entered) throw error; throw uncertain(); }
           }
+          // A vanished native (e.g. container restart) is not pinned: adopt it as a restart hibernation, then resume.
+          if (vanishedAgentNative(meta)) { adoptVanishedAgentNative(meta); return await run(); }
           return await withAgentResumeTarget(meta, run);
         }
         return await run();
@@ -6976,6 +6978,31 @@ function prepareWorkingAgentResume(meta: AgentMetadata): AgentLifecycle {
   return lifecycle;
 }
 
+/** Write a prepared restart lifecycle after rechecking native absence and unchanged metadata under the caller's lock. */
+function commitWorkingAgentResume(previous: AgentMetadata, lifecycle: AgentLifecycle): void {
+  const name = previous.aiterm_session, native = observeExecutionNativeSessions();
+  if (native.state !== "known" || native.sessions.some(row => row.session_id === name)
+    || !isDeepStrictEqual(loadAgentMetadata(name), previous) || readAgentLifecycle(previous))
+    throw new AgentResumeUnavailableError(name);
+  withExecutionPreparation(name, () => writeAgentLifecycle(previous, lifecycle));
+}
+
+/** A current generation with no lifecycle/attempt state whose native is confirmed absent. */
+function vanishedAgentNative(meta: AgentMetadata): boolean {
+  if (agentDormantState(meta) !== null) return false;
+  const native = observeExecutionNativeSessions();
+  return native.state === "known" && !native.sessions.some(row => row.session_id === meta.aiterm_session);
+}
+
+function adoptVanishedAgentNative(meta: AgentMetadata): void {
+  try { commitWorkingAgentResume(meta, prepareWorkingAgentResume(meta)); }
+  catch (error) {
+    if (error instanceof ExecutionError) throw error;
+    throw new AitermError(`AGENT_SESSION_REQUIRED: session '${meta.aiterm_session}' のnative端末が無く、保存した会話へ再開できません。` +
+      "文字列は送信していません。agent_launchで起動し直してください。", 2);
+  }
+}
+
 async function resumeAgentInLock(name: string, readyTimeout?: number): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
@@ -8268,13 +8295,7 @@ export async function openAgentWithInitialPrompt(
         if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));
-        if (preparedLifecycle) {
-          const native = observeExecutionNativeSessions();
-          if (native.state !== "known" || native.sessions.some(row => row.session_id === name)
-            || !isDeepStrictEqual(loadAgentMetadata(name), previous) || readAgentLifecycle(previous))
-            throw new AgentResumeUnavailableError(name);
-          withExecutionPreparation(name, () => writeAgentLifecycle(previous, preparedLifecycle!));
-        }
+        if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
         const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;

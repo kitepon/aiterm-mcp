@@ -12,7 +12,7 @@
 | `<session>.active-launch.json` | `agent-shared.ts publishAgentGeneration` / `selectAgentMetadataFile` | 完成したnext metadataの後だけpointerを公開。旧/新のharness・vendor・lineage・resumed_fromを検証。複数世代でpointer欠測/破損時はfallbackしない |
 | `.resume-native.json` | `agent-lifecycle.ts` / `prepareAgentLaunch`のcreated callback / `resumeAgentInLock` | native ID/session/server PID/pane ID/PIDと出生本人性。`verifyCreatedNative`は現在の全項目を照合し、dead-pane closeだけpane終了を許容 |
 | `.resume-template.json` / `.resume.json` | `captureAgentResumeTemplate` / `finishAgentResumeConfiguration` / `refreshAgentResumeRecipe` | model/effort/fast/cwd/executable/config rootと明示env。秘密名のenvをrecipeへ永続化しない。confirmed以外から復帰可能と補完しない |
-| `.lifecycle.json` | `core.checkAgentIdle`のbegin/finish/cancel、`agent-lifecycle.ts`のschema/read/write | stopping→hibernated。停止作用前だけcancelでstoppingを消せる。作用後不明なら停止中の記録を保持 |
+| `.lifecycle.json` | `core.checkAgentIdle`のbegin/finish/cancel、`core.commitWorkingAgentResume`（require_existing_resumeと、native消失を確認した通常入力）、`agent-lifecycle.ts`のschema/read/write | stopping→hibernated。停止作用前だけcancelでstoppingを消せる。作用後不明なら停止中の記録を保持。native消失はorigin:restartのhibernatedで表し、復帰できない席は`AGENT_SESSION_REQUIRED`で未送信（[restart-resume-only](restart-resume-only.md)） |
 | `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。resuming/未公開nextは再試行しない。公開failedは下記の明示された正常要求と再検証で回復する |
 | `.activity.jsonl` | `agent-activity.ts` | created/input/turn_endをappend。完成eventのdigestで重複を数えない。metadata snapshotをhookとsenderが上書きし合わない |
 | `.idle-clock.json`とsleep worker | `agent-idle-clock.ts` / `core.serviceAgentIdleClock` | token・owner PID/出生本人性・anchor/wake時刻。既send lock下でarm/retire。clock自体を独立した入力受付にしない |

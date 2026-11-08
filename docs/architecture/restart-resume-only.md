@@ -50,3 +50,16 @@ DFD: saved working metadata -> locked absent-native admission -> strict retained
 One changed-contact case covers killed unbound working/default effort -> same UUID resume, missing/mixed/incomplete root rejection, unchanged pinned/idle path and canonical input preservation. The original failed lab request is not retried or reclassified.
 
 Retained-root configuration reads use the existing16MiB transcript increment bound; larger or changing roots refuse rather than allocating unbounded data. Explicit later configuration clears the vendor-default marker. The existing readiness/template and recipe outputs retain that marker across generation changes.
+
+
+## Ordinary input after native loss (2026-11-08 incident)
+
+A container restart can empty the tmux server while `<session>.<launch>.agent.json` and `.resume-native.json` survive with no lifecycle. Before this change the ordinary send pinned the saved native proof first, so `verifyCreatedNative` refused with `AGENT_RESUME_UNCONFIRMED` and every later send repeated it: the seat stayed unreachable while observe reported exists=false. Codex seats that were already idle-hibernated were unaffected.
+
+Function change (`core.withAgentSendLock`, pinResume=true callers only): after the existing failed-Codex branch, when the current generation has no lifecycle, no own attempt, any previous attempt is ready/resolved, and the native list is known with the name absent, the caller does not pin the vanished native. It runs the same `prepareWorkingAgentResume` + `commitWorkingAgentResume` as require_existing_resume, which writes the existing origin:restart hibernated record under the same lock and recheck, then continues the same request. sendAgentMessage/dispatchAgentTurn then cold-resume through the unchanged `resumeAgentInLock` and deliver the body to the resumed native. Other locked callers see an ordinary hibernated seat.
+
+Not resumable (harness other than Claude/Codex, missing vendor ID, incomplete recipe, missing Codex proof, configuration mismatch): `AGENT_SESSION_REQUIRED`, input not_sent, no lifecycle written. Saved records are left unchanged; a fresh agent_launch with the same name creates a new generation. Unknown native list or live native keeps the existing pin and refusals. An execution scope that does not support resume keeps `EXECUTION_UNSUPPORTED`.
+
+DFD: send -> send lock -> metadata (no lifecycle) -> native list known/absent -> saved template/recipe/proof -> origin:restart lifecycle (same file/writer) -> resumeAgentInLock -> new native/launch -> body. Failure before the lifecycle write -> AGENT_SESSION_REQUIRED/not_sent.
+
+Focused case: `test/agent-idle-core.test.mjs` "ordinary send cold-resumes a seat whose native vanished…" (killed native with retained resume-native proof -> same vendor conversation, body delivered once; lost vendor conversation -> AGENT_SESSION_REQUIRED, then a fresh same-name launch).

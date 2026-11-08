@@ -979,3 +979,27 @@ test('restart-only resumes a killed working conversation without an idle recipe 
  const idleResult=await core.openAgentWithInitialPrompt('codex',{session_name:idle.name,require_existing_resume:true,ready_timeout:3000});
  assert.equal(idleResult[5].status,'ready');assert.equal(idleResult[4].status,'not_requested');
 });
+
+// 2026-11-08 incident: a container restart emptied tmux while agent.json + resume-native.json survived without a lifecycle.
+test('ordinary send cold-resumes a seat whose native vanished and answers AGENT_SESSION_REQUIRED when it cannot', {skip,timeout:30000},async t=>{
+ const f=await fixture(t);core.openSession('vanished-native-bridge');
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-native.json')),true);
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',f.name]).status,0);
+ assert.equal(readAgentLifecycle(f.meta),null);
+ const receipt=await core.sendAgentMessage(f.name,'after-restart',{raw:true});
+ assert.notEqual(receipt.launch_id,f.meta.launch_id);
+ const next=loadAgentMetadata(f.name);
+ assert.equal(next.vendor_session_id,f.meta.vendor_session_id);assert.equal(next.resumed_from,f.meta.launch_id);
+ assert.equal(readAgentLifecycle(f.meta).origin,'restart');
+ const launches=fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').map(JSON.parse);
+ assert.equal(launches.length,2);assert.ok(launches[1].argv.includes('resume'));
+ for(const until=Date.now()+3000;Date.now()<until&&!fs.existsSync(f.keys);)await sleep(40);
+ assert.equal(fs.readFileSync(f.keys,'utf8'),'after-restart\n');
+ // No resumable conversation: answer a typed absent agent, never an unconfirmed refusal, and a fresh launch reaches it.
+ const lost=await fixture(t);fs.rmSync(lost.rollout);writeAgentMetadata({...lost.meta,vendor_session_id:null});
+ assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',lost.name]).status,0);
+ await assert.rejects(core.sendAgentMessage(lost.name,'never-body',{raw:true}),/^Error: AGENT_SESSION_REQUIRED|AGENT_SESSION_REQUIRED/);
+ assert.equal(readAgentLifecycle(lost.meta),null);assert.equal(fs.existsSync(lost.keys),false);
+ const [fresh]=core.openAgent('codex',{session_name:lost.name,agent_done:true,cwd:process.env.HOME,model:'fixture-model',reasoning_effort:'high'});
+ assert.equal(fresh,lost.name);assert.notEqual(loadAgentMetadata(lost.name).launch_id,lost.meta.launch_id);
+});

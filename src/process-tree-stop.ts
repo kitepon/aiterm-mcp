@@ -16,9 +16,12 @@ const nativeRuntime: ProcessTreeStopRuntime = {
   pause: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => performance.now(),
 };
 
-/** TERM, a five-second grace, then KILL; only the original pane tree and verified groups are selected. */
+/**
+ * TERM, a five-second grace, then KILL; only the original pane tree and verified groups are selected.
+ * `crossSession` also selects descendants in another POSIX session (a harness's background commands run detached).
+ */
 export async function stopProcessTree(root: NativeProcessIdentity, verify: () => void,
-  runtime: ProcessTreeStopRuntime = nativeRuntime): Promise<boolean> {
+  runtime: ProcessTreeStopRuntime = nativeRuntime, crossSession = false): Promise<boolean> {
   if (!Number.isSafeInteger(root.pid) || root.pid <= 1 || root.pid === process.pid) throw new Error("invalid_process_tree_root");
   const initial = runtime.read();
   const liveRoot = initial.find(row => row.pid === root.pid && !row.zombie);
@@ -27,7 +30,8 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
   const tree = processSubtree(initial, root.pid);
   if (tree.some(row => row.session_identity === null)) throw new Error("process_tree_session_unconfirmed");
   if (tree.some(row => row.pid === process.pid)) throw new Error("process_tree_contains_checker");
-  const inSession = (row: RuntimeProcess) => liveRoot.session_identity === undefined || row.session_identity === liveRoot.session_identity;
+  const inSession = (row: RuntimeProcess) => crossSession || liveRoot.session_identity === undefined
+    || row.session_identity === liveRoot.session_identity;
   const selected = new Map(tree.filter(inSession).map(row => [row.pid, row]));
   const groups = new Set([...selected.values()].map(row => row.process_group_id).filter((group): group is number =>
     group !== null && group > 1 && initial.some(row => row.pid === group && selected.has(row.pid))

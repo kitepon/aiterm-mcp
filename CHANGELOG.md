@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_close {hibernate: true, stop_background: true}`: when no turn is running (the seat is idle, or its Claude turn ended on a rate limit), the hibernate also ends the seat's background processes instead of answering `AGENT_BUSY: background_work_or_unknown`. The tree stop then includes descendants in another POSIX session, where a harness runs its background commands. A running turn, an unconfirmed turn end and pending child deliveries still answer `AGENT_BUSY`. Without the flag, and for the idle clock, nothing changes.
+- Every tool refusal text now starts with `aiterm: <CODE>: ` (`[A-Z][A-Z0-9_]*`). An internal error without its own code reads `aiterm: AITERM_FAILED: <message>`.
+
 ## [0.64.2] - 2026-11-08
 
 - Claude wait (`observeAgentDone` / `aiterm-wait`): a transcript API-error record whose CLI `error` field is `rate_limit` (for example the Fable limit record with no `apiErrorStatus`) is now `failure.category: "rate_limited"`, whatever its text. When Stop still fires, the wait looks at the turn's last assistant record up to the Stop time and returns that error instead of `done`. The hibernate exception for a rate-limited turn reads the same category.

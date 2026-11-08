@@ -613,7 +613,7 @@ Claudeの相関済み承認は既存の`claude_approval`を使う。
 | `pty_send` | テキストを送る。agent sessionでは子のturnが実行中なら現在のturnへ差し込み（`agent_steer`）、それ以外は非ブロックdispatchとして`event_cursor`を返す（`agent_dispatch`）。差し込みでGrokが待ち行列へ入れない時とCursorの入力欄に残った時は失敗する | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `preface`, `rtk`, `raw` |
 | `pty_read` | 出力を削減して読む（既定は増分） | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id`, `input_id` |
 | `pty_key` | 制御キーを送る | `session_id`, `key`（`C-c`/`Enter`/`Up`…） |
-| `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す | `session_id` |
+| `pty_close` | 冪等に閉じ、`closed` / `already_closed`を返す。`hibernate:true`はClaude・Codexの席を止めて会話を再開用に残す（`hibernated`）。`stop_background:true`は裏のprocessも一緒に止める | `session_id`、`hibernate`、`stop_background` |
 | `pty_list` | textと構造化したsession一覧。管理対象の起動ID `launch_id` は一覧取得時の値で、通常PTYやmetadata不明時はnull、旧remote版は省略。操作前の最新の紐付け確認は引き続き必要。明示した非秘密環境変数も照会できる | `env_keys?` |
 | `pty_observe` | pane／harnessの生存、native process identity、状態と活動 | `session_id`, `cursor?` |
 | `agent_launch` | harnessとmodelを別軸で選ぶ正規agent起動入口 | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |

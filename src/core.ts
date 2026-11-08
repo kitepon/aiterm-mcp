@@ -2022,7 +2022,8 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
 }
 
 /** Internal lifecycle worker; not an MCP input route and never creates an effect scope. */
-export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string, immediate = false): Promise<IdleCheckResult> {
+export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string, immediate = false,
+  stopBackground = false): Promise<IdleCheckResult> {
   const expected = executionLaunchSchema.parse(expectedInput), name = expected.session_id;
   assertExecutionContext(name);
   assertExecutionResumeSupported();
@@ -2111,7 +2112,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     exclusive: body => withAgentSendLock(name, async () => {
       try {
         const before = snapshot();
-        if (decideIdleSeat(before, Date.now(), minutes, expectedAnchor, immediate).reason === "native_configuration_unconfirmed") {
+        if (decideIdleSeat(before, Date.now(), minutes, expectedAnchor, immediate, stopBackground).reason === "native_configuration_unconfirmed") {
           const meta = metadata(), recipe = refreshAgentResumeRecipe(meta);
           configurationStartedAt = Math.floor(Date.now() / 1000) * 1000;
           if (recipe && await inspectAgentIdleSettings(name, meta, recipe)) configurationScreen = captureScreen(name, AGENT_TUI_READY_LINES);
@@ -2138,7 +2139,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
           didIssue(); effectIssued = true;
           signalRuntimeProcess(target, signal, group);
         },
-      });
+      }, stopBackground);
       if (!stopped) return false;
       return withExecutionPreparation(name, () => {
         metadata(); verify();
@@ -2167,7 +2168,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       if (tryLoadAgentMetadata(name)?.launch_id === expected.launch_id)
         writeJson0600(agentMetadataPath(name, expected.launch_id).replace(/\.agent\.json$/, ".idle-check.json"), result);
     },
-  }, expected.launch_id, minutes, expectedAnchor, immediate);
+  }, expected.launch_id, minutes, expectedAnchor, immediate, stopBackground);
 }
 
 /** The rate_limited API error that ended the turn after the last input, as the wait result classifies it. */
@@ -2180,11 +2181,14 @@ function claudeRateLimitedAt(meta: AgentMetadata): string | null {
 const HIBERNATE_BUSY_REASONS = new Set(["turn_running", "turn_end_unconfirmed", "input_without_turn_end",
   "child_delivery_pending_or_unknown", "background_work_or_unknown"]);
 
-/** pty_close with hibernate: stop the seat now through the idle lifecycle, keeping its conversation for resume. */
-export async function hibernateAgentSession(name: string): Promise<{ schema: "aiterm.pty-close-result.v1"; session_id: string; outcome: "hibernated" }> {
+/**
+ * pty_close with hibernate: stop the seat now through the idle lifecycle, keeping its conversation for resume.
+ * `stopBackground` ends the seat's background processes with it (a caller moving a seat off a limited account).
+ */
+export async function hibernateAgentSession(name: string, stopBackground = false): Promise<{ schema: "aiterm.pty-close-result.v1"; session_id: string; outcome: "hibernated" }> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
-  const result = await checkAgentIdle({ session_id: name, launch_id: meta.launch_id }, undefined, true);
+  const result = await checkAgentIdle({ session_id: name, launch_id: meta.launch_id }, undefined, true, stopBackground);
   if (result.outcome === "hibernated") return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
   // Killing a running turn or its background work loses that work; the caller asks again at the turn end.
   if (HIBERNATE_BUSY_REASONS.has(result.reason)) throw new AitermError(`AGENT_BUSY: ${result.reason}: 席は作業中のため休止していません。`, 2);

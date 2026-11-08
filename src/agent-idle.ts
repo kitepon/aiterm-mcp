@@ -36,8 +36,10 @@ export function idleMinutes(value = process.env.AITERM_IDLE_MINUTES): number {
 /**
  * `immediate` is an explicit hibernate request: no deadline and no attachment refusal. A Claude turn that ended on a
  * rate limit (no Stop event; the CLI then waits in its limit footer or menu) counts as ended at that error.
+ * `stopBackground` (explicit hibernate only) lets the stop end the seat's background processes instead of refusing.
  */
-export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30, expectedAnchor?: string, immediate = false): IdleDecision {
+export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30, expectedAnchor?: string, immediate = false,
+  stopBackground = false): IdleDecision {
   const result: IdleDecision = { outcome: "skipped", reason: "observation_unconfirmed", anchor: null, due_at: null, stalled: false };
   if (!Number.isFinite(now) || (!immediate && (!Number.isFinite(minutes * 60_000) || minutes <= 0))) return result;
   const limited = immediate && seat.rate_limited_at ? seat.rate_limited_at : null;
@@ -46,7 +48,7 @@ export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30
       && now - seat.window_activity_at >= 60 * 60_000 };
   if (!immediate && seat.attached !== false) return { ...result, reason: seat.attached === true ? "attached" : "attachment_unconfirmed" };
   if (seat.pending_child_deliveries !== 0) return { ...result, reason: "child_delivery_pending_or_unknown" };
-  if (seat.post_startup_process_count !== 0) return { ...result, reason: "background_work_or_unknown" };
+  if (seat.post_startup_process_count !== 0 && !(immediate && stopBackground)) return { ...result, reason: "background_work_or_unknown" };
   if (!seat.vendor_session_id) return { ...result, reason: "conversation_id_unavailable" };
   if (!seat.resume_ready) return { ...result, reason: "resume_unavailable" };
   if (!limited && seat.turn_settled !== true) return { ...result, reason: "turn_end_unconfirmed" };
@@ -78,7 +80,7 @@ export type IdleCheckResult = Omit<IdleDecision, "outcome"> & { outcome: IdleDec
 
 /** The owner supplies the same seat admission used by input; no independent queue is created. */
 export async function checkIdleSeat(runtime: IdleCheckRuntime, expectedLaunch: string, minutes = 30,
-  expectedAnchor?: string, immediate = false): Promise<IdleCheckResult> {
+  expectedAnchor?: string, immediate = false, stopBackground = false): Promise<IdleCheckResult> {
   return runtime.exclusive(async () => {
     let issued = false;
     let effectIssued = false;
@@ -89,12 +91,12 @@ export async function checkIdleSeat(runtime: IdleCheckRuntime, expectedLaunch: s
       const lastInputAt = before.activity.last_input_at;
       result = before.launch_id !== expectedLaunch
         ? { outcome: "skipped", reason: "generation_replaced", anchor: null, due_at: null, stalled: false }
-        : decideIdleSeat(before, runtime.now(), minutes, expectedAnchor, immediate);
+        : decideIdleSeat(before, runtime.now(), minutes, expectedAnchor, immediate, stopBackground);
       if (result.outcome === "ready") {
         const anchor = result.anchor!;
         const verify = () => {
           const current = runtime.snapshot();
-          const decision = decideIdleSeat(current, runtime.now(), minutes, anchor, immediate);
+          const decision = decideIdleSeat(current, runtime.now(), minutes, anchor, immediate, stopBackground);
           // After the stop signal, an explicit hibernate only requires that no new input arrived (the stopping CLI may redraw anything).
           if (current.launch_id !== expectedLaunch || current.activity.last_input_at !== lastInputAt
             || (effectIssued ? !immediate && (current.attached === true || ["busy", "blocked"].includes(current.state)) : decision.outcome !== "ready"))

@@ -54,6 +54,32 @@ test("Claude: a pre-wait API failure keeps its input binding; an old waiter cann
   } finally { core.closeSession(sid); }
 });
 
+test("Claude: a limit record that still fires Stop ends the wait as rate_limited, not done", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true }); fs.writeFileSync(transcript, "");
+    const append = value => fs.appendFileSync(transcript, JSON.stringify({ sessionId: meta.vendor_session_id, timestamp: new Date().toISOString(), ...value }) + "\n");
+    const text = "You're out of usage credits. Run /usage-credits to keep using Fable 5.1 or /model to switch models.";
+    const first = await core.dispatchAgentTurn(sid, "CLAUDE_LIMIT_WITH_STOP");
+    append({ type: "user", uuid: "u1", parentUuid: null, message: { content: "first" } });
+    append({ type: "assistant", uuid: "e1", parentUuid: "u1", isApiErrorMessage: true, error: "rate_limit", apiError: "model_requires_usage_credits",
+      message: { model: "<synthetic>", content: [{ type: "text", text }] } });
+    assert.equal(invokeClaudeStopHook(meta, text).status, 0);
+    // Stop's event lands before the waiter reads the transcript (the production order).
+    const failed = await core.observeAgentDone(sid, { cursor: first.event_cursor, input_id: first.input_id, timeout: 0 });
+    assert.equal(failed.outcome, "error"); assert.equal(failed.error, text); assert.equal(failed.failure.category, "rate_limited");
+    // The next turn answers normally: the earlier limit record must not turn its Stop into an error.
+    const second = await core.dispatchAgentTurn(sid, "CLAUDE_AFTER_LIMIT");
+    append({ type: "user", uuid: "u2", parentUuid: "e1", message: { content: "second" } });
+    append({ type: "assistant", uuid: "a2", parentUuid: "u2", message: { content: [{ type: "text", text: "ok" }] } });
+    assert.equal(invokeClaudeStopHook(meta, "ok").status, 0);
+    assert.equal((await core.observeAgentDone(sid, { cursor: second.event_cursor, input_id: second.input_id, timeout: 0 })).outcome, "done");
+  } finally { core.closeSession(sid); }
+});
+
 test("Claude: tool work before capacity remains started, and malformed ancestry never becomes a bound terminal", { skip: skipAgentDone }, async () => {
   const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
   for (const scenario of ["valid", "wrong_parent", "later_input", "tool_result"]) {

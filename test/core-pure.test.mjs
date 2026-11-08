@@ -913,14 +913,14 @@ test("claudeApiErrorFromLine: isApiErrorMessage:true のassistant行だけをエ
   });
   assert.deepEqual(claudeHarness.claudeApiErrorFromLine(line), {
     text: "API Error: 529 Overloaded. This is a server-side issue", at: "2026-09-03T13:44:38.124Z",
-    status: 529, session_id: null, uuid: null, parent_uuid: null,
+    status: 529, session_id: null, uuid: null, parent_uuid: null, kind: null,
   });
   assert.equal(claudeHarness.claudeApiErrorFromLine(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ok" }] } })), null);
   assert.equal(claudeHarness.claudeApiErrorFromLine(JSON.stringify({ type: "system", isApiErrorMessage: true })), null);
   assert.equal(claudeHarness.claudeApiErrorFromLine("{broken"), null);
   assert.deepEqual(
     claudeHarness.claudeApiErrorFromLine(JSON.stringify({ type: "assistant", isApiErrorMessage: true, apiErrorStatus: 500 })),
-    { text: "API Error: 500", at: null, status: 500, session_id: null, uuid: null, parent_uuid: null },
+    { text: "API Error: 500", at: null, status: 500, session_id: null, uuid: null, parent_uuid: null, kind: null },
   );
 });
 

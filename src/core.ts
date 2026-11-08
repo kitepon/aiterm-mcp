@@ -240,6 +240,7 @@ import {
   claudeSessionTranscriptPath,
   claudeApiErrorFromLine,
   claudeApiErrorAfter,
+  claudeApiErrorEndingTurn,
   claudeFailureCategory,
   type ClaudeApiError,
 } from "./harnesses/claude.js";
@@ -4543,6 +4544,9 @@ async function observeAgentDoneInternal(
       }
       if (o.input_id && !scanned.event && parts.some(line => parseAgentDoneEvent(line, meta).event !== null))
         throw new AitermError("AGENT_WAIT_INPUT_CHANGED: completion belongs to another or unconfirmed input", 2);
+      // 利用上限ではStopも走る。その番の最後の記録がAPIエラーなら、doneでなく誤りとして返す。
+      const ended = scanned.event && meta.kind === "claude" ? claudeApiErrorEndingTurn(meta, scanned.event.at) : null;
+      if (ended) return observation("error", null, null, ended);
       if (scanned.event) return scanned.event.done_status === "turn_error"
         ? { ...observation("error", scanned.event), error: `Antigravity execution ended: ${scanned.event.reason}`, error_kind: scanned.event.reason }
         : observation("done", scanned.event);

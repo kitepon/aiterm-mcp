@@ -774,6 +774,8 @@ export interface ClaudeApiError {
   session_id: string | null;
   uuid: string | null;
   parent_uuid: string | null;
+  /** The CLI's own error kind (`error` field, e.g. "rate_limit"); the limit record carries no apiErrorStatus. */
+  kind: string | null;
 }
 
 export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
@@ -799,13 +801,43 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
     session_id: typeof record.sessionId === "string" ? record.sessionId : null,
     uuid: typeof record.uuid === "string" ? record.uuid : null,
     parent_uuid: typeof record.parentUuid === "string" ? record.parentUuid : null,
+    kind: typeof record.error === "string" ? record.error : null,
   };
 }
 
 export function claudeFailureCategory(error: ClaudeApiError): "capacity" | "rate_limited" | "transient" | "other" {
-  if (error.status === 429 || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:[a-z0-9-]+ ){0,3}limit\b)/i.test(error.text)) return "rate_limited";
+  if (error.status === 429 || error.kind === "rate_limit" || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:[a-z0-9-]+ ){0,3}limit\b)/i.test(error.text)) return "rate_limited";
   if (error.status === 529) return "capacity";
   return error.status !== null && error.status >= 500 ? "transient" : "other";
+}
+
+// 利用上限のAPIエラー（error:"rate_limit"）ではStopも発火する（実測 2026-11-09、Fable上限で19回）。
+// Stopの時点で、その番の最後のassistant記録がAPIエラーなら、その番は誤りで終わっている。
+// 次の番の記録はStopより後に書かれるので、Stopの時刻までの最後の記録だけを見る。
+export function claudeApiErrorEndingTurn(meta: AgentMetadata, stopAt: string): ClaudeApiError | null {
+  const file = claudeSessionTranscriptPath(meta);
+  const stop = Date.parse(stopAt);
+  if (!file || !Number.isFinite(stop)) return null;
+  let size: number;
+  try {
+    size = fs.statSync(file).size;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const lines = readFileRange(file, Math.max(0, size - AGENT_EVENT_TAIL_BYTES), size).toString("utf8").split("\n");
+  lines.pop();
+  for (const line of lines.reverse()) {
+    let record: any;
+    try { record = JSON.parse(line); } catch { continue; }
+    if ((record?.type !== "assistant" && record?.type !== "user") || record.isSidechain === true
+      || (record.sessionId && record.sessionId !== meta.vendor_session_id)) continue;
+    const at = Date.parse(record.timestamp);
+    if (!Number.isFinite(at) || at > stop) continue;
+    // 先にuser行（この番の入力かtool結果）が来たら、この番の最後の答えはまだ書かれていない。前の番の誤りを持ち出さない。
+    return record.type === "assistant" ? claudeApiErrorFromLine(line) : null;
+  }
+  return null;
 }
 
 // Stopが発火しないエラー終了を、現在のturn開始後の会話記録だけから判定する。

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Claude wait (`observeAgentDone` / `aiterm-wait`): a transcript API-error record whose CLI `error` field is `rate_limit` (for example the Fable limit record with no `apiErrorStatus`) is now `failure.category: "rate_limited"`, whatever its text. When Stop still fires, the wait looks at the turn's last assistant record up to the Stop time and returns that error instead of `done`. The hibernate exception for a rate-limited turn reads the same category.
+
 ## [0.64.1] - 2026-11-08
 
 - Seat turn (`readSeatTurns`, Claude/Grok/Cursor/Antigravity seats): a seat whose current launch has shown neither busy nor any completed turn now reports `{state: "idle"}` once its pane stays ready for 250 ms, instead of `turn: null` until its first turn. Once a span or a turn end was recorded, an unreadable turn end still reports null. Codex seats are unchanged.

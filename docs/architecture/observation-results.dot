@@ -6,7 +6,7 @@ digraph observation {
  native [label="pty_observe: native listing + pane + process table\nselect one harness; PID / birth / argv digest\nmissing / dead / ambiguous / unknown stay distinct"];
  screen [label="Capture screen → harness pane parser\nbusy / idle / blocked / unknown\nactivity digest + CPU delta with same pane birth"];
  dormant [label="Dormant record / recipe / no native rechecked\nhibernated only with matching evidence\notherwise unknown; discard old activity delta"];
- wait [label="observeAgentDone / aiterm-wait\nfixed launch + cursor / operation / steer\nClaude input_id: match marker and Stop ID\nwait for pre-input reservation, then saved transcript offset"];
+ wait [label="observeAgentDone / aiterm-wait\nfixed launch + cursor / operation / steer\nClaude input_id: match marker and Stop ID\nwait for pre-input reservation, then saved transcript offset\nClaude Stop whose last assistant record is an API error -> error"];
  end [label="done / error / closed / rate_limited\nrunning (timeout=0) / timeout / not_taken\nabort only stops observer"];
  failure [label="Optional failure: capacity / rate_limited / transient / other\nstarted or unknown; never infer not_started\noriginal observation boundary or null; turn terminal only\nfuture_effects unknown: no queue / producer fence"];
  activity [label="done/error: append turn_end + request idle clock\nrecord failure does not erase completion\nwaiter does not own metadata binding or send lock"];

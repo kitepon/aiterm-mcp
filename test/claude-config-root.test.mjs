@@ -41,11 +41,13 @@ test("claude auth status returns the account e-mail as a display label only when
 });
 
 test("any 'You've hit your … limit' line is a rate limit even without HTTP 429", () => {
-  const error = text => ({ text, status: null, at: null, session_id: null, uuid: null, parent_uuid: null });
+  const error = text => ({ text, status: null, at: null, session_id: null, uuid: null, parent_uuid: null, kind: null });
   assert.equal(claudeFailureCategory(error("You've hit your weekly limit · resets Oct 16, 8am (UTC)")), "rate_limited");
   assert.equal(claudeFailureCategory(error("You've hit your session limit · resets 3pm")), "rate_limited");
   assert.equal(claudeFailureCategory(error("You've reached your Fable limit. Run /usage-credits to continue")), "rate_limited");
   assert.equal(claudeFailureCategory(error("API Error: socket hang up")), "other");
+  // The Fable limit record: no apiErrorStatus, the CLI's own error field, any text.
+  assert.equal(claudeFailureCategory({ ...error("You're out of usage credits. Run /usage-credits to keep using Fable 5.1 or /model to switch models."), kind: "rate_limit" }), "rate_limited");
 });
 
 test("openAgent claude runs the seat under the selected root and keeps it in the resume template", { skip: skipAgentDone ?? (process.platform === "win32" ? "POSIX fake CLI" : false) }, async (t) => {

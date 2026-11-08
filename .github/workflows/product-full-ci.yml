@@ -94,6 +94,17 @@ jobs:
     timeout-minutes: 30
     runs-on: [self-hosted, factory, "${{ matrix.environment }}"]
     steps:
+      - name: reap Aiterm test tmux left by a cancelled macOS job
+        if: matrix.environment == 'macos-native'
+        shell: bash
+        # tmux test servers daemonize out of the job tree, so cancellation or timeout skips their teardown.
+        # shortcut: assumes the Mac runs one runner per user (Linux runs two); scope by job before adding a second.
+        run: |
+          uid=$(id -u)
+          ps -U "$uid" -o command= | sed -n 's|.*tmux .*-S \(/tmp/at-[^ ]*\).*|\1|p' | sort -u |
+            while read -r s; do tmux -S "$s" kill-server 2>/dev/null || true; done
+          pkill -U "$uid" -f 'tmux -f /dev/null -S /tmp/at-' || true
+          find /tmp -maxdepth 1 -name 'at-*' -user "$uid" -exec rm -rf {} + 2>/dev/null || true
       - name: checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -126,6 +137,17 @@ jobs:
         if: matrix.environment == 'windows-native'
         shell: pwsh
         run: ${{ inputs.full-command }}
+      - name: reap Aiterm test tmux left by a cancelled macOS job
+        if: always() && matrix.environment == 'macos-native'
+        shell: bash
+        # tmux test servers daemonize out of the job tree, so cancellation or timeout skips their teardown.
+        # shortcut: assumes the Mac runs one runner per user (Linux runs two); scope by job before adding a second.
+        run: |
+          uid=$(id -u)
+          ps -U "$uid" -o command= | sed -n 's|.*tmux .*-S \(/tmp/at-[^ ]*\).*|\1|p' | sort -u |
+            while read -r s; do tmux -S "$s" kill-server 2>/dev/null || true; done
+          pkill -U "$uid" -f 'tmux -f /dev/null -S /tmp/at-' || true
+          find /tmp -maxdepth 1 -name 'at-*' -user "$uid" -exec rm -rf {} + 2>/dev/null || true
       - name: preserve Windows PTY failure evidence
         if: failure() && matrix.environment == 'windows-native'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

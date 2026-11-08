@@ -151,7 +151,8 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む19
   const ptyClose = toolsResp.result.tools.find((t) => t.name === "pty_close");
   assert.equal(ptyClose.outputSchema.properties.schema.const, "aiterm.pty-close-result.v1", "pty_close result schema");
   assert.equal(ptyClose.outputSchema.properties.session_id.pattern, "^[A-Za-z0-9_-]{1,64}$", "pty_close session ID schema");
-  assert.deepEqual(ptyClose.outputSchema.properties.outcome.enum, ["closed", "already_closed"], "pty_close outcome schema");
+  assert.deepEqual(ptyClose.outputSchema.properties.outcome.enum, ["closed", "already_closed", "hibernated"], "pty_close outcome schema");
+  assert.equal(ptyClose.inputSchema.properties.hibernate.type, "boolean", "pty_close hibernate input");
   const codexAgent = toolsResp.result.tools.find((t) => t.name === "codex_agent");
   assert.match(codexAgent.description, /完全な呼び出し例/, "codex_agent: 委譲guard前に完全形を提示する");
   for (const field of ["prompt", "model", "reasoning_effort", "cwd", "write_scope"]) {

@@ -3784,7 +3784,8 @@ function bindCompletedInitialPrompt(meta: AgentMetadata): void {
 }
 
 
-function latestAgentDoneEvent(meta: AgentMetadata, expectedOperationId: string | null = null): AgentDoneEvent | null {
+function latestAgentDoneEvent(meta: AgentMetadata, expectedOperationId: string | null = null,
+  expectedInputId: string | null = null): AgentDoneEvent | null {
   if (meta.kind === "codex") return latestCodexCompletion(meta, readTranscriptLines);
   if (meta.kind === "cursor" && meta.completion_route === "cursor_transcript") {
     return latestCursorCompletion(meta, readTranscriptLines);
@@ -3805,7 +3806,8 @@ function latestAgentDoneEvent(meta: AgentMetadata, expectedOperationId: string |
   for (const line of text.split("\n")) {
     if (!line.trim() || Buffer.byteLength(line, "utf8") > 64 * 1024) continue;
     const parsed = parseAgentDoneEvent(line, meta);
-    if (parsed.event && (!expectedOperationId || parsed.event.operation_id === expectedOperationId)) latest = parsed.event;
+    if (parsed.event && (!expectedOperationId || parsed.event.operation_id === expectedOperationId)
+      && (!expectedInputId || parsed.event.input_id === expectedInputId)) latest = parsed.event;
   }
   return latest;
 }
@@ -3892,7 +3894,7 @@ function agentCompletionCursor(meta: AgentMetadata): number {
 }
 
 function transcriptUnavailable(): never {
-  throw new AitermError(`transcript がまだありません。ターン完了後に再取得してください。${agentWaitGuide()}`, 2);
+  throw new AitermError(`TRANSCRIPT_UNAVAILABLE: transcript がまだありません。ターン完了後に再取得してください。${agentWaitGuide()}`, 2);
 }
 
 /** 完了したturnの回答が空だった時に、人とAIが読む表示へ出す文。機械はstructuredContentのanswer_emptyを見る。 */
@@ -3900,7 +3902,7 @@ const AGENT_ANSWER_EMPTY_NOTICE = "このターンは完了しましたが、回
 
 function transcriptNotFound(vendor: AgentKind): never {
   throw new AitermError(
-    `最終 assistant メッセージを特定できませんでした（harness=${agentHarness(vendor)}, vendor=${vendor}）。screen で確認してください。`,
+    `TRANSCRIPT_NOT_FOUND: 最終 assistant メッセージを特定できませんでした（harness=${agentHarness(vendor)}, vendor=${vendor}）。screen で確認してください。`,
     2,
   );
 }
@@ -4076,7 +4078,7 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */
 export async function readAgentTranscriptResult(
   name: string,
-  o: { lines?: number | null; operation_id?: string | null; completion?: AgentWaitObservation; raw?: boolean } = {},
+  o: { lines?: number | null; operation_id?: string | null; input_id?: string | null; completion?: AgentWaitObservation; raw?: boolean } = {},
 ): Promise<AgentTranscriptResult> {
   const meta = loadAgentMetadata(name);
   if (o.completion && (o.completion.outcome !== "done" || o.completion.launch_id !== meta.launch_id || o.completion.session_id !== name)) {
@@ -4086,25 +4088,35 @@ export async function readAgentTranscriptResult(
   if (operationId && meta.kind !== "claude") {
     throw new AitermError("operation_id付き回収はClaude agent sessionだけで使用できます", 2);
   }
-  if (meta.kind === "claude" && !o.completion) {
+  const inputId = o.input_id ?? null;
+  if (inputId !== null && (!/^[a-f0-9]{32}$/.test(inputId) || meta.kind !== "claude" || operationId || o.completion)) {
+    throw new AitermError("input_id付き回収はClaude agent sessionだけで、operation_idと併用せず32桁の小文字16進で指定してください", 2);
+  }
+  const inputPending = (): never => {
+    throw new AitermError(`AITERM_TRANSCRIPT_INPUT_PENDING: input ${inputId} の番はまだ完了していません。同じinput_idで後から再取得してください。${agentWaitGuide(name)}`, 2);
+  };
+  // 入力に束縛した回収は、その入力の完了だけを読む。後の番のmarkerはこの回収と無関係。
+  if (meta.kind === "claude" && !o.completion && inputId === null) {
     let active = readClaudeOperationMarker(meta);
     if (active) active = await settlePublishedClaudeCompletionMarker(meta, active);
     if (active) {
       const label = active.operationId ? `operation ${active.operationId}` : "operation_idなしのClaude turn";
-      throw new AitermError(`${label} はまだ完了していません。Stop完了後に同じsessionから再取得してください。${agentWaitGuide(name)}`, 2);
+      throw new AitermError(`TRANSCRIPT_TURN_ACTIVE: ${label} はまだ完了していません。Stop完了後に同じsessionから再取得してください。${agentWaitGuide(name)}`, 2);
     }
   }
   // wait timeout は「失敗」ではなく状態不明。後着した同一launchの完了eventから
   // harness session をbindし、promptを再送せず結果だけ回収できるようにする。
   recoverAgentHarnessSession(meta);
   if (!meta.vendor_session_id) {
+    if (inputId) inputPending();
     throw new AitermError(
       `agent session '${name}' はまだターンが完了していません。agent_done 完了後に再取得してください。${agentWaitGuide(name)}`,
       2,
     );
   }
 
-  const done = latestAgentDoneEvent(meta, operationId);
+  const done = latestAgentDoneEvent(meta, operationId, inputId);
+  if (inputId && !done) inputPending();
   if (o.completion && meta.kind !== "codex" && meta.kind !== "grok"
     && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
     throw new AitermError("回収対象の完了情報が置換されました。別の回答は配送しません", 2);
@@ -4118,7 +4130,9 @@ export async function readAgentTranscriptResult(
 
   if (meta.kind === "claude") {
     if (!done) transcriptUnavailable();
-    text = readClaudeResultText(meta, done, operationId, transcriptUnavailable);
+    text = readClaudeResultText(meta, done, operationId, transcriptUnavailable, inputId ? () => {
+      throw new AitermError(`AITERM_TRANSCRIPT_INPUT_REPLACED: input ${inputId} の回答は後の番の結果で置き換わりました。この入力の本文はもう読めません。`, 2);
+    } : undefined);
   } else if (meta.kind === "antigravity") {
     if (!done || done.done_status !== "turn_done") transcriptUnavailable();
     text = antigravityTranscriptText(meta, done);

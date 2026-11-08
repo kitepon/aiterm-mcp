@@ -651,7 +651,7 @@ continue to use `claude_approval`.
 | --- | --- | --- |
 | `pty_open` | Open one terminal and return a `session_id` | `name?`, `shell?`, `env_vars?` |
 | `pty_send` | Send text. On an agent session Aiterm picks the route when it sends: if the child's turn is running, it steers the text into that turn (`agent_steer`); otherwise it is a non-blocking **dispatch** returning an `event_cursor` (`agent_dispatch`). Steering fails when Grok does not queue the text or Cursor leaves it in the composer | `session_id`, `text`, `enter=true`, `mark`, `force`, `require_agent=false`, `preface`, `rtk`, `raw` |
-| `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id` |
+| `pty_read` | Read output, token-reduced (incremental by default) | `session_id`, `wait`, `until`, `until_regex`, `timeout`, `screen`, `full`, `lines`, `line_range`, `raw`, `rtk`, `agent_transcript`, `operation_id`, `input_id` |
 | `pty_key` | Send a control key | `session_id`, `key` (`C-c`/`Enter`/`Up`…) |
 | `pty_close` | Close idempotently; return `closed` / `already_closed` | `session_id` |
 | `pty_list` | Text and structured session list (managed sessions include snapshot `launch_id` and harness conversation ID `vendor_session_id`; `launch_id` is null for ordinary/unmanaged PTYs and may be absent on older remote versions, so callers retain fresh binding checks before operations), with explicitly requested non-secret environment values | `env_keys?` |

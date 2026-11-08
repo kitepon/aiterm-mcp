@@ -743,6 +743,39 @@ test("readAgentTranscript: Claudeはprivate transcriptでなくhook-captured res
   }
 });
 
+test("readAgentTranscript: Claudeのinput_id付き回収は、後の番が動いていてもその入力の回答を返し、未完了と置換を符号で分ける", { skip: skipAgentDone }, async () => {
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    const meta = readAgentMeta(sid);
+    const first = "a".repeat(32), later = "b".repeat(32);
+    const writeTurn = (inputId, text) => {
+      const digest = createHash("sha256").update(text, "utf8").digest("hex");
+      fs.writeFileSync(meta.result_file, JSON.stringify({ schema: "aiterm.claude-turn-result.v2", operation_id: null,
+        vendor_session_id: meta.vendor_session_id, result_digest: digest, result_bytes: Buffer.byteLength(text, "utf8"), text }) + "\n", { mode: 0o600 });
+      fs.appendFileSync(meta.event_file, JSON.stringify({ type: "agent_done", vendor: "claude", aiterm_session: sid, launch_id: meta.launch_id,
+        vendor_session_id: meta.vendor_session_id, turn_id: null, operation_id: null, input_id: inputId, reason: "Stop", done_status: "turn_done",
+        result_digest: digest, result_bytes: Buffer.byteLength(text, "utf8"), at: new Date().toISOString() }) + "\n");
+    };
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: first }), e => e.message.startsWith("AITERM_TRANSCRIPT_INPUT_PENDING: "));
+    writeTurn(first, "最初の入力への回答");
+    // 次の入力が始まり、markerがactiveになった。
+    fs.writeFileSync(path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`), JSON.stringify({
+      schema: "aiterm.claude-operation-marker.v3", operation_id: null, event_cursor: fs.statSync(meta.event_file).size, input_id: later, transcript: null }));
+    await assert.rejects(core.readAgentTranscriptResult(sid), e => e.message.startsWith("TRANSCRIPT_TURN_ACTIVE: "));
+    const bound = await core.readAgentTranscriptResult(sid, { input_id: first, raw: true });
+    assert.equal(bound.text, "最初の入力への回答");
+    assert.equal(bound.answer_empty, false);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: later }), e => e.message.startsWith("AITERM_TRANSCRIPT_INPUT_PENDING: "));
+    writeTurn(later, "後の入力への回答");
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: first }), e => e.message.startsWith("AITERM_TRANSCRIPT_INPUT_REPLACED: "));
+    assert.equal((await core.readAgentTranscriptResult(sid, { input_id: later, raw: true })).text, "後の入力への回答");
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: first, operation_id: `sha256:${"c".repeat(64)}` }), /input_id付き回収/);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: "XYZ" }), /input_id付き回収/);
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
 test("readAgentTranscript: Codex の複数 assistant block を join し lines は末尾へ絞る", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });

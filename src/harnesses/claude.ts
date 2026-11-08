@@ -131,6 +131,7 @@ export function readClaudeResultText(
   done: AgentDoneEvent,
   operationId: string | null,
   transcriptUnavailable: () => never,
+  mismatch: () => never = () => { throw new AitermError("TRANSCRIPT_RESULT_MISMATCH: Claude result file が完了eventと一致しません", 2); },
 ): string {
   if (meta.kind !== "claude" || !meta.result_file || !done.result_digest || done.result_bytes == null) {
     transcriptUnavailable();
@@ -170,7 +171,7 @@ export function readClaudeResultText(
     Buffer.byteLength(result.text, "utf8") !== done.result_bytes ||
     createHash("sha256").update(result.text, "utf8").digest("hex") !== done.result_digest
   ) {
-    throw new AitermError("Claude result file が完了eventと一致しません", 2);
+    mismatch();
   }
   return result.text;
 }

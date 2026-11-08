@@ -21,7 +21,7 @@ Stop hookはv3 markerのinput_idをagent_doneへ保持し、bound waiterは成�
 | 何をしているか | observeNativeSession → agentPaneObservation → harness parser | busy/idle/blocked/unknownとreason。stopped processもblocked。画面のidleだけでturn完了や本人性を確定しない |
 | 前回との差 | activity cursor → decodeActivityCursor | sessionとpane出生identityが一致する時だけoutput digest/CPU差分を返す。processが消えた差分はcomplete=false。初回・作り直したpaneはnull。起動控えの親/argv shapeで既存足場の立て直しを除く |
 | 子の作業が終わったか | observeAgentDone / aiterm-wait | 固定launch/cursor/operationからdone/running/timeout/closed/rate_limited/error/not_taken。終了観測と成功/本文は別。CLI exitはこのoutcomeの射影 |
-| 本文はどれか | `pty_read(agent_transcript:true)` → readAgentTranscriptResult | 同session/launchのdoneとturn/operationを照合してharnessごとの記録から本文を回収。空の本文はtext=""/answer_empty=true、取得不能は例外。旧回答を新完了へ流用しない |
+| 本文はどれか | `pty_read(agent_transcript:true)` → readAgentTranscriptResult | 同session/launchのdoneとturn/operationを照合してharnessごとの記録から本文を回収。空の本文はtext=""/answer_empty=true、取得不能は例外。旧回答を新完了へ流用しない。Claudeは`input_id`（dispatch receiptの値）でその入力のagent_doneへ束縛でき、後の番のactive markerでは拒否しない |
 | 画面や通常PTY出力は何か | `pty_read` → readOutput / waitCompletion | screen snapshotまたはlogの増分。offsetは読取側state。rangeはoffsetを進めず、UTF-8の端を調整、巨大fullは上限。terminalのsentinel/until/静止はagent turn完了とは別 |
 | BellTeamの途中表示 | `aiterm/caller` metadata → seatTurnsMeta/interimWordsMeta | 席turn・差込追跡・合間の言葉を専用_metaに載せる。対応しないcallerへ付けない。欠測/不正fromはerror射影で、最後の別turnの言葉を代用しない |
 
@@ -40,6 +40,20 @@ cursorはdispatch receiptの境界を優先し、Claudeのoperationがあれば0
 timeout=0の一回観測で未完ならrunning、それ以外はtimeout。取消signalはobserverを止め、PTY/子turnを止めない。外部waiterはmetadata binding/送信lockを所有しないが、done/errorを得るとactivityのturn_end追記とidle clock要求を行う。この記録に失敗しても本物の完了resultは保持し、診断だけstderrへ出す。CLI冒頭の「純リーダー」はこの限定付きで読む。
 
 wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自身の失敗1。rate limitをauth欠測から補う旧Grok互換は期待launchなしの場合だけで、現在viewportの陽性証拠を必要とする。exitだけを回答本文や正常終了の証明にはしない。
+
+### Claude answer bound to one input (Kiro request, 2026-11-08)
+
+`pty_read(agent_transcript:true, input_id)` binds the read to the Claude input that `pty_send` returned in its dispatch receipt. Unbound reads mean "latest turn of the seat", so the next input (its active marker, or its overwrite of the single per-launch `claude-result.json`) breaks a read that started after the earlier turn ended.
+
+| Step | Owner | Result |
+| --- | --- | --- |
+| Validate | index pty_read schema → readAgentTranscriptResult | `input_id` is 32 lowercase hex, Claude session only, not with `operation_id`; otherwise argument error |
+| Select | latestAgentDoneEvent(meta, null, inputId) | newest agent_done in the event tail whose `input_id` matches. The active operation marker is not consulted: a later turn does not own this read |
+| None yet | readAgentTranscriptResult | `AITERM_TRANSCRIPT_INPUT_PENDING` (retry later; nothing is resent) |
+| Read | harnesses/claude.readClaudeResultText | result file must match that event's digest/bytes; a later turn already written → `AITERM_TRANSCRIPT_INPUT_REPLACED` (terminal for this input, no older copy kept) |
+| Return | unchanged `aiterm.pty-read-result.v1` structuredContent | same text / answer_empty / correlation fields as the unbound read |
+
+Existing transcript read errors carry a code token first, rendered by the MCP error path as `aiterm: <CODE>: <text>`: `TRANSCRIPT_TURN_ACTIVE` (active Claude marker on an unbound read), `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_NOT_FOUND`, `TRANSCRIPT_RESULT_MISMATCH`. Callers match the token, not the text. Per-input result retention is not added: one result file per launch stays the storage contract, and INPUT_REPLACED is the named exit when it has moved on.
 
 回答回収はtimeout後も本文を再送せず行える。Claudeのactive operation markerがあればStop公開とmarker消去の短い待ちを経てもactiveなら拒否する。harness sessionの後着bindingを回収側が保存する一方、完了waiterはbindingを書かない。`completion`付き内部回収はdone/session/launch、必要なturn/operationとの一致を確認し、置換は拒否する。raw=trueで親配送は縮約を避ける。人向けdisplayの空回答通知やメタと、機械向けtextを混同しない。
 

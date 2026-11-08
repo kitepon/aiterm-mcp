@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_read(agent_transcript:true, input_id)` reads the Claude answer of the input that `pty_send` returned in its dispatch receipt. It selects that input's `agent_done` and does not refuse because a later turn is active, so a reply typed right after a turn ends no longer breaks the read of the previous answer. The answer is returned only while the per-launch result file still holds that event's digest and bytes. No completion yet answers `AITERM_TRANSCRIPT_INPUT_PENDING`; a result already replaced by a later turn answers `AITERM_TRANSCRIPT_INPUT_REPLACED`. `input_id` with a non-Claude session or with `operation_id` is an argument error. structuredContent is unchanged.
+- Transcript read errors now start with a code token, rendered as `aiterm: <CODE>: <text>`: `TRANSCRIPT_TURN_ACTIVE` (an unbound Claude read while a turn is active), `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_NOT_FOUND` and `TRANSCRIPT_RESULT_MISMATCH`. Match the token, not the text.
+- The macOS CI job removes Aiterm test tmux servers left by a cancelled or timed-out job before and after it runs.
+
 ## [0.63.17] - 2026-11-08
 
 - A managed seat whose native terminal vanished while its records survived (for example after a container restart emptied tmux) is no longer refused with `AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。` on every send. When the native list is known and the seat has no lifecycle or pending resume, an ordinary `pty_send`/dispatch records the existing `origin:restart` hibernation and cold-resumes the same Claude or Codex conversation, then delivers the body. A seat that cannot be resumed (other harnesses, missing vendor conversation, recipe or proof) answers `AGENT_SESSION_REQUIRED` with nothing sent and its records unchanged, so a fresh `agent_launch` under the same name reaches it. Unknown native state and live natives keep their existing checks.

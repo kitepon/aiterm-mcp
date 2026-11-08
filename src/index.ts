@@ -658,6 +658,11 @@ registerRemoteAwareTool(
         .regex(/^sha256:[0-9a-f]{64}$/)
         .nullish()
         .describe("Claude operationの期待ID。agent_transcript:true時だけ指定し、古い別operationの結果を拒否する"),
+      input_id: z
+        .string()
+        .regex(/^[a-f0-9]{32}$/)
+        .nullish()
+        .describe("Claudeのpty_send dispatch receiptのinput_id。agent_transcript:true時だけ指定し、その入力の番の回答を読む。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、後の番の結果で置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED"),
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-read-result.v1"),
@@ -676,7 +681,7 @@ registerRemoteAwareTool(
         .describe("agent_transcriptで、完了したturnの回答が空だった時だけtrue（textは空文字列）。回答を読めなかった時は誤りを返す。terminalではnull"),
     },
   },
-  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id }) => {
+  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id }) => {
     try {
       if (agent_transcript) {
         if (screen || full || rtk || wait || line_range != null) {
@@ -686,6 +691,7 @@ registerRemoteAwareTool(
         const result = await core.readAgentTranscriptResult(session_id, {
           lines: lines ?? null,
           operation_id: operation_id ?? null,
+          input_id: input_id ?? null,
           raw,
         });
         return {
@@ -704,6 +710,7 @@ registerRemoteAwareTool(
         };
       }
       if (operation_id != null) throw new Error("operation_idはagent_transcript:true時だけ指定できます");
+      if (input_id != null) throw new Error("input_idはagent_transcript:true時だけ指定できます");
       let range: [number, number | null] | null = null;
       if (line_range) {
         const idx = line_range.indexOf(":");

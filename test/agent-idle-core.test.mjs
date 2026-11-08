@@ -1003,3 +1003,13 @@ test('ordinary send cold-resumes a seat whose native vanished and answers AGENT_
  const [fresh]=core.openAgent('codex',{session_name:lost.name,agent_done:true,cwd:process.env.HOME,model:'fixture-model',reasoning_effort:'high'});
  assert.equal(fresh,lost.name);assert.notEqual(loadAgentMetadata(lost.name).launch_id,lost.meta.launch_id);
 });
+test('pty_close hibernate stops an idle seat now, before its idle deadline, and keeps it resumable',{skip,timeout:30000},async t=>{
+ const saved=process.env.AITERM_IDLE_MINUTES;process.env.AITERM_IDLE_MINUTES='100000';
+ t.after(()=>{if(saved===undefined)delete process.env.AITERM_IDLE_MINUTES;else process.env.AITERM_IDLE_MINUTES=saved;});
+ const f=await fixture(t);
+ assert.equal((await core.checkAgentIdle(f.expected)).outcome,'not_due');
+ assert.deepEqual(await core.hibernateAgentSession(f.name),{schema:'aiterm.pty-close-result.v1',session_id:f.name,outcome:'hibernated'});
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
+ assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
+ await assert.rejects(core.hibernateAgentSession(f.name),/^Error: AGENT_HIBERNATE_UNAVAILABLE: /);
+});

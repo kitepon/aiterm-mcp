@@ -630,7 +630,8 @@ export function sessionEnvironmentLaunch(shell: string, environment: string[], v
 }
 
 // Aiterm が端末ごとに付け直す名札と、呼んだ側の pane を指す値。新しい端末へは継がせない。
-const SESSION_OWN_ENV = /^(?:AITERM_SESSION_ID|AITERM_AGENT_[A-Z0-9_]+|TMUX|TMUX_PANE)$/;
+// AITERM_CLAUDE_CONFIG_ROOTS stays with the serving process: a seat's own Aiterm must not select other Claude roots.
+const SESSION_OWN_ENV = /^(?:AITERM_SESSION_ID|AITERM_AGENT_[A-Z0-9_]+|AITERM_CLAUDE_CONFIG_ROOTS|TMUX|TMUX_PANE)$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function sessionCallerEnvironment(base: NodeJS.ProcessEnv = tmuxSpawnEnv() ?? process.env): NodeJS.ProcessEnv {

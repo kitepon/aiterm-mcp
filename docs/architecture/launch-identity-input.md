@@ -7,6 +7,7 @@
 | 境界 | 実コード | 読取/作用/返却 |
 | --- | --- | --- |
 | MCP要求 | `src/index.ts` `launchAgent` | 引数とcontextから [openAgentWithInitialPrompt](../../src/core.ts#L7776) へ。`startup` と `initial_prompt` を別々に返す |
+| Claude設定root | `src/claude-config-root.ts` `resolveClaudeConfigurationRoot` / `withClaudeConfigRoot` | `configuration_root`（claude-codeだけ）を既定root（`~/.claude`、席ではCLAUDE_CONFIG_DIRを外す）か、MCP processの`AITERM_CLAUDE_CONFIG_ROOTS`に並べた親の直下（realpath）だけ受ける。他は`AGENT_CONFIGURATION_ROOT_REJECTED`。新規起動ではmetadata `claude_home`、起動行のCLAUDE_CONFIG_DIR、auth確認、resume templateの環境へ同じ値を使う。env_varsのCLAUDE_CONFIG_DIRとの併用は拒否。`AITERM_CLAUDE_CONFIG_ROOTS`は`SESSION_OWN_ENV`で席へ渡さない |
 | 起動前・既席判断 | `src/core.ts` [openAgentWithInitialPrompt](../../src/core.ts#L7776)、[openAgent](../../src/core.ts#L7438) | session/既metadata/休止状態を調べ、新規作成と復帰を分岐。世代・停止・取消・cleanup条件はlifecycle-state-ownershipへ接続 |
 | native作成 | `src/core.ts` [openSessionInternal](../../src/core.ts#L887) → `src/tmux-runtime.ts:646` `tmuxNewSession` → `captureNativeSessionReceipt` | shell/env構成とnative receipt。tmux/psmuxへの副作用。managed Claude/Codexは作成callbackへ戻る |
 | Birth identity | `src/core.ts` created callback → `src/process-start.ts` `processStartIdentities` / `processStartIdentity` | Read OS birth identities for server/pane PIDs. Windows allows 10000 ms for a single PowerShell read under load; an explicit caller budget wins. Other platforms retain 1000 ms. Missing identities remain null and creation refuses with `AGENT_RESUME_UNCONFIRMED`. No retries or cached identities. |

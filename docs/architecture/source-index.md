@@ -256,6 +256,16 @@
 | --- | ---: | ---: |
 | [main](../../src/antigravity-hook.ts#L12) | 12 | 0 |
 
+## src/claude-config-root.ts
+
+責務: Claude設定rootの受入（BellTeam 1st/2nd）。詳細: [launch-identity-input.md](launch-identity-input.md)。source: [src/claude-config-root.ts](../../src/claude-config-root.ts)。2026-11-08追加（snapshot後）。
+
+| 関数 | 行 | 静的caller |
+| --- | ---: | ---: |
+| [claudeDefaultConfigRoot](../../src/claude-config-root.ts#L13) | 13 | 1 |
+| [resolveClaudeConfigurationRoot](../../src/claude-config-root.ts#L21) | 21 | 2 |
+| [withClaudeConfigRoot](../../src/claude-config-root.ts#L35) | 35 | 2 |
+
 ## src/claude-operation-marker.ts
 
 責務: 通常受付・進行。詳細: [lifecycle-state-ownership.md](lifecycle-state-ownership.md)。source: [src/claude-operation-marker.ts](../../src/claude-operation-marker.ts)。SHA256 `67274dfc8428d2862d59ec799eccb9707a51dfa9d8799c01ef92e8c4b678a20a`。

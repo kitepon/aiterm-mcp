@@ -784,16 +784,27 @@ registerRemoteAwareTool(
   {
     description:
       "セッションを閉じ、ログ／読取位置を破棄する。同じsession_idへの再試行は安全で、" +
-      "closed／already_closedのstructured receiptを返す。",
-    inputSchema: { session_id: z.string() },
+      "closed／already_closedのstructured receiptを返す。" +
+      "hibernate:trueはClaude・Codexのagent席を今すぐ休止し（idle時計と同じ手順）、会話と再開情報を残してhibernatedを返す。" +
+      "次のagent_launch（session_name）が同じ会話へ再開する。turn・子process・子への配送が動いている間はAGENT_BUSYで断る（終わってから呼び直す）。" +
+      "Claudeの席が利用上限でturnを終えている時（最後の入力の後の会話記録がrate_limited）は、上限の待ち画面のままでも休止できる。" +
+      "他の理由で休止できない時はAGENT_HIBERNATE_UNAVAILABLE、席は触らない。",
+    inputSchema: {
+      session_id: z.string(),
+      hibernate: z.boolean().optional().describe("trueで閉じずに休止する（会話と再開情報を残す）。既定false"),
+    },
     outputSchema: {
       schema: z.literal("aiterm.pty-close-result.v1"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-      outcome: z.enum(["closed", "already_closed"]),
+      outcome: z.enum(["closed", "already_closed", "hibernated"]),
     },
   },
-  async ({ session_id }) => {
+  async ({ session_id, hibernate }) => {
     try {
+      if (hibernate) {
+        const result = await core.hibernateAgentSession(session_id);
+        return { content: [{ type: "text" as const, text: `hibernated ${session_id}` }], structuredContent: { ...result } };
+      }
       await parentDelivery?.beforeChange(session_id);
       const result = core.closeSessionResult(session_id);
       return {
@@ -1053,6 +1064,7 @@ registerRemoteAwareTool(
       cwd: z.string().optional().describe("公式CLIを実行する作業ディレクトリの絶対パス"),
       env_vars: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional().describe("startで認証PTYへ引き継ぐ環境変数名。値はreceiptへ返さない"),
       relogin: z.boolean().optional().describe("startで、公式の状態が認証済みでも公式ログインを開始する。既定false。trueの時、authenticatedかつsession_idがnullの結果は返さない"),
+      configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。認証する設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ。startで決めたrootと違う指定はAGENT_CONFIGURATION_ROOT_REJECTED"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),
@@ -1064,6 +1076,7 @@ registerRemoteAwareTool(
       user_code: z.string().nullable(),
       input_required: z.boolean(),
       message: z.string().nullable(),
+      account_label: z.string().nullable().optional().describe("claude-code harnessでauthenticatedの時だけ。公式statusのe-mail（表示用、資格情報ではない）。読めない時はnull"),
     },
   },
   async ({ harness, ...options }: any) => {
@@ -1271,7 +1284,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root } = args;
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
@@ -1296,6 +1309,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       cwd: cwd ?? undefined,
       session_name: session_name ?? undefined,
       require_existing_resume,
+      configuration_root,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
     });
@@ -1371,6 +1385,7 @@ function registerAgentTool(
       }
     : {};
   if (kind === "claude") {
+    correlatedLaunchSchema.configuration_root = z.string().min(1).optional().describe("Claude Codeの設定root（CLAUDE_CONFIG_DIR）の絶対パス。既定のroot（~/.claude、CLAUDE_CONFIG_DIRなし）か、AITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下だけ。他はAGENT_CONFIGURATION_ROOT_REJECTED。休止席の再開では、新しいrootに同じ会話の記録がある時だけ替えられる");
     correlatedLaunchSchema.launch_operation_id = z
       .string()
       .regex(/^sha256:[0-9a-f]{64}$/)
@@ -1442,6 +1457,7 @@ server.registerTool(
       agentEnvironmentDesc + agentCompletionDesc,
     inputSchema: {
       require_existing_resume: z.boolean().optional().describe("Resume an existing saved conversation only; missing or unsupported target never creates a new session. Requires session_name and no prompt; local-only."),
+      configuration_root: z.string().min(1).optional().describe("Claude Codeの設定root（CLAUDE_CONFIG_DIR）の絶対パス。既定のroot（~/.claude、CLAUDE_CONFIG_DIRなし）か、AITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下だけ。他はAGENT_CONFIGURATION_ROOT_REJECTED。休止席の再開では、新しいrootに同じ会話の記録がある時だけ替えられる" + "。claude-code harnessだけ"),
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
       prompt: z.string().nullish().describe("起動時に渡す初手プロンプト（任意）。送信後は待たずに即返る"),
       image: z.array(z.string()).optional().describe("初手プロンプトへ添付する画像ファイルの絶対パス（png/jpg/jpeg/gif/webp）"),

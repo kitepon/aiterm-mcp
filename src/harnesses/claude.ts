@@ -304,8 +304,9 @@ export function claudeCatalogFromInitialize(stdout: string, requestId: string, s
   });
 }
 
-export function assertClaudeAuthenticationReady(bin: string): void {
+export function assertClaudeAuthenticationReady(bin: string, env: NodeJS.ProcessEnv = process.env): void {
   const result = spawnAgentControlCommand(bin, ["auth", "status", "--json"], process.cwd(), {
+    env,
     encoding: "utf8",
     timeout: CLAUDE_AUTH_STATUS_TIMEOUT_MS,
     maxBuffer: 64 * 1024,
@@ -708,6 +709,7 @@ export function createClaudeAgentMetadata(
   lineageContext: AgentLineageContext,
   model: string | null,
   effort: string | null,
+  claudeHome: string = claudeConfigDir(),
 ): AgentMetadata {
   // Claude Codeはリンクを解決したcwdでproject slugを作る。起動時に固定し、記録の監視時に再解決しない。
   const transcriptCwd = cwd === null ? null : fs.realpathSync(cwd);
@@ -732,7 +734,7 @@ export function createClaudeAgentMetadata(
     ...agentLineageFields(lineageContext),
     node_platform: process.platform,
     claude_settings: claudeSettings,
-    claude_home: path.resolve(cwd ?? process.cwd(), claudeConfigDir()),
+    claude_home: path.resolve(cwd ?? process.cwd(), claudeHome),
     result_file: resultFile,
   };
   writeAgentMetadata(meta);
@@ -801,7 +803,7 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
 }
 
 export function claudeFailureCategory(error: ClaudeApiError): "capacity" | "rate_limited" | "transient" | "other" {
-  if (error.status === 429 || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:usage|session) limit\b)/i.test(error.text)) return "rate_limited";
+  if (error.status === 429 || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:[a-z0-9-]+ ){0,3}limit\b)/i.test(error.text)) return "rate_limited";
   if (error.status === 529) return "capacity";
   return error.status !== null && error.status >= 500 ? "transient" : "other";
 }
@@ -834,7 +836,9 @@ export function claudeAuthStatus(bin: string, cwd: string, env = process.env): A
     { cwd, env, encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024 });
   let status: any;
   try { status = JSON.parse(result.stdout); } catch { return { status: "failed", message: "Claude Codeの公式認証状態を読めません。" }; }
-  if (!result.error && result.status === 0 && status?.loggedIn === true) return { status: "authenticated", verify_onboarding: true, message: null };
+  // The e-mail is display text for which account this root holds, not a credential.
+  if (!result.error && result.status === 0 && status?.loggedIn === true) return { status: "authenticated", verify_onboarding: true, message: null,
+    account_label: typeof status.email === "string" && status.email ? status.email : null };
   if (!result.error && status?.loggedIn === false) return { status: "unauthenticated", message: null };
   return { status: "failed", message: "Claude Codeの公式認証状態の確認に失敗しました。" };
 }

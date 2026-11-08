@@ -13,6 +13,8 @@ export interface AgentAuthResult {
   user_code: string | null;
   input_required: boolean;
   message: string | null;
+  /** Claude only: the logged-in account e-mail of the selected root. Display text, never a credential. */
+  account_label?: string | null;
 }
 
 export interface AgentAuthPlan {
@@ -24,6 +26,7 @@ export interface AgentAuthStatus {
   status: "authenticated" | "unauthenticated" | "failed" | "unsupported";
   verify_onboarding?: boolean;
   message: string | null;
+  account_label?: string | null;
 }
 
 export interface AgentAuthPane {
@@ -46,6 +49,8 @@ export interface AgentAuthMetadata {
   cwd: string;
   phase: "login" | "onboarding";
   env_vars: string[];
+  /** Claude only: the configuration root chosen at start (selector null = CLAUDE_CONFIG_DIR unset). */
+  claude_root?: { root: string; selector: string | null };
 }
 
 /** CLIが示した公式HTTPS URLだけを返す。tokenやOAuth callbackのcodeは公開しない。 */

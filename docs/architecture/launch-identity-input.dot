@@ -3,6 +3,7 @@ digraph launch {
  node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
  edge [fontname="DejaVu Sans",fontsize=10,color="#526070"];
  request [label="index.ts: launchAgent\nMCP validation / request context"];
+ root [label="claude-config-root.ts: resolveClaudeConfigurationRoot\ndefault ~/.claude (selector unset) or child of AITERM_CLAUDE_CONFIG_ROOTS\nelse AGENT_CONFIGURATION_ROOT_REJECTED",fillcolor="#eaf7ed"];
  entry [label="core.ts: openAgentWithInitialPrompt → openAgent\nnew launch / dormant resume / optional prompt"];
  create [label="openAgent: withNativeSessionCreation\ncreate → openSessionInternal (managed Claude / Codex)"];
  mux [label="tmux-runtime.ts: tmuxNewSession\ncreate terminal; captureNativeSessionReceipt"];
@@ -16,7 +17,7 @@ digraph launch {
  after [label="Caller observes submit residue / turn start\nreceipt distinguishes not_sent / unconfirmed / started"];
  receipt [label="index.ts: structuredContent / fail\nlaunch receipt has no launch_id field"];
  observe [label="pty_observe\ncurrent launch ID / existence / native identity\nseparate observation, no screen or raw argv"];
- request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery"];
+ request -> root [label="configuration_root"];root -> entry;request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery\nroot change only if <root>/projects/<slug>/<vsid>.jsonl exists"];
  create -> mux;mux -> identity [label="created receipt"];
  identity -> fail [label="null / unavailable"];fail -> receipt;
  identity -> verify [label="both identities recorded"];

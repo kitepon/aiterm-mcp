@@ -2,10 +2,10 @@ digraph auth {
  graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.5,ranksep=0.55,label="Current official authentication: native ownership and secret input",labelloc=t,fontname="DejaVu Sans",fontsize=18];
  node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
  edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
- start [label="agent_auth start\nresolve CLI + cwd + official status\nrelogin skips status; AGY relogin unsupported"];
+ start [label="agent_auth start\nresolve CLI + cwd + official status\nrelogin skips status; AGY relogin unsupported\nClaude configuration_root → CLAUDE_CONFIG_DIR set/unset, kept in auth metadata"];
  native [label="Unauthenticated / onboarding needed\ncreate dedicated PTY, disable terminal logging\npersist auth metadata → official login process"];
  state [label="status: current pane + metadata/native generation\ndead/status/signal + official auth status\nmay transition login → onboarding in same auth seat"];
- receipt [label="waiting / blocked / authenticated / failed\nsafe URL / code / choices + exact binding/digest\ncredentials remain vendor-owned"];
+ receipt [label="waiting / blocked / authenticated / failed\nsafe URL / code / choices + exact binding/digest\ncredentials remain vendor-owned\nClaude authenticated: account_label = status email (display only)"];
  respond [label="respond: lock + expected binding/digest/choice\ncheck birth + foreground and fresh prompt\nWindows foreground input remains unsupported"];
  input [label="Disable logging; check again before each effect\ncode: buffer → paste once → Enter → delete buffer\nchoice: fresh bounded steps; no raw host keys"];
  observe [label="Post-input status readback on original generation\nno second input submission"];

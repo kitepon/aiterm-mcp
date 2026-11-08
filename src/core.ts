@@ -58,6 +58,7 @@ import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
+import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { AitermError, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
@@ -222,6 +223,7 @@ import {
   assertClaudeAuthenticationReady,
   claudeModelChoices,
   claudeConfigDir,
+  claudeProjectSlug,
   claudeFastIndicatorShown,
   claudeFastResult,
   buildClaudeAgentCmd,
@@ -2019,7 +2021,7 @@ export function observeSessionGeneration(name: string): Pick<SessionObservation,
 }
 
 /** Internal lifecycle worker; not an MCP input route and never creates an effect scope. */
-export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string): Promise<IdleCheckResult> {
+export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnchor?: string, immediate = false): Promise<IdleCheckResult> {
   const expected = executionLaunchSchema.parse(expectedInput), name = expected.session_id;
   assertExecutionContext(name);
   assertExecutionResumeSupported();
@@ -2101,13 +2103,14 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       attached: slot?.attached ?? (effectIssued ? false : null), turn_settled: settled,
       pending_child_deliveries: live.pending_child_deliveries,
       post_startup_process_count: live.activity.post_startup_process_count,
-      window_activity_at: slot?.window_activity_at ?? null };
+      window_activity_at: slot?.window_activity_at ?? null,
+      ...(immediate && meta.kind === "claude" ? { rate_limited_at: claudeRateLimitedAt(meta) } : {}) };
   };
   return checkIdleSeat({
     exclusive: body => withAgentSendLock(name, async () => {
       try {
         const before = snapshot();
-        if (decideIdleSeat(before, Date.now(), minutes, expectedAnchor).reason === "native_configuration_unconfirmed") {
+        if (decideIdleSeat(before, Date.now(), minutes, expectedAnchor, immediate).reason === "native_configuration_unconfirmed") {
           const meta = metadata(), recipe = refreshAgentResumeRecipe(meta);
           configurationStartedAt = Math.floor(Date.now() / 1000) * 1000;
           if (recipe && await inspectAgentIdleSettings(name, meta, recipe)) configurationScreen = captureScreen(name, AGENT_TUI_READY_LINES);
@@ -2163,7 +2166,29 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       if (tryLoadAgentMetadata(name)?.launch_id === expected.launch_id)
         writeJson0600(agentMetadataPath(name, expected.launch_id).replace(/\.agent\.json$/, ".idle-check.json"), result);
     },
-  }, expected.launch_id, minutes, expectedAnchor);
+  }, expected.launch_id, minutes, expectedAnchor, immediate);
+}
+
+/** The rate_limited API error that ended the turn after the last input, as the wait result classifies it. */
+function claudeRateLimitedAt(meta: AgentMetadata): string | null {
+  const input = Date.parse(readAgentActivity(meta).last_input_at ?? "");
+  const error = Number.isFinite(input) ? claudeApiErrorAfter(meta, input) : null;
+  return error?.at && claudeFailureCategory(error) === "rate_limited" ? error.at : null;
+}
+
+const HIBERNATE_BUSY_REASONS = new Set(["turn_running", "turn_end_unconfirmed", "input_without_turn_end",
+  "child_delivery_pending_or_unknown", "background_work_or_unknown"]);
+
+/** pty_close with hibernate: stop the seat now through the idle lifecycle, keeping its conversation for resume. */
+export async function hibernateAgentSession(name: string): Promise<{ schema: "aiterm.pty-close-result.v1"; session_id: string; outcome: "hibernated" }> {
+  assertSessionName(name);
+  const meta = loadAgentMetadata(name);
+  const result = await checkAgentIdle({ session_id: name, launch_id: meta.launch_id }, undefined, true);
+  if (result.outcome === "hibernated") return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
+  // Killing a running turn or its background work loses that work; the caller asks again at the turn end.
+  if (HIBERNATE_BUSY_REASONS.has(result.reason)) throw new AitermError(`AGENT_BUSY: ${result.reason}: 席は作業中のため休止していません。`, 2);
+  if (result.outcome === "unconfirmed") throw new AitermError(`AGENT_HIBERNATE_UNCONFIRMED: ${result.reason}: 停止を始めましたが休止の完了を確認できません。`, 2);
+  throw new AitermError(`AGENT_HIBERNATE_UNAVAILABLE: ${result.reason}: 席は休止していません。`, 2);
 }
 
 /** One clock tick; native completion is refreshed even when no parent is waiting for the turn. */
@@ -5290,7 +5315,9 @@ function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata | nu
   if (value.kind !== kind) throw new AitermError("AGENT_AUTH_HARNESS_MISMATCH: 認証sessionのharnessが一致しません。", 2);
   if (typeof value.bin !== "string" || typeof value.cwd !== "string" || !path.isAbsolute(value.cwd)
     || !["login", "onboarding"].includes(value.phase) || !Array.isArray(value.env_vars)
-    || value.env_vars.some(key => typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) {
+    || value.env_vars.some(key => typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+    || (value.claude_root !== undefined && (kind !== "claude" || typeof value.claude_root?.root !== "string" || !path.isAbsolute(value.claude_root.root)
+      || (value.claude_root.selector !== null && value.claude_root.selector !== value.claude_root.root)))) {
     throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
   }
   return value;
@@ -5444,7 +5471,9 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
 
 function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
   const plan = authPlan(meta.kind, meta.phase);
-  const env = plan.env.map(([key, value]) => shq(`${key}=${value}`));
+  const root = meta.claude_root;
+  const env = [...(!root ? [] : root.selector === null ? ["-u", "CLAUDE_CONFIG_DIR"] : [shq(`CLAUDE_CONFIG_DIR=${root.selector}`)]),
+    ...plan.env.map(([key, value]) => shq(`${key}=${value}`))];
   const cmd = ["exec", "env", ...env, shq(agentBinForPaneShell(meta.bin)), ...plan.args.map(shq)].join(" ");
   send(name, `cd ${shq(paneCwdArgument(meta.cwd))} && ${cmd}`, { enter: true, force: true, raw: true });
 }
@@ -5456,14 +5485,25 @@ function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
  */
 export async function authenticateAgent(kind: AgentKind, options: {
   action: "start" | "status" | "cancel" | "respond"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
-  expected_binding?: AuthBinding; expected_prompt_digest?: string; response?: AuthResponse;
+  expected_binding?: AuthBinding; expected_prompt_digest?: string; response?: AuthResponse; configuration_root?: string;
 }): Promise<AgentAuthResult> {
   if (options.action !== "status" || options.session_id !== undefined) assertExecutionContext(options.session_id);
+  if (options.configuration_root !== undefined && kind !== "claude")
+    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
+  const claudeRoot = options.configuration_root === undefined ? undefined : resolveClaudeConfigurationRoot(options.configuration_root);
+  if (claudeRoot && options.session_id !== undefined && options.action !== "start") {
+    const saved = loadAuthMetadata(options.session_id, kind);
+    if (saved && (saved.claude_root?.root !== claudeRoot.root || saved.claude_root.selector !== claudeRoot.selector))
+      throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: 認証sessionは別のconfiguration_rootで始まっています。", 2);
+  }
+  const rootEnv = (env: NodeJS.ProcessEnv, root = claudeRoot) => root ? withClaudeConfigRoot(env, root) : env;
+  const sessionEnv = (session: string, saved: AgentAuthMetadata) => rootEnv(authSessionEnvironment(session, saved.env_vars), saved.claude_root);
   const result = (status: AgentAuthResult["status"], session: string | null, message: string | null,
-    pane?: AgentAuthPane): AgentAuthResult => {
+    pane?: AgentAuthPane, label?: string | null): AgentAuthResult => {
     const receipt: AgentAuthResult = { schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind), status,
       session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
-      input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null };
+      input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null,
+      ...(kind === "claude" && status === "authenticated" ? { account_label: label ?? null } : {}) };
     receipt.auth_ui = authUi(receipt, pane, session ? readAuthBinding(session, kind) : null);
     if (isWin && receipt.auth_ui.input !== null) receipt.auth_ui = { ...receipt.auth_ui, stage: "unavailable", input: null, choices: [],
       message: "Windowsの認証入力は端末の前面所有の受入が未完了です。入力は送信できません。" };
@@ -5491,13 +5531,15 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (kind === "antigravity" && options.relogin) return result("failed", null,
       "AGENT_AUTH_RELOGIN_UNSUPPORTED: Antigravityの再認証は公式TUIの /logout が必要で、共有の資格情報とcacheを消します。Aitermからは開始していません。");
     // reloginは今の状態を聞かない。状態を確認できない時（failed）でも、入り直しは始められる。
-    const before: AgentAuthStatus = options.relogin ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd);
-    if (before.status === "failed") return result("failed", null, before.message);
-    if (before.status === "authenticated" && !before.verify_onboarding) return result("authenticated", null, null);
     const envVars = options.env_vars ?? [];
+    if (claudeRoot && envVars.includes("CLAUDE_CONFIG_DIR"))
+      throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: env_varsのCLAUDE_CONFIG_DIRとconfiguration_rootは同時に指定できません。", 2);
+    const before: AgentAuthStatus = options.relogin ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd, rootEnv(process.env));
+    if (before.status === "failed") return result("failed", null, before.message);
+    if (before.status === "authenticated" && !before.verify_onboarding) return result("authenticated", null, null, undefined, before.account_label);
     [name] = openSession(name, "bash", envVars);
     meta = { kind, bin, cwd, phase: before.status === "authenticated" ? "onboarding" : "login",
-      env_vars: envVars.filter(key => process.env[key] !== undefined) };
+      env_vars: envVars.filter(key => process.env[key] !== undefined), ...(claudeRoot ? { claude_root: claudeRoot } : {}) };
     try {
       const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
       if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
@@ -5518,9 +5560,10 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
     const bin = resolveAgentBin(kind);
     if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
-    const checked = await authStatus(kind, bin, cwd);
+    const checked = await authStatus(kind, bin, cwd, rootEnv(process.env));
     return result(checked.status === "authenticated" ? "authenticated" : checked.status === "failed" ? "failed" : "blocked",
-      null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null));
+      null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null),
+      undefined, checked.account_label);
   } else {
     const loaded = loadAuthMetadata(name, kind);
     if (!authSessionExists(name)) return result("failed", null, "認証sessionが失われました。agent_authのstartで開始してください。");
@@ -5557,12 +5600,12 @@ export async function authenticateAgent(kind: AgentKind, options: {
       if (!exit && !signal && performance.now() < exitDeadline) { pendingExit = true; await sleep(100); continue; }
       if (signal) return result("failed", session, `公式認証processがsignalで終了しました（signal=${/^[A-Z0-9]+$/.test(signal) ? signal : "unknown"}）。`);
       if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
-      const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
+      const checked = await authStatus(kind, meta.bin, meta.cwd, sessionEnv(session, meta));
       const afterOfficialStatus = pendingExitRefusal();
       if (afterOfficialStatus) return afterOfficialStatus;
       if (checked.status === "failed") return result("failed", session, checked.message);
       if (checked.status === "unauthenticated") return result("failed", session, "公式認証processは終了しましたが、公式statusは未認証です。");
-      if (!checked.verify_onboarding) return result("authenticated", session, null);
+      if (!checked.verify_onboarding) return result("authenticated", session, null, undefined, checked.account_label);
       if (meta.phase === "onboarding") return result("blocked", session, "公式CLIの初回案内の完了を確認できません。");
       withExecutionPreparation(session, () => {
         meta.phase = "onboarding";
@@ -5576,8 +5619,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (dead !== "0") return result("failed", session, "認証processの生存状態の形式を認識できません。");
     if (pane.failed) return result("failed", session, null, pane);
     if (pane.onboarding_complete) {
-      const checked = await authStatus(kind, meta.bin, meta.cwd, authSessionEnvironment(session, meta.env_vars));
-      if (checked.status === "authenticated") return result("authenticated", session, null);
+      const checked = await authStatus(kind, meta.bin, meta.cwd, sessionEnv(session, meta));
+      if (checked.status === "authenticated") return result("authenticated", session, null, undefined, checked.account_label);
       return result("failed", session, checked.message ?? "公式CLIのstatusが未認証です。");
     }
     if (pane.input_required) return result("blocked", session, null, pane);
@@ -7017,7 +7060,7 @@ function adoptVanishedAgentNative(meta: AgentMetadata): void {
   }
 }
 
-async function resumeAgentInLock(name: string, readyTimeout?: number): Promise<AgentMetadata> {
+async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -7056,7 +7099,10 @@ async function resumeAgentInLock(name: string, readyTimeout?: number): Promise<A
   };
   try {
   assertExecutionResumeSupported();
-  const recipe = confirmedAgentResumeRecipe(previous, lifecycle);
+  const confirmed = confirmedAgentResumeRecipe(previous, lifecycle);
+  // Same vendor session under another Claude root; the caller proved the transcript is there.
+  const recipe = claudeRoot && confirmed.kind === "claude" ? { ...confirmed, configuration_root: claudeRoot.root,
+    environment: { ...confirmed.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : confirmed;
   if (sessionExists(name)) throw uncertain();
   const controlEnv = { ...process.env };
   for (const [key, value] of Object.entries(recipe.environment)) {
@@ -7913,6 +7959,7 @@ export function openAgent(
     cursor_fast?: boolean;
     fast_state?: boolean;
     base_model?: string | null;
+    claude_root?: ClaudeConfigRoot;
   } = {},
 ): [string, string] {
   assertExecutionContext(opts.session_name);
@@ -8017,7 +8064,12 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
     requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);
     return () => existingAgentLaunchResult("claude", opts.session_name as string, model, effort);
   }
-  if (kind === "claude") assertClaudeAuthenticationReady(bin);
+  const claudeRoot = kind === "claude" ? opts.claude_root : undefined;
+  if (claudeRoot && envVars.includes("CLAUDE_CONFIG_DIR"))
+    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: env_varsのCLAUDE_CONFIG_DIRとconfiguration_rootは同時に指定できません。", 2);
+  const claudeEnv = claudeRoot ? withClaudeConfigRoot(process.env, claudeRoot) : process.env;
+  const claudeRootEntries: [string, string | null][] = claudeRoot ? [["CLAUDE_CONFIG_DIR", claudeRoot.selector]] : [];
+  if (kind === "claude") assertClaudeAuthenticationReady(bin, claudeEnv);
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
   if (kind === "antigravity") {
     const auth = antigravityAuthStatus(bin, cwd ?? process.cwd());
@@ -8094,6 +8146,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
                   lineageContext,
                   model,
                   effort,
+                  claudeRoot?.root,
                 )
               : kind === "codex"
               ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
@@ -8123,7 +8176,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
               writeAgentResumeNative(meta, proof);
               initialLaunch = meta; initialProof = proof;
             }
-            try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!); }
+            try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!, claudeEnv); }
             catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
             agentMetadataNegativeCache.delete(sid);
           }
@@ -8140,12 +8193,13 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt)
             : grokAgentArgv(kind, bin, model, effort, prompt, meta);
           full = windowsAgentLaunchLine(cwd, [
-            ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
+            ...claudeRootEntries, ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
           ],
             windowsAgentArgv(argv, () => resolveWinPaneShell("bash")), meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
         } else {
           const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
-          const envPrefix = agentEnvPrefix(meta, sid, envVars);
+          const envPrefix = (!claudeRoot ? "" : claudeRoot.selector === null ? "unset CLAUDE_CONFIG_DIR && "
+            : `CLAUDE_CONFIG_DIR=${shq(claudeRoot.selector)} `) + agentEnvPrefix(meta, sid, envVars);
           const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
           // このpaneのbashはAitermが自分で選んだ。sub-agent instructionのLFを含む起動commandは、
           // 利用者のshell送信と同じknown-shell適合で1物理行にしてから打つ（sanitizeはしない）。
@@ -8249,8 +8303,12 @@ export async function openAgentWithInitialPrompt(
     trust_project?: boolean;
     before_send?: import("./agent-shared.js").BeforeAgentSend;
     fast?: boolean | null;
+    configuration_root?: string | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
+  if (opts.configuration_root != null && kind !== "claude")
+    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
+  const claudeRoot = opts.configuration_root == null ? undefined : resolveClaudeConfigurationRoot(opts.configuration_root);
   if (opts.session_name) await withExecutionNativeAdmission(opts.session_name, () => assertExecutionContext(opts.session_name));
   else assertExecutionContext(opts.session_name);
   if (opts.require_existing_resume && (!opts.session_name || opts.prompt != null || opts.throughline_source_session != null
@@ -8306,11 +8364,16 @@ export async function openAgentWithInitialPrompt(
           || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
           || (opts.env_vars !== undefined && !isDeepStrictEqual([...new Set(opts.env_vars)].sort(), Object.keys(recipe.environment).sort())))
           throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
+        // The only setting a resume may change: the Claude root, when it holds this conversation's transcript.
+        const rootChange = claudeRoot && (claudeRoot.root !== recipe.configuration_root
+          || (recipe.environment.CLAUDE_CONFIG_DIR ?? null) !== claudeRoot.selector) ? claudeRoot : undefined;
+        if (rootChange && !fs.existsSync(path.join(rootChange.root, "projects", claudeProjectSlug(recipe.cwd), `${recipe.vendor_session_id}.jsonl`)))
+          throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 指定したconfiguration_rootにこの会話の記録がありません。", 2);
         if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
-        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined);
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };
@@ -8354,6 +8417,7 @@ export async function openAgentWithInitialPrompt(
     cursor_fast: fastPlan.cursor_fast,
     fast_state: fastPlan.state,
     base_model: requestedModel,
+    claude_root: claudeRoot,
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
   const launch = (): Promise<[string, string]> => {

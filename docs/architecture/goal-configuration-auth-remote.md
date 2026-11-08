@@ -43,6 +43,8 @@ configure成功receiptのmodel/effortは要求値（未指定null）であり、
 
 資格情報はvendor CLIだけが保存する。coreはauth metadata、native pane、表示可能なURL/code/choicesとbinding/digestを持つ。startは公式status確認→未認証なら専用PTYを作りremain-on-exit・ログ無効化・metadata保存→公式login起動。reloginはstatusに頼らずloginするが、Antigravityは共有cache破壊を避け未対応。既存Codex loginの資格置換はCLIの作用で、取消が旧認証へrollbackする意味ではない。
 
+Claudeは`configuration_root`（受入は起動と同じ`resolveClaudeConfigurationRoot`）で認証するrootを選ぶ。startで認証metadataの`claude_root`へ保存し、login起動行は`env CLAUDE_CONFIG_DIR=<root>`（既定rootは`env -u CLAUDE_CONFIG_DIR`）、全statusも同じ環境で読む。session付きのstatus/respond/cancelで違うrootを渡すと`AGENT_CONFIGURATION_ROOT_REJECTED`。authenticatedの返りは`account_label`（公式statusの`email`、表示用。無ければnull）を持つ。
+
 status(sessionなし)は公式control command。session付きstatusはpane死亡/status/signalと元世代を確認し、exit0でも公式statusがauthenticatedであることを確認する。Claude等のonboardingが必要なら同じ認証席のphase更新とrespawnを行う既存経路があるので、全statusをnative作用ゼロとは説明しない。
 
 respondは送信lock→元metadata inode/時刻とnative/server/pane出生identity→fresh prompt digest/許可choice→ログ無効化→作用直前再検証。認証codeをtmux bufferで一度paste/Enterしfinallyでbuffer削除。choiceは毎画面を再検証し限定移動。作用後の失敗はunknown、作用前はnot_issued。返却待ちではstatusだけを再観測し再入力しない。Windowsはforeground本人性の受入未完として入力拒否。cancelは認証席だけをcloseし、既にない時はauth metadataを除去する。別の通常席を取消対象にしない。

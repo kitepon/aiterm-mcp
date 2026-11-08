@@ -4,6 +4,7 @@ digraph lifecycle {
  edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
  active [label="Current active launch\nmetadata + native proof + activity"];
  eligible [label="decideIdleSeat / checkAgentIdle\nidle, unattached, no child/background work\nsettled turn + recipe + configuration + deadline"];
+ explicit [label="pty_close hibernate:true → hibernateAgentSession\nsame decision, immediate: no deadline, attached allowed\nClaude rate_limited transcript error after last input = turn end\nbusy reasons → AGENT_BUSY; others → AGENT_HIBERNATE_UNAVAILABLE",fillcolor="#eaf7ed"];
  stopping [label="begin: persist lifecycle = stopping\nbefore any stop signal"];
  effect [label="stopProcessTree + pinned native close\nverify generation/identity before each effect"];
  rollback [label="cancelAgentStopping\nonly if no stop effect was issued",fillcolor="#eaf7ed"];
@@ -15,9 +16,9 @@ digraph lifecycle {
  published [label="publishAgentGeneration(old,next)\nnext pointer visible before ready"];
  ready [label="prepareAgentInput / restore fast if needed\nthen old attempt = ready"];
  failed [label="Catch: attempt = failed if writable\nresuming also blocks replay\nreturn typed input:not_sent",fillcolor="#ffe9e9"];
- active -> eligible;eligible -> active [label="not due / unknown",style=dashed];eligible -> stopping [label="ready"];stopping -> effect;
+ active -> eligible;active -> explicit [label="caller request"];explicit -> stopping [label="ready"];eligible -> active [label="not due / unknown",style=dashed];eligible -> stopping [label="ready"];stopping -> effect;
  effect -> asleep [label="exit confirmed"];effect -> rollback [label="pre-effect failure"];rollback -> active [label="cancel persisted"];rollback -> unknown [label="cancel failed"];effect -> unknown [label="effect issued + incomplete"];
- asleep -> resume [label="new normal input request"];resume -> staged;resume -> unknown [label="precondition not proven"];
+ asleep -> resume [label="new normal input request\nor launch with configuration_root (Claude root switch)"];resume -> staged;resume -> unknown [label="precondition not proven"];
  staged -> created;created -> published;published -> ready;ready -> active [label="current generation accepted"];
  staged -> failed [label="failure",style=dashed];created -> failed [label="failure",style=dashed];published -> failed [label="failure",style=dashed];ready -> failed [label="final record failure",style=dashed];
   recovery [label="Published failed Codex / Linux / standard speed\nSame native birth + inherited root + empty composer\nFresh thread-id / model / effort / speed preview",fillcolor="#eaf7ed"];

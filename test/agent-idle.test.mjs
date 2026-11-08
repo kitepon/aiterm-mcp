@@ -101,3 +101,19 @@ test('a failed cancellation keeps the stopping outcome uncertain',async()=>{
  const f=fixture();f.runtime.stop=async()=>{throw Error('before signal');};f.runtime.cancel=()=>{throw Error('not persisted');};
  assert.equal((await f.run()).outcome,'unconfirmed');assert.deepEqual(f.effects,['begin','unconfirmed']);
 });
+test('an explicit hibernate skips only the deadline and attachment; a rate-limited Claude turn counts as ended at its error',()=>{
+ const early=Date.parse(ended)+1;
+ assert.equal(decideIdleSeat(seat(),early).outcome,'not_due');
+ assert.equal(decideIdleSeat(seat(),early,30,undefined,true).outcome,'ready');
+ assert.equal(decideIdleSeat({...seat(),attached:true},early,30,undefined,true).outcome,'ready');
+ // Work that a stop would lose still refuses an explicit hibernate.
+ for(const change of [{state:'busy',reason:'turn_running'},{pending_child_deliveries:1},{post_startup_process_count:1},{turn_settled:false},{resume_ready:false},{native_configuration_confirmed:false}])
+  assert.equal(decideIdleSeat({...seat(),...change},early,30,undefined,true).outcome,'skipped',JSON.stringify(change));
+ // Limit footer/menu: no Stop event, no composer; the transcript's rate_limited error after the last input ends the turn.
+ const limitedAt='2026-10-31T00:00:05.000Z';
+ const limited={...seat(),state:'unknown',reason:'unrecognized_screen',turn_settled:false,native_configuration_confirmed:false,rate_limited_at:limitedAt,
+  activity:{tracked:true,last_input_at:'2026-10-31T00:00:01.000Z',last_turn_end_at:ended}};
+ assert.deepEqual([decideIdleSeat(limited,early+10000,30,undefined,true).outcome,decideIdleSeat(limited,early+10000,30,undefined,true).anchor],['ready',limitedAt]);
+ assert.equal(decideIdleSeat(limited,early+10000).outcome,'skipped','the idle clock ignores the rate-limit reading');
+ assert.equal(decideIdleSeat({...limited,post_startup_process_count:1},early+10000,30,undefined,true).outcome,'skipped');
+});

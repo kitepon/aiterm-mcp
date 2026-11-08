@@ -1170,7 +1170,8 @@ test('first Codex input checks native presence rather than the log/socket direct
   assert.deepEqual(f.control.inputCommands, []);
   f.native.present = false;
   rmSync(SOCKDIR, { recursive: true, force: true });
-  await assert.rejects(core.sendAgentMessage(f.name, 'NEVER_INPUT', { raw: true }), /AGENT_INPUT_TARGET_UNAVAILABLE/);
+  // A known-absent native with no resumable conversation is a typed absent agent (restart-resume-only.md).
+  await assert.rejects(core.sendAgentMessage(f.name, 'NEVER_INPUT', { raw: true }), /AGENT_SESSION_REQUIRED/);
   assert.equal(existsSync(SOCKDIR), false);
   assert.deepEqual(f.control.inputCommands, []);
 });

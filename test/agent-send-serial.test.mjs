@@ -368,7 +368,7 @@ test("pidを使い回されたlockと古い片付けの印は、生きて見え�
 // psmuxのsessionはsocketの置き場と別に生き、置き場のfileは使用中で消せない。lockの層の判断はOSに依らないので、POSIXで確かめる。
 const skipMissingSocketDir = process.platform === "win32" ? "Windowsはsocketの置き場を消してもsessionが残る" : skip;
 
-test("socketの置き場が無くなった席への送信は、lockの作成失敗でなく、今まで通りの未送信の断りを返す", { skip: skipMissingSocketDir }, async () => {
+test("socketの置き場が無くなった席への送信は、lockの作成失敗でなく、起動し直しを求める未送信の断りを返す", { skip: skipMissingSocketDir }, async () => {
   // 置き場を消すので、別の保存場所を持つprocessで確かめる。
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR, "gone-"));
   const script = path.join(root, "send-after-socket-dir-gone.mjs");
@@ -394,7 +394,7 @@ test("socketの置き場が無くなった席への送信は、lockの作成失�
     });
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout.trim().split("\n").at(-1));
-    assert.match(result.message, /AGENT_INPUT_TARGET_UNAVAILABLE|AGENT_RESUME_UNCONFIRMED/);
+    assert.match(result.message, /AGENT_SESSION_REQUIRED/);
     assert.doesNotMatch(result.message, /ENOENT|agent-send\.lock/);
     assert.equal(result.socket_dir, false, "送れなかった送信が置き場を作り直さない");
   } finally {

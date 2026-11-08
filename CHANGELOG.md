@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-11-08
+
 - Per-seat Claude configuration roots (hosts with several Claude accounts). `agent_launch` (claude-code) and `claude_agent` accept `configuration_root`: the default root (`~/.claude`; the seat then runs with `CLAUDE_CONFIG_DIR` unset) or a directory directly under a parent listed in `AITERM_CLAUDE_CONFIG_ROOTS` (path-delimited) of the MCP process. The seat runs with that `CLAUDE_CONFIG_DIR`, and the resume recipe keeps it. Any other path, another harness, or `env_vars` containing `CLAUDE_CONFIG_DIR` together with it answer `AGENT_CONFIGURATION_ROOT_REJECTED` before a seat is created. `AITERM_CLAUDE_CONFIG_ROOTS` never reaches a seat's environment, so a seat's own Aiterm can use only the default root.
 - Resuming a hibernated Claude seat (`session_name`, optionally `require_existing_resume`) with a different `configuration_root` keeps the same conversation under the new root when `<root>/projects/<cwd slug>/<vendor_session_id>.jsonl` exists there. Otherwise it answers `AGENT_RESUME_UNAVAILABLE` (resume-only) or `AGENT_RESUME_CONFLICT`, and nothing starts. All other settings must still match the saved recipe.
 - `agent_auth` (claude-code) accepts `configuration_root` for start, status, respond and cancel. Login and status run under that root. A session started under one root refuses another root. An `authenticated` result carries `account_label`: the e-mail from `claude auth status --json`, display text only, or null.
@@ -3100,7 +3102,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.0...HEAD
+[0.64.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...v0.64.0
 [0.63.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...v0.63.18
 [0.63.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...v0.63.17
 [0.63.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...v0.63.16

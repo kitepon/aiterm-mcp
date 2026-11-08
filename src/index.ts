@@ -232,10 +232,7 @@ function ok(s: string): ToolResult {
   return { content: [{ type: "text", text: s }] };
 }
 function fail(e: unknown): ToolResult {
-  const raw = e instanceof Error ? e.message : String(e);
-  // Callers read the refusal code from the text (`aiterm: <CODE>: `); an uncoded message gets the generic one.
-  const msg = /^[A-Z][A-Z0-9_]+(:|$)/.test(raw) ? raw
-    : (e instanceof AgentAuthenticationPreflightError ? e.reasonCode : "AITERM_FAILED") + ": " + raw;
+  const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof AgentResumeUnavailableError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     _meta: { "aiterm/resume_unavailable": { ...e.resumeUnavailable } } };
   if (e instanceof AgentResumeError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
@@ -791,14 +788,10 @@ registerRemoteAwareTool(
       "hibernate:trueはClaude・Codexのagent席を今すぐ休止し（idle時計と同じ手順）、会話と再開情報を残してhibernatedを返す。" +
       "次のagent_launch（session_name）が同じ会話へ再開する。turn・子process・子への配送が動いている間はAGENT_BUSYで断る（終わってから呼び直す）。" +
       "Claudeの席が利用上限でturnを終えている時（最後の入力の後の会話記録がrate_limited）は、上限の待ち画面のままでも休止できる。" +
-      "stop_background:trueを添えると、turnが動いていなければ（idle、またはClaudeが利用上限でturnを終えている）、" +
-      "裏で動いているprocess（別sessionで走る背景命令も含む）を席と一緒に止めて休止する。turn・子への配送の間は従来どおりAGENT_BUSY。" +
-      "他の理由で休止できない時はAGENT_HIBERNATE_UNAVAILABLE、席は触らない。" +
-      "失敗の本文は`aiterm: <CODE>: `で始まる（CODEは英大文字・数字・_）。",
+      "他の理由で休止できない時はAGENT_HIBERNATE_UNAVAILABLE、席は触らない。",
     inputSchema: {
       session_id: z.string(),
       hibernate: z.boolean().optional().describe("trueで閉じずに休止する（会話と再開情報を残す）。既定false"),
-      stop_background: z.boolean().optional().describe("hibernate:trueと一緒の時だけ効く。trueで席の裏のprocessも止めて休止する。既定false"),
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-close-result.v1"),
@@ -806,10 +799,10 @@ registerRemoteAwareTool(
       outcome: z.enum(["closed", "already_closed", "hibernated"]),
     },
   },
-  async ({ session_id, hibernate, stop_background }) => {
+  async ({ session_id, hibernate }) => {
     try {
       if (hibernate) {
-        const result = await core.hibernateAgentSession(session_id, stop_background === true);
+        const result = await core.hibernateAgentSession(session_id);
         return { content: [{ type: "text" as const, text: `hibernated ${session_id}` }], structuredContent: { ...result } };
       }
       await parentDelivery?.beforeChange(session_id);

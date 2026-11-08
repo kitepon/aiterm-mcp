@@ -132,16 +132,6 @@ test("claude_agent: text contentを維持しClaude managed launch receiptをstru
       session_id: sessionId,
       outcome: "already_closed",
     });
-
-    child.stdin.write(`${JSON.stringify({
-      jsonrpc: "2.0",
-      id: 6,
-      method: "tools/call",
-      params: { name: "pty_close", arguments: { session_id: sessionId, hibernate: true, stop_background: true } },
-    })}\n`);
-    const refused = await waitForResponse(child, () => responseFor(stdout, 6), () => stdout, () => stderr);
-    assert.equal(refused.result.isError, true, JSON.stringify(refused.result));
-    assert.match(refused.result.content?.[0]?.text, /^aiterm: [A-Z][A-Z0-9_]+: /, "refusal text starts with its code");
   } finally {
     child.kill();
     await onceExit(child);

@@ -47,10 +47,6 @@ test('a detached POSIX session is outside the owned tree even before reparenting
  const f=fixture();f.rows.push(row(30,10,30,'detached'),row(31,30,30,'detached'));
  assert.equal(await f.run(),true);assert.deepEqual(f.rows.map(x=>x.pid),[20,30,31]);
 });
-test('crossSession also stops descendants in a detached POSIX session, never an unrelated process',async()=>{
- const f=fixture();f.rows.push(row(30,10,30,'detached'),row(31,30,30,'detached'));
- assert.equal(await stopProcessTree(processIdentity(row(10,9)),()=>{},f.runtime,true),true);assert.deepEqual(f.rows.map(x=>x.pid),[20]);
-});
 test('a shared process group never permits signalling an unrelated member',async()=>{
  const f=fixture();f.rows.push(row(99,1,10));
  assert.equal(await f.run(),true);assert.ok(f.rows.some(x=>x.pid===99));
@@ -85,10 +81,9 @@ test('session-aware POSIX observations provide a separate session identity and z
  assert.ok(own);assert.equal(typeof own.session_identity,'string');assert.equal(own.zombie,false);
 });
 
-for(const crossSession of [false,true])test(crossSession?'crossSession: a real POSIX child in a separate session exits with the tree'
- :'real POSIX descendants exit while a child in a separate session survives',
+test('real POSIX descendants exit while a child in a separate session survives',
  {skip:process.platform==='win32'?'POSIX session contract':false,timeout:15000},async t=>{
- const script=join(process.env.HOME,`idle-tree-fixture-${crossSession}.mjs`);
+ const script=join(process.env.HOME,'idle-tree-fixture.mjs');
  writeFileSync(script,`import {spawn} from 'node:child_process';
 const mode=process.argv[2];
 if(mode==='root'){
@@ -108,10 +103,10 @@ setInterval(()=>{},60000);`);
  const data=await once(root.stdout,'data'),pids=JSON.parse(data[0].toString());
  const before=readRuntimeProcesses(true),owned=before.find(r=>r.pid===root.pid);
  assert.ok(owned);
- assert.equal(await stopProcessTree(processIdentity(owned),()=>{},undefined,crossSession),true);
+ assert.equal(await stopProcessTree(processIdentity(owned),()=>{}),true);
  const after=readRuntimeProcesses(true);
  for(const pid of [root.pid,pids.child,pids.grand])assert.ok(!after.some(r=>r.pid===pid&&!r.zombie),'no live owned process '+pid);
- assert.equal(after.some(r=>r.pid===pids.detached&&!r.zombie),!crossSession,'detached session alive only without crossSession');
+ assert.ok(after.some(r=>r.pid===pids.detached&&!r.zombie),'detached session remains alive');
 });
 test('a real isolated POSIX process ignoring TERM is killed after five seconds',
  {skip:process.platform==='win32'?'POSIX signals':false,timeout:15000},async t=>{

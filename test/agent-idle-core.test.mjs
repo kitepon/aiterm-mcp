@@ -64,7 +64,7 @@ process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\
  }else if(ch>=' '){line+=ch;}}
  fs.writeFileSync(${JSON.stringify(keys+'-draft')},line);draw();});
 setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')})){delayed=false;draw();}if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
- added=true;const child=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore',detached:fs.readFileSync(${JSON.stringify(spawnFlag)},'utf8')==='detached'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
+ added=true;const child=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
@@ -1012,16 +1012,4 @@ test('pty_close hibernate stops an idle seat now, before its idle deadline, and 
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
  await assert.rejects(core.hibernateAgentSession(f.name),/^Error: AGENT_HIBERNATE_UNAVAILABLE: /);
-});
-test('pty_close hibernate with stop_background ends background work in a detached session; without it the seat is busy',{skip,timeout:30000},async t=>{
- const f=await fixture(t);fs.writeFileSync(f.spawnFlag,'detached');
- for(const until=Date.now()+5000;Date.now()<until&&!fs.existsSync(f.spawned);)await sleep(40);
- const pid=Number(fs.readFileSync(f.spawned,'utf8'));
- t.after(()=>{try{process.kill(pid,'SIGKILL');}catch{}});
- for(const until=Date.now()+5000;Date.now()<until&&core.observeSession(f.name).activity.post_startup_process_count!==1;)await sleep(40);
- await assert.rejects(core.hibernateAgentSession(f.name),/^Error: AGENT_BUSY: background_work_or_unknown: /);
- assert.equal(readAgentLifecycle(f.meta),null);
- assert.deepEqual(await core.hibernateAgentSession(f.name,true),{schema:'aiterm.pty-close-result.v1',session_id:f.name,outcome:'hibernated'});
- assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
- assert.deepEqual(readProcessIdentities([pid]),[],'detached background process ended');
 });

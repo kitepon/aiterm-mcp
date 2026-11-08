@@ -116,12 +116,4 @@ test('an explicit hibernate skips only the deadline and attachment; a rate-limit
  assert.deepEqual([decideIdleSeat(limited,early+10000,30,undefined,true).outcome,decideIdleSeat(limited,early+10000,30,undefined,true).anchor],['ready',limitedAt]);
  assert.equal(decideIdleSeat(limited,early+10000).outcome,'skipped','the idle clock ignores the rate-limit reading');
  assert.equal(decideIdleSeat({...limited,post_startup_process_count:1},early+10000,30,undefined,true).outcome,'skipped');
- // stop_background: background work (or an unknown count) no longer refuses an explicit hibernate; a running turn and child deliveries still do.
- for(const count of [1,null]){
-  assert.equal(decideIdleSeat({...limited,post_startup_process_count:count},early+10000,30,undefined,true,true).outcome,'ready');
-  assert.equal(decideIdleSeat({...seat(),post_startup_process_count:count},early,30,undefined,true,true).outcome,'ready');
-  assert.equal(decideIdleSeat({...seat(),post_startup_process_count:count},now,30,undefined,false,true).reason,'background_work_or_unknown','the idle clock never stops background work');
- }
- for(const change of [{state:'busy',reason:'turn_running'},{pending_child_deliveries:1},{turn_settled:false}])
-  assert.equal(decideIdleSeat({...seat(),...change,post_startup_process_count:1},early,30,undefined,true,true).outcome,'skipped',JSON.stringify(change));
 });

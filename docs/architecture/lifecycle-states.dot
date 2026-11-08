@@ -4,7 +4,7 @@ digraph lifecycle {
  edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
  active [label="Current active launch\nmetadata + native proof + activity"];
  eligible [label="decideIdleSeat / checkAgentIdle\nidle, unattached, no child/background work\nsettled turn + recipe + configuration + deadline"];
- explicit [label="pty_close hibernate:true → hibernateAgentSession\nsame decision, immediate: no deadline, attached allowed\nClaude rate_limited transcript error after last input = turn end\nstop_background: background work no refusal, tree stop crosses POSIX sessions\nbusy reasons → AGENT_BUSY; others → AGENT_HIBERNATE_UNAVAILABLE",fillcolor="#eaf7ed"];
+ explicit [label="pty_close hibernate:true → hibernateAgentSession\nsame decision, immediate: no deadline, attached allowed\nClaude rate_limited transcript error after last input = turn end\nbusy reasons → AGENT_BUSY; others → AGENT_HIBERNATE_UNAVAILABLE",fillcolor="#eaf7ed"];
  stopping [label="begin: persist lifecycle = stopping\nbefore any stop signal"];
  effect [label="stopProcessTree + pinned native close\nverify generation/identity before each effect"];
  rollback [label="cancelAgentStopping\nonly if no stop effect was issued",fillcolor="#eaf7ed"];

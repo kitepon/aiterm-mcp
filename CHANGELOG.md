@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.18] - 2026-11-08
+
 - `pty_read(agent_transcript:true, input_id)` reads the Claude answer of the input that `pty_send` returned in its dispatch receipt. It selects that input's `agent_done` and does not refuse because a later turn is active, so a reply typed right after a turn ends no longer breaks the read of the previous answer. The answer is returned only while the per-launch result file still holds that event's digest and bytes. No completion yet answers `AITERM_TRANSCRIPT_INPUT_PENDING`; a result already replaced by a later turn answers `AITERM_TRANSCRIPT_INPUT_REPLACED`. `input_id` with a non-Claude session or with `operation_id` is an argument error. structuredContent is unchanged.
 - Transcript read errors now start with a code token, rendered as `aiterm: <CODE>: <text>`: `TRANSCRIPT_TURN_ACTIVE` (an unbound Claude read while a turn is active), `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_NOT_FOUND` and `TRANSCRIPT_RESULT_MISMATCH`. Match the token, not the text.
 - The macOS CI job removes Aiterm test tmux servers left by a cancelled or timed-out job before and after it runs.
@@ -3092,7 +3094,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...HEAD
+[0.63.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...v0.63.18
 [0.63.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.16...v0.63.17
 [0.63.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.15...v0.63.16
 [0.63.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.14...v0.63.15

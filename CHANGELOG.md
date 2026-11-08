@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-11-08
+
 - Claude wait (`observeAgentDone` / `aiterm-wait`): a transcript API-error record whose CLI `error` field is `rate_limit` (for example the Fable limit record with no `apiErrorStatus`) is now `failure.category: "rate_limited"`, whatever its text. When Stop still fires, the wait looks at the turn's last assistant record up to the Stop time and returns that error instead of `done`. The hibernate exception for a rate-limited turn reads the same category.
 
 ## [0.64.1] - 2026-11-08
@@ -3108,7 +3110,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.2...HEAD
+[0.64.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.1...v0.64.2
 [0.64.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...v0.64.0
 [0.63.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.17...v0.63.18

@@ -1,4 +1,5 @@
 // The installer's preserve/reset input (docs/architecture/runtime-adoption.md "State volume declaration"). Pure data.
+import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

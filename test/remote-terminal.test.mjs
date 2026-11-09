@@ -85,7 +85,7 @@ test("binding status: revisions follow the key and the matching known_hosts entr
   assert.throws(() => rt.bindingStatus("00000000-0000-4000-8000-000000000000"), error => error.code === "BINDING_UNKNOWN");
 });
 
-test("open refuses a target or revision that differs from the binding before any connection", async () => {
+test("open refuses a target or revision that differs from the binding before any connection", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {
   const key = path.join(tmp, "id_open");
   spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]);
   const known = path.join(tmp, "known_open");

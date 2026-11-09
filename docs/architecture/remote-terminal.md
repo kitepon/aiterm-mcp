@@ -1,31 +1,33 @@
 # Bound remote terminal adapter (C3 / C7 / C8)
 
-Owner: Elegg. Consumers: BellTeam `terminals.connection` (Crust, sole opener), `execution` (Kiro, seat lifecycle), Throughline ingest (Rivalin, via execution). Contract sources: BellTeam PR 764 `modules/terminals/README.md` C3/C7/C8, PR 765 `modules/execution/remote-seat.md`. First scope: macOS target, Claude Code. Diagram: [remote-terminal.dot](remote-terminal.dot). It extends the existing [SSH relay](remote.dot); the per-call `remote` tool argument path is unchanged.
+Owner: Elegg. Consumers: BellTeam `terminals.connection` (Crust, sole opener), `execution` (Kiro, seat lifecycle), Throughline ingest (Rivalin, via execution). Contract sources: BellTeam PR 764 `modules/terminals/README.md` C3/C7/C8, PR 765 `modules/execution/remote-seat.md`. First scope: macOS target, Claude Code. Diagram: [remote-terminal.dot](remote-terminal.dot). Remote seats whose launch env contains credential names keep the existing rule: no resume recipe, so a hibernated one is relaunched fresh. It extends the existing [SSH relay](remote.dot); the per-call `remote` tool argument path is unchanged.
 
-The adapter is a library export (`aiterm-mcp/dist/remote-terminal.js`), not an MCP tool, so no credential crosses an MCP tool DTO, a model-visible schema or a log. Terminals calls it inside its private effect process; only the returned typed results and events leave that process.
+The adapter runs only in a UID1000 Aiterm process, because the terminal key is readable only by that user (no copy, no chmod). BellTeam spawns `aiterm-remote-terminal` (stdio MCP server, one process per bound connection) through its seat process runner; its tools are not listed by the normal `aiterm-mcp`. The key never leaves that process; only typed results and events cross the pipe.
 
 ## Function map
 
 | Function | Owner / file | Input -> result |
 | --- | --- | --- |
-| `knownHostsTrust({file, target})` | `remote-terminal.ts` | Fixed enrolled known_hosts + structured target -> `{ref: {provider: "aiterm.known-hosts.v1", revision: "sha256:<hex>"}, fingerprints: ["SHA256:..."]}` or `HOST_TRUST_MISSING`. Reads only; revision = digest of the matching entries, so a changed or replaced entry changes the revision |
-| `enrollHostKey({file, target, fingerprint})` | `remote-terminal.ts` | Owner-confirmed fingerprint -> scan the host once, append the key only when its fingerprint equals the confirmed one -> new trust result. A scan alone never becomes trust (`HOST_KEY_FINGERPRINT_MISMATCH`) |
-| `openRemoteTerminal({target, trust, credential, privateEnv?})` | `remote-terminal.ts` | Structured target, trust `{file, ref}`, resolved private key, optional private env values -> `RemoteTerminalConnection` or a classified `RemoteTerminalError`. One long-lived MCP client over SSH to the terminal's `aiterm-mcp --private-env-stdin`; no auto-reconnect |
-| `connection.callTool(name, args, {private?, timeoutMs?})` | `remote-terminal.ts` -> remote `index.ts` | Same tools, args and results as the local AitermClient (`agent_launch`, `pty_send`, `pty_observe`, `pty_read`, `pty_key`, `claude_turn`, `agent_stop`, `pty_close`). `private` on `agent_launch` only: `appendSystemPrompt`, `mcpConfig`, `env` (names from `privateEnv`) |
-| `connection.transcript.read({sessionName, cursor, maxBytes?})` | `remote-terminal.ts` -> remote `aiterm-transcript-read` | Native Claude jsonl from cursor -> `{entries: string[], cursor: {claudeSessionId, offset}}`. Whole lines only; cursor null = from start |
-| `connection.command(op)` | `remote-terminal.ts` | Fixed ops `claude_version` / `claude_install` / `claude_update` over the same bound SSH -> `{op, exit_code, version, output_tail}`. No arbitrary command |
-| `connection.onEvent(listener)` | `remote-terminal.ts` | `ready` (remote Aiterm initialized, version), `lost` (SSH/MCP transport ended without close), `closed` |
-| `connection.close()` | `remote-terminal.ts` | Close MCP client, SSH child, private agent and its directory -> `{closed: true}`. Remote seats keep running |
-| `--private-env-stdin` | remote `index.ts` | First stdin line `{"schema":"aiterm.private-env.v1","env":{...}}` before MCP -> process-private map, never `process.env` |
-| private launch file | remote `core.ts` | Launch env values + private options -> 0600 files in the launch's state directory; the typed launch line references the file path, not values |
+| binding store | `remote-terminal.ts`, `<stateRoot>/remote-bindings.json` (0600) | `aiterm.remote-binding.v1` {ref, target {host,user,port}, key_file, known_hosts_file, host_key_alias}. Written only by the UID1000 holder through the CLI |
+| `aiterm-remote-terminal register` / `trust-confirm` | `remote-terminal-cli.ts` | Register a binding from existing files -> ref + status. `trust-confirm --ref --fingerprint`: scan once, write the host key only when it equals the Owner-confirmed fingerprint. A scan alone never becomes trust |
+| `remote_terminal_status({ref})` | server tool | -> {ref, target, credential {provider: "aiterm.native-ssh-key.v1", revision: "sha256:<public key digest>", fingerprint, available}, trust {provider: "aiterm.known-hosts.v1", revision: "sha256:<matching entries digest>", fingerprints}}. Public metadata only |
+| `remote_terminal_open({ref, target, trustRevision, credentialRevision, privateEnv?})` | server tool | Target must equal the binding and both revisions must be current. Loads the key into a per-connection private ssh-agent with `ssh-add <file>`, opens one long-lived MCP client over SSH to the terminal's `aiterm-mcp --private-env-stdin`. No auto-reconnect |
+| `remote_terminal_call({name, args, private?, timeoutMs?})` | server tool -> terminal `index.ts` | Same tools, args and results as the local AitermClient (`agent_launch`, `pty_send`, `pty_observe`, `pty_read`, `pty_key`, `claude_turn`, `agent_stop`, `pty_close`). `private` on `agent_launch` only: `appendSystemPrompt`, `mcpConfig`; values from `privateEnv` are referenced by name through `env_vars` |
+| `remote_terminal_transcript_read({sessionName, cursor, maxBytes?})` | server tool -> terminal `aiterm-transcript-read` | Native Claude jsonl lines in [cursor.offset, offset recorded by the latest Stop) -> `{entries, cursor: {claudeSessionId, offset}}`. Whole original lines; offset is an exclusive UTF-8 byte offset |
+| `remote_terminal_command({op})` | server tool | Fixed ops `claude_version` / `claude_install` / `claude_update` over the same bound SSH -> `{op, exit_code, version, output_tail}` |
+| events | MCP notification `aiterm/remote-terminal-event` | `ready` (version), `lost` (transport ended without close), `closed` |
+| `remote_terminal_close()` | server tool | Close MCP client, SSH, private agent and its directory; the server exits. Remote seats keep running |
+| `--private-env-stdin` | terminal `index.ts` | First stdin line `{"schema":"aiterm.private-env.v1","env":{...}}` before MCP -> process-private map, never `process.env` |
+| launch env file / caller files | terminal `core.ts` | Inherited env values -> 0600 file sourced and deleted by the launch line; caller prompt and MCP config -> 0600 files in the launch state passed as `--append-system-prompt-file` / `--mcp-config` |
+| Stop offset | terminal `claude-stop-hook.ts` | `agent_done` records `transcript_path` and `transcript_offset` (end of the last complete line at Stop) |
 
 ## Data flow
 
 | ID | From -> to | Payload | Never carried |
 | --- | --- | --- | --- |
-| R1 | terminals -> `knownHostsTrust` | target, fixed file path | - |
-| R2 | terminals -> `openRemoteTerminal` | target, trust ref, resolved key (inside Mika's `withResolved`), private env values | key/env in argv, env of other processes, files, logs |
-| R3 | adapter -> private `ssh-agent` | key on `ssh-add -` stdin; agent socket in a 0700 per-connection directory | key file on disk |
+| R1 | terminals -> `remote_terminal_status` | binding ref | paths, key |
+| R2 | terminals -> `remote_terminal_open` (local stdio to UID1000) | ref, target, revisions, private env values | key/env in argv, other processes' env, files, logs |
+| R3 | server -> private `ssh-agent` | `ssh-add <key file>` read by UID1000; agent socket in a 0700 per-connection directory | key copy, key in any pipe |
 | R4 | adapter -> `ssh` | `-F /dev/null`, explicit `-l/-p`, `StrictHostKeyChecking=yes`, `UserKnownHostsFile=<trust file>`, `GlobalKnownHostsFile=/dev/null`, `IdentityAgent=<socket>`, `IdentitiesOnly=yes` + agent public key, `BatchMode=yes` | user ssh_config aliases/options, other agent keys |
 | R5 | adapter -> remote `aiterm-mcp` stdin | one private-env line, then MCP | values in argv or remote `process.env` |
 | R6 | execution -> `callTool('agent_launch', args, {private})` | today's args (`cwd` = projectRoot), private options | - |
@@ -43,10 +45,12 @@ Each code is returned to terminals, which owns the retry. Every guard has an aut
 
 | Code | Protects | Exit |
 | --- | --- | --- |
-| `HOST_TRUST_MISSING` | wrong target | `enrollHostKey` with the Owner-confirmed fingerprint -> new revision -> reopen |
-| `HOST_TRUST_STALE` (ref revision differs from the file) | wrong target / stale binding | terminals re-reads `knownHostsTrust`, rebinds its revision -> reopen |
-| `HOST_KEY_MISMATCH`, action "confirm the new host key" | wrong target | Owner confirms -> `enrollHostKey` replaces the entry -> new revision -> reopen |
-| `CREDENTIAL_UNUSABLE` / `AUTH_FAILED` | credential to wrong target | new credential revision from Mika -> reopen |
+| `HOST_TRUST_MISSING` | wrong target | `trust-confirm` with the Owner-confirmed fingerprint -> new revision -> reopen |
+| `BINDING_UNKNOWN` / `TARGET_MISMATCH` | wrong target | terminals uses the registered binding for this terminal; a new `register` gives a new ref |
+| `CREDENTIAL_REVISION_STALE` / `CREDENTIAL_UNAVAILABLE` | credential to wrong target | re-read status (key file restored or replaced) -> reopen |
+| `HOST_TRUST_STALE` (revision differs from the file) | wrong target / stale binding | terminals re-reads status, rebinds its revision -> reopen |
+| `HOST_KEY_MISMATCH`, action "confirm the new host key" | wrong target | Owner confirms -> `trust-confirm` replaces the entry -> new revision -> reopen |
+| `AUTH_FAILED` | credential to wrong target | key or authorized_keys corrected -> new revision -> reopen |
 | `UNREACHABLE` | none (availability) | network/availability event -> reopen |
 | `REMOTE_AITERM_UNAVAILABLE` / `REMOTE_AITERM_TOO_OLD` | none | `command('claude_*')` does not fix this; Aiterm update on the terminal -> reopen |
 | `CWD_UNAVAILABLE` (launch result) | wrong folder | member folder revision -> fresh launch. No fallback to home, no later `cd` into another folder |

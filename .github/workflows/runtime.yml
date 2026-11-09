@@ -1,0 +1,58 @@
+name: macOS terminal runtime
+
+# Builds the provisioned terminal runtime for a published release and attaches it to that release
+# (docs/architecture/remote-terminal.md R16/R17). `aiterm-remote-terminal provision` installs these assets.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Released version (x.y.z) whose runtime assets are missing
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  runtime:
+    runs-on: [self-hosted, factory, macos-native]
+    timeout-minutes: 60
+    env:
+      VERSION_INPUT: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
+      - name: resolve version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "$VERSION_INPUT" = "v$version"
+          printf 'RUNTIME_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+      - name: wait for the npm package
+        shell: bash
+        run: |
+          for i in $(seq 1 45); do
+            npm view "aiterm-mcp@$RUNTIME_VERSION" version >/dev/null 2>&1 && exit 0
+            sleep 20
+          done
+          echo "::error::aiterm-mcp@$RUNTIME_VERSION did not appear on npm within 15 minutes"
+          exit 1
+      - name: build both architectures and smoke the host one
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/aiterm-runtime"
+          rm -rf "$out"
+          node scripts/build-macos-runtime.mjs "$RUNTIME_VERSION" "$out"
+      - name: attach to the release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/upload-runtime-assets.mjs "$RUNTIME_VERSION" "$RUNNER_TEMP/aiterm-runtime"
+      - name: clean
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/aiterm-runtime"

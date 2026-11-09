@@ -36,6 +36,10 @@ updateLocalはpackage実体とbinからglobal prefixを決め、その**同prefi
 
 remoteは既SSH shell判定を使い、現地の通常aiterm-updateまたは同packageのupdate-cliへ委譲する。旧版で命令がなければ具体版を導入してから同入口を使う。check時は導入しない。最後のJSON resultを現地結果として抽出し、SSH exitだけを受入へ代用しない。未知JSON/無結果はfailed、接続/結果不明後に入替や送信を自動再走しない。
 
+## 端末の同梱runtime（provision）
+
+BellTeamの端末（macOS arm64/x86_64）には、利用者のHomebrew・npm・Node・tmuxを使わない製品所有のruntimeを`aiterm-remote-terminal provision --ref R`で入れる（[remote terminal](remote-terminal.md) R16/R17）。`aiterm-setup`と`aiterm-update`の経路は変えない。runtimeは公開release assetを端末自身がcurlで取り、sha256を照合し、`~/.aiterm/runtime/.stage-<pid>`で展開・smokeしてから`current`へ入れ替える。直前の`current`は`previous`として次のprovisionまで残す。tmux serverと稼働中の席は止めない。POSIXの遠隔コマンドは`current/bin`をPATHの先頭に置く。assetはrelease公開後に`runtime.yml`がmacOS runnerで作る。
+
 ## 配送CLI・先行起床の境界
 
 parent-delivery CLIはCodex verify/submit/state/providerを返す。UUID・絶対home・非空本文とpending/claimの同delivery重複を検査し、queue受付、hook状態、turn、wake、queued=null/errorを分ける。これは全storage原子重複排除の新保証ではない。generic例外はpath/本文を反射しない固定messageへ射影する。

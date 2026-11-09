@@ -4,15 +4,20 @@
 //   serve        stdio MCP for one bound connection, spawned by BellTeam terminals
 //   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
+//   authorize-key --ref R   (login password on stdin until EOF; R14)      provision --ref R   (macOS runtime; R16)
+//   path-status|make-dir --path P | --path-base64 B   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
+import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { credentialHandleSchema } from "./remote-contract.js";
+import { inspectPath, makeDirectory } from "./remote-path.js";
+import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization } from "./remote-authorize.js";
+import { provision, runtimeSmoke } from "./remote-provision.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -28,9 +33,24 @@ function errorDto(error: unknown, schema: string): { schema: string; code: strin
   return { schema, code, message };
 }
 
-function oneShot(run: () => unknown, errorSchema: string): never {
-  try { process.stdout.write(`${JSON.stringify(run())}\n`); process.exit(0); }
-  catch (error) { process.stdout.write(`${JSON.stringify(errorDto(error, errorSchema))}\n`); process.exit(2); }
+function oneShot(run: () => unknown, errorSchema: string): void {
+  const fail = (error: unknown) => { process.stdout.write(`${JSON.stringify(errorDto(error, errorSchema))}\n`); process.exit(2); };
+  try {
+    Promise.resolve(run()).then(value => { process.stdout.write(`${JSON.stringify(value)}\n`); process.exit(0); }, fail);
+  } catch (error) { fail(error); }
+}
+
+function readStdin(): Promise<Buffer> {
+  return new Promise(resolve => {
+    const chunks: Buffer[] = [];
+    process.stdin.on("data", (chunk: Buffer) => chunks.push(chunk));
+    process.stdin.on("end", () => { const all = Buffer.concat(chunks); for (const chunk of chunks) chunk.fill(0); resolve(all); });
+  });
+}
+
+function pathArgument(rest: string[]): string {
+  const encoded = option(rest, "--path-base64");
+  return encoded !== undefined ? Buffer.from(encoded, "base64").toString("utf8") : option(rest, "--path") ?? "";
 }
 
 function serve(): void {
@@ -76,8 +96,8 @@ function serve(): void {
   });
   server.registerTool("remote_terminal_command", {
     description: "Fixed Claude Code setup operation on the terminal",
-    inputSchema: { op: z.enum(["claude_version", "claude_install", "claude_update"]) },
-  }, guarded(({ op }) => bound().command(op as RemoteCommandOp)));
+    inputSchema: { op: z.enum(REMOTE_COMMAND_OPS), path: z.string().optional() },
+  }, guarded(({ op, path }) => bound().command(op as RemoteCommandOp, path)));
   server.registerTool("remote_terminal_close", { description: "Close the bound connection and exit", inputSchema: {} },
     guarded(async () => { const result = connection ? await connection.close() : { closed: true }; setTimeout(() => process.exit(0), 100); return result; }));
   server.connect(new StdioServerTransport()).catch(error => { console.error("aiterm-remote-terminal fatal:", error); process.exit(1); });
@@ -105,12 +125,22 @@ export function main(args: string[]): void {
     });
     return;
   }
+  if (command === "authorize-key") return oneShot(() => {
+    // Trust and the held key are checked before stdin is read (R14).
+    const prepared = prepareAuthorization(option(rest, "--ref") ?? "");
+    return readStdin().then(password => authorizeKey(prepared, password));
+  }, "aiterm.remote-binding-error.v1");
+  if (command === "askpass") return askpass(rest.join(" "), process.env[ASKPASS_SOCKET_ENV]);
+  if (command === "provision") return oneShot(() => provision(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
+  if (command === "path-status") return oneShot(() => inspectPath(pathArgument(rest)), "aiterm.remote-binding-error.v1");
+  if (command === "make-dir") return oneShot(() => makeDirectory(pathArgument(rest)), "aiterm.remote-binding-error.v1");
+  if (command === "runtime-smoke") return oneShot(() => runtimeSmoke(option(rest, "--expect-version") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "trust-confirm") return oneShot(() => confirmHostKey(option(rest, "--ref") ?? "", option(rest, "--fingerprint") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "transcript-read") return oneShot(() => {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|transcript-read\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|runtime-smoke\n");
   process.exit(64);
 }
 

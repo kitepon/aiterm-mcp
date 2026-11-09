@@ -14,6 +14,7 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
 import { posixCommand } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
+import { checkRemotePath } from "./remote-path.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -22,7 +23,7 @@ export class RemoteTerminalError extends Error {
 }
 
 export interface RemoteTarget { host: string; user: string; port: number }
-interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
+export interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
 
 const REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HOST = /^(?!-)[A-Za-z0-9._:\[\]-]{1,255}$/;
@@ -60,7 +61,7 @@ function readStore(): Binding[] {
   } catch { throw new RemoteTerminalError("BINDING_STORE_UNREADABLE", "the binding store is not valid"); }
 }
 
-function binding(ref: string): Binding {
+export function binding(ref: string): Binding {
   if (!REF.test(ref)) throw new RemoteTerminalError("REF_INVALID", "ref must be a UUID");
   const found = readStore().find(item => item.ref === ref);
   if (!found) throw new RemoteTerminalError("BINDING_UNKNOWN", "no binding has this ref");
@@ -103,7 +104,7 @@ function keyFingerprint(blob: Buffer): string {
   return `SHA256:${createHash("sha256").update(blob).digest("base64").replace(/=+$/, "")}`;
 }
 
-function publicKey(keyFile: string): { line: string; blob: Buffer } | { reason: string } {
+export function publicKey(keyFile: string): { line: string; blob: Buffer } | { reason: string } {
   if (!fs.existsSync(keyFile)) return { reason: "KEY_MISSING" };
   // Empty passphrase only: a passphrase-protected key cannot be used without a prompt.
   const result = spawnSync("ssh-keygen", ["-y", "-P", "", "-f", keyFile], { encoding: "utf8", timeout: 10_000 });
@@ -159,8 +160,11 @@ export function confirmHostKey(ref: string, fingerprint: string): RemoteBindingS
   if (!FINGERPRINT.test(fingerprint)) throw new RemoteTerminalError("FINGERPRINT_INVALID", "fingerprint must be SHA256:<base64>");
   const b = binding(ref);
   const scan = spawnSync("ssh-keyscan", ["-T", "10", "-p", String(b.target.port), b.target.host], { encoding: "utf8", timeout: 20_000 });
-  const matched = scan.stdout.split("\n").filter(line => line && !line.startsWith("#")).map(line => line.trim().split(/\s+/))
-    .find(fields => fields.length >= 3 && keyFingerprint(Buffer.from(fields[2], "base64")) === fingerprint);
+  const keys = (scan.stdout ?? "").split("\n").filter(line => line && !line.startsWith("#")).map(line => line.trim().split(/\s+/))
+    .filter(fields => fields.length >= 3);
+  // No key at all is an asleep/offline terminal, not another machine.
+  if (keys.length === 0) throw new RemoteTerminalError("UNREACHABLE", "the terminal presented no host key (asleep, offline or not accepting SSH)");
+  const matched = keys.find(fields => keyFingerprint(Buffer.from(fields[2], "base64")) === fingerprint);
   if (!matched) throw new RemoteTerminalError("HOST_KEY_FINGERPRINT_MISMATCH", "the terminal did not present the confirmed host key");
   const name = knownHostName(b);
   if (fs.existsSync(b.known_hosts_file)) spawnSync("ssh-keygen", ["-R", name, "-f", b.known_hosts_file], { timeout: 10_000 });
@@ -179,7 +183,8 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   if (/Permission denied|Too many authentication failures/i.test(stderr)) return { code: "AUTH_FAILED", message: "the terminal refused the key" };
   if (/aiterm-mcp: (command )?not found|aiterm-mcp: No such file/i.test(stderr))
     return { code: "REMOTE_AITERM_UNAVAILABLE", message: "Aiterm is not installed on the terminal" };
-  if (/Connection refused|timed out|No route to host|Network is unreachable|Could not resolve|Connection closed|Connection reset/i.test(stderr))
+  if (/Connection refused/i.test(stderr)) return { code: "CONNECTION_REFUSED", message: "the terminal refused the SSH connection" };
+  if (/timed out|No route to host|Network is unreachable|Could not resolve|Connection closed|Connection reset/i.test(stderr))
     return { code: "UNREACHABLE", message: "the terminal cannot be reached" };
   return { code: "CONNECTION_FAILED", message: "the SSH connection failed" };
 }
@@ -223,7 +228,7 @@ export function sshArguments(b: Binding, agentSocket: string, identityFile: stri
     "-l", b.target.user, "-p", String(b.target.port), "--", b.target.host, remoteCommand];
 }
 
-function sshEnvironment(): NodeJS.ProcessEnv {
+export function sshEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR"]) if (process.env[key] !== undefined) env[key] = process.env[key];
   return env;
@@ -260,9 +265,11 @@ export class SshStdioTransport implements Transport {
 
 export const REMOTE_SEAT_TOOLS = new Set(["agent_launch", "pty_send", "pty_observe", "pty_read", "pty_key", "claude_turn", "agent_stop", "pty_close"]);
 export type RemoteTerminalEvent = { type: "ready"; at: string; remoteVersion: string } | { type: "lost"; at: string; code: "CONNECTION_LOST" } | { type: "closed"; at: string };
-export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update";
+export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update" | "path_status" | "make_dir";
+type ClaudeCommandOp = Exclude<RemoteCommandOp, "path_status" | "make_dir">;
+export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir"] as const;
 
-const COMMANDS: Record<RemoteCommandOp, string> = {
+const COMMANDS: Record<ClaudeCommandOp, string> = {
   claude_version: "claude --version",
   claude_install: "curl -fsSL https://claude.ai/install.sh | bash",
   claude_update: "claude update",
@@ -290,6 +297,8 @@ export function versionAtLeast(actual: string, required: string): boolean {
 
 // The first release with --private-env-stdin and the transcript reader on the terminal.
 export const REMOTE_MINIMUM_VERSION = "0.65.0";
+// The first release with the terminal's path-status / make-dir (R15).
+export const REMOTE_PATH_OPS_VERSION = "0.69.0";
 
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
@@ -425,13 +434,31 @@ export class RemoteTerminalConnection extends EventEmitter {
     }
   }
 
-  async command(op: RemoteCommandOp): Promise<{ op: RemoteCommandOp; exit_code: number | null; version: string | null; output_tail: string }> {
+  async command(op: RemoteCommandOp, targetPath?: string): Promise<unknown> {
+    if (op === "path_status" || op === "make_dir") return this.pathCommand(op, targetPath);
+    if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
     if (!Object.hasOwn(COMMANDS, op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
     const run = await this.exec(`${COMMANDS[op]} 2>&1`, op === "claude_version" ? 60_000 : 900_000);
     if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
     const probe = op === "claude_version" ? run : await this.exec("claude --version 2>&1", 60_000);
     const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
     return { op, exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
+  }
+
+  /** R15: the terminal's own fs answers; the path travels as base64 so no shell reads it. */
+  private async pathCommand(op: "path_status" | "make_dir", targetPath: string | undefined): Promise<{ op: string; exists: boolean; directory: boolean; writable: boolean }> {
+    checkRemotePath(targetPath);
+    if (!versionAtLeast(this.remoteVersion, REMOTE_PATH_OPS_VERSION))
+      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_PATH_OPS_VERSION} or later is required (provision the terminal)`);
+    const sub = op === "path_status" ? "path-status" : "make-dir";
+    const result = await this.exec(`exec aiterm-remote-terminal ${sub} --path-base64 ${Buffer.from(targetPath, "utf8").toString("base64")}`, 60_000);
+    if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    let parsed: any = null;
+    try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
+    if (result.code === 0 && parsed?.schema === "aiterm.remote-path.v1")
+      return { op, exists: parsed.exists === true, directory: parsed.directory === true, writable: parsed.writable === true };
+    if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "path operation failed");
+    throw new RemoteTerminalError("COMMAND_FAILED", "the path operation failed on the terminal");
   }
 
   async close(): Promise<{ closed: true }> {
@@ -676,7 +703,7 @@ function agentSocketPath(ref: string): string {
 }
 
 function agentEnv(socket: string): NodeJS.ProcessEnv { return { ...sshEnvironment(), SSH_AUTH_SOCK: socket }; }
-function agentAlive(socket: string): boolean {
+export function agentAlive(socket: string): boolean {
   if (!fs.existsSync(socket)) return false;
   const listed = spawnSync("ssh-add", ["-l"], { env: agentEnv(socket), stdio: ["ignore", "ignore", "ignore"], timeout: 10_000 });
   return listed.status === 0; // 1 = alive but empty, which cannot authenticate either

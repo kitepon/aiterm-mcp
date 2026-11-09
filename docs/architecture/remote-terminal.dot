@@ -19,6 +19,11 @@ digraph remote_terminal {
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
  fwd [label="R12 reverse forward\nterminal 127.0.0.1:P (stable per terminal)\n-> container 127.0.0.1:4182"];
  bt [label="BellTeam seat ingress (container loopback)\n/api/seat-mcp, /api/seat-mcp/call-bridge",fillcolor="#f0f0f0"];
+ authorize [label="authorize-key --ref R (R14)\ntrust + held key checked before stdin\npassword stdin -> askpass socket -> ssh, one attempt\nappend public key to ~/.ssh/authorized_keys"];
+ provision [label="provision --ref R (R16, before MCP)\ntrusted key SSH, /bin/sh -s bootstrap\nstage, sha256, runtime-smoke, current/previous"];
+ runtime [label="terminal ~/.aiterm/runtime/current\nnode + aiterm-mcp + tmux (own libs)\nbin first on PATH (posixCommand)",fillcolor="#fff7e6"];
+ assets [label="GitHub Release assets (R17)\naiterm-runtime-V-darwin-arm64/x64.tar.gz + SHA256SUMS\nruntime.yml on the macOS runner",fillcolor="#f0f0f0"];
+ pathops [label="terminal: path-status / make-dir (R15)\n{exists, directory, writable}\nFOLDER_NOT_PERMITTED"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
  trust -> terminals [label="revisions (public)"];
@@ -42,4 +47,11 @@ digraph remote_terminal {
  trusted -> jsonl [label="R9 aiterm-transcript-read by session"];
  jsonl -> execution [label="entries + cursor",style=dashed];
  conn -> cmd [label="R10 over same ssh"];
+ terminals -> authorize [label="ref + password on stdin"];
+ authorize -> terminals [label="AUTHORIZED / ALREADY / typed error"];
+ terminals -> provision [label="ref"];
+ provision -> runtime [label="R16"];
+ assets -> runtime [label="curl + sha256",style=dashed];
+ runtime -> rmcp [label="open / calls use it"];
+ conn -> pathops [label="R15 path base64"];
 }

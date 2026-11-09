@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - POSIX launches no longer type inherited env values into the pane: they are written to a 0600 file that the launch line sources and deletes, so the pane log and screen keep only its path. Windows launches are unchanged.
 - Claude `agent_launch` accepts `append_system_prompt` and `mcp_config`; both are kept in Aiterm's own state and passed as `--append-system-prompt-file` / `--mcp-config`, never written to the project or home config. Write secrets in `mcp_config` as `${ENV}` names.
 - A missing or non-directory `cwd` is refused as `CWD_UNAVAILABLE:` before a session is created.
+- A `tmux -V` start that fails for lack of memory or processes, or is killed by a signal, now answers `PTY_START_FAILED:` and is no longer recorded or reported as `AITERM.PTY_DEPENDENCY_UNAVAILABLE` (seen when the host ran out of memory on 2026-11-09).
 - The Claude Stop hook records `transcript_path` and `transcript_offset` (end of the last complete line) in its `agent_done` event.
 
 ## [0.64.2] - 2026-11-08

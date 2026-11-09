@@ -47,3 +47,23 @@ test("resolveTmux: AITERM_TMUX が解決不能なら明確な code2 エラー（
   assert.match(res.message ?? "", /AITERM_TMUX/, `メッセージに AITERM_TMUX を含む: ${JSON.stringify(res)}`);
   assert.ok((res.message ?? "").trim().length > 10, `空でない明確なメッセージ: ${JSON.stringify(res)}`);
 });
+
+test("resolveTmux: a tmux killed by a signal is a transient start failure, not a missing dependency", { skip }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-resolve-sig-"));
+  const fake = path.join(dir, "tmux");
+  fs.writeFileSync(fake, "#!/bin/sh\nkill -9 $$\n", { mode: 0o700 });
+  const res = openInChild({ AITERM_TMUX: fake });
+  assert.equal(res.code, 2, JSON.stringify(res));
+  assert.match(res.message ?? "", /^PTY_START_FAILED:/, JSON.stringify(res));
+});
+
+test("tmuxStartTransient: resource errors and signals only", async () => {
+  const { tmuxStartTransient } = await import("../dist/tmux-runtime.js");
+  const err = code => Object.assign(new Error(code), { code });
+  assert.equal(tmuxStartTransient({ error: err("ENOMEM") }), true);
+  assert.equal(tmuxStartTransient({ error: err("EAGAIN") }), true);
+  assert.equal(tmuxStartTransient({ signal: "SIGKILL" }), true);
+  assert.equal(tmuxStartTransient({ error: err("ENOENT") }), false);
+  assert.equal(tmuxStartTransient({ error: err("EACCES") }), false);
+  assert.equal(tmuxStartTransient({}), false);
+});

@@ -18,7 +18,7 @@
 
 private execution gate→native session/pane routing→server側の出生条件付きcommandの順で変換する。native routing自身は作用の権限を作らない。復帰/新規のframeが別native receiptへ入れ替わる場合は拒否し、同名sessionのprefix一致へ戻さない。sender側の検証に加え、受信server側のconditionでserver/session/paneの再利用も照合する。
 
-POSIXはtmuxを明示AITERM_TMUX→PATH→Homebrew既定pathで解決し、明示指定の失敗を別binaryへ隠さない。Windowsはpsmuxを-L namespaceで分離する。64MiB出力超過をcode1+空stdoutへ変換せず例外にし、POSIX binary消失はcache破棄と依存エラーへ返す。
+POSIXはtmuxを明示AITERM_TMUX→PATH→Homebrew既定pathで解決し、明示指定の失敗を別binaryへ隠さない。Windowsはpsmuxを-L namespaceで分離する。64MiB出力超過をcode1+空stdoutへ変換せず例外にし、POSIX binary消失はcache破棄と依存エラーへ返す。 A `tmux -V` that fails for lack of memory/processes/descriptors or is killed by a signal answers `PTY_START_FAILED` without caching and without a `PTY_DEPENDENCY_UNAVAILABLE` runtime record; only a missing or failing binary is a dependency fact.
 
 通常runtimeはpsmux3.3.8のsession0起動時にserverへの限定query権限を付ける既workaroundを持つ。失敗はstderr固定prefixの診断とfailed返却で、全session成功を保証しない。この製品実装の読取と、担当外のホスト権限運用は別であり、今回その作用は実行していない。
 

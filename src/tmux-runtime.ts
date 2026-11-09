@@ -319,6 +319,12 @@ function tmuxMissingMessage(): string {
   return `${head}${hint}${override}`;
 }
 
+/** A spawn that failed for lack of resources or by a signal says nothing about tmux being installed. */
+export function tmuxStartTransient(result: { error?: Error; signal?: NodeJS.Signals | null }): boolean {
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  return result.signal != null || ["ENOMEM", "EAGAIN", "EMFILE", "ENFILE"].includes(code ?? "");
+}
+
 // POSIX(Linux/WSL2/macOS) 用の tmux バイナリ解決。Windows の ensureWinBridge() に対応する事前確認。
 // 解決順: AITERM_TMUX（明示指定）→ PATH 上の tmux → Homebrew 既定パス。一度だけ実行しキャッシュする。
 // 見つからなければ tmuxMissingMessage で投げる（黙ってフォールバックせず、原因が見えるようにする）。
@@ -330,6 +336,7 @@ export function resolveTmux(observe = true, deadline?: number): string {
     const r = spawnSync(override, ["-V"], { encoding: "utf8", timeout: 5000, ...diagnosticSpawnOptions(deadline) });
     diagnosticSpawnFailure(r, deadline, true);
     if (!r.error && r.status === 0) return (tmuxBin = override);
+    if (tmuxStartTransient(r)) throw new AitermError(`PTY_START_FAILED: tmux could not be started now (${(r.error as NodeJS.ErrnoException | undefined)?.code ?? r.signal}). Retry later.`, 2);
     ptyDependencyError(
       `AITERM_TMUX に指定された tmux を起動できません: ${override}（\`${override} -V\` が通りません）`,
       observe,
@@ -340,6 +347,8 @@ export function resolveTmux(observe = true, deadline?: number): string {
   if (onPath.signal || ["ETIMEDOUT", "ENOBUFS"].includes((onPath.error as NodeJS.ErrnoException | undefined)?.code ?? ""))
     diagnosticSpawnFailure(onPath, deadline);
   if (!onPath.error && onPath.status === 0) return (tmuxBin = "tmux");
+  // Out of memory or processes, or killed: tmux exists but could not run now. That is not a missing dependency.
+  if (tmuxStartTransient(onPath)) throw new AitermError(`PTY_START_FAILED: tmux could not be started now (${(onPath.error as NodeJS.ErrnoException | undefined)?.code ?? onPath.signal}). Retry later.`, 2);
   // GUI 起動などで PATH に Homebrew の bin が無い場合、既定の場所を探す。
   // 使う場合は黙らず stderr へ告知する（stdout は JSON-RPC 専用＝index.ts の制約）。
   for (const cand of ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]) {

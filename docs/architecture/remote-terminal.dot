@@ -1,0 +1,32 @@
+digraph remote_terminal {
+ graph [rankdir=LR,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.6,label="Bound remote terminal adapter (C3/C7/C8): terminals is the sole opener",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=11];
+ edge [fontname="DejaVu Sans",fontsize=9,color="#536070"];
+ terminals [label="BellTeam terminals.connection\n(private effect process)\nMika withResolved key",fillcolor="#f0f0f0"];
+ execution [label="BellTeam execution\nseat lifecycle / delivery / Throughline ingest",fillcolor="#f0f0f0"];
+ trust [label="knownHostsTrust / enrollHostKey\nfixed known_hosts -> {provider, revision}\nscan trusted only on confirmed fingerprint"];
+ open [label="openRemoteTerminal\nvalidate target + trust revision\nprivate ssh-agent (key via stdin)"];
+ ssh [label="ssh -F /dev/null StrictHostKeyChecking=yes\nUserKnownHostsFile=trust file\nIdentityAgent=private socket, BatchMode"];
+ conn [label="RemoteTerminalConnection\ncallTool / transcript.read / command(op)\nonEvent ready|lost|closed / close"];
+ rmcp [label="terminal: aiterm-mcp --private-env-stdin\nprivate env map (not process.env)"];
+ launch [label="terminal: agent_launch\ncwd must exist (CWD_UNAVAILABLE)\n0600 launch env file + prompt/MCP files"];
+ pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
+ jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
+ cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
+ bt [label="BellTeam MCP over LAN\nheaders expanded from env",fillcolor="#f0f0f0"];
+ terminals -> trust [label="R1 target, file"];
+ trust -> terminals [label="trust ref (public)"];
+ terminals -> open [label="R2 target, trust, key, private env"];
+ open -> ssh [label="R3/R4"];
+ ssh -> rmcp [label="R5 private-env line, then MCP"];
+ open -> conn;
+ conn -> terminals [label="R11 events / typed errors"];
+ execution -> conn [label="R6 callTool via bound port"];
+ conn -> rmcp [label="MCP tools"];
+ rmcp -> launch;
+ launch -> pane [label="R7"];
+ pane -> bt [label="R8"];
+ conn -> jsonl [label="R9 over same ssh"];
+ jsonl -> execution [label="entries + cursor",style=dashed];
+ conn -> cmd [label="R10 over same ssh"];
+}

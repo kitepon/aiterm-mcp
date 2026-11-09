@@ -12,6 +12,8 @@ digraph remote {
  parent [label="Local parent delivery owns answer persistence\nremote-prefixed roots + target/child key\nSteer delivers to local parent"];
  contract [label="remote-contract.ts\nschema / types / description only\nno transport or core dependency"];
  record [label="parent-delivery record / update CLI"];
+ bound [label="remote-terminal.ts (C3): bound connection opened by BellTeam terminals\nsee remote-terminal.dot",fillcolor="#fff7e6"];
+ bound -> producer [label="same remote tools"];
  record -> contract [label="schema import"];
  ingress -> contract [label="validate input"];
  ingress -> ssh;ssh -> call;call -> producer;producer -> bind;bind -> wait;wait -> producer [style=dashed,label="observation only"];producer -> answer;answer -> parent;bind -> parent;

@@ -41,6 +41,38 @@ export function agentManagedClaudeSettingsPath(name: string, launchId: string): 
   return path.join(agentsDir(), `${name}.${launchId}.claude-settings.json`);
 }
 
+export function agentClaudeCallerPromptPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.claude-caller-prompt.md`);
+}
+
+export function agentClaudeCallerMcpPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.claude-caller-mcp.json`);
+}
+
+const CALLER_PROMPT_MAX = 512 * 1024;
+
+/** Keep the caller's launch instructions and MCP servers beside the seat's own state; argv carries only the paths. */
+export function writeClaudeCallerFiles(meta: AgentMetadata, prompt: string | null, mcp: Record<string, unknown> | null): void {
+  if (prompt !== null) {
+    if (!prompt.trim() || Buffer.byteLength(prompt, "utf8") > CALLER_PROMPT_MAX)
+      throw new AitermError("append_system_prompt must be non-empty and at most 512 KiB", 2);
+    const file = agentClaudeCallerPromptPath(meta.aiterm_session);
+    fs.writeFileSync(file, prompt, { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+    meta.claude_caller_prompt_file = file;
+  }
+  if (mcp !== null) {
+    const servers = (mcp as { mcpServers?: unknown }).mcpServers;
+    if (Object.keys(mcp).some(key => key !== "mcpServers") || !servers || typeof servers !== "object" || Array.isArray(servers))
+      throw new AitermError("mcp_config must be {mcpServers: {...}}", 2);
+    const file = agentClaudeCallerMcpPath(meta.aiterm_session);
+    writeJson0600(file, mcp);
+    meta.claude_caller_mcp_file = file;
+  }
+}
+
 export function agentClaudeResultPath(name: string, launchId: string): string {
   assertSessionName(name);
   if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);
@@ -378,6 +410,8 @@ export function claudeAgentArgv(
       "--append-system-prompt",
       subagentInstruction(meta, CLAUDE_DELIVERY_NOTES),
     );
+    if (meta.claude_caller_prompt_file) parts.push("--append-system-prompt-file", meta.claude_caller_prompt_file);
+    if (meta.claude_caller_mcp_file) parts.push("--mcp-config", meta.claude_caller_mcp_file);
   }
   if (model) parts.push("--model", model);
   if (effort) parts.push("--effort", effort);
@@ -399,7 +433,7 @@ export function buildClaudeAgentCmd(
   prompt: string | null, meta: AgentMetadata | null,
 ): string {
   const argv = claudeAgentArgv(bin, model, effort, prompt, meta);
-  const values = new Set(["--setting-sources", "--settings", "--session-id", "--append-system-prompt", "--model", "--effort"]);
+  const values = new Set(["--setting-sources", "--settings", "--session-id", "--append-system-prompt", "--append-system-prompt-file", "--mcp-config", "--model", "--effort"]);
   return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
     ? shq(arg) : arg).join(" ");
 }

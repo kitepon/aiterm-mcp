@@ -138,7 +138,7 @@ export function remoteShell(target: RemoteTarget): Promise<RemoteShell> {
 // POSIX系の非ログイン実行では、~/.local/bin、Homebrew、nvmなどのPATHが入らない端末がある。
 // 利用者のログインshellからPATHだけを受け取り、処理は/bin/shで行う。profileの出力やfish等の文法差を
 // MCPのstdoutと処理へ持ち込まない。scriptは呼び出し側で検証済みの値だけで組み、単引用符を含めない。
-function posixCommand(script: string): string {
+export function posixCommand(script: string): string {
   const importPath = 'p=$("${SHELL:-/bin/sh}" -lc env </dev/null 2>/dev/null | sed -n "s/^PATH=//p" | tail -n 1); [ -n "$p" ] && PATH=$p; export PATH';
   return `/bin/sh -c '${importPath}; ${script}'`;
 }

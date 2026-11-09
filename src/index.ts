@@ -15,6 +15,7 @@ import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableE
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readPrivateEnvLine, setPrivateEnv } from "./private-env.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
@@ -1284,7 +1285,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config } = args;
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
@@ -1310,6 +1311,8 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       session_name: session_name ?? undefined,
       require_existing_resume,
       configuration_root,
+      append_system_prompt,
+      mcp_config,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
     });
@@ -1416,6 +1419,10 @@ function registerAgentTool(
         trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
         cwd: z.string().nullish().describe("作業ディレクトリ（対象リポのルート等・任意）"),
         session_name: z.string().nullish().describe("セッション名（省略で自動採番）"),
+        ...(kind === "claude" ? {
+          append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
+          mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars"),
+        } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,
       },
@@ -1575,9 +1582,14 @@ registerAgentTool(
 }
 
 async function main(): Promise<void> {
+  // A bound remote terminal sends its private values first (remote-terminal.md R5); never through argv or env.
+  const privateLine = process.argv.includes("--private-env-stdin");
+  if (privateLine) setPrivateEnv(await readPrivateEnvLine(process.stdin));
   const server = createAitermServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // The private line reader paused stdin; the transport's listener is attached now, so nothing is lost.
+  if (privateLine) process.stdin.resume();
   // 受け口がまだ受け取っていない実行時エラーがあれば、別processで送る（明示して有効にした端末だけ。既定では何も起動しない）。
   triggerRuntimeErrorReport();
 }

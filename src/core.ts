@@ -31,6 +31,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { launchEnvValue } from "./private-env.js";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
@@ -237,6 +238,7 @@ import {
   claudeModelPicker,
   claudeStartupAction,
   createClaudeAgentMetadata,
+  writeClaudeCallerFiles,
   claudeSessionTranscriptPath,
   claudeApiErrorFromLine,
   claudeApiErrorAfter,
@@ -623,6 +625,9 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".wait.lock") ||
           f.endsWith(".claude-settings.json") ||
           f.endsWith(".claude-mcp.json") ||
+          f.endsWith(".claude-caller-prompt.md") ||
+          f.endsWith(".claude-caller-mcp.json") ||
+          f.endsWith(".launch-env") ||
           f.endsWith(".claude-result.json") ||
           f.endsWith(".cursor-result.json") ||
           f.endsWith(".antigravity-session.json") ||
@@ -922,8 +927,8 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
     if (sessionExists(nm)) {
       if (explicit) throw new AitermError(`session '${nm}' は既に存在します（list で確認）`, 2);
     } else {
-      const environment = [...banner, ...envVars.filter(key => key !== "AITERM_SESSION_ID" && process.env[key] !== undefined)
-        .map(key => `${key}=${process.env[key]}`), `AITERM_SESSION_ID=${nm}`];
+      const environment = [...banner, ...envVars.filter(key => key !== "AITERM_SESSION_ID" && launchEnvValue(key) !== undefined)
+        .map(key => `${key}=${launchEnvValue(key)}`), `AITERM_SESSION_ID=${nm}`];
       const launch = sessionEnvironmentLaunch(shell, environment);
       const r = tmuxNewSession(true, nm, launch, environment.map(entry => entry.slice(0, entry.indexOf("="))));
       if (r.code === 0) {
@@ -7147,6 +7152,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
       next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
+      if (previous.claude_caller_prompt_file) next.claude_caller_prompt_file = previous.claude_caller_prompt_file;
+      if (previous.claude_caller_mcp_file) next.claude_caller_mcp_file = previous.claude_caller_mcp_file;
       if (isWin) next.windows_launch_exit_tracked = true;
       if (next.kind === "claude") next.claude_home = recipe.configuration_root;
       else next.codex_home = recipe.configuration_root;
@@ -7852,7 +7859,7 @@ function agentVendorSessionEnv(meta: AgentMetadata): [string, string][] {
  */
 function agentEnvEntries(meta: AgentMetadata | null, sid: string, envVars: string[] = []): [string, string][] {
   const inherited = envVars.flatMap((name): [string, string][] => {
-    const value = process.env[name];
+    const value = launchEnvValue(name);
     return value === undefined ? [] : [[name, value]];
   });
   if (!meta) return inherited;
@@ -7879,6 +7886,15 @@ function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string
     ...agentEnvEntries(meta, sid, envVars).map(([name, value]) => `${name}=${shq(value)}`),
   ];
   return tokens.length ? tokens.join(" ") + " " : "";
+}
+
+/** Inherited values are written to a 0600 file the launch line sources and deletes, so the typed
+ * line and the pane log carry only its path (remote-terminal.md R7). Identity names stay inline. */
+function launchEnvSource(sid: string, entries: [string, string][]): string {
+  if (entries.length === 0) return "";
+  const file = path.join(agentsDir(), `${sid}.${randomBytes(8).toString("hex")}.launch-env`);
+  fs.writeFileSync(file, entries.map(([name, value]) => `export ${name}=${shq(value)}\n`).join(""), { mode: 0o600, flag: "wx" });
+  return `. ${shq(file)} && rm -f ${shq(file)} && `;
 }
 
 function buildAgentLaunchNote(
@@ -7964,6 +7980,8 @@ export function openAgent(
     fast_state?: boolean;
     base_model?: string | null;
     claude_root?: ClaudeConfigRoot;
+    append_system_prompt?: string | null;
+    mcp_config?: Record<string, unknown> | null;
   } = {},
 ): [string, string] {
   assertExecutionContext(opts.session_name);
@@ -8050,7 +8068,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       st = null;
     }
     if (!st || !st.isDirectory()) {
-      throw new AitermError(`cwd '${opts.cwd}' がディレクトリとして存在しません`, 2);
+      throw new AitermError(`CWD_UNAVAILABLE: cwd '${opts.cwd}' がディレクトリとして存在しません`, 2);
     }
     cwd = opts.cwd;
   }
@@ -8165,6 +8183,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             // Stamp its exact native creator before binding and any later input.
             if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
             meta.agent_executable = bin;
+            if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
             // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
@@ -8203,7 +8222,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         } else {
           const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
           const envPrefix = (!claudeRoot ? "" : claudeRoot.selector === null ? "unset CLAUDE_CONFIG_DIR && "
-            : `CLAUDE_CONFIG_DIR=${shq(claudeRoot.selector)} `) + agentEnvPrefix(meta, sid, envVars);
+            : `CLAUDE_CONFIG_DIR=${shq(claudeRoot.selector)} `) + launchEnvSource(sid, agentEnvEntries(null, sid, envVars)) + agentEnvPrefix(meta, sid);
           const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
           // このpaneのbashはAitermが自分で選んだ。sub-agent instructionのLFを含む起動commandは、
           // 利用者のshell送信と同じknown-shell適合で1物理行にしてから打つ（sanitizeはしない）。
@@ -8308,6 +8327,8 @@ export async function openAgentWithInitialPrompt(
     before_send?: import("./agent-shared.js").BeforeAgentSend;
     fast?: boolean | null;
     configuration_root?: string | null;
+    append_system_prompt?: string | null;
+    mcp_config?: Record<string, unknown> | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
   if (opts.configuration_root != null && kind !== "claude")
@@ -8422,6 +8443,8 @@ export async function openAgentWithInitialPrompt(
     fast_state: fastPlan.state,
     base_model: requestedModel,
     claude_root: claudeRoot,
+    append_system_prompt: opts.append_system_prompt ?? null,
+    mcp_config: opts.mcp_config ?? null,
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
   const launch = (): Promise<[string, string]> => {

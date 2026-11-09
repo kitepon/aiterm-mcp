@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { launchEnvValue } from "./private-env.js";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -141,7 +142,7 @@ export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string |
   if (envNames.some(name => /(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(name))) return;
   writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
     executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
-    environment: Object.fromEntries([...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])].map(name => [name, env[name] ?? null])), state: "confirmed" });
+    environment: Object.fromEntries([...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])].map(name => [name, launchEnvValue(name, env) ?? null])), state: "confirmed" });
 }
 export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
   const complete = !!model && !!effort;

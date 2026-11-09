@@ -82,6 +82,9 @@ export interface AgentMetadata {
   node_platform: NodeJS.Platform;
   codex_home?: string;
   claude_settings?: string;
+  // Caller launch instructions / MCP servers kept in Aiterm's own state (remote-terminal.md R7), never in the project or home config.
+  claude_caller_prompt_file?: string;
+  claude_caller_mcp_file?: string;
   claude_home?: string;
   result_file?: string;
   grok_home?: string;

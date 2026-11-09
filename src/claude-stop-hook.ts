@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as fs from "node:fs";
+import { completedTranscriptOffset } from "./transcript-offset.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import { currentUid as uid, runtimeStateBase } from "./state-root.js";
@@ -183,6 +184,9 @@ async function main(): Promise<void> {
   const seatConversation = seatVendorSessionId(agents, session, launchId);
   if (seatConversation !== null && seatConversation !== payload.session_id) noop();
 
+  // The completed prefix of the native transcript (remote-terminal.md, Kiro C7): readers never pass this offset.
+  const transcript = typeof payload.transcript_path === "string" && path.isAbsolute(payload.transcript_path)
+    ? completedTranscriptOffset(payload.transcript_path) : null;
   const text = payload.last_assistant_message;
   const resultBytes = Buffer.byteLength(text, "utf8");
   if (resultBytes > MAX_RESULT_BYTES) fail(`assistant result が${MAX_RESULT_BYTES} bytesを超えています`);
@@ -216,6 +220,7 @@ async function main(): Promise<void> {
     stop_hook_active: !!payload.stop_hook_active,
     result_digest: resultDigest,
     result_bytes: resultBytes,
+    ...(transcript ? { transcript_path: transcript.path, transcript_offset: transcript.offset } : {}),
     at: endedAt,
   });
   try {

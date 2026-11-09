@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AitermError } from "./errors.js";
 import { executionNativeBindingSchema } from "./execution-close.js";
-import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath } from "./harnesses/claude.js";
+import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeCallerPromptPath, agentClaudeCallerMcpPath } from "./harnesses/claude.js";
 import { resolveAndValidateGrokAuth } from "./harnesses/grok.js";
 import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
@@ -173,6 +173,8 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       ...loadAgentLineageFields(m, true),
       node_platform: process.platform,
       claude_settings: expectedSettings,
+      ...(m.claude_caller_prompt_file === agentClaudeCallerPromptPath(name) ? { claude_caller_prompt_file: m.claude_caller_prompt_file } : {}),
+      ...(m.claude_caller_mcp_file === agentClaudeCallerMcpPath(name) ? { claude_caller_mcp_file: m.claude_caller_mcp_file } : {}),
       ...(m.claude_home === undefined ? {} : { claude_home: m.claude_home }),
       result_file: expectedResult,
     };

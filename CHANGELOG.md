@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-11-09
+
 - `state-compat.json` (schema `aiterm.state-compat.v1`, in the npm package) states which saved-state formats this release reads, writes and would reset, per store under the state volume (docs/architecture/runtime-adoption.md "State volume declaration"). A body installer uses it instead of version or closure equality, so an upgrade keeps saved seats. This release reads and writes `v1` for the whole `aiterm-mcp-<uid>` state root, maps 0.63.17-0.67.0 to `v1`, and resets nothing. No state format changes; going back to 0.67.0 needs nothing.
 
 ## [0.67.0] - 2026-11-09
@@ -3138,7 +3140,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.67.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.0...HEAD
+[0.68.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...v0.67.0
 [0.66.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.0...v0.65.1

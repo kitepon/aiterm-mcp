@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Bound remote terminal (`aiterm-remote-terminal`, docs/architecture/remote-terminal.md), first for macOS + Claude Code. One UID-private process per connection holds an Aiterm-held binding (`register`: target, existing key, known_hosts, host-key alias) and returns only public revisions (`status --ref`). `remote_terminal_open` checks the target and both revisions, loads the key into a per-connection private ssh-agent, connects with `ssh -F /dev/null`, strict host checking against the bound known_hosts, and sends private env values on the encrypted stdin. Then `remote_terminal_call` (seat tools, results unchanged), `remote_terminal_wait` (the terminal's `aiterm-wait`), `remote_terminal_transcript_read` (Claude JSONL lines only through the latest completed turn), `remote_terminal_command` (`claude --version`, official install, `claude update`), events `aiterm/remote-terminal-event` (`ready`/`lost`/`closed`). Host-key changes answer `HOST_KEY_MISMATCH` with "confirm the new host key"; `trust-confirm` writes a scanned key only when it equals the confirmed fingerprint.
+- `aiterm-mcp --private-env-stdin` reads one private env line before MCP; those values reach a launch through `env_vars` and never enter `process.env`.
+- POSIX launches no longer type inherited env values into the pane: they are written to a 0600 file that the launch line sources and deletes, so the pane log and screen keep only its path. Windows launches are unchanged.
+- Claude `agent_launch` accepts `append_system_prompt` and `mcp_config`; both are kept in Aiterm's own state and passed as `--append-system-prompt-file` / `--mcp-config`, never written to the project or home config. Write secrets in `mcp_config` as `${ENV}` names.
+- A missing or non-directory `cwd` is refused as `CWD_UNAVAILABLE:` before a session is created.
+- The Claude Stop hook records `transcript_path` and `transcript_offset` (end of the last complete line) in its `agent_done` event.
+
 ## [0.64.2] - 2026-11-08
 
 - Claude wait (`observeAgentDone` / `aiterm-wait`): a transcript API-error record whose CLI `error` field is `rate_limit` (for example the Fable limit record with no `apiErrorStatus`) is now `failure.category: "rate_limited"`, whatever its text. When Stop still fires, the wait looks at the turn's last assistant record up to the Stop time and returns that error instead of `done`. The hibernate exception for a rate-limited turn reads the same category.

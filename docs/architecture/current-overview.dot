@@ -13,7 +13,7 @@ digraph overview {
   state [label="Metadata / generation / idle state\nagent-shared.ts, agent-lifecycle.ts"];
   runtime [label="Native terminal + process identity\ntmux-runtime.ts, process-*.ts"];
   parents [label="Child completion + parent delivery\nparent-delivery.ts: manager / receipt\nparent-delivery-record.ts: schema / read / message"];
-  manage [label="Auth / model / goal / remote\ncore admission + harness configure adapters\nuser-config.ts: snapshot / restore\nremote-contract.ts: input contract\nseparate inspect, mutation and readback"];
+  manage [label="Auth / model / goal / remote\ncore admission + harness configure adapters\nclaude-catalog-root.ts: catalog-only Claude root per configuration root\nuser-config.ts: snapshot / restore\nremote-contract.ts: input contract\nseparate inspect, mutation and readback"];
   resume_diag [label="Resume failure records\nagent-resume-diagnostic.ts\nphase / safe cause / readiness; no body",fillcolor="#eaf8f1"];
   checkpoint [label="Offline resume CLI: resume-state-cli.ts\nStrict codec + readonly checkpoint / startup restore\nresume-checkpoint.ts, resume-checkpoint-files.ts",fillcolor="#eaf8f1"];
   pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];

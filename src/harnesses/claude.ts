@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { AitermError, AgentAuthenticationPreflightError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
+import { claudeCatalogRoot } from "../claude-catalog-root.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import type { FastModeFailure } from "../fast-mode.js";
 import {
@@ -224,6 +225,27 @@ const CLAUDE_ULTRACODE_NOTE =
  * promptは送らず、sessionを保存せず、利用者のhookとMCP serverを起動しない。
  */
 export async function claudeModelChoices(bin: string, cwd: string, env = process.env): Promise<AgentModelCatalog> {
+  // Run in the catalog-only root so other processes writing the shared config cannot flip the list
+  // (harness-contracts.md C1-C4). A cold root answers differently until its flag and catalog caches settle.
+  let own = claudeCatalogRoot(env);
+  if (!own) {
+    const shared = await claudeModelChoicesOnce(bin, cwd, env);
+    own = claudeCatalogRoot(env);
+    if (!own) return shared;
+  }
+  let catalog!: AgentModelCatalog;
+  for (let attempt = 0; attempt < CLAUDE_CATALOG_SETTLE_RUNS; attempt++) {
+    catalog = await claudeModelChoicesOnce(bin, cwd, own.env);
+    const digest = createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
+    if (digest === own.lastDigest()) return catalog;
+    own.remember(digest);
+  }
+  return catalog;
+}
+
+const CLAUDE_CATALOG_SETTLE_RUNS = 4;
+
+async function claudeModelChoicesOnce(bin: string, cwd: string, env: NodeJS.ProcessEnv): Promise<AgentModelCatalog> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-claude-models-"));
   try {
     const settings = path.join(dir, "settings.json");

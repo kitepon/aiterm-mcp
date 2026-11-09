@@ -233,6 +233,59 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   assert.equal(fs.existsSync(seen.settingsFile), false, "一時設定は消す");
 });
 
+// harness-contracts.md C1-C4: the catalog runs in its own root, holds no refresh token, and settles while cold.
+test("Claudeの一覧は一覧専用のrootで読み、refresh tokenを写さず、冷えている間は2回続けて同じになるまで読む", posixOnly, async (t) => {
+  const dir = tempDir(t);
+  const root = path.join(dir, "root");
+  fs.mkdirSync(root);
+  const creds = { claudeAiOauth: { accessToken: "dummy-access", refreshToken: "dummy-refresh", expiresAt: Date.now() + 3_600_000 }, mcpOAuth: { x: 1 } };
+  fs.writeFileSync(path.join(root, ".credentials.json"), JSON.stringify(creds), { mode: 0o600 });
+  fs.writeFileSync(path.join(root, ".claude.json"), "{}");
+  const log = path.join(dir, "log.jsonl");
+  // A cold vendor root answers two different short lists before its caches settle on the full one (measured 2.1.321).
+  const bin = fakeCli(dir, "claude", `
+const fs = require("node:fs");
+const path = require("node:path");
+const conf = process.env.CLAUDE_CONFIG_DIR;
+const counter = path.join(conf, "runs");
+const run = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) + 1 : 1;
+fs.writeFileSync(counter, String(run));
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ conf, run, creds: JSON.parse(fs.readFileSync(path.join(conf, ".credentials.json"), "utf8")) }) + "\\n");
+const models = ${JSON.stringify(claudeModels)}.slice(0, Math.min(run, 3));
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const id = JSON.parse(line).request_id;
+  process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: id, response: { models } } }) + "\\n");
+});`);
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: root };
+  const first = await claudeModelChoices(bin, dir, env);
+  const second = await claudeModelChoices(bin, dir, env);
+  assert.equal(first.models.length, 3);
+  assert.deepEqual(second, first);
+  const runs = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(runs.map((r) => r.run), [1, 2, 3, 4, 5], "cold: until two runs agree; warm: one run");
+  assert.ok(runs.every((r) => r.conf !== root && r.conf === runs[0].conf), "only the catalog root");
+  assert.deepEqual(runs[0].creds, { claudeAiOauth: { accessToken: "dummy-access", expiresAt: creds.claudeAiOauth.expiresAt } });
+  assert.equal(fs.statSync(path.join(runs[0].conf, ".credentials.json")).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(runs[0].conf).mode & 0o777, 0o700);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".credentials.json"), "utf8")), creds, "the root is untouched");
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+
+  // Near expiry the root itself refreshes as before; with a token in env the root's file is not the identity.
+  fs.writeFileSync(log, "");
+  creds.claudeAiOauth.expiresAt = Date.now() + 60_000;
+  fs.writeFileSync(path.join(root, ".credentials.json"), JSON.stringify(creds), { mode: 0o600 });
+  await claudeModelChoices(bin, dir, env);
+  await claudeModelChoices(bin, dir, { ...env, CLAUDE_CODE_OAUTH_TOKEN: "dummy-token" });
+  assert.deepEqual(fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line).conf), [root, root]);
+});
+
+test("agent_modelsのconfiguration_rootはclaude-codeだけで、agent_launchと同じ範囲だけ受ける", async () => {
+  const core = await import("../dist/core.js");
+  await assert.rejects(core.listAgentModels("codex", { configuration_root: "/tmp" }), /AGENT_CONFIGURATION_ROOT_REJECTED/);
+  await assert.rejects(core.listAgentModels("claude", { configuration_root: "relative" }), /AGENT_CONFIGURATION_ROOT_REJECTED/);
+  await assert.rejects(core.listAgentModels("claude", { configuration_root: os.tmpdir() }), /AGENT_CONFIGURATION_ROOT_REJECTED/);
+});
+
 test("Codexはapp-serverのmodel/listをページ順に読み、threadを作らない", posixOnly, async (t) => {
   const dir = tempDir(t);
   const log = path.join(dir, "log.json");

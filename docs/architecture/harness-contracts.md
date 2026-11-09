@@ -22,6 +22,17 @@ Codexの**停止本人性**は通常完了待ちより厳しい。候補全列�
 
 model一覧は5通りのnative窓口に依存する。Claudeは一時settingsでhook/MCP/会話保存を抑えたstream-json初期化、Codexは既Steer receiver経由app-server model/list、GrokはmodelsとACP初期化、Cursorはmodels CLIのeffective ID分解、Antigravityはtab形式のmodel選択肢を使う。model/effort/fastの許可組合せとunsupportedはadapter/catalog側で検証する。認証や一覧を読んだことをpromptの実行成功にしない。
 
+Claudeの一覧の置き場（[claude-catalog-root](../../src/claude-catalog-root.ts)）: Claude Codeは served catalog を使うかの判定（GrowthBookの値）を設定root内のglobal config（既定rootでは `~/.claude.json`）へ本人性を問わず書き戻す。席・認証の別processが同じfileへ書くと、一覧が5行/14行で揺れる。一覧はrootごとの**一覧専用root**（stateRoot/claude-catalog/<rootのsha256先頭16桁>、0700）で走らせる。
+
+| 段 | 入力 | 作用 | 出力 |
+| --- | --- | --- | --- |
+| C1 選択 | `agent_models.configuration_root`（claude-codeだけ。受入はagent_launchと同じ`resolveClaudeConfigurationRoot`）、省略は呼び手のenvのroot | 他harnessへの指定はAGENT_CONFIGURATION_ROOT_REJECTED | rootを選んだenv |
+| C2 写し | rootの`.credentials.json`の`claudeAiOauth` | `refreshToken`と他の資格を除いて一覧専用rootへ原子的に0600で書く。refresh tokenは使い捨て（invalid_grantで失効）なので、写しの側で更新させずrootのloginを守る | 一覧専用rootのenv |
+| C3 鮮度 | `expiresAt` | 残り10分未満・読めない・fileが無い（macOSのKeychain）・envにtoken/API keyがある時は、従来どおりroot自身で1回走らせ（更新はrootで正規に起きる）、写しを作り直す。作れなければその結果を返す | — |
+| C4 安定 | 一覧専用rootの`last-catalog.sha256` | 1回走らせ、結果のdigestが前回と同じなら返す。違えば記録して走らせ直す（最大4回、冷えた置き場は実測で3回目から安定） | 同じrootなら毎回同じ一覧 |
+
+一覧専用rootは一覧だけが書く。席・認証・他processの書込はここへ届かない。stateRootの消失（再起動）は冷えた置き場として再び温める。
+
 Claudeはauth statusのloggedIn陽性を必要とし、Codexはlogin statusとtoken非取得のAPIを照合する（旧API拒否時の互換分岐あり）。Grokは明示auth pathの絶対path検証とnative modelsの判定を分け、否認を一回再確認する。Cursorのpreflightと詳細authStatusには確認条件の差がある。既存差を統一する修理は今回行わない。許可URL・device code・onboardingの解釈をadapterに残し、資格本文は図/原本へ出さない。
 
 pane parserは現composer/現footer/現dialogを優先し、過去の引用や古いrate-limit表示からbusy/blockedを決めない。ready・busy・承認待ち・認証待ち・不明と、vendorのturn境界は別の証拠。cancel keyはClaude/CodexがEscape、Grok/CursorがC-c。readonly sandbox、trustProject、vendor既定引数とuser-defaultの退避/復元もadapter固有。復元の既存best-effortを全設定復元保証へ広げない。

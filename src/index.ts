@@ -1195,6 +1195,7 @@ registerRemoteAwareTool(
       harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("候補を取得するharness"),
       cwd: z.string().nullish().describe("CLIを実行する作業ディレクトリ（絶対パス・任意）。project設定で候補が変わるharness向け"),
       include_hidden: z.boolean().optional().describe("Codexが一覧で隠すmodelも返す（既定false）。他のharnessには隠すmodelが無い"),
+      configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。一覧を読むアカウントの設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ（既定のroot、またはAITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下）。他はAGENT_CONFIGURATION_ROOT_REJECTED。省略は既定のroot"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-models.v1"),
@@ -1209,9 +1210,9 @@ registerRemoteAwareTool(
       models: z.array(agentModelChoiceSchema),
     },
   },
-  async ({ harness, cwd, include_hidden }: any) => {
+  async ({ harness, cwd, include_hidden, configuration_root }: any) => {
     try {
-      const catalog = await core.listAgentModels(kindForHarness(harness), { cwd, include_hidden });
+      const catalog = await core.listAgentModels(kindForHarness(harness), { cwd, include_hidden, configuration_root });
       const result = agentModelsResult(harness, catalog);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],

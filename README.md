@@ -658,7 +658,7 @@ continue to use `claude_approval`.
 | `pty_observe` | Pane/harness liveness, native process identity, state, and activity | `session_id`, `cursor?` |
 | `agent_launch` | Canonical agent launch; harness and model are independent | `harness`, `prompt?`, `model?`, `reasoning_effort?`, `fast?`, `cwd?`, `write_scope?`, `trust_project?`, `env_vars?`, `throughline_source_session?`, `throughline_supplement_file?` |
 | `agent_auth` | 公式CLIの認証を開始・確認・取消し、公式URL・device code・入力待ちを返す | `harness`, `action`, `session_id?`, `cwd?`, `env_vars?`, `relogin?`, `expected_binding?`, `response?` |
-| `agent_models` | List the models and reasoning efforts a harness offers now, read from that harness's own catalog without sending a prompt | `harness`, `cwd?`, `include_hidden?` |
+| `agent_models` | List the models and reasoning efforts a harness offers now, read from that harness's own catalog without sending a prompt | `harness`, `cwd?`, `include_hidden?`, `configuration_root?` (claude-code) |
 | `agent_approval` | Inspect a Codex approval and submit a one-time approval or denial | `action`, `session_id`, `approval_choice?`, `observed_prompt_digest?` |
 | `claude_agent` / `codex_agent` / `grok_agent` | Deprecated compatibility aliases (`composer_agent` was removed in 0.41.0; run Composer with `agent_launch` on `cursor-cli`) | legacy launcher arguments |
 | `agent_configure` | Change model/effort/fast in a running Claude, Codex, Grok, or Cursor session without restarting it | `session_id`, `model?`, `reasoning_effort?`, `fast?` |

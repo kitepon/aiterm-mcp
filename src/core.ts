@@ -5644,15 +5644,19 @@ export async function authenticateAgent(kind: AgentKind, options: {
  */
 export async function listAgentModels(
   kind: AgentKind,
-  options: { cwd?: string | null; include_hidden?: boolean } = {},
+  options: { cwd?: string | null; include_hidden?: boolean; configuration_root?: string } = {},
 ): Promise<AgentModelCatalog> {
+  if (options.configuration_root !== undefined && kind !== "claude")
+    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
+  const claudeEnv = options.configuration_root === undefined ? process.env
+    : withClaudeConfigRoot(process.env, resolveClaudeConfigurationRoot(options.configuration_root));
   const cwd = options.cwd ?? process.cwd();
   if (!path.isAbsolute(cwd)) throw new AitermError("cwd は絶対パスで指定してください", 2);
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError(`cwd が見つかりません: ${cwd}`, 2);
   const bin = resolveAgentBin(kind);
   if (!bin) throw catalogUnavailable(agentLabel(kind), `${agentLabel(kind)} の CLI が見つかりません`);
   switch (kind) {
-    case "claude": return claudeModelChoices(bin, cwd);
+    case "claude": return claudeModelChoices(bin, cwd, claudeEnv);
     case "codex": return codexModelChoices(bin, options.include_hidden === true);
     case "grok": return grokModelChoices(bin, cwd);
     case "cursor": return cursorModelChoices(bin, cwd);

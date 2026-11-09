@@ -287,14 +287,14 @@ test("remote wait keeps only aiterm-wait's own flag/value pairs from a receipt's
   assert.throws(() => rt.waitArguments(["cli.js", "--cursor", "1"]), error => error.code === "WAIT_INVALID");
 });
 
-test("keyless binding: Aiterm keeps its own known_hosts, the key must come from a credential handle, exactly one key source", async () => {
+test("keyless binding: Aiterm keeps its own known_hosts, the key must come from a credential handle, exactly one key source", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {
   const contract = await import("../dist/remote-contract.js");
   const status = rt.registerBinding({ target: { host: "10.0.0.20", user: "u", port: 2222 } });
   assert.deepEqual(status.credential, { provider: "aiterm.credential-handle.v1", revision: null, fingerprint: null, available: false, reason: "KEY_FROM_CREDENTIAL" });
   assert.equal(status.trust.available, false);
   const store = JSON.parse(fs.readFileSync(rt.storePath(), "utf8")).bindings.find(b => b.ref === status.ref);
   assert.equal(store.key_file, null);
-  assert.equal(fs.statSync(store.known_hosts_file).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(store.known_hosts_file).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(store.known_hosts_file, "utf8"), "");
   const base = { ref: status.ref, target: status.target, trustRevision: `sha256:${"3".repeat(64)}` };
   const credential = { handle: "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", revision: 1 };

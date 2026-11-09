@@ -67,6 +67,8 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
   }
   if (record?.binding !== binding) record = null;
   if (evidence === "unknown") return null;
+  // Claude shows the same plain composer in a quiet wait; only a binding that never saw work may settle it.
+  if (evidence === "ready_no_completion" && (terminal || record?.span || record?.terminal)) return null;
   if (evidence === "busy") {
     if (!record?.span) {
       record = { binding, span: { turn_id: `managed:${randomBytes(16).toString("hex")}`, started_at: at }, terminal, ready: null };

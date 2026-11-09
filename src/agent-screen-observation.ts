@@ -362,7 +362,8 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
   agentTuiReadyStableSamplesTestOverride = value;
 }
 
-export type ParentPaneEvidence = "busy" | "ready" | "unknown";
+/** ready_no_completion: Claude composer ready without a completed-progress line (also seen in a quiet wait). */
+export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "unknown";
 
 /** Only the current native composer/progress/footer can establish occupancy. */
 // shortcut: pane snapshots cannot certify hidden native turn boundaries, use a continuous native lifecycle when that distinction is required.
@@ -392,7 +393,7 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   const observed = agentPaneObservation(kind, current);
   if (observed.state === "blocked" || observed.state === "unknown") return "unknown";
   if (kind === "claude" && observed.state === "idle"
-    && !/^[·✢✳✶✻✽*∗] [^…\n]+ for \d[^…\n]*$/mu.test(current)) return "unknown";
+    && !/^[·✢✳✶✻✽*∗] [^…\n]+ for \d[^…\n]*$/mu.test(current)) return "ready_no_completion";
   if (kind === "cursor") {
     if (/^\s*ctrl\+c to stop\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "busy";
     if (observed.state === "busy") return "unknown";

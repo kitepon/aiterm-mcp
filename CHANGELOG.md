@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Seat activity (`readSeatTurns`): a fresh Claude seat that has never been busy and has no recorded turn or completion, such as a no-prompt launch after a harness switch, now reads `idle` after the usual 250 ms settle. Before, its ready composer had no completed-progress line ("✻ Cooked for 12s"), so the reading stayed unknown until the first input and after-turn work never started. Once the seat has a recorded turn or completion, the completed-progress line is still required.
+
 ## [0.68.0] - 2026-11-09
 
 - `state-compat.json` (schema `aiterm.state-compat.v1`, in the npm package) states which saved-state formats this release reads, writes and would reset, per store under the state volume (docs/architecture/runtime-adoption.md "State volume declaration"). A body installer uses it instead of version or closure equality, so an upgrade keeps saved seats. This release reads and writes `v1` for the whole `aiterm-mcp-<uid>` state root, maps 0.63.17-0.67.0 to `v1`, and resets nothing. No state format changes; going back to 0.67.0 needs nothing.

@@ -28,7 +28,7 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('cursor','Cursor Agent\n⠋ Working\n→ Plan, search, build anything\n'),'unknown');
  assert.equal(parentPaneEvidence('claude',frames.claude.busy.replace('Musing… (esc to interrupt)','Musing… (running UserPromptSubmit hook · 0s)')),'unknown');
  assert.equal(parentPaneEvidence('antigravity','Terms of Service\n> Allow'),'unknown');
- assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'unknown','A plain composer is also present during a quiet unfinished wait');
+ assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready_no_completion','A plain composer is also present during a quiet unfinished wait');
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
 });
 
@@ -80,4 +80,18 @@ test('fresh launch with no busy and no terminal settles ready to idle; a seen te
  assert.deepEqual(observeManagedSpan(file,'fresh','ready','done',at(1300)),{state:'idle'});
  assert.equal(observeManagedSpan(file,'fresh','ready',null,at(1400)),null);
  assert.equal(observeManagedSpan(file,'fresh','ready',null,at(1700)),null,'A terminal once seen cannot be replaced by an unreadable one');
+});
+
+test('Claude ready_no_completion settles only a binding that never saw a span or terminal',()=>{
+ const file=path.join(directory(),'span.json');
+ assert.equal(observeManagedSpan(file,'fresh','ready_no_completion',null,at(0)),null,'First ready is not idle');
+ assert.deepEqual(observeManagedSpan(file,'fresh','ready_no_completion',null,at(300)),{state:'idle'});
+ assert.equal(observeManagedSpan(path.join(directory(),'span.json'),'fresh','ready_no_completion','late',at(0)),null,'A current terminal needs a completed-progress line');
+ observeManagedSpan(file,'fresh','busy',null,at(400));
+ assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(500)),null);
+ assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(900)),null,'Quiet wait after work stays unavailable');
+ observeManagedSpan(file,'fresh','ready','done',at(1000));
+ assert.deepEqual(observeManagedSpan(file,'fresh','ready','done',at(1300)),{state:'idle'});
+ assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(1400)),null);
+ assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(1700)),null,'A recorded terminal keeps the completion-line requirement');
 });

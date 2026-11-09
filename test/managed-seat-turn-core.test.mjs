@@ -92,6 +92,10 @@ test('real metadata producer projects four original rows from mocked live native
  syncBuiltinESMExports();t.after(()=>{childProcess.spawnSync=oldSpawn;process.kill=oldKill;syncBuiltinESMExports();});
  const core=await import('../dist/core.js');
  const row=kind=>core.readSeatTurns([metas[kind].aiterm_session]).seats[0];
+ activeKind='claude';screens.claude=['Claude Code',rule,'❯ ',rule,'  bypass permissions'].join('\n');
+ assert.equal(row('claude').turn,null,'Fresh no-prompt Claude: first ready is not idle');clock+=300;
+ assert.deepEqual(row('claude').turn,{state:'idle'},'Fresh never-busy Claude with no span/terminal settles idle without a completion line');
+ screens.claude=frames.claude.busy;
  for(const kind of Object.keys(frames)){
   activeKind=kind;const first=row(kind);assert.equal(first.harness,{claude:'claude-code',grok:'grok-cli',cursor:'cursor-cli',antigravity:'antigravity-cli'}[kind]);
   assert.equal(first.turn?.state,'running',kind+' '+JSON.stringify(calls.at(-1)));

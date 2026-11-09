@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.1] - 2026-11-09
+
 - Seat activity (`readSeatTurns`): a fresh Claude seat that has never been busy and has no recorded turn or completion, such as a no-prompt launch after a harness switch, now reads `idle` after the usual 250 ms settle. Before, its ready composer had no completed-progress line ("✻ Cooked for 12s"), so the reading stayed unknown until the first input and after-turn work never started. Once the seat has a recorded turn or completion, the completed-progress line is still required.
 
 ## [0.68.0] - 2026-11-09
@@ -3142,7 +3144,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.1...HEAD
+[0.68.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.0...v0.68.1
 [0.68.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...v0.67.0
 [0.66.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.1...v0.66.0

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-11-09
+
 - One launch path for seats on another computer (Owner ruling; docs/architecture/remote-terminal.md). `agent_launch`, `claude_agent`, `codex_agent` and `grok_agent` take `terminal: {ref, target:{host,user,port}, trustRevision, credentialRevision}` (the value BellTeam terminals hands over, unchanged) and `cwd` (the project folder on that terminal, required). Omitted = local, as before. The value is checked against the Aiterm-held binding and its revisions; a malformed value, a missing or relative `cwd`, or `terminal` together with `remote` answers `TERMINAL_INVALID` with a plain message. First scope `claude-code`; other harnesses answer `TERMINAL_HARNESS_UNSUPPORTED`.
 - After a terminal launch every call is the same as for a local seat, by `session_id` alone: `pty_send`, `pty_observe`, `pty_read`, `pty_key`, `claude_turn`, `pty_close` and the execution `agent_stop` are routed to the terminal from `<state root>/terminal-seats.json`. Receipts' `wait_process` runs as returned. New `aiterm-transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]` reads the native Claude transcript for local and terminal seats alike.
 - Terminal SSH uses only the binding: `-F /dev/null`, its known_hosts with strict checking, its key file, its own ControlMaster. Private values (`env_vars` values from this process, and every `mcp_config` header value, replaced by `${AITERM_MCP_HEADER_n}`) travel only on the encrypted stdin line to the terminal's `aiterm-mcp --private-env-stdin`; none is written to a config file, argv, PTY or log.
@@ -3130,7 +3132,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...HEAD
+[0.66.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.2...v0.65.0
 [0.64.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.1...v0.64.2

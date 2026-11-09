@@ -11,7 +11,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { writeJson0600 } from "./agent-shared.js";
+import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
 import { posixCommand } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 
@@ -22,7 +22,7 @@ export class RemoteTerminalError extends Error {
 }
 
 export interface RemoteTarget { host: string; user: string; port: number }
-interface Binding { ref: string; target: RemoteTarget; key_file: string; known_hosts_file: string; host_key_alias: string | null; created_at: string }
+interface Binding { ref: string; target: RemoteTarget; key_file: string; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
 
 const REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HOST = /^(?!-)[A-Za-z0-9._:\[\]-]{1,255}$/;
@@ -173,11 +173,11 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   return { code: "CONNECTION_FAILED", message: "the SSH connection failed" };
 }
 
-/** -R spec for the seats' BellTeam MCP (remote-terminal.md R12): the terminal's sshd picks the port per connection. */
-export function seatForwardSpec(env: NodeJS.ProcessEnv = process.env): string {
+/** -R spec for the seats' BellTeam MCP (remote-terminal.md R12). P=0 lets the terminal's sshd pick the port. */
+export function seatForwardSpec(terminalPort: number, env: NodeJS.ProcessEnv = process.env): string {
   const port = Number(env.BELLTEAM_REMOTE_SEAT_PORT ?? 4182);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "BELLTEAM_REMOTE_SEAT_PORT is not a port");
-  return `127.0.0.1:0:127.0.0.1:${port}`;
+  return `127.0.0.1:${terminalPort}:127.0.0.1:${port}`;
 }
 
 /** ssh stderr -> the allocated terminal port, "refused", or null while unknown. */
@@ -203,8 +203,8 @@ export function rewriteSeatMcpConfig(config: Record<string, unknown>, port: numb
   return { ...config, mcpServers: rewritten };
 }
 
-export function sshArguments(b: Binding, agentSocket: string, identityFile: string, remoteCommand: string, reverseForward?: string): string[] {
-  return ["-F", "/dev/null", "-T", ...(reverseForward ? ["-R", reverseForward] : []), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+export function sshArguments(b: Binding, agentSocket: string, identityFile: string, remoteCommand: string): string[] {
+  return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
     ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
     "-o", `IdentityAgent=${agentSocket}`, "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${identityFile}`,
@@ -219,33 +219,24 @@ function sshEnvironment(): NodeJS.ProcessEnv {
 }
 
 /** MCP over an ssh child whose stdin first carries the private env line (remote-terminal.md R5). */
-class SshStdioTransport implements Transport {
+export class SshStdioTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
   stderr = "";
   private readonly buffer = new ReadBuffer();
   private child: ChildProcess | null = null;
-  /** R12: settles once from stderr, or "refused" when the connection ends first. */
-  readonly seatPort: Promise<number | "refused">;
-  private settlePort!: (value: number | "refused") => void;
-  constructor(private readonly args: string[], private readonly privateLine: string) {
-    this.seatPort = new Promise(resolve => { this.settlePort = resolve; });
-  }
+  constructor(private readonly args: string[], private readonly privateLine: string) {}
   async start(): Promise<void> {
     const child = spawn("ssh", this.args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
-    child.stderr!.on("data", (chunk: Buffer) => {
-      this.stderr = (this.stderr + chunk.toString("utf8")).slice(-4000);
-      const forward = parseSeatForward(this.stderr);
-      if (forward !== null) this.settlePort(forward);
-    });
+    child.stderr!.on("data", (chunk: Buffer) => { this.stderr = (this.stderr + chunk.toString("utf8")).slice(-4000); });
     child.stdout!.on("data", (chunk: Buffer) => {
       this.buffer.append(chunk);
       for (let message = this.buffer.readMessage(); message; message = this.buffer.readMessage()) this.onmessage?.(message);
     });
     child.on("error", error => this.onerror?.(error));
-    child.on("close", () => { this.child = null; this.settlePort("refused"); this.onclose?.(); });
+    child.on("close", () => { this.child = null; this.onclose?.(); });
     child.stdin!.on("error", error => this.onerror?.(error));
     child.stdin!.write(this.privateLine);
   }
@@ -280,7 +271,7 @@ export function waitArguments(args: unknown): string[] {
   return rest;
 }
 
-function versionAtLeast(actual: string, required: string): boolean {
+export function versionAtLeast(actual: string, required: string): boolean {
   const a = actual.split(/[.-]/).slice(0, 3).map(Number), r = required.split(/[.-]/).slice(0, 3).map(Number);
   for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (r[i] ?? 0)) return (a[i] ?? 0) > (r[i] ?? 0);
   return true;
@@ -292,8 +283,7 @@ export const REMOTE_MINIMUM_VERSION = "0.65.0";
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
-    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string,
-    private readonly seatPort: Promise<number | "refused">) { super(); }
+    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string) { super(); }
 
   static async open(input: { ref: string; target: unknown; trustRevision: string; credentialRevision: string; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
     const target = validTarget(input.target);
@@ -325,7 +315,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       const key = publicKey(b.key_file);
       if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
       fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
-      const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin"), seatForwardSpec()),
+      const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
         `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: input.privateEnv ?? {} })}\n`);
       const client = new Client({ name: "aiterm-remote-terminal", version: pkg.version });
       try { await client.connect(transport, { timeout: 60_000 }); }
@@ -339,7 +329,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         await client.close().catch(() => {});
         throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${remoteVersion}; ${REMOTE_MINIMUM_VERSION} or later is required`);
       }
-      const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion, transport.seatPort);
+      const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion);
       client.onclose = () => connection.ended();
       // After the caller has attached its listener to the returned connection.
       setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
@@ -357,15 +347,9 @@ export class RemoteTerminalConnection extends EventEmitter {
   async call(name: string, args: Record<string, unknown>, options: { private?: { appendSystemPrompt?: string; mcpConfig?: Record<string, unknown> }; timeoutMs?: number } = {}): Promise<unknown> {
     if (!REMOTE_SEAT_TOOLS.has(name)) throw new RemoteTerminalError("TOOL_UNSUPPORTED", `${name} is not a bound seat tool`);
     if (options.private && name !== "agent_launch") throw new RemoteTerminalError("PRIVATE_OPTIONS_UNSUPPORTED", "private options apply to agent_launch only");
-    let mcpConfig = options.private?.mcpConfig;
-    if (mcpConfig !== undefined) {
-      const port = await Promise.race([this.seatPort, new Promise<null>(resolve => setTimeout(() => resolve(null), 15_000).unref())]);
-      if (typeof port !== "number") throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the terminal did not grant the seat MCP forward; reopen the connection");
-      mcpConfig = rewriteSeatMcpConfig(mcpConfig, port);
-    }
     const full = { ...args,
       ...(options.private?.appendSystemPrompt !== undefined ? { append_system_prompt: options.private.appendSystemPrompt } : {}),
-      ...(mcpConfig !== undefined ? { mcp_config: mcpConfig } : {}) };
+      ...(options.private?.mcpConfig !== undefined ? { mcp_config: options.private.mcpConfig } : {}) };
     try {
       return await this.client.callTool({ name, arguments: full }, undefined, { timeout: options.timeoutMs ?? 600_000, resetTimeoutOnProgress: true });
     } catch (error) {
@@ -437,5 +421,185 @@ export class RemoteTerminalConnection extends EventEmitter {
     this.closing = true;
     await this.client.close().catch(() => {});
     return { closed: true };
+  }
+}
+
+// ---- terminal seats: the launch tools' `terminal` argument (remote-terminal.md "One launch path") ----
+
+export interface TerminalArgument { ref: string; target: RemoteTarget; trustRevision: string; credentialRevision: string }
+/** What remote.ts calls: the binding's own host/user/port and its ref. Built only here, never from tool input. */
+export interface TrustedRemoteTarget { host: string; user: string; port: number; trusted_ref: string }
+
+const trustedTarget = (b: Binding): TrustedRemoteTarget => ({ host: b.target.host, user: b.target.user, port: b.target.port, trusted_ref: b.ref });
+
+/** T1: the binding exists, the target is the binding's, both revisions are current. */
+export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarget {
+  const b = binding(input.ref);
+  const target = validTarget(input.target);
+  if (b.target.host !== target.host || b.target.user !== target.user || b.target.port !== target.port)
+    throw new RemoteTerminalError("TARGET_MISMATCH", "terminal.target differs from this binding; get the current value from BellTeam terminals");
+  const status = bindingStatus(input.ref);
+  if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted (confirm the new host key)");
+  if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust changed; get the current value from BellTeam terminals and launch again");
+  if (!status.credential.available) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
+  if (status.credential.revision !== input.credentialRevision) throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key changed; get the current value from BellTeam terminals and launch again");
+  return trustedTarget(b);
+}
+
+/** ssh argv for a trusted target: no user config, the binding's known_hosts only, its key file only. */
+export function trustedSshArguments(ref: string, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
+  const b = binding(ref);
+  return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+    "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
+    ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
+    "-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`,
+    ...(controlPath ? ["-o", "ControlMaster=auto", "-o", `ControlPath=${controlPath}`, "-o", "ControlPersist=600"] : ["-o", "ControlMaster=no", "-o", "ControlPath=none"]),
+    "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", ...extra,
+    "-l", b.target.user, "-p", String(b.target.port), "--", b.target.host, ...(remoteCommand === null ? [] : [remoteCommand])];
+}
+
+// T2: which sessions live on which terminal. Small; read on every call so every Aiterm process sees the same map.
+function seatsFile(): string { return path.join(ensureStateRoot(), "terminal-seats.json"); }
+function readSeats(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(seatsFile(), "utf8"));
+    return parsed?.schema === "aiterm.terminal-seats.v1" && parsed.seats && typeof parsed.seats === "object" ? parsed.seats : {};
+  } catch { return {}; }
+}
+function writeSeats(seats: Record<string, string>): void { writeJson0600(seatsFile(), { schema: "aiterm.terminal-seats.v1", seats }); }
+export function bindTerminalSession(session: string, ref: string): void { writeSeats({ ...readSeats(), [session]: ref }); }
+export function unbindTerminalSession(session: string): void {
+  const seats = readSeats();
+  if (!(session in seats)) return;
+  delete seats[session];
+  writeSeats(seats);
+}
+/** A later call's target, by session only. null = a local session. */
+export function boundTerminalTarget(session: unknown): TrustedRemoteTarget | null {
+  if (typeof session !== "string") return null;
+  const ref = readSeats()[session];
+  return ref ? trustedTarget(binding(ref)) : null;
+}
+
+const SEAT_PATH = /^\/api\/seat-mcp(\/|$)/;
+export function hasSeatMcpUrl(config: Record<string, unknown>): boolean {
+  return Object.values((config.mcpServers ?? {}) as Record<string, { url?: unknown }>).some(server => {
+    try { return typeof server?.url === "string" && SEAT_PATH.test(new URL(server.url).pathname); } catch { return false; }
+  });
+}
+
+/** Header values leave the config file: each becomes ${AITERM_MCP_HEADER_n}, its value goes to the private env line. */
+export function extractMcpHeaders(config: Record<string, unknown>): { config: Record<string, unknown>; env: Record<string, string> } {
+  const env: Record<string, string> = {};
+  const servers: Record<string, unknown> = {};
+  for (const [name, server] of Object.entries((config.mcpServers ?? {}) as Record<string, unknown>)) {
+    const headers = (server as { headers?: unknown } | null)?.headers;
+    if (!headers || typeof headers !== "object") { servers[name] = server; continue; }
+    const moved: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      // Already an env reference: Claude expands it from the seat env (the name must be in env_vars).
+      if (typeof value !== "string" || value.includes("${")) { moved[key] = value; continue; }
+      const envName = `AITERM_MCP_HEADER_${Object.keys(env).length}`;
+      env[envName] = value;
+      moved[key] = `\${${envName}}`;
+    }
+    servers[name] = { ...(server as object), headers: moved };
+  }
+  return { config: config.mcpServers ? { ...config, mcpServers: servers } : config, env };
+}
+
+// ---- R12 forward keeper: one Aiterm process per terminal holds the seats' BellTeam MCP route (T3) ----
+
+const FORWARD_RESTART_MS = 15_000, FORWARD_REFUSALS_BEFORE_NEW_PORT = 4, LAUNCH_GRACE_MS = 120_000;
+interface Keeper { child: ChildProcess | null; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number }
+const keepers = new Map<string, Keeper>();
+let maintainTimer: NodeJS.Timeout | null = null;
+
+function writeBinding(ref: string, change: Partial<Binding>): void {
+  const bindings = readStore().map(item => item.ref === ref ? { ...item, ...change } : item);
+  writeJson0600(storePath(), { schema: "aiterm.remote-bindings.v1", bindings });
+}
+
+function lockFile(ref: string): string { return path.join(ensureStateRoot(), `terminal-forward-${ref}.lock`); }
+/** T3: true when this process holds the keeper lock for ref (taking it from a dead owner). */
+function holdLock(ref: string): boolean {
+  const file = lockFile(ref);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: "wx", mode: 0o600 }); return true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") return false;
+      let pid = 0;
+      try { pid = Number(JSON.parse(fs.readFileSync(file, "utf8")).pid); } catch { /* unreadable: treat as dead */ }
+      if (pid === process.pid) return true;
+      // shortcut: a reused pid looks alive; the next owner check after that process exits takes over.
+      try { if (pid > 0) { process.kill(pid, 0); return false; } } catch { /* owner gone */ }
+      fs.rmSync(file, { force: true });
+    }
+  }
+  return false;
+}
+function releaseLock(ref: string): void {
+  try { if (Number(JSON.parse(fs.readFileSync(lockFile(ref), "utf8")).pid) === process.pid) fs.rmSync(lockFile(ref), { force: true }); } catch { /* none */ }
+}
+
+function forwardNeeded(ref: string): boolean {
+  return (keepers.get(ref)?.launchUntil ?? 0) > Date.now() || Object.values(readSeats()).includes(ref);
+}
+
+function keep(ref: string): void {
+  const keeper = keepers.get(ref) ?? { child: null, refusals: 0, timer: null, launchUntil: 0 };
+  keepers.set(ref, keeper);
+  if (keeper.child) { if (!forwardNeeded(ref)) keeper.child.kill(); return; }
+  if (keeper.timer) return;
+  if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); return; }
+  if (!holdLock(ref)) return;
+  let b: Binding;
+  try { b = binding(ref); } catch { releaseLock(ref); return; }
+  const requested = b.seat_forward_port ?? 0;
+  let args: string[];
+  try {
+    // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
+    args = trustedSshArguments(ref, "cat >/dev/null", null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested)]);
+  } catch { releaseLock(ref); return; }
+  const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "ignore", "pipe"] });
+  keeper.child = child;
+  let stderr = "";
+  child.stderr!.on("data", (chunk: Buffer) => {
+    stderr = (stderr + chunk.toString("utf8")).slice(-4000);
+    const forward = parseSeatForward(stderr);
+    if (typeof forward === "number" && forward !== requested) { writeBinding(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
+  });
+  child.on("error", () => { /* close follows */ });
+  child.on("close", () => {
+    keeper.child = null;
+    if (parseSeatForward(stderr) === "refused" && requested !== 0 && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
+      // The old P stays taken on the terminal: let sshd pick a new one (seats launched with the old P need a relaunch).
+      writeBinding(ref, { seat_forward_port: undefined });
+      keeper.refusals = 0;
+    }
+    keeper.timer = setTimeout(() => { keeper.timer = null; keep(ref); }, FORWARD_RESTART_MS);
+    keeper.timer.unref();
+  });
+}
+
+/** Every 60 s: keep (or take over) the forwards this process's state root needs. */
+export function maintainSeatForwards(): void {
+  const refs = new Set([...Object.values(readSeats()), ...keepers.keys()]);
+  for (const ref of refs) keep(ref);
+  if (refs.size && !maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
+}
+
+/** The terminal-local port for seat URLs; starts the keeper if no process holds it yet. */
+export async function ensureSeatForward(ref: string, timeoutMs = 30_000): Promise<number> {
+  const keeper = keepers.get(ref) ?? { child: null, refusals: 0, timer: null, launchUntil: 0 };
+  keeper.launchUntil = Date.now() + LAUNCH_GRACE_MS;
+  keepers.set(ref, keeper);
+  maintainSeatForwards();
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const port = binding(ref).seat_forward_port;
+    if (port) return port;
+    if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's BellTeam MCP route is not ready; launch again later");
+    await new Promise(resolve => setTimeout(resolve, 250));
   }
 }

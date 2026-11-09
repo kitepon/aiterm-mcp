@@ -10,6 +10,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartProcessArgumentList, type AgentWaitObservation } from "./core.js";
 import { ensureStateRoot, stateRoot } from "./agent-shared.js";
 import { currentUid } from "./state-root.js";
+import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
+import { SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -20,7 +22,7 @@ export { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type Rem
 const passphrases = new Map<string, string>();
 
 export function remoteKey(target: RemoteTarget): string {
-  return createHash("sha256").update(JSON.stringify([target.host, target.user ?? null, target.port ?? null])).digest("hex").slice(0, 12);
+  return createHash("sha256").update(JSON.stringify([target.host, target.user ?? null, target.port ?? null, target.trusted_ref ?? null])).digest("hex").slice(0, 12);
 }
 
 export function remoteLabel(target: RemoteTarget): string {
@@ -40,7 +42,7 @@ function remoteDir(): string {
   return dir;
 }
 
-function controlPath(): string {
+function controlPath(trustedRef?: string): string {
   // TMPDIRやXDG_RUNTIME_DIRは長くなり得る。%Cの40字とOpenSSHの一時suffix（17字）を含めても
   // macOSの104 byte制限に収まる短い領域へ、state rootごとに共有ソケットだけを置く。
   const namespace = createHash("sha256").update(stateRoot()).digest("hex").slice(0, 20);
@@ -51,7 +53,8 @@ function controlPath(): string {
   if (!stat.isDirectory() || stat.uid !== currentUid() || (stat.mode & 0o777) !== 0o700) {
     throw new AitermError("REMOTE_CONTROL_DIR_INVALID: SSH共有ソケットの領域が自分所有の0700ディレクトリではありません", 2);
   }
-  return path.join(dir, "cm-%C");
+  // A trusted binding never shares a master opened by an ad-hoc target to the same host.
+  return path.join(dir, trustedRef ? `t-${trustedRef.slice(0, 8)}-%C` : "cm-%C");
 }
 
 function askpassScript(): string {
@@ -77,6 +80,7 @@ function passphraseFor(target: RemoteTarget): string | null {
 export function sshInvocation(target: RemoteTarget, remoteCommand: string, options: { passphrase?: boolean } = {}): { args: string[]; env: Record<string, string> } {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (typeof value === "string" && !key.startsWith("AITERM_SSH_")) env[key] = value;
+  if (target.trusted_ref) return { args: trustedSshArguments(target.trusted_ref, remoteCommand, process.platform === "win32" ? null : controlPath(target.trusted_ref)), env };
   const args = ["-T", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
   // 同じ接続先への後続呼び出しと完了待ちを一本のSSHに相乗りさせる。Windows版OpenSSHはControlMaster非対応。
   if (process.platform !== "win32") {
@@ -155,16 +159,27 @@ export interface RemoteCallResult {
   remote_version: string | null;
 }
 
-/** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。 */
-export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000): Promise<RemoteCallResult> {
-  const { args: sshArgs, env } = sshInvocation(target, remoteServerCommand(await remoteShell(target)));
-  const transport = new StdioClientTransport({ command: "ssh", args: sshArgs, env, stderr: "pipe" });
+/** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。privateEnvは暗号化されたstdinの先頭行だけで渡す（remote-terminal.md R5）。 */
+export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
+  privateEnv?: Record<string, string>): Promise<RemoteCallResult> {
+  if (privateEnv && !target.trusted_ref) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding", 2);
+  const shell = await remoteShell(target);
+  const command = privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
+  const { args: sshArgs, env } = sshInvocation(target, command);
+  const transport = privateEnv
+    ? new SshStdioTransport(sshArgs, `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: privateEnv })}\n`)
+    : new StdioClientTransport({ command: "ssh", args: sshArgs, env, stderr: "pipe" });
   let stderr = "";
-  transport.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-2000); });
+  if (transport instanceof StdioClientTransport) transport.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-2000); });
   const client = new Client({ name: "aiterm-remote", version: pkg.version });
   try {
     try { await client.connect(transport, { timeout: 60_000 }); }
     catch (error) {
+      if (transport instanceof SshStdioTransport) stderr = transport.stderr;
+      if (target.trusted_ref) {
+        const failure = classifySshFailure(stderr);
+        throw new AitermError(`${failure.code}: ${failure.message}${failure.action ? ` (${failure.action})` : ""}`, 2);
+      }
       const detail = stderr.trim().split("\n").slice(-3).join(" / ") || (error instanceof Error ? error.message : String(error));
       throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} のAitermへ接続できません（${detail}）`, 2);
     }

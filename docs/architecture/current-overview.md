@@ -14,7 +14,7 @@
 | 子完了から親配送 | Aiterm `parent-delivery.ts` / `parent-delivery-cli.ts` / `steer-profile.ts` | child completionとparent deliveryを結合。親のvendor操作はSteer経由 |
 | 観測と回答 | Aiterm `core.ts` / `agent-screen-observation.ts` / `aiterm-wait-cli.ts` | [liveness・画面・turn完了・本文](observation-results.md)を分け、hostの表示へ渡す |
 | goal・設定・認証・remote | Aiterm `agent-goal*.ts` / `configure-goal.ts` / `model-catalog.ts` / `user-config.ts` / `remote.ts` / core | [native所有と作用/結果](goal-configuration-auth-remote.md)。goal inspectのUI作用、失敗不明と未発行、client接続終了と席closeを区別 |
-| Bound remote terminal (C3/C7/C8) | Aiterm `aiterm-remote-terminal` (UID1000 stdio MCP, `remote-terminal.ts`) / terminal `--private-env-stdin` / `aiterm-transcript-read` | [function map / data flow](remote-terminal.md). Terminals opens; trusted host revision, private key agent, private env, exact cwd, transcript cursor, fixed Claude setup ops, seat BellTeam MCP over a reverse forward of the same SSH connection |
+| Terminal seats (C3/C7/C8) | Aiterm launch tools' `terminal` + `cwd` (`index.ts` -> `remote-terminal.ts` -> `remote.ts`) / terminal `--private-env-stdin` / `aiterm-transcript-read`; `aiterm-remote-terminal` for binding, reachability, C8 | [one launch path / data flow](remote-terminal.md). Same launch tool as local; later calls by session; trusted binding, private env line, exact cwd, transcript cursor, seat BellTeam MCP over a reverse forward |
 | 共通の親配送 | Steer `index.ts` / `*-receiver.ts` / `*-hooks.ts` / `hook-main.ts` | profile・parent・delivery IDを受け、公式queue/hook/背景受信へ渡す |
 | 継続channel | Steer `channel-state.ts`（保存・遷移） / `channel.ts`（本人確認・待機・出力） | channel/inbox/claim/emitted/closedと受信者の出力状態。Bridge DBは所有しない |
 | 別製品の意味付け | BellTeam / grokbot-bridge | Bot/通話/予約/receipt/再起動など相手製品の責務。接点のみを調査する |

@@ -20,6 +20,21 @@ import { ExecutionError } from "./execution-wire.js";
 import { createAitermServer } from "./index.js";
 import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
 import { parseRuntimeAdoptionConfig, type RuntimeAdoptionConfig } from "./runtime-adoption.js";
+import { boundTerminalTarget } from "./remote-terminal.js";
+import { callRemoteTool } from "./remote.js";
+
+/** One stop key to a terminal seat, only while it runs a turn (an idle Claude would take C-c as input). */
+async function stopTerminalSeat(session: string): Promise<{ session_id: string; status: "sent" | "failed" | "idle"; error?: string }> {
+  try {
+    const target = boundTerminalTarget(session)!;
+    const observed = await callRemoteTool(target, "pty_observe", { session_id: session }, 60_000);
+    if ((observed.structuredContent as { state?: string } | undefined)?.state !== "busy") return { session_id: session, status: "idle" };
+    const sent = await callRemoteTool(target, "pty_key", { session_id: session, key: "C-c" }, 60_000);
+    return sent.isError ? { session_id: session, status: "failed", error: "TERMINAL_STOP_FAILED" } : { session_id: session, status: "sent" };
+  } catch (error) {
+    return { session_id: session, status: "failed", error: /^([A-Z][A-Z0-9_]+):/.exec(error instanceof Error ? error.message : "")?.[1] ?? "TERMINAL_STOP_FAILED" };
+  }
+}
 
 /** Ordinary delivery and leaf-first cancel keys have no execution-store
  * registration, participant gate, shared transaction or graph write. */
@@ -37,6 +52,22 @@ export function createNativeDeliveryServer(dependencies: {
     inputSchema: immediateStopInputSchema.shape,
     outputSchema: immediateStopResultSchema.shape,
   }, async (args, extra) => {
+    // Terminal seats (remote-terminal.md T2): same tool and session handle, the key goes over the trusted SSH.
+    const ids = args.session_id !== undefined ? [args.session_id] : args.session_ids ?? [];
+    const terminal = ids.filter(id => boundTerminalTarget(id));
+    if (terminal.length) {
+      const local = ids.filter(id => !terminal.includes(id));
+      const localTargets = local.length ? (await localStop({ ...args, session_id: undefined, session_ids: local }, extra)).targets : [];
+      const targets = [...localTargets, ...await Promise.all(terminal.map(stopTerminalSeat))];
+      const statuses = new Set(targets.map(target => target.status));
+      const status = statuses.size === 1 ? [...statuses][0] : statuses.has("sent") ? "partial" : statuses.has("failed") ? "failed" : "idle";
+      const result = { ...(args.session_id !== undefined ? { session_id: args.session_id } : {}), status, targets };
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+    }
+    const result = await localStop(args, extra);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+  });
+  async function localStop(args: any, extra?: any) {
     const stop = {
       children: dependencies.children ?? core.agentSessionChildren,
       currentLaunchId: dependencies.currentLaunchId ?? core.interruptionLaunchId,
@@ -46,8 +77,8 @@ export function createNativeDeliveryServer(dependencies: {
       ? await interruptKnownSessionsAndGoals(args, { ...stop, pauseGoal: dependencies.pauseGoal ?? core.pauseAgentGoalForStop },
         dependencies.goalOrigin ? dependencies.goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta, server.server.getClientCapabilities()))
       : interruptKnownSessions(args, stop);
-    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
-  });
+    return result as { targets: { session_id: string; status: "sent" | "failed" | "idle"; error?: string }[] };
+  }
   return server;
 }
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { remoteInputDescription, remoteInputSchema, type RemoteTarget } from "./remote-contract.js";
+import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
+import { boundTerminalTarget, bindTerminalSession, ensureSeatForward, extractMcpHeaders, hasSeatMcpUrl, maintainSeatForwards, REMOTE_MINIMUM_VERSION,
+  rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
+import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
 import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableError, AgentResumeError } from "./errors.js";
@@ -330,9 +333,14 @@ function registerRemoteAwareTool(name: string, config: any, handler: (args: any,
   remoteHandler: RemoteToolHandler = remoteToolHandler(name)): void {
   (server.registerTool as any)(name, { ...config, inputSchema: { ...config.inputSchema, remote: remoteInputField } },
     async ({ remote, ...args }: any, extra: any) => {
-      if (!remote) return handler(args, extra);
-      try { return await remoteHandler(acceptRemote(remote), args, extra); }
-      catch (e) { return fail(e); }
+      try {
+        // A terminal seat is addressed by session alone, like a local one (remote-terminal.md T2).
+        const target = remote ? acceptRemote(remote) : boundTerminalTarget(args.session_id);
+        if (!target) return handler(args, extra);
+        const result = await remoteHandler(target, args, extra);
+        if (name === "pty_close" && !remote && !result?.isError) unbindTerminalSession(args.session_id);
+        return result;
+      } catch (e) { return fail(e); }
     });
 }
 
@@ -1248,7 +1256,9 @@ const agentCompletionDesc = NON_BLOCKING_RULE + "自動配送以外の結果回�
 const agentEnvironmentDesc =
   `通常CLIと同じHOME・cwd・project/user/local設定・MCP・plugin・skill・permission/trustを共有する。` +
   `aitermは完了相関stateだけをlaunch単位で所有する。起動されたagentにはsub-agent自己認識、親session、` +
-  `delegation depth/lineage、delegation_allowed=trueを注入し、必要な追加委譲は許可する。`;
+  `delegation depth/lineage、delegation_allowed=trueを注入し、必要な追加委譲は許可する。` +
+  `別のcomputer（BellTeam terminal）で起こす時は、この起動にterminal（BellTeam terminalsの値をそのまま）とcwd（その端末のproject folder）を付ける。` +
+  `ここで起こしてからcd・sshしない。秘密の値はどの引数・prompt・送信文にも書かず、env_varsに名前だけを書く。`;
 
 const initialPromptDeliverySchema = z.object({
   status: z.enum(["not_requested", "not_sent", "submitted_unconfirmed", "started"]),
@@ -1256,10 +1266,13 @@ const initialPromptDeliverySchema = z.object({
 });
 const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "blocked"]), reason: z.string() });
 
-async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }): Promise<any> {
+async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }, privateEnv?: Record<string, string>): Promise<any> {
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
-  const result = await callRemoteTool(target, "agent_launch", { harness, ...args });
+  // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
+  const result = target.trusted_ref && harness === "claude-code"
+    ? await callRemoteTool(target, "claude_agent", args, 600_000, privateEnv)
+    : await callRemoteTool(target, "agent_launch", { harness, ...args }, 600_000, privateEnv);
   const structured = result.structuredContent as any;
   if (!structured) return { content: [...result.content, remoteNote(target, result)], isError: true };
   try {
@@ -1276,11 +1289,47 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
     content: [...result.content, remoteNote(target, result),
       ...(unconfirmed && !noted
         ? [{ type: "text" as const, text: core.initialPromptUnconfirmedNote(structured.session_id, structured.initial_prompt.reason) }] : []),
-      { type: "text" as const, text: `以後このsessionを操作する時は、同じremoteを付けて呼ぶ。${deliveryIdLine(delivery)}` }],
+      { type: "text" as const, text: `${target.trusted_ref ? "以後このsessionは、session_idだけで呼ぶ（terminalもremoteも付けない）。" : "以後このsessionを操作する時は、同じremoteを付けて呼ぶ。"}${deliveryIdLine(delivery)}` }],
     structuredContent: { ...structured, ...waited, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}),
       remote_host: remoteLabel(target), remote_version: result.remote_version },
     ...(result.isError && !unconfirmed ? { isError: true } : {}),
   };
+}
+
+const terminalVersions = new Map<string, string>();
+/** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
+async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
+  try {
+    if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a BellTeam terminal pass only terminal", 2);
+    if (harness !== "claude-code") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harness claude-code first; ${harness} is not available on a terminal yet`, 2);
+    if (typeof args.cwd !== "string" || !args.cwd.startsWith("/"))
+      throw new AitermError("TERMINAL_INVALID: cwd is required with terminal: the absolute project folder on that terminal (never launch locally and cd)", 2);
+    if (args.require_existing_resume) throw new AitermError("TERMINAL_INVALID: require_existing_resume is local-only", 2);
+    const target = terminalRemoteTarget(terminal);
+    // The private line is sent before the server answers; check its version first so an old one never sees it.
+    let version = terminalVersions.get(target.trusted_ref);
+    if (!version) {
+      version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
+      terminalVersions.set(target.trusted_ref, version);
+    }
+    if (!versionAtLeast(version, REMOTE_MINIMUM_VERSION))
+      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${REMOTE_MINIMUM_VERSION} or later is required (update Aiterm on the terminal)`, 2);
+    const privateEnv: Record<string, string> = {};
+    for (const name of args.env_vars ?? []) { const value = launchEnvValue(name); if (value !== undefined) privateEnv[name] = value; }
+    let mcpConfig = args.mcp_config;
+    if (mcpConfig) {
+      const extracted = extractMcpHeaders(mcpConfig);
+      Object.assign(privateEnv, extracted.env);
+      mcpConfig = extracted.config;
+      if (hasSeatMcpUrl(mcpConfig)) mcpConfig = rewriteSeatMcpConfig(mcpConfig, await ensureSeatForward(target.trusted_ref));
+    }
+    const envVars = [...new Set([...(args.env_vars ?? []), ...Object.keys(privateEnv)])];
+    const result = await launchRemoteAgent(target, harness,
+      { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra, privateEnv);
+    const session = result?.structuredContent?.session_id;
+    if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
+    return result;
+  } catch (e) { return fail(e); }
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
@@ -1417,7 +1466,8 @@ function registerAgentTool(
         fast: z.boolean().nullish().describe(fastModeLaunchDesc),
         env_vars: z.array(z.string()).optional().describe("起動したagentへ現在のMCP processから継承する環境変数名。値はtool引数へ渡さない"),
         trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
-        cwd: z.string().nullish().describe("作業ディレクトリ（対象リポのルート等・任意）"),
+        cwd: z.string().nullish().describe("作業ディレクトリ（対象リポのルート等・任意）。terminalを付ける時は必須で、その端末上のproject folderの絶対パス"),
+        terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
         session_name: z.string().nullish().describe("セッション名（省略で自動採番）"),
         ...(kind === "claude" ? {
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
@@ -1449,7 +1499,7 @@ function registerAgentTool(
         ...writeScopeOutputSchema,
       },
     },
-    async (args: any, extra) => launchAgent(kind, args, extra),
+    async ({ terminal, ...args }: any, extra) => terminal ? launchTerminalAgent(core.agentHarness(kind), terminal, args, extra) : launchAgent(kind, args, extra),
   );
 }
 
@@ -1475,11 +1525,14 @@ server.registerTool(
       fast: z.boolean().nullish().describe(fastModeLaunchDesc),
       env_vars: z.array(z.string()).optional().describe("現在のMCP processから継承する環境変数名"),
       trust_project: z.boolean().optional().describe("対象projectを信頼し、既知のworkspace・project hooks・MCP初期同意を起動中に進める"),
-      cwd: z.string().nullish().describe("作業ディレクトリ（絶対パス・任意）"),
+      cwd: z.string().nullish().describe("作業ディレクトリ（絶対パス・任意）。terminalを付ける時は必須で、その端末上のproject folderの絶対パス"),
       session_name: z.string().nullish().describe("Aiterm session名（省略で自動採番）"),
       write_scope: z.string().min(1).optional().describe("能力宣言。read-onlyは対応harnessの標準read-only面で実効禁止する"),
       launch_operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe("Claude Codeのpromptなしexact replay相関だけで使用"),
       remote: remoteInputField,
+      terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
+      append_system_prompt: z.string().min(1).optional().describe("claude-code only. Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here"),
+      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("claude-code only. Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-launch-result.v1"),
@@ -1503,7 +1556,10 @@ server.registerTool(
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
     },
   },
-  async ({ harness, remote, ...args }: any, extra) => {
+  async ({ harness, remote, terminal, ...args }: any, extra) => {
+    if (harness !== "claude-code" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined))
+      return fail(new AitermError("append_system_prompt and mcp_config are claude-code only", 2));
+    if (terminal) return launchTerminalAgent(harness, terminal, { ...args, ...(remote ? { remote } : {}) }, extra);
     if (remote && args.require_existing_resume) return fail(typeof args.session_name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(args.session_name)
       ? new AgentResumeUnavailableError(args.session_name)
       : new AitermError("require_existing_resume requires session_name", 2));
@@ -1562,7 +1618,7 @@ registerAgentTool(
   server.server.oninitialized = () => {
     core.setParentClient(server.server.getClientVersion()?.name ?? null);
     // Standby must not start recovery/heartbeat timers or claim records; activation starts them.
-    if (!adoption || adoption.state === "active") startParentManagers();
+    if (!adoption || adoption.state === "active") { startParentManagers(); maintainSeatForwards(); }
   };
   // One close per manager: retire awaits it, a later transport close reuses the same promise.
   let managersClosed: Promise<void> | null = null;

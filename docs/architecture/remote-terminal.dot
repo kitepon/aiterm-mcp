@@ -1,10 +1,13 @@
 digraph remote_terminal {
- graph [rankdir=LR,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.6,label="Bound remote terminal adapter (C3/C7/C8): terminals is the sole opener",labelloc=t,fontname="DejaVu Sans",fontsize=18];
+ graph [rankdir=LR,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.6,label="Terminal seats (C3/C7/C8): one launch path, later calls by session",labelloc=t,fontname="DejaVu Sans",fontsize=18];
  node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=11];
  edge [fontname="DejaVu Sans",fontsize=9,color="#536070"];
  terminals [label="BellTeam terminals.connection\n(UID1001)",fillcolor="#f0f0f0"];
  server [label="aiterm-remote-terminal (UID1000 stdio MCP)\none process per connection\nbinding store remote-bindings.json 0600"];
  execution [label="BellTeam execution\nseat lifecycle / delivery / Throughline ingest",fillcolor="#f0f0f0"];
+ tools [label="Aiterm launch tools (execution-native-server, UID1000)\nagent_launch / claude_agent ... + terminal + cwd\nT1 binding+revisions, T2 session map"];
+ trusted [label="remote.ts trusted target\n-F /dev/null, strict known_hosts, key file\nper-call ssh / wait_process / transcript"];
+ keeper [label="forward keeper (T3 lock)\nssh -N -R 127.0.0.1:P (P in binding)"];
  trust [label="remote_terminal_status / trust-confirm\nbinding -> credential + trust revisions\nscan trusted only on confirmed fingerprint"];
  open [label="remote_terminal_open\ntarget + revisions must match binding\nprivate ssh-agent: ssh-add key file"];
  ssh [label="ssh -F /dev/null StrictHostKeyChecking=yes\nUserKnownHostsFile=trust file\nIdentityAgent=private socket, BatchMode"];
@@ -14,7 +17,7 @@ digraph remote_terminal {
  pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
  jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
- fwd [label="R12 reverse forward on the bound ssh\nterminal 127.0.0.1:P (allocated per connection)\n-> container 127.0.0.1:4182; ends with closed/lost"];
+ fwd [label="R12 reverse forward\nterminal 127.0.0.1:P (stable per terminal)\n-> container 127.0.0.1:4182"];
  bt [label="BellTeam seat ingress (container loopback)\n/api/seat-mcp, /api/seat-mcp/call-bridge",fillcolor="#f0f0f0"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
@@ -24,16 +27,19 @@ digraph remote_terminal {
  ssh -> rmcp [label="R5 private-env line, then MCP"];
  open -> conn;
  conn -> terminals [label="R11 events / typed errors"];
- execution -> terminals [label="R6 callTool via bound port"];
- terminals -> conn [label="remote_terminal_call"];
- conn -> rmcp [label="MCP tools"];
+ terminals -> execution [label="terminal value (ref, target, revisions)"];
+ execution -> tools [label="R6 launch with terminal + cwd; then session_id only"];
+ tools -> trusted [label="launch: private env line R5\nlater: same tool"];
+ trusted -> rmcp [label="R4/R5"];
+ tools -> keeper [label="ensure while bound"];
+ keeper -> fwd [label="R12"];
+ terminals -> conn [label="reachability, C8 command"];
  rmcp -> launch;
  launch -> pane [label="R7"];
- ssh -> fwd [label="-R 127.0.0.1:0, Allocated port P"];
- conn -> launch [label="mcpConfig seat URLs -> http://127.0.0.1:P",style=dashed];
+ tools -> launch [label="mcp_config seat URLs -> http://127.0.0.1:P\nheaders -> ${AITERM_MCP_HEADER_n}",style=dashed];
  pane -> fwd [label="R8 http://127.0.0.1:P"];
  fwd -> bt [label="R12"];
- conn -> jsonl [label="R9 over same ssh"];
+ trusted -> jsonl [label="R9 aiterm-transcript-read by session"];
  jsonl -> execution [label="entries + cursor",style=dashed];
  conn -> cmd [label="R10 over same ssh"];
 }

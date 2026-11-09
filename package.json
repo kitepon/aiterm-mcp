@@ -49,7 +49,8 @@
     "aiterm-update": "dist/update-cli.js",
     "aiterm-idle-check": "dist/agent-idle-cli.js",
     "aiterm-resume-state": "dist/resume-state-cli.js",
-    "aiterm-remote-terminal": "dist/remote-terminal-cli.js"
+    "aiterm-remote-terminal": "dist/remote-terminal-cli.js",
+    "aiterm-transcript-read": "dist/transcript-read-cli.js"
   },
   "files": [
     "dist/*.js",

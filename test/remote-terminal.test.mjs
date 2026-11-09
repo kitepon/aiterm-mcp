@@ -48,13 +48,12 @@ test("ssh failures are classified with a plain action; argv ignores user config 
   assert.deepEqual(args.slice(-3), ["--", "192.168.1.12", "exec aiterm-mcp"]);
 });
 
-test("seat MCP forward: only the MCP connection asks for -R, P comes from ssh stderr, seat URLs get the terminal-local origin", () => {
+test("seat MCP forward: the keeper's -R spec, P from ssh stderr, seat URLs get the terminal-local origin, header values leave the config", () => {
   const b = { target: { host: "h", user: "u", port: 22 }, known_hosts_file: "/k" };
-  assert.ok(!rt.sshArguments(b, "/s", "/i", "exec x").includes("-R"));
-  const forwarded = rt.sshArguments(b, "/s", "/i", "exec x", rt.seatForwardSpec({}));
-  assert.equal(forwarded[forwarded.indexOf("-R") + 1], "127.0.0.1:0:127.0.0.1:4182");
-  assert.equal(rt.seatForwardSpec({ BELLTEAM_REMOTE_SEAT_PORT: "5000" }), "127.0.0.1:0:127.0.0.1:5000");
-  assert.throws(() => rt.seatForwardSpec({ BELLTEAM_REMOTE_SEAT_PORT: "x" }), /SEAT_FORWARD_UNAVAILABLE|not a port/);
+  assert.ok(!rt.sshArguments(b, "/s", "/i", "exec x").includes("-R"), "serve's connection carries no forward");
+  assert.equal(rt.seatForwardSpec(0, {}), "127.0.0.1:0:127.0.0.1:4182");
+  assert.equal(rt.seatForwardSpec(61234, { BELLTEAM_REMOTE_SEAT_PORT: "5000" }), "127.0.0.1:61234:127.0.0.1:5000");
+  assert.throws(() => rt.seatForwardSpec(0, { BELLTEAM_REMOTE_SEAT_PORT: "x" }), /SEAT_FORWARD_UNAVAILABLE|not a port/);
   assert.equal(rt.parseSeatForward("Allocated port 65423 for remote forward to 127.0.0.1:4182\n"), 65423);
   assert.equal(rt.parseSeatForward("Warning: remote port forwarding failed for listen port 0\n"), "refused");
   assert.equal(rt.parseSeatForward("Warning: Permanently added x\n"), null);
@@ -62,12 +61,84 @@ test("seat MCP forward: only the MCP connection asks for -R, P comes from ssh st
     bellteam: { type: "http", url: "http://127.0.0.1:4182/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } },
     "call-bridge": { type: "http", url: "http://192.168.1.2:4180/api/seat-mcp/call-bridge?x=1" },
     other: { type: "http", url: "https://example.com/api/seat-mcpx" }, stdio: { command: "node" } } };
+  assert.equal(rt.hasSeatMcpUrl(config), true);
+  assert.equal(rt.hasSeatMcpUrl({ mcpServers: { other: config.mcpServers.other } }), false);
   const out = rt.rewriteSeatMcpConfig(config, 65423);
   assert.deepEqual(out.mcpServers.bellteam, { type: "http", url: "http://127.0.0.1:65423/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } });
   assert.equal(out.mcpServers["call-bridge"].url, "http://127.0.0.1:65423/api/seat-mcp/call-bridge?x=1");
   assert.equal(out.mcpServers.other, config.mcpServers.other);
   assert.equal(out.mcpServers.stdio, config.mcpServers.stdio);
   assert.equal(config.mcpServers.bellteam.url, "http://127.0.0.1:4182/api/seat-mcp");
+  const secret = "Bearer literal-value-0123";
+  const extracted = rt.extractMcpHeaders({ mcpServers: { a: { url: "http://x/api/seat-mcp", headers: { Authorization: secret, "X-Ref": "${KEEP}" } }, b: { command: "node" } } });
+  assert.deepEqual(extracted.env, { AITERM_MCP_HEADER_0: secret });
+  assert.deepEqual(extracted.config.mcpServers.a.headers, { Authorization: "${AITERM_MCP_HEADER_0}", "X-Ref": "${KEEP}" });
+  assert.ok(!JSON.stringify(extracted.config).includes("literal-value"), "no header value stays in the config");
+});
+
+test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {
+  const contract = await import("../dist/remote-contract.js");
+  const remote = await import("../dist/remote.js");
+  const key = path.join(tmp, "id_terminal");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
+  const known = path.join(tmp, "known_terminal");
+  const [type, blob] = fs.readFileSync(`${key}.pub`, "utf8").trim().split(/\s+/);
+  fs.writeFileSync(known, `mac-alias ${type} ${blob}\n`, { mode: 0o600 });
+  const status = rt.registerBinding({ target: { host: "10.0.0.7", user: "kite", port: 22 }, keyFile: key, knownHostsFile: known, hostKeyAlias: "mac-alias" });
+  const value = { ref: status.ref, target: status.target, trustRevision: status.trust.revision, credentialRevision: status.credential.revision };
+  assert.equal(contract.terminalArgumentSchema.safeParse(value).success, true);
+  for (const bad of [{ ...value, host: "x" }, { ...value, trustRevision: "latest" }, { ref: "macbook", target: value.target, trustRevision: value.trustRevision, credentialRevision: value.credentialRevision },
+    { ...value, target: { host: "10.0.0.7", user: "kite" } }]) {
+    const parsed = contract.terminalArgumentSchema.safeParse(bad);
+    assert.equal(parsed.success, false, JSON.stringify(bad));
+  }
+  assert.match(contract.terminalArgumentSchema.safeParse({ ...value, ref: "macbook" }).error.issues[0].message, /binding ref/);
+  assert.equal(contract.remoteInputSchema.safeParse({ host: "h", trusted_ref: status.ref }).success, false, "tool input cannot build a trusted target");
+  assert.throws(() => rt.terminalRemoteTarget({ ...value, target: { ...value.target, host: "10.0.0.8" } }), /TARGET_MISMATCH/);
+  assert.throws(() => rt.terminalRemoteTarget({ ...value, trustRevision: `sha256:${"0".repeat(64)}` }), /HOST_TRUST_STALE/);
+  assert.throws(() => rt.terminalRemoteTarget({ ...value, credentialRevision: `sha256:${"0".repeat(64)}` }), /CREDENTIAL_REVISION_STALE/);
+  const target = rt.terminalRemoteTarget(value);
+  assert.deepEqual(target, { host: "10.0.0.7", user: "kite", port: 22, trusted_ref: status.ref });
+  const { args } = remote.sshInvocation(target, "exec aiterm-mcp");
+  assert.deepEqual(args.slice(0, 2), ["-F", "/dev/null"]);
+  for (const option of ["StrictHostKeyChecking=yes", `UserKnownHostsFile=${known}`, "GlobalKnownHostsFile=/dev/null", "HostKeyAlias=mac-alias",
+    "IdentityAgent=none", "IdentitiesOnly=yes", `IdentityFile=${key}`, "BatchMode=yes"]) assert.ok(args.includes(option), option);
+  assert.ok(args.some(arg => /^ControlPath=.*\/t-[0-9a-f]{8}-%C$/.test(arg)), "own control master per binding");
+  assert.deepEqual(args.slice(-3), ["--", "10.0.0.7", "exec aiterm-mcp"]);
+  assert.equal(rt.boundTerminalTarget("seat-x"), null);
+  rt.bindTerminalSession("seat-x", status.ref);
+  assert.deepEqual(rt.boundTerminalTarget("seat-x"), target);
+  rt.unbindTerminalSession("seat-x");
+  assert.equal(rt.boundTerminalTarget("seat-x"), null);
+});
+
+test("launch tools: terminal is refused clearly before any connection when the harness, cwd or combination is wrong", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { createAitermServer } = await import("../dist/index.js");
+  const server = createAitermServer();
+  const client = new Client({ name: "terminal-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(b); await client.connect(a);
+  const terminal = { ref: "00000000-0000-4000-8000-000000000000", target: { host: "10.0.0.7", user: "kite", port: 22 },
+    trustRevision: `sha256:${"1".repeat(64)}`, credentialRevision: `sha256:${"2".repeat(64)}` };
+  const text = result => result.content.map(item => item.text).join("\n");
+  const tools = (await client.listTools()).tools;
+  for (const name of ["agent_launch", "claude_agent", "codex_agent", "grok_agent"]) {
+    const tool = tools.find(item => item.name === name);
+    assert.ok(tool.inputSchema.properties.terminal, `${name} takes terminal`);
+    assert.match(tool.inputSchema.properties.terminal.description, /copy it unchanged/);
+  }
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "codex-cli", terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "claude_agent", arguments: { terminal } })), /TERMINAL_INVALID: cwd is required/);
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "relative" } })), /TERMINAL_INVALID/);
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x", remote: { host: "h" } } })), /TERMINAL_INVALID: use terminal or remote/);
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x" } })), /BINDING_UNKNOWN/);
+  const malformed = await client.callTool({ name: "claude_agent", arguments: { terminal: { ...terminal, ref: "macbook" }, cwd: "/x" } });
+  assert.equal(malformed.isError, true);
+  assert.match(text(malformed), /binding ref/);
+  await client.close();
 });
 
 test("binding status: revisions follow the key and the matching known_hosts entries; missing trust is a status", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {

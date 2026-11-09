@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `aiterm-remote-terminal`: remote seats reach BellTeam MCP back through the bound SSH connection. The MCP connection asks for `-R 127.0.0.1:0:127.0.0.1:<BELLTEAM_REMOTE_SEAT_PORT, default 4182>`; the terminal's sshd picks the port for that connection, and `agent_launch` rewrites the origin of every `mcp_config` server URL under `/api/seat-mcp` to `http://127.0.0.1:<that port>` (path, query and headers kept). The forward ends with the connection. A terminal that refuses it answers `SEAT_FORWARD_UNAVAILABLE` to launches with `mcp_config`.
+
 ## [0.65.1] - 2026-11-09
 
 - `aiterm-remote-terminal`: the `ready` event now reaches the caller; 0.65.0 emitted it before the listener was attached.

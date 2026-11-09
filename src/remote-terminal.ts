@@ -173,8 +173,38 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   return { code: "CONNECTION_FAILED", message: "the SSH connection failed" };
 }
 
-export function sshArguments(b: Binding, agentSocket: string, identityFile: string, remoteCommand: string): string[] {
-  return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+/** -R spec for the seats' BellTeam MCP (remote-terminal.md R12): the terminal's sshd picks the port per connection. */
+export function seatForwardSpec(env: NodeJS.ProcessEnv = process.env): string {
+  const port = Number(env.BELLTEAM_REMOTE_SEAT_PORT ?? 4182);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "BELLTEAM_REMOTE_SEAT_PORT is not a port");
+  return `127.0.0.1:0:127.0.0.1:${port}`;
+}
+
+/** ssh stderr -> the allocated terminal port, "refused", or null while unknown. */
+export function parseSeatForward(stderr: string): number | "refused" | null {
+  const allocated = /Allocated port (\d+) for remote forward/.exec(stderr);
+  if (allocated) return Number(allocated[1]);
+  return /remote port forwarding failed/i.test(stderr) ? "refused" : null;
+}
+
+/** Seat MCP URLs (path /api/seat-mcp...) get the forward's terminal-local origin; everything else stays as given. */
+export function rewriteSeatMcpConfig(config: Record<string, unknown>, port: number): Record<string, unknown> {
+  const servers = config.mcpServers;
+  if (!servers || typeof servers !== "object") return config;
+  const rewritten: Record<string, unknown> = {};
+  for (const [name, server] of Object.entries(servers as Record<string, unknown>)) {
+    const url = (server as { url?: unknown } | null)?.url;
+    let parsed: URL | null = null;
+    try { parsed = typeof url === "string" ? new URL(url) : null; } catch { /* not a URL: unchanged */ }
+    rewritten[name] = parsed && /^\/api\/seat-mcp(\/|$)/.test(parsed.pathname)
+      ? { ...(server as object), url: `http://127.0.0.1:${port}${parsed.pathname}${parsed.search}` }
+      : server;
+  }
+  return { ...config, mcpServers: rewritten };
+}
+
+export function sshArguments(b: Binding, agentSocket: string, identityFile: string, remoteCommand: string, reverseForward?: string): string[] {
+  return ["-F", "/dev/null", "-T", ...(reverseForward ? ["-R", reverseForward] : []), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
     ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
     "-o", `IdentityAgent=${agentSocket}`, "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${identityFile}`,
@@ -196,17 +226,26 @@ class SshStdioTransport implements Transport {
   stderr = "";
   private readonly buffer = new ReadBuffer();
   private child: ChildProcess | null = null;
-  constructor(private readonly args: string[], private readonly privateLine: string) {}
+  /** R12: settles once from stderr, or "refused" when the connection ends first. */
+  readonly seatPort: Promise<number | "refused">;
+  private settlePort!: (value: number | "refused") => void;
+  constructor(private readonly args: string[], private readonly privateLine: string) {
+    this.seatPort = new Promise(resolve => { this.settlePort = resolve; });
+  }
   async start(): Promise<void> {
     const child = spawn("ssh", this.args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
-    child.stderr!.on("data", (chunk: Buffer) => { this.stderr = (this.stderr + chunk.toString("utf8")).slice(-4000); });
+    child.stderr!.on("data", (chunk: Buffer) => {
+      this.stderr = (this.stderr + chunk.toString("utf8")).slice(-4000);
+      const forward = parseSeatForward(this.stderr);
+      if (forward !== null) this.settlePort(forward);
+    });
     child.stdout!.on("data", (chunk: Buffer) => {
       this.buffer.append(chunk);
       for (let message = this.buffer.readMessage(); message; message = this.buffer.readMessage()) this.onmessage?.(message);
     });
     child.on("error", error => this.onerror?.(error));
-    child.on("close", () => { this.child = null; this.onclose?.(); });
+    child.on("close", () => { this.child = null; this.settlePort("refused"); this.onclose?.(); });
     child.stdin!.on("error", error => this.onerror?.(error));
     child.stdin!.write(this.privateLine);
   }
@@ -253,7 +292,8 @@ export const REMOTE_MINIMUM_VERSION = "0.65.0";
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
-    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string) { super(); }
+    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string,
+    private readonly seatPort: Promise<number | "refused">) { super(); }
 
   static async open(input: { ref: string; target: unknown; trustRevision: string; credentialRevision: string; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
     const target = validTarget(input.target);
@@ -285,7 +325,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       const key = publicKey(b.key_file);
       if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
       fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
-      const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
+      const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin"), seatForwardSpec()),
         `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: input.privateEnv ?? {} })}\n`);
       const client = new Client({ name: "aiterm-remote-terminal", version: pkg.version });
       try { await client.connect(transport, { timeout: 60_000 }); }
@@ -299,7 +339,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         await client.close().catch(() => {});
         throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${remoteVersion}; ${REMOTE_MINIMUM_VERSION} or later is required`);
       }
-      const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion);
+      const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion, transport.seatPort);
       client.onclose = () => connection.ended();
       // After the caller has attached its listener to the returned connection.
       setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
@@ -317,9 +357,15 @@ export class RemoteTerminalConnection extends EventEmitter {
   async call(name: string, args: Record<string, unknown>, options: { private?: { appendSystemPrompt?: string; mcpConfig?: Record<string, unknown> }; timeoutMs?: number } = {}): Promise<unknown> {
     if (!REMOTE_SEAT_TOOLS.has(name)) throw new RemoteTerminalError("TOOL_UNSUPPORTED", `${name} is not a bound seat tool`);
     if (options.private && name !== "agent_launch") throw new RemoteTerminalError("PRIVATE_OPTIONS_UNSUPPORTED", "private options apply to agent_launch only");
+    let mcpConfig = options.private?.mcpConfig;
+    if (mcpConfig !== undefined) {
+      const port = await Promise.race([this.seatPort, new Promise<null>(resolve => setTimeout(() => resolve(null), 15_000).unref())]);
+      if (typeof port !== "number") throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the terminal did not grant the seat MCP forward; reopen the connection");
+      mcpConfig = rewriteSeatMcpConfig(mcpConfig, port);
+    }
     const full = { ...args,
       ...(options.private?.appendSystemPrompt !== undefined ? { append_system_prompt: options.private.appendSystemPrompt } : {}),
-      ...(options.private?.mcpConfig !== undefined ? { mcp_config: options.private.mcpConfig } : {}) };
+      ...(mcpConfig !== undefined ? { mcp_config: mcpConfig } : {}) };
     try {
       return await this.client.callTool({ name, arguments: full }, undefined, { timeout: options.timeoutMs ?? 600_000, resetTimeoutOnProgress: true });
     } catch (error) {

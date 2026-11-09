@@ -48,6 +48,28 @@ test("ssh failures are classified with a plain action; argv ignores user config 
   assert.deepEqual(args.slice(-3), ["--", "192.168.1.12", "exec aiterm-mcp"]);
 });
 
+test("seat MCP forward: only the MCP connection asks for -R, P comes from ssh stderr, seat URLs get the terminal-local origin", () => {
+  const b = { target: { host: "h", user: "u", port: 22 }, known_hosts_file: "/k" };
+  assert.ok(!rt.sshArguments(b, "/s", "/i", "exec x").includes("-R"));
+  const forwarded = rt.sshArguments(b, "/s", "/i", "exec x", rt.seatForwardSpec({}));
+  assert.equal(forwarded[forwarded.indexOf("-R") + 1], "127.0.0.1:0:127.0.0.1:4182");
+  assert.equal(rt.seatForwardSpec({ BELLTEAM_REMOTE_SEAT_PORT: "5000" }), "127.0.0.1:0:127.0.0.1:5000");
+  assert.throws(() => rt.seatForwardSpec({ BELLTEAM_REMOTE_SEAT_PORT: "x" }), /SEAT_FORWARD_UNAVAILABLE|not a port/);
+  assert.equal(rt.parseSeatForward("Allocated port 65423 for remote forward to 127.0.0.1:4182\n"), 65423);
+  assert.equal(rt.parseSeatForward("Warning: remote port forwarding failed for listen port 0\n"), "refused");
+  assert.equal(rt.parseSeatForward("Warning: Permanently added x\n"), null);
+  const config = { mcpServers: {
+    bellteam: { type: "http", url: "http://127.0.0.1:4182/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } },
+    "call-bridge": { type: "http", url: "http://192.168.1.2:4180/api/seat-mcp/call-bridge?x=1" },
+    other: { type: "http", url: "https://example.com/api/seat-mcpx" }, stdio: { command: "node" } } };
+  const out = rt.rewriteSeatMcpConfig(config, 65423);
+  assert.deepEqual(out.mcpServers.bellteam, { type: "http", url: "http://127.0.0.1:65423/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } });
+  assert.equal(out.mcpServers["call-bridge"].url, "http://127.0.0.1:65423/api/seat-mcp/call-bridge?x=1");
+  assert.equal(out.mcpServers.other, config.mcpServers.other);
+  assert.equal(out.mcpServers.stdio, config.mcpServers.stdio);
+  assert.equal(config.mcpServers.bellteam.url, "http://127.0.0.1:4182/api/seat-mcp");
+});
+
 test("binding status: revisions follow the key and the matching known_hosts entries; missing trust is a status", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
   const key = path.join(tmp, "id_test");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);

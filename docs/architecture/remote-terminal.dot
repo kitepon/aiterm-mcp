@@ -14,7 +14,8 @@ digraph remote_terminal {
  pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
  jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
- bt [label="BellTeam MCP over LAN\nheaders expanded from env",fillcolor="#f0f0f0"];
+ fwd [label="R12 reverse forward on the bound ssh\nterminal 127.0.0.1:P (allocated per connection)\n-> container 127.0.0.1:4182; ends with closed/lost"];
+ bt [label="BellTeam seat ingress (container loopback)\n/api/seat-mcp, /api/seat-mcp/call-bridge",fillcolor="#f0f0f0"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
  trust -> terminals [label="revisions (public)"];
@@ -28,7 +29,10 @@ digraph remote_terminal {
  conn -> rmcp [label="MCP tools"];
  rmcp -> launch;
  launch -> pane [label="R7"];
- pane -> bt [label="R8"];
+ ssh -> fwd [label="-R 127.0.0.1:0, Allocated port P"];
+ conn -> launch [label="mcpConfig seat URLs -> http://127.0.0.1:P",style=dashed];
+ pane -> fwd [label="R8 http://127.0.0.1:P"];
+ fwd -> bt [label="R12"];
  conn -> jsonl [label="R9 over same ssh"];
  jsonl -> execution [label="entries + cursor",style=dashed];
  conn -> cmd [label="R10 over same ssh"];

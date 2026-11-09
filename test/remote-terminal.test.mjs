@@ -297,15 +297,52 @@ test("keyless binding: Aiterm keeps its own known_hosts, the key must come from 
   assert.equal(fs.statSync(store.known_hosts_file).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(store.known_hosts_file, "utf8"), "");
   const base = { ref: status.ref, target: status.target, trustRevision: `sha256:${"3".repeat(64)}` };
-  const credential = { handle: "mika:ssh:abc", revision: "r1" };
+  const credential = { handle: "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", revision: 1 };
   assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential }).success, true);
   assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential, credentialRevision: `sha256:${"4".repeat(64)}` }).success, false);
   assert.match(contract.terminalArgumentSchema.safeParse(base).error.issues[0].message, /exactly one key source/);
-  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential: { handle: "x y", revision: "r" } }).success, false);
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential: { handle: "x y", revision: 1 } }).success, false);
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential: { ...credential, revision: 0 } }).success, false);
   // Trust is checked first; with trust present the key source rule decides.
   assert.throws(() => rt.terminalRemoteTarget({ ...base, credential }), /HOST_TRUST_MISSING/);
   fs.writeFileSync(store.known_hosts_file, "[10.0.0.20]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0vJHFq2n8gV6rGq8kq3zQv9Hn3l7rYb2b1o7c3B5Z\n");
   const trusted = { ...base, trustRevision: rt.bindingStatus(status.ref).trust.revision };
   assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credentialRevision: `sha256:${"4".repeat(64)}` }), /CREDENTIAL_REQUIRED/);
   assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential, credentialRevision: "x" }), /TERMINAL_INVALID/);
+  assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential }), /CREDENTIAL_NOT_LOADED/);
+});
+
+test("credential-load: key bytes only from stdin into a private agent; launch checks handle and revision; release empties memory", { skip: process.platform === "win32" || spawnSync("ssh-agent", ["-?"]).error !== undefined }, async () => {
+  const status = rt.registerBinding({ target: { host: "10.0.0.21", user: "u", port: 22 } });
+  const store = JSON.parse(fs.readFileSync(rt.storePath(), "utf8")).bindings.find(b => b.ref === status.ref);
+  const hostKey = path.join(tmp, "host_key_cred");
+  spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", hostKey]);
+  const [htype, hblob] = fs.readFileSync(`${hostKey}.pub`, "utf8").trim().split(/\s+/);
+  fs.writeFileSync(store.known_hosts_file, `10.0.0.21 ${htype} ${hblob}\n`);
+  const keyPath = path.join(tmp, "id_cred");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath]).status, 0);
+  const handle = "0d6c1f0e-2b8a-4c3d-9e7f-112233445566";
+  const load = (extra = {}) => rt.loadCredential({ ref: status.ref, terminalId: "pc-1", handle, revision: "3", purpose: "ssh-key", ...extra }, fs.readFileSync(keyPath));
+  await assert.rejects(load({ purpose: "sudo" }), /CREDENTIAL_PURPOSE_UNSUPPORTED/);
+  await assert.rejects(rt.loadCredential({ ref: status.ref, terminalId: "pc-1", handle, revision: "3", purpose: "ssh-key" }, Buffer.from("not a key")), /CREDENTIAL_INVALID/);
+  try {
+    const receipt = await load();
+    assert.equal(receipt.accepted, true);
+    assert.equal(receipt.revision, 3);
+    assert.equal(receipt.fingerprint, spawnSync("ssh-keygen", ["-lf", `${keyPath}.pub`], { encoding: "utf8" }).stdout.split(/\s+/)[1]);
+    const meta = rt.readCredential(status.ref);
+    const privateBody = fs.readFileSync(keyPath, "utf8").split("\n")[1];
+    for (const file of fs.readdirSync(path.dirname(rt.storePath()), { recursive: true }).map(f => path.join(path.dirname(rt.storePath()), f)).filter(f => fs.statSync(f).isFile()))
+      assert.ok(!fs.readFileSync(file, "utf8").includes(privateBody), `no private key in ${file}`);
+    const args = rt.trustedSshArguments(status.ref, "true", null);
+    assert.ok(args.includes(`IdentityAgent=${meta.socket}`) && args.includes(`IdentityFile=${rt.credentialPublicKeyFile(status.ref)}`));
+    const trusted = { ref: status.ref, target: status.target, trustRevision: rt.bindingStatus(status.ref).trust.revision };
+    assert.equal(rt.terminalRemoteTarget({ ...trusted, credential: { handle, revision: 3 } }).trusted_ref, status.ref);
+    assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential: { handle, revision: 4 } }), /CREDENTIAL_REVISION_STALE/);
+    assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential: { handle: "0d6c1f0e-2b8a-4c3d-9e7f-000000000000", revision: 3 } }), /CREDENTIAL_NOT_LOADED/);
+    rt.releaseCredential(status.ref);
+    assert.equal(rt.readCredential(status.ref), null);
+    assert.ok(!fs.existsSync(meta.socket));
+    assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential: { handle, revision: 3 } }), /CREDENTIAL_NOT_LOADED/);
+  } finally { rt.releaseCredential(status.ref); }
 });

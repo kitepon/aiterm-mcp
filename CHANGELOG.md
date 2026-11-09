@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Terminals without a native key (docs/architecture/remote-terminal.md R13). `aiterm-remote-terminal register --host H --user U --port P` creates a keyless binding with Aiterm's own empty known_hosts (`~/.config/aiterm/known_hosts.d/<ref>`; trust via `trust-confirm`). `aiterm-remote-terminal credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key` takes the resolved OpenSSH private key only on stdin and holds it in a private per-terminal ssh-agent (memory only); the receipt carries metadata only. The terminal value then carries `credential: {handle, revision}` instead of `credentialRevision`; Aiterm checks the loaded handle and revision (`CREDENTIAL_NOT_LOADED`, `CREDENTIAL_REVISION_STALE`, `CREDENTIAL_REQUIRED`). `sudoCredential` is accepted and kept as a handle only. The agent is removed when no seat of that terminal remains.
+
 ## [0.66.0] - 2026-11-09
 
 - One launch path for seats on another computer (Owner ruling; docs/architecture/remote-terminal.md). `agent_launch`, `claude_agent`, `codex_agent` and `grok_agent` take `terminal: {ref, target:{host,user,port}, trustRevision, credentialRevision}` (the value BellTeam terminals hands over, unchanged) and `cwd` (the project folder on that terminal, required). Omitted = local, as before. The value is checked against the Aiterm-held binding and its revisions; a malformed value, a missing or relative `cwd`, or `terminal` together with `remote` answers `TERMINAL_INVALID` with a plain message. First scope `claude-code`; other harnesses answer `TERMINAL_HARNESS_UNSUPPORTED`.

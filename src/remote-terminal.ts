@@ -305,7 +305,7 @@ export class RemoteTerminalConnection extends EventEmitter {
     const status = bindingStatus(input.ref);
     if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "host trust is unavailable", "confirm the new host key");
     if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust revision changed; re-read status");
-    checkKeySource(status, input);
+    checkKeySource(input.ref, status, input);
     for (const [name, value] of Object.entries(input.privateEnv ?? {}))
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") throw new RemoteTerminalError("PRIVATE_ENV_INVALID", "invalid private env entry");
     // Short path: the agent socket must fit macOS's 104-byte sun_path.
@@ -320,14 +320,19 @@ export class RemoteTerminalConnection extends EventEmitter {
         if (Date.now() > deadline || agent.exitCode !== null) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the private agent did not start");
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      const keyFile = b.key_file!; // checkKeySource admitted only a native key
-      const added = spawnSync("ssh-add", ["-q", keyFile], { env: { ...sshEnvironment(), SSH_AUTH_SOCK: socket }, stdio: ["ignore", "ignore", "pipe"], timeout: 10_000 });
-      if (added.status !== 0) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the key could not be loaded");
-      const identity = path.join(dir, "id.pub");
-      const key = publicKey(keyFile);
-      if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
-      fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
-      const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
+      // A keyless binding authenticates with the credential agent loaded by credential-load (R13); checkKeySource checked it.
+      const loaded = b.key_file ? null : readCredential(b.ref)!;
+      let agentSocket = socket, identity = path.join(dir, "id.pub");
+      if (loaded) { agentSocket = loaded.socket; identity = credentialPublicKeyFile(b.ref); }
+      else {
+        const keyFile = b.key_file!;
+        const added = spawnSync("ssh-add", ["-q", keyFile], { env: { ...sshEnvironment(), SSH_AUTH_SOCK: socket }, stdio: ["ignore", "ignore", "pipe"], timeout: 10_000 });
+        if (added.status !== 0) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the key could not be loaded");
+        const key = publicKey(keyFile);
+        if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
+        fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
+      }
+      const transport = new SshStdioTransport(sshArguments(b, agentSocket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
         `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: input.privateEnv ?? {} })}\n`);
       const client = new Client({ name: "aiterm-remote-terminal", version: pkg.version });
       try { await client.connect(transport, { timeout: 60_000 }); }
@@ -341,7 +346,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         await client.close().catch(() => {});
         throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${remoteVersion}; ${REMOTE_MINIMUM_VERSION} or later is required`);
       }
-      const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion);
+      const connection = new RemoteTerminalConnection(b, dir, agent, agentSocket, identity, client, remoteVersion);
       client.onclose = () => connection.ended();
       // After the caller has attached its listener to the returned connection.
       setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
@@ -438,16 +443,22 @@ export class RemoteTerminalConnection extends EventEmitter {
 
 // ---- terminal seats: the launch tools' `terminal` argument (remote-terminal.md "One launch path") ----
 
-export interface CredentialHandle { handle: string; revision: string }
+export interface CredentialHandle { handle: string; revision: number }
 export interface TerminalArgument { ref: string; target: RemoteTarget; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle; sudoCredential?: CredentialHandle }
 
 /** T1 key source: a credential handle (its revision checked by the resolver) or the binding's native key revision, never both. */
-function checkKeySource(status: RemoteBindingStatus, input: { credentialRevision?: string; credential?: CredentialHandle }): void {
+function checkKeySource(ref: string, status: RemoteBindingStatus, input: { credentialRevision?: string; credential?: CredentialHandle }): void {
   if (input.credential) {
     if (input.credentialRevision !== undefined)
       throw new RemoteTerminalError("TERMINAL_INVALID", "give credential or credentialRevision, not both: with a credential handle the registry omits credentialRevision");
-    // shortcut: handle resolution waits for the credential owner's resolver contract; until then a handle cannot authenticate.
-    throw new RemoteTerminalError("CREDENTIAL_RESOLVER_UNAVAILABLE", "credential handles cannot be resolved by this Aiterm yet");
+    if (status.credential.provider !== "aiterm.credential-handle.v1")
+      throw new RemoteTerminalError("TERMINAL_INVALID", "this terminal has a native key; pass credentialRevision instead of credential");
+    const loaded = readCredential(ref);
+    if (!loaded || loaded.handle !== input.credential.handle || !agentAlive(loaded.socket))
+      throw new RemoteTerminalError("CREDENTIAL_NOT_LOADED", "the terminal's credential is not loaded; resolve the handle and run credential-load, then launch again");
+    if (loaded.revision !== input.credential.revision)
+      throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the loaded credential has another revision; run credential-load with the current one, then launch again");
+    return;
   }
   if (status.credential.provider === "aiterm.credential-handle.v1")
     throw new RemoteTerminalError("CREDENTIAL_REQUIRED", "this terminal has no native key; pass the terminal's credential handle from the registry");
@@ -469,18 +480,26 @@ export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarg
   const status = bindingStatus(input.ref);
   if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted (confirm the new host key)");
   if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust changed; get the current value from the terminal registry and launch again");
-  checkKeySource(status, input);
+  checkKeySource(input.ref, status, input);
   return trustedTarget(b);
 }
 
 /** ssh argv for a trusted target: no user config, the binding's known_hosts only, its key file only. */
 export function trustedSshArguments(ref: string, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
   const b = binding(ref);
-  if (!b.key_file) throw new RemoteTerminalError("CREDENTIAL_RESOLVER_UNAVAILABLE", "credential handles cannot be resolved by this Aiterm yet");
+  let identity: string[];
+  if (b.key_file) identity = ["-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`];
+  else {
+    // R13: only the key credential-load put into this terminal's private agent (its public half selects it).
+    const loaded = readCredential(ref);
+    if (!loaded || !fs.existsSync(loaded.socket))
+      throw new RemoteTerminalError("CREDENTIAL_NOT_LOADED", "the terminal's credential is not loaded; resolve the handle and run credential-load");
+    identity = ["-o", `IdentityAgent=${loaded.socket}`, "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${credentialPublicKeyFile(ref)}`];
+  }
   return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
     ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
-    "-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`,
+    ...identity,
     ...(controlPath ? ["-o", "ControlMaster=auto", "-o", `ControlPath=${controlPath}`, "-o", "ControlPersist=600"] : ["-o", "ControlMaster=no", "-o", "ControlPath=none"]),
     "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", ...extra,
     "-l", b.target.user, "-p", String(b.target.port), "--", b.target.host, ...(remoteCommand === null ? [] : [remoteCommand])];
@@ -579,7 +598,7 @@ function keep(ref: string): void {
   keepers.set(ref, keeper);
   if (keeper.child) { if (!forwardNeeded(ref)) keeper.child.kill(); return; }
   if (keeper.timer) return;
-  if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); return; }
+  if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); releaseIdleCredential(ref); return; }
   if (!holdLock(ref)) return;
   let b: Binding;
   try { b = binding(ref); } catch { releaseLock(ref); return; }
@@ -612,7 +631,7 @@ function keep(ref: string): void {
 
 /** Every 60 s: keep (or take over) the forwards this process's state root needs. */
 export function maintainSeatForwards(): void {
-  const refs = new Set([...Object.values(readSeats()), ...keepers.keys()]);
+  const refs = new Set([...Object.values(readSeats()), ...keepers.keys(), ...loadedCredentialRefs()]);
   for (const ref of refs) keep(ref);
   if (refs.size && !maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
 }
@@ -630,4 +649,105 @@ export async function ensureSeatForward(ref: string, timeoutMs = 30_000): Promis
     if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+}
+
+// ---- R13 credential agent: a keyless terminal's key, loaded by execution over stdin, held only in a private ssh-agent ----
+
+const LOAD_GRACE_MS = 120_000, MAX_KEY_BYTES = 64 * 1024;
+interface CredentialMeta { schema: "aiterm.credential-agent.v1"; ref: string; terminal_id: string; handle: string; revision: number;
+  fingerprint: string; agent_pid: number | null; socket: string; loaded_at: string }
+
+function credentialDir(): string {
+  const dir = path.join(path.dirname(storePath()), "credentials");
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+const credentialMetaFile = (ref: string) => path.join(credentialDir(), `${ref}.json`);
+export const credentialPublicKeyFile = (ref: string) => path.join(credentialDir(), `${ref}.pub`);
+
+function agentSocketPath(ref: string): string {
+  // Short and stable across processes: macOS-style 104-byte sun_path limits also apply here.
+  const dir = path.join("/tmp", `aiterm-ka-${process.getuid?.() ?? 0}`);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const stat = fs.lstatSync(dir);
+  if (!stat.isDirectory() || stat.uid !== (process.getuid?.() ?? 0) || (stat.mode & 0o777) !== 0o700)
+    throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the credential agent directory is not a private directory of this user");
+  return path.join(dir, `${ref.slice(0, 8)}.sock`);
+}
+
+function agentEnv(socket: string): NodeJS.ProcessEnv { return { ...sshEnvironment(), SSH_AUTH_SOCK: socket }; }
+function agentAlive(socket: string): boolean {
+  if (!fs.existsSync(socket)) return false;
+  const listed = spawnSync("ssh-add", ["-l"], { env: agentEnv(socket), stdio: ["ignore", "ignore", "ignore"], timeout: 10_000 });
+  return listed.status === 0; // 1 = alive but empty, which cannot authenticate either
+}
+
+export function readCredential(ref: string): CredentialMeta | null {
+  try {
+    const meta = JSON.parse(fs.readFileSync(credentialMetaFile(ref), "utf8"));
+    return meta?.schema === "aiterm.credential-agent.v1" && meta.ref === ref ? meta : null;
+  } catch { return null; }
+}
+
+function loadedCredentialRefs(): string[] {
+  try { return fs.readdirSync(credentialDir()).filter(name => name.endsWith(".json")).map(name => name.slice(0, -5)).filter(ref => REF.test(ref)); }
+  catch { return []; }
+}
+
+export function releaseCredential(ref: string): void {
+  const meta = readCredential(ref);
+  if (meta?.agent_pid) try { process.kill(meta.agent_pid); } catch { /* already gone */ }
+  for (const file of [credentialMetaFile(ref), credentialPublicKeyFile(ref), meta?.socket].filter((f): f is string => !!f)) fs.rmSync(file, { force: true });
+}
+
+/** No terminal seat of this ref and no launch pending: the key leaves memory. */
+function releaseIdleCredential(ref: string): void {
+  const meta = readCredential(ref);
+  if (!meta || Object.values(readSeats()).includes(ref) || Date.now() - Date.parse(meta.loaded_at) < LOAD_GRACE_MS) return;
+  releaseCredential(ref);
+}
+
+/** credential-load (R13): key bytes only from the caller's stdin; the receipt carries metadata only. */
+export async function loadCredential(input: { ref: string; terminalId: string; handle: string; revision: string; purpose: string }, key: Buffer): Promise<Record<string, unknown>> {
+  try {
+    if (input.purpose !== "ssh-key") throw new RemoteTerminalError("CREDENTIAL_PURPOSE_UNSUPPORTED", "only --purpose ssh-key is loaded; a sudo secret is never loaded here");
+    if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.terminalId)) throw new RemoteTerminalError("TERMINAL_ID_INVALID", "--terminal-id is required");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.handle)) throw new RemoteTerminalError("CREDENTIAL_HANDLE_INVALID", "--handle must be a UUID");
+    const revision = Number(input.revision);
+    if (!/^[1-9]\d{0,15}$/.test(input.revision) || !Number.isSafeInteger(revision)) throw new RemoteTerminalError("CREDENTIAL_REVISION_INVALID", "--revision must be a positive integer");
+    const b = binding(input.ref);
+    if (b.key_file) throw new RemoteTerminalError("TERMINAL_INVALID", "this terminal has a native key; a credential is loaded only for keyless terminals");
+    if (key.length === 0 || key.length > MAX_KEY_BYTES || !key.includes("PRIVATE KEY-----"))
+      throw new RemoteTerminalError("CREDENTIAL_INVALID", "stdin is not an OpenSSH private key");
+    const socket = agentSocketPath(b.ref);
+    let pid = readCredential(b.ref)?.agent_pid ?? null;
+    if (!agentAliveOrEmpty(socket)) {
+      fs.rmSync(socket, { force: true });
+      // Detached: the agent outlives this one-shot and holds the key in memory only.
+      const agent = spawn("ssh-agent", ["-D", "-a", socket], { env: sshEnvironment(), stdio: "ignore", detached: true });
+      agent.unref();
+      pid = agent.pid ?? null;
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(socket)) {
+        if (Date.now() > deadline) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the credential agent did not start");
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+    spawnSync("ssh-add", ["-D"], { env: agentEnv(socket), stdio: ["ignore", "ignore", "ignore"], timeout: 10_000 });
+    const added = spawnSync("ssh-add", ["-q", "-"], { env: agentEnv(socket), input: key, stdio: ["pipe", "ignore", "ignore"], timeout: 10_000 });
+    if (added.status !== 0) throw new RemoteTerminalError("CREDENTIAL_INVALID", "the agent did not accept the key (passphrase-protected or malformed)");
+    const listed = spawnSync("ssh-add", ["-L"], { env: agentEnv(socket), encoding: "utf8", timeout: 10_000 });
+    const line = listed.stdout.trim().split("\n")[0]?.split(/\s+/).slice(0, 2).join(" ") ?? "";
+    const fingerprint = keyFingerprint(Buffer.from(line.split(" ")[1] ?? "", "base64"));
+    fs.writeFileSync(credentialPublicKeyFile(b.ref), `${line}\n`, { mode: 0o600 });
+    writeJson0600(credentialMetaFile(b.ref), { schema: "aiterm.credential-agent.v1", ref: b.ref, terminal_id: input.terminalId, handle: input.handle,
+      revision, fingerprint, agent_pid: pid, socket, loaded_at: new Date().toISOString() } satisfies CredentialMeta);
+    return { schema: "aiterm.credential-load.v1", accepted: true, ref: b.ref, terminal_id: input.terminalId, handle: input.handle, revision, fingerprint };
+  } finally { key.fill(0); }
+}
+
+function agentAliveOrEmpty(socket: string): boolean {
+  if (!fs.existsSync(socket)) return false;
+  const listed = spawnSync("ssh-add", ["-l"], { env: agentEnv(socket), stdio: ["ignore", "ignore", "ignore"], timeout: 10_000 });
+  return listed.status === 0 || listed.status === 1;
 }

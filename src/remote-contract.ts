@@ -35,8 +35,8 @@ const revision = (field: string) => z.string().regex(/^sha256:[0-9a-f]{64}$/,
 
 /** A credential owner's handle for a key; the value itself never travels in an argument. */
 export const credentialHandleSchema = z.object({
-  handle: z.string().regex(/^[A-Za-z0-9._:-]{1,256}$/, "credential.handle must be the handle the terminal registry gave, unchanged"),
-  revision: z.string().regex(/^[A-Za-z0-9._:-]{1,256}$/, "credential.revision must be the handle revision the terminal registry gave, unchanged"),
+  handle: z.string().uuid("credential.handle must be the handle (UUID) the terminal registry gave, unchanged"),
+  revision: z.number().int().positive("credential.revision must be the handle's positive integer revision, unchanged").max(Number.MAX_SAFE_INTEGER),
 }).strict();
 
 /** The launch tools' terminal target (remote-terminal.md "One launch path"). Copied unchanged from BellTeam terminals. */
@@ -67,6 +67,7 @@ export const terminalArgumentDescription =
   "TARGET_MISMATCH / BINDING_UNKNOWN = the value is not this terminal's binding: ask the terminal registry again. " +
   "HOST_TRUST_STALE / CREDENTIAL_REVISION_STALE = the binding changed: get the current value from the terminal registry and launch again. " +
   "HOST_KEY_MISMATCH / HOST_TRUST_MISSING = the terminal's host key is not the trusted one: the Owner must confirm the new host key; do not retry. " +
+  "CREDENTIAL_REQUIRED / CREDENTIAL_NOT_LOADED = this terminal's key comes from a credential handle that the registry must load first; never paste a key anywhere. " +
   "AUTH_FAILED = the terminal refused the key. UNREACHABLE = the terminal is offline; try later. " +
   "REMOTE_AITERM_TOO_OLD = update Aiterm on the terminal. CWD_UNAVAILABLE = the folder does not exist there; do not pick another folder. " +
   "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready; launch again later. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code.";

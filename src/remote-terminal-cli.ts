@@ -2,6 +2,7 @@
 // aiterm-remote-terminal (remote-terminal.md). Run as the UID that can read the terminal key.
 //   status --ref R | register ... | trust-confirm --ref R --fingerprint F   (one JSON line; exit 0 result, 2 error)
 //   serve        stdio MCP for one bound connection, spawned by BellTeam terminals
+//   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,7 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
+import { RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { credentialHandleSchema } from "./remote-contract.js";
 
@@ -90,6 +91,20 @@ export function main(args: string[]): void {
     target: { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", port: Number(option(rest, "--port") ?? "22") },
     keyFile: option(rest, "--key-file") ?? null, knownHostsFile: option(rest, "--known-hosts") ?? null, hostKeyAlias: option(rest, "--host-key-alias") ?? null,
   }), "aiterm.remote-binding-error.v1");
+  if (command === "credential-load") {
+    // Key bytes only on stdin until EOF (remote-terminal.md R13); flags carry metadata only.
+    const chunks: Buffer[] = [];
+    process.stdin.on("data", (chunk: Buffer) => chunks.push(chunk));
+    process.stdin.on("end", () => {
+      const key = Buffer.concat(chunks);
+      for (const chunk of chunks) chunk.fill(0);
+      loadCredential({ ref: option(rest, "--ref") ?? "", terminalId: option(rest, "--terminal-id") ?? "", handle: option(rest, "--handle") ?? "",
+        revision: option(rest, "--revision") ?? "", purpose: option(rest, "--purpose") ?? "" }, key)
+        .then(receipt => { process.stdout.write(`${JSON.stringify(receipt)}\n`); process.exit(0); })
+        .catch(error => { process.stdout.write(`${JSON.stringify(errorDto(error, "aiterm.remote-binding-error.v1"))}\n`); process.exit(2); });
+    });
+    return;
+  }
   if (command === "trust-confirm") return oneShot(() => confirmHostKey(option(rest, "--ref") ?? "", option(rest, "--fingerprint") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "transcript-read") return oneShot(() => {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");

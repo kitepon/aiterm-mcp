@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-11-09
+
 - Bound remote terminal (`aiterm-remote-terminal`, docs/architecture/remote-terminal.md), first for macOS + Claude Code. One UID-private process per connection holds an Aiterm-held binding (`register`: target, existing key, known_hosts, host-key alias) and returns only public revisions (`status --ref`). `remote_terminal_open` checks the target and both revisions, loads the key into a per-connection private ssh-agent, connects with `ssh -F /dev/null`, strict host checking against the bound known_hosts, and sends private env values on the encrypted stdin. Then `remote_terminal_call` (seat tools, results unchanged), `remote_terminal_wait` (the terminal's `aiterm-wait`), `remote_terminal_transcript_read` (Claude JSONL lines only through the latest completed turn), `remote_terminal_command` (`claude --version`, official install, `claude update`), events `aiterm/remote-terminal-event` (`ready`/`lost`/`closed`). Host-key changes answer `HOST_KEY_MISMATCH` with "confirm the new host key"; `trust-confirm` writes a scanned key only when it equals the confirmed fingerprint.
 - `aiterm-mcp --private-env-stdin` reads one private env line before MCP; those values reach a launch through `env_vars` and never enter `process.env`.
 - POSIX launches no longer type inherited env values into the pane: they are written to a 0600 file that the launch line sources and deletes, so the pane log and screen keep only its path. Windows launches are unchanged.
@@ -3118,7 +3120,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.0...HEAD
+[0.65.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.2...v0.65.0
 [0.64.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.1...v0.64.2
 [0.64.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.63.18...v0.64.0

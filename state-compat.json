@@ -1,0 +1,12 @@
+{
+  "schema": "aiterm.state-compat.v1",
+  "stores": {
+    "state-root": {
+      "path": "aiterm-mcp-{uid}",
+      "writes": "v1",
+      "reads": ["v1"],
+      "resets": [],
+      "legacy": [ { "from": "0.63.17", "through": "0.67.0", "format": "v1" } ]
+    }
+  }
+}

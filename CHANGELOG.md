@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `state-compat.json` (schema `aiterm.state-compat.v1`, in the npm package) states which saved-state formats this release reads, writes and would reset, per store under the state volume (docs/architecture/runtime-adoption.md "State volume declaration"). A body installer uses it instead of version or closure equality, so an upgrade keeps saved seats. This release reads and writes `v1` for the whole `aiterm-mcp-<uid>` state root, maps 0.63.17-0.67.0 to `v1`, and resets nothing. No state format changes; going back to 0.67.0 needs nothing.
+
 ## [0.67.0] - 2026-11-09
 
 - Terminals without a native key (docs/architecture/remote-terminal.md R13). `aiterm-remote-terminal register --host H --user U --port P` creates a keyless binding with Aiterm's own empty known_hosts (`~/.config/aiterm/known_hosts.d/<ref>`; trust via `trust-confirm`). `aiterm-remote-terminal credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key` takes the resolved OpenSSH private key only on stdin and holds it in a private per-terminal ssh-agent (memory only); the receipt carries metadata only. The terminal value then carries `credential: {handle, revision}` instead of `credentialRevision`; Aiterm checks the loaded handle and revision (`CREDENTIAL_NOT_LOADED`, `CREDENTIAL_REVISION_STALE`, `CREDENTIAL_REQUIRED`). `sudoCredential` is accepted and kept as a handle only. The agent is removed when no seat of that terminal remains.

@@ -38,6 +38,22 @@ Implemented interface (source contract for callers):
 | Capsule recognition | `setup-integrations.ts` `sameRegistration` -> `installationCapsuleEntry`: same Node command, absolute `args[0]` basename `index.js` (no args) or `execution-native-server.js` (`--execution-interrupt` first, mode mcp, never `--runtime-adoption`), sibling `aiterm-capsule.json` `{schema: aiterm.installation-capsule.v1, package: aiterm-mcp, entries[]}` listing that basename; also inside `mcp-lazy`. JSON/Codex/Grok readers then keep the entry and its timeout/env. Marker and entry stubs are written by the updater installer (Molly); Claude/Cursor hooks already match by hook basename, Codex hooks match the exact command BellTeam registers |
 | Errors | `RUNTIME_ADOPTION_INVALID`, `_STATE`, `_CONFLICT`, `_UNSUPPORTED`, `_UNAVAILABLE`, `_NOT_SERVING` |
 
+## State volume declaration (body replacement preserve/reset)
+
+Ruling 2026-11-09 (Trony, after the fb923ca4 swap reset every saved seat): an Aiterm upgrade keeps the existing state. Version or reader-closure inequality is never a reset reason; the identity-only preserve check is withdrawn. The installer (Molly) decides from the declaration below.
+
+| Item | Contract |
+| --- | --- |
+| File | `state-compat.json` at package root (npm `files`), plain JSON <= 64 KiB, read with fs + JSON.parse; no package code runs |
+| Shape | `{schema: "aiterm.state-compat.v1", stores: {<storeId>: {path, writes, reads[], resets[], legacy[{from, through, format}]}}}`; ids `^[a-z0-9][a-z0-9._-]{0,63}$`; `path` relative to the state volume root (`AITERM_STATE_BASE`), stores never nest |
+| `{uid}` | path segment token = the numeric UID of the Aiterm process (state root is `aiterm-mcp-<uid>`, `agent-shared.ts stateRootCandidates`) |
+| Store | `state-root` = the whole `aiterm-mcp-{uid}` tree. Format `v1` = every `runtime-overlap.json` store at its v1 / steer-v1 format. `legacy` 0.63.17-0.67.0 = v1 (those releases' runtime-overlap.json all declare v1) |
+| Installer rule | source format = old declaration's `writes`, else the legacy range containing the old version. Reset only a format listed in `resets`; everything else (read, unknown, undeclared, malformed, no declaration) keeps the same volume |
+| Reset | installer renames the store path into `<volume>/.bellteam-reset/<stamp>/` after the old body stops. Aiterm never enumerates the volume root (it joins `aiterm-mcp-<uid>`), and `ensureStateRoot` recreates a missing root and `agents/`; other stores are created on first write |
+| Release obligation | `resets` stays empty while every format is readable. A format change splits that store into its own entry first, lists the old format in `reads` (expand), and changes `writes` only after the supported recover image reads it (contract). A format may enter `resets` only when this release truly cannot read it |
+
+DFD: old body package.json version + its state-compat.json (if any) -> installer selection against target state-compat.json -> same volume (preserve) or per-store rename (reset of a declared unreadable format) -> new Aiterm reads `aiterm-mcp-<uid>` through the existing strict readers -> existing resume-only path.
+
 Legacy peers (no `manager_abi`) have no retire tool; their retirement is SDK close after the caller's operation references reach zero. Windows: the fsync checkpoint is POSIX-only, so activate returns `RUNTIME_ADOPTION_UNAVAILABLE` and the old generation keeps serving (BellTeam body is Linux).
 
 Generation/scope authority comes from trusted process composition, not a tool argument. Existing public tools/list shape remains unchanged for default clients. Request wrappers preserve existing execution dispatch, opaque provenance, .completion and cleanup semantics; add tracking at the actual handler boundary rather than pretending client cancellation ended work.

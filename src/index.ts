@@ -1257,7 +1257,7 @@ const agentEnvironmentDesc =
   `通常CLIと同じHOME・cwd・project/user/local設定・MCP・plugin・skill・permission/trustを共有する。` +
   `aitermは完了相関stateだけをlaunch単位で所有する。起動されたagentにはsub-agent自己認識、親session、` +
   `delegation depth/lineage、delegation_allowed=trueを注入し、必要な追加委譲は許可する。` +
-  `別のcomputer（BellTeam terminal）で起こす時は、この起動にterminal（BellTeam terminalsの値をそのまま）とcwd（その端末のproject folder）を付ける。` +
+  `別のcomputer（登録済みの端末）で起こす時は、この起動にterminal（端末の登録元が渡す値をそのまま）とcwd（その端末のproject folder）を付ける。` +
   `ここで起こしてからcd・sshしない。秘密の値はどの引数・prompt・送信文にも書かず、env_varsに名前だけを書く。`;
 
 const initialPromptDeliverySchema = z.object({
@@ -1300,7 +1300,7 @@ const terminalVersions = new Map<string, string>();
 /** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
 async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
   try {
-    if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a BellTeam terminal pass only terminal", 2);
+    if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a registered terminal pass only terminal", 2);
     if (harness !== "claude-code") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harness claude-code first; ${harness} is not available on a terminal yet`, 2);
     if (typeof args.cwd !== "string" || !args.cwd.startsWith("/"))
       throw new AitermError("TERMINAL_INVALID: cwd is required with terminal: the absolute project folder on that terminal (never launch locally and cd)", 2);

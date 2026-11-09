@@ -437,12 +437,12 @@ export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarg
   const b = binding(input.ref);
   const target = validTarget(input.target);
   if (b.target.host !== target.host || b.target.user !== target.user || b.target.port !== target.port)
-    throw new RemoteTerminalError("TARGET_MISMATCH", "terminal.target differs from this binding; get the current value from BellTeam terminals");
+    throw new RemoteTerminalError("TARGET_MISMATCH", "terminal.target differs from this binding; get the current value from the terminal registry");
   const status = bindingStatus(input.ref);
   if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted (confirm the new host key)");
-  if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust changed; get the current value from BellTeam terminals and launch again");
+  if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust changed; get the current value from the terminal registry and launch again");
   if (!status.credential.available) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
-  if (status.credential.revision !== input.credentialRevision) throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key changed; get the current value from BellTeam terminals and launch again");
+  if (status.credential.revision !== input.credentialRevision) throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key changed; get the current value from the terminal registry and launch again");
   return trustedTarget(b);
 }
 
@@ -599,7 +599,7 @@ export async function ensureSeatForward(ref: string, timeoutMs = 30_000): Promis
   for (;;) {
     const port = binding(ref).seat_forward_port;
     if (port) return port;
-    if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's BellTeam MCP route is not ready; launch again later");
+    if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }
 }

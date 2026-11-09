@@ -31,11 +31,11 @@ export const remoteInputDescription =
 
 
 const revision = (field: string) => z.string().regex(/^sha256:[0-9a-f]{64}$/,
-  `terminal.${field} must be the sha256:<hex> revision BellTeam terminals returned with this binding; pass it unchanged`);
+  `terminal.${field} must be the sha256:<hex> revision the terminal registry returned with this binding; pass it unchanged`);
 
 /** The launch tools' terminal target (remote-terminal.md "One launch path"). Copied unchanged from BellTeam terminals. */
 export const terminalArgumentSchema = z.object({
-  ref: z.string().uuid("terminal.ref must be the binding ref (UUID) BellTeam terminals gave for this terminal"),
+  ref: z.string().uuid("terminal.ref must be the binding ref (UUID) the terminal registry gave for this terminal"),
   target: z.object({
     host: z.string().min(1, "terminal.target.host is required"),
     user: z.string().min(1, "terminal.target.user is required"),
@@ -47,15 +47,15 @@ export const terminalArgumentSchema = z.object({
 export type TerminalArgument = z.infer<typeof terminalArgumentSchema>;
 
 export const terminalArgumentDescription =
-  "Run this seat on another computer (a BellTeam terminal) over SSH. Value: exactly what BellTeam terminals hands over for that terminal, " +
+  "Run this seat on another computer (a registered terminal) over SSH. Value: exactly the terminal value your host system's terminal registry hands over, " +
   "{ref, target:{host,user,port}, trustRevision, credentialRevision}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
   "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal. Never launch locally and then cd or ssh. " +
   "Never put tokens, passwords or other secrets in any argument, prompt or typed text; pass secret values only by name in env_vars. " +
   "After launch, use session_id alone for pty_send, pty_observe, pty_read, pty_key, claude_turn, agent_stop and pty_close; Aiterm routes them to the terminal. " +
-  "Errors and next step: TERMINAL_INVALID = malformed value, missing/relative cwd, or combined with remote: pass terminals' value unchanged with cwd. " +
-  "TARGET_MISMATCH / BINDING_UNKNOWN = the value is not this terminal's binding: ask terminals again. " +
-  "HOST_TRUST_STALE / CREDENTIAL_REVISION_STALE = the binding changed: get the current value from terminals and launch again. " +
+  "Errors and next step: TERMINAL_INVALID = malformed value, missing/relative cwd, or combined with remote: pass the registry's value unchanged with cwd. " +
+  "TARGET_MISMATCH / BINDING_UNKNOWN = the value is not this terminal's binding: ask the terminal registry again. " +
+  "HOST_TRUST_STALE / CREDENTIAL_REVISION_STALE = the binding changed: get the current value from the terminal registry and launch again. " +
   "HOST_KEY_MISMATCH / HOST_TRUST_MISSING = the terminal's host key is not the trusted one: the Owner must confirm the new host key; do not retry. " +
   "AUTH_FAILED = the terminal refused the key. UNREACHABLE = the terminal is offline; try later. " +
   "REMOTE_AITERM_TOO_OLD = update Aiterm on the terminal. CWD_UNAVAILABLE = the folder does not exist there; do not pick another folder. " +
-  "SEAT_FORWARD_UNAVAILABLE = the seat's BellTeam MCP route is not ready; launch again later. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code.";
+  "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready; launch again later. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code.";

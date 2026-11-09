@@ -21,7 +21,7 @@ A terminal seat is launched by the same agent tool as a local seat. There is no 
 
 | ID | State | Content |
 | --- | --- | --- |
-| T1 | launch check | `terminal.ref` -> binding; `terminal.target` equals binding target; `trustRevision` / `credentialRevision` equal current status. Later calls use the binding's current trust file with strict host checking, without revisions |
+| T1 | launch check | `terminal.ref` -> binding; `terminal.target` equals binding target; `trustRevision` equals current status. Key source: with `credential: {handle, revision}` (Mika's handle; `credentialRevision` must be absent) the key comes only from that handle and `credential.revision` must equal the resolver's revision; without it `credentialRevision` must equal the native key revision. A binding without a native key requires `credential` (`CREDENTIAL_REQUIRED`). `sudoCredential: {handle, revision}` is accepted with the same rule and held for sudo ops. Later calls use the binding's current trust file with strict host checking, without revisions |
 | T2 | terminal session map | `<state root>/terminal-seats.json` (0600) `{session_id: ref}`; written after a successful terminal launch, removed after `pty_close`. Survives an Aiterm restart; the seat itself lives on the terminal |
 | T3 | forward lock | `<state root>/terminal-forward-<ref>.lock` `{pid}`; taken when absent or its pid is gone. Every UID1000 Aiterm process with bound sessions checks it every 60 s, so a dead owner is replaced automatically |
 
@@ -29,8 +29,8 @@ A terminal seat is launched by the same agent tool as a local seat. There is no 
 
 | Function | Owner / file | Input -> result |
 | --- | --- | --- |
-| binding store | `remote-terminal.ts`, `~/.config/aiterm/remote-bindings.json` (0600; durable, independent of the caller's state-root env) | `aiterm.remote-binding.v1` {ref, target {host,user,port}, key_file, known_hosts_file, host_key_alias}. Written only by the UID1000 holder through the CLI |
-| `aiterm-remote-terminal register` / `trust-confirm` | `remote-terminal-cli.ts` | Register a binding from existing files -> ref + status. `trust-confirm --ref --fingerprint`: scan once, write the host key only when it equals the Owner-confirmed fingerprint. A scan alone never becomes trust |
+| binding store | `remote-terminal.ts`, `~/.config/aiterm/remote-bindings.json` (0600; durable, independent of the caller's state-root env) | `aiterm.remote-binding.v1` {ref, target {host,user,port}, key_file (null when the key comes from a credential handle), known_hosts_file, host_key_alias}. Written only by the UID1000 holder through the CLI |
+| `aiterm-remote-terminal register` / `trust-confirm` | `remote-terminal-cli.ts` | Register a binding from existing files -> ref + status. Without `--key-file` the binding has no native key; status reports `credential: {provider: "aiterm.credential-handle.v1", available: false, reason: "KEY_FROM_CREDENTIAL"}` and every open/launch must carry `credential`. `trust-confirm --ref --fingerprint`: scan once, write the host key only when it equals the Owner-confirmed fingerprint. A scan alone never becomes trust |
 | `aiterm-remote-terminal status --ref R` / `remote_terminal_status({ref})` | one-shot CLI (exit 0 status, 2 `aiterm.remote-binding-error.v1`) / server tool | -> {ref, target, credential {provider: "aiterm.native-ssh-key.v1", revision: "sha256:<public key digest>", fingerprint, available}, trust {provider: "aiterm.known-hosts.v1", revision: "sha256:<matching entries digest>", fingerprints}}. Public metadata only |
 | `remote_terminal_open({ref, target, trustRevision, credentialRevision, privateEnv?})` | server tool | Target must equal the binding and both revisions must be current. Loads the key into a per-connection private ssh-agent with `ssh-add <file>`, opens one long-lived MCP client over SSH to the terminal's `aiterm-mcp --private-env-stdin`. Reachability check for terminals; carries no forward. No auto-reconnect |
 | `remote_terminal_call({name, args, private?, timeoutMs?})` | server tool -> terminal `index.ts` | Same tools, args and results as the local AitermClient (`agent_launch`, `pty_send`, `pty_observe`, `pty_read`, `pty_key`, `claude_turn`, `agent_stop`, `pty_close`). `private` on `agent_launch` only: `appendSystemPrompt`, `mcpConfig`; values from `privateEnv` are referenced by name through `env_vars`. Kept for existing callers; not a seat launch path (seats use the launch tools' `terminal`) |
@@ -52,7 +52,7 @@ A terminal seat is launched by the same agent tool as a local seat. There is no 
 | --- | --- | --- | --- |
 | R1 | terminals -> `remote_terminal_status` | binding ref | paths, key |
 | R2 | terminals -> `remote_terminal_open` (local stdio to UID1000) | ref, target, revisions, private env values | key/env in argv, other processes' env, files, logs |
-| R3 | server -> private `ssh-agent` | `ssh-add <key file>` read by UID1000; agent socket in a 0700 per-connection directory | key copy, key in any pipe |
+| R3 | server -> private `ssh-agent` | `ssh-add <key file>` read by UID1000, or with a credential handle `ssh-add -` fed directly by the handle resolver's stdout (pending Mika's resolver contract); agent socket in a 0700 directory, one agent per terminal ref, killed when no connection/seat of that terminal remains or the process exits | key copy, key in any pipe |
 | R4 | adapter -> `ssh` | `-F /dev/null`, explicit `-l/-p`, `-R` only on the forward keeper (R12), `StrictHostKeyChecking=yes`, `UserKnownHostsFile=<trust file>`, `GlobalKnownHostsFile=/dev/null`, `IdentityAgent=<socket>`, `IdentitiesOnly=yes` + agent public key, `BatchMode=yes` | user ssh_config aliases/options, other agent keys |
 | R5 | adapter -> remote `aiterm-mcp` stdin | one private-env line, then MCP | values in argv or remote `process.env` |
 | R6 | execution -> launch tool | today's launch args + `terminal` (terminals' value, unchanged) + `cwd` = projectRoot; later calls `session_id` only | secrets in any argument or prompt (values only by `env_vars` name) |
@@ -74,6 +74,7 @@ Each code is returned to terminals, which owns the retry. Every guard has an aut
 | `HOST_TRUST_MISSING` | wrong target | `trust-confirm` with the Owner-confirmed fingerprint -> new revision -> reopen |
 | `BINDING_UNKNOWN` / `TARGET_MISMATCH` | wrong target | terminals uses the registered binding for this terminal; a new `register` gives a new ref |
 | `CREDENTIAL_REVISION_STALE` / `CREDENTIAL_UNAVAILABLE` | credential to wrong target | re-read status (key file restored or replaced) -> reopen |
+| `CREDENTIAL_REQUIRED` (binding without native key, no `credential`) / `TERMINAL_INVALID` (both `credential` and `credentialRevision`) | credential to wrong target | the registry passes the terminal's credential handle |
 | `HOST_TRUST_STALE` (revision differs from the file) | wrong target / stale binding | terminals re-reads status, rebinds its revision -> reopen |
 | `HOST_KEY_MISMATCH`, action "confirm the new host key" | wrong target | Owner confirms -> `trust-confirm` replaces the entry -> new revision -> reopen |
 | `AUTH_FAILED` | credential to wrong target | key or authorized_keys corrected -> new revision -> reopen |

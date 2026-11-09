@@ -22,7 +22,7 @@ export class RemoteTerminalError extends Error {
 }
 
 export interface RemoteTarget { host: string; user: string; port: number }
-interface Binding { ref: string; target: RemoteTarget; key_file: string; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
+interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
 
 const REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HOST = /^(?!-)[A-Za-z0-9._:\[\]-]{1,255}$/;
@@ -67,14 +67,23 @@ function binding(ref: string): Binding {
   return found;
 }
 
-export function registerBinding(input: { target: RemoteTarget; keyFile: string; knownHostsFile: string; hostKeyAlias?: string | null }): RemoteBindingStatus {
+/** Without keyFile the key comes from a credential handle at open/launch; without knownHostsFile Aiterm keeps an empty one per binding. */
+export function registerBinding(input: { target: RemoteTarget; keyFile?: string | null; knownHostsFile?: string | null; hostKeyAlias?: string | null }): RemoteBindingStatus {
   const target = validTarget(input.target);
   for (const file of [input.keyFile, input.knownHostsFile]) {
-    if (!path.isAbsolute(file)) throw new RemoteTerminalError("PATH_INVALID", "key and known_hosts paths must be absolute");
+    if (file && !path.isAbsolute(file)) throw new RemoteTerminalError("PATH_INVALID", "key and known_hosts paths must be absolute");
   }
   if (input.hostKeyAlias != null && !HOST.test(input.hostKeyAlias)) throw new RemoteTerminalError("ALIAS_INVALID", "host key alias is not a host name");
   const bindings = readStore();
-  const next: Binding = { ref: randomUUID(), target, key_file: input.keyFile, known_hosts_file: input.knownHostsFile,
+  const ref = randomUUID();
+  let knownHostsFile = input.knownHostsFile || null;
+  if (!knownHostsFile) {
+    const dir = path.join(path.dirname(storePath()), "known_hosts.d");
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    knownHostsFile = path.join(dir, ref);
+    fs.writeFileSync(knownHostsFile, "", { mode: 0o600, flag: "wx" });
+  }
+  const next: Binding = { ref, target, key_file: input.keyFile || null, known_hosts_file: knownHostsFile,
     host_key_alias: input.hostKeyAlias ?? null, created_at: new Date().toISOString() };
   writeJson0600(storePath(), { schema: "aiterm.remote-bindings.v1", bindings: [...bindings, next] });
   return bindingStatus(next.ref);
@@ -86,7 +95,7 @@ export interface RemoteBindingStatus {
   schema: "aiterm.remote-binding-status.v1";
   ref: string;
   target: RemoteTarget;
-  credential: { provider: "aiterm.native-ssh-key.v1"; revision: string | null; fingerprint: string | null; available: boolean; reason: string | null };
+  credential: { provider: "aiterm.native-ssh-key.v1" | "aiterm.credential-handle.v1"; revision: string | null; fingerprint: string | null; available: boolean; reason: string | null };
   trust: { provider: "aiterm.known-hosts.v1"; revision: string | null; fingerprints: string[]; available: boolean; reason: string | null };
 }
 
@@ -129,11 +138,13 @@ const digest = (text: string) => `sha256:${createHash("sha256").update(text).dig
 
 export function bindingStatus(ref: string): RemoteBindingStatus {
   const b = binding(ref);
-  const key = publicKey(b.key_file);
+  const key = b.key_file ? publicKey(b.key_file) : null;
   const trust = trustEntries(b);
   return {
     schema: "aiterm.remote-binding-status.v1", ref, target: b.target,
-    credential: "reason" in key
+    credential: key === null
+      ? { provider: "aiterm.credential-handle.v1", revision: null, fingerprint: null, available: false, reason: "KEY_FROM_CREDENTIAL" }
+      : "reason" in key
       ? { provider: "aiterm.native-ssh-key.v1", revision: null, fingerprint: null, available: false, reason: key.reason }
       : { provider: "aiterm.native-ssh-key.v1", revision: digest(key.line), fingerprint: keyFingerprint(key.blob), available: true, reason: null },
     trust: Array.isArray(trust)
@@ -285,7 +296,8 @@ export class RemoteTerminalConnection extends EventEmitter {
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
     private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string) { super(); }
 
-  static async open(input: { ref: string; target: unknown; trustRevision: string; credentialRevision: string; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
+  static async open(input: { ref: string; target: unknown; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle;
+    sudoCredential?: CredentialHandle; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
     const target = validTarget(input.target);
     const b = binding(input.ref);
     if (b.target.host !== target.host || b.target.user !== target.user || b.target.port !== target.port)
@@ -293,8 +305,7 @@ export class RemoteTerminalConnection extends EventEmitter {
     const status = bindingStatus(input.ref);
     if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "host trust is unavailable", "confirm the new host key");
     if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust revision changed; re-read status");
-    if (!status.credential.available) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
-    if (status.credential.revision !== input.credentialRevision) throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key revision changed; re-read status");
+    checkKeySource(status, input);
     for (const [name, value] of Object.entries(input.privateEnv ?? {}))
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") throw new RemoteTerminalError("PRIVATE_ENV_INVALID", "invalid private env entry");
     // Short path: the agent socket must fit macOS's 104-byte sun_path.
@@ -309,10 +320,11 @@ export class RemoteTerminalConnection extends EventEmitter {
         if (Date.now() > deadline || agent.exitCode !== null) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the private agent did not start");
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      const added = spawnSync("ssh-add", ["-q", b.key_file], { env: { ...sshEnvironment(), SSH_AUTH_SOCK: socket }, stdio: ["ignore", "ignore", "pipe"], timeout: 10_000 });
+      const keyFile = b.key_file!; // checkKeySource admitted only a native key
+      const added = spawnSync("ssh-add", ["-q", keyFile], { env: { ...sshEnvironment(), SSH_AUTH_SOCK: socket }, stdio: ["ignore", "ignore", "pipe"], timeout: 10_000 });
       if (added.status !== 0) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the key could not be loaded");
       const identity = path.join(dir, "id.pub");
-      const key = publicKey(b.key_file);
+      const key = publicKey(keyFile);
       if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
       fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
       const transport = new SshStdioTransport(sshArguments(b, socket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
@@ -426,7 +438,23 @@ export class RemoteTerminalConnection extends EventEmitter {
 
 // ---- terminal seats: the launch tools' `terminal` argument (remote-terminal.md "One launch path") ----
 
-export interface TerminalArgument { ref: string; target: RemoteTarget; trustRevision: string; credentialRevision: string }
+export interface CredentialHandle { handle: string; revision: string }
+export interface TerminalArgument { ref: string; target: RemoteTarget; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle; sudoCredential?: CredentialHandle }
+
+/** T1 key source: a credential handle (its revision checked by the resolver) or the binding's native key revision, never both. */
+function checkKeySource(status: RemoteBindingStatus, input: { credentialRevision?: string; credential?: CredentialHandle }): void {
+  if (input.credential) {
+    if (input.credentialRevision !== undefined)
+      throw new RemoteTerminalError("TERMINAL_INVALID", "give credential or credentialRevision, not both: with a credential handle the registry omits credentialRevision");
+    // shortcut: handle resolution waits for the credential owner's resolver contract; until then a handle cannot authenticate.
+    throw new RemoteTerminalError("CREDENTIAL_RESOLVER_UNAVAILABLE", "credential handles cannot be resolved by this Aiterm yet");
+  }
+  if (status.credential.provider === "aiterm.credential-handle.v1")
+    throw new RemoteTerminalError("CREDENTIAL_REQUIRED", "this terminal has no native key; pass the terminal's credential handle from the registry");
+  if (!status.credential.available) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
+  if (status.credential.revision !== input.credentialRevision)
+    throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key changed; get the current value from the terminal registry and launch again");
+}
 /** What remote.ts calls: the binding's own host/user/port and its ref. Built only here, never from tool input. */
 export interface TrustedRemoteTarget { host: string; user: string; port: number; trusted_ref: string }
 
@@ -441,14 +469,14 @@ export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarg
   const status = bindingStatus(input.ref);
   if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted (confirm the new host key)");
   if (status.trust.revision !== input.trustRevision) throw new RemoteTerminalError("HOST_TRUST_STALE", "the host trust changed; get the current value from the terminal registry and launch again");
-  if (!status.credential.available) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
-  if (status.credential.revision !== input.credentialRevision) throw new RemoteTerminalError("CREDENTIAL_REVISION_STALE", "the key changed; get the current value from the terminal registry and launch again");
+  checkKeySource(status, input);
   return trustedTarget(b);
 }
 
 /** ssh argv for a trusted target: no user config, the binding's known_hosts only, its key file only. */
 export function trustedSshArguments(ref: string, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
   const b = binding(ref);
+  if (!b.key_file) throw new RemoteTerminalError("CREDENTIAL_RESOLVER_UNAVAILABLE", "credential handles cannot be resolved by this Aiterm yet");
   return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
     ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),

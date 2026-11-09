@@ -11,6 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
+import { credentialHandleSchema } from "./remote-contract.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -44,7 +45,8 @@ function serve(): void {
   server.registerTool("remote_terminal_open", {
     description: "Open the bound connection for this process",
     inputSchema: { ref: z.string(), target: z.object({ host: z.string(), user: z.string(), port: z.number().int() }).strict(),
-      trustRevision: z.string(), credentialRevision: z.string(), privateEnv: z.record(z.string(), z.string()).optional() },
+      trustRevision: z.string(), credentialRevision: z.string().optional(), credential: credentialHandleSchema.optional(),
+      sudoCredential: credentialHandleSchema.optional(), privateEnv: z.record(z.string(), z.string()).optional() },
   }, guarded(async args => {
     if (connection) throw new RemoteTerminalError("ALREADY_OPEN", "this process already holds a connection");
     connection = await RemoteTerminalConnection.open(args);
@@ -86,7 +88,7 @@ export function main(args: string[]): void {
   if (command === "status") return oneShot(() => bindingStatus(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "register") return oneShot(() => registerBinding({
     target: { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", port: Number(option(rest, "--port") ?? "22") },
-    keyFile: option(rest, "--key-file") ?? "", knownHostsFile: option(rest, "--known-hosts") ?? "", hostKeyAlias: option(rest, "--host-key-alias") ?? null,
+    keyFile: option(rest, "--key-file") ?? null, knownHostsFile: option(rest, "--known-hosts") ?? null, hostKeyAlias: option(rest, "--host-key-alias") ?? null,
   }), "aiterm.remote-binding-error.v1");
   if (command === "trust-confirm") return oneShot(() => confirmHostKey(option(rest, "--ref") ?? "", option(rest, "--fingerprint") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "transcript-read") return oneShot(() => {

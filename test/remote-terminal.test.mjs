@@ -286,3 +286,26 @@ test("remote wait keeps only aiterm-wait's own flag/value pairs from a receipt's
   assert.throws(() => rt.waitArguments(["cli.js", "--exec", "x"]), error => error.code === "WAIT_INVALID");
   assert.throws(() => rt.waitArguments(["cli.js", "--cursor", "1"]), error => error.code === "WAIT_INVALID");
 });
+
+test("keyless binding: Aiterm keeps its own known_hosts, the key must come from a credential handle, exactly one key source", async () => {
+  const contract = await import("../dist/remote-contract.js");
+  const status = rt.registerBinding({ target: { host: "10.0.0.20", user: "u", port: 2222 } });
+  assert.deepEqual(status.credential, { provider: "aiterm.credential-handle.v1", revision: null, fingerprint: null, available: false, reason: "KEY_FROM_CREDENTIAL" });
+  assert.equal(status.trust.available, false);
+  const store = JSON.parse(fs.readFileSync(rt.storePath(), "utf8")).bindings.find(b => b.ref === status.ref);
+  assert.equal(store.key_file, null);
+  assert.equal(fs.statSync(store.known_hosts_file).mode & 0o777, 0o600);
+  assert.equal(fs.readFileSync(store.known_hosts_file, "utf8"), "");
+  const base = { ref: status.ref, target: status.target, trustRevision: `sha256:${"3".repeat(64)}` };
+  const credential = { handle: "mika:ssh:abc", revision: "r1" };
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential }).success, true);
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential, credentialRevision: `sha256:${"4".repeat(64)}` }).success, false);
+  assert.match(contract.terminalArgumentSchema.safeParse(base).error.issues[0].message, /exactly one key source/);
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...base, credential: { handle: "x y", revision: "r" } }).success, false);
+  // Trust is checked first; with trust present the key source rule decides.
+  assert.throws(() => rt.terminalRemoteTarget({ ...base, credential }), /HOST_TRUST_MISSING/);
+  fs.writeFileSync(store.known_hosts_file, "[10.0.0.20]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0vJHFq2n8gV6rGq8kq3zQv9Hn3l7rYb2b1o7c3B5Z\n");
+  const trusted = { ...base, trustRevision: rt.bindingStatus(status.ref).trust.revision };
+  assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credentialRevision: `sha256:${"4".repeat(64)}` }), /CREDENTIAL_REQUIRED/);
+  assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential, credentialRevision: "x" }), /TERMINAL_INVALID/);
+});

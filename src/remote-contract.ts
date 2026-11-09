@@ -33,6 +33,12 @@ export const remoteInputDescription =
 const revision = (field: string) => z.string().regex(/^sha256:[0-9a-f]{64}$/,
   `terminal.${field} must be the sha256:<hex> revision the terminal registry returned with this binding; pass it unchanged`);
 
+/** A credential owner's handle for a key; the value itself never travels in an argument. */
+export const credentialHandleSchema = z.object({
+  handle: z.string().regex(/^[A-Za-z0-9._:-]{1,256}$/, "credential.handle must be the handle the terminal registry gave, unchanged"),
+  revision: z.string().regex(/^[A-Za-z0-9._:-]{1,256}$/, "credential.revision must be the handle revision the terminal registry gave, unchanged"),
+}).strict();
+
 /** The launch tools' terminal target (remote-terminal.md "One launch path"). Copied unchanged from BellTeam terminals. */
 export const terminalArgumentSchema = z.object({
   ref: z.string().uuid("terminal.ref must be the binding ref (UUID) the terminal registry gave for this terminal"),
@@ -42,13 +48,18 @@ export const terminalArgumentSchema = z.object({
     port: z.number().int().min(1).max(65535),
   }).strict(),
   trustRevision: revision("trustRevision"),
-  credentialRevision: revision("credentialRevision"),
-}).strict();
+  credentialRevision: revision("credentialRevision").optional(),
+  credential: credentialHandleSchema.optional(),
+  sudoCredential: credentialHandleSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.credential === undefined) === (value.credentialRevision === undefined)) context.addIssue({ code: "custom",
+    message: "terminal needs exactly one key source: credential {handle, revision} from the registry, or credentialRevision for a native key" });
+});
 export type TerminalArgument = z.infer<typeof terminalArgumentSchema>;
 
 export const terminalArgumentDescription =
   "Run this seat on another computer (a registered terminal) over SSH. Value: exactly the terminal value your host system's terminal registry hands over, " +
-  "{ref, target:{host,user,port}, trustRevision, credentialRevision}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
+  "{ref, target:{host,user,port}, trustRevision, and credentialRevision or credential {handle, revision}}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
   "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal. Never launch locally and then cd or ssh. " +
   "Never put tokens, passwords or other secrets in any argument, prompt or typed text; pass secret values only by name in env_vars. " +
   "After launch, use session_id alone for pty_send, pty_observe, pty_read, pty_key, claude_turn, agent_stop and pty_close; Aiterm routes them to the terminal. " +

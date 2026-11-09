@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-11-09
+
 - Terminals without a native key (docs/architecture/remote-terminal.md R13). `aiterm-remote-terminal register --host H --user U --port P` creates a keyless binding with Aiterm's own empty known_hosts (`~/.config/aiterm/known_hosts.d/<ref>`; trust via `trust-confirm`). `aiterm-remote-terminal credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key` takes the resolved OpenSSH private key only on stdin and holds it in a private per-terminal ssh-agent (memory only); the receipt carries metadata only. The terminal value then carries `credential: {handle, revision}` instead of `credentialRevision`; Aiterm checks the loaded handle and revision (`CREDENTIAL_NOT_LOADED`, `CREDENTIAL_REVISION_STALE`, `CREDENTIAL_REQUIRED`). `sudoCredential` is accepted and kept as a handle only. The agent is removed when no seat of that terminal remains.
 
 ## [0.66.0] - 2026-11-09
@@ -3134,7 +3136,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.67.0...HEAD
+[0.67.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...v0.67.0
 [0.66.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.64.2...v0.65.0

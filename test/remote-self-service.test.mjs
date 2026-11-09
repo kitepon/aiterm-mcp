@@ -3,6 +3,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 // fixed path operations, the provision bootstrap and the runtime preference.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawn, spawnSync } from "node:child_process";
@@ -15,7 +16,7 @@ const remote = await import("../dist/remote.js");
 
 const posix = process.platform !== "win32";
 const hasKeygen = spawnSync("ssh-keygen", ["-?"]).error === undefined;
-const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR, "remote-self-"));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "remote-self-"));
 const CLI = path.resolve("dist/remote-terminal-cli.js");
 
 function stubBin(name, files) {

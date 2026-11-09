@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `aiterm-remote-terminal`: the `ready` event now reaches the caller; 0.65.0 emitted it before the listener was attached.
+
 ## [0.65.0] - 2026-11-09
 
 - Bound remote terminal (`aiterm-remote-terminal`, docs/architecture/remote-terminal.md), first for macOS + Claude Code. One UID-private process per connection holds an Aiterm-held binding (`register`: target, existing key, known_hosts, host-key alias) and returns only public revisions (`status --ref`). `remote_terminal_open` checks the target and both revisions, loads the key into a per-connection private ssh-agent, connects with `ssh -F /dev/null`, strict host checking against the bound known_hosts, and sends private env values on the encrypted stdin. Then `remote_terminal_call` (seat tools, results unchanged), `remote_terminal_wait` (the terminal's `aiterm-wait`), `remote_terminal_transcript_read` (Claude JSONL lines only through the latest completed turn), `remote_terminal_command` (`claude --version`, official install, `claude update`), events `aiterm/remote-terminal-event` (`ready`/`lost`/`closed`). Host-key changes answer `HOST_KEY_MISMATCH` with "confirm the new host key"; `trust-confirm` writes a scanned key only when it equals the confirmed fingerprint.

@@ -301,7 +301,8 @@ export class RemoteTerminalConnection extends EventEmitter {
       }
       const connection = new RemoteTerminalConnection(b, dir, agent, socket, identity, client, remoteVersion);
       client.onclose = () => connection.ended();
-      queueMicrotask(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
+      // After the caller has attached its listener to the returned connection.
+      setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
       return connection;
     } catch (error) { cleanup(); throw error; }
   }

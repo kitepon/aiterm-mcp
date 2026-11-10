@@ -290,7 +290,7 @@ import { interimFromNow, interimFromToken, readInterimWords, recordInterimBounda
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
 import { codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
-import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine } from "./agent-resolver.js";
+import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine, windowsLaunchIndirection } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
 export { tmuxSpawnEnv } from "./tmux-runtime.js";
 export { agentHarness } from "./agent-shared.js";
@@ -599,6 +599,13 @@ function savedAgentSessionNames(): string[] {
   }))] : [];
 }
 
+/** Windows: the full PowerShell launch command goes to a private file; only the short reader line is typed (and shown). */
+export function windowsLaunchTyped(name: string, launchId: string, full: string): string {
+  const file = agentMetadataPath(name, launchId) + ".launch.ps1";
+  writeText0600(file, full);
+  return windowsLaunchIndirection(file);
+}
+
 function cleanupAgentState(name: string): void {
   assertSessionName(name);
   agentMetadataNegativeCache.delete(name);
@@ -614,6 +621,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".agent.json") ||
           f.endsWith(".active-launch.json") ||
           f.endsWith(".launch-exited") ||
+          f.endsWith(".launch.ps1") ||
           f.endsWith(".events.jsonl") ||
           f.endsWith(".activity.jsonl") ||
           f.endsWith(".resume.json") ||
@@ -7217,8 +7225,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       const argv = [...(next.fork_of && !isWin ? writeBanPrefix(next.fork_of.write_ban) : []), ...cliArgv];
       const forkBan = next.fork_of?.write_ban;
       const winArgv = () => (cli => forkBan ? windowsWriteBanArgv(forkBan, cli) : cli)(windowsAgentArgv(cliArgv, () => resolveWinPaneShell("bash")));
-      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, winArgv(),
-        { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id })
+      const full = isWin ? windowsLaunchTyped(name, next.launch_id, windowsAgentLaunchLine(recipe.cwd, environment, winArgv(),
+        { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id }))
         : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
           + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
       agentLaunchLines.set(name, atomicShellMultiline(full, shell));
@@ -8265,6 +8273,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           ],
             (cli => meta?.fork_of ? windowsWriteBanArgv(meta.fork_of.write_ban, cli) : cli)(windowsAgentArgv(argv, () => resolveWinPaneShell("bash"))),
             meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
+          if (meta) full = windowsLaunchTyped(sid, meta.launch_id, full);
         } else {
           const cmd = (meta?.fork_of ? writeBanPrefix(meta.fork_of.write_ban).map(shq).join(" ") + " " : "")
             + buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);

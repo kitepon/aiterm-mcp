@@ -38,7 +38,7 @@ remoteは既SSH shell判定を使い、現地の通常aiterm-updateまたは同p
 
 ## 端末の同梱runtime（provision）
 
-BellTeamの端末（macOS arm64/x86_64、Linux x64/arm64）には、利用者のHomebrew・npm・Nodeを使わない製品所有のruntime（macOSはtmuxも同梱、Linuxは端末のtmuxを使い、無ければ`PROVISION_TMUX_MISSING`）を`aiterm-remote-terminal provision --ref R`で入れる（[remote terminal](remote-terminal.md) R16/R17）。`aiterm-setup`と`aiterm-update`の経路は変えない。runtimeは公開release assetを端末自身がcurlで取り、sha256を照合し、`~/.aiterm/runtime/.stage-<pid>`で展開・smokeしてから`current`へ入れ替える。直前の`current`は`previous`として次のprovisionまで残す。tmux serverと稼働中の席は止めない。POSIXの遠隔コマンドは`current/bin`をPATHの先頭に置く。assetはrelease公開後に`runtime.yml`がGitHub-hostedのmacOSとLinuxのrunnerで作り、公開用jobが4つのtarballと1つのSHA256SUMSを付ける。
+BellTeamの端末（macOS arm64/x86_64、Linux x64/arm64）には、利用者のHomebrew・npm・Nodeを使わない製品所有のruntime（macOSもLinuxもtmuxを同梱し、端末のtmuxは要らない）を`aiterm-remote-terminal provision --ref R`で入れる（[remote terminal](remote-terminal.md) R16/R17）。`aiterm-setup`と`aiterm-update`の経路は変えない。runtimeは公開release assetを端末自身がcurlで取り、sha256を照合し、`~/.aiterm/runtime/.stage-<pid>`で展開・smokeしてから`current`へ入れ替える。直前の`current`は`previous`として次のprovisionまで残す。tmux serverと稼働中の席は止めない。POSIXの遠隔コマンドは`current/bin`をPATHの先頭に置く。assetはrelease公開後に`runtime.yml`がGitHub-hostedのmacOSとLinuxのrunnerで作り、公開用jobが4つのtarballと1つのSHA256SUMSを付ける。
 
 ## 配送CLI・先行起床の境界
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The Linux terminal runtime now carries its own tmux, so a Linux terminal needs no tmux installed. `aiterm-runtime-<version>-linux-<x64|arm64>.tar.gz` holds `bin/tmux` 3.8, a fully static musl binary (libevent 2.1.13, utf8proc 2.12.0 and ncurses 6.5 linked in, no libc of the terminal), cross-built on the runner with `zig cc` (`ziglang` 0.15.2 from PyPI, as the write-ban helper) from source tarballs pinned by sha256 in `scripts/build-linux-runtime.mjs`. ncurses keeps compiled-in entries for `screen-256color`, `tmux-256color`, `xterm-256color`, `xterm`, `screen`, `tmux`, `linux`, `vt100`, `dumb` and `ansi`, so tmux also starts on a machine without a terminfo database; it still reads the terminal's own database first. `default-terminal` stays `screen-256color`. The runtime `bin` is first on PATH, so seats use it.
+- `provision` no longer checks for tmux on a Linux terminal, and `PROVISION_TMUX_MISSING` is gone (the bootstrap and `runtime-smoke` never answer it). `runtime-smoke` runs the runtime's own `bin/tmux -V` on both systems. The runtime build checks both tmux binaries are static ELF files of the right machine and, for the host architecture, starts a session with no terminfo database in reach. `runtime.yml` installs `ziglang` in the Linux job and no longer installs a system tmux there.
+
 ## [0.70.7] - 2026-11-10
 
 - `pty_list` seat turns (`aiterm.seat-turns.v1`, BellTeam caller only) add `unread: [session_id]`. It names the terminal-bound sessions whose terminal failed or did not answer within 4 s, so the caller can keep their last state instead of reading them as gone. A session missing from a terminal that did answer is absent, as before.

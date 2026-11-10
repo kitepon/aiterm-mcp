@@ -56,11 +56,14 @@ jobs:
           done
           echo "::error::aiterm-mcp@$RUNTIME_VERSION did not appear on npm within 15 minutes"
           exit 1
-      - name: system tmux for the Linux smoke
+      - name: zig for the static Linux tmux
         if: matrix.platform == 'linux'
         shell: bash
-        # The Linux runtime carries no tmux; its smoke runs against the runner's own.
-        run: command -v tmux >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq tmux; }
+        # The Linux builder cross-compiles tmux for both architectures with `zig cc` (same toolchain as build-write-ban.mjs).
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --quiet ziglang==0.15.2
+          echo "ZIGLANG_PYTHON=$RUNNER_TEMP/zig/bin/python" >> "$GITHUB_ENV"
       - name: build both architectures and smoke the host one
         shell: bash
         # The macOS runner account's login shell is /usr/bin/false; tmux runs a one-string window command through $SHELL.

@@ -267,41 +267,32 @@ test("provision bootstrap: stage, checksum, smoke, then current/previous; failur
   assert.deepEqual(run("1.0.0", a.base, other).out, { code: "PROVISION_PLATFORM_UNSUPPORTED" });
 });
 
-// Linux: only the tools the bootstrap runs are on PATH, so the real /usr/bin/tmux of the test machine cannot answer for the stub's absence.
-function linuxTools(machine, { tmux }) {
+// Linux: only the tools the bootstrap runs are on PATH, so the terminal has no tmux (the runtime must not need one).
+function linuxTools(machine) {
   const bin = fs.mkdtempSync(path.join(tmp, "linux-tools-"));
-  for (const tool of ["sed", "tail", "printenv", "curl", "tar", "awk", "sha256sum", "cat", "cut", "mkdir", "chmod", "rm", "mv", "kill", "env", "gzip"]) {
+  for (const tool of ["sed", "tail", "curl", "tar", "awk", "sha256sum", "cat", "cut", "mkdir", "chmod", "rm", "mv", "kill", "env", "gzip"]) {
     const found = spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim();
     if (found) fs.symlinkSync(found, path.join(bin, tool));
   }
   fs.writeFileSync(path.join(bin, "uname"), `#!/bin/sh\n[ "$1" = -s ] && echo Linux || echo ${machine}\n`, { mode: 0o755 });
-  if (tmux) fs.writeFileSync(path.join(bin, "tmux"), "#!/bin/sh\necho tmux 3.5\n", { mode: 0o755 });
-  // The login shell the bootstrap asks for its PATH: it answers with exactly these tools.
-  fs.writeFileSync(path.join(bin, "login-shell"), `#!/bin/sh\necho "PATH=${bin}"\n`, { mode: 0o755 });
   return bin;
 }
 
-test("provision bootstrap on Linux: x86_64 -> x64, aarch64 -> arm64, the system tmux is required before any download", { skip: !posix || spawnSync("curl", ["--version"]).error !== undefined }, () => {
+test("provision bootstrap on Linux: x86_64 -> x64, aarch64 -> arm64, no tmux needed on the terminal", { skip: !posix || spawnSync("curl", ["--version"]).error !== undefined }, () => {
   const run = (bin, version, base, home) => {
     const result = spawnSync("/bin/sh", ["-s", "--", version, base], { input: prov.PROVISION_SCRIPT, encoding: "utf8",
-      env: { PATH: bin, SHELL: path.join(bin, "login-shell"), HOME: home } });
+      env: { PATH: bin, HOME: home } });
     return { code: result.status, out: prov.parseProvisionOutput(result.stdout), stdout: result.stdout };
   };
   const home = () => fs.mkdtempSync(path.join(tmp, "home-linux-"));
   for (const [machine, arch] of [["x86_64", "x64"], ["aarch64", "arm64"], ["arm64", "arm64"]]) {
     const h = home();
     const assets = runtimeAssets("1.0.0", 0, `linux-${arch}`);
-    assert.deepEqual(run(linuxTools(machine, { tmux: true }), "1.0.0", assets.base, h).out, { result: "PROVISIONED", version: "1.0.0" }, machine);
+    assert.deepEqual(run(linuxTools(machine), "1.0.0", assets.base, h).out, { result: "PROVISIONED", version: "1.0.0" }, machine);
     assert.equal(fs.readFileSync(path.join(h, ".aiterm", "runtime", "current", "RUNTIME"), "utf8").trim(), `aiterm-runtime-1.0.0-linux-${arch}`);
   }
-  const unsupported = run(linuxTools("riscv64", { tmux: true }), "1.0.0", "file:///nowhere", home());
+  const unsupported = run(linuxTools("riscv64"), "1.0.0", "file:///nowhere", home());
   assert.deepEqual(unsupported.out, { code: "PROVISION_PLATFORM_UNSUPPORTED" });
-  // No tmux on the login PATH: refused before the home is touched and before curl runs (the base does not exist).
-  const h = home();
-  const missing = run(linuxTools("x86_64", { tmux: false }), "1.0.0", "file:///nowhere", h);
-  assert.deepEqual(missing.out, { code: "PROVISION_TMUX_MISSING" });
-  assert.equal(missing.code, 3);
-  assert.deepEqual(fs.readdirSync(h), [], "nothing created on the terminal");
 });
 
 test("provision refuses before SSH without trust; runtime-smoke checks its own version", { skip: !posix || !hasKeygen }, async () => {

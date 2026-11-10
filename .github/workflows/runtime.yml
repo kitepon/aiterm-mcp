@@ -43,6 +43,9 @@ jobs:
           exit 1
       - name: build both architectures and smoke the host one
         shell: bash
+        # The runner account's login shell is /usr/bin/false; tmux runs a one-string window command through $SHELL.
+        env:
+          SHELL: /bin/sh
         run: |
           out="$RUNNER_TEMP/aiterm-runtime"
           rm -rf "$out"

@@ -60,6 +60,7 @@ import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcess
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
+import { probeWriteBan, writeBanPrefix, type WriteBan } from "./write-ban.js";
 import { AitermError, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
@@ -121,6 +122,7 @@ import {
   agentHarness,
   subagentInstruction,
   agentLineageFields,
+  type AgentForkOf,
 } from "./agent-shared.js";
 import type {
   AgentKind,
@@ -183,7 +185,7 @@ import {
   latestCodexCompletion,
   codexTurnSettled,
   codexCompletedTurnId,
-  codexWorkingResumeConfiguration, captureCodexRecoveryProof, captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript,
+  codexWorkingResumeConfiguration, captureCodexRecoveryProof, captureCodexResumeProof, readCodexResumeProof, codexResumeProofDigest, codexRootTranscript, codexRolloutSessionId,
   codexRunningTurn,
   codexInterruptionRecord,
   observeCodexDone,
@@ -7184,6 +7186,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       if (next.kind === "claude") next.claude_home = recipe.configuration_root;
       else next.codex_home = recipe.configuration_root;
       if (previous.write_scope !== undefined) next.write_scope = previous.write_scope;
+      // A resumed fork stays read-only (ADR 0140): argv and env derive from fork_of.
+      if (previous.fork_of) next.fork_of = previous.fork_of;
       writeAgentMetadata(next); initializeAgentActivity(next);
       writeAgentResumeRecipe(next, { ...recipe, launch_id: next.launch_id });
       attempt = { schema: "aiterm.agent-resume-attempt.v1", launch_id: previous.launch_id, next_launch_id: next.launch_id,
@@ -7202,8 +7206,9 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       }
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
       phase = "vendor_start";
-      const argv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
-        : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
+      const argv = [...(next.fork_of ? writeBanPrefix(next.fork_of.write_ban) : []),
+        ...(next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
+          : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd))];
       const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")),
         { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id })
         : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
@@ -7902,6 +7907,9 @@ function agentEnvEntries(meta: AgentMetadata | null, sid: string, envVars: strin
     ["AITERM_AGENT_LINEAGE", meta.lineage ?? `host-root>${meta.kind}:${sid}`],
     ["AITERM_AGENT_DELEGATION_ALLOWED", meta.delegation_allowed === true ? "true" : "false"],
     ["AITERM_STATE_BASE", runtimeStateBase()],
+    // Fork marker for transcript readers (ADR 0140): set before the CLI starts, so every hook inherits it.
+    ...(meta.fork_of ? [["THROUGHLINE_SESSION_KIND", "fork"], ["THROUGHLINE_PARENT_SESSION_ID", meta.fork_of.vendor_session_id],
+      ["THROUGHLINE_FORK_ID", meta.fork_of.fork_id ?? sid]] as [string, string][] : []),
   ];
 }
 
@@ -8008,6 +8016,7 @@ export function openAgent(
     claude_root?: ClaudeConfigRoot;
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
+    fork_of?: AgentForkOf;
   } = {},
 ): [string, string] {
   assertExecutionContext(opts.session_name);
@@ -8210,6 +8219,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
             meta.agent_executable = bin;
             if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
+            if (opts.fork_of) meta.fork_of = opts.fork_of;
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
             // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
@@ -8246,7 +8256,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           ],
             windowsAgentArgv(argv, () => resolveWinPaneShell("bash")), meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
         } else {
-          const cmd = buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
+          const cmd = (meta?.fork_of ? writeBanPrefix(meta.fork_of.write_ban).map(shq).join(" ") + " " : "")
+            + buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);
           const envPrefix = (!claudeRoot ? "" : claudeRoot.selector === null ? "unset CLAUDE_CONFIG_DIR && "
             : `CLAUDE_CONFIG_DIR=${shq(claudeRoot.selector)} `) + launchEnvSource(sid, agentEnvEntries(null, sid, envVars)) + agentEnvPrefix(meta, sid);
           const command = cwdForCmd ? `cd ${shq(cwdForCmd)} && ${envPrefix}${cmd}` : `${envPrefix}${cmd}`;
@@ -8351,6 +8362,51 @@ export class AgentLaunchPromptError extends AitermError {
   }
 }
 
+/** Whitespace-free head of a fork's first input; binds a forked Codex rollout, which has no launch marker (ADR 0140). */
+export function forkInputKey(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/gu, "").slice(0, 2000);
+}
+
+/**
+ * Source of a fork (ADR 0140): the main seat's saved conversation, cwd and (Claude) configuration root, plus the
+ * project write-ban proven on this machine. Refusals name what they protect: a fork must never start able to write
+ * the project, and never on another account or conversation.
+ */
+export function resolveForkSource(kind: AgentKind, from: { session_id: string; fork_id?: string }, opts: {
+  write_scope?: string; prompt?: string | null; cwd?: string | null; session_name?: string | null; require_existing_resume?: boolean;
+  throughline_source_session?: string | null; launch_operation_id?: string | null; configuration_root?: string | null;
+}, probe: (folder: string) => WriteBan = probeWriteBan): { fork_of: AgentForkOf; cwd: string; root?: ClaudeConfigRoot } {
+  if (kind !== "claude" && kind !== "codex") throw new AitermError("FORK_UNSUPPORTED: fork_from is available for claude-code and codex-cli (ADR 0140)", 2);
+  if (!opts.prompt?.trim()) throw new AitermError("FORK_INVALID: fork_from requires a prompt (the fork's first input)", 2);
+  if (opts.write_scope !== undefined || opts.require_existing_resume || opts.throughline_source_session != null || opts.launch_operation_id != null
+    || opts.configuration_root != null)
+    throw new AitermError("FORK_INVALID: fork_from cannot be combined with write_scope, require_existing_resume, throughline_source_session, launch_operation_id or configuration_root", 2);
+  if (opts.session_name && tryLoadAgentMetadata(opts.session_name)) throw new AitermError(`FORK_INVALID: session_name ${opts.session_name} already names a seat`, 2);
+  assertSessionName(from.session_id);
+  const unavailable = (why: string) => new AitermError(`FORK_SOURCE_UNAVAILABLE: ${from.session_id}: ${why}`, 2);
+  const main = tryLoadAgentMetadata(from.session_id);
+  if (!main || main.kind !== kind || !main.cwd) throw unavailable("no managed seat of this harness");
+  // Codex binds its conversation lazily and may switch it (/new): read the current one without writing the main's record.
+  let rollout: string | null = null;
+  try { rollout = main.kind === "codex" ? codexRootTranscript(main) : null; } catch { rollout = null; }
+  const mainVendorId = main.kind === "codex" ? (rollout ? codexRolloutSessionId(main, rollout) : null) : main.vendor_session_id;
+  if (!mainVendorId || (main.kind === "claude" ? !main.claude_home
+      || !fs.existsSync(path.join(main.claude_home, "projects", claudeProjectSlug(main.cwd), `${mainVendorId}.jsonl`)) : !rollout))
+    throw unavailable("the saved conversation file does not exist yet");
+  if (opts.cwd != null && (!fs.existsSync(opts.cwd) || fs.realpathSync(opts.cwd) !== fs.realpathSync(main.cwd)))
+    throw new AitermError("FORK_INVALID: a fork runs in its main seat's cwd; omit cwd", 2);
+  // The main's cwd is the project folder the Owner forbade writing (ADR 0140).
+  const write_ban = probe(main.cwd);
+  let root: ClaudeConfigRoot | undefined;
+  if (main.kind === "claude") {
+    try { root = resolveClaudeConfigurationRoot(main.claude_home!); }
+    catch { throw unavailable("its configuration root is not an accepted root here"); }
+  }
+  const first_input = kind === "codex" ? forkInputKey(opts.prompt) : undefined;
+  return { fork_of: { session_id: from.session_id, vendor_session_id: mainVendorId, ...(from.fork_id ? { fork_id: from.fork_id } : {}),
+    write_ban, ...(first_input ? { first_input } : {}) }, cwd: main.cwd, ...(root ? { root } : {}) };
+}
+
 export async function openAgentWithInitialPrompt(
   kind: AgentKind,
   opts: {
@@ -8372,11 +8428,13 @@ export async function openAgentWithInitialPrompt(
     configuration_root?: string | null;
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
+    fork_from?: { session_id: string; fork_id?: string } | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
+  const fork = opts.fork_from ? resolveForkSource(kind, opts.fork_from, opts) : null;
   if (opts.configuration_root != null && kind !== "claude")
     throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
-  const claudeRoot = opts.configuration_root == null ? undefined : resolveClaudeConfigurationRoot(opts.configuration_root);
+  const claudeRoot = fork ? fork.root : opts.configuration_root == null ? undefined : resolveClaudeConfigurationRoot(opts.configuration_root);
   if (opts.session_name) await withExecutionNativeAdmission(opts.session_name, () => assertExecutionContext(opts.session_name));
   else assertExecutionContext(opts.session_name);
   if (opts.require_existing_resume && (!opts.session_name || opts.prompt != null || opts.throughline_source_session != null
@@ -8476,7 +8534,7 @@ export async function openAgentWithInitialPrompt(
     // modelは呼び手の渡した形のまま渡す（空文字の断りはopenAgentがする）。Grokのfastだけ、fast版のIDへ替える。
     model: fastPlan.model !== requestedModel ? fastPlan.model : opts.model ?? null,
     reasoning_effort: opts.reasoning_effort ?? null,
-    cwd: opts.cwd ?? null,
+    cwd: fork ? fork.cwd : opts.cwd ?? null,
     prompt: null,
     agent_done: true,
     launch_operation_id: opts.launch_operation_id ?? null,
@@ -8488,6 +8546,7 @@ export async function openAgentWithInitialPrompt(
     claude_root: claudeRoot,
     append_system_prompt: opts.append_system_prompt ?? null,
     mcp_config: opts.mcp_config ?? null,
+    ...(fork ? { fork_of: fork.fork_of } : {}),
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
   const launch = (): Promise<[string, string]> => {

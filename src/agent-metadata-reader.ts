@@ -7,7 +7,7 @@ import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath,
 import { resolveAndValidateGrokAuth } from "./harnesses/grok.js";
 import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
-  LAUNCH_ID_RE, AGENT_LINEAGE_RE, type AgentMetadata, type InitialPromptState,
+  LAUNCH_ID_RE, AGENT_LINEAGE_RE, type AgentForkOf, type AgentMetadata, type InitialPromptState,
   type StartupProcessShape } from "./agent-shared.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -56,6 +56,18 @@ function loadAgentLineageFields(m: Partial<AgentMetadata>, required: boolean): R
     lineage: m.lineage,
     delegationAllowed: true,
   });
+}
+
+/** A fork seat's source (ADR 0140). Malformed is refused: dropping it would resume the fork writable. */
+function forkOfField(v: any): { fork_of?: AgentForkOf } {
+  if (v === undefined) return {};
+  if (!v || typeof v.session_id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(v.session_id)
+    || typeof v.vendor_session_id !== "string" || !UUID_RE.test(v.vendor_session_id)
+    || (v.fork_id !== undefined && typeof v.fork_id !== "string") || (v.first_input !== undefined && typeof v.first_input !== "string")
+    || !v.write_ban || typeof v.write_ban.path !== "string" || !path.isAbsolute(v.write_ban.path)
+    || (v.write_ban.method !== "landlock" && v.write_ban.method !== "seatbelt")) throw new AitermError("agent metadata fork_of が不正です", 2);
+  return { fork_of: { session_id: v.session_id, vendor_session_id: v.vendor_session_id, ...(v.fork_id === undefined ? {} : { fork_id: v.fork_id }),
+    write_ban: { path: v.write_ban.path, method: v.write_ban.method }, ...(v.first_input === undefined ? {} : { first_input: v.first_input }) } };
 }
 
 export function loadAgentMetadata(name: string): AgentMetadata {
@@ -160,6 +172,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       created_at: typeof m.created_at === "string" ? m.created_at : "",
       cwd: typeof m.cwd === "string" ? m.cwd : null,
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
+      ...forkOfField(m.fork_of),
       vendor_session_id: m.vendor_session_id,
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
@@ -197,6 +210,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       created_at: typeof m.created_at === "string" ? m.created_at : "",
       cwd: typeof m.cwd === "string" ? m.cwd : null,
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
+      ...forkOfField(m.fork_of),
       vendor_session_id: typeof m.vendor_session_id === "string" ? m.vendor_session_id : null,
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,

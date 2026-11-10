@@ -50,6 +50,14 @@ export interface AgentTurnBoundary {
 
 export type BeforeAgentSend = (boundary: AgentTurnBoundary) => Promise<void>;
 
+export interface AgentForkOf {
+  session_id: string; vendor_session_id: string; fork_id?: string;
+  // Every write inside this folder is refused for the whole CLI process tree (ADR 0140).
+  write_ban: { path: string; method: "landlock" | "seatbelt" };
+  // Codex only: whitespace-free head of the first input; binds the forked rollout (it carries no launch marker).
+  first_input?: string;
+}
+
 export interface AgentMetadata {
   kind: AgentKind;
   aiterm_session: string;
@@ -59,6 +67,8 @@ export interface AgentMetadata {
   cwd: string | null;
   // launcher の能力宣言。省略時は能力制限なし。
   write_scope?: string;
+  // Read-only fork of another seat (ADR 0140). Present only on fork seats; argv and env derive from it.
+  fork_of?: AgentForkOf;
   vendor_session_id: string | null;
   resumed_from?: string;
   initial_prompt: InitialPromptState;

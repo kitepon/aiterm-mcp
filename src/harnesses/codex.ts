@@ -157,6 +157,14 @@ type CodexLaunchVerdict = "match" | "other" | "undecided";
  * - undecided: 書いている途中などで、まだ決められない。
  * forkedは、ほかの会話から派生した会話（session_metaのforked_from_id）か。派生は元の会話の文を写すので、印だけでは持ち主を決められない。
  */
+/** A fork's rollout carries no launch marker; it is this launch's when it forks the recorded main and holds the first input (ADR 0140). */
+function codexForkInputSeen(record: any, meta: AgentMetadata): boolean {
+  const key = meta.fork_of?.first_input;
+  return !!key && record?.type === "response_item" && record?.payload?.type === "message" && record?.payload?.role === "user"
+    && Array.isArray(record?.payload?.content) && record.payload.content.some((item: any) =>
+      item?.type === "input_text" && typeof item?.text === "string" && item.text.replace(/\s+/gu, "").includes(key));
+}
+
 function codexLaunchVerdict(file: string, meta: AgentMetadata): { verdict: CodexLaunchVerdict; forked: boolean } {
   const createdAt = Date.parse(meta.created_at);
   try {
@@ -184,7 +192,9 @@ function codexLaunchVerdict(file: string, meta: AgentMetadata): { verdict: Codex
       rootCli = record?.payload?.originator === "codex-tui" && record?.payload?.source === "cli";
       if (!rootCli) return { verdict: "other", forked: false };
       forked = typeof record?.payload?.forked_from_id === "string" && record.payload.forked_from_id !== "";
+      if (meta.fork_of && record.payload.forked_from_id !== meta.fork_of.vendor_session_id) return { verdict: "other", forked };
     }
+    if (rootCli && forked && codexForkInputSeen(record, meta)) return { verdict: "match", forked };
     if (record?.type === "turn_context") firstTurnContext = true;
     if (
       record?.type === "response_item" &&
@@ -199,8 +209,10 @@ function codexLaunchVerdict(file: string, meta: AgentMetadata): { verdict: Codex
           item.text.includes(marker),
       );
     }
-    if (rootCli && launchMarker) return { verdict: "match", forked };
+    if (rootCli && launchMarker && !meta.fork_of) return { verdict: "match", forked };
   }
+  // A fork of the recorded main stays undecided until its first input is written: "other" is memoized for good.
+  if (meta.fork_of && rootCli && forked) return { verdict: "undecided", forked };
   return { verdict: rootCli && firstTurnContext ? "other" : "undecided", forked };
 }
 
@@ -268,7 +280,7 @@ export function codexBoundTranscript(meta: AgentMetadata): string | null {
   if (origin?.session_id === meta.vendor_session_id) return origin.file;
   const file = findLatestCodexTranscript(meta.codex_home, meta.vendor_session_id);
   if (origin && (!file || codexTranscriptSessionId(file) !== meta.vendor_session_id
-    || codexLaunchVerdict(file, meta).verdict !== "match" || codexLaunchVerdict(file, meta).forked)) throw resumeProofUnavailable();
+    || codexLaunchVerdict(file, meta).verdict !== "match" || (codexLaunchVerdict(file, meta).forked && !meta.fork_of))) throw resumeProofUnavailable();
   return file;
 }
 
@@ -516,14 +528,14 @@ function codexNativeRootRecord(meta: AgentMetadata, requireBoundary: boolean) {
       const lines = readFileRange(file, 0, Math.min(safeStatSize(file), 1024 * 1024)).toString("utf8").split("\n");
       // The final split element may be incomplete. Never parse that fragment.
       lines.pop();
-      let session: string | null = null, own = false, root = false;
+      let session: string | null = null, own = false, root = false, forkOwn = false;
       for (const line of lines) {
         if (!line.trim()) continue;
         let record: any;
         try { record = JSON.parse(line); } catch { return null; }
         if (record?.type === "session_meta") {
           if (session !== null || record.payload?.originator !== "codex-tui" || record.payload?.source !== "cli"
-            || record.payload?.forked_from_id) return null;
+            || (record.payload?.forked_from_id && record.payload.forked_from_id !== meta.fork_of?.vendor_session_id)) return null;
           const id = record.payload?.id;
           if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)
             || !path.basename(file).endsWith(`-${id}.jsonl`)) return null;
@@ -533,6 +545,7 @@ function codexNativeRootRecord(meta: AgentMetadata, requireBoundary: boolean) {
           && Array.isArray(record.payload?.content)) own ||= record.payload.content.some((item: any) =>
             (item?.type === "input_text" || item?.type === "output_text") && typeof item.text === "string"
             && item.text.split(/\r?\n/).includes(marker));
+        if (meta.fork_of) own = (forkOwn ||= codexForkInputSeen(record, meta));
         if (root && own && session) return session;
       }
       return null;
@@ -832,7 +845,8 @@ export function codexAgentArgv(
   prompt: string | null,
   meta: AgentMetadata | null,
 ): string[] {
-  const parts: string[] = [bin];
+  // A fork (ADR 0140) starts from the main's conversation; codexResumeArgv drops this pair again.
+  const parts: string[] = meta?.kind === "codex" && meta.fork_of ? [bin, "fork", meta.fork_of.vendor_session_id] : [bin];
   // `codex --help` で確認した実在フラグ。read-only 宣言だけはCLI sandboxへ落とし、
   // launcher自身が実効能力壁を作る。パス説明はCodex CLIに同等のallowlist引数がないため宣言のまま残す。
   if (meta?.kind === "codex" && meta.write_scope === "read-only") parts.push("--sandbox", "read-only");
@@ -855,7 +869,7 @@ export function codexResumeArgv(bin: string, model: string | null, effort: strin
   if (meta.kind !== "codex" || !meta.vendor_session_id || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(meta.vendor_session_id)
     || !path.isAbsolute(cwd) || cwd.includes("\0"))
     throw new AitermError("AGENT_RESUME_UNSUPPORTED: Codexの保存会話IDとcwdを確認できません。", 2);
-  return [bin, "resume", meta.vendor_session_id, ...codexAgentArgv(bin, model, effort, null, meta).slice(1), "--cd", cwd];
+  return [bin, "resume", meta.vendor_session_id, ...codexAgentArgv(bin, model, effort, null, meta).slice(meta.fork_of ? 3 : 1), "--cd", cwd];
 }
 
 export function buildCodexAgentCmd(

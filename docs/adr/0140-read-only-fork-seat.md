@@ -1,0 +1,33 @@
+# ADR 0140: Fork seat with a project write-ban (`agent_launch.fork_from`)
+
+Status: adopted for claude-code and codex-cli on Linux and macOS in 0.70.6. Windows answers `READONLY_UNENFORCEABLE`.
+
+## Why
+
+BellTeam asks a Bot's seat a question without interrupting it (fork-inquiry). The question runs in a disposable copy of the main seat's latest conversation. The Owner's rule, taken exactly: 「プロジェクトフォルダ内の一切の書き込みを禁止。ファイルの書き込みのほか、プロジェクトフォルダ内にSQLなどがあればそれも更新も含めて禁止。それ以外は全て許可する。」 The fork keeps the main's tools, MCP servers, commands and web access. The ban must hold for every route (file tools, shell, git, sqlite), so it is applied below the tools to the whole CLI process tree.
+
+## Contract
+
+`agent_launch {harness, fork_from: {session_id, fork_id?}, prompt, session_name?, mcp_config?, env_vars?, terminal?}`
+
+- `fork_from.session_id` names the main Aiterm seat on the same machine (the terminal or the remote host when given). It must be a managed seat of the same harness whose saved conversation exists (`FORK_SOURCE_UNAVAILABLE` otherwise). A non-empty `prompt` is required. `write_scope`, `require_existing_resume`, `throughline_source_session`, `launch_operation_id` and `configuration_root` are refused (`FORK_INVALID`). The fork runs in the main's cwd on the main's configuration root (Claude: same account; Codex: same CODEX_HOME).
+- The protected folder is the main's cwd (the Bot's project folder). Before any seat is created, Aiterm proves on this machine that the ban can be applied. If it cannot, the answer is `READONLY_UNENFORCEABLE` (Windows, no Landlock in the kernel, no python3, no sandbox-exec). A remote or terminal Aiterm older than 0.70.6 answers `REMOTE_AITERM_TOO_OLD`: an older Aiterm would drop `fork_from` and start a writable seat.
+- Receipt: `aiterm.agent-launch-result.v1` plus `fork_of: {session_id, vendor_session_id, write_ban: {path, method}}`.
+- The fork is an ordinary seat for observation, completion, interim words, `pty_observe` and `pty_close`. The caller closes it after its answer.
+
+## The write-ban (src/write-ban.ts)
+
+- Linux: Landlock, unprivileged (works in standard Docker; bwrap-based harness sandboxes do not). `python3 -c <embedded helper> <folder> -- <cli argv>` builds a ruleset that handles only write-type filesystem rights. It grants them on every sibling along `/` → folder, applies `no_new_privs` and `landlock_restrict_self`, then execs the CLI, so the PID and process name are the CLI's. It fails closed with exit 126 before the CLI starts. Limits: new entries directly in an ancestor of the folder, and siblings created after launch, are not writable. setuid programs do not elevate. Writes done by another process on the fork's behalf (for example an HTTP MCP server) are outside the ban.
+- macOS: `/usr/bin/sandbox-exec -p '(version 1)(allow default)(deny file-write* (subpath "<folder>"))'`.
+- Resume of a fork (idle hibernation) keeps `fork_of` and the same prefix.
+
+Measured 2026-11-10 in the BellTeam container. Inside the folder, Claude's Write tool, a shell redirect, `git commit` and a sqlite insert were refused (EACCES / index.lock / "readonly database"). Codex's apply_patch, redirect, git and sqlite were refused the same way. Writes outside the folder succeeded for both. Rejected methods: Claude's built-in sandbox needs bwrap and socat; without them it fails open and every write succeeded. Claude path rules do not cover commands. Codex `-s` modes need bwrap in the container, so either every command fails or the process panics, and `workspace-write` cannot express "everything but the project".
+
+## Harness specifics
+
+- Claude: the new seat's argv plus `--resume <main vendor id> --fork-session`. The seat keeps its own `--session-id`, so correlation is unchanged. The tools array equals the main's. The first fork request read 54,214 of 54,745 prompt tokens from cache (main: 54,208).
+- Codex: `codex fork <main vendor id>` with the seat's usual flags. A forked rollout carries no `developer_instructions` launch marker. It binds when `session_meta.forked_from_id` is the main's id and a user message contains the first input (`fork_of.first_input`, whitespace removed, first 2000 characters). The same rule serves the stop identity. Prompt cache: the first fork request reused 12-23K of about 44K tokens, the same as an unbanned fork (server-side routing).
+
+## Fork marker for transcript readers (Throughline)
+
+Claude fork transcripts have no native fork field. The seat environment carries `THROUGHLINE_SESSION_KIND=fork`, `THROUGHLINE_PARENT_SESSION_ID=<main vendor session id>` and `THROUGHLINE_FORK_ID=<fork_from.fork_id, or the fork session name>`. They are set before the CLI starts, so every hook inherits them.

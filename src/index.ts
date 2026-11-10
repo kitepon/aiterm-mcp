@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
 import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
   rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
@@ -1288,9 +1289,16 @@ const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "b
 
 async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }, privateEnv?: Record<string, string>): Promise<any> {
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140): check the version first.
+  if (args.fork_from) {
+    const version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
+    if (!versionAtLeast(version, FORK_MINIMUM_VERSION))
+      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; fork_from needs ${FORK_MINIMUM_VERSION} or later`, 2);
+  }
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
   // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
-  const result = target.trusted_ref && harness === "claude-code"
+  // claude_agent has no fork_from, so a fork always goes through agent_launch.
+  const result = target.trusted_ref && harness === "claude-code" && !args.fork_from
     ? await callRemoteTool(target, "claude_agent", args, 600_000, privateEnv)
     : await callRemoteTool(target, "agent_launch", { harness, ...args }, 600_000, privateEnv);
   const structured = result.structuredContent as any;
@@ -1318,6 +1326,8 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   };
 }
 
+/** First release whose agent_launch knows fork_from (ADR 0140). */
+const FORK_MINIMUM_VERSION = "0.70.6";
 const terminalVersions = new Map<string, string>();
 /** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
 async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
@@ -1356,8 +1366,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, fork_from } = args;
   const supportsWriteScope = kind !== "claude";
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config } = args;
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
@@ -1387,7 +1397,9 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       mcp_config,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
+      ...(fork_from ? { fork_from } : {}),
     });
+    const forkOf = fork_from ? loadAgentMetadata(sid).fork_of : undefined;
     const structured = {
       schema: "aiterm.agent-launch-result.v1" as const,
       provider: kind,
@@ -1412,6 +1424,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
                 : "declaration_only_unsupported" as const,
           }
         : {}),
+      ...(forkOf ? { fork_of: { session_id: forkOf.session_id, vendor_session_id: forkOf.vendor_session_id, write_ban: forkOf.write_ban } } : {}),
     };
     // 開始未確認（submitted_unconfirmed）は誤りにしない。sessionは立ち、promptは入力欄を離れ、配送も登録済み。
     // 誤りで返すとClaude Code親は受け口のhookを走らせず、子の回答が届かない（ADR 0093）。状態はinitial_promptと本文で伝える。
@@ -1556,6 +1569,10 @@ server.registerTool(
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
       append_system_prompt: z.string().min(1).optional().describe("claude-code only. Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here"),
       mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("claude-code only. Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars"),
+      fork_from: z.object({
+        session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
+        fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
+      }).strict().optional().describe("claude-code and codex-cli. Start a disposable fork of that seat's latest saved conversation, in its cwd, with the main's tools and MCP. Every write inside that cwd (the project folder) is refused below the tools for the whole process tree (Linux Landlock, macOS sandbox-exec); everything else is allowed. Windows answers READONLY_UNENFORCEABLE. Requires a prompt; no write_scope. Close it after its answer"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-launch-result.v1"),
@@ -1577,6 +1594,8 @@ server.registerTool(
       fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
+      fork_of: z.object({ session_id: z.string(), vendor_session_id: z.string(),
+        write_ban: z.object({ path: z.string(), method: z.enum(["landlock", "seatbelt"]) }) }).optional().describe("The seat this fork copies and the folder it cannot write"),
     },
   },
   async ({ harness, remote, terminal, ...args }: any, extra) => {

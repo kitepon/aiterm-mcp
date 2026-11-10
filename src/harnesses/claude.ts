@@ -434,6 +434,8 @@ export function claudeAgentArgv(
       subagentInstruction(meta, CLAUDE_DELIVERY_NOTES),
     );
     if (meta.claude_caller_prompt_file) parts.push("--append-system-prompt-file", meta.claude_caller_prompt_file);
+    // Fork (ADR 0140): the main's conversation under the seat's own --session-id; tools and MCP stay the main's.
+    if (meta.fork_of) parts.push("--resume", meta.fork_of.vendor_session_id, "--fork-session");
     if (meta.claude_caller_mcp_file) parts.push("--mcp-config", meta.claude_caller_mcp_file);
   }
   if (model) parts.push("--model", model);
@@ -447,6 +449,8 @@ export function claudeResumeArgv(bin: string, model: string | null, effort: stri
   if (meta.kind !== "claude" || !meta.vendor_session_id || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(meta.vendor_session_id))
     throw new AitermError("AGENT_RESUME_UNSUPPORTED: Claudeの保存会話IDを確認できません。", 2);
   const argv = claudeAgentArgv(bin, model, effort, null, meta);
+  // A fork resumes its own conversation: drop `--resume <main> --fork-session`.
+  if (meta.fork_of) argv.splice(argv.indexOf("--fork-session") - 2, 3);
   argv[argv.indexOf("--session-id")] = "--resume";
   return argv;
 }
@@ -456,7 +460,7 @@ export function buildClaudeAgentCmd(
   prompt: string | null, meta: AgentMetadata | null,
 ): string {
   const argv = claudeAgentArgv(bin, model, effort, prompt, meta);
-  const values = new Set(["--setting-sources", "--settings", "--session-id", "--append-system-prompt", "--append-system-prompt-file", "--mcp-config", "--model", "--effort"]);
+  const values = new Set(["--setting-sources", "--settings", "--session-id", "--resume", "--append-system-prompt", "--append-system-prompt-file", "--mcp-config", "--model", "--effort"]);
   return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
     ? shq(arg) : arg).join(" ");
 }

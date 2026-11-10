@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - `remote_terminal_command` takes `list_dirs` with an optional absolute `path` for a folder picker (BellTeam PR 887 S6; docs/architecture/remote-terminal.md R15). Without `path` it lists the SSH user's home. Result `{op, home, path, exists, directory, entries: [{name}] | null, truncated}`: subfolders only (a symlink to a folder counts), no names starting with `.`, ordered by name, at most 500 then `truncated: true`, read only. A missing folder or a file answers `exists`/`directory` false with `entries: null`, never an empty list; permission refusals (macOS privacy consent included) answer `FOLDER_NOT_PERMITTED` as for `path_status`. Needs this release on the terminal (`REMOTE_AITERM_TOO_OLD` otherwise).
+- A terminal launch refused before any seat exists carries `_meta["aiterm/launch_error"]` (`aiterm.agent-launch-error.v1`, `phase: "terminal"`, `effect: "not_started"`) with its code and a fixed plain Japanese `action` for the Owner (BellTeam seatLaunch; remote-terminal.md R18). Server-side only; the terminal needs no update. A possibly started launch keeps the plain text. The terminal's Claude authentication refusal is now returned as an error with its structure instead of continuing as a launch result.
 
 ## [0.69.0] - 2026-11-10
 

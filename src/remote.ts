@@ -11,7 +11,7 @@ import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartP
 import { ensureStateRoot, stateRoot } from "./agent-shared.js";
 import { currentUid } from "./state-root.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
-import { SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
+import { RemoteTerminalError, SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -137,6 +137,44 @@ export function remoteShell(target: RemoteTarget): Promise<RemoteShell> {
     shells.set(key, shell);
   }
   return shell;
+}
+
+/** 端末のOS（remote-terminal.md R20）。 */
+export type RemotePlatform = "macos" | "linux" | "windows";
+
+// 上のshell判定に続けて`uname -s`を流す。POSIX系は最後の行がDarwin/Linux。cmdは行全体が1つのechoになり、PowerShellでは`uname`が無く何も出ない。
+export const REMOTE_PLATFORM_PROBE = `${REMOTE_SHELL_PROBE}; uname -s`;
+
+/** probeの出力からOSを決める。Windows・macOS・Linuxのどれとも言えない出力はnull（推測しない）。 */
+export function classifyRemotePlatform(output: string): RemotePlatform | null {
+  const shell = classifyRemoteShell(output);
+  if (shell === "cmd") return "windows";
+  const last = output.trim().split(/\r?\n/).pop()?.trim();
+  if (last === "Darwin") return "macos";
+  if (last === "Linux") return "linux";
+  // POSIX系のprobe行は`aiterm-probe %OS%`で1行目が終わる（unameの行が付くので、classifyRemoteShellはPowerShellと数える）。それ以外のDarwin/Linuxでない出力は未知のOS。
+  return shell === "powershell" && output.trim().split(/\r?\n/)[0].trim() !== "aiterm-probe %OS%" ? "windows" : null;
+}
+
+const platforms = new Map<string, Promise<RemotePlatform | null>>();
+
+/** 端末のOSを1回だけ調べて、このprocessの間 接続先ごとに覚える。 */
+export function remotePlatform(target: RemoteTarget): Promise<RemotePlatform | null> {
+  const key = remoteKey(target);
+  let platform = platforms.get(key);
+  if (!platform) {
+    platform = runSsh(target, REMOTE_PLATFORM_PROBE).then(({ code, stdout, stderr }) => {
+      if (code === 255) {
+        if (target.trusted_ref) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
+        const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
+        throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
+      }
+      return classifyRemotePlatform(stdout);
+    });
+    platform.catch(() => platforms.delete(key));
+    platforms.set(key, platform);
+  }
+  return platform;
 }
 
 // POSIX系の非ログイン実行では、~/.local/bin、Homebrew、nvmなどのPATHが入らない端末がある。

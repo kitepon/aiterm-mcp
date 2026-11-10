@@ -213,9 +213,9 @@ test("authorize-key: trust and key before stdin; password only through askpass, 
 });
 
 // A stand-in runtime artifact: its runtime-smoke passes unless the stage says otherwise.
-function runtimeAssets(version, smokeExit = 0) {
+function runtimeAssets(version, smokeExit = 0, platform = "darwin-arm64") {
   const dir = fs.mkdtempSync(path.join(tmp, "assets-"));
-  const name = `aiterm-runtime-${version}-darwin-arm64`;
+  const name = `aiterm-runtime-${version}-${platform}`;
   const root = path.join(dir, "build", name);
   fs.mkdirSync(path.join(root, "bin"), { recursive: true });
   fs.writeFileSync(path.join(root, "RUNTIME"), `${name}\n`);
@@ -263,8 +263,45 @@ test("provision bootstrap: stage, checksum, smoke, then current/previous; failur
   fs.writeFileSync(path.join(lock, "pid"), "999999999");
   assert.deepEqual(run("1.0.0", a.base).out, { result: "PROVISIONED", version: "1.0.0" }, "a dead owner's lock is taken over");
 
-  const linux = stubBin("linux", { uname: "#!/bin/sh\necho Linux\n" });
-  assert.deepEqual(run("1.0.0", a.base, linux).out, { code: "PROVISION_PLATFORM_UNSUPPORTED" });
+  const other = stubBin("freebsd", { uname: "#!/bin/sh\necho FreeBSD\n" });
+  assert.deepEqual(run("1.0.0", a.base, other).out, { code: "PROVISION_PLATFORM_UNSUPPORTED" });
+});
+
+// Linux: only the tools the bootstrap runs are on PATH, so the real /usr/bin/tmux of the test machine cannot answer for the stub's absence.
+function linuxTools(machine, { tmux }) {
+  const bin = fs.mkdtempSync(path.join(tmp, "linux-tools-"));
+  for (const tool of ["sed", "tail", "printenv", "curl", "tar", "awk", "sha256sum", "cat", "cut", "mkdir", "chmod", "rm", "mv", "kill", "env", "gzip"]) {
+    const found = spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim();
+    if (found) fs.symlinkSync(found, path.join(bin, tool));
+  }
+  fs.writeFileSync(path.join(bin, "uname"), `#!/bin/sh\n[ "$1" = -s ] && echo Linux || echo ${machine}\n`, { mode: 0o755 });
+  if (tmux) fs.writeFileSync(path.join(bin, "tmux"), "#!/bin/sh\necho tmux 3.5\n", { mode: 0o755 });
+  // The login shell the bootstrap asks for its PATH: it answers with exactly these tools.
+  fs.writeFileSync(path.join(bin, "login-shell"), `#!/bin/sh\necho "PATH=${bin}"\n`, { mode: 0o755 });
+  return bin;
+}
+
+test("provision bootstrap on Linux: x86_64 -> x64, aarch64 -> arm64, the system tmux is required before any download", { skip: !posix || spawnSync("curl", ["--version"]).error !== undefined }, () => {
+  const run = (bin, version, base, home) => {
+    const result = spawnSync("/bin/sh", ["-s", "--", version, base], { input: prov.PROVISION_SCRIPT, encoding: "utf8",
+      env: { PATH: bin, SHELL: path.join(bin, "login-shell"), HOME: home } });
+    return { code: result.status, out: prov.parseProvisionOutput(result.stdout), stdout: result.stdout };
+  };
+  const home = () => fs.mkdtempSync(path.join(tmp, "home-linux-"));
+  for (const [machine, arch] of [["x86_64", "x64"], ["aarch64", "arm64"], ["arm64", "arm64"]]) {
+    const h = home();
+    const assets = runtimeAssets("1.0.0", 0, `linux-${arch}`);
+    assert.deepEqual(run(linuxTools(machine, { tmux: true }), "1.0.0", assets.base, h).out, { result: "PROVISIONED", version: "1.0.0" }, machine);
+    assert.equal(fs.readFileSync(path.join(h, ".aiterm", "runtime", "current", "RUNTIME"), "utf8").trim(), `aiterm-runtime-1.0.0-linux-${arch}`);
+  }
+  const unsupported = run(linuxTools("riscv64", { tmux: true }), "1.0.0", "file:///nowhere", home());
+  assert.deepEqual(unsupported.out, { code: "PROVISION_PLATFORM_UNSUPPORTED" });
+  // No tmux on the login PATH: refused before the home is touched and before curl runs (the base does not exist).
+  const h = home();
+  const missing = run(linuxTools("x86_64", { tmux: false }), "1.0.0", "file:///nowhere", h);
+  assert.deepEqual(missing.out, { code: "PROVISION_TMUX_MISSING" });
+  assert.equal(missing.code, 3);
+  assert.deepEqual(fs.readdirSync(h), [], "nothing created on the terminal");
 });
 
 test("provision refuses before SSH without trust; runtime-smoke checks its own version", { skip: !posix || !hasKeygen }, async () => {
@@ -284,4 +321,150 @@ test("POSIX remote commands prefer the provisioned runtime over another aiterm-m
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, "aiterm-mcp"), "#!/bin/sh\n", { mode: 0o755 });
   assert.equal(resolve(), path.join(bin, "aiterm-mcp"));
+});
+
+// ---- terminal platform (remote-terminal.md R20) ----
+
+test("terminal os: an optional sibling of target in the launch argument and in remote_terminal_open; the probe output decides the platform", async () => {
+  const contract = await import("../dist/remote-contract.js");
+  const value = { ref: "00000000-0000-4000-8000-000000000000", target: { host: "10.0.0.7", user: "kite", port: 22 },
+    trustRevision: `sha256:${"1".repeat(64)}`, credentialRevision: `sha256:${"2".repeat(64)}` };
+  for (const os of ["macos", "linux", "windows"]) assert.equal(contract.terminalArgumentSchema.safeParse({ ...value, os }).success, true, os);
+  assert.equal(contract.terminalArgumentSchema.safeParse(value).success, true, "omitted stays valid");
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...value, os: "freebsd" }).success, false);
+  assert.equal(contract.terminalArgumentSchema.safeParse({ ...value, target: { ...value.target, os: "linux" } }).success, false, "never inside target");
+  assert.match(contract.terminalArgumentDescription, /TERMINAL_OS_MISMATCH/);
+  assert.match(contract.terminalArgumentDescription, /TERMINAL_PLATFORM_UNSUPPORTED/);
+
+  // posix shells print the shell-probe line, then uname; cmd prints one line; PowerShell prints the expanded $PSHOME and has no uname.
+  const platform = remote.classifyRemotePlatform;
+  assert.equal(platform("aiterm-probe %OS%\nDarwin\n"), "macos");
+  assert.equal(platform("aiterm-probe %OS%\nLinux\n"), "linux");
+  assert.equal(platform("aiterm-probe\n%OS%\n/usr/share/powershell\nLinux\n"), "linux", "pwsh on Linux is still Linux");
+  assert.equal(platform("aiterm-probe Windows_NT $PSHOME; uname -s\r\n"), "windows");
+  assert.equal(platform("aiterm-probe\r\n%OS%\r\nC:\\Program Files\\PowerShell\\7\r\n"), "windows");
+  assert.equal(platform("aiterm-probe %OS%\nFreeBSD\n"), null);
+  assert.equal(platform(""), null);
+
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const client = new Client({ name: "os-test", version: "1" });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [CLI, "serve"], env: { ...process.env } }));
+  try {
+    const open = (await client.listTools()).tools.find(tool => tool.name === "remote_terminal_open");
+    assert.deepEqual(open.inputSchema.properties.os.enum, ["macos", "linux", "windows"]);
+    assert.equal(open.inputSchema.required.includes("os"), false);
+    const call = os => client.callTool({ name: "remote_terminal_open", arguments: { ref: value.ref, target: value.target, ...(os ? { os } : {}),
+      trustRevision: value.trustRevision, credentialRevision: value.credentialRevision } });
+    for (const os of ["linux", undefined]) assert.match((await call(os)).content[0].text, /BINDING_UNKNOWN/, "past the schema, refused by the binding");
+    assert.equal((await call("freebsd")).isError, true);
+    assert.doesNotMatch((await call("freebsd")).content[0].text, /BINDING_UNKNOWN/);
+  } finally { await client.close(); }
+});
+
+// One fake ssh: the platform probe answers by host name; the MCP connection is a real Aiterm server on this machine.
+function platformSsh(t, { shellEnv = "" } = {}) {
+  const dir = fs.mkdtempSync(path.join(tmp, "platform-ssh-"));
+  const log = path.join(dir, "log");
+  const index = path.resolve("dist/index.js");
+  fs.writeFileSync(path.join(dir, "ssh"), `#!/bin/sh
+echo "$*" >> ${JSON.stringify(log)}
+case "$*" in
+  *"uname -s"*)
+    case "$*" in
+      *t-win*) echo 'aiterm-probe Windows_NT $PSHOME; uname -s' ;;
+      *t-mac*) echo 'aiterm-probe %OS%'; echo Darwin ;;
+      *t-odd*) echo 'aiterm-probe %OS%'; echo FreeBSD ;;
+      *) echo 'aiterm-probe %OS%'; echo Linux ;;
+    esac; exit 0 ;;
+  *aiterm-probe*) echo 'aiterm-probe %OS%'; exit 0 ;;
+  *private-env-stdin*) exec ${JSON.stringify(process.execPath)} ${JSON.stringify(index)} --private-env-stdin ;;
+${shellEnv ? `  *"/bin/sh -c"*) for last; do :; done; ${shellEnv} eval "exec $last" ;;\n` : ""}esac
+exit 255
+`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${dir}${path.delimiter}${saved}`;
+  t.after(() => { process.env.PATH = saved; });
+  return () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+}
+
+test("launch with terminal: a declared os that differs, Windows and an unknown system are refused as not started, before any MCP call; the probe runs once per ref", { skip: !posix || !hasKeygen }, async t => {
+  const calls = platformSsh(t);
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { createAitermServer } = await import("../dist/index.js");
+  const client = new Client({ name: "platform-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await createAitermServer().connect(b); await client.connect(a);
+  t.after(() => client.close());
+  const terminalFor = host => { const { ref } = trustedBinding(host); const status = rt.bindingStatus(ref);
+    return { ref, target: status.target, trustRevision: status.trust.revision, credentialRevision: status.credential.revision }; };
+  const launch = (terminal, cwd = "/work/project") => client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd } });
+  const meta = result => result._meta["aiterm/launch_error"];
+  const probes = () => calls().filter(line => line.includes("uname -s")).length;
+
+  const linux = terminalFor("t-linux");
+  const mismatch = await launch({ ...linux, os: "macos" });
+  assert.match(mismatch.content[0].text, /^aiterm: TERMINAL_OS_MISMATCH: .*macos.*linux/);
+  assert.deepEqual({ ...meta(mismatch), action: typeof meta(mismatch).action }, { schema: "aiterm.agent-launch-error.v1", harness: "claude-code",
+    code: "TERMINAL_OS_MISMATCH", phase: "terminal", effect: "not_started", session_created: false, action: "string" });
+  assert.equal(mismatch._meta["aiterm/error_code"].code, "TERMINAL_OS_MISMATCH");
+  assert.equal(probes(), 1);
+  // Same ref again, now matching: no second platform probe; it goes on to the terminal's own version probe (fails here: no MCP over this stub path).
+  const next = await launch({ ...linux, os: "linux" });
+  assert.doesNotMatch(next.content[0].text, /TERMINAL_OS_MISMATCH|TERMINAL_PLATFORM_UNSUPPORTED/);
+  assert.equal(probes(), 1, "cached per ref");
+
+  const mac = terminalFor("t-mac");
+  assert.match((await launch({ ...mac, os: "linux" })).content[0].text, /TERMINAL_OS_MISMATCH/);
+  assert.doesNotMatch((await launch({ ...mac, os: "macos" })).content[0].text, /TERMINAL_OS_MISMATCH|TERMINAL_PLATFORM_UNSUPPORTED/);
+
+  const win = terminalFor("t-win");
+  for (const terminal of [win, { ...win, os: "windows" }]) {
+    const refused = await launch(terminal, terminal.os ? "C:\\work\\project" : "/work/project");
+    assert.match(refused.content[0].text, /^aiterm: TERMINAL_PLATFORM_UNSUPPORTED: /);
+    assert.equal(meta(refused).effect, "not_started");
+    assert.equal(meta(refused).code, "TERMINAL_PLATFORM_UNSUPPORTED");
+    assert.match(meta(refused).action, /[\u3040-\u30ff]/);
+  }
+  assert.match((await launch({ ...win, os: "linux" })).content[0].text, /TERMINAL_OS_MISMATCH/, "a wrong declaration is reported before the unsupported system");
+  assert.match((await launch(terminalFor("t-odd"))).content[0].text, /TERMINAL_PLATFORM_UNSUPPORTED/);
+  // cwd: POSIX absolute on macOS and Linux terminals.
+  assert.match((await launch({ ...linux, os: "linux" }, "C:\\work\\project")).content[0].text, /TERMINAL_INVALID: cwd is required.*POSIX/);
+  assert.match((await launch(linux, "relative")).content[0].text, /TERMINAL_INVALID/);
+  assert.equal(calls().some(line => line.includes("private-env-stdin")), false, "no MCP connection was made for a refused platform");
+});
+
+test("remote_terminal_open: probes first, refuses a wrong os and Windows before connecting, and reports the platform", { skip: !posix || !hasKeygen || spawnSync("ssh-agent", ["-?"]).error !== undefined }, async t => {
+  const calls = platformSsh(t);
+  const openFor = (host, os) => { const { ref } = trustedBinding(host); const status = rt.bindingStatus(ref);
+    return rt.RemoteTerminalConnection.open({ ref, target: status.target, ...(os ? { os } : {}), trustRevision: status.trust.revision, credentialRevision: status.credential.revision }); };
+  await assert.rejects(openFor("t-open-linux", "macos"), error => error.code === "TERMINAL_OS_MISMATCH");
+  await assert.rejects(openFor("t-win-open"), error => error.code === "TERMINAL_PLATFORM_UNSUPPORTED");
+  await assert.rejects(openFor("t-win-open2", "windows"), error => error.code === "TERMINAL_PLATFORM_UNSUPPORTED");
+  assert.equal(calls().some(line => line.includes("private-env-stdin")), false, "refused before the MCP connection");
+  for (const [host, os, platform] of [["t-open-linux2", "linux", "linux"], ["t-mac-open", undefined, "macos"]]) {
+    const connection = await openFor(host, os);
+    assert.equal(connection.platform, platform);
+    await connection.close();
+  }
+});
+
+test("claude_update: the version is also read from ~/.local/bin/claude when a login shell has no claude on PATH", { skip: !posix || !hasKeygen || spawnSync("ssh-agent", ["-?"]).error !== undefined }, async t => {
+  const home = fs.mkdtempSync(path.join(tmp, "claude-home-"));
+  fs.mkdirSync(path.join(home, ".local", "bin"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".local", "bin", "claude"), "#!/bin/sh\necho '2.9.9 (Claude Code)'\n", { mode: 0o755 });
+  // A PATH with only what the remote command line needs, so the machine's own claude is not found.
+  const tools = fs.mkdtempSync(path.join(tmp, "claude-tools-"));
+  for (const tool of ["sed", "tail"]) fs.symlinkSync(spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim(), path.join(tools, tool));
+  fs.writeFileSync(path.join(tools, "login-shell"), `#!/bin/sh\necho "PATH=${tools}"\n`, { mode: 0o755 });
+  platformSsh(t, { shellEnv: `export HOME=${JSON.stringify(home)} SHELL=${JSON.stringify(path.join(tools, "login-shell"))};` });
+  const { ref } = trustedBinding("t-claude");
+  const status = rt.bindingStatus(ref);
+  const connection = await rt.RemoteTerminalConnection.open({ ref, target: status.target, trustRevision: status.trust.revision, credentialRevision: status.credential.revision });
+  try {
+    const result = await connection.command("claude_update");
+    assert.equal(result.exit_code, 127, JSON.stringify(result));
+    assert.equal(result.version, "2.9.9");
+  } finally { await connection.close(); }
 });

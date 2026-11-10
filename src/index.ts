@@ -878,15 +878,16 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
   try {
     const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
     // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
-    // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a slow or unreachable terminal contributes no rows.
+    // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a terminal that fails or is slow contributes
+    // no rows, and its sessions are listed in `unread` so the caller keeps their last state instead of reading them as gone.
     const remote = await Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => Promise.race([
       callRemoteTool(target, "pty_list", {}, 4_000, undefined, requestMeta as Record<string, unknown>).then(result => {
         const seats = (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any)?.seats;
-        return Array.isArray(seats) ? seats.filter((seat: any) => bound.includes(seat?.session_id)) : [];
-      }, () => []),
-      new Promise<any[]>(resolve => setTimeout(resolve, 4_000, []).unref()),
+        return Array.isArray(seats) ? { seats: seats.filter((seat: any) => bound.includes(seat?.session_id)), unread: [] } : { seats: [], unread: bound };
+      }, () => ({ seats: [], unread: bound })),
+      new Promise<{ seats: any[]; unread: string[] }>(resolve => setTimeout(resolve, 4_000, { seats: [], unread: bound }).unref()),
     ])));
-    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flat()] } } };
+    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: remote.flatMap(r => r.unread) } } };
   } catch (e) {
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };
   }

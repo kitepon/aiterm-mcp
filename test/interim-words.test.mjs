@@ -194,7 +194,7 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
       const listed = await client.callTool({ name: "pty_list", arguments: {} });
       assert.equal(listed._meta, undefined);
       const marked = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
-      assert.deepEqual(marked._meta["aiterm/seat_turns"], { schema: "aiterm.seat-turns.v1", seats: [] });
+      assert.deepEqual(marked._meta["aiterm/seat_turns"], { schema: "aiterm.seat-turns.v1", seats: [], unread: [] });
       assert.deepEqual(marked.structuredContent.sessions, listed.structuredContent.sessions);
     }
   } finally {

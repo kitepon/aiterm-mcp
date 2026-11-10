@@ -95,9 +95,9 @@ function serve(): void {
     try { return ok(await bound().wait(waitProcess, extra.signal)); } catch (error) { return fail(error); }
   });
   server.registerTool("remote_terminal_command", {
-    description: "Fixed operation on the terminal: Claude Code setup, or a path check / mkdir / read-only folder listing",
-    inputSchema: { op: z.enum(REMOTE_COMMAND_OPS), path: z.string().optional() },
-  }, guarded(({ op, path }) => bound().command(op as RemoteCommandOp, path)));
+    description: "Fixed operation on the terminal: a CLI's version / install / update / login state (cli_*, harness required), Claude Code setup (claude_*), or a path check / mkdir / read-only folder listing",
+    inputSchema: { op: z.enum(REMOTE_COMMAND_OPS), path: z.string().optional(), harness: z.string().optional() },
+  }, guarded(({ op, path, harness }) => bound().command(op as RemoteCommandOp, path, harness)));
   server.registerTool("remote_terminal_close", { description: "Close the bound connection and exit", inputSchema: {} },
     guarded(async () => { const result = connection ? await connection.close() : { closed: true }; setTimeout(() => process.exit(0), 100); return result; }));
   server.connect(new StdioServerTransport()).catch(error => { console.error("aiterm-remote-terminal fatal:", error); process.exit(1); });

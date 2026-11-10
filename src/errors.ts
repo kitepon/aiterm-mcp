@@ -22,7 +22,7 @@ export class AitermError extends Error {
   /** Native setup failed and a complete listing then showed this session name absent (tmux-runtime). */
   nativeSessionAbsent?: string;
   /** remote-terminal.md R18: a fresh launch that left no seat. */
-  launchNotStarted?: { harness: string; phase?: "input" };
+  launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;
@@ -33,6 +33,13 @@ export class AitermError extends Error {
 export function launchInputRefusal(harness: string, reason: string): AitermError {
   const error = new AitermError(`AGENT_LAUNCH_NOT_STARTED: ${reason}`, 2);
   error.launchNotStarted = { harness, phase: "input" };
+  return error;
+}
+
+/** The harness CLI is not logged in; the launch is refused before any session exists (remote-terminal.md R18, code AGENT_AUTH_REQUIRED). */
+export function launchAuthRequired(harness: string, reason: string): AitermError {
+  const error = new AitermError(`AGENT_LAUNCH_NOT_STARTED: AGENT_AUTH_REQUIRED: ${reason}`, 2);
+  error.launchNotStarted = { harness, phase: "input", code: "AGENT_AUTH_REQUIRED" };
   return error;
 }
 

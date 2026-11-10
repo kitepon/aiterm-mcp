@@ -264,22 +264,62 @@ export class SshStdioTransport implements Transport {
 
 export const REMOTE_SEAT_TOOLS = new Set(["agent_launch", "pty_send", "pty_observe", "pty_read", "pty_key", "claude_turn", "agent_stop", "pty_close"]);
 export type RemoteTerminalEvent = { type: "ready"; at: string; remoteVersion: string } | { type: "lost"; at: string; code: "CONNECTION_LOST" } | { type: "closed"; at: string };
-export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update" | "path_status" | "make_dir" | "list_dirs";
-type ClaudeCommandOp = Exclude<RemoteCommandOp, "path_status" | "make_dir" | "list_dirs">;
-export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs"] as const;
+export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update" | "path_status" | "make_dir" | "list_dirs"
+  | "cli_version" | "cli_install" | "cli_update" | "cli_auth_status";
+export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs",
+  "cli_version", "cli_install", "cli_update", "cli_auth_status"] as const;
+export const CLI_HARNESSES = ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"] as const;
+export type CliHarness = typeof CLI_HARNESSES[number];
+type CliOp = "cli_version" | "cli_install" | "cli_update" | "cli_auth_status";
+const CLAUDE_ALIASES: Record<string, CliOp> = { claude_version: "cli_version", claude_install: "cli_install", claude_update: "cli_update" };
 
-// Fixed operations per terminal shell (R21). Windows: the official PowerShell installer; a failure stops with exit 1 and its message.
-const COMMANDS: Record<ClaudeCommandOp, TerminalScript> = {
-  claude_version: { posix: "claude --version 2>&1", windows: "claude --version 2>&1" },
-  claude_install: { posix: "curl -fsSL https://claude.ai/install.sh | bash 2>&1",
-    windows: "& { $ErrorActionPreference = 'Stop'; try { irm https://claude.ai/install.ps1 | iex } catch { $_.Exception.Message; exit 1 } } *>&1; exit 0" },
-  claude_update: { posix: "claude update 2>&1", windows: "claude update 2>&1" },
+// One entry per CLI (remote-terminal.md R10). Posix scripts sit inside `/bin/sh -c '...'`: no single quote in them.
+// `auth` is the official non-interactive status check, `classify` its answer: true / false, null = not a clear answer
+// (the same commands and readings as the local agent_auth status in harnesses/*.ts).
+interface CliSpec {
+  bin: string; posixDir: string; winPath: string; install: { posix: string | null; windows: string | null }; auth: string[];
+  classify: (code: number | null, stdout: string, stderr: string) => boolean | null; recheckMs?: number;
+}
+const posixInstall = (url: string, shell = "bash") => `curl -fsSL ${url} | ${shell} 2>&1`;
+// A failure stops with exit 1 and its message (the official installers are `irm | iex`).
+const windowsInstall = (url: string) => `& { $ErrorActionPreference = 'Stop'; try { irm ${url} | iex } catch { $_.Exception.Message; exit 1 } } *>&1; exit 0`;
+const readJson = (text: string): any => { try { return JSON.parse(text.trim()); } catch { return null; } };
+
+const CLI: Record<CliHarness, CliSpec> = {
+  "claude-code": { bin: "claude", posixDir: "$HOME/.local/bin", winPath: "Join-Path $env:USERPROFILE '.local\\bin\\claude.exe'",
+    install: { posix: posixInstall("https://claude.ai/install.sh"), windows: windowsInstall("https://claude.ai/install.ps1") },
+    auth: ["auth", "status", "--json"],
+    classify: (code, out) => { const j = readJson(out); return j?.loggedIn === false ? false : j?.loggedIn === true && code === 0 ? true : null; } },
+  "codex-cli": { bin: "codex", posixDir: "$HOME/.local/bin", winPath: "Join-Path $env:LOCALAPPDATA 'Programs\\OpenAI\\Codex\\bin\\codex.exe'",
+    install: { posix: posixInstall("https://chatgpt.com/codex/install.sh", "CODEX_NON_INTERACTIVE=true sh"), windows: windowsInstall("https://chatgpt.com/codex/install.ps1") },
+    auth: ["login", "status"],
+    classify: (code, out, err) => { const t = `${out}\n${err}`; return /Not logged in/i.test(t) ? false : code === 0 && /Logged in/i.test(t) ? true : null; } },
+  "grok-cli": { bin: "grok", posixDir: "$HOME/.grok/bin", winPath: "Join-Path $env:USERPROFILE '.grok\\bin\\grok.exe'",
+    install: { posix: posixInstall("https://x.ai/cli/install.sh"), windows: windowsInstall("https://x.ai/cli/install.ps1") },
+    auth: ["models"], recheckMs: 1500,
+    classify: (code, out, err) => { const t = `${out}\n${err}`; return /You are not authenticated|Not signed in/i.test(t) ? false : code === 0 && /Available models/i.test(t) ? true : null; } },
+  "cursor-cli": { bin: "cursor-agent", posixDir: "$HOME/.local/bin", winPath: "Join-Path $env:LOCALAPPDATA 'cursor-agent\\cursor-agent.cmd'",
+    install: { posix: "curl https://cursor.com/install -fsS | bash 2>&1", windows: "& { $ErrorActionPreference = 'Stop'; try { irm 'https://cursor.com/install?win32=true' | iex } catch { $_.Exception.Message; exit 1 } } *>&1; exit 0" },
+    auth: ["status"],
+    classify: (code, out, err) => { const t = `${out}\n${err}`;
+      return /not logged in|unauthenticated|sign in/i.test(t) ? false : /unable to fetch user details/i.test(t) ? null : code === 0 ? true : null; } },
+  "antigravity-cli": { bin: "agy", posixDir: "$HOME/.local/bin", winPath: "Join-Path $env:LOCALAPPDATA 'agy\\bin\\agy.exe'",
+    install: { posix: posixInstall("https://antigravity.google/cli/install.sh"), windows: windowsInstall("https://antigravity.google/cli/install.ps1") },
+    auth: ["models"],
+    classify: (code, out, err) => code === 0 && /^\S+\t.+/m.test(out) ? true : /Please sign in to view available models/.test(err) ? false : null },
 };
-// The official installers' place, which a login shell may not have on PATH yet.
-const CLAUDE_VERSION_AFTER_INSTALL: TerminalScript = {
-  posix: 'claude --version 2>&1 || "$HOME/.local/bin/claude" --version 2>&1',
-  windows: "$p = (Get-Command claude -ErrorAction SilentlyContinue).Source; if (-not $p) { $p = Join-Path $env:USERPROFILE '.local\\bin\\claude.exe' }; & $p --version 2>&1",
-};
+
+/** Version of a CLI: on PATH, else in its installer's place (a login shell may not have that on PATH yet). */
+const cliVersionScript = (c: CliSpec): TerminalScript => ({
+  posix: `${c.bin} --version 2>&1 || "${c.posixDir}/${c.bin}" --version 2>&1`,
+  windows: `$p = (Get-Command ${c.bin} -ErrorAction SilentlyContinue).Source; if (-not $p) { $p = ${c.winPath} }; & $p --version 2>&1`,
+});
+const cliUpdateScript = (c: CliSpec): TerminalScript => ({ posix: `${c.bin} update 2>&1`, windows: `${c.bin} update 2>&1` });
+/** Exit 127 when the CLI is in neither place, so "not installed" is told from "not logged in". */
+const cliAuthScript = (c: CliSpec): TerminalScript => ({
+  posix: `b=$(command -v ${c.bin}) || b="${c.posixDir}/${c.bin}"; [ -x "$b" ] || exit 127; "$b" ${c.auth.join(" ")}`,
+  windows: `$p = (Get-Command ${c.bin} -ErrorAction SilentlyContinue).Source; if (-not $p) { $p = ${c.winPath}; if (-not (Test-Path -LiteralPath $p)) { exit 127 } }; & $p ${c.auth.join(" ")}`,
+});
 
 /** The remote command the forward keeper holds: it ends exactly when ssh's stdin closes. */
 export function keeperCommand(shell: RemoteShell): string {
@@ -313,6 +353,8 @@ export const REMOTE_PATH_OPS_VERSION = "0.69.0";
 export const REMOTE_LIST_DIRS_VERSION = "0.70.0";
 // The first release whose terminal-side path operations know drive paths.
 export const REMOTE_WINDOWS_PATH_VERSION = "0.70.8";
+// The first release of the harness-generic cli_* ops, and the first a terminal may run Grok, Cursor and Antigravity seats on.
+export const REMOTE_CLI_OPS_VERSION = "0.70.9";
 
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
@@ -451,16 +493,45 @@ export class RemoteTerminalConnection extends EventEmitter {
     }
   }
 
-  async command(op: RemoteCommandOp, targetPath?: string): Promise<unknown> {
+  async command(op: RemoteCommandOp, targetPath?: string, harness?: string): Promise<unknown> {
+    if (harness !== undefined && !op.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no harness`);
     if (op === "path_status" || op === "make_dir") return this.pathCommand(op, targetPath);
     if (op === "list_dirs") return this.listDirs(targetPath);
     if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
-    if (!Object.hasOwn(COMMANDS, op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
-    const run = await this.exec(COMMANDS[op], op === "claude_version" ? 60_000 : 900_000);
+    const alias = CLAUDE_ALIASES[op];
+    const cliOp = alias ?? op;
+    if (!cliOp.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
+    const h = alias ? "claude-code" : harness;
+    if (!h || !Object.hasOwn(CLI, h)) throw new RemoteTerminalError("COMMAND_INVALID", `${op} needs harness: one of ${CLI_HARNESSES.join(", ")}`);
+    if (!alias && !versionAtLeast(this.remoteVersion, REMOTE_CLI_OPS_VERSION))
+      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_CLI_OPS_VERSION} or later is required (update Aiterm on the terminal)`);
+    const spec = CLI[h as CliHarness];
+    if (cliOp === "cli_auth_status") return this.cliAuthStatus(h as CliHarness, spec);
+    const cell = this.shell === "posix" ? "posix" : "windows";
+    const installer = spec.install[cell];
+    if (cliOp === "cli_install" && installer === null) throw new RemoteTerminalError("CLI_INSTALL_UNSUPPORTED", `no official one-line installer is known for ${h} on ${this.platform}`);
+    const script = cliOp === "cli_version" ? cliVersionScript(spec) : cliOp === "cli_update" ? cliUpdateScript(spec) : { posix: spec.install.posix ?? "", windows: spec.install.windows ?? "" };
+    const run = await this.exec(script, cliOp === "cli_version" ? 60_000 : 900_000);
     if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-    const probe = op === "claude_version" ? run : await this.exec(CLAUDE_VERSION_AFTER_INSTALL, 60_000);
+    const probe = cliOp === "cli_version" ? run : await this.exec(cliVersionScript(spec), 60_000);
     const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
-    return { op, exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
+    const result = { exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
+    return alias ? { op, ...result } : { op, harness: h, ...result };
+  }
+
+  /** The login state and nothing of the CLI's own answer: `{op, harness, logged_in}`. */
+  private async cliAuthStatus(h: CliHarness, spec: CliSpec): Promise<{ op: string; harness: string; logged_in: boolean }> {
+    const ask = async () => {
+      const r = await this.exec(cliAuthScript(spec), 60_000);
+      if (r.code === 255) { const f = classifySshFailure(r.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+      if (r.code === 127) throw new RemoteTerminalError("CLI_NOT_INSTALLED", `${h} is not installed on the terminal (neither on PATH nor in its installer's place)`);
+      return spec.classify(r.code, r.stdout, r.stderr);
+    };
+    let answer = await ask();
+    // A live login can answer "not authenticated" once while it refreshes an old token (grokAuthStatus asks again the same way).
+    if (answer === false && spec.recheckMs) { await new Promise(resolve => setTimeout(resolve, spec.recheckMs)); answer = await ask(); }
+    if (answer === null) throw new RemoteTerminalError("AUTH_STATUS_UNCONFIRMED", `the login state of ${h} could not be read from its status answer`);
+    return { op: "cli_auth_status", harness: h, logged_in: answer };
   }
 
   /** R15: the terminal's own fs answers; the path travels as base64 so no shell reads it. */

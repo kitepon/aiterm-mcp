@@ -772,6 +772,8 @@ The selected harness CLI must be installed and authenticated. Use each product o
 
 Claude authentication preflight refusals retain the existing error text and add `structuredContent` with schema `aiterm.agent-launch-error.v1`, `harness:"claude-code"`, `phase:"authentication_preflight"`, `effect:"not_issued"`, and `session_created:false`. `code` distinguishes `CLAUDE_AUTH_NOT_AUTHENTICATED` and `CLAUDE_AUTH_STATUS_UNCONFIRMED`. A status check that does not finish in 5 seconds no longer refuses: the launch goes on, and a logged-out Claude stops at its login screen as `vendor_onboarding_required`. `CLAUDE_AUTH_STATUS_TIMEOUT` comes only from terminals older than 0.70.1. These describe the official status check, not the cause of a credential failure or a confirmed login expiry. Native status bodies and stderr are omitted.
 
+A CLI that is positively not logged in refuses the launch the same way for Claude Code, Cursor and Antigravity (the harnesses with a launch preflight): `_meta["aiterm/launch_error"]` carries `code:"AGENT_AUTH_REQUIRED"`, `phase:"input"`, `effect:"not_started"`, `session_created:false` and the `harness`; the text is `AGENT_LAUNCH_NOT_STARTED: AGENT_AUTH_REQUIRED: ...` (Claude keeps its older text and structured answer beside it). Codex and Grok have no launch preflight and stop at their own login screen. A status check that cannot be read is not this code.
+
 Set `throughline_source_session` together with a non-empty mission in `prompt` to prepend
 Throughline's read-only handoff context. This optional route requires `throughline >= 0.9.0`,
 cannot be combined with `launch_operation_id`, and leaves the source session's database ownership

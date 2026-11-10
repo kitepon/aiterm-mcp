@@ -165,8 +165,8 @@ test("launch tools: terminal is refused clearly before any connection when the h
     assert.ok(tool.inputSchema.properties.terminal, `${name} takes terminal`);
     assert.match(tool.inputSchema.properties.terminal.description, /copy it unchanged/);
   }
-  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "cursor-cli", terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
-  assert.match(text(await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "cursor-cli", terminal, cwd: "/x" } })), /BINDING_UNKNOWN/, "cursor is a terminal harness since 0.70.9");
+  assert.match(text(await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } })), /BINDING_UNKNOWN/, "grok is a terminal harness since 0.70.9");
   assert.match(text(await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } })), /BINDING_UNKNOWN/, "codex is a terminal harness since 0.70.7");
   assert.match(text(await client.callTool({ name: "claude_agent", arguments: { terminal } })), /TERMINAL_INVALID: cwd is required/);
   assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "relative" } })), /TERMINAL_INVALID/);
@@ -178,7 +178,7 @@ test("launch tools: terminal is refused clearly before any connection when the h
   const launchError = unknown._meta["aiterm/launch_error"];
   assert.deepEqual({ ...launchError, action: typeof launchError.action }, { schema: "aiterm.agent-launch-error.v1",
     harness: "claude-code", code: "BINDING_UNKNOWN", phase: "terminal", effect: "not_started", session_created: false, action: "string" });
-  assert.equal((await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } }))._meta["aiterm/launch_error"].code, "TERMINAL_HARNESS_UNSUPPORTED");
+  assert.equal((await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } }))._meta["aiterm/launch_error"].code, "BINDING_UNKNOWN");
   const malformed = await client.callTool({ name: "claude_agent", arguments: { terminal: { ...terminal, ref: "macbook" }, cwd: "/x" } });
   assert.equal(malformed.isError, true);
   assert.match(text(malformed), /binding ref/);
@@ -402,12 +402,20 @@ test("R18: terminal launch actions are plain Japanese for listed not-started cod
   assert.doesNotMatch(meta(cwd).action, /secret-project|\//);
   const ssh = withTerminalLaunchAction(failed("aiterm: HOST_KEY_MISMATCH: the terminal presented a different host key (confirm the new host key)"));
   assert.equal(meta(ssh).code, "HOST_KEY_MISMATCH");
-  const auth = { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: "CLAUDE_AUTH_NOT_AUTHENTICATED",
+  const unconfirmed = { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: "CLAUDE_AUTH_STATUS_UNCONFIRMED",
     phase: "authentication_preflight", effect: "not_issued", session_created: false, message: "x" };
-  const authResult = withTerminalLaunchAction({ ...failed("aiterm: x"), structuredContent: auth });
-  assert.equal(authResult.structuredContent, auth);
-  const { message, ...authCore } = auth;
-  assert.deepEqual(meta(authResult), { ...authCore, action: terminalLaunchAction("CLAUDE_AUTH_NOT_AUTHENTICATED") });
+  const authResult = withTerminalLaunchAction({ ...failed("aiterm: x"), structuredContent: unconfirmed });
+  assert.equal(authResult.structuredContent, unconfirmed);
+  const { message, ...authCore } = unconfirmed;
+  assert.deepEqual(meta(authResult), { ...authCore, action: terminalLaunchAction("CLAUDE_AUTH_STATUS_UNCONFIRMED") });
+  // "Not logged in" is AGENT_AUTH_REQUIRED for every harness (0.70.9): from the terminal's text, or from an older terminal's Claude preflight code.
+  const required = harness => ({ schema: "aiterm.agent-launch-error.v1", harness, code: "AGENT_AUTH_REQUIRED", phase: "input", effect: "not_started",
+    session_created: false, action: terminalLaunchAction("AGENT_AUTH_REQUIRED") });
+  for (const harness of ["codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"])
+    assert.deepEqual(meta(withTerminalLaunchAction(failed("aiterm: AGENT_LAUNCH_NOT_STARTED: AGENT_AUTH_REQUIRED: not logged in"), harness)), required(harness));
+  const oldClaude = withTerminalLaunchAction({ ...failed("aiterm: x"), structuredContent: { ...unconfirmed, code: "CLAUDE_AUTH_NOT_AUTHENTICATED" } });
+  assert.deepEqual(meta(oldClaude), required("claude-code"));
+  assert.equal(oldClaude.structuredContent.code, "CLAUDE_AUTH_NOT_AUTHENTICATED", "the old structured answer is kept");
   // Unlisted or uncoded failures may have started: unchanged.
   for (const result of [failed("aiterm: MCP error -32001: Request timed out"), failed("aiterm: CONNECTION_LOST: gone"), failed("別端末でagentは起動しましたが")])
     assert.equal(withTerminalLaunchAction(result), result);
@@ -416,7 +424,7 @@ test("R18: terminal launch actions are plain Japanese for listed not-started cod
   assert.equal(errorCode("CREDENTIAL_NOT_LOADED: x"), "CREDENTIAL_NOT_LOADED");
   for (const code of ["TERMINAL_INVALID", "TARGET_MISMATCH", "HOST_TRUST_MISSING", "HOST_TRUST_STALE", "CREDENTIAL_NOT_LOADED", "CREDENTIAL_REVISION_STALE",
     "CREDENTIAL_REQUIRED", "CREDENTIAL_UNAVAILABLE", "AUTH_FAILED", "CONNECTION_REFUSED", "UNREACHABLE", "CONNECTION_FAILED", "REMOTE_AITERM_UNAVAILABLE",
-    "REMOTE_AITERM_TOO_OLD", "SEAT_FORWARD_UNAVAILABLE", "CWD_UNAVAILABLE", "TERMINAL_HARNESS_UNSUPPORTED", "BINDING_UNKNOWN", "TERMINAL_OS_MISMATCH", "TERMINAL_PLATFORM_UNSUPPORTED"]) {
+    "REMOTE_AITERM_TOO_OLD", "SEAT_FORWARD_UNAVAILABLE", "CWD_UNAVAILABLE", "TERMINAL_HARNESS_UNSUPPORTED", "AGENT_AUTH_REQUIRED", "BINDING_UNKNOWN", "TERMINAL_OS_MISMATCH", "TERMINAL_PLATFORM_UNSUPPORTED"]) {
     const action = terminalLaunchAction(code);
     assert.ok(action && action.length <= 500 && /[\u3040-\u30ff]/.test(action) && !/[A-Z]{2,}_[A-Z]/.test(action), code);
   }

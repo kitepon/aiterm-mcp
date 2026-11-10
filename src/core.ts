@@ -61,7 +61,7 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
-import { AitermError, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, launchAuthRequired, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -8146,6 +8146,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
   if (kind === "antigravity") {
     const auth = antigravityAuthStatus(bin, cwd ?? process.cwd());
+    if (auth.status === "unauthenticated") throw launchAuthRequired("antigravity-cli", `${auth.message}`);
     if (auth.status !== "authenticated") throw new AitermError(`ANTIGRAVITY_AUTH_REQUIRED: ${auth.message}`, 2);
     const catalog = antigravityModelChoices(bin, cwd ?? process.cwd());
     const selected = model ?? catalog.default_model;

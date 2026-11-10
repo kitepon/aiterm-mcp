@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
+import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
   checkTerminalPlatform, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
@@ -263,9 +263,10 @@ function fail(e: unknown): ToolResult {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     structuredContent: { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: e.reasonCode,
       phase: "authentication_preflight", effect: "not_issued", session_created: false, message: msg },
+    ...(e.reasonCode === "CLAUDE_AUTH_NOT_AUTHENTICATED" ? { _meta: launchNotStartedMeta("claude-code", "input", "AGENT_AUTH_REQUIRED") } : {}),
   };
   if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase) };
+    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code) };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 
@@ -1337,12 +1338,19 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 const FORK_MINIMUM_VERSION = "0.70.6";
 /** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
 const CODEX_REMOTE_MINIMUM_VERSION = "0.70.7";
+/** The oldest terminal Aiterm per harness: Grok, Cursor and Antigravity seats need 0.70.9 (checked before any private value is sent). */
+const TERMINAL_MINIMUM_VERSION: Record<string, string> = {
+  "claude-code": REMOTE_MINIMUM_VERSION, "codex-cli": CODEX_REMOTE_MINIMUM_VERSION,
+  "grok-cli": REMOTE_CLI_OPS_VERSION, "cursor-cli": REMOTE_CLI_OPS_VERSION, "antigravity-cli": REMOTE_CLI_OPS_VERSION,
+};
 const terminalVersions = new Map<string, string>();
 /** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
 async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
   try {
     if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a registered terminal pass only terminal", 2);
-    if (harness !== "claude-code" && harness !== "codex-cli") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harnesses claude-code and codex-cli; ${harness} is not available on a terminal yet`, 2);
+    const minimum = TERMINAL_MINIMUM_VERSION[harness];
+    // Every real harness is routed since 0.70.9; this only guards a name outside the five.
+    if (!minimum) throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: ${harness} is not a harness a terminal can run`, 2);
     const cwdForm = "TERMINAL_INVALID: cwd is required with terminal: the absolute project folder on that terminal in its own form (a POSIX path starting with / on macOS and Linux, X:\\folder with backslashes on Windows; never launch locally and cd)";
     if (!terminalCwdFits(args.cwd, terminal.os)) throw new AitermError(cwdForm, 2);
     if (args.require_existing_resume) throw new AitermError("TERMINAL_INVALID: require_existing_resume is local-only", 2);
@@ -1355,7 +1363,6 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
       terminalVersions.set(target.trusted_ref, version);
     }
-    const minimum = harness === "codex-cli" ? CODEX_REMOTE_MINIMUM_VERSION : REMOTE_MINIMUM_VERSION;
     if (!versionAtLeast(version, minimum))
       throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${minimum} or later is required (update Aiterm on the terminal)`, 2);
     const privateEnv: Record<string, string> = {};

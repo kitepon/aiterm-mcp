@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
-import { AitermError } from "../errors.js";
+import { AitermError, launchAuthRequired } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
 import { checkedCatalog, type AgentModelCatalog } from "../model-catalog.js";
 import { FastModeError } from "../fast-mode.js";
@@ -552,10 +552,7 @@ export function assertCursorAuthenticationReady(bin: string): void {
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   if (result.error == null && result.status === 0 && !/not logged in|unauthenticated|sign in/i.test(output)) return;
   if (/not logged in|unauthenticated|sign in/i.test(output)) {
-    throw new AitermError(
-      "Cursor Agent CLIが未認証です。sessionは作成していません。通常端末で公式の `agent login` を一度だけ完了してください。",
-      2,
-    );
+    throw launchAuthRequired("cursor-cli", "Cursor Agent CLIが未認証です。sessionは作成していません。通常端末で公式の `agent login` を一度だけ完了してください。");
   }
   const timedOut = result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
   throw new AitermError(

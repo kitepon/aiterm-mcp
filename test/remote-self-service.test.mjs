@@ -146,7 +146,8 @@ test("command: path only for path ops; an older terminal answers REMOTE_AITERM_T
   const before = { remoteVersion: "0.69.0", listDirs: proto.listDirs };
   await assert.rejects(proto.command.call(before, "list_dirs"), error => error.code === "REMOTE_AITERM_TOO_OLD");
   await assert.rejects(proto.command.call(before, "list_dirs", "x"), error => error.code === "PATH_INVALID");
-  assert.deepEqual([...rt.REMOTE_COMMAND_OPS], ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs"]);
+  assert.deepEqual([...rt.REMOTE_COMMAND_OPS], ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs",
+    "cli_version", "cli_install", "cli_update", "cli_auth_status"]);
 });
 
 // A stand-in ssh: records argv and env, asks the askpass helper like OpenSSH, then runs the script on stdin in its own HOME.

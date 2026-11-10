@@ -5,7 +5,8 @@ const ACTIONS: Record<string, string> = {
   TARGET_INVALID: "起動の指定（端末の情報）が正しくありません。BellTeamの不具合の恐れがあります。",
   TERMINAL_OS_MISMATCH: "端末のOSが、登録されているOSと違います。別の機械を指している恐れがあり止めました。端末の登録（OS）を確かめてください。",
   TERMINAL_PLATFORM_UNSUPPORTED: "この端末のOSは、Mac・Linux・Windowsのどれとも確かめられず、席を起こせません。Mac、Linux、Windowsのどれかの端末を使ってください。",
-  TERMINAL_HARNESS_UNSUPPORTED: "この端末で起こせるAIは、今はClaude CodeとCodexだけです。メンバーのAIをClaude CodeかCodexにしてください。",
+  TERMINAL_HARNESS_UNSUPPORTED: "このAIの種類は、端末では起こせません。BellTeamの不具合の恐れがあります。",
+  AGENT_AUTH_REQUIRED: "端末のこのAIにログインしていません。席は作られていません。端末でこのAIにログインしてから、起こし直してください。",
   REF_INVALID: "端末の登録が見つかりません。端末の登録を確かめてください。",
   BINDING_UNKNOWN: "端末の登録が見つかりません。端末の登録を確かめてください。",
   BINDING_STORE_UNREADABLE: "端末の登録を読めませんでした。端末の登録をやり直してください。",
@@ -27,7 +28,6 @@ const ACTIONS: Record<string, string> = {
   SEAT_FORWARD_UNAVAILABLE: "端末からBellTeamへ戻る通り道がまだ用意できていません。少し待ってから起こし直してください。",
   CWD_UNAVAILABLE: "端末に作業フォルダがありません。メンバーの作業フォルダを選び直すか、そのフォルダを作ってください。",
   AGENT_LAUNCH_NOT_STARTED: "席を作る途中で失敗しました。席は残っていません。もう一度起こし直します。",
-  CLAUDE_AUTH_NOT_AUTHENTICATED: "端末のClaude Codeにログインしていません。端末でClaude Codeにログインしてください。",
   CLAUDE_AUTH_STATUS_UNCONFIRMED: "端末のClaude Codeのログイン状態を確かめられませんでした。少し待ってから起こし直してください。",
   CLAUDE_AUTH_STATUS_TIMEOUT: "端末のClaude Codeのログイン状態を時間内に確かめられませんでした。少し待ってから起こし直してください。",
 };
@@ -45,10 +45,10 @@ export const LAUNCH_ERROR_META = "aiterm/launch_error";
 export const ERROR_CODE_META = "aiterm/error_code";
 
 /** R18 for a local launch: the fresh native creation left no seat (core.freshLaunchFailure). */
-export function launchNotStartedMeta(harness: string, phase: "native_create" | "input" = "native_create"): Record<string, unknown> {
-  const code = "AGENT_LAUNCH_NOT_STARTED";
+export function launchNotStartedMeta(harness: string, phase: "native_create" | "input" = "native_create",
+  code: "AGENT_LAUNCH_NOT_STARTED" | "AGENT_AUTH_REQUIRED" = "AGENT_LAUNCH_NOT_STARTED"): Record<string, unknown> {
   return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase,
-    effect: "not_started", session_created: false, action: phase === "input" ? INPUT_ACTION : ACTIONS[code] } };
+    effect: "not_started", session_created: false, action: code === "AGENT_AUTH_REQUIRED" || phase !== "input" ? ACTIONS[code] : INPUT_ACTION } };
 }
 // phase "input": refused from the arguments alone; nothing was started, so launching again unchanged fails the same way.
 const INPUT_ACTION = "起動の指定（追加の指示かMCPの設定）をこのAIでは使えません。席は作られていません。指定を見直してください。";
@@ -68,7 +68,11 @@ export function withTerminalLaunchAction(result: any, harness = "claude-code"): 
   const structured = result.structuredContent;
   const preflight = structured?.schema === "aiterm.agent-launch-error.v1";
   if (structured && !preflight) return result;
-  const code = preflight ? structured.code : errorCode(result.content?.find((item: any) => item.type === "text")?.text ?? "");
+  const text = result.content?.find((item: any) => item.type === "text")?.text ?? "";
+  // "Not logged in" is one code for every harness (0.70.9). A terminal on 0.70.1-0.70.8 answers Claude's only as the structured preflight code.
+  if (preflight ? structured.code === "CLAUDE_AUTH_NOT_AUTHENTICATED" : /^(?:aiterm: )?AGENT_LAUNCH_NOT_STARTED: AGENT_AUTH_REQUIRED:/.test(text))
+    return { ...result, _meta: { ...result._meta, ...launchNotStartedMeta(preflight ? structured.harness : harness, "input", "AGENT_AUTH_REQUIRED") } };
+  const code = preflight ? structured.code : errorCode(text);
   const action = terminalLaunchAction(code);
   if (!action) return result;
   const failure = preflight

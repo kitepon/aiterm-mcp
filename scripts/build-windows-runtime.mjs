@@ -34,9 +34,11 @@ const onWindows = process.platform === "win32";
 
 const run = (cmd, args, options = {}) => execFileSync(cmd, args, { stdio: ["ignore", "inherit", "inherit"], ...options });
 const sha256 = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
-// bsdtar (tar.exe) reads and writes zip on Windows; elsewhere unzip and zip do.
-const unzip = (zip, dir) => (onWindows ? run("tar", ["-xf", zip, "-C", dir]) : run("unzip", ["-q", zip, "-d", dir]));
-const zipUp = (zip, parent, name) => (onWindows ? run("tar", ["-a", "-cf", zip, "-C", parent, name]) : run("zip", ["-qr", zip, name], { cwd: parent }));
+// bsdtar (Windows' own System32\tar.exe) reads and writes zip; elsewhere unzip and zip do. Named by path: on a runner
+// whose PATH has Git's GNU tar first, "tar" reads "D:\..." as a remote host.
+const bsdtar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+const unzip = (zip, dir) => (onWindows ? run(bsdtar, ["-xf", zip, "-C", dir]) : run("unzip", ["-q", zip, "-d", dir]));
+const zipUp = (zip, parent, name) => (onWindows ? run(bsdtar, ["-a", "-cf", zip, "-C", parent, name]) : run("zip", ["-qr", zip, name], { cwd: parent }));
 
 async function download(url, file) {
   for (let attempt = 1; ; attempt++) {
@@ -135,7 +137,8 @@ try {
       const result = JSON.parse(execFileSync(path.join(smoke, name, "bin", "aiterm-remote-terminal.cmd"), ["path-status", "--path-base64", probe], { encoding: "utf8", shell: true }).trim());
       if (result.exists !== true || result.directory !== true) throw new Error(`smoke: path-status of C:\\ answered ${JSON.stringify(result)}`);
       const psmuxVersion = execFileSync(path.join(smoke, name, "bin", "psmux.exe"), ["-V"], { encoding: "utf8" });
-      if (!psmuxVersion.startsWith(`psmux ${PSMUX}`)) throw new Error(`smoke: bundled psmux answered ${psmuxVersion}`);
+      // psmux -V prints a "tmux X" line before its own "psmux X (...)" line.
+      if (!new RegExp(`^psmux ${PSMUX.replaceAll(".", "\\.")}\\b`, "m").test(psmuxVersion)) throw new Error(`smoke: bundled psmux answered ${psmuxVersion}`);
     } finally { fs.rmSync(smoke, { recursive: true, force: true }); }
   } else process.stdout.write("not a Windows host: the zip was built but not run\n");
   fs.writeFileSync(path.join(out, `aiterm-runtime-${version}-win32-SHA256SUMS`), `${sum}\n`);

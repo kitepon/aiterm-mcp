@@ -575,7 +575,8 @@ test("killAll: 同じstateを使う別socketのagent登録を残す", { skip: sk
     const opened = runForeign(`core.openAgent("claude", { session_name: ${JSON.stringify(foreignSession)}, agent_done: true });`);
     assert.equal(opened.status, 0, opened.stderr);
     const foreignMeta = readAgentMeta(foreignSession);
-    const files = fs.readdirSync(agentStateDir()).filter((file) => file.startsWith(`${foreignSession}.`));
+    // The Windows launch file is read and deleted by the foreign pane itself, not by killAll.
+    const files = fs.readdirSync(agentStateDir()).filter((file) => file.startsWith(`${foreignSession}.`) && !file.endsWith(".launch.ps1"));
     const before = new Map(files.map((file) => [file, fs.readFileSync(path.join(agentStateDir(), file))]));
     [localSession] = core.openAgent("claude", { agent_done: true });
     const localMeta = readAgentMeta(localSession);

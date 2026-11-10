@@ -1,4 +1,4 @@
-// provision (remote-terminal.md R16): install this Aiterm version as a product-owned runtime on a macOS terminal,
+// provision (remote-terminal.md R16): install this Aiterm version as a product-owned runtime on a macOS or Linux terminal,
 // before any terminal MCP exists. Runs over the binding's trusted key SSH; the terminal fetches the release assets.
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -14,13 +14,28 @@ export const RUNTIME_RELEASE_BASE = "https://github.com/kitepon/aiterm-mcp/relea
 export const PROVISION_SCRIPT = String.raw`set -u
 V="$1"; BASE="$2"
 fail() { echo "AITERM_PROVISION_ERROR $1"; exit 3; }
-[ "$(uname -s)" = Darwin ] || fail PROVISION_PLATFORM_UNSUPPORTED
-case "$(uname -m)" in
-  arm64) A=arm64 ;;
-  x86_64) if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = 1 ]; then A=arm64; else A=x64; fi ;;
+case "$(uname -s)" in
+  Darwin)
+    OS=darwin
+    case "$(uname -m)" in
+      arm64) A=arm64 ;;
+      x86_64) if [ "$(sysctl -in hw.optional.arm64 2>/dev/null)" = 1 ]; then A=arm64; else A=x64; fi ;;
+      *) fail PROVISION_PLATFORM_UNSUPPORTED ;;
+    esac ;;
+  Linux)
+    OS=linux
+    case "$(uname -m)" in
+      x86_64) A=x64 ;;
+      aarch64|arm64) A=arm64 ;;
+      *) fail PROVISION_PLATFORM_UNSUPPORTED ;;
+    esac
+    # The Linux runtime has no tmux: seats use the user's own. Look on the login PATH, as the later remote commands do.
+    s=$(printenv SHELL); [ -x "$s" ] || s=/bin/sh
+    p=$("$s" -lc env </dev/null 2>/dev/null | sed -n 's/^PATH=//p' | tail -n 1); [ -n "$p" ] && PATH=$p; export PATH
+    command -v tmux >/dev/null 2>&1 || fail PROVISION_TMUX_MISSING ;;
   *) fail PROVISION_PLATFORM_UNSUPPORTED ;;
 esac
-NAME="aiterm-runtime-$V-darwin-$A"
+NAME="aiterm-runtime-$V-$OS-$A"
 ROOT="$HOME/.aiterm/runtime"
 mkdir -p "$ROOT" 2>/dev/null && chmod 700 "$HOME/.aiterm" "$ROOT" 2>/dev/null || fail RUNTIME_DIR_UNAVAILABLE
 smoke() { "$1/bin/aiterm-remote-terminal" runtime-smoke --expect-version "$V" >/dev/null 2>&1 </dev/null; }
@@ -86,7 +101,8 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
   });
   const parsed = parseProvisionOutput(run.stdout);
   if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version };
-  if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`);
+  if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`,
+    parsed.code === "PROVISION_TMUX_MISSING" ? "install tmux with the terminal's package manager (for example apt install tmux), then provision again" : undefined);
   if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
   throw new RemoteTerminalError("PROVISION_FAILED", "the terminal returned no provisioning result");
 }
@@ -95,6 +111,9 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
 export async function runtimeSmoke(expectVersion: string): Promise<{ schema: string; version: string; tmux: string }> {
   if (pkg.version !== expectVersion) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", `runtime is ${pkg.version}, expected ${expectVersion}`);
   const tmux = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 10_000 });
+  // The Linux runtime carries no tmux; its absence is the user's to fix.
+  if (process.platform === "linux" && (tmux.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
+    throw new RemoteTerminalError("PROVISION_TMUX_MISSING", "tmux is not installed on the terminal", "install tmux with the terminal's package manager, then provision again");
   if (tmux.status !== 0) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", "tmux does not run");
   await verifySetupRuntime({ command: process.execPath, args: [fileURLToPath(new URL("./index.js", import.meta.url))] });
   return { schema: "aiterm.runtime-smoke.v1", version: pkg.version, tmux: tmux.stdout.trim() };

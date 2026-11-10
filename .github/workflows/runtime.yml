@@ -1,7 +1,8 @@
-name: macOS terminal runtime
+name: terminal runtime
 
 # Builds the provisioned terminal runtime for a published release and attaches it to that release
 # (docs/architecture/remote-terminal.md R16/R17). `aiterm-remote-terminal provision` installs these assets.
+# macOS and Linux build in parallel; one publish job attaches the four tarballs and the one SHA256SUMS over them.
 on:
   release:
     types: [published]
@@ -15,13 +16,24 @@ on:
 permissions:
   contents: write
 
+env:
+  VERSION_INPUT: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
+
 jobs:
-  runtime:
+  build:
     # GitHub-hosted (free for this public repository): never build on the Owner's Mac.
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    env:
-      VERSION_INPUT: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: darwin
+            runner: macos-latest
+            script: build-macos-runtime.mjs
+          - platform: linux
+            runner: ubuntu-latest
+            script: build-linux-runtime.mjs
     steps:
       - name: checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -44,23 +56,52 @@ jobs:
           done
           echo "::error::aiterm-mcp@$RUNTIME_VERSION did not appear on npm within 15 minutes"
           exit 1
+      - name: system tmux for the Linux smoke
+        if: matrix.platform == 'linux'
+        shell: bash
+        # The Linux runtime carries no tmux; its smoke runs against the runner's own.
+        run: command -v tmux >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq tmux; }
       - name: build both architectures and smoke the host one
         shell: bash
-        # The runner account's login shell is /usr/bin/false; tmux runs a one-string window command through $SHELL.
-        # A runner without TMPDIR would share /tmp/claude-tmux-sockets with other users of the Mac.
+        # The macOS runner account's login shell is /usr/bin/false; tmux runs a one-string window command through $SHELL.
+        # A runner without TMPDIR would share /tmp/claude-tmux-sockets with other users of the machine.
         env:
           SHELL: /bin/sh
+          BUILD_SCRIPT: ${{ matrix.script }}
         run: |
           export TMPDIR="$RUNNER_TEMP"
           out="$RUNNER_TEMP/aiterm-runtime"
           rm -rf "$out"
-          node scripts/build-macos-runtime.mjs "$RUNTIME_VERSION" "$out"
-      - name: attach to the release
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/upload-runtime-assets.mjs "$RUNTIME_VERSION" "$RUNNER_TEMP/aiterm-runtime"
+          node "scripts/$BUILD_SCRIPT" "$RUNTIME_VERSION" "$out"
+      - name: keep the tarballs for the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runtime-${{ matrix.platform }}
+          path: ${{ runner.temp }}/aiterm-runtime/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
       - name: clean
         if: always()
         shell: bash
         run: rm -rf "$RUNNER_TEMP/aiterm-runtime"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - name: collect the tarballs
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: runtime-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/aiterm-runtime
+      - name: attach to the release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/upload-runtime-assets.mjs "${VERSION_INPUT#v}" "$RUNNER_TEMP/aiterm-runtime"

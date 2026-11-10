@@ -39,6 +39,9 @@ export const credentialHandleSchema = z.object({
   revision: z.number().int().positive("credential.revision must be the handle's positive integer revision, unchanged").max(Number.MAX_SAFE_INTEGER),
 }).strict();
 
+/** The terminal's operating system as BellTeam registers it; Aiterm compares it with what the terminal really is (R20). */
+export const terminalOsSchema = z.enum(["macos", "linux", "windows"]);
+
 /** The launch tools' terminal target (remote-terminal.md "One launch path"). Copied unchanged from BellTeam terminals. */
 export const terminalArgumentSchema = z.object({
   ref: z.string().uuid("terminal.ref must be the binding ref (UUID) the terminal registry gave for this terminal"),
@@ -47,6 +50,7 @@ export const terminalArgumentSchema = z.object({
     user: z.string().min(1, "terminal.target.user is required"),
     port: z.number().int().min(1).max(65535),
   }).strict(),
+  os: terminalOsSchema.optional(),
   trustRevision: revision("trustRevision"),
   credentialRevision: revision("credentialRevision").optional(),
   credential: credentialHandleSchema.optional(),
@@ -59,8 +63,8 @@ export type TerminalArgument = z.infer<typeof terminalArgumentSchema>;
 
 export const terminalArgumentDescription =
   "Run this seat on another computer (a registered terminal) over SSH. Value: exactly the terminal value your host system's terminal registry hands over, " +
-  "{ref, target:{host,user,port}, trustRevision, and credentialRevision or credential {handle, revision}}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
-  "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal. Never launch locally and then cd or ssh. " +
+  "{ref, target:{host,user,port}, os?, trustRevision, and credentialRevision or credential {handle, revision}}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
+  "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal (a POSIX path starting with /). Never launch locally and then cd or ssh. " +
   "Never put tokens, passwords or other secrets in any argument, prompt or typed text; pass secret values only by name in env_vars. " +
   "After launch, use session_id alone for pty_send, pty_observe, pty_read, pty_key, claude_turn, agent_stop and pty_close; Aiterm routes them to the terminal. " +
   "Errors and next step: TERMINAL_INVALID = malformed value, missing/relative cwd, or combined with remote: pass the registry's value unchanged with cwd. " +
@@ -70,4 +74,6 @@ export const terminalArgumentDescription =
   "CREDENTIAL_REQUIRED / CREDENTIAL_NOT_LOADED = this terminal's key comes from a credential handle that the registry must load first; never paste a key anywhere. " +
   "AUTH_FAILED = the terminal refused the key. UNREACHABLE = the terminal is offline; try later. CONNECTION_REFUSED = the terminal refused the SSH connection (SSH may be off there); try later. " +
   "REMOTE_AITERM_TOO_OLD = update Aiterm on the terminal. CWD_UNAVAILABLE = the folder does not exist there; do not pick another folder. " +
-  "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready (launch again later), or the seat MCP URLs are not http://127.0.0.1:<one port>/api/seat-mcp. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code.";
+  "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready (launch again later), or the seat MCP URLs are not http://127.0.0.1:<one port>/api/seat-mcp. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code. " +
+  "TERMINAL_OS_MISMATCH = the terminal is not the operating system os says: the registry's os is wrong or the binding points at another machine; ask the terminal registry, do not retry. " +
+  "TERMINAL_PLATFORM_UNSUPPORTED = Windows (and any system that is not macOS or Linux) cannot run seats yet.";

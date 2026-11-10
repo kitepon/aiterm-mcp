@@ -2,7 +2,7 @@
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
 import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
-  rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
+  checkTerminalPlatform, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
@@ -1335,10 +1335,12 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
   try {
     if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a registered terminal pass only terminal", 2);
     if (harness !== "claude-code") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harness claude-code first; ${harness} is not available on a terminal yet`, 2);
-    if (typeof args.cwd !== "string" || !args.cwd.startsWith("/"))
-      throw new AitermError("TERMINAL_INVALID: cwd is required with terminal: the absolute project folder on that terminal (never launch locally and cd)", 2);
+    // A declared Windows terminal is refused by the platform check below (0.70.8 brings its path form).
+    if (typeof args.cwd !== "string" || (terminal.os !== "windows" && !args.cwd.startsWith("/")))
+      throw new AitermError("TERMINAL_INVALID: cwd is required with terminal: the absolute POSIX project folder on that terminal, starting with / (never launch locally and cd)", 2);
     if (args.require_existing_resume) throw new AitermError("TERMINAL_INVALID: require_existing_resume is local-only", 2);
     const target = terminalRemoteTarget(terminal);
+    await checkTerminalPlatform(target, terminal.os);
     // The private line is sent before the server answers; check its version first so an old one never sees it.
     let version = terminalVersions.get(target.trusted_ref);
     if (!version) {

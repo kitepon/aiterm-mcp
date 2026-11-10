@@ -4,7 +4,7 @@
 //   serve        stdio MCP for one bound connection, spawned by BellTeam terminals
 //   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
-//   authorize-key --ref R   (login password on stdin until EOF; R14)      provision --ref R   (macOS runtime; R16)
+//   authorize-key --ref R   (login password on stdin until EOF; R14)      provision --ref R   (macOS/Linux runtime; R16)
 //   path-status|make-dir --path P | --path-base64 B, list-dirs [--path P | --path-base64 B]   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
-import { credentialHandleSchema } from "./remote-contract.js";
+import { credentialHandleSchema, terminalOsSchema } from "./remote-contract.js";
 import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
 import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization } from "./remote-authorize.js";
 import { provision, runtimeSmoke } from "./remote-provision.js";
@@ -65,7 +65,7 @@ function serve(): void {
     guarded(({ ref }) => bindingStatus(ref)));
   server.registerTool("remote_terminal_open", {
     description: "Open the bound connection for this process",
-    inputSchema: { ref: z.string(), target: z.object({ host: z.string(), user: z.string(), port: z.number().int() }).strict(),
+    inputSchema: { ref: z.string(), target: z.object({ host: z.string(), user: z.string(), port: z.number().int() }).strict(), os: terminalOsSchema.optional(),
       trustRevision: z.string(), credentialRevision: z.string().optional(), credential: credentialHandleSchema.optional(),
       sudoCredential: credentialHandleSchema.optional(), privateEnv: z.record(z.string(), z.string()).optional() },
   }, guarded(async args => {
@@ -74,7 +74,7 @@ function serve(): void {
     connection.on("event", event => {
       server.server.notification({ method: "aiterm/remote-terminal-event", params: event }).catch(() => {});
     });
-    return { opened: true, remoteVersion: connection.remoteVersion };
+    return { opened: true, remoteVersion: connection.remoteVersion, platform: connection.platform };
   }));
   server.registerTool("remote_terminal_call", {
     description: "Call a seat tool on the terminal's Aiterm",

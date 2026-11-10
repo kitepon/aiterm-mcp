@@ -12,7 +12,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
-import { posixCommand } from "./remote.js";
+import { posixCommand, remotePlatform, type RemotePlatform } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
 
@@ -302,9 +302,10 @@ export const REMOTE_LIST_DIRS_VERSION = "0.70.0";
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
-    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string) { super(); }
+    private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string,
+    readonly platform: RemotePlatform) { super(); }
 
-  static async open(input: { ref: string; target: unknown; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle;
+  static async open(input: { ref: string; target: unknown; os?: RemotePlatform; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle;
     sudoCredential?: CredentialHandle; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
     const target = validTarget(input.target);
     const b = binding(input.ref);
@@ -316,6 +317,8 @@ export class RemoteTerminalConnection extends EventEmitter {
     checkKeySource(input.ref, status, input);
     for (const [name, value] of Object.entries(input.privateEnv ?? {}))
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") throw new RemoteTerminalError("PRIVATE_ENV_INVALID", "invalid private env entry");
+    // R20: the connect command is shell-specific, so the platform is known (and the declared os checked) before any MCP connection.
+    const platform = await checkTerminalPlatform(trustedTarget(b), input.os);
     // Short path: the agent socket must fit macOS's 104-byte sun_path.
     const dir = fs.mkdtempSync(path.join(os.platform() === "win32" ? os.tmpdir() : "/tmp", "aiterm-rt-"));
     fs.chmodSync(dir, 0o700);
@@ -354,7 +357,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         await client.close().catch(() => {});
         throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${remoteVersion}; ${REMOTE_MINIMUM_VERSION} or later is required`);
       }
-      const connection = new RemoteTerminalConnection(b, dir, agent, agentSocket, identity, client, remoteVersion);
+      const connection = new RemoteTerminalConnection(b, dir, agent, agentSocket, identity, client, remoteVersion, platform);
       client.onclose = () => connection.ended();
       // After the caller has attached its listener to the returned connection.
       setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
@@ -440,7 +443,8 @@ export class RemoteTerminalConnection extends EventEmitter {
     if (!Object.hasOwn(COMMANDS, op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
     const run = await this.exec(`${COMMANDS[op]} 2>&1`, op === "claude_version" ? 60_000 : 900_000);
     if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-    const probe = op === "claude_version" ? run : await this.exec("claude --version 2>&1", 60_000);
+    // The official installer puts claude in ~/.local/bin, which a login shell may not have on PATH yet (Linux).
+    const probe = op === "claude_version" ? run : await this.exec('claude --version 2>&1 || "$HOME/.local/bin/claude" --version 2>&1', 60_000);
     const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
     return { op, exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
   }
@@ -489,7 +493,7 @@ export class RemoteTerminalConnection extends EventEmitter {
 // ---- terminal seats: the launch tools' `terminal` argument (remote-terminal.md "One launch path") ----
 
 export interface CredentialHandle { handle: string; revision: number }
-export interface TerminalArgument { ref: string; target: RemoteTarget; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle; sudoCredential?: CredentialHandle }
+export interface TerminalArgument { ref: string; target: RemoteTarget; os?: RemotePlatform; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle; sudoCredential?: CredentialHandle }
 
 /** T1 key source: a credential handle (its revision checked by the resolver) or the binding's native key revision, never both. */
 function checkKeySource(ref: string, status: RemoteBindingStatus, input: { credentialRevision?: string; credential?: CredentialHandle }): void {
@@ -515,6 +519,16 @@ function checkKeySource(ref: string, status: RemoteBindingStatus, input: { crede
 export interface TrustedRemoteTarget { host: string; user: string; port: number; trusted_ref: string }
 
 const trustedTarget = (b: Binding): TrustedRemoteTarget => ({ host: b.target.host, user: b.target.user, port: b.target.port, trusted_ref: b.ref });
+
+/** R20/T4: the terminal's real platform; macOS and Linux pass. A declared os that differs is a wrong target, Windows comes in 0.70.8. */
+export async function checkTerminalPlatform(target: TrustedRemoteTarget, declared?: RemotePlatform): Promise<RemotePlatform> {
+  const actual = await remotePlatform(target);
+  if (actual === null) throw new RemoteTerminalError("TERMINAL_PLATFORM_UNSUPPORTED", "the terminal is not a macOS, Linux or Windows system (the platform probe printed nothing recognisable)");
+  if (declared !== undefined && declared !== actual)
+    throw new RemoteTerminalError("TERMINAL_OS_MISMATCH", `the terminal is registered as ${declared} but runs ${actual}; correct the terminal's os or register the right machine`);
+  if (actual === "windows") throw new RemoteTerminalError("TERMINAL_PLATFORM_UNSUPPORTED", "Windows terminals are not supported before Aiterm 0.70.8");
+  return actual;
+}
 
 /** T1: the binding exists, the target is the binding's, both revisions are current. */
 export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarget {

@@ -3,6 +3,8 @@
 const ACTIONS: Record<string, string> = {
   TERMINAL_INVALID: "起動の指定（端末の情報か作業フォルダ）が正しくありません。BellTeamの不具合の恐れがあります。",
   TARGET_INVALID: "起動の指定（端末の情報）が正しくありません。BellTeamの不具合の恐れがあります。",
+  TERMINAL_OS_MISMATCH: "端末のOSが、登録されているOSと違います。別の機械を指している恐れがあり止めました。端末の登録（OS）を確かめてください。",
+  TERMINAL_PLATFORM_UNSUPPORTED: "この端末のOS（Windowsなど）では、まだ席を起こせません。MacかLinuxの端末を使ってください。",
   TERMINAL_HARNESS_UNSUPPORTED: "この端末で起こせるAIは、今はClaude Codeだけです。メンバーのAIをClaude Codeにしてください。",
   REF_INVALID: "端末の登録が見つかりません。端末の登録を確かめてください。",
   BINDING_UNKNOWN: "端末の登録が見つかりません。端末の登録を確かめてください。",
@@ -17,7 +19,7 @@ const ACTIONS: Record<string, string> = {
   CREDENTIAL_REVISION_STALE: "端末へ入る鍵が新しくなりました。新しい鍵で起こし直します。",
   CREDENTIAL_UNAVAILABLE: "端末へ入る鍵を使えません。端末の登録で鍵を確かめてください。",
   AUTH_FAILED: "端末が鍵を受け付けませんでした。端末の登録から、パスワードで鍵を許可し直してください。",
-  CONNECTION_REFUSED: "端末がSSHの接続を断りました。Macなら「リモートログイン」が入になっているか確かめてください。",
+  CONNECTION_REFUSED: "端末がSSHの接続を断りました。端末のSSHサーバーが入になっているか確かめてください（Macは「リモートログイン」、Linuxはsshdの起動）。",
   UNREACHABLE: "端末につながりません。電源とネットワークを確かめてください。つながれば起こし直します。",
   CONNECTION_FAILED: "端末へのSSH接続に失敗しました。端末の電源とSSHの設定を確かめてください。",
   REMOTE_AITERM_UNAVAILABLE: "端末にAitermが入っていません。端末の準備（Aitermの導入）をやり直してください。",

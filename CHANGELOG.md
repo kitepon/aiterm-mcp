@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-11-10
+
 - Terminal self-service before a seat can open (docs/architecture/remote-terminal.md R14-R17; BellTeam PR 854 S2-S5).
   - `aiterm-remote-terminal authorize-key --ref R`: the terminal's login password is the raw UTF-8 stdin until EOF (nothing stripped). After the binding's trust and held key are checked (before stdin is read), one password-only SSH login (no public key, no keyboard-interactive, one prompt) appends the held public key to `~/.ssh/authorized_keys` unless the same key type and blob is already there (`~/.ssh` 0700, file 0600, other entries kept). The password reaches ssh only through a one-shot askpass socket; never argv, env, files, logs or the PTY. Receipt `aiterm.remote-key-authorization.v1` `{ref, result: AUTHORIZED | ALREADY_AUTHORIZED}`; failures `PASSWORD_REJECTED`, `PASSWORD_AUTH_DISABLED`, `PASSWORD_INVALID`, `AUTHORIZED_KEYS_WRITE_FAILED` and the existing trust/key/network codes.
   - `aiterm-remote-terminal provision --ref R` (macOS arm64/x86_64): over the binding's trusted key SSH and before any terminal MCP exists, the terminal downloads this version's runtime from the GitHub Release (official Node, the published aiterm-mcp, and a tmux with its libraries linked in), checks its sha256, stages and smokes it, then makes it `~/.aiterm/runtime/current` (the previous one stays as `previous`; running seats and tmux servers are untouched). No Homebrew, npm, Node, tmux, password or sudo on the terminal. Receipt `aiterm.remote-provision.v1` `{ref, result: PROVISIONED | ALREADY_CURRENT, version}`. Remote POSIX commands now put that runtime first on PATH. The release workflow `runtime.yml` builds and attaches the assets on the macOS runner.
@@ -3151,7 +3153,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.69.0...HEAD
+[0.69.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.1...v0.69.0
 [0.68.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.0...v0.68.1
 [0.68.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.66.0...v0.67.0

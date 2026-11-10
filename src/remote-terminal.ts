@@ -775,8 +775,12 @@ function keep(ref: string): void {
     keeper.timer.unref();
   };
   // The remote command depends on the terminal's shell (T4): known from the cache, or probed once by this process.
+  // The probe's ssh arguments can refuse synchronously (CREDENTIAL_NOT_LOADED before credential-load): leave like the
+  // argument refusal below, never with `starting` set, or no later keep() would ever start the forward (0.70.9).
+  let probe: Promise<RemoteShell>;
+  try { probe = remoteShell(trustedTarget(b)); } catch { releaseLock(ref); return; }
   keeper.starting = true;
-  remoteShell(trustedTarget(b)).then(shell => {
+  probe.then(shell => {
     keeper.starting = false;
     let args: string[];
     try {

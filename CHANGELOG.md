@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Terminal seats' MCP route back (the R12 reverse forward) comes back after an execution restart. When the keeper first ran before the terminal's credential was loaded, its shell probe refused at once with `CREDENTIAL_NOT_LOADED` and left the keeper marked as starting, so that process never held the forward again. Every seat on the terminal then reached a closed port (the binding still named it, so a launch was handed the dead port without a wait). The keeper now releases its lock on that refusal, and the next 60 s check after credential-load starts the forward on the same port.
+
 ## [0.70.11] - 2026-11-10
 
 - macOS: a Codex seat with `mcp_config` no longer stops at `reason=unrecognized_screen` with Codex's "unexpected argument '<cwd>'". The pane's bash 3.2 brace-expanded the typed launch line when it held a `"` (the `-c mcp_servers.<name>={...}` value). The one-line launch now sends every quote and expanding character (single and double quotes, backquote, `$`, `!`, `{`, `}`) as a `printf %b` octal escape. Linux, zsh and dash read the same line.

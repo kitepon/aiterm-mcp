@@ -112,6 +112,34 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
   assert.doesNotMatch(calls[0], /4182/);
 });
 
+test("seat forward keeper: a credential loaded after the keeper's first try still gets the forward (0.70.9 stayed down)", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined || spawnSync("ssh-agent", ["-?"]).error !== undefined }, () => {
+  const dir = fs.mkdtempSync(path.join(tmp, "keeper-cred-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
+  fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61001 for remote forward to x' >&2\n`, { mode: 0o755 });
+  const key = path.join(dir, "id");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
+  const script = `
+    const rt = await import(${JSON.stringify(new URL("../dist/remote-terminal.js", import.meta.url).href)});
+    const fs = await import("node:fs");
+    // Keyless: the key comes later by credential-load, as on the execution after a restart.
+    const status = rt.registerBinding({ target: { host: "10.0.0.10", user: "kite", port: 22 } });
+    rt.bindTerminalSession("seat-mac", status.ref);
+    const first = await rt.ensureSeatForward(status.ref, 4183, 600).then(port => port, error => error.message.split(":")[0]);
+    const load = await rt.loadCredential({ ref: status.ref, terminalId: "pc-1", handle: "0d6c1f0e-2b8a-4c3d-9e7f-112233445567", revision: "1", purpose: "ssh-key" }, fs.readFileSync(${JSON.stringify(key)}));
+    rt.maintainSeatForwards();
+    const deadline = Date.now() + 5000;
+    while (!rt.binding(status.ref).seat_forward_port && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+    const forwarded = fs.existsSync(${JSON.stringify(log)}) && fs.readFileSync(${JSON.stringify(log)}, "utf8").includes(" -R ");
+    rt.releaseCredential(status.ref);
+    console.log(JSON.stringify({ first, loaded: load.accepted, forwarded, port: rt.binding(status.ref).seat_forward_port ?? null }));
+    process.exit(0);`;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", loaded: true, forwarded: true, port: 61001 },
+    "before the key the launch is told the route is not ready; after credential-load the keeper starts the forward");
+});
+
 test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {
   const contract = await import("../dist/remote-contract.js");
   const remote = await import("../dist/remote.js");

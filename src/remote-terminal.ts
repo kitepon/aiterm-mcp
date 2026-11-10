@@ -721,6 +721,7 @@ const FORWARD_RESTART_MS = 15_000, FORWARD_REFUSALS_BEFORE_NEW_PORT = 4, LAUNCH_
 interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number; starting?: boolean }
 const keepers = new Map<string, Keeper>();
 let maintainTimer: NodeJS.Timeout | null = null;
+let credentialWatch: fs.FSWatcher | null = null;
 
 function writeBinding(ref: string, change: Partial<Binding>): void {
   const bindings = readStore().map(item => item.ref === ref ? { ...item, ...change } : item);
@@ -813,6 +814,12 @@ export function maintainSeatForwards(): void {
   const refs = new Set([...Object.values(readSeats()), ...keepers.keys(), ...loadedCredentialRefs()]);
   for (const ref of refs) keep(ref);
   if (!maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
+  // credential-load is a one-shot in another process: start the forward when its <ref>.json lands, not at the next 60 s check.
+  if (!credentialWatch) try {
+    credentialWatch = fs.watch(credentialDir(), (_event, name) => { if (!name || String(name).endsWith(".json")) maintainSeatForwards(); });
+    credentialWatch.on("error", () => { credentialWatch?.close(); credentialWatch = null; });
+    credentialWatch.unref();
+  } catch { credentialWatch = null; /* the 60 s check still covers it */ }
 }
 
 /** The terminal-local port for seat URLs reaching container port `ingress`; starts the keeper if no process holds it yet. */

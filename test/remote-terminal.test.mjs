@@ -126,7 +126,7 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
     rt.bindTerminalSession("seat-mac", status.ref);
     const first = await rt.ensureSeatForward(status.ref, 4183, 600).then(port => port, error => error.message.split(":")[0]);
     const load = await rt.loadCredential({ ref: status.ref, terminalId: "pc-1", handle: "0d6c1f0e-2b8a-4c3d-9e7f-112233445567", revision: "1", purpose: "ssh-key" }, fs.readFileSync(${JSON.stringify(key)}));
-    rt.maintainSeatForwards();
+    // No maintainSeatForwards() here: the credentials-directory watch starts the forward, not the 60 s check.
     const deadline = Date.now() + 5000;
     while (!rt.binding(status.ref).seat_forward_port && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
     const forwarded = fs.existsSync(${JSON.stringify(log)}) && fs.readFileSync(${JSON.stringify(log)}, "utf8").includes(" -R ");
@@ -137,7 +137,7 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", loaded: true, forwarded: true, port: 61001 },
-    "before the key the launch is told the route is not ready; after credential-load the keeper starts the forward");
+    "before the key the launch is told the route is not ready; credential-load wakes the keeper at once");
 });
 
 test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {

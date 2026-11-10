@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A terminal's seat MCP route (the R12 reverse forward) starts seconds after credential-load instead of at the next 60 s check. Every active Aiterm process now watches the credentials directory, and a newly written `<ref>.json` runs the forward check at once. After an execution restart, seats on keyless terminals were without BellTeam MCP for up to a minute after the key arrived. The 60 s check stays as the fallback.
+
 ## [0.70.12] - 2026-11-10
 
 - Terminal seats' MCP route back (the R12 reverse forward) comes back after an execution restart. When the keeper first ran before the terminal's credential was loaded, its shell probe refused at once with `CREDENTIAL_NOT_LOADED` and left the keeper marked as starting, so that process never held the forward again. Every seat on the terminal then reached a closed port (the binding still named it, so a launch was handed the dead port without a wait). The keeper now releases its lock on that refusal, and the next 60 s check after credential-load starts the forward on the same port.

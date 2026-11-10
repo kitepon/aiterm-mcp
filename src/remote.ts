@@ -392,3 +392,17 @@ export async function answerAnywhere(
   const { remote, ...rest } = options ?? {};
   return remote ? readRemoteAgentAnswer(remote, session, rest) : readAgentTranscriptResult(session, rest);
 }
+
+/** Resolves with `value` after `ms` of event-loop time: a stretch the loop spent blocked counts at most 150 ms. */
+export function loopDeadline<T>(ms: number, value: T): Promise<T> {
+  return new Promise(resolve => {
+    let left = ms, last = performance.now();
+    const step = () => {
+      const now = performance.now();
+      left -= Math.min(now - last, 150);
+      last = now;
+      if (left <= 0) resolve(value); else setTimeout(step, 100).unref();
+    };
+    setTimeout(step, 100).unref();
+  });
+}

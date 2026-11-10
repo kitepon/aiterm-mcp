@@ -42,11 +42,14 @@ test("known-bash 1物理行適合: 起動commandの引数をbyteのまま復元�
   const args = [
     "A\\nB 'q' !x %s 50% $HOME `id`\t末尾\n2行目",
     "developer_instructions=<aiterm_subagent_context>\nあなたはaitermから起動されたsub-agentであり、root agentではありません。\n</aiterm_subagent_context>",
+    // A Codex relay value: bash 3.2 brace-expanded this whole word while the payload held a `"` (0.70.10 on macOS).
+    'mcp_servers.call-bridge={command="/opt/node",args=["/x/mcp-http-bridge.js","http://127.0.0.1:9/mcp"],env_vars=["HOME"],enabled=true}',
   ];
   const command = `cd '/' && printf '%s\\0' ${args.map(shq).join(" ")}`;
   const adapted = atomicShellMultiline(command, "bash");
   assert.doesNotMatch(adapted, /[\r\n]/u, "1物理行");
   assert.match(adapted, /^eval "\$\(command printf '%b' '/u);
+  assert.doesNotMatch(adapted.slice("eval \"$(command printf '%b' '".length, -"')\"".length), /['"`$!{}]/u, "no quote or expanding byte inside");
   const bash = isWin ? resolveWinPaneShell("bash") : "bash";
   // scriptは標準入力で渡す。Windowsの非MSYS親からの引数の引き渡しは `\\` を潰し、製品がpaneへ打つ経路とは別の変形が入る。
   const result = spawnSync(bash, ["-s"], { input: Buffer.from(adapted + "\n", "utf8"), encoding: "buffer" });

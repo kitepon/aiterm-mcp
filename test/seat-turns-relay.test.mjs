@@ -73,3 +73,23 @@ test("seat turns relay: an unreachable terminal's sessions are unread, an answer
     assert.equal(fs.readFileSync(log, "utf8").trim().split("\n").length, 1, "one relay for both callers");
   } finally { await client.close(); }
 });
+
+test("loopDeadline: a loop blocked past the budget still takes an answer that is ready when it frees", async () => {
+  const { loopDeadline } = await import("../dist/remote.js");
+  const { spawn } = await import("node:child_process");
+  const race = async (deadline) => {
+    // The relay's answer comes over a pipe while the loop is blocked; it is read in the poll phase, after due timers.
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => process.stdout.write('rows'), 50)"]);
+    await new Promise(resolve => child.once("spawn", resolve));
+    const answer = new Promise(resolve => child.stdout.once("data", data => resolve(data.toString())));
+    const timer = deadline();
+    const until = performance.now() + 1_000;
+    while (performance.now() < until) { /* a synchronous local read */ }
+    return Promise.race([answer, timer]);
+  };
+  assert.equal(await race(() => new Promise(resolve => setTimeout(resolve, 300, "unread"))), "unread", "a wall-clock timer wins after a block");
+  assert.equal(await race(() => loopDeadline(300, "unread")), "rows");
+  const started = performance.now();
+  assert.equal(await loopDeadline(300, "unread"), "unread");
+  assert.ok(performance.now() - started >= 290, "a free loop waits the whole budget");
+});

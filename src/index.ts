@@ -40,7 +40,7 @@ import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { failureObservationSchema } from "./parent-delivery-record.js";
-import { acceptRemote, callRemoteTool, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
+import { acceptRemote, callRemoteTool, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
@@ -876,22 +876,25 @@ registerRemoteAwareTool(
 
 const remoteSeatTurnsInFlight = new Map<string, Promise<any>>();
 
+
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
 async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): Promise<{ _meta?: Record<string, unknown> }> {
   if (!interimCallerFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities())) return {};
   try {
-    const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
     // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
     // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a terminal that fails or is slow contributes
     // no rows, and its sessions are listed in `unread` so the caller keeps their last state instead of reading them as gone.
     // Overlapping callers share one in-flight relay per terminal: each relay starts its own reader on the terminal, and
     // two readers of one seat at once leave one of them without the span lock (that seat comes back in its `unread`).
-    const remote = await Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => {
+    // Relays start before the synchronous local read so the terminal works meanwhile; their 4 s counts only time this
+    // process's event loop was free (loopDeadline), since a blocked loop cannot take the answer however soon it came.
+    const relays = Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => {
       const key = JSON.stringify([target, requestMeta]);
       let call = remoteSeatTurnsInFlight.get(key);
       if (!call) {
-        call = callRemoteTool(target, "pty_list", {}, 4_000, undefined, requestMeta as Record<string, unknown>)
+        // The request's own timeout is wall-clock: keep it well above the loop-time budget below.
+        call = callRemoteTool(target, "pty_list", {}, 15_000, undefined, requestMeta as Record<string, unknown>)
           .then(result => (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any) ?? null, () => null)
           .finally(() => remoteSeatTurnsInFlight.delete(key));
         remoteSeatTurnsInFlight.set(key, call);
@@ -901,9 +904,11 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
           ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)),
               unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
           : { seats: [], unread: bound }),
-        new Promise<{ seats: any[]; unread: string[] }>(resolve => setTimeout(resolve, 4_000, { seats: [], unread: bound }).unref()),
+        loopDeadline(4_000, { seats: [] as any[], unread: bound }),
       ]);
     }));
+    const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
+    const remote = await relays;
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: [...local.unread, ...remote.flatMap(r => r.unread)] } } };
   } catch (e) {
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };

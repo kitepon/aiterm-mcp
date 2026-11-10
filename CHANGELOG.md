@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- macOS: a Codex seat with `mcp_config` no longer stops at `reason=unrecognized_screen` with Codex's "unexpected argument '<cwd>'". The pane's bash 3.2 brace-expanded the typed launch line when it held a `"` (the `-c mcp_servers.<name>={...}` value). The one-line launch now sends every quote and expanding character (single and double quotes, backquote, `$`, `!`, `{`, `}`) as a `printf %b` octal escape. Linux, zsh and dash read the same line.
+- `pty_list` seat turns (caller opt-in): terminal relays start before the local read, and their 4 s budget counts only time the event loop was free. Before, a synchronous local read in another overlapping `pty_list` used up the budget while the terminal's answer waited, so most overlapping calls listed every terminal seat in `unread`. Measured with three overlapping calls against the macbook terminal: 0.70.9 left 2 of 3 unread and dropped a row from the third; 0.70.11 returned both rows in all three.
+
 ## [0.70.10] - 2026-11-10
 
 - Claude seats that compacted while idle no longer read as `turn: null` until their next turn. Claude's idle compaction shows a busy spinner and sends no Stop; the `⏺ Compacted while idle` notice above the composer now ends the span that spinner opened, and the row settles to `{state: "idle"}`.

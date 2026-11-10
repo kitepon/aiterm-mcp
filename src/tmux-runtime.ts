@@ -874,8 +874,10 @@ export function atomicShellMultiline(text: string, foreground: string): string {
   }
   if (!text.includes("\n")) return text;
   if (!POSIX_ATOMIC_SHELLS.has(foreground)) return text;
+  // Quote-like and expanding bytes travel as %b octal: bash 3.2 (macOS) brace-expands a `{a,b}` in this word when the
+  // payload holds a `"` (the old `'"'"'` quote included), and an interactive shell would history-expand a `!`.
   const quoted = text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/'/g, `'"'"'`);
+    .replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/['"`$!{}]/g, c => `\\0${c.charCodeAt(0).toString(8).padStart(3, "0")}`);
   // printf %bで本文を復元する。末尾LFの除去はpty_sendのsubmit Enterと同値。
   return `eval "$(command printf '%b' '${quoted}')"`;
 }

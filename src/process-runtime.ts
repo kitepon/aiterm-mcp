@@ -166,7 +166,7 @@ export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
 }
 
 /** A held Process handle on Windows prevents a PID replacement from becoming the target. */
-export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIGTERM" | "SIGKILL", group: boolean): void {
+export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIGTERM" | "SIGHUP" | "SIGKILL", group: boolean): void {
   if (!Number.isSafeInteger(target.pid) || target.pid <= 1 || !Number.isFinite(Date.parse(target.started_identity))
     || (group && (!Number.isSafeInteger(target.process_group_id) || target.process_group_id! <= 1)))
     throw new Error("invalid_process_signal_target");
@@ -181,7 +181,7 @@ export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIG
     "try {",
     "[void]$target.Handle",
     `if(([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne ${Date.parse(target.started_identity)}) { exit 4 }`,
-    signal === "SIGTERM" ? "[void]$target.CloseMainWindow()" : "$target.Kill()",
+    signal === "SIGKILL" ? "$target.Kill()" : "[void]$target.CloseMainWindow()",
     "} finally { $target.Dispose() }",
   ].join("\n");
   const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",

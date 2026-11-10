@@ -1,6 +1,6 @@
 import { readRuntimeProcesses, signalRuntimeProcess, processSubtree, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 
-type Signal = "SIGTERM" | "SIGKILL";
+type Signal = "SIGTERM" | "SIGHUP" | "SIGKILL";
 export interface ProcessTreeStopRuntime {
   read(): RuntimeProcess[];
   signal(target: NativeProcessIdentity, signal: Signal, group: boolean): void;
@@ -16,7 +16,9 @@ const nativeRuntime: ProcessTreeStopRuntime = {
   pause: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => performance.now(),
 };
 
-/** TERM, a five-second grace, then KILL; only the original pane tree and verified groups are selected. */
+/** TERM, a five-second grace, then KILL; only the original pane tree and verified groups are selected.
+ * An interactive shell ignores TERM, so once its children are gone and only the pane root is left it is hung up,
+ * as a closing terminal would. A root that started alone keeps the full grace. */
 export async function stopProcessTree(root: NativeProcessIdentity, verify: () => void,
   runtime: ProcessTreeStopRuntime = nativeRuntime): Promise<boolean> {
   if (!Number.isSafeInteger(root.pid) || root.pid <= 1 || root.pid === process.pid) throw new Error("invalid_process_tree_root");
@@ -67,12 +69,13 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
       for (const member of group ? current.filter(value => value.process_group_id === target.process_group_id) : [target]) terminated.add(key(member));
     }
   });
-  let until: number | null = null;
+  let until: number | null = null, hungUp = false;
   for (;;) {
     const alive = refresh();
     if (alive.length === 0) return true;
     if (until !== null && runtime.now() >= until) break;
     for (const row of childrenFirst(alive)) if (!terminated.has(key(row))) signal(row, "SIGTERM");
+    if (until !== null && !hungUp && tree.length > 1 && alive.length === 1 && alive[0].pid === root.pid) { signal(alive[0], "SIGHUP"); hungUp = true; }
     until ??= runtime.now() + 5000;
     await runtime.pause(Math.min(100, Math.max(0, until - runtime.now())));
   }

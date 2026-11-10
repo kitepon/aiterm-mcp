@@ -42,7 +42,7 @@ State/data flow: `allocation + witness → captured receipt → marker transfer 
 [状態遷移SVG](lifecycle-states.svg) / [PNG](lifecycle-states.png)。`agent-idle.ts`が判定の順序、coreがmetadata/native/画面/recipeの観測と停止作用、process-tree-stopが本人性を検証した木の停止を所有している。
 
 1. idle/composer_ready、未接続、保留child0、起動後process0、vendor会話既知、resume情報、番終了、入力時刻、期限、native設定確認を揃える。unknownは条件成立と扱わない。
-2. 既存send lockの下でstoppingを保存。signal直前にも世代・pane・recipe・入力時刻・接続等を確認し、TERM→猶予→KILLを同じ本人性の木だけへ送る。native端末が残れば同じ作成receiptで閉じる。終了確認後だけhibernatedを保存する。
+2. 既存send lockの下でstoppingを保存。signal直前にも世代・pane・recipe・入力時刻・接続等を確認し、TERM→猶予→KILLを同じ本人性の木だけへ送る（子の居た木で根だけが残ったら根へHUP: TERMを無視する対話shellを待たない）。native端末が残れば同じ作成receiptで閉じる。終了確認後だけhibernatedを保存する。
 3. 停止作用を出す前の失敗ならstopping取消を試みる。作用後や取消失敗はunconfirmed/stoppingを残す。結果は`.idle-check.json`へ返し、clockはhibernated/unconfirmed/dead/missingで再armしない。
 3a. 明示休止：`pty_close {hibernate:true}` → `core.hibernateAgentSession` → `checkAgentIdle(…, immediate=true)`。同じ判定・stopping/hibernated記録・停止作用を使い、期限と接続中の拒否だけを外す。Claudeは最後の入力の後の会話記録にrate_limitedのAPIエラーがあれば（`claudeRateLimitedAt`、wait結果と同じ`claudeFailureCategory`）、Stop無し・上限の待ち画面でも番の終わりとし、画面での設定確認を省いて保存recipeを使う。turn・子process・子配送・番終了未確認は`AGENT_BUSY`、他は`AGENT_HIBERNATE_UNAVAILABLE`で席に触らない。停止作用後の照合は新しい入力が無い事だけを見る。
 4. 復帰要求はsend lockを保持し、旧metadata/hibernated/attempt欠測/recipe/proofとnative不在を確認。next metadata・新recipe・old attempt=resumingを保存し、native作成とvendor resume起動行を発行する。同じvendor会話IDを保持するがnative/launchは新しくなる。

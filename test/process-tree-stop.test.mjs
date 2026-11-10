@@ -38,6 +38,13 @@ test('uncooperative processes get the full five-second grace before KILL',async(
  const lastTerm=Math.max(...f.effects.filter(x=>x.signal==='SIGTERM').map(x=>x.at));
  assert.ok(f.effects.filter(x=>x.signal==='SIGKILL').every(x=>x.at-lastTerm>=5000),'process observation cost must not shorten the grace interval');
 });
+test('a pane shell that ignores TERM is hung up once its children are gone, without waiting for KILL',async()=>{
+ const f=fixture(),signal=f.runtime.signal;
+ f.runtime.signal=(target,sig,group)=>{if(target.pid===10&&sig==='SIGTERM'){f.effects.push({ids:[10],signal:sig,at:f.at,group});return;}signal(target,sig,group);};
+ assert.equal(await f.run(),true);
+ assert.deepEqual(f.effects.map(x=>[x.ids,x.signal]),[[[11,12],'SIGTERM'],[[10],'SIGTERM'],[[10],'SIGHUP']]);
+ assert.ok(f.effects.at(-1).at<5000);assert.deepEqual(f.rows.map(x=>x.pid),[20]);
+});
 test('a child created during graceful shutdown is collected before success',async()=>{
  const f=fixture(true),pause=f.runtime.pause;let added=false;
  f.runtime.pause=async ms=>{if(!added){added=true;f.rows.push(row(13,11,11));}await pause(ms);};

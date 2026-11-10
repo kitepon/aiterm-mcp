@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.2] - 2026-11-10
+
 - A managed Claude or Codex launch (fresh or resumed) that fails after its terminal session was created, while Aiterm still sets it up (the process birth identity cannot be read, the session environment cannot be registered, the `.log` or offset file cannot be written, or the output pipe fails), now closes that session before returning the error. Before, the plain named session stayed, and every later launch of the same name was refused with "session '<name>' は既に存在します" until someone closed it by hand. Only the session this launch created is closed: creation marks it with a one-time token (first as the window name, then as the session option `@aiterm_create_token`), and the close is conditional on the native identity and that token, so a session of the same name that replaced it, and its files, are kept. The original error text is kept; `creation_rollback_unconfirmed` is appended only when the close fails while the session is still there. Failures after the setup (startup screens, the initial prompt, a lost transport) keep their existing behavior, and plain `pty_open` is unchanged. The session is created by the terminal's Aiterm, so a remote terminal needs this release; updating only the server side does not change it (docs/architecture/lifecycle-state-ownership.md).
 
 ## [0.70.1] - 2026-11-10
@@ -3165,7 +3167,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...HEAD
+[0.70.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...v0.70.2
 [0.70.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.0...v0.70.1
 [0.70.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.69.0...v0.70.0
 [0.69.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.1...v0.69.0

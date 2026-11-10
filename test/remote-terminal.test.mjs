@@ -51,18 +51,20 @@ test("ssh failures are classified with a plain action; argv ignores user config 
 test("seat MCP forward: the keeper's -R spec, P from ssh stderr, seat URLs get the terminal-local origin, header values leave the config", () => {
   const b = { target: { host: "h", user: "u", port: 22 }, known_hosts_file: "/k" };
   assert.ok(!rt.sshArguments(b, "/s", "/i", "exec x").includes("-R"), "serve's connection carries no forward");
-  assert.equal(rt.seatForwardSpec(0, {}), "127.0.0.1:0:127.0.0.1:4182");
-  assert.equal(rt.seatForwardSpec(61234, { BELLTEAM_REMOTE_SEAT_PORT: "5000" }), "127.0.0.1:61234:127.0.0.1:5000");
-  assert.throws(() => rt.seatForwardSpec(0, { BELLTEAM_REMOTE_SEAT_PORT: "x" }), /SEAT_FORWARD_UNAVAILABLE|not a port/);
+  assert.equal(rt.seatForwardSpec(61234, 4183), "127.0.0.1:61234:127.0.0.1:4183");
   assert.equal(rt.parseSeatForward("Allocated port 65423 for remote forward to 127.0.0.1:4182\n"), 65423);
   assert.equal(rt.parseSeatForward("Warning: remote port forwarding failed for listen port 0\n"), "refused");
   assert.equal(rt.parseSeatForward("Warning: Permanently added x\n"), null);
   const config = { mcpServers: {
     bellteam: { type: "http", url: "http://127.0.0.1:4182/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } },
-    "call-bridge": { type: "http", url: "http://192.168.1.2:4180/api/seat-mcp/call-bridge?x=1" },
+    "call-bridge": { type: "http", url: "http://127.0.0.1:4182/api/seat-mcp/call-bridge?x=1" },
     other: { type: "http", url: "https://example.com/api/seat-mcpx" }, stdio: { command: "node" } } };
-  assert.equal(rt.hasSeatMcpUrl(config), true);
-  assert.equal(rt.hasSeatMcpUrl({ mcpServers: { other: config.mcpServers.other } }), false);
+  assert.equal(rt.seatIngressPort(config), 4182);
+  assert.equal(rt.seatIngressPort({ mcpServers: { other: config.mcpServers.other } }), null);
+  for (const url of ["http://192.168.1.2:4183/api/seat-mcp", "https://127.0.0.1:4183/api/seat-mcp", "http://localhost:4183/api/seat-mcp"])
+    assert.throws(() => rt.seatIngressPort({ mcpServers: { a: { url } } }), /SEAT_FORWARD_UNAVAILABLE/, url);
+  assert.throws(() => rt.seatIngressPort({ mcpServers: { a: { url: "http://127.0.0.1:4183/api/seat-mcp" }, b: { url: "http://127.0.0.1:4182/api/seat-mcp/call-bridge" } } }),
+    /SEAT_FORWARD_UNAVAILABLE: seat MCP URLs name different ports/);
   const out = rt.rewriteSeatMcpConfig(config, 65423);
   assert.deepEqual(out.mcpServers.bellteam, { type: "http", url: "http://127.0.0.1:65423/api/seat-mcp", headers: { Authorization: "Bearer ${T}" } });
   assert.equal(out.mcpServers["call-bridge"].url, "http://127.0.0.1:65423/api/seat-mcp/call-bridge?x=1");
@@ -74,6 +76,36 @@ test("seat MCP forward: the keeper's -R spec, P from ssh stderr, seat URLs get t
   assert.deepEqual(extracted.env, { AITERM_MCP_HEADER_0: secret });
   assert.deepEqual(extracted.config.mcpServers.a.headers, { Authorization: "${AITERM_MCP_HEADER_0}", "X-Ref": "${KEEP}" });
   assert.ok(!JSON.stringify(extracted.config).includes("literal-value"), "no header value stays in the config");
+});
+
+test("seat forward keeper: -R goes to the D the launch's URLs named, from the binding, never an env or default port", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
+  const dir = fs.mkdtempSync(path.join(tmp, "keeper-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
+  fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
+  // Stub ssh: records argv, answers like sshd for -R 0, then exits (the keeper's restart timer is unref'd).
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61000 for remote forward to x' >&2\n`, { mode: 0o755 });
+  const key = path.join(dir, "id");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
+  const script = `
+    const rt = await import(${JSON.stringify(new URL("../dist/remote-terminal.js", import.meta.url).href)});
+    const fs = await import("node:fs");
+    const status = rt.registerBinding({ target: { host: "10.0.0.9", user: "kite", port: 22 }, keyFile: ${JSON.stringify(key)} });
+    rt.bindTerminalSession("seat-old", status.ref);
+    rt.maintainSeatForwards();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const before = fs.existsSync(${JSON.stringify(log)});
+    const port = await rt.ensureSeatForward(status.ref, 4183, 5000);
+    const stored = rt.binding(status.ref);
+    console.log(JSON.stringify({ before, port, ingress: stored.seat_ingress_port, forward: stored.seat_forward_port }));
+    process.exit(0);`;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state"), BELLTEAM_REMOTE_SEAT_PORT: "4182" } });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { before: false, port: 61000, ingress: 4183, forward: 61000 },
+    "a binding without D builds no forward; the launch's D is stored and P recorded");
+  const calls = fs.readFileSync(log, "utf8").trim().split("\n");
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /-R 127\.0\.0\.1:0:127\.0\.0\.1:4183 /);
+  assert.doesNotMatch(calls[0], /4182/);
 });
 
 test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {

@@ -23,7 +23,7 @@ export class RemoteTerminalError extends Error {
 }
 
 export interface RemoteTarget { host: string; user: string; port: number }
-export interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number }
+export interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number; seat_ingress_port?: number }
 
 const REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HOST = /^(?!-)[A-Za-z0-9._:\[\]-]{1,255}$/;
@@ -189,11 +189,9 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   return { code: "CONNECTION_FAILED", message: "the SSH connection failed" };
 }
 
-/** -R spec for the seats' BellTeam MCP (remote-terminal.md R12). P=0 lets the terminal's sshd pick the port. */
-export function seatForwardSpec(terminalPort: number, env: NodeJS.ProcessEnv = process.env): string {
-  const port = Number(env.BELLTEAM_REMOTE_SEAT_PORT ?? 4182);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "BELLTEAM_REMOTE_SEAT_PORT is not a port");
-  return `127.0.0.1:${terminalPort}:127.0.0.1:${port}`;
+/** -R spec for the seats' BellTeam MCP (remote-terminal.md R12). P=0 lets the terminal's sshd pick the port; D comes from the binding. */
+export function seatForwardSpec(terminalPort: number, ingressPort: number): string {
+  return `127.0.0.1:${terminalPort}:127.0.0.1:${ingressPort}`;
 }
 
 /** ssh stderr -> the allocated terminal port, "refused", or null while unknown. */
@@ -576,10 +574,19 @@ export function boundTerminalTarget(session: unknown): TrustedRemoteTarget | nul
 }
 
 const SEAT_PATH = /^\/api\/seat-mcp(\/|$)/;
-export function hasSeatMcpUrl(config: Record<string, unknown>): boolean {
-  return Object.values((config.mcpServers ?? {}) as Record<string, { url?: unknown }>).some(server => {
-    try { return typeof server?.url === "string" && SEAT_PATH.test(new URL(server.url).pathname); } catch { return false; }
-  });
+/** The one container port D of the seat URLs (R12), or null without seat URLs. */
+export function seatIngressPort(config: Record<string, unknown>): number | null {
+  const ports = new Set<number>();
+  for (const server of Object.values((config.mcpServers ?? {}) as Record<string, { url?: unknown }>)) {
+    let url: URL;
+    try { if (typeof server?.url !== "string") continue; url = new URL(server.url); } catch { continue; }
+    if (!SEAT_PATH.test(url.pathname)) continue;
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1")
+      throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "seat MCP URLs must be http://127.0.0.1:<port>/api/seat-mcp");
+    ports.add(Number(url.port || 80));
+  }
+  if (ports.size > 1) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "seat MCP URLs name different ports");
+  return ports.size ? [...ports][0] : null;
 }
 
 /** Header values leave the config file: each becomes ${AITERM_MCP_HEADER_n}, its value goes to the private env line. */
@@ -605,7 +612,7 @@ export function extractMcpHeaders(config: Record<string, unknown>): { config: Re
 // ---- R12 forward keeper: one Aiterm process per terminal holds the seats' BellTeam MCP route (T3) ----
 
 const FORWARD_RESTART_MS = 15_000, FORWARD_REFUSALS_BEFORE_NEW_PORT = 4, LAUNCH_GRACE_MS = 120_000;
-interface Keeper { child: ChildProcess | null; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number }
+interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number }
 const keepers = new Map<string, Keeper>();
 let maintainTimer: NodeJS.Timeout | null = null;
 
@@ -640,20 +647,27 @@ function forwardNeeded(ref: string): boolean {
   return (keepers.get(ref)?.launchUntil ?? 0) > Date.now() || Object.values(readSeats()).includes(ref);
 }
 
+function storedIngress(ref: string): number | undefined {
+  try { return binding(ref).seat_ingress_port; } catch { return undefined; }
+}
+
 function keep(ref: string): void {
-  const keeper = keepers.get(ref) ?? { child: null, refusals: 0, timer: null, launchUntil: 0 };
+  const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null, launchUntil: 0 };
   keepers.set(ref, keeper);
-  if (keeper.child) { if (!forwardNeeded(ref)) keeper.child.kill(); return; }
+  if (keeper.child) { if (!forwardNeeded(ref) || storedIngress(ref) !== keeper.ingress) keeper.child.kill(); return; }
   if (keeper.timer) return;
   if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); releaseIdleCredential(ref); return; }
   if (!holdLock(ref)) return;
   let b: Binding;
   try { b = binding(ref); } catch { releaseLock(ref); return; }
+  // No D in the binding (written before 0.70.3): no forward until a launch writes D; never a default port.
+  if (!b.seat_ingress_port) { releaseLock(ref); return; }
   const requested = b.seat_forward_port ?? 0;
+  keeper.ingress = b.seat_ingress_port;
   let args: string[];
   try {
     // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
-    args = trustedSshArguments(ref, "cat >/dev/null", null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested)]);
+    args = trustedSshArguments(ref, "cat >/dev/null", null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port)]);
   } catch { releaseLock(ref); return; }
   const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "ignore", "pipe"] });
   keeper.child = child;
@@ -676,16 +690,18 @@ function keep(ref: string): void {
   });
 }
 
-/** Every 60 s: keep (or take over) the forwards this process's state root needs. */
+/** Every 60 s in every active process: keep (or take over from an exited holder) the forwards this state root needs. */
 export function maintainSeatForwards(): void {
   const refs = new Set([...Object.values(readSeats()), ...keepers.keys(), ...loadedCredentialRefs()]);
   for (const ref of refs) keep(ref);
-  if (refs.size && !maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
+  if (!maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
 }
 
-/** The terminal-local port for seat URLs; starts the keeper if no process holds it yet. */
-export async function ensureSeatForward(ref: string, timeoutMs = 30_000): Promise<number> {
-  const keeper = keepers.get(ref) ?? { child: null, refusals: 0, timer: null, launchUntil: 0 };
+/** The terminal-local port for seat URLs reaching container port `ingress`; starts the keeper if no process holds it yet. */
+export async function ensureSeatForward(ref: string, ingress: number, timeoutMs = 30_000): Promise<number> {
+  // A new D makes the old P (forwarding to the old D) useless: clear it so the wait below sees only a forward to D.
+  if (binding(ref).seat_ingress_port !== ingress) writeBinding(ref, { seat_ingress_port: ingress, seat_forward_port: undefined });
+  const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null, launchUntil: 0 };
   keeper.launchUntil = Date.now() + LAUNCH_GRACE_MS;
   keepers.set(ref, keeper);
   maintainSeatForwards();

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, ensureSeatForward, extractMcpHeaders, hasSeatMcpUrl, maintainSeatForwards, REMOTE_MINIMUM_VERSION,
+import { boundTerminalTarget, bindTerminalSession, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
   rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
@@ -1325,7 +1325,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       const extracted = extractMcpHeaders(mcpConfig);
       Object.assign(privateEnv, extracted.env);
       mcpConfig = extracted.config;
-      if (hasSeatMcpUrl(mcpConfig)) mcpConfig = rewriteSeatMcpConfig(mcpConfig, await ensureSeatForward(target.trusted_ref));
+      const ingress = seatIngressPort(mcpConfig);
+      if (ingress) mcpConfig = rewriteSeatMcpConfig(mcpConfig, await ensureSeatForward(target.trusted_ref, ingress));
     }
     const envVars = [...new Set([...(args.env_vars ?? []), ...Object.keys(privateEnv)])];
     const result = await launchRemoteAgent(target, harness,

@@ -7,7 +7,7 @@ digraph remote_terminal {
  execution [label="BellTeam execution\nseat lifecycle / delivery / Throughline ingest",fillcolor="#f0f0f0"];
  tools [label="Aiterm launch tools (execution-native-server, UID1000)\nagent_launch / claude_agent ... + terminal + cwd\nT1 binding+revisions, T2 session map"];
  trusted [label="remote.ts trusted target\n-F /dev/null, strict known_hosts, key file\nper-call ssh / wait_process / transcript"];
- keeper [label="forward keeper (T3 lock)\nssh -N -R 127.0.0.1:P (P in binding)"];
+ keeper [label="forward keeper (T3 lock, 60 s check in every active process)\nssh -N -R 127.0.0.1:P:127.0.0.1:D\n(P, D = seat_ingress_port in binding; no env, no default)"];
  trust [label="remote_terminal_status / trust-confirm\nbinding -> credential + trust revisions\nscan trusted only on confirmed fingerprint"];
  open [label="remote_terminal_open\ntarget + revisions must match binding\nprivate ssh-agent: ssh-add key file"];
  ssh [label="ssh -F /dev/null StrictHostKeyChecking=yes\nUserKnownHostsFile=trust file\nIdentityAgent=private socket, BatchMode"];
@@ -17,7 +17,7 @@ digraph remote_terminal {
  pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
  jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
- fwd [label="R12 reverse forward\nterminal 127.0.0.1:P (stable per terminal)\n-> container 127.0.0.1:4182"];
+ fwd [label="R12 reverse forward\nterminal 127.0.0.1:P (stable per terminal)\n-> container 127.0.0.1:D\n(D from the launch's /api/seat-mcp URLs)"];
  bt [label="BellTeam seat ingress (container loopback)\n/api/seat-mcp, /api/seat-mcp/call-bridge",fillcolor="#f0f0f0"];
  authorize [label="authorize-key --ref R (R14)\ntrust + held key checked before stdin\npassword stdin -> askpass socket -> ssh, one attempt\nappend public key to ~/.ssh/authorized_keys"];
  provision [label="provision --ref R (R16, before MCP)\ntrusted key SSH, /bin/sh -s bootstrap\nstage, sha256, runtime-smoke, current/previous"];
@@ -37,7 +37,7 @@ digraph remote_terminal {
  tools -> execution [label="R18 not started: _meta aiterm/launch_error\n{code, phase terminal, action (Japanese)}",style=dashed];
  tools -> trusted [label="launch: private env line R5\nlater: same tool"];
  trusted -> rmcp [label="R4/R5"];
- tools -> keeper [label="ensure while bound"];
+ tools -> keeper [label="ensure while bound\nD from seat URLs -> binding"];
  keeper -> fwd [label="R12"];
  terminals -> conn [label="reachability, C8 command"];
  rmcp -> launch;

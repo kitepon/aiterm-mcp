@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.10] - 2026-11-10
+
 - Claude seats that compacted while idle no longer read as `turn: null` until their next turn. Claude's idle compaction shows a busy spinner and sends no Stop; the `⏺ Compacted while idle` notice above the composer now ends the span that spinner opened, and the row settles to `{state: "idle"}`.
 - `pty_list` seat turns (caller opt-in): a seat whose span another live reader holds at that instant is listed in `unread` (the caller keeps its last state) instead of a row with `turn: null`. A terminal's own `unread` is relayed for its bound sessions, and overlapping callers share one in-flight relay per terminal instead of starting one reader on the terminal each.
 - Codex seats whose `~/.codex/config.toml` already has a stdio MCP server with the same name as an `mcp_config` server (for example `call-bridge`) now start instead of `AGENT_LAUNCH_NOT_STARTED: CODEX_MCP_SERVER_CONFLICT`. For that seat only, Aiterm takes over the user's entry with its own stdio relay (`dist/mcp-http-bridge.js`), which forwards every MCP message to the seat's http server with the seat's headers; the tool names keep the server name and the user's config.toml is not written. `CODEX_MCP_SERVER_CONFLICT` is gone.
@@ -3232,7 +3234,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...HEAD
+[0.70.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...v0.70.10
 [0.70.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...v0.70.9
 [0.70.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...v0.70.8
 [0.70.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...v0.70.7

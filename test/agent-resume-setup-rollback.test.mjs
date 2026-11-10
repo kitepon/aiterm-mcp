@@ -8,7 +8,10 @@ import {syncBuiltinESMExports} from 'node:module';
 import {core,readAgentMeta,writeAgentMeta,skip} from './core-agent-support.mjs';
 import {agentMetadataPath} from '../dist/agent-shared.js';
 import {readAgentLifecycle,readAgentResumeAttempt} from '../dist/agent-lifecycle.js';
-import {SOCK,SOCKDIR,resolveTmux} from '../dist/tmux-runtime.js';
+import {SOCK,SOCKDIR,WIN_NS,resolveTmux,psmuxBin} from '../dist/tmux-runtime.js';
+
+const native=(...args)=>process.platform==='win32'?spawnSync(psmuxBin(),['-L',WIN_NS,...args],{encoding:'utf8'})
+  :spawnSync(resolveTmux(),['-S',SOCK,...args],{encoding:'utf8'});
 
 test('managed resume removes a native whose synchronous log setup fails while retaining the old conversation',
  {skip,timeout:15000},async t=>{
@@ -22,7 +25,7 @@ test('managed resume removes a native whose synchronous log setup fails while re
   writeAgentMeta(name,previous);
   const oldFile=agentMetadataPath(name,previous.launch_id);
   const oldBody=fs.readFileSync(oldFile,'utf8');
-  assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'kill-session','-t',name],{encoding:'utf8'}).status,0);
+  assert.equal(native('kill-session','-t',name).status,0);
 
   const write=fs.writeFileSync,log=path.join(SOCKDIR,`${name}.log`);
   let injected=false;
@@ -36,7 +39,7 @@ test('managed resume removes a native whose synchronous log setup fails while re
       {session_name:name,require_existing_resume:true}),/AGENT_RESUME_FAILED/);
   }finally{t.mock.restoreAll();syncBuiltinESMExports();}
   assert.equal(injected,true,'the resumed native reached its log setup');
-  assert.equal(spawnSync(resolveTmux(),['-S',SOCK,'has-session','-t',name],{encoding:'utf8'}).status,1);
+  assert.notEqual(native('has-session','-t',name).status,0);
   assert.equal(fs.readFileSync(oldFile,'utf8'),oldBody);
   assert.equal(JSON.parse(fs.readFileSync(oldFile,'utf8')).vendor_session_id,previous.vendor_session_id);
   assert.equal(readAgentLifecycle(previous).state,'hibernated');

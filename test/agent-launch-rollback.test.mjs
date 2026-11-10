@@ -6,7 +6,7 @@ import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import path from 'node:path';
 import {core,skip} from './core-agent-support.mjs';
-import {SOCKDIR, SOCK, WIN_NS, resolveTmux, paneCommandArgs} from '../dist/tmux-runtime.js';
+import {SOCKDIR, SOCK, WIN_NS, resolveTmux, psmuxBin, paneCommandArgs} from '../dist/tmux-runtime.js';
 
 const win=process.platform==='win32';
 // The conditional wrapper quotes its inner command with ' on POSIX and " on psmux.
@@ -64,7 +64,7 @@ for(const fault of ['identity','server_identity','log','offset',...(win?[]:['env
 
 for(const state of ['absent','present'])test(`a failed close ${state==='present'?'is unconfirmed while the created native remains':'is finished when the created native is already gone'}`,{skip},t=>{
   const name=`rollback_close_${state}`,spawn=childProcess.spawnSync,write=fs.writeFileSync;
-  const native=resolveTmux(),prefix=win?['-L',WIN_NS]:['-S',SOCK];
+  const native=win?psmuxBin():resolveTmux(),prefix=win?['-L',WIN_NS]:['-S',SOCK];
   core.openSession(`rollback_close_anchor_${state}`);
   t.mock.method(fs,'writeFileSync',function(file,...args){
     if(String(file)===path.join(SOCKDIR,`${name}.log`))throw new Error('fixture setup failed');
@@ -84,14 +84,14 @@ for(const state of ['absent','present'])test(`a failed close ${state==='present'
   finally{t.mock.restoreAll();syncBuiltinESMExports();}
   assert.match(failure.message,/fixture setup failed/);
   assert.equal(/creation_rollback_unconfirmed/.test(failure.message),state==='present');
-  assert.equal(spawn(native,[...prefix,'has-session','-t',name],{encoding:'utf8'}).status,state==='present'?0:1);
+  assert.equal(spawn(native,[...prefix,'has-session','-t',name],{encoding:'utf8'}).status===0,state==='present');
   if(state==='present')core.closeSession(name);
   core.closeSession(`rollback_close_anchor_${state}`);
 });
 
 for(const when of ['created','rollback'])test(`a same-name replacement survives at ${when}`,{skip},t=>{
   const name=`rollback_replaced_${when}`,spawn=childProcess.spawnSync,write=fs.writeFileSync;
-  const native=resolveTmux(),prefix=win?['-L',WIN_NS]:['-S',SOCK];
+  const native=win?psmuxBin():resolveTmux(),prefix=win?['-L',WIN_NS]:['-S',SOCK];
   let replaced=false;
   // Keep the server alive so POSIX native IDs remain distinct across the replacement.
   core.openSession(`rollback_anchor_${when}`);

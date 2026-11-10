@@ -60,7 +60,7 @@ import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcess
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
-import { probeWriteBan, writeBanPrefix, type WriteBan } from "./write-ban.js";
+import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
 import { AitermError, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
@@ -7212,10 +7212,12 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       }
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
       phase = "vendor_start";
-      const argv = [...(next.fork_of ? writeBanPrefix(next.fork_of.write_ban) : []),
-        ...(next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
-          : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd))];
-      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, windowsAgentArgv(argv, () => resolveWinPaneShell("bash")),
+      const cliArgv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
+        : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
+      const argv = [...(next.fork_of && !isWin ? writeBanPrefix(next.fork_of.write_ban) : []), ...cliArgv];
+      const forkBan = next.fork_of?.write_ban;
+      const winArgv = () => (cli => forkBan ? windowsWriteBanArgv(forkBan, cli) : cli)(windowsAgentArgv(cliArgv, () => resolveWinPaneShell("bash")));
+      const full = isWin ? windowsAgentLaunchLine(recipe.cwd, environment, winArgv(),
         { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id })
         : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
           + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
@@ -8261,7 +8263,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           full = windowsAgentLaunchLine(cwd, [
             ...claudeRootEntries, ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
           ],
-            windowsAgentArgv(argv, () => resolveWinPaneShell("bash")), meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
+            (cli => meta?.fork_of ? windowsWriteBanArgv(meta.fork_of.write_ban, cli) : cli)(windowsAgentArgv(argv, () => resolveWinPaneShell("bash"))),
+            meta?.windows_launch_exit_tracked ? { file: agentMetadataPath(sid, meta.launch_id) + ".launch-exited", launch_id: meta.launch_id } : undefined);
         } else {
           const cmd = (meta?.fork_of ? writeBanPrefix(meta.fork_of.write_ban).map(shq).join(" ") + " " : "")
             + buildAgentCmd(kind, binForCmd, model, effort, opts.prompt ?? null, meta, cursorFast);

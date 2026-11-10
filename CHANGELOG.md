@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Windows forks (x64): `agent_launch.fork_from` now starts the fork with every write inside the project folder refused instead of answering `READONLY_UNENFORCEABLE`. A bundled helper (`native/write-ban/win32-x64/aiterm-write-ban.exe`, about 24 KB, built reproducibly with the Linux ones) runs the CLI under a restricted copy of the user's token with no privileges and an Aiterm marker SID. The project folder carries, once, an inheritable Deny ACE for that marker SID (plus OWNER RIGHTS = READ_CONTROL and WRITE_DAC, so the DACL cannot be rewritten). The ACEs affect no other process, so the main seat writes as before and nothing is cleaned up later. npm shims run through `pwsh -File`. Measured on fox: new file, append, delete, rename, attributes, Set-Acl, icacls, takeown, git and cmd redirects inside were refused; writes outside succeeded. `fork_of.write_ban.method` is `restricted-token`.
+
 ## [0.70.7] - 2026-11-10
 
 - `pty_list` seat turns (`aiterm.seat-turns.v1`, BellTeam caller only) add `unread: [session_id]`. It names the terminal-bound sessions whose terminal failed or did not answer within 4 s, so the caller can keep their last state instead of reading them as gone. A session missing from a terminal that did answer is absent, as before.

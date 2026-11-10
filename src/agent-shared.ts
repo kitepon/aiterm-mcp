@@ -53,7 +53,7 @@ export type BeforeAgentSend = (boundary: AgentTurnBoundary) => Promise<void>;
 export interface AgentForkOf {
   session_id: string; vendor_session_id: string; fork_id?: string;
   // Every write inside this folder is refused for the whole CLI process tree (ADR 0140).
-  write_ban: { path: string; method: "landlock" | "seatbelt" };
+  write_ban: { path: string; method: "landlock" | "seatbelt" | "restricted-token" };
   // Codex only: whitespace-free head of the first input; binds the forked rollout (it carries no launch marker).
   first_input?: string;
 }

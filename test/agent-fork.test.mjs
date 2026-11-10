@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {claudeAgentArgv,claudeResumeArgv} from '../dist/harnesses/claude.js';
 import {codexAgentArgv,codexResumeArgv,codexTranscriptMatchesLaunch} from '../dist/harnesses/codex.js';
 import {resolveForkSource,forkInputKey} from '../dist/core.js';
-import {probeWriteBan,writeBanPrefix} from '../dist/write-ban.js';
+import {probeWriteBan,writeBanPrefix,windowsWriteBanArgv} from '../dist/write-ban.js';
 const main='11111111-2222-4333-8444-555555555555', own='66666666-7777-4888-9999-000000000000';
 const ban={path:'/srv/project',method:'landlock'};
 const base={aiterm_session:'main-fork-abc',launch_id:'a'.repeat(32),vendor_session_id:own,node_platform:process.platform,created_at:new Date(Date.now()-1000).toISOString(),
@@ -48,7 +48,7 @@ test('fork requests that cannot hold the contract never start a seat',()=>{
  for(const extra of [{write_scope:'read-only'},{require_existing_resume:true},{throughline_source_session:'s'},{configuration_root:'/x'}])
   assert.throws(()=>resolveForkSource('claude',{session_id:'main'},{...ok,...extra},probe),/FORK_INVALID/);
  assert.throws(()=>resolveForkSource('codex',{session_id:'no-such-seat-fork'},ok,probe),/FORK_SOURCE_UNAVAILABLE/);
- assert.throws(()=>probeWriteBan(os.tmpdir(),'win32'),/READONLY_UNENFORCEABLE/);
+ if(process.platform!=='win32')assert.throws(()=>probeWriteBan(os.tmpdir(),'win32'),/READONLY_UNENFORCEABLE/,'the Windows helper cannot prove the ban on another OS');
  assert.throws(()=>probeWriteBan('/'),/READONLY_UNENFORCEABLE/);
 });
 test('the write-ban refuses every write route inside the folder and allows writes outside',{skip:process.platform==='win32'},()=>{
@@ -62,6 +62,25 @@ test('the write-ban refuses every write route inside the folder and allows write
  const r=spawnSync(bin,[...args,'/bin/sh','-c',script],{encoding:'utf8'});
  assert.equal(r.stdout.trim().split('\n').join(' '),'OUTSIDE k',r.stderr);
  assert.deepEqual(fs.readdirSync(inside),['kept.txt']);assert.equal(fs.readFileSync(path.join(outside,'o.txt'),'utf8'),'y\n');
+ fs.rmSync(root,{recursive:true,force:true});
+});
+test('Windows: the restricted-token write-ban refuses every write route inside the folder and allows writes outside',{skip:process.platform!=='win32'},()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'fork-ban-')),inside=path.join(root,'project'),outside=path.join(root,'outside');
+ fs.mkdirSync(path.join(inside,'sub'),{recursive:true});fs.mkdirSync(outside);fs.writeFileSync(path.join(inside,'kept.txt'),'k');
+ const b=probeWriteBan(inside);assert.equal(b.method,'restricted-token');
+ const q=p=>`'${p.replaceAll("'","''")}'`,P=q(inside),O=q(outside);
+ const script=[`function T($n,[scriptblock]$b){try{& $b 2>$null|Out-Null;if($?){$n}}catch{}}`,
+  `T NEW {Set-Content -ErrorAction Stop (Join-Path ${P} n.txt) x}`,`T APPEND {Add-Content -ErrorAction Stop (Join-Path ${P} kept.txt) y}`,
+  `T MKDIR {New-Item -ErrorAction Stop -ItemType Directory (Join-Path ${P} d)}`,`T DELETE {Remove-Item -ErrorAction Stop (Join-Path ${P} sub)}`,
+  `T RENAME {Rename-Item -ErrorAction Stop (Join-Path ${P} kept.txt) k2.txt}`,
+  `T ACL {$a=Get-Acl (Join-Path ${P} kept.txt);$a.SetAccessRuleProtection($true,$false);Set-Acl -ErrorAction Stop (Join-Path ${P} kept.txt) $a}`,
+  `T CMD {cmd /c "echo x> ${inside}\\c.txt";if($LASTEXITCODE){throw 'x'}}`,
+  `T OUTSIDE {Set-Content -ErrorAction Stop (Join-Path ${O} o.txt) y}`,`Get-Content (Join-Path ${P} kept.txt)`].join('\n');
+ const [bin,...args]=windowsWriteBanArgv(b,['pwsh','-NoProfile','-NonInteractive','-Command',script]);
+ const r=spawnSync(bin,args,{encoding:'utf8'});
+ assert.equal(r.stdout.trim().split(/\r?\n/).join(' '),'OUTSIDE k',r.stderr);
+ assert.deepEqual(fs.readdirSync(inside).sort(),['kept.txt','sub']);
+ fs.writeFileSync(path.join(inside,'main.txt'),'m');assert.equal(fs.readFileSync(path.join(inside,'main.txt'),'utf8'),'m','the main process keeps writing');
  fs.rmSync(root,{recursive:true,force:true});
 });
 test('a forked rollout before its first input stays undecided, so a waiter re-reads it',()=>{

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Builds the static Linux fork write-ban helpers (ADR 0140) from native/write-ban/aiterm-write-ban.c.
+// Builds the fork write-ban helpers (ADR 0140): static Linux ones from native/write-ban/aiterm-write-ban.c and the
+// Windows one from native/write-ban/aiterm-write-ban-win.c.
 // Toolchain: zig 0.15.2 from PyPI (`pip install ziglang==0.15.2`), so the bytes are reproducible on any machine.
 // `--check` rebuilds into a temp dir and fails when the committed binaries differ from the source.
 import { spawnSync } from "node:child_process";
@@ -13,14 +14,19 @@ const check = process.argv.includes("--check");
 const out = check ? fs.mkdtempSync(path.join(os.tmpdir(), "write-ban-")) : path.join(root, "native/write-ban");
 const python = process.env.ZIGLANG_PYTHON ?? "python3";
 let differs = false;
-for (const [target, arch] of [["x86_64-linux-musl", "x64"], ["aarch64-linux-musl", "arm64"]]) {
-  const file = path.join(out, `linux-${arch}`, "aiterm-write-ban");
+const win = path.join(root, "native/write-ban/aiterm-write-ban-win.c");
+for (const [target, dir, name, source, extra] of [
+  ["x86_64-linux-musl", "linux-x64", "aiterm-write-ban", src, ["-static"]],
+  ["aarch64-linux-musl", "linux-arm64", "aiterm-write-ban", src, ["-static"]],
+  ["x86_64-windows-gnu", "win32-x64", "aiterm-write-ban.exe", win, ["-ladvapi32", "-lshell32"]],
+]) {
+  const file = path.join(out, dir, name);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const r = spawnSync(python, ["-m", "ziglang", "cc", "-target", target, "-static", "-Os", "-s", "-Wall", "-Wextra", "-Werror", "-o", file, src], { stdio: "inherit" });
+  const r = spawnSync(python, ["-m", "ziglang", "cc", "-target", target, "-Os", "-s", "-Wall", "-Wextra", "-Werror", "-o", file, source, ...extra], { stdio: "inherit" });
   if (r.status !== 0) process.exit(r.status ?? 1);
   fs.chmodSync(file, 0o755);
-  if (check && !fs.readFileSync(file).equals(fs.readFileSync(path.join(root, "native/write-ban", `linux-${arch}`, "aiterm-write-ban")))) {
-    console.error(`linux-${arch}/aiterm-write-ban differs from its source`);
+  if (check && !fs.readFileSync(file).equals(fs.readFileSync(path.join(root, "native/write-ban", dir, name)))) {
+    console.error(`${dir}/${name} differs from its source`);
     differs = true;
   }
 }

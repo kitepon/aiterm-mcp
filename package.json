@@ -56,6 +56,7 @@
     "dist/*.js",
     "dist/harnesses/*.js",
     "native/write-ban/linux-*/aiterm-write-ban",
+    "native/write-ban/win32-x64/aiterm-write-ban.exe",
     "runtime-overlap.json",
     "state-compat.json",
     "README.md",

@@ -66,7 +66,7 @@ function forkOfField(v: any): { fork_of?: AgentForkOf } {
     || typeof v.vendor_session_id !== "string" || !UUID_RE.test(v.vendor_session_id)
     || (v.fork_id !== undefined && typeof v.fork_id !== "string") || (v.first_input !== undefined && typeof v.first_input !== "string")
     || !v.write_ban || typeof v.write_ban.path !== "string" || !path.isAbsolute(v.write_ban.path)
-    || (v.write_ban.method !== "landlock" && v.write_ban.method !== "seatbelt")) throw new AitermError("agent metadata fork_of が不正です", 2);
+    || !["landlock", "seatbelt", "restricted-token"].includes(v.write_ban.method)) throw new AitermError("agent metadata fork_of が不正です", 2);
   return { fork_of: { session_id: v.session_id, vendor_session_id: v.vendor_session_id, ...(v.fork_id === undefined ? {} : { fork_id: v.fork_id }),
     write_ban: { path: v.write_ban.path, method: v.write_ban.method }, ...(v.first_input === undefined ? {} : { first_input: v.first_input }) } };
 }

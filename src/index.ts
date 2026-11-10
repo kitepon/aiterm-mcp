@@ -1585,7 +1585,7 @@ server.registerTool(
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
-      }).strict().optional().describe("claude-code and codex-cli. Start a disposable fork of that seat's latest saved conversation, in its cwd, with the main's tools and MCP. Every write inside that cwd (the project folder) is refused below the tools for the whole process tree (Linux Landlock, macOS sandbox-exec); everything else is allowed. Windows answers READONLY_UNENFORCEABLE. Requires a prompt; no write_scope. Close it after its answer"),
+      }).strict().optional().describe("claude-code and codex-cli. Start a disposable fork of that seat's latest saved conversation, in its cwd, with the main's tools and MCP. Every write inside that cwd (the project folder) is refused below the tools for the whole process tree (Linux Landlock, macOS sandbox-exec, Windows restricted token + folder deny ACE); everything else is allowed. Requires a prompt; no write_scope. Close it after its answer"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-launch-result.v1"),
@@ -1608,7 +1608,7 @@ server.registerTool(
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
       fork_of: z.object({ session_id: z.string(), vendor_session_id: z.string(),
-        write_ban: z.object({ path: z.string(), method: z.enum(["landlock", "seatbelt"]) }) }).optional().describe("The seat this fork copies and the folder it cannot write"),
+        write_ban: z.object({ path: z.string(), method: z.enum(["landlock", "seatbelt", "restricted-token"]) }) }).optional().describe("The seat this fork copies and the folder it cannot write"),
     },
   },
   async ({ harness, remote, terminal, ...args }: any, extra) => {

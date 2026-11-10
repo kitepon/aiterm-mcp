@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { acceptRemote, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import { acceptRemote, callRemoteTool, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
 import * as remoteContract from "../dist/remote-contract.js";
 import { TelemetryOwnedError } from "../dist/errors.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
@@ -153,6 +153,27 @@ test("現地のaiterm-waitのreceiptをそのまま観測結果として返す",
   const observed = await observeRemoteAgentDone({ host: "rabbit" }, "t1", { cursor: 0, timeout: 5 });
   assert.equal(observed.outcome, "done");
   assert.equal(observed.turn_id, "turn-1");
+});
+
+test("中継は要求の_metaを現地へそのまま渡し、現地resultの_metaを変えずに返す", { skip: process.platform === "win32" }, async (t) => {
+  // Fake remote Aiterm: an stdio MCP server that echoes the request _meta back as the result _meta.
+  const server = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-fake-remote-")), "server.mjs");
+  t.after(() => fs.rmSync(path.dirname(server), { recursive: true, force: true }));
+  const sdk = (name) => JSON.stringify(new URL(`../node_modules/@modelcontextprotocol/sdk/dist/esm/${name}`, import.meta.url).href);
+  fs.writeFileSync(server, `import { Server } from ${sdk("server/index.js")};
+import { StdioServerTransport } from ${sdk("server/stdio.js")};
+import { CallToolRequestSchema, ListToolsRequestSchema } from ${sdk("types.js")};
+const s = new Server({ name: "aiterm-mcp", version: "9.9.9" }, { capabilities: { tools: {} } });
+s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }));
+s.setRequestHandler(CallToolRequestSchema, async (r) => ({ content: [{ type: "text", text: "ok" }], _meta: { echoed: r.params._meta ?? null, "aiterm/steer": { id: "s1" } } }));
+await s.connect(new StdioServerTransport());
+`);
+  fakeSsh(t, `case "$*" in *aiterm-probe*) echo posix; exit 0;; esac\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(server)}`);
+  const meta = { "aiterm/caller": "BellTeam", interim_after: 7, progressToken: 3 };
+  const result = await callRemoteTool({ host: "meta-relay-for-test" }, "pty_observe", { session_id: "t1" }, 10_000, undefined, meta);
+  // progressToken is this hop's own; everything else arrives unchanged.
+  assert.deepEqual(result._meta, { echoed: { "aiterm/caller": "BellTeam", interim_after: 7 }, "aiterm/steer": { id: "s1" } });
+  assert.equal(result.remote_version, "9.9.9");
 });
 
 test("現地のaiterm-waitが失敗を返したら、つなぎ直さずに理由付きで失敗する", { skip: process.platform === "win32" }, async (t) => {

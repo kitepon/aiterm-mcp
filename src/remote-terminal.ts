@@ -566,6 +566,12 @@ export function unbindTerminalSession(session: string): void {
   delete seats[session];
   writeSeats(seats);
 }
+/** Bound sessions grouped by terminal, for relaying a session-less call (pty_list seat_turns). An unreadable binding is skipped. */
+export function terminalSeatGroups(): Array<{ target: TrustedRemoteTarget; sessions: string[] }> {
+  const groups = new Map<string, string[]>();
+  for (const [session, ref] of Object.entries(readSeats())) groups.set(ref, [...groups.get(ref) ?? [], session]);
+  return [...groups].flatMap(([ref, sessions]) => { try { return [{ target: trustedTarget(binding(ref)), sessions }]; } catch { return []; } });
+}
 /** A later call's target, by session only. null = a local session. */
 export function boundTerminalTarget(session: unknown): TrustedRemoteTarget | null {
   if (typeof session !== "string") return null;

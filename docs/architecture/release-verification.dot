@@ -7,9 +7,9 @@ All 130 + 25 implementation files first-read"];
  scope [label="Changed API contract + direct boundary decides tests
 CI planner: paths → OS set / reverse-import test set
 Selected success is not full success"];
- isolation [label="Explicit repository tests only; seat-env first
-Temporary HOME/state; deny real harness; no wake
-Fixtures own CLI, transcript, shell and cleanup"];
+ isolation [label="Runner placement + isolated repository tests
+macos-hosted: GitHub-hosted macos-latest; Linux/Windows: factory runners
+Temporary HOME/state; deny real harness; no wake"];
  results [label="Read exact job and case evidence
 Windows baseline: 846 pass / 73 fail / 569 skip
 Cause unknown; no repair mixed into refactor",fillcolor="#fff0dd"];

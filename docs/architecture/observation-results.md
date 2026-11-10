@@ -96,6 +96,20 @@ State transitions: no span + positive busy => capture ID/start; fresh binding (n
 Affected checks: four live-frame branches, queue/hook/output false positives, long unchanged wait and absorbed steer, positive terminal/late child/Stop veto, identity persistence/restart/current generation, loss/corruption/concurrent capture, six keys/null tracking. Build/new fixtures only; no old successful suites or native/probe/AI launch. Source candidate is not real-host latency or3OS acceptance.
 
 
+## A-1b start position and terminal seats (Kiro, 2026-11-10)
+
+Supersedes the null `interim_from` above for Claude and Grok rows. Other fields and rules of A-1 stay.
+
+| Function | Ownership/effect |
+| --- | --- |
+| `core.managedSpanStart` | Claude/Grok only: `interimFromToken(interimFromNow(meta, agentCompletionCursor(meta)))`, the same token grammar as steer (`v1:<c>:b:<byte>` Claude, `v1:<c>:u:<users>` Grok). Cursor rewrites its transcript tail at turn start and Antigravity has no word reader: null. A read failure is null. |
+| `managed-seat-turn.observeManagedSpan` | Each positive settled idle stores `settled_from` = start position of the binding's next span (written only when it changed). A new span copies it to `span.interim_from`; a binding never seen settled idle, or a changed binding, gets null. A running row returns the stored value unchanged on every read. event_cursor and wait_process stay null. |
+| `index.seatTurnsMeta` (pty_list, caller opt-in) | Local rows as before, then for each terminal in `terminal-seats.json` one relayed `pty_list` with the same request `_meta`; only that terminal's own bound sessions are taken from its `aiterm/seat_turns`. Terminals are called in parallel; a failed or rowless terminal contributes no rows (unavailable, like an unreadable local seat). No call without bound sessions. |
+
+DFD: settled idle -> transcript position token -> span.json `settled_from` -> next busy -> `span.interim_from` -> seat-turns.v1 row -> BellTeam watchTurn interim reads from that token (BellTeam execution owns the watch). Terminal seats: pty_list (BellTeam marker) -> bound terminal relay pty_list (same `_meta`) -> remote readSeatTurns -> filtered rows appended.
+
+Affected checks: managed-seat-turn start position test (settled position, late busy poll, new binding null); remote relay `_meta` test. Words between the settled idle and the new turn's first busy poll belong to the new turn because a settled idle has no running words.
+
 Implementation refinement before source: the observer uses a per-launch `.seat-span.d` directory with atomic0600 identity JSON. Its short cross-reader mutex publishes a fully written nonempty owner directory by rename, so no partially written lock can become authoritative. It never waits: contention returns null. Existing PID/birth observation reconciles a dead/reused owner; one atomic rename to the old directory inode's retained nonempty quarantine prevents competing recovery from moving a new owner. Normal owner release removes only its own inode/token. Quarantines remain until existing logical-close cleanup. This protects identity overwrite only; it is not an input lock, native work fence, heartbeat or activity evidence. Positive live capture happens inside the short identity transaction; successful reads do not rewrite active IDs. Unknown external state corruption stays unavailable until a positive settled idle boundary repairs identity, rather than fabricating a start. No synthetic timers refresh activity.
 
 Current-frame harness dispatch stays in the existing sole screen-dispatch owner `agent-screen-observation.ts`; `managed-seat-turn.ts` owns identity/persistence only. Native capture is rechecked against the15s budget after bookkeeping/release, and non-Codex rows that age out while later seats are read become null before the shared reply. Codex timing/tracking behavior remains inherited.

@@ -8,13 +8,16 @@ import type { ParentPaneEvidence } from "./agent-screen-observation.js";
 
 export type ManagedSeatTurn = {
   state: "running"; turn_id: string; started_at: string;
-  event_cursor: null; interim_from: null; wait_process: null;
+  /** interim-words token where this span's words begin: the position at the last settled idle, else null. */
+  event_cursor: null; interim_from: string | null; wait_process: null;
 } | { state: "idle" };
 
 const stamp = z.string().refine(value => Number.isFinite(Date.parse(value)));
-const spanSchema = z.object({ turn_id: z.string().regex(/^managed:[a-f0-9]{32}$/), started_at: stamp }).strict();
+const spanSchema = z.object({ turn_id: z.string().regex(/^managed:[a-f0-9]{32}$/), started_at: stamp,
+  interim_from: z.string().nullable().optional() }).strict();
 const recordSchema = z.object({ binding: z.string().min(1), span: spanSchema.nullable(), terminal: z.string().nullable(),
-  ready: z.object({ since: stamp, terminal: z.string().nullable() }).strict().nullable() }).strict();
+  ready: z.object({ since: stamp, terminal: z.string().nullable() }).strict().nullable(),
+  settled_from: z.string().nullable().optional() }).strict();
 const ownerSchema = z.object({ pid: z.number().int().positive(), started_identity: stamp, token: z.string() }).strict();
 export const managedSpanDirectory = (meta: Pick<AgentMetadata, "aiterm_session" | "launch_id">) =>
   agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, ".seat-span.d");
@@ -58,7 +61,7 @@ export function withManagedSpan<T>(meta: AgentMetadata, capture: (file: string) 
 
 /** Persistence keeps identity only; evidence must come from a new validated native read. */
 export function observeManagedSpan(file: string, binding: string, evidence: ParentPaneEvidence,
-  terminal: string | null, at: string): ManagedSeatTurn | null {
+  terminal: string | null, at: string, position: () => string | null = () => null): ManagedSeatTurn | null {
   stamp.parse(at);
   let record: z.infer<typeof recordSchema> | null = null;
   try { record = recordSchema.parse(JSON.parse(fs.readFileSync(file, "utf8"))); }
@@ -71,10 +74,13 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
   if (evidence === "ready_no_completion" && (terminal || record?.span || record?.terminal)) return null;
   if (evidence === "busy") {
     if (!record?.span) {
-      record = { binding, span: { turn_id: `managed:${randomBytes(16).toString("hex")}`, started_at: at }, terminal, ready: null };
+      // Words of this span start where the same binding last settled idle; a span never seen idle has no start.
+      record = { binding, span: { turn_id: `managed:${randomBytes(16).toString("hex")}`, started_at: at,
+        interim_from: record?.settled_from ?? null }, terminal, ready: null, settled_from: null };
       writeJson0600(file, record);
     } else if (record.ready) { record.ready = null; writeJson0600(file, record); }
-    return { state: "running", ...record.span!, event_cursor: null, interim_from: null, wait_process: null };
+    const { turn_id, started_at, interim_from = null } = record.span!;
+    return { state: "running", turn_id, started_at, event_cursor: null, interim_from, wait_process: null };
   }
   // A launch that never showed busy nor any terminal has no turn to hide: its settled ready is idle.
   if (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal) return null;
@@ -83,6 +89,9 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
     record.ready = { since: at, terminal }; writeJson0600(file, record); return null;
   }
   if (Date.parse(at) - Date.parse(record.ready.since) < 250) return null;
-  if (record.span) { record.span = null; record.terminal = terminal; writeJson0600(file, record); }
+  const settled = position();
+  if (record.span || (record.settled_from ?? null) !== settled) {
+    record.span = null; record.terminal = terminal; record.settled_from = settled; writeJson0600(file, record);
+  }
   return { state: "idle" };
 }

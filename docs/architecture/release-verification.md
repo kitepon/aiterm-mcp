@@ -19,7 +19,7 @@ Aitermの固定sourceはSteer `^0.5.0`、lockは0.5.0のregistry URL/integrity�
 
 ## 検証範囲と隔離
 
-Owner原文「定義した機能の入出力が守られれば該当機能の試験だけでよい。リファクタの切り分けを活かせ」を優先する。製品固定AGENTSの定型npm test記述を新しい全体試験要求へ流用しない。`product-ci-plan.mjs`はpath分類→別軸のOS選択とreverse import依存の試験選択を持つ。既存direct ruleや分類不能時all、手動test_filesのselected/all、同head同workflowの手動/定期full成功再利用という現行実装を記録する。今は規則を変更せず、新fullも起こさない。変更窓口の実契約と直接境界で必要試験を設計する。
+Owner原文「定義した機能の入出力が守られれば該当機能の試験だけでよい。リファクタの切り分けを活かせ」を優先する。製品固定AGENTSの定型npm test記述を新しい全体試験要求へ流用しない。`product-ci-plan.mjs`はpath分類→別軸のOS選択とreverse import依存の試験選択を持つ。OS環境名`macos-hosted`はGitHub-hosted `macos-latest`を指し、Linux/Windows nativeはfactory runnerのままである。AitermのCIとmacOS runtime buildにOwnerのMacを使わない。既存direct ruleや分類不能時all、手動test_filesのselected/all、同head同workflowの手動/定期full成功再利用という現行実装を記録する。今は規則を変更せず、新fullも起こさない。変更窓口の実契約と直接境界で必要試験を設計する。
 
 `run-seat-tests.mjs`は明示repository test名だけを許し、`seat-env.mjs`を親とworkerへpreloadする。test外fileを拒否し、環境allowlist＋秘密名除外、短い一時runtime、空HOMEとvendor/gh/git/npmの明示置き場、git helper/hook/template無効化、実harness代わりの拒否bin、Codex wake無効化を保持する。Windows USERPROFILE等はruntime都合で残す一方、vendor storageを名指しする。検査を実行する際も稼働席を継承しない。
 

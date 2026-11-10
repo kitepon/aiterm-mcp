@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   runtime:
-    runs-on: [self-hosted, factory, macos-native]
+    # GitHub-hosted (free for this public repository): never build on the Owner's Mac.
+    runs-on: macos-latest
     timeout-minutes: 60
     env:
       VERSION_INPUT: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}

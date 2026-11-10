@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 export const ALL_ENVIRONMENTS = Object.freeze([
-  'macos-native',
+  'macos-hosted',
   'linux-workstation',
   'windows-native',
 ]);

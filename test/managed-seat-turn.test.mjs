@@ -56,6 +56,17 @@ test('positive root terminal needs settled readiness; continuation retains span 
  assert.notEqual(next.turn_id,first.turn_id);assert.equal(next.started_at,at(800));
 });
 
+test('a self-started span reads its words from the same binding\'s last settled idle position, never another binding\'s',()=>{
+ const file=path.join(directory(),'span.json');let pos='v1:3:b:100';const p=()=>pos;
+ assert.equal(observeManagedSpan(file,'seat','ready',null,at(0),p),null);
+ assert.deepEqual(observeManagedSpan(file,'seat','ready',null,at(300),p),{state:'idle'});
+ pos='v1:3:b:180';assert.deepEqual(observeManagedSpan(file,'seat','ready',null,at(600),p),{state:'idle'},'idle writes are tracked');
+ pos='v1:3:b:999';const run=observeManagedSpan(file,'seat','busy',null,at(900),p);
+ assert.equal(run.interim_from,'v1:3:b:180','start = position seen at the last settled idle, not at the late busy poll');
+ assert.deepEqual(observeManagedSpan(file,'seat','busy',null,at(1200),p),run);
+ assert.equal(observeManagedSpan(file,'other','busy',null,at(1500),p).interim_from,null,'a new binding never borrows a position');
+});
+
 test('restart uses saved identity only with new live evidence; corrupt identity and changed native generation never borrow it',()=>{
  const file=path.join(directory(),'span.json'),first=observeManagedSpan(file,'original','busy',null,at(0));
  assert.deepEqual(observeManagedSpan(file,'original','busy',null,at(1000)),first);

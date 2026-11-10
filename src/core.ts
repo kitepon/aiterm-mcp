@@ -281,7 +281,7 @@ import {
   CURSOR_SUBMIT_SEQUENCE,
   validateCursorModelEffort,
 } from "./harnesses/cursor.js";
-import { interimFromNow, readInterimWords, recordInterimBoundary } from "./interim-words.js";
+import { interimFromNow, interimFromToken, readInterimWords, recordInterimBoundary } from "./interim-words.js";
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
 import { codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
@@ -4083,6 +4083,12 @@ function managedSeatTerminal(meta: AgentMetadata): string | null {
   } catch { return null; }
 }
 
+/** Where a later self-started turn's words begin. Cursor rewrites its tail at turn start and Antigravity has no word reader: null. */
+function managedSpanStart(meta: AgentMetadata): string | null {
+  if (meta.kind !== "claude" && meta.kind !== "grok") return null;
+  try { return interimFromToken(interimFromNow(meta, agentCompletionCursor(meta))); } catch { return null; }
+}
+
 function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
   const started = performance.now();
   const result = withManagedSpan(meta, file => {
@@ -4106,7 +4112,7 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
       || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null
       || performance.now() - started >= 15_000) return null;
     const binding = JSON.stringify([meta.aiterm_session, meta.launch_id, meta.kind, conversation, proof, live.pane_process, live.harness_process]);
-    return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString());
+    return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString(), () => managedSpanStart(meta));
   });
   return performance.now() - started < 15_000 ? result : null;
 }

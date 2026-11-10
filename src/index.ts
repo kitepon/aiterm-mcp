@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
+import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, seatIngressPort,
   rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
@@ -326,13 +326,18 @@ function remoteNote(target: RemoteTarget, result: RemoteCallResult): { type: "te
   return { type: "text", text: `remote=${remoteLabel(target)} remote_aiterm=${result.remote_version ?? "unknown"}` };
 }
 
-async function forwardRemote(target: RemoteTarget, name: string, args: Record<string, unknown>): Promise<any> {
-  const result = await callRemoteTool(target, name, args);
+/** The remote result as this tool's own: request and result _meta pass unchanged (DESIGN.md 別端末の子). */
+function remoteResult(target: RemoteTarget, result: RemoteCallResult, structuredContent = result.structuredContent): any {
   return {
     content: [...result.content, remoteNote(target, result)],
-    ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
+    ...(structuredContent ? { structuredContent } : {}),
     ...(result.isError ? { isError: true } : {}),
+    ...(result._meta ? { _meta: result._meta } : {}),
   };
+}
+
+async function forwardRemote(target: RemoteTarget, name: string, args: Record<string, unknown>, extra?: any): Promise<any> {
+  return remoteResult(target, await callRemoteTool(target, name, args, undefined, undefined, extra?._meta));
 }
 
 type RemoteToolHandler = (target: RemoteTarget, args: any, extra: any) => Promise<any>;
@@ -355,26 +360,26 @@ function registerRemoteAwareTool(name: string, config: any, handler: (args: any,
 /** 配送の登録や事前確保が要るtoolだけ専用の中継にし、他は同じtoolをそのまま現地へ呼ぶ。 */
 function remoteToolHandler(name: string): RemoteToolHandler {
   switch (name) {
-    case "agent_configure": return async (target, args) => {
+    case "agent_configure": return async (target, args, extra) => {
       // Older remote servers strip unknown input fields and could apply without tracking.
       if (args.request || args.action === "reconcile") throw new Error("REMOTE_UNSUPPORTED: tracked configuration requires the exact local connection; not issued");
-      return forwardRemote(target, name, args);
+      return forwardRemote(target, name, args, extra);
     };
     case "pty_send": return sendRemote;
-    case "pty_close": return async (target, args) => {
+    case "pty_close": return async (target, args, extra) => {
       await remoteParentDelivery?.beforeChange(deliveryKey(args.session_id, target));
-      return forwardRemote(target, name, args);
+      return forwardRemote(target, name, args, extra);
     };
-    case "pty_observe": return async (target, args) => {
-      const result = await forwardRemote(target, name, args);
+    case "pty_observe": return async (target, args, extra) => {
+      const result = await forwardRemote(target, name, args, extra);
       if (!remoteParentDelivery || !result.structuredContent) return result;
       return { ...result, structuredContent: { ...result.structuredContent, parent_deliveries: remoteParentDelivery.status(deliveryKey(args.session_id, target)) } };
     };
-    case "claude_turn": return async (target, args) => {
+    case "claude_turn": return async (target, args, extra) => {
       if (args.action === "issue") throw new core.AitermError("REMOTE_UNSUPPORTED: 別端末のclaude_turn issueには未対応です。pty_sendを使ってください", 2);
-      return forwardRemote(target, name, args);
+      return forwardRemote(target, name, args, extra);
     };
-    default: return (target, args) => forwardRemote(target, name, args);
+    default: return (target, args, extra) => forwardRemote(target, name, args, extra);
   }
 }
 
@@ -386,11 +391,9 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   const delivery = args.force ? null : await deliveryForRequest(extra, true);
   // 終わった依頼の回答は送る前に保存する。実行中の依頼は残る。現地が差し込みを選べばその依頼が回答を受け取る。
   if (delivery) await remoteParentDelivery!.beforeChange(key);
-  const result = await callRemoteTool(target, "pty_send", args);
+  const result = await callRemoteTool(target, "pty_send", args, undefined, undefined, extra?._meta);
   const structured = result.structuredContent as any;
-  if (result.isError || !structured || structured.mode !== "agent_dispatch") {
-    return { content: [...result.content, remoteNote(target, result)], ...(structured ? { structuredContent: structured } : {}), ...(result.isError ? { isError: true } : {}) };
-  }
+  if (result.isError || !structured || structured.mode !== "agent_dispatch") return remoteResult(target, result);
   try {
     // 現地がdispatchを選んだのは子がidleだった時なので、前の依頼はもう保存できる。残っていれば登録しない。
     if (delivery) await remoteParentDelivery!.beforeChange(key, true);
@@ -400,10 +403,8 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
     return fail(new Error(`別端末へのdispatchは済みましたが、回答配送を登録できませんでした: ${e instanceof Error ? e.message : String(e)}`));
   }
   const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor, structured.input_id);
-  return {
-    content: [...result.content, remoteNote(target, result), { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }],
-    structuredContent: { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) },
-  };
+  const relayed = remoteResult(target, result, { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) });
+  return { ...relayed, content: [...relayed.content, { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }] };
 }
 
 /** 別端末の子の依頼を、この端末の親への配送に登録する。launch_idは現地の完了観測から取る。 */
@@ -862,7 +863,7 @@ registerRemoteAwareTool(
     try {
       await core.maintainAgentIdleClocks();
       const result = core.listSessionsResult(env_keys);
-      return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...seatTurnsMeta(result.sessions, extra._meta) };
+      return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...await seatTurnsMeta(result.sessions, extra._meta) };
     } catch (e) {
       return fail(e);
     }
@@ -871,10 +872,20 @@ registerRemoteAwareTool(
 
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
-function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): { _meta?: Record<string, unknown> } {
+async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): Promise<{ _meta?: Record<string, unknown> }> {
   if (!interimCallerFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities())) return {};
   try {
-    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id)) } };
+    const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
+    // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
+    // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a slow or unreachable terminal contributes no rows.
+    const remote = await Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => Promise.race([
+      callRemoteTool(target, "pty_list", {}, 4_000, undefined, requestMeta as Record<string, unknown>).then(result => {
+        const seats = (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any)?.seats;
+        return Array.isArray(seats) ? seats.filter((seat: any) => bound.includes(seat?.session_id)) : [];
+      }, () => []),
+      new Promise<any[]>(resolve => setTimeout(resolve, 4_000, []).unref()),
+    ])));
+    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flat()] } } };
   } catch (e) {
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };
   }

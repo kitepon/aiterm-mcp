@@ -386,6 +386,7 @@ PowerShellは`$PSHOME`を展開し、POSIX系はどちらも展開しない。PO
 `env`のPATHだけを受け取り、処理は`/bin/sh`で行う。profileの出力やfish等の文法差をMCPのstdoutへ持ち込まない。
 WindowsはユーザーのPATHで`aiterm-mcp`と`aiterm-wait`をそのまま呼ぶ。起動、hook、transcript、multiplexerは現地のAitermが所有し、
 呼び出し側は結果を返すだけにする。現地にポートは開けない。
+MCP要求の`_meta`は現地へ不透明なまま渡し、現地resultの`_meta`も変更せず返す。親配送などのローカル投影を加える時も、現地metadataを保持する。
 
 接続先はtool引数で毎回受け取り、Aitermは一覧も既定値も持たない（オーナー裁定 2026-09-26。管理まで持つと重くなるため）。
 配送記録には、パスフレーズ本文を除いた接続情報だけを残す。平文のパスフレーズはMCP processのメモリにだけ置き、

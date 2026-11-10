@@ -266,10 +266,10 @@ test('同じcommitの全テストの成功は、手動実行と定期実行の�
   }));
 
   assert.deepEqual(verified([run(1, 'workflow_dispatch')], [[1, fullJobs(allPassed)]]), {
-    'macos-native': 1, 'linux-workstation': 1, 'windows-native': 1,
+    'macos-hosted': 1, 'linux-workstation': 1, 'windows-native': 1,
   });
   assert.deepEqual(verified([run(2, 'schedule')], [[2, fullJobs(allPassed)]]), {
-    'macos-native': 2, 'linux-workstation': 2, 'windows-native': 2,
+    'macos-hosted': 2, 'linux-workstation': 2, 'windows-native': 2,
   });
   // 1つの環境だけの手動実行は、その環境だけ。落ちた環境・動いている最中の環境は数えない。
   assert.deepEqual(verified([run(3, 'workflow_dispatch')], [[3, fullJobs({ 'windows-native': 'success' })]]), {
@@ -278,10 +278,10 @@ test('同じcommitの全テストの成功は、手動実行と定期実行の�
   assert.deepEqual(verified(
     [run(4, 'workflow_dispatch'), run(5, 'workflow_dispatch')],
     [
-      [4, fullJobs({ 'macos-native': 'success', 'linux-workstation': 'success', 'windows-native': 'failure' })],
+      [4, fullJobs({ 'macos-hosted': 'success', 'linux-workstation': 'success', 'windows-native': 'failure' })],
       [5, fullJobs({ 'windows-native': null })],
     ],
-  ), { 'macos-native': 4, 'linux-workstation': 4 });
+  ), { 'macos-hosted': 4, 'linux-workstation': 4 });
   // pushとpull requestは試験を絞る事があるので、通っていても数えない。
   assert.deepEqual(verified(
     [run(6, 'push'), run(7, 'pull_request')],
@@ -378,7 +378,7 @@ test('pushは、同じcommitの全テストがもう通っている環境を流�
   // Windowsだけが通っている時は、残りの環境だけを流す。
   const windowsOnly = await githubApi(t, {
     runs: [run(12, 'workflow_dispatch')],
-    jobs: { 12: fullJobs({ 'macos-native': 'success', 'linux-workstation': 'failure', 'windows-native': 'success' }) },
+    jobs: { 12: fullJobs({ 'macos-hosted': 'success', 'linux-workstation': 'failure', 'windows-native': 'success' }) },
   });
   const partial = await pushPlan(repo, windowsOnly.url);
   assert.deepEqual(JSON.parse(partial.outputs.environments), ['linux-workstation']);

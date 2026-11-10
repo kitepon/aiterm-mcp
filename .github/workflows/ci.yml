@@ -17,7 +17,7 @@ on:
         default: all
         options:
           - all
-          - macos-native
+          - macos-hosted
           - linux-workstation
           - windows-native
       test_files:

@@ -158,12 +158,13 @@ export interface RemoteCallResult {
   content: { type: "text"; text: string }[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
   remote_version: string | null;
 }
 
 /** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。privateEnvは暗号化されたstdinの先頭行だけで渡す（remote-terminal.md R5）。 */
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
-  privateEnv?: Record<string, string>): Promise<RemoteCallResult> {
+  privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
   if (privateEnv && !target.trusted_ref) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding", 2);
   const shell = await remoteShell(target);
   const command = privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
@@ -185,11 +186,15 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
       const detail = stderr.trim().split("\n").slice(-3).join(" / ") || (error instanceof Error ? error.message : String(error));
       throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} のAitermへ接続できません（${detail}）`, 2);
     }
-    const result = await client.callTool({ name, arguments: args }, undefined, { timeout: timeoutMs, resetTimeoutOnProgress: true });
+    // Request _meta is opaque to the relay; progressToken belongs to this hop's client, not the caller's.
+    const { progressToken: _hop, ...forwarded } = meta ?? {};
+    const request = Object.keys(forwarded).length ? { name, arguments: args, _meta: forwarded } : { name, arguments: args };
+    const result = await client.callTool(request, undefined, { timeout: timeoutMs, resetTimeoutOnProgress: true });
     return {
       content: (result.content as RemoteCallResult["content"]) ?? [],
       ...(result.structuredContent ? { structuredContent: result.structuredContent as Record<string, unknown> } : {}),
       ...(result.isError ? { isError: true } : {}),
+      ...(result._meta ? { _meta: result._meta as Record<string, unknown> } : {}),
       remote_version: client.getServerVersion()?.version ?? null,
     };
   } finally {

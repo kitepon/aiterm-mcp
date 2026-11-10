@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Idle hibernation no longer waits five seconds and then kills the pane's shell. An interactive shell ignores SIGTERM, so once the CLI and its children have exited, the pane root is hung up (SIGHUP), as closing a terminal would. The CLI keeps its full grace. A pane whose root started alone keeps the old TERM, grace, KILL order.
 - Linux fork write-ban no longer needs python3. Aiterm ships a small static Landlock helper for x64 and arm64 (`native/write-ban/`, about 35 KB each, built reproducibly from `native/write-ban/aiterm-write-ban.c` with `scripts/build-write-ban.mjs`), so a fork works on any Linux with Landlock and nothing else installed. Other CPUs answer `READONLY_UNENFORCEABLE`.
 
 ## [0.70.6] - 2026-11-10

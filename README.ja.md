@@ -760,7 +760,7 @@ Cursor親（`clientInfo.name`が`cursor-vscode`）も同じ完了観測と本文
 Claudeをリンク経由の`cwd`から起動した場合も、実体パスに対応する会話記録を参照する。
 
 
-Claudeの認証事前確認による起動拒否は従来のエラー文を保ち、`structuredContent`へ`schema:"aiterm.agent-launch-error.v1"`、`harness:"claude-code"`、`phase:"authentication_preflight"`、`effect:"not_issued"`、`session_created:false`を返す。`code`は`CLAUDE_AUTH_NOT_AUTHENTICATED`（公式statusが未認証）、`CLAUDE_AUTH_STATUS_UNCONFIRMED`（確認不能）、`CLAUDE_AUTH_STATUS_TIMEOUT`（確認が時間切れ）を区別する。資格情報の故障原因やログイン期限切れは断定せず、公式status本文・stderrは返さない。
+Claudeの認証事前確認による起動拒否は従来のエラー文を保ち、`structuredContent`へ`schema:"aiterm.agent-launch-error.v1"`、`harness:"claude-code"`、`phase:"authentication_preflight"`、`effect:"not_issued"`、`session_created:false`を返す。`code`は`CLAUDE_AUTH_NOT_AUTHENTICATED`（公式statusが未認証）、`CLAUDE_AUTH_STATUS_UNCONFIRMED`（確認不能）を区別する。確認が5秒で終わらない時は拒否せず起動へ進み、未ログインならlogin画面で`vendor_onboarding_required`として止まる。`CLAUDE_AUTH_STATUS_TIMEOUT`は0.70.1より前の端末だけが返す。資格情報の故障原因やログイン期限切れは断定せず、公式status本文・stderrは返さない。
 
 ### 別端末のagentを1回で起動する（`remote`）
 

@@ -394,10 +394,11 @@ export function assertClaudeAuthenticationReady(bin: string, env: NodeJS.Process
         "aiterm相関付きClaude session内で /login を繰り返さないでください。",
     );
   }
-  const timedOut = result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+  // A slow check is not a refusal (ADR 0020, 2026-11-10): launch on; a logged-out Claude stops at its login screen.
+  if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") return;
   throw new AgentAuthenticationPreflightError(
-    timedOut ? "CLAUDE_AUTH_STATUS_TIMEOUT" : "CLAUDE_AUTH_STATUS_UNCONFIRMED",
-    `Claude Codeの認証状態を起動前に確認できません${timedOut ? "（5秒でtimeout）" : ""}。sessionは作成していません。` +
+    "CLAUDE_AUTH_STATUS_UNCONFIRMED",
+    "Claude Codeの認証状態を起動前に確認できません。sessionは作成していません。" +
       "`claude auth status --json` と `claude doctor` が成功することを通常端末で確認してください。",
   );
 }

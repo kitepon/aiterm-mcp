@@ -11,6 +11,13 @@ Accepted。認証preflightとsession内`/login`／`/logout`拒否は現行。関
 vendor credential／config storeをその場で使い、完了相関stateだけをaitermが所有する。認証契約は維持し、
 環境境界は[ADR 0025](0025-shared-agent-environment-and-lineage.md)を正とする。
 
+2026-11-10追補: timeoutは拒否しない。`auth status`が5秒で終わらない時は状態不明のまま起動へ進み、
+未認証なら起動後の画面判定（`Select login method:` -> `blocked`/`vendor_onboarding_required`）が止める。
+macOSでClaude Codeの更新直後の初回実行（Gatekeeper・ESETの検査）と高負荷（load 700前後）が重なり、
+loggedIn:trueの席が`CLAUDE_AUTH_STATUS_TIMEOUT`で起こせなかった（BellTeam a36210f4、2026-11-10 12:07 JST）。
+遅いだけの確認で止まる状態には自分で抜ける遷移が無かった。`loggedIn:false`・malformed・失敗exitの拒否は維持する。
+`CLAUDE_AUTH_STATUS_TIMEOUT`はこの版の前の端末だけが返す。
+
 ## Context
 
 `claude_agent`はlaunchごとのStop hook settingsとPTY stateを隔離する一方、Claude Codeの認証は

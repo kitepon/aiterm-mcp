@@ -14,7 +14,6 @@ test('ordinary MCP preserves Claude authentication preflight reasons without cre
       ['not authenticated','{"loggedIn":false,"fixtureSecret":"DO_NOT_FORWARD_AUTH_STATUS"}',1,0,'CLAUDE_AUTH_NOT_AUTHENTICATED'],
       ['malformed','DO_NOT_FORWARD_AUTH_STATUS',0,0,'CLAUDE_AUTH_STATUS_UNCONFIRMED'],
       ['failed exit','{"loggedIn":true}',1,0,'CLAUDE_AUTH_STATUS_UNCONFIRMED'],
-      ['timeout','',0,6000,'CLAUDE_AUTH_STATUS_TIMEOUT'],
     ]) await t.test(label,async()=>{
       const bin=path.join(dir,'claude');
       fs.writeFileSync(bin,`#!${process.execPath}\nif(process.argv.slice(2).join(' ')==='auth status --json'){setTimeout(()=>{process.stdout.write(${JSON.stringify(stdout)});process.exit(${exit});},${delay});}else{process.stderr.write('UNEXPECTED_HARNESS_LAUNCH');process.exit(99);}\n`,{mode:0o755});
@@ -41,4 +40,25 @@ test('ordinary MCP preserves Claude authentication preflight reasons without cre
       } finally {await client.close();}
     });
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a Claude auth status that only runs past 5 seconds does not refuse the launch', {skip:process.platform==='win32'}, async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'auth-launch-slow-'));
+  const started=path.join(dir,'harness-started');
+  const bin=path.join(dir,'claude');
+  fs.writeFileSync(bin,`#!${process.execPath}\nconst fs=require('node:fs');if(process.argv.slice(2).join(' ')==='auth status --json'){setTimeout(()=>{process.stdout.write('{"loggedIn":true}');process.exit(0);},6000);}else{fs.writeFileSync(${JSON.stringify(started)},'');process.exit(99);}\n`,{mode:0o755});
+  const client=new Client({name:'auth-preflight-slow',version:'1'});
+  const transport=new StdioClientTransport({command:process.execPath,args:[path.resolve('dist/index.js')],env:{...process.env,CLAUDE_BIN:bin},stderr:'pipe'});
+  try {
+    await client.connect(transport);
+    const result=await client.callTool({name:'agent_launch',arguments:{harness:'claude-code',session_name:'auth_slow',cwd:dir}},undefined,{timeout:120_000});
+    assert.equal(result.structuredContent?.schema,'aiterm.agent-launch-result.v1',JSON.stringify(result));
+    assert.equal(result.structuredContent.session_id,'auth_slow');
+    for(let i=0;i<100&&!fs.existsSync(started);i++) await new Promise(r=>setTimeout(r,100));
+    assert.ok(fs.existsSync(started),'the harness itself is started after the slow status check');
+  } finally {
+    await client.callTool({name:'pty_close',arguments:{session_id:'auth_slow'}}).catch(()=>{});
+    await client.close();
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
 });

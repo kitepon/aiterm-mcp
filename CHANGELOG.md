@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.7] - 2026-11-10
+
 - `pty_list` seat turns (`aiterm.seat-turns.v1`, BellTeam caller only) add `unread: [session_id]`. It names the terminal-bound sessions whose terminal failed or did not answer within 4 s, so the caller can keep their last state instead of reading them as gone. A session missing from a terminal that did answer is absent, as before.
 - Idle hibernation no longer waits five seconds and then kills the pane's shell. An interactive shell ignores SIGTERM, so once the CLI and its children have exited, the pane root is hung up (SIGHUP), as closing a terminal would. The CLI keeps its full grace. A pane whose root started alone keeps the old TERM, grace, KILL order.
 - Linux fork write-ban no longer needs python3. Aiterm ships a small static Landlock helper for x64 and arm64 (`native/write-ban/`, about 35 KB each, built reproducibly from `native/write-ban/aiterm-write-ban.c` with `scripts/build-write-ban.mjs`), so a fork works on any Linux with Landlock and nothing else installed. Other CPUs answer `READONLY_UNENFORCEABLE`.
@@ -3205,7 +3207,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...HEAD
+[0.70.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...v0.70.7
 [0.70.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...v0.70.6
 [0.70.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...v0.70.5
 [0.70.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...v0.70.4

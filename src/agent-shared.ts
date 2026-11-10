@@ -95,6 +95,9 @@ export interface AgentMetadata {
   // Caller launch instructions / MCP servers kept in Aiterm's own state (remote-terminal.md R7), never in the project or home config.
   claude_caller_prompt_file?: string;
   claude_caller_mcp_file?: string;
+  // Codex: the same two kept in Aiterm state; argv is built from them at every start and resume.
+  codex_caller_prompt_file?: string;
+  codex_caller_mcp_file?: string;
   claude_home?: string;
   result_file?: string;
   grok_home?: string;

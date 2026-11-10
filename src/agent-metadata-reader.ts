@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { AitermError } from "./errors.js";
 import { executionNativeBindingSchema } from "./execution-close.js";
 import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeCallerPromptPath, agentClaudeCallerMcpPath } from "./harnesses/claude.js";
+import { agentCodexCallerPromptPath, agentCodexCallerMcpPath } from "./harnesses/codex.js";
 import { resolveAndValidateGrokAuth } from "./harnesses/grok.js";
 import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
@@ -222,6 +223,8 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       completion_route: "codex_transcript",
       ...loadAgentLineageFields(m, true),
       node_platform: process.platform,
+      ...(m.codex_caller_prompt_file === agentCodexCallerPromptPath(name) ? { codex_caller_prompt_file: m.codex_caller_prompt_file } : {}),
+      ...(m.codex_caller_mcp_file === agentCodexCallerMcpPath(name) ? { codex_caller_mcp_file: m.codex_caller_mcp_file } : {}),
       codex_home: recordedHome,
     };
   }

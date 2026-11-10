@@ -161,8 +161,9 @@ test("launch tools: terminal is refused clearly before any connection when the h
     assert.ok(tool.inputSchema.properties.terminal, `${name} takes terminal`);
     assert.match(tool.inputSchema.properties.terminal.description, /copy it unchanged/);
   }
-  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "codex-cli", terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
-  assert.match(text(await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "cursor-cli", terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } })), /TERMINAL_HARNESS_UNSUPPORTED/);
+  assert.match(text(await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } })), /BINDING_UNKNOWN/, "codex is a terminal harness since 0.70.7");
   assert.match(text(await client.callTool({ name: "claude_agent", arguments: { terminal } })), /TERMINAL_INVALID: cwd is required/);
   assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "relative" } })), /TERMINAL_INVALID/);
   assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x", remote: { host: "h" } } })), /TERMINAL_INVALID: use terminal or remote/);
@@ -173,7 +174,7 @@ test("launch tools: terminal is refused clearly before any connection when the h
   const launchError = unknown._meta["aiterm/launch_error"];
   assert.deepEqual({ ...launchError, action: typeof launchError.action }, { schema: "aiterm.agent-launch-error.v1",
     harness: "claude-code", code: "BINDING_UNKNOWN", phase: "terminal", effect: "not_started", session_created: false, action: "string" });
-  assert.equal((await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } }))._meta["aiterm/launch_error"].code, "TERMINAL_HARNESS_UNSUPPORTED");
+  assert.equal((await client.callTool({ name: "grok_agent", arguments: { terminal, cwd: "/x" } }))._meta["aiterm/launch_error"].code, "TERMINAL_HARNESS_UNSUPPORTED");
   const malformed = await client.callTool({ name: "claude_agent", arguments: { terminal: { ...terminal, ref: "macbook" }, cwd: "/x" } });
   assert.equal(malformed.isError, true);
   assert.match(text(malformed), /binding ref/);

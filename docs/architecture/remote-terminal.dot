@@ -5,7 +5,7 @@ digraph remote_terminal {
  terminals [label="BellTeam terminals.connection\n(UID1001)",fillcolor="#f0f0f0"];
  server [label="aiterm-remote-terminal (UID1000 stdio MCP)\none process per connection\nbinding store remote-bindings.json 0600"];
  execution [label="BellTeam execution\nseat lifecycle / delivery / Throughline ingest",fillcolor="#f0f0f0"];
- tools [label="Aiterm launch tools (execution-native-server, UID1000)\nagent_launch / claude_agent ... + terminal + cwd\nT1 binding+revisions, T2 session map"];
+ tools [label="Aiterm launch tools (execution-native-server, UID1000)\nagent_launch (claude-code, codex-cli) / claude_agent ... + terminal + cwd\ncodex-cli: terminal Aiterm >= 0.70.7\nT1 binding+revisions, T2 session map"];
  trusted [label="remote.ts trusted target\n-F /dev/null, strict known_hosts, key file\nper-call ssh / wait_process / transcript"];
  keeper [label="forward keeper (T3 lock, 60 s check in every active process)\nssh -N -R 127.0.0.1:P:127.0.0.1:D\n(P, D = seat_ingress_port in binding; no env, no default)"];
  trust [label="remote_terminal_status / trust-confirm\nbinding -> credential + trust revisions\nscan trusted only on confirmed fingerprint"];
@@ -14,7 +14,7 @@ digraph remote_terminal {
  conn [label="bound connection\ncall / transcript_read / command(op)\nevents ready|lost|closed / close"];
  rmcp [label="terminal: aiterm-mcp --private-env-stdin\nprivate env map (not process.env)"];
  launch [label="terminal: agent_launch\ncwd must exist (CWD_UNAVAILABLE)\n0600 launch env file + prompt/MCP files\nnative setup failure: rollback + complete listing\nname absent -> AGENT_LAUNCH_NOT_STARTED (native_reason)"];
- pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
+ pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\n(codex: -c developer_instructions / -c mcp_servers.NAME={...} env refs only)\nno env values in PTY / log",fillcolor="#fff7e6"];
  jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
  fwd [label="R12 reverse forward\nterminal 127.0.0.1:P (stable per terminal)\n-> container 127.0.0.1:D\n(D from the launch's /api/seat-mcp URLs)"];

@@ -3,7 +3,7 @@
 const ACTIONS: Record<string, string> = {
   TERMINAL_INVALID: "起動の指定（端末の情報か作業フォルダ）が正しくありません。BellTeamの不具合の恐れがあります。",
   TARGET_INVALID: "起動の指定（端末の情報）が正しくありません。BellTeamの不具合の恐れがあります。",
-  TERMINAL_HARNESS_UNSUPPORTED: "この端末で起こせるAIは、今はClaude Codeだけです。メンバーのAIをClaude Codeにしてください。",
+  TERMINAL_HARNESS_UNSUPPORTED: "この端末で起こせるAIは、今はClaude CodeとCodexだけです。メンバーのAIをClaude CodeかCodexにしてください。",
   REF_INVALID: "端末の登録が見つかりません。端末の登録を確かめてください。",
   BINDING_UNKNOWN: "端末の登録が見つかりません。端末の登録を確かめてください。",
   BINDING_STORE_UNREADABLE: "端末の登録を読めませんでした。端末の登録をやり直してください。",
@@ -43,11 +43,13 @@ export const LAUNCH_ERROR_META = "aiterm/launch_error";
 export const ERROR_CODE_META = "aiterm/error_code";
 
 /** R18 for a local launch: the fresh native creation left no seat (core.freshLaunchFailure). */
-export function launchNotStartedMeta(harness: string): Record<string, unknown> {
+export function launchNotStartedMeta(harness: string, phase: "native_create" | "input" = "native_create"): Record<string, unknown> {
   const code = "AGENT_LAUNCH_NOT_STARTED";
-  return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase: "native_create",
-    effect: "not_started", session_created: false, action: ACTIONS[code] } };
+  return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase,
+    effect: "not_started", session_created: false, action: phase === "input" ? INPUT_ACTION : ACTIONS[code] } };
 }
+// phase "input": refused from the arguments alone; nothing was started, so launching again unchanged fails the same way.
+const INPUT_ACTION = "起動の指定（追加の指示かMCPの設定）をこのAIでは使えません。席は作られていません。指定を見直してください。";
 
 /** R19: the leading symbolic code of a refused call, so the caller does not parse text. It claims no effect. */
 export function withErrorCode(result: any): any {
@@ -59,8 +61,8 @@ export function withErrorCode(result: any): any {
 /** Adds R18's `_meta` to a failed terminal launch result; a result whose code is not listed is returned unchanged.
  * `_meta`, not structuredContent: SDK clients that listed the tools validate structuredContent against the
  * success outputSchema even on isError, and would turn this refusal into a protocol error. */
-export function withTerminalLaunchAction(result: any): any {
-  if (!result?.isError) return result;
+export function withTerminalLaunchAction(result: any, harness = "claude-code"): any {
+  if (!result?.isError || result._meta?.[LAUNCH_ERROR_META]) return result;
   const structured = result.structuredContent;
   const preflight = structured?.schema === "aiterm.agent-launch-error.v1";
   if (structured && !preflight) return result;
@@ -69,6 +71,6 @@ export function withTerminalLaunchAction(result: any): any {
   if (!action) return result;
   const failure = preflight
     ? { schema: structured.schema, harness: structured.harness, code, phase: structured.phase, effect: structured.effect, session_created: false, action }
-    : { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code, phase: "terminal", effect: "not_started", session_created: false, action };
+    : { schema: "aiterm.agent-launch-error.v1", harness, code, phase: "terminal", effect: "not_started", session_created: false, action };
   return { ...result, _meta: { ...result._meta, [LAUNCH_ERROR_META]: failure } };
 }

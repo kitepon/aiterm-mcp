@@ -192,6 +192,8 @@ import {
   buildCodexAgentCmd,
   codexAgentArgv,
   codexResumeArgv,
+  writeCodexCallerFiles,
+  refuseCodexCallerInput,
   codexLaunchNote,
   codexPaneObservation,
   CODEX_INTERRUPT_KEY,
@@ -631,6 +633,8 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-mcp.json") ||
           f.endsWith(".claude-caller-prompt.md") ||
           f.endsWith(".claude-caller-mcp.json") ||
+          f.endsWith(".codex-caller-prompt.md") ||
+          f.endsWith(".codex-caller-mcp.json") ||
           f.endsWith(".launch-env") ||
           f.endsWith(".claude-result.json") ||
           f.endsWith(".cursor-result.json") ||
@@ -7182,6 +7186,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
       if (previous.claude_caller_prompt_file) next.claude_caller_prompt_file = previous.claude_caller_prompt_file;
       if (previous.claude_caller_mcp_file) next.claude_caller_mcp_file = previous.claude_caller_mcp_file;
+      if (previous.codex_caller_prompt_file) next.codex_caller_prompt_file = previous.codex_caller_prompt_file;
+      if (previous.codex_caller_mcp_file) next.codex_caller_mcp_file = previous.codex_caller_mcp_file;
       if (isWin) next.windows_launch_exit_tracked = true;
       if (next.kind === "claude") next.claude_home = recipe.configuration_root;
       else next.codex_home = recipe.configuration_root;
@@ -8219,6 +8225,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
             meta.agent_executable = bin;
             if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
+            if (meta.kind === "codex") writeCodexCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
             if (opts.fork_of) meta.fork_of = opts.fork_of;
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
@@ -8431,6 +8438,8 @@ export async function openAgentWithInitialPrompt(
     fork_from?: { session_id: string; fork_id?: string } | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
+  // Caller launch fields: refused from the arguments alone, before any session or file exists (phase "input").
+  if (kind === "codex") refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
   const fork = opts.fork_from ? resolveForkSource(kind, opts.fork_from, opts) : null;
   if (opts.configuration_root != null && kind !== "claude")
     throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);

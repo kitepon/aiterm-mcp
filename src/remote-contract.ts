@@ -70,4 +70,4 @@ export const terminalArgumentDescription =
   "CREDENTIAL_REQUIRED / CREDENTIAL_NOT_LOADED = this terminal's key comes from a credential handle that the registry must load first; never paste a key anywhere. " +
   "AUTH_FAILED = the terminal refused the key. UNREACHABLE = the terminal is offline; try later. CONNECTION_REFUSED = the terminal refused the SSH connection (SSH may be off there); try later. " +
   "REMOTE_AITERM_TOO_OLD = update Aiterm on the terminal. CWD_UNAVAILABLE = the folder does not exist there; do not pick another folder. " +
-  "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready (launch again later), or the seat MCP URLs are not http://127.0.0.1:<one port>/api/seat-mcp. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code.";
+  "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready (launch again later), or the seat MCP URLs are not http://127.0.0.1:<one port>/api/seat-mcp. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code or codex-cli (codex-cli needs Aiterm 0.70.7 on the terminal).";

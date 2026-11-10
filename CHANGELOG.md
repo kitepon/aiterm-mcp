@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.1] - 2026-11-10
+
 - Claude Code's "Updates to Consumer Terms and Policies" screen (2.1.318, grove) is classified as `blocked` / `vendor_onboarding_required` instead of `unrecognized_screen`, so a launch stops with the plain hint instead of waiting it out. Aiterm never answers it: the terms and the model-training choice belong to the account holder.
 - The setup and runtime probe (`aiterm setup`, `aiterm-remote-terminal runtime-smoke`) starts its `aiterm-mcp` with the caller's whole environment, so it opens its terminal in the same `TMPDIR` socket directory as the caller's seats, and a failed probe keeps the tool's own error text. Without `TMPDIR` the probe used `/tmp/claude-tmux-sockets`, which another user of the same Mac may own.
 - A Claude `auth status --json` preflight that does not finish in 5 seconds no longer refuses the launch (`CLAUDE_AUTH_STATUS_TIMEOUT`): the launch goes on, and a logged-out Claude stops at its login screen as `vendor_onboarding_required` (ADR 0020 addendum). A Mac seat failed this way 22 s after Claude Code updated itself to 2.1.322, under load average ~700, while `auth status` answered `loggedIn: true` in 0.75 s afterwards. `loggedIn: false`, malformed output and a failed exit still refuse before any session exists. The terminal needs this release.
@@ -3161,7 +3163,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.0...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...HEAD
+[0.70.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.0...v0.70.1
 [0.70.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.69.0...v0.70.0
 [0.69.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.1...v0.69.0
 [0.68.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.68.0...v0.68.1

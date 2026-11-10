@@ -6,7 +6,7 @@ import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSea
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
-import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableError, AgentResumeError } from "./errors.js";
+import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableError, AgentResumeError, launchInputRefusal } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -21,6 +21,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv } from "./private-env.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta } from "./terminal-launch-error.js";
+import { codexMcpOverrides } from "./harnesses/codex.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
@@ -263,7 +264,7 @@ function fail(e: unknown): ToolResult {
       phase: "authentication_preflight", effect: "not_issued", session_created: false, message: msg },
   };
   if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: launchNotStartedMeta(e.launchNotStarted.harness) };
+    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase) };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 
@@ -1290,11 +1291,15 @@ const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "b
 
 async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }, privateEnv?: Record<string, string>): Promise<any> {
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
-  // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140): check the version first.
-  if (args.fork_from) {
+  // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140), and one without Codex caller fields
+  // would drop or refuse them: check the version first.
+  const needs = args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
+    : harness === "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined)
+      ? { minimum: CODEX_REMOTE_MINIMUM_VERSION, what: "append_system_prompt / mcp_config for codex-cli" } : null;
+  if (needs) {
     const version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
-    if (!versionAtLeast(version, FORK_MINIMUM_VERSION))
-      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; fork_from needs ${FORK_MINIMUM_VERSION} or later`, 2);
+    if (!versionAtLeast(version, needs.minimum))
+      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; ${needs.what} needs ${needs.minimum} or later`, 2);
   }
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
   // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
@@ -1329,12 +1334,14 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 /** First release whose agent_launch knows fork_from (ADR 0140). */
 const FORK_MINIMUM_VERSION = "0.70.6";
+/** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
+const CODEX_REMOTE_MINIMUM_VERSION = "0.70.7";
 const terminalVersions = new Map<string, string>();
 /** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
 async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
   try {
     if (args.remote) throw new AitermError("TERMINAL_INVALID: use terminal or remote, not both; for a registered terminal pass only terminal", 2);
-    if (harness !== "claude-code") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harness claude-code first; ${harness} is not available on a terminal yet`, 2);
+    if (harness !== "claude-code" && harness !== "codex-cli") throw new AitermError(`TERMINAL_HARNESS_UNSUPPORTED: terminal seats support harnesses claude-code and codex-cli; ${harness} is not available on a terminal yet`, 2);
     // A declared Windows terminal is refused by the platform check below (0.70.8 brings its path form).
     if (typeof args.cwd !== "string" || (terminal.os !== "windows" && !args.cwd.startsWith("/")))
       throw new AitermError("TERMINAL_INVALID: cwd is required with terminal: the absolute POSIX project folder on that terminal, starting with / (never launch locally and cd)", 2);
@@ -1347,8 +1354,9 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
       terminalVersions.set(target.trusted_ref, version);
     }
-    if (!versionAtLeast(version, REMOTE_MINIMUM_VERSION))
-      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${REMOTE_MINIMUM_VERSION} or later is required (update Aiterm on the terminal)`, 2);
+    const minimum = harness === "codex-cli" ? CODEX_REMOTE_MINIMUM_VERSION : REMOTE_MINIMUM_VERSION;
+    if (!versionAtLeast(version, minimum))
+      throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${minimum} or later is required (update Aiterm on the terminal)`, 2);
     const privateEnv: Record<string, string> = {};
     for (const name of args.env_vars ?? []) { const value = launchEnvValue(name); if (value !== undefined) privateEnv[name] = value; }
     let mcpConfig = args.mcp_config;
@@ -1356,6 +1364,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       const extracted = extractMcpHeaders(mcpConfig);
       Object.assign(privateEnv, extracted.env);
       mcpConfig = extracted.config;
+      // Codex cannot say every header shape: refuse here, not on the terminal after the private line was sent.
+      if (harness === "codex-cli") try { codexMcpOverrides(mcpConfig); } catch (e) { throw launchInputRefusal(harness, (e as Error).message); }
       const ingress = seatIngressPort(mcpConfig);
       if (ingress) mcpConfig = rewriteSeatMcpConfig(mcpConfig, await ensureSeatForward(target.trusted_ref, ingress));
     }
@@ -1364,8 +1374,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra, privateEnv);
     const session = result?.structuredContent?.session_id;
     if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
-    return withErrorCode(withTerminalLaunchAction(result));
-  } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e))); }
+    return withErrorCode(withTerminalLaunchAction(result, harness));
+  } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e), harness)); }
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
@@ -1374,10 +1384,10 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
   let delivery: DeliveryRequest | null = null;
   try {
     if (!supportsWriteScope && write_scope !== undefined) {
-      throw new core.AitermError("claude-code harnessはwrite_scopeに対応していません。指定を外してください", 2);
+      throw launchInputRefusal(core.agentHarness(kind), "claude-code harnessはwrite_scopeに対応していません。指定を外してください");
     }
     if (require_existing_resume && ((image?.length ?? 0) > 0 || prompt != null || throughline_source_session != null || throughline_supplement_file != null))
-      throw new core.AitermError("require_existing_resume is promptless", 2);
+      throw launchInputRefusal(core.agentHarness(kind), "require_existing_resume is promptless");
     if (!require_existing_resume) await core.maintainAgentIdleClocks();
     const initialPrompt = image && image.length > 0 ? core.attachImages(prompt ?? "", image) : prompt ?? undefined;
     if (initialPrompt || throughline_source_session) delivery = await deliveryForRequest(extra);
@@ -1570,8 +1580,8 @@ server.registerTool(
       launch_operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe("Claude Codeのpromptなしexact replay相関だけで使用"),
       remote: remoteInputField,
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
-      append_system_prompt: z.string().min(1).optional().describe("claude-code only. Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here"),
-      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("claude-code only. Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars"),
+      append_system_prompt: z.string().min(1).optional().describe("claude-code and codex-cli only. Launch instructions added to the system prompt (Codex: appended to developer_instructions after Aiterm's marker, at most 64 KiB); kept in Aiterm state, not in the project or home. Never put secrets here"),
+      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("claude-code and codex-cli only. Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex takes only http servers {type?: \"http\", url, headers}: 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes are refused before the seat starts"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1602,12 +1612,12 @@ server.registerTool(
     },
   },
   async ({ harness, remote, terminal, ...args }: any, extra) => {
-    if (harness !== "claude-code" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined))
-      return fail(new AitermError("append_system_prompt and mcp_config are claude-code only", 2));
+    if (harness !== "claude-code" && harness !== "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined))
+      return fail(launchInputRefusal(harness, `append_system_prompt and mcp_config are claude-code and codex-cli only; ${harness} cannot take them`));
     if (terminal) return launchTerminalAgent(harness, terminal, { ...args, ...(remote ? { remote } : {}) }, extra);
     if (remote && args.require_existing_resume) return fail(typeof args.session_name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(args.session_name)
       ? new AgentResumeUnavailableError(args.session_name)
-      : new AitermError("require_existing_resume requires session_name", 2));
+      : launchInputRefusal(harness, "require_existing_resume requires session_name"));
     if (!remote) return launchAgent(kindForHarness(harness), args, extra);
     try { return await launchRemoteAgent(acceptRemote(remote), harness, args, extra); }
     catch (e) { return fail(e); }

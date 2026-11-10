@@ -5,6 +5,8 @@ digraph launch {
  request [label="index.ts: launchAgent\nMCP validation / request context"];
  root [label="claude-config-root.ts: resolveClaudeConfigurationRoot\ndefault ~/.claude (selector unset) or child of AITERM_CLAUDE_CONFIG_ROOTS\nelse AGENT_CONFIGURATION_ROOT_REJECTED",fillcolor="#eaf7ed"];
  fork [label="core.ts: resolveForkSource (ADR 0140)\nclaude-code / codex-cli + prompt; main metadata + saved conversation\nwrite-ban.ts probe: Linux Landlock / macOS sandbox-exec, Windows refused\nlaunch = ban prefix + CLI (--resume main --fork-session | codex fork main)",fillcolor="#eaf7ed"];
+ caller [label="Caller launch fields (claude-code, codex-cli)\nappend_system_prompt / mcp_config → 0600 files in launch state\ncodex: -c developer_instructions (marker first, caller text appended)\n+ -c mcp_servers.NAME={url,bearer_token_env_var,env_http_headers,http_headers}\nunexpressible / same-name stdio → refused before start",fillcolor="#eaf7ed"];
+ inputref [label="Input refusal (all harnesses)\nAGENT_LAUNCH_NOT_STARTED + _meta aiterm/launch_error\nphase input, effect not_started, session_created false",fillcolor="#ffe6e6"];
  entry [label="core.ts: openAgentWithInitialPrompt → openAgent\nnew launch / dormant resume / optional prompt"];
  create [label="openAgent: withNativeSessionCreation\ncreate → openSessionInternal (managed Claude / Codex)"];
  mux [label="tmux-runtime.ts: tmuxNewSession\ncreate terminal; captureNativeSessionReceipt"];
@@ -18,7 +20,7 @@ digraph launch {
  after [label="Caller observes submit residue / turn start\nreceipt distinguishes not_sent / unconfirmed / started"];
  receipt [label="index.ts: structuredContent / fail\nlaunch receipt has no launch_id field"];
  observe [label="pty_observe\ncurrent launch ID / existence / native identity\nseparate observation, no screen or raw argv"];
- request -> root [label="configuration_root"];root -> entry;request -> entry;request -> fork [label="fork_from"];fork -> entry [label="fork_of / cwd / root"];entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery\nroot change only if <root>/projects/<slug>/<vsid>.jsonl exists"];
+ request -> caller [label="append_system_prompt / mcp_config"];caller -> entry;caller -> inputref [label="refused",style=dashed];inputref -> receipt;request -> root [label="configuration_root"];root -> entry;request -> entry;request -> fork [label="fork_from"];fork -> entry [label="fork_of / cwd / root"];entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery\nroot change only if <root>/projects/<slug>/<vsid>.jsonl exists"];
  setup [label="openSessionInternal: scoped setup rollback\nnew-session window witness -> receipt -> session-local token\ntransfer / restore names before birth callback"];
  rollback_setup [label="Setup throw: tuple + creation marker -> conditional own close\nNo birth read; replacement preserved; original error retained",fillcolor="#ffe6e6"];
  create -> setup;setup -> mux;mux -> identity [label="captured receipt / marker transfer"];

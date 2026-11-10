@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.12] - 2026-11-10
+
 - Terminal seats' MCP route back (the R12 reverse forward) comes back after an execution restart. When the keeper first ran before the terminal's credential was loaded, its shell probe refused at once with `CREDENTIAL_NOT_LOADED` and left the keeper marked as starting, so that process never held the forward again. Every seat on the terminal then reached a closed port (the binding still named it, so a launch was handed the dead port without a wait). The keeper now releases its lock on that refusal, and the next 60 s check after credential-load starts the forward on the same port.
 
 ## [0.70.11] - 2026-11-10
@@ -3241,7 +3243,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...HEAD
+[0.70.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...v0.70.12
 [0.70.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...v0.70.11
 [0.70.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...v0.70.10
 [0.70.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...v0.70.9

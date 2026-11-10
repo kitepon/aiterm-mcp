@@ -1,6 +1,8 @@
 // provision (remote-terminal.md R16): install this Aiterm version as a product-owned runtime on a macOS or Linux terminal,
 // before any terminal MCP exists. Runs over the binding's trusted key SSH; the terminal fetches the release assets.
 import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { RemoteTerminalError, bindingStatus, classifySshFailure, sshEnvironment, trustedSshArguments } from "./remote-terminal.js";
@@ -28,11 +30,7 @@ case "$(uname -s)" in
       x86_64) A=x64 ;;
       aarch64|arm64) A=arm64 ;;
       *) fail PROVISION_PLATFORM_UNSUPPORTED ;;
-    esac
-    # The Linux runtime has no tmux: seats use the user's own. Look on the login PATH, as the later remote commands do.
-    s=$(printenv SHELL); [ -x "$s" ] || s=/bin/sh
-    p=$("$s" -lc env </dev/null 2>/dev/null | sed -n 's/^PATH=//p' | tail -n 1); [ -n "$p" ] && PATH=$p; export PATH
-    command -v tmux >/dev/null 2>&1 || fail PROVISION_TMUX_MISSING ;;
+    esac ;;
   *) fail PROVISION_PLATFORM_UNSUPPORTED ;;
 esac
 NAME="aiterm-runtime-$V-$OS-$A"
@@ -101,8 +99,7 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
   });
   const parsed = parseProvisionOutput(run.stdout);
   if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version };
-  if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`,
-    parsed.code === "PROVISION_TMUX_MISSING" ? "install tmux with the terminal's package manager (for example apt install tmux), then provision again" : undefined);
+  if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`);
   if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
   throw new RemoteTerminalError("PROVISION_FAILED", "the terminal returned no provisioning result");
 }
@@ -110,10 +107,9 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
 /** runtime-smoke on the terminal: this runtime's version, its tmux, and the setup probe through its own aiterm-mcp. */
 export async function runtimeSmoke(expectVersion: string): Promise<{ schema: string; version: string; tmux: string }> {
   if (pkg.version !== expectVersion) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", `runtime is ${pkg.version}, expected ${expectVersion}`);
-  const tmux = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 10_000 });
-  // The Linux runtime carries no tmux; its absence is the user's to fix.
-  if (process.platform === "linux" && (tmux.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT")
-    throw new RemoteTerminalError("PROVISION_TMUX_MISSING", "tmux is not installed on the terminal", "install tmux with the terminal's package manager, then provision again");
+  // The runtime's own tmux (<runtime>/bin/tmux, beside <runtime>/node/bin/node); another one on PATH is only for a build tree.
+  const own = path.resolve(process.execPath, "../../../bin/tmux");
+  const tmux = spawnSync(fs.existsSync(own) ? own : "tmux", ["-V"], { encoding: "utf8", timeout: 10_000 });
   if (tmux.status !== 0) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", "tmux does not run");
   await verifySetupRuntime({ command: process.execPath, args: [fileURLToPath(new URL("./index.js", import.meta.url))] });
   return { schema: "aiterm.runtime-smoke.v1", version: pkg.version, tmux: tmux.stdout.trim() };

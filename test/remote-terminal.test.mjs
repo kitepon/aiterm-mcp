@@ -102,9 +102,13 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { before: false, port: 61000, ingress: 4183, forward: 61000 },
     "a binding without D builds no forward; the launch's D is stored and P recorded");
-  const calls = fs.readFileSync(log, "utf8").trim().split("\n");
+  // One shell probe (the keeper's remote command depends on the terminal's shell), then the forward itself.
+  const all = fs.readFileSync(log, "utf8").trim().split("\n");
+  const calls = all.filter(line => line.includes(" -R "));
   assert.equal(calls.length, 1);
+  assert.equal(all.length, 2);
   assert.match(calls[0], /-R 127\.0\.0\.1:0:127\.0\.0\.1:4183 /);
+  assert.match(calls[0], / cat >\/dev\/null$/, "a POSIX shell holds the forward with cat");
   assert.doesNotMatch(calls[0], /4182/);
 });
 

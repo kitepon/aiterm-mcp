@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Upload the built runtime (docs/architecture/remote-terminal.md R17) to the GitHub Release v<version>:
 //   GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo node scripts/upload-runtime-assets.mjs <version> <outDir>
-// <outDir> holds the four tarballs (darwin and linux, arm64 and x64) collected from the build jobs; the one SHA256SUMS
+// <outDir> holds the four tarballs (darwin and linux, arm64 and x64) and the Windows zip (win32-x64) collected from the build jobs; the one SHA256SUMS
 // is computed here over exactly those files. Published assets are never replaced: tarballs first, SHA256SUMS last;
 // a release that already has SHA256SUMS is done.
 import { createHash } from "node:crypto";
@@ -26,9 +26,11 @@ const release = await api(`https://api.github.com/repos/${repo}/releases/tags/v$
 const existing = new Set(release.assets.map(asset => asset.name));
 const sums = `aiterm-runtime-${version}-SHA256SUMS`;
 if (existing.has(sums)) { process.stdout.write(`v${version} already has ${sums}; nothing replaced\n`); process.exit(0); }
-const tarballs = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"].map(platform => `aiterm-runtime-${version}-${platform}.tar.gz`);
+// One fixed list: the SHA256SUMS names exactly these five files, which is what every terminal bootstrap looks its own up in.
+const runtimeAssets = (version) => [...["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"].map(platform => `aiterm-runtime-${version}-${platform}.tar.gz`), `aiterm-runtime-${version}-win32-x64.zip`];
+const tarballs = runtimeAssets(version);
 const missing = tarballs.filter(name => !fs.existsSync(path.join(outDir, name)));
-if (missing.length) throw new Error(`runtime tarballs missing in ${outDir}: ${missing.join(", ")}`);
+if (missing.length) throw new Error(`runtime assets missing in ${outDir}: ${missing.join(", ")}`);
 fs.writeFileSync(path.join(outDir, sums), tarballs.map(name => `${createHash("sha256").update(fs.readFileSync(path.join(outDir, name))).digest("hex")}  ${name}`).join("\n") + "\n");
 const partial = tarballs.filter(name => existing.has(name));
 // A tarball from another build would not match this build's SHA256SUMS.
@@ -36,6 +38,6 @@ if (partial.length) throw new Error(`v${version} already has ${partial.join(", "
 for (const name of [...tarballs, sums]) {
   const body = fs.readFileSync(path.join(outDir, name));
   const uploaded = await api(`https://uploads.github.com/repos/${repo}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`, {
-    method: "POST", headers: { "content-type": name.endsWith(".gz") ? "application/gzip" : "text/plain" }, body });
+    method: "POST", headers: { "content-type": name.endsWith(".gz") ? "application/gzip" : name.endsWith(".zip") ? "application/zip" : "text/plain" }, body });
   process.stdout.write(`uploaded ${uploaded.name} (${uploaded.size} bytes)\n`);
 }

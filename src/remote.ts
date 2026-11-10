@@ -128,6 +128,7 @@ export function remoteShell(target: RemoteTarget): Promise<RemoteShell> {
   if (!shell) {
     shell = runSsh(target, REMOTE_SHELL_PROBE).then(({ code, stdout, stderr }) => {
       if (code === 255) {
+        if (target.trusted_ref) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
         const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
         throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
       }
@@ -169,7 +170,10 @@ export function remotePlatform(target: RemoteTarget): Promise<RemotePlatform | n
         const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
         throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
       }
-      return classifyRemotePlatform(stdout);
+      const found = classifyRemotePlatform(stdout);
+      // The same run tells which shell sshd starts, so a command build needs no second probe (T4).
+      if (found && !shells.has(key)) shells.set(key, Promise.resolve(found !== "windows" ? "posix" : classifyRemoteShell(stdout) === "cmd" ? "cmd" : "powershell"));
+      return found;
     });
     platform.catch(() => platforms.delete(key));
     platforms.set(key, platform);
@@ -186,6 +190,46 @@ export function posixCommand(script: string): string {
     'r="$HOME/.aiterm/runtime/current/bin"; [ -x "$r/aiterm-mcp" ] && PATH="$r:$PATH"; export PATH';
   return `/bin/sh -c '${importPath}; ${script}'`;
 }
+
+// ---- 信頼済み端末のコマンド（remote-terminal.md R21）。固定の操作を、sshdが起動するshellの書式へ直す。 ----
+
+/** 端末のshellごとの同じ操作。posixは/bin/shの1行、windowsはPowerShell 5.1・7のどちらでも通る本文。 */
+export interface TerminalScript { posix: string; windows: string }
+
+/** PowerShellの単引用符literal。`'`だけが特別で、`$`・空白・二重引用符・非ASCIIはそのまま文字になる。 */
+export const powershellQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+
+/** `& 'prog' 'arg'...`。引数は全て単引用符で包む。 */
+export const powershellInvoke = (argv: string[]): string => `& ${argv.map(powershellQuote).join(" ")}`;
+
+/** 固定のプログラム呼び出し。windowsのaiterm-*は、無い時に言語によらず読める`command not found`を出す。 */
+export function terminalProgram(argv: string[]): TerminalScript {
+  const [program] = argv;
+  return {
+    posix: `exec ${argv.join(" ")}`,
+    windows: `${program.startsWith("aiterm-") ? `if (-not (Get-Command ${powershellQuote(program)} -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine(${powershellQuote(`${program}: command not found`)}); exit 127 }; ` : ""}${powershellInvoke(argv)}`,
+  };
+}
+
+// 製品のruntime（remote-terminal.md R16）があれば、利用者のPATH上の別のaiterm-mcpより先に使う。
+// npm's .ps1 shims win over .cmd in PowerShell, and Windows PowerShell 5.1 is Restricted by default: allow scripts for this process only.
+const WINDOWS_PREAMBLE = "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue; $r = Join-Path $env:USERPROFILE '.aiterm\\runtime\\current\\bin'; if (Test-Path -LiteralPath (Join-Path $r 'aiterm-mcp.cmd')) { $env:PATH = $r + ';' + $env:PATH }; ";
+// `pwsh -c`は最後のnative commandの失敗を全て1にする。ここで本物の終了codeを返す。
+const WINDOWS_EPILOGUE = "; $ok = $?; $code = $LASTEXITCODE; if ($code) { exit $code }; if ($ok) { exit 0 }; exit 1";
+
+/** PowerShell本文を、shellが`cmd`の時だけ`powershell -EncodedCommand`で包む（引用符の書式がcmdとPowerShellで違うため）。 */
+export function powershellForShell(shell: "powershell" | "cmd", body: string): string {
+  return shell === "powershell" ? body
+    : `powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand ${Buffer.from(body, "utf16le").toString("base64")}`;
+}
+
+/** 端末のshellに合う1つのコマンド文字列。userの文字列はここへ入れない（固定文・検証済みtoken・base64だけ）。 */
+export function terminalCommand(shell: RemoteShell, script: TerminalScript): string {
+  return shell === "posix" ? posixCommand(script.posix) : powershellForShell(shell, `${WINDOWS_PREAMBLE}${script.windows}${WINDOWS_EPILOGUE}`);
+}
+
+/** stdinに載せたPowerShell scriptを丸ごと実行する入口（authorize-key・Windows provision）。scriptは多行・ASCIIだけ。 */
+export const WINDOWS_STDIN_SCRIPT_COMMAND = powershellForShell("cmd", "Invoke-Expression ([Console]::In.ReadToEnd())");
 
 /** 現地のaiterm-mcpを起動するコマンド。Windowsはユーザー環境からPATHが入るので、そのまま呼ぶ。 */
 export function remoteServerCommand(shell: RemoteShell): string {
@@ -205,7 +249,9 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
   privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
   if (privateEnv && !target.trusted_ref) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding", 2);
   const shell = await remoteShell(target);
-  const command = privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
+  // 信頼済み端末はshellごとの正規のコマンド（runtimeの優先と終了codeを含む）。個別指定のremoteは従来のまま。
+  const command = target.trusted_ref ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
+    : privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
   const { args: sshArgs, env } = sshInvocation(target, command);
   const transport = privateEnv
     ? new SshStdioTransport(sshArgs, `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: privateEnv })}\n`)
@@ -240,10 +286,12 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
   }
 }
 
+// npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある。見つからなければ同じpackageのCLIを使う。
+export const WAIT_RESOLVE = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 
-export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number, inputId?: string): string {
+export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number, inputId?: string, trusted = false): string {
   if (!SESSION_RE.test(session)) throw new AitermError("REMOTE_SESSION_INVALID: session名が不正です", 2);
   if (operationId !== null && !OPERATION_RE.test(operationId)) throw new AitermError("REMOTE_OPERATION_INVALID: operation_idが不正です", 2);
   if (inputId !== undefined && (!/^[a-f0-9]{32}$/.test(inputId) || cursor === null)) throw new AitermError("REMOTE_INPUT_INVALID: input_id requires its original cursor", 2);
@@ -251,16 +299,15 @@ export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: n
   if (cursor !== null) parts.push("--cursor", String(cursor));
   if (operationId !== null) parts.push("--operation", operationId);
   if (inputId !== undefined) parts.push("--input", inputId);
+  if (trusted) return terminalCommand(shell, { posix: `${WAIT_RESOLVE}; exec "$w" ${parts.join(" ")}`, windows: terminalProgram(["aiterm-wait", ...parts]).windows });
   if (shell !== "posix") return `aiterm-wait ${parts.join(" ")}`;
-  // npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある。見つからなければ同じpackageのCLIを使う。
-  const resolve = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
-  return posixCommand(`${resolve}; exec "$w" ${parts.join(" ")}`);
+  return posixCommand(`${WAIT_RESOLVE}; exec "$w" ${parts.join(" ")}`);
 }
 
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */
 export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number, inputId?: string): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
   // 別processには鍵のパスフレーズを渡せない。ssh-agentか、張ってあるControlMasterの接続に相乗りする。
-  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId), { passphrase: false });
+  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId, !!target.trusted_ref), { passphrase: false });
   return { executable: "ssh", args, windows_start_process_argument_list: process.platform === "win32" ? windowsStartProcessArgumentList(args) : null };
 }
 
@@ -290,7 +337,7 @@ export async function observeRemoteAgentDone(target: RemoteTarget, session: stri
   for (;;) {
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const remaining = infinite ? 86_400 : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400), options.input_id);
+    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400), options.input_id, !!target.trusted_ref);
     const { code, stdout, stderr } = await runSsh(target, command, options.signal);
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const line = stdout.trim().split("\n").pop() ?? "";

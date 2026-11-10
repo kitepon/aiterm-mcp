@@ -64,10 +64,10 @@ export type TerminalArgument = z.infer<typeof terminalArgumentSchema>;
 export const terminalArgumentDescription =
   "Run this seat on another computer (a registered terminal) over SSH. Value: exactly the terminal value your host system's terminal registry hands over, " +
   "{ref, target:{host,user,port}, os?, trustRevision, and credentialRevision or credential {handle, revision}}; copy it unchanged, never invent or edit it, never use a host name or ssh command instead. " +
-  "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal (a POSIX path starting with /). Never launch locally and then cd or ssh. " +
+  "Omit it to launch on this computer. Give cwd in the same call: the absolute project folder on that terminal in its own form (a POSIX path starting with / on macOS and Linux, a drive path like C:\\folder with backslashes on Windows). Never launch locally and then cd or ssh. " +
   "Never put tokens, passwords or other secrets in any argument, prompt or typed text; pass secret values only by name in env_vars. " +
   "After launch, use session_id alone for pty_send, pty_observe, pty_read, pty_key, claude_turn, agent_stop and pty_close; Aiterm routes them to the terminal. " +
-  "Errors and next step: TERMINAL_INVALID = malformed value, missing/relative cwd, or combined with remote: pass the registry's value unchanged with cwd. " +
+  "Errors and next step: TERMINAL_INVALID = malformed value, missing/relative cwd (or one in the other system's form), or combined with remote: pass the registry's value unchanged with cwd. " +
   "TARGET_MISMATCH / BINDING_UNKNOWN = the value is not this terminal's binding: ask the terminal registry again. " +
   "HOST_TRUST_STALE / CREDENTIAL_REVISION_STALE = the binding changed: get the current value from the terminal registry and launch again. " +
   "HOST_KEY_MISMATCH / HOST_TRUST_MISSING = the terminal's host key is not the trusted one: the Owner must confirm the new host key; do not retry. " +
@@ -76,4 +76,4 @@ export const terminalArgumentDescription =
   "REMOTE_AITERM_TOO_OLD = update Aiterm on the terminal. CWD_UNAVAILABLE = the folder does not exist there; do not pick another folder. " +
   "SEAT_FORWARD_UNAVAILABLE = the seat's MCP route back to this computer is not ready (launch again later), or the seat MCP URLs are not http://127.0.0.1:<one port>/api/seat-mcp. TERMINAL_HARNESS_UNSUPPORTED = use harness claude-code or codex-cli (codex-cli needs Aiterm 0.70.7 on the terminal). " +
   "TERMINAL_OS_MISMATCH = the terminal is not the operating system os says: the registry's os is wrong or the binding points at another machine; ask the terminal registry, do not retry. " +
-  "TERMINAL_PLATFORM_UNSUPPORTED = Windows (and any system that is not macOS or Linux) cannot run seats yet.";
+  "TERMINAL_PLATFORM_UNSUPPORTED = the terminal is not a macOS, Linux or Windows system, so it cannot run seats.";

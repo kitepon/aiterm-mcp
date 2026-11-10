@@ -131,16 +131,7 @@ test("input refusal: AGENT_LAUNCH_NOT_STARTED with phase input for every harness
   const launchError = result => result._meta?.["aiterm/launch_error"];
   const call = args => client.callTool({ name: "agent_launch", arguments: args });
   try {
-    for (const harness of ["grok-cli", "cursor-cli", "antigravity-cli"]) {
-      for (const field of [{ append_system_prompt: "x" }, { mcp_config: { mcpServers: {} } }]) {
-        const refused = await call({ harness, ...field });
-        assert.equal(refused.isError, true);
-        assert.match(refused.content[0].text, /^aiterm: AGENT_LAUNCH_NOT_STARTED: append_system_prompt and mcp_config are claude-code and codex-cli only/);
-        assert.deepEqual({ ...launchError(refused), action: 0 }, { schema: "aiterm.agent-launch-error.v1", harness, code: "AGENT_LAUNCH_NOT_STARTED",
-          phase: "input", effect: "not_started", session_created: false, action: 0 });
-        assert.equal(refused._meta["aiterm/error_code"] === undefined, true, "the local call carries only the launch error meta");
-      }
-    }
+    // grok-cli, cursor-cli and antigravity-cli take the fields since 0.70.9 (test/harness-caller-fields.test.mjs).
     // Codex: an inexpressible MCP shape is refused before any session exists, with the reason after the code.
     const codexRefused = await call({ harness: "codex-cli", cwd: tmp, mcp_config: { mcpServers: { s: { type: "stdio", command: "x" } } } });
     assert.match(codexRefused.content[0].text, /^aiterm: AGENT_LAUNCH_NOT_STARTED: CODEX_MCP_CONFIG_UNSUPPORTED: /);

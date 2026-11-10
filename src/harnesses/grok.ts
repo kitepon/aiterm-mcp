@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { AitermError } from "../errors.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
+import { assertCallerEnv, checkCallerInput, readCallerText, resolveCallerHeader, type CallerServer } from "./caller-mcp.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog, type AgentModelChoice } from "../model-catalog.js";
 import {
   shq,
@@ -18,7 +19,10 @@ import {
   readFileRange,
   sleep,
   agentMetadataPath,
+  agentsDir,
+  assertSessionName,
   writeAgentMetadata,
+  writeText0600,
   agentEventPath,
   createEmpty0600,
   agentLineageFields,
@@ -32,6 +36,55 @@ import {
   agentHarness,
 } from "../agent-shared.js";
 import type { AgentKind, AgentMetadata, AgentDoneEvent, AgentWaitObservation, InitialPromptState, AgentLineageContext, HarnessPaneObservation } from "../agent-shared.js";
+
+// ---- Caller launch fields (launch-identity-input.md "Caller launch fields"). The text joins the one --rules value;
+// the servers are a per-seat agent definition passed as --agent. Both files live in Aiterm state (0600), never in ~/.grok or the project.
+
+export function agentGrokCallerPromptPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.grok-caller-prompt.md`);
+}
+
+export function agentGrokCallerAgentPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.grok-caller-agent.md`);
+}
+
+/** Grok does not expand ${VAR} in headers: 'Bearer ${NAME}' is bearer_token_env_var (read from the seat env at run time),
+ * any other ${NAME} is written as the seat's value. `mcpServers` must be a LIST of entries (a map keyed by name silently
+ * drops the whole file); the body stays empty so the default agent's prompt and tools are unchanged. YAML flow style is JSON. */
+export function grokCallerAgentDefinition(servers: CallerServer[], valueOf: (name: string) => string | undefined): string {
+  const entries = servers.map(server => {
+    const headers: Record<string, string> = {};
+    let bearer: string | undefined;
+    for (const header of server.headers) {
+      if (header.kind === "bearer") bearer = header.value;
+      else headers[header.name] = resolveCallerHeader("GROK", header, valueOf);
+    }
+    return { name: server.name, type: "http", url: server.url, ...(Object.keys(headers).length ? { headers } : {}), ...(bearer ? { bearer_token_env_var: bearer } : {}) };
+  });
+  return `---\nname: aiterm-caller\ndescription: MCP servers Aiterm adds for this seat\nmcpServers: ${JSON.stringify(entries)}\n---\n`;
+}
+
+/** Pre-start check of the caller fields for a Grok launch (the servers, for the env check by the caller). */
+export function checkGrokCallerInput(prompt: string | null | undefined, mcp: unknown): CallerServer[] {
+  return checkCallerInput("GROK", prompt, mcp);
+}
+
+export function writeGrokCallerFiles(meta: AgentMetadata, prompt: string | null, mcp: Record<string, unknown> | null, valueOf: (name: string) => string | undefined): void {
+  const servers = checkGrokCallerInput(prompt, mcp);
+  assertCallerEnv("GROK", servers, valueOf);
+  if (prompt !== null) {
+    const file = agentGrokCallerPromptPath(meta.aiterm_session);
+    writeText0600(file, prompt);
+    meta.grok_caller_prompt_file = file;
+  }
+  if (mcp !== null) {
+    const file = agentGrokCallerAgentPath(meta.aiterm_session);
+    writeText0600(file, grokCallerAgentDefinition(servers, valueOf));
+    meta.grok_caller_mcp_file = file;
+  }
+}
 
 const GROK_MODELS_MAX_BYTES = 1024 * 1024;
 const GROK_MODELS_TIMEOUT_MS = 15_000;
@@ -425,7 +478,9 @@ export function grokAgentArgv(
     parts.push("--sandbox", "read-only", "--always-approve");
   }
   if (meta?.kind === "grok" && meta.hook_route === "shared_grok_home") {
-    parts.push("--session-id", meta.vendor_session_id ?? "", "--rules", subagentInstruction(meta));
+    // Aiterm's lineage text stays first; the caller's text joins the same value (one --rules).
+    parts.push("--session-id", meta.vendor_session_id ?? "", "--rules", subagentInstruction(meta) + (meta.grok_caller_prompt_file ? `\n\n${readCallerText(meta.grok_caller_prompt_file)}` : ""));
+    if (meta.grok_caller_mcp_file) parts.push("--agent", meta.grok_caller_mcp_file);
   }
   if (meta?.kind === "grok" && prompt) parts.push("--verbatim");
   if (prompt) parts.push(prompt); // 初手プロンプト（任意）
@@ -437,7 +492,7 @@ export function buildGrokAgentCmd(
   prompt: string | null, meta: AgentMetadata | null,
 ): string {
   const argv = grokAgentArgv(kind, bin, model, effort, prompt, meta);
-  const values = new Set(["--model", "--reasoning-effort", "--session-id", "--rules"]);
+  const values = new Set(["--model", "--reasoning-effort", "--session-id", "--rules", "--agent"]);
   return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
     ? shq(arg) : arg).join(" ");
 }

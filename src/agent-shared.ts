@@ -98,6 +98,15 @@ export interface AgentMetadata {
   // Codex: the same two kept in Aiterm state; argv is built from them at every start and resume.
   codex_caller_prompt_file?: string;
   codex_caller_mcp_file?: string;
+  // Grok: the prompt text (appended to --rules) and the per-seat agent definition (--agent) carrying mcpServers.
+  grok_caller_prompt_file?: string;
+  grok_caller_mcp_file?: string;
+  // Cursor: the prompt text (joins the first-prompt block) and the per-seat plugin folder (--plugin-dir).
+  cursor_caller_prompt_file?: string;
+  cursor_caller_mcp_dir?: string;
+  // Antigravity: the prompt text (prefixes the first prompt) and the per-seat folder (--add-dir) holding .agents/mcp_config.json.
+  antigravity_caller_prompt_file?: string;
+  antigravity_caller_mcp_dir?: string;
   claude_home?: string;
   result_file?: string;
   grok_home?: string;

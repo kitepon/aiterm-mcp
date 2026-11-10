@@ -5,7 +5,9 @@ import { AitermError } from "./errors.js";
 import { executionNativeBindingSchema } from "./execution-close.js";
 import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath, agentClaudeCallerPromptPath, agentClaudeCallerMcpPath } from "./harnesses/claude.js";
 import { agentCodexCallerPromptPath, agentCodexCallerMcpPath } from "./harnesses/codex.js";
-import { resolveAndValidateGrokAuth } from "./harnesses/grok.js";
+import { resolveAndValidateGrokAuth, agentGrokCallerPromptPath, agentGrokCallerAgentPath } from "./harnesses/grok.js";
+import { agentCursorCallerPromptPath, agentCursorCallerPluginDir } from "./harnesses/cursor.js";
+import { agentAntigravityCallerPromptPath, agentAntigravityCallerDir } from "./harnesses/antigravity.js";
 import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
   LAUNCH_ID_RE, AGENT_LINEAGE_RE, type AgentForkOf, type AgentMetadata, type InitialPromptState,
@@ -145,6 +147,8 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       vendor_session_id: m.vendor_session_id ?? null, initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       hook_route: "shared_antigravity_home", antigravity_home: m.antigravity_home, node_platform: process.platform,
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
+      ...(m.antigravity_caller_prompt_file === agentAntigravityCallerPromptPath(name) ? { antigravity_caller_prompt_file: m.antigravity_caller_prompt_file } : {}),
+      ...(m.antigravity_caller_mcp_dir === agentAntigravityCallerDir(name) ? { antigravity_caller_mcp_dir: m.antigravity_caller_mcp_dir } : {}),
       ...deliveryFields, ...executableFields, ...fastFields, ...startupFields, ...loadAgentLineageFields(m, true) };
   }
   if (m.kind === "claude") {
@@ -257,6 +261,8 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       completion_route: "cursor_transcript",
       ...loadAgentLineageFields(m, true),
       node_platform: process.platform,
+      ...(m.cursor_caller_prompt_file === agentCursorCallerPromptPath(name) ? { cursor_caller_prompt_file: m.cursor_caller_prompt_file } : {}),
+      ...(m.cursor_caller_mcp_dir === agentCursorCallerPluginDir(name) ? { cursor_caller_mcp_dir: m.cursor_caller_mcp_dir } : {}),
       cursor_home: recordedHome,
     };
   }
@@ -296,6 +302,8 @@ export function loadAgentMetadata(name: string): AgentMetadata {
     completion_route: "grok_transcript",
     ...loadAgentLineageFields(m, true),
     node_platform: process.platform,
+    ...(m.grok_caller_prompt_file === agentGrokCallerPromptPath(name) ? { grok_caller_prompt_file: m.grok_caller_prompt_file } : {}),
+    ...(m.grok_caller_mcp_file === agentGrokCallerAgentPath(name) ? { grok_caller_mcp_file: m.grok_caller_mcp_file } : {}),
     grok_home: recordedGrokHome,
     grok_auth_path: expectedAuthPath,
   };

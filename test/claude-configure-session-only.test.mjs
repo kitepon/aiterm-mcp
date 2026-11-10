@@ -66,21 +66,39 @@ const composer = `────────────────────�
 test("選ぶ画面: 行・今の行・今のmodel・effort・「この会話だけ」の有無を読む", () => {
   assert.deepEqual(claude.claudeModelPicker(opened), {
     rows: [
-      { index: 1, label: "Default (recommended)", cursor: true, current: true },
-      { index: 2, label: "Opus 5.5", cursor: false, current: false },
-      { index: 3, label: "Fable 5.1", cursor: false, current: false },
-      { index: 4, label: "Sonnet 5.5", cursor: false, current: false },
-      { index: 5, label: "Haiku 5.5", cursor: false, current: false },
+      { index: 1, label: "Default (recommended)", cursor: true, current: true, resolved: "Opus 5.5" },
+      { index: 2, label: "Opus 5.5", cursor: false, current: false, resolved: null },
+      { index: 3, label: "Fable 5.1", cursor: false, current: false, resolved: null },
+      { index: 4, label: "Sonnet 5.5", cursor: false, current: false, resolved: null },
+      { index: 5, label: "Haiku 5.5", cursor: false, current: false, resolved: null },
     ],
     effort: "high",
     session_only: true,
   });
   const mac = claude.claudeModelPicker(macOpened);
   assert.deepEqual(mac.rows, [
-    { index: 2, label: "Opus 5.5", cursor: false, current: false },
-    { index: 3, label: "Fable 5.1", cursor: false, current: false },
-    { index: 4, label: "Sonnet 5.5", cursor: true, current: true },
+    { index: 2, label: "Opus 5.5", cursor: false, current: false, resolved: null },
+    { index: 3, label: "Fable 5.1", cursor: false, current: false, resolved: null },
+    { index: 4, label: "Sonnet 5.5", cursor: true, current: true, resolved: null },
   ]);
+  // 2.1.322の別名の形（キロ氏の再現 2026-11-10）。2列目が、その別名が今指す機種。
+  const alias = claude.claudeModelPicker(`▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
+   Select model
+   Switch between Claude models. Your pick becomes the default for new
+   sessions. For other/previous model names, specify with --model.
+     1. Default (recommended)  Opus 5.5 · Best for everyday, complex tasks
+   ❯ 2. Opus ✔                 Opus 5.5 · Best for everyday, complex tasks
+     3. Fable                  Fable 5.1 · Most capable for your hardest and …
+     4. Sonnet                 Sonnet 5.5 · Most efficient for simpler tasks
+     5. Haiku                  Haiku 5.5 · Fastest for quick answers
+   ● High effort ←/→ to adjust
+   Enter to set as default · s to use this session only · Esc to cancel`);
+  assert.deepEqual(alias.rows.map(row => [row.label, row.resolved, row.cursor, row.current]), [
+    ["Default (recommended)", "Opus 5.5", false, false], ["Opus", "Opus 5.5", true, true], ["Fable", "Fable 5.1", false, false],
+    ["Sonnet", "Sonnet 5.5", false, false], ["Haiku", "Haiku 5.5", false, false]]);
+  assert.equal(claude.claudeModelPickerRow(alias.rows, "claude-opus-5-5")?.label, "Opus", "2列目で決める。Default行は数えない");
+  assert.equal(claude.claudeModelPickerRow(alias.rows, "claude-fable-5-2"), null, "別名がFable 5.1を指す画面に、Fable 5.2は無い");
+  assert.equal(claude.claudeModelPickerRow(alias.rows, "Fable 5.1")?.label, "Fable");
   assert.equal(mac.effort, "medium");
   // effortの段と、effortに対応しない行。
   for (const [line, effort] of [["○ Low effort ←/→ to adjust", "low"], ["◉ xHigh effort ←/→ to adjust", "xhigh"],
@@ -98,7 +116,7 @@ test("選ぶ画面: 行・今の行・今のmodel・effort・「この会話だ�
 
 test("選ぶ行: catalogのID・別名・表示名を、画面の行へ対応させる", () => {
   const rows = ["Default (recommended)", "Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5", "Haiku 4.5", "Sonnet 5", "Opus 5",
-    "Fable 5", "Opus 4.8", "Opus 4.7", "Opus 4.6", "Sonnet 4.6"].map((label, i) => ({ index: i + 1, label, cursor: false, current: false }));
+    "Fable 5", "Opus 4.8", "Opus 4.7", "Opus 4.6", "Sonnet 4.6"].map((label, i) => ({ index: i + 1, label, cursor: false, current: false, resolved: null }));
   const pick = (model) => claude.claudeModelPickerRow([...rows].reverse(), model)?.index ?? null;
   assert.equal(pick("claude-opus-5-5"), 2);
   assert.equal(pick("opus"), 2, "別名は、その系統で番号が一番若い行");
@@ -158,14 +176,16 @@ if (args.includes("--input-format")) {
     const request = JSON.parse(line);
     const models = [{ value: "default", displayName: "Default (recommended)" },
       { value: "opus", displayName: ${JSON.stringify(options.aliasOlder ? "Opus 5" : "Opus 5.5")} },
-      { value: "sonnet", displayName: "Sonnet 5.5" }, { value: "native-choice-42", displayName: "Fable 5.1" }];
+      { value: "sonnet", displayName: "Sonnet 5.5" }, { value: "fable", displayName: "Fable 5.2" }, { value: "native-choice-42", displayName: "Fable 5.1" }];
     process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: request.request_id, response: { models } } }) + "\\n");
   });
 } else {
 fs.writeFileSync(${JSON.stringify(path.join(dir, "session-id"))}, args[args.indexOf("--session-id") + 1] ?? "");
 const options = ${JSON.stringify(options)};
 const ALL = ["low", "medium", "high", "xhigh", "max"];
-const rows = [["Default (recommended)", ALL], ["Opus 5.5", ALL], ["Fable 5.1", ALL], ["Sonnet 5.5", ALL], ["Haiku 5.5", ALL], ["Haiku 4.5", []],
+// aliasPicker: 2.1.322の別名の行。3つ目は2列目に出る、その別名が今指す機種。
+const rows = options.aliasPicker ? [["Default (recommended)", ALL, "Opus 5.5"], ["Opus", ALL, "Opus 5.5"], ["Fable", ALL, "Fable 5.1"],
+  ["Sonnet", ALL, "Sonnet 5.5"], ["Haiku", ALL, "Haiku 5.5"]] : [["Default (recommended)", ALL], ["Opus 5.5", ALL], ["Fable 5.1", ALL], ["Sonnet 5.5", ALL], ["Haiku 5.5", ALL], ["Haiku 4.5", []],
   ["Sonnet 5", ALL], ["Opus 5", ALL], ["Fable 5", ALL], ["Opus 4.8", ALL], ["Opus 4.7", ALL],
   ["Opus 4.6", ["low", "medium", "high", "max"]], ["Sonnet 4.6", ["low", "medium", "high", "max"]],
   // 起きた後にClaude Codeが更新された席に出る、選べない行（macOSの実物 2026-10-12）。
@@ -189,7 +209,7 @@ function draw() {
   const view = rows.slice(start, start + 3).map(([name], i) => {
     const at = start + i;
     const mark = at === cursor ? "❯" : i === 0 && start > 0 ? "↑" : i === 2 && start + 3 < rows.length ? "↓" : " ";
-    return "  " + mark + " " + String(at + 1) + ".  " + (name + (at === current ? " ✔" : "")).padEnd(24) + (rows[at][1] === null ? "  Update Claude Code to use this model" : "  For some kind of work");
+    return "  " + mark + " " + String(at + 1) + ".  " + (name + (at === current ? " ✔" : "")).padEnd(24) + (rows[at][1] === null ? "  Update Claude Code to use this model" : rows[at][2] ? "  " + rows[at][2] + " · Some kind of work" : "  For some kind of work");
   });
   if (!selectable()) return render([...top, rule, "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
     "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models", "  Esc to cancel"]);
@@ -202,7 +222,7 @@ function draw() {
 function apply(scope) {
   current = cursor; effort = shown() ?? effort;
   if (scope === "saved") fs.writeFileSync(${JSON.stringify(saved)}, rows[cursor][0] + " " + effort);
-  log.push("  ⎿  Set model to " + rows[cursor][0] + (scope === "saved" ? " and saved as your default for new sessions" : " for this session only" + (shown() ? " with " + effort + " effort" : "")));
+  log.push("  ⎿  Set model to " + (rows[cursor][2] ?? rows[cursor][0]) + (scope === "saved" ? " and saved as your default for new sessions" : " for this session only" + (shown() ? " with " + effort + " effort" : "")));
   mode = "composer";
 }
 // 全画面の表示（別の画面）へ移る。起動コマンドの折り返しの印が残った行へ重ねて描くと、端末が行をつなげて読む。
@@ -303,6 +323,31 @@ test("agent_configure: Claude Codeの席は、選ぶ画面の s（この会話�
     assert.match(await screen(), /Set model to Opus 5\.5 for this session only with low effort/u);
     assert.equal(saved(), false);
     assert.equal(/\/model \S|\/effort/u.test(keys()), false, keys());
+  });
+});
+
+test("agent_configure: 別名の選ぶ画面では2列目の機種で行を決め、catalogと違う機種を指す別名は断る（selection_excluded・relaunch）", { skip: ptySkip }, async () => {
+  await withPickerClaude({ aliasPicker: true }, async ({ sid, keys, screen, saved }) => {
+    assert.deepEqual(await core.configureAgent(sid, { model: "opus", reasoning_effort: "high" }), done(sid, "opus", "high"));
+    assert.match(await screen(), /Set model to Opus 5\.5 for this session only with high effort/u);
+    assert.deepEqual(await core.configureAgent(sid, { model: "claude-sonnet-5-5" }), done(sid, "claude-sonnet-5-5", null));
+    assert.match(await screen(), /Set model to Sonnet 5\.5 for this session only/u);
+    // catalogのfableはFable 5.2。画面の別名行FableはFable 5.1を指すので選ばない。
+    for (const model of ["fable", "claude-fable-5-2"]) {
+      await assert.rejects(core.configureAgent(sid, { model }), error => {
+        assert.match(error.message, /CLAUDE_MODEL_NOT_IN_PICKER vendor=claude[\s\S]*Fable \(Fable 5\.1\)[\s\S]*modelとreasoning_effortは変えていません。/u);
+        assert.deepEqual(error.configureRefusal, { code: "CLAUDE_MODEL_NOT_IN_PICKER", relaunch: true, selection_excluded: true });
+        assert.equal(error.configurationFailure.outcome, "not_applied");
+        return true;
+      });
+      assert.ok(keys().endsWith("⎋"), keys());
+      assert.equal(core.observeSession(sid).state, "idle");
+      assert.doesNotMatch(await screen(), /Set model to Fable/u);
+    }
+    // catalogにも無い機種は、起こし直しても使えない。
+    await assert.rejects(core.configureAgent(sid, { model: "claude-opus-9-9" }),
+      error => error.configureRefusal?.relaunch === false && error.configureRefusal.selection_excluded === true);
+    assert.equal(saved(), false);
   });
 });
 

@@ -4,6 +4,8 @@
 
 既`agent_configure`へopt-inの`request`と`action=reconcile`を追加する。[公開入出力と保証限界](../configure-reconcile.md)が契約正本。`configure-request.ts`は原要求UUID/期待launch/要求digest、排他的claim、専用receiptの保存とbounded読取を所有する。`configuration-effect.ts`はその要求のnative作用前checkpointと、保存失敗/終端後の局所継続拒否を所有する。`execution-effect.ts`の既native入口から呼ぶがexecution graphや参加登録は有効にしない。
 
+Claudeの選ぶ画面での拒否のうち、sを打つ前で、Escの後に選ぶ画面も確かめの画面も消えたのを読んだ物だけ、receiptの`native_effect`を`selection_excluded`にする（打った`/model`・矢印・Escは設定を選ばない。設定を決めるのはsと確かめのEnterだけ）。reconcileはこれを`later_effect=excluded`と返す。古い版はこの値を読めず`unavailable`／`unconfirmed`に倒れる。拒否のcodeと、起動し直せばそのmodelを使える見込み（catalogにあるが、この席の選ぶ画面に無い・選べない・この会話だけの選び方が無い）は`_meta["aiterm/configure_error"]`の`{code, relaunch}`で返す。
+
 core.configureAgentはopt-inの期待launchを最初のmetadataと照合し、既generation gateへ接続する。legacy callerの設定動作と返却は保持。tracked applyはPOSIXの既file/directory同期を用い、Windowsでは作用前unsupported。reconcileはrootを作らずfileを読むだけ。current設定はunsupported、元handlerのterminalとnative入力消費は別であり、native作用が一度でも発行され得た要求はlater_effect=unconfirmedのまま返す。receipt不在/破損/途中はunknown。同IDを新しい設定へ再発行しない。
 
 Codex 0.167.0は`-c`上書き付き起動ではin-process app-serverを使い、Aitermは常に`-c`を渡すためnative control socketへ接続できない。従って稼働中Codexのconfigureは既存の拒否契約を保つ。
@@ -15,7 +17,7 @@ Codex 0.167.0は`-c`上書き付き起動ではin-process app-serverを使い、
 | `core.ts`: configureAgent / configureAgentInLock | 入力・現在世代・入力待ち、process-local send FIFO/native排他、goal保護、作用前の不明化、metadataと返却を保持。入力待ちの読みは送信（ADR 0101）と同じ証拠: 画面の動作中の行に加え、Codexは記録の最後の境界がturnの開始でprocessが生きている席も番の最中と読み、命令を打たずにnull（呼ぶ側はすぐに「入力待ちではありません」で断る。30秒の見直しは2026-11-07に外した） |
 | `core.ts`: agentModelUi | 既存captureScreenの45行、Enterまで含むsendAgentPromptText、既存sendMenuChoiceをadapterへ接続 |
 | `agent-model-ui.ts`: AgentModelUi / lineCounts | 内部の画面/命令/keyの型と新通知数の既存集計。native状態を所有しない |
-| `harnesses/claude-configure.ts`: configureClaudeForSessionOnly | picker探索、session-only/effort再確認、s直前beforeChange、新通知・元のreadyと有限Esc後始末 |
+| `harnesses/claude-configure.ts`: configureClaudeForSessionOnly | picker探索、session-only/effort再確認、s直前beforeChange、新通知・元のreadyと有限Esc後始末。行は1列目の名前か、別名の画面（`Opus ✔  Opus 5.5 · …`）では2列目の実際の機種名（`Default`行を除き1行だけ）で決める。別名はcatalogの表示名で照合し、画面の別名行が古い機種を指す時は断る。s前の拒否はEscで画面が閉じたのを読んでから`configureRefusal`（code・relaunch・selection_excluded）を付ける |
 | `harnesses/codex-configure.ts`: configureCodexModel / chooseCodexModel | model/effort picker、必要時だけ元のreader/catalog、最終effort選択直前beforeChange、新通知数と有限Esc後始末 |
 | `user-config.ts`: keepingUserDefaults / restoreUserDefaults | file lock内でsnapshot→action→finally復元。従来の3回400ms、復元失敗を握りaction結果/例外を返す |
 | `core.ts`: keepingCodexDefaults / launchKeepingUserDefaults | Codex公式config復元とfile fallback、起動時のnative観測とcleanup。A3で移動しない |

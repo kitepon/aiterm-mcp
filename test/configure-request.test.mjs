@@ -73,6 +73,20 @@ test('handler exit and matching current target never exclude issued native input
     assert.equal(reconcileConfigurationRequest(b).later_effect, 'unconfirmed');
   }
 });
+test('a Claude picker refusal read closed before selection excludes later effect; open picker or applied outcome does not', posix, async () => {
+  const refusal = (selection_excluded, outcome = 'not_applied') => Object.assign(new Error('CLAUDE_MODEL_NOT_IN_PICKER'), {
+    configureRefusal: { code: 'CLAUDE_MODEL_NOT_IN_PICKER', relaunch: true, selection_excluded },
+    configurationFailure: { schema: 'aiterm.agent-configure-error.v1', session_id: 'configure-fixture', outcome, effect: outcome === 'not_applied' ? 'not_started' : 'possible' } });
+  for (const [error, excluded] of [[refusal(true), true], [refusal(false), false], [refusal(true, 'outcome_unknown'), false]]) {
+    const b = binding();
+    const r = await applyConfigurationRequest(b, settings, async () => { beforeConfigurationEffect(); throw error; });
+    assert.equal(r.error, error);
+    assert.equal(r.receipt.request_state, 'terminal');
+    assert.equal(r.receipt.later_effect, excluded ? 'excluded' : 'unconfirmed');
+    assert.equal(JSON.parse(fs.readFileSync(file(b), 'utf8')).native_effect, excluded ? 'selection_excluded' : 'possible');
+    assert.equal(reconcileConfigurationRequest(b).later_effect, excluded ? 'excluded' : 'unconfirmed');
+  }
+});
 test('post-terminal continuation is refused before any native input', posix, async () => {
   const b = binding(); let release, late, effects = 0;
   const trigger = new Promise(resolve => { release = resolve; });

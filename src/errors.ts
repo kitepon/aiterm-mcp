@@ -17,6 +17,8 @@ export class AitermError extends Error {
     outcome: "not_applied" | "outcome_unknown";
     effect: "not_started" | "possible";
   };
+  /** Claudeの選ぶ画面での拒否。selection_excludedは、sを打つ前に断り、閉じた画面を読んだ時だけtrue。 */
+  configureRefusal?: { code: string; relaunch: boolean; selection_excluded: boolean };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;

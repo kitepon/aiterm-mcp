@@ -3,7 +3,7 @@ import { sleep, type AgentMetadata } from "../agent-shared.js";
 import type { AgentModelUi } from "../agent-model-ui.js";
 import { resolveAgentBin } from "../agent-resolver.js";
 import type { AgentModelCatalog } from "../model-catalog.js";
-import { claudeModelPicker, claudeModelPickerRow, claudeModelSwitchConfirm,
+import { claudeModelPicker, claudeModelPickerRow, claudePickerRowByName, claudeModelDisplayName, claudeModelSwitchConfirm,
   claudeModelSwitchResult, claudePaneObservation, claudeModelChoices, type ClaudeModelPicker } from "./claude.js";
 
 const CLAUDE_MODEL_PICKER_TIMEOUT_MS = 8_000;
@@ -31,15 +31,19 @@ export async function configureClaudeForSessionOnly(
     return null;
   };
   // Escは、選ぶ画面か確かめの画面が出ている間だけ打つ（入力欄へ戻った後のEscは、ほかの操作を取り消してしまう）。
-  const refuse = async (code: string, reason: string): Promise<never> => {
-    for (let i = 0; i < 3; i++) {
-      const now = screen();
-      if (!claudeModelPicker(now) && !claudeModelSwitchConfirm(now)) break;
+  // 設定を決めるのはsと確かめのEnterだけ。sの前に断り、閉じた画面を読めた時だけ、設定は選ばれていないと記録できる。
+  const refuse = async (code: string, reason: string, relaunch = false): Promise<never> => {
+    const closed = () => { const now = screen(); return !claudeModelPicker(now) && !claudeModelSwitchConfirm(now); };
+    let shut = closed();
+    for (let i = 0; i < 3 && !shut; i++) {
       ui.key("Escape");
       await sleep(300);
+      shut = closed();
     }
-    throw new AitermError(`${code} vendor=claude session=${name}\n${reason}。` +
+    const error = new AitermError(`${code} vendor=claude session=${name}\n${reason}。` +
       (selectionIssued ? "設定が変わった可能性があります。再送しないでください。" : "modelとreasoning_effortは変えていません。"), 2);
+    error.configureRefusal = { code, relaunch, selection_excluded: !selectionIssued && shut };
+    throw error;
   };
   const picker = (): ClaudeModelPicker | null => claudeModelPicker(screen());
   const cursorOf = (p: ClaudeModelPicker | null) => p?.rows.find((row) => row.cursor) ?? null;
@@ -64,17 +68,21 @@ export async function configureClaudeForSessionOnly(
       await sleep(500);
       state = claudePaneObservation(screen());
     }
-    throw new AitermError(
+    const error = new AitermError(
       `CLAUDE_MODEL_PICKER_NOT_SHOWN vendor=claude session=${name} state=${state.state}/${state.reason}\n` +
         "Claude Codeの /model の選ぶ画面を読めません（Claude Codeの版で画面の形が変わった見込み）。modelとreasoning_effortは変えていません。",
       2,
     );
+    // 読めない画面が何を受けたかは分からないので、選ばれていないとは記録しない。
+    error.configureRefusal = { code: "CLAUDE_MODEL_PICKER_NOT_SHOWN", relaunch: false, selection_excluded: false };
+    throw error;
   }
   if (!now.session_only) {
     return refuse(
       "CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE",
       "このClaude Codeの /model の選ぶ画面に、この会話だけで使う選び方（s to use this session only）がありません。" +
         "端末の既定を書き換える選び方は使いません",
+      true,
     );
   }
 
@@ -96,22 +104,26 @@ export async function configureClaudeForSessionOnly(
       if (seen.has(at)) break;
       seen.add(at);
     }
-    let target = claudeModelPickerRow([...known.values()], model);
+    const rows = [...known.values()].sort((a, b) => a.index - b.index);
+    let target = claudeModelPickerRow(rows, model);
+    let offered = false; // native catalogにある（起こし直せば使える見込み）
     if (!target || /^[a-z]+$/iu.test(model)) {
       const bin = meta.agent_executable ?? resolveAgentBin("claude");
-      if (!bin) return refuse("CLAUDE_MODEL_NOT_IN_PICKER", "Claude CodeのCLIが見つかりません");
+      if (!bin) return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", "Claude CodeのCLIが見つかりません");
       let catalog: AgentModelCatalog;
       try { catalog = await claudeModelChoices(bin, meta.cwd ?? process.cwd()); }
       catch (error) { return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", error instanceof Error ? error.message : String(error)); }
       const native = catalog.models.find(item => item.id.toLowerCase() === model.toLowerCase());
-      // The native alias can resolve to an older model; picker order is not alias authority.
+      // The native alias can resolve to an older model; picker order and the picker's alias rows are not alias authority.
       const label = native?.display_name ?? native?.id ?? model;
-      const matching = [...known.values()].filter(row => row.label.toLowerCase() === label.toLowerCase());
-      target = matching.length === 1 ? matching[0] : null;
+      const shown = claudeModelDisplayName(model);
+      offered = !!native || catalog.models.some(item => item.display_name?.toLowerCase() === shown);
+      target = claudePickerRowByName(rows, label);
     }
     if (!target) {
-      const names = [...known.values()].sort((a, b) => a.index - b.index).map((row) => row.label).join(", ");
-      return refuse("CLAUDE_MODEL_NOT_IN_PICKER", `Claude Codeの /model の選ぶ画面に ${model} がありません（選べる機種: ${names}）`);
+      const names = rows.map((row) => row.resolved && row.resolved !== row.label && !/^default\b/iu.test(row.label)
+        ? `${row.label} (${row.resolved})` : row.label).join(", ");
+      return refuse("CLAUDE_MODEL_NOT_IN_PICKER", `Claude Codeの /model の選ぶ画面に ${model} がありません（選べる機種: ${names}）`, offered);
     }
     for (let i = 0; i < 80 && at !== target.index; i++) {
       const before = at;
@@ -126,6 +138,7 @@ export async function configureClaudeForSessionOnly(
       return refuse(
         "CLAUDE_MODEL_NOT_SELECTABLE",
         `${target.label} は、この席のClaude Codeでは選べません（選ぶ画面のその行に、選ぶためのキーが出ていません。席のClaude Codeが古い見込み）`,
+        true,
       );
     }
     targetIndex = target.index;

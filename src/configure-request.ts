@@ -27,7 +27,7 @@ const resultSchema = z.object({ schema: z.literal("aiterm.agent-configure-result
   harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
   model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean().nullable() }).strict();
 const recordSchema = z.object({ schema: z.literal("aiterm.configuration-request.v1"), binding: configurationBindingSchema,
-  requested: settingsSchema, terminal_at: z.iso.datetime().nullable(), native_effect: z.enum(["not_issued", "possible"]),
+  requested: settingsSchema, terminal_at: z.iso.datetime().nullable(), native_effect: z.enum(["not_issued", "possible", "selection_excluded"]),
   outcome: z.enum(["applied", "not_applied", "outcome_unknown"]), result: resultSchema.nullable(),
 }).strict().refine(value => configurationRequestDigest(value.requested) === value.binding.digest
   && (value.result === null || value.result.session_id === value.binding.session_id)
@@ -77,7 +77,7 @@ function receipt(binding: Binding, record: Record | null, missing: "not_recorded
   return { schema: "aiterm.agent-configure-request-result.v1", binding,
     request_state: record ? record.terminal_at === null ? "pending_or_unknown" : "terminal" : missing,
     outcome: record?.outcome ?? "outcome_unknown",
-    later_effect: record?.terminal_at !== null && record?.native_effect === "not_issued" ? "excluded" : "unconfirmed",
+    later_effect: record && record.terminal_at !== null && record.native_effect !== "possible" ? "excluded" : "unconfirmed",
     terminal_at: record?.terminal_at ?? null, result: record?.result ?? null,
     current: { availability: "unsupported" }, observed_at: new Date().toISOString() };
 }
@@ -121,6 +121,9 @@ export async function applyConfigurationRequest(input: Binding, settings: Settin
     failure = error instanceof Error ? error : new Error("configuration failed");
     const detail = (failure as Error & { configurationFailure?: { outcome: string } }).configurationFailure;
     record.outcome = detail?.outcome === "not_applied" ? "not_applied" : "outcome_unknown";
+    // UI input was issued, but the adapter read the picker closed before any selecting key (configure-reconcile.md).
+    if (record.outcome === "not_applied" && record.native_effect === "possible" && (failure as AitermError).configureRefusal?.selection_excluded)
+      record.native_effect = "selection_excluded";
   }
   record.terminal_at = new Date().toISOString();
   try { save(); }

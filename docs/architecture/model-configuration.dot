@@ -6,7 +6,7 @@ digraph configuration {
  tracked [label="agent_configure + request (opt-in)\nUUID / expected launch / settings digest\nExclusive claim + durable configuration receipt",fillcolor="#deedff"];
  effect_guard [label="configuration-effect.ts\nPersist possible before every native mutation\nRefuse poisoned / post-terminal continuations",fillcolor="#fff1d5"];
  reconcile [label="action=reconcile: bounded receipt read only\nNo input / no current settings inspection\nMissing / corrupt / unfinished => unknown",fillcolor="#deedff"];
- receipt [label="Terminal receipt after handler + finally\nNo native issue => later_effect excluded\nAny issued input => unconfirmed, even on success",fillcolor="#ffe9e4"];
+ receipt [label="Terminal receipt after handler + finally\nNo native issue, or Claude refusal before s with picker closed\n(native_effect selection_excluded) => later_effect excluded\nAny other issued input => unconfirmed, even on success",fillcolor="#ffe9e4"];
  tracked -> request;
  tracked -> effect_guard;
  effect_guard -> sideeffect;
@@ -14,12 +14,12 @@ digraph configuration {
  reconcile -> receipt [label="exact original binding; never replay"];
  lock [label="core: native + send lock, goal protection\nuser-config: snapshot + action + restore"];
  port [label="agent-model-ui.ts: AgentModelUi (internal type)\nread screen / submit complete command / menu keys\nExisting ready or text wait supplied by core",fillcolor="#deedff"];
- claude [label="harnesses/claude-configure.ts\nOpen picker -> inspect rows / effort\nRequire session-only -> recheck selection",fillcolor="#deedff"];
+ claude [label="harnesses/claude-configure.ts\nOpen picker -> inspect rows / effort\nRow = label or resolved 2nd column (alias picker)\nRequire session-only -> recheck selection",fillcolor="#deedff"];
  codex [label="harnesses/codex-configure.ts\nOpen picker -> preserve current effort if needed\nResolve missing model only on existing fallback",fillcolor="#deedff"];
  sideeffect [label="beforeChange at original position\nClaude: before s\nCodex: before final effort key / Enter",fillcolor="#fff1d5"];
  observe [label="Observe new vendor notice\nClaude session-only result + ready\nCodex increased notice count"];
  result [label="core: preserve metadata / goal / defaults ordering\nReturn same public result or exception"];
- failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend",fillcolor="#ffe9e4"];
+ failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend\nClaude picker refusal: _meta aiterm/configure_error {code, relaunch}",fillcolor="#ffe9e4"];
  preview [label="idle-settings.ts: shared native preview\ninspectCodexResumeSettings: fresh thread-id + settings\nCancel without save; missing / mismatch => null",fillcolor="#deedff"];
  repair [label="R1-L: completeFailedCodexResume\nOwns native pin / composer gate / admission",style="rounded,filled",fillcolor="#fff1d5"];
  repair -> preview [label="fresh thread + explicit standard speed"];

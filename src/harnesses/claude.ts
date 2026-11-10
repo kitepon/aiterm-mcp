@@ -641,7 +641,12 @@ export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
 //      … +8 models
 //   ◐ Medium effort (default) ←/→ to adjust       ← 非対応の行では「○ Effort not supported for Haiku 4.5」
 //   Enter to set as default · s to use this session only · Esc to cancel
-export interface ClaudeModelPickerRow { index: number; label: string; cursor: boolean; current: boolean }
+// 2.1.322は会話ごとに、別名の行と、2列目にその別名が今指す機種を出す形にもなる（キロ氏の再現 2026-11-10）。
+//     1.  Default (recommended)  Opus 5.5 · Best for everyday, complex tasks
+//   ❯ 2.  Opus ✔                 Opus 5.5 · Best for everyday, complex tasks
+//     3.  Fable                  Fable 5.1 · Most capable for your hardest and …
+// `resolved` はその2列目の機種名。説明だけの2列目（上の形）ではnull。
+export interface ClaudeModelPickerRow { index: number; label: string; cursor: boolean; current: boolean; resolved: string | null }
 export interface ClaudeModelPicker { rows: ClaudeModelPickerRow[]; effort: string | null; session_only: boolean }
 
 function lastLineIndex(lines: string[], re: RegExp): number {
@@ -661,12 +666,13 @@ export function claudeModelPicker(screen: string): ClaudeModelPicker | null {
   for (const line of body.slice(0, foot)) {
     const row = /^\s*([❯↓↑]\s+)?(\d+)\.\s+(.*?)\s*$/u.exec(line);
     if (row) {
-      const name = row[3].split(/\s{2,}/u)[0];
+      const [name, second = ""] = row[3].split(/\s{2,}/u);
       rows.push({
         index: Number(row[2]),
         label: name.replace(/\s*✔$/u, ""),
         cursor: row[1]?.includes("❯") === true,
         current: /✔$/u.test(name),
+        resolved: /^([A-Z][\w.-]*(?: [A-Z][\w.-]*)* \d+(?:\.\d+)?)(?:\s+·\s.*)?$/u.exec(second)?.[1] ?? null,
       });
       continue;
     }
@@ -684,12 +690,26 @@ export function claudeModelPicker(screen: string): ClaudeModelPicker | null {
 export function claudeModelPickerRow(rows: ClaudeModelPickerRow[], model: string): ClaudeModelPickerRow | null {
   const want = model.trim().toLowerCase();
   const sorted = [...rows].sort((a, b) => a.index - b.index);
-  const id = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/u.exec(want);
-  const name = id ? `${id[1]} ${id[2]}${id[3] ? `.${id[3]}` : ""}` : want;
-  return sorted.find((row) => row.label.toLowerCase() === name)
+  return claudePickerRowByName(sorted, claudeModelDisplayName(want))
     ?? (want === "default" ? sorted.find((row) => /^default\b/iu.test(row.label)) : undefined)
     ?? (/^[a-z]+$/u.test(want) ? sorted.find((row) => row.label.toLowerCase().startsWith(`${want} `) && /^\S+ \d/u.test(row.label)) : undefined)
     ?? null;
+}
+
+/** `claude-fable-5-2` → `fable 5.2`。IDの形でなければ小文字にしただけの物。 */
+export function claudeModelDisplayName(model: string): string {
+  const want = model.trim().toLowerCase();
+  const id = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/u.exec(want);
+  return id ? `${id[1]} ${id[2]}${id[3] ? `.${id[3]}` : ""}` : want;
+}
+
+/** 名前が1列目と同じ行。無ければ、2列目の機種名が同じ行（Default行を除き、1行だけの時）。 */
+export function claudePickerRowByName(rows: ClaudeModelPickerRow[], name: string): ClaudeModelPickerRow | null {
+  const want = name.trim().toLowerCase();
+  const byLabel = rows.find((row) => row.label.toLowerCase() === want);
+  if (byLabel) return byLabel;
+  const byResolved = rows.filter((row) => !/^default\b/iu.test(row.label) && row.resolved?.toLowerCase() === want);
+  return byResolved.length === 1 ? byResolved[0] : null;
 }
 
 // 会話が今のmodelでcacheされている時だけ、sの後に出る確かめ（2.1.293・2.1.296）。

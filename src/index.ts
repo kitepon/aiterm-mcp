@@ -233,6 +233,11 @@ const parentDeliveryOutputSchema = z.object({
   child_failure: failureObservationSchema.optional(), child_error_kind: z.string().nullable().optional(), child_vendor_session_id: z.string().nullable().optional(),
 });
 
+/** configure-reconcile.md: the Claude picker's refusal code, and whether a launch with the model could apply it. */
+function configureErrorMeta(e: unknown): { _meta?: Record<string, unknown> } {
+  const refusal = e instanceof AitermError ? e.configureRefusal : undefined;
+  return refusal ? { _meta: { "aiterm/configure_error": { code: refusal.code, relaunch: refusal.relaunch } } } : {};
+}
 function ok(s: string): ToolResult {
   return { content: [{ type: "text", text: s }] };
 }
@@ -249,7 +254,7 @@ function fail(e: unknown): ToolResult {
   const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { ...configurationFailure },
+    structuredContent: { ...configurationFailure }, ...configureErrorMeta(e),
   };
   if (e instanceof AgentAuthenticationPreflightError) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
@@ -1159,7 +1164,7 @@ registerRemoteAwareTool(
         const tracked = await applyConfigurationRequest({ ...request, session_id }, { model, reasoning_effort, fast },
           () => core.configureAgent(session_id, { model, reasoning_effort, fast }, request.launch_id));
         return { content: [{ type: "text" as const, text: tracked.error?.message ?? JSON.stringify(tracked.receipt) }],
-          structuredContent: { ...tracked.receipt }, ...(tracked.error ? { isError: true } : {}) };
+          structuredContent: { ...tracked.receipt }, ...(tracked.error ? { isError: true, ...configureErrorMeta(tracked.error) } : {}) };
       }
       const result = await core.configureAgent(session_id, { model, reasoning_effort, fast });
       return {

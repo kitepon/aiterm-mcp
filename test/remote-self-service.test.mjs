@@ -102,13 +102,51 @@ test("path ops: missing, file, writable folder, inaccessible parent; make_dir; o
   assert.equal((await runCli(["path-status", "--path", "relative"])).json.code, "PATH_INVALID");
 });
 
+test("list_dirs: home by default, subfolders only, no dot names, sorted, capped; missing/file are not empty lists", { skip: !posix }, async () => {
+  const home = fs.mkdtempSync(path.join(tmp, "home-"));
+  for (const name of ["b", "A", "日本", ".hidden", "z dir", "linked-target"]) fs.mkdirSync(path.join(home, name));
+  fs.writeFileSync(path.join(home, "file"), "x");
+  fs.symlinkSync(path.join(home, "linked-target"), path.join(home, "link"));
+  fs.symlinkSync(path.join(home, "nowhere"), path.join(home, "broken"));
+  fs.symlinkSync(path.join(home, "file"), path.join(home, "file-link"));
+  const listed = rpath.listDirectories(undefined, home);
+  assert.deepEqual(listed, { schema: "aiterm.remote-dirs.v1", home, path: home, exists: true, directory: true,
+    entries: ["A", "b", "link", "linked-target", "z dir", "日本"].map(name => ({ name })), truncated: false });
+  assert.deepEqual(rpath.listDirectories(path.join(home, "none"), home), { schema: "aiterm.remote-dirs.v1", home, path: path.join(home, "none"), exists: false, directory: false, entries: null, truncated: false });
+  assert.deepEqual(rpath.listDirectories(path.join(home, "file"), home).entries, null);
+  assert.equal(rpath.listDirectories(path.join(home, "file"), home).exists, true);
+  const many = path.join(home, "many");
+  for (let i = 0; i < rpath.LIST_DIRS_MAX + 2; i++) fs.mkdirSync(path.join(many, String(i).padStart(4, "0")), { recursive: true });
+  const capped = rpath.listDirectories(many, home);
+  assert.deepEqual([capped.entries.length, capped.truncated, capped.entries[0].name, capped.entries.at(-1).name], [rpath.LIST_DIRS_MAX, true, "0000", "0499"]);
+  assert.throws(() => rpath.listDirectories("relative", home), error => error.code === "PATH_INVALID");
+  if (process.getuid?.() !== 0) {
+    const locked = path.join(home, "locked");
+    fs.mkdirSync(path.join(locked, "inner"), { recursive: true });
+    fs.chmodSync(locked, 0o000);
+    try {
+      assert.throws(() => rpath.listDirectories(locked, home), error => error.code === "FOLDER_NOT_PERMITTED");
+      assert.throws(() => rpath.listDirectories(path.join(locked, "inner"), home), error => error.code === "FOLDER_NOT_PERMITTED");
+    } finally { fs.chmodSync(locked, 0o700); }
+  }
+  // The terminal CLI: no path lists HOME; a path travels as base64.
+  const cli = await runCli(["list-dirs"], { env: { HOME: home } });
+  const names = ["A", "b", "link", "linked-target", ...(process.getuid?.() !== 0 ? ["locked"] : []), "many", "z dir", "日本"];
+  assert.deepEqual([cli.code, cli.json.home, cli.json.path, cli.json.entries.map(e => e.name)], [0, home, home, names]);
+  const sub = await runCli(["list-dirs", "--path-base64", Buffer.from(path.join(home, "z dir")).toString("base64")], { env: { HOME: home } });
+  assert.deepEqual([sub.code, sub.json.path, sub.json.entries], [0, path.join(home, "z dir"), []]);
+});
+
 test("command: path only for path ops; an older terminal answers REMOTE_AITERM_TOO_OLD", async () => {
   const proto = rt.RemoteTerminalConnection.prototype;
   await assert.rejects(proto.command.call({}, "claude_version", "/x"), error => error.code === "COMMAND_INVALID");
   const old = { remoteVersion: "0.68.1", pathCommand: proto.pathCommand };
   await assert.rejects(proto.command.call(old, "path_status", "/Users/x"), error => error.code === "REMOTE_AITERM_TOO_OLD");
   await assert.rejects(proto.command.call(old, "make_dir", "x"), error => error.code === "PATH_INVALID");
-  assert.deepEqual([...rt.REMOTE_COMMAND_OPS], ["claude_version", "claude_install", "claude_update", "path_status", "make_dir"]);
+  const before = { remoteVersion: "0.69.0", listDirs: proto.listDirs };
+  await assert.rejects(proto.command.call(before, "list_dirs"), error => error.code === "REMOTE_AITERM_TOO_OLD");
+  await assert.rejects(proto.command.call(before, "list_dirs", "x"), error => error.code === "PATH_INVALID");
+  assert.deepEqual([...rt.REMOTE_COMMAND_OPS], ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs"]);
 });
 
 // A stand-in ssh: records argv and env, asks the askpass helper like OpenSSH, then runs the script on stdin in its own HOME.

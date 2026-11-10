@@ -5,7 +5,7 @@
 //   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
 //   authorize-key --ref R   (login password on stdin until EOF; R14)      provision --ref R   (macOS runtime; R16)
-//   path-status|make-dir --path P | --path-base64 B   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
+//   path-status|make-dir --path P | --path-base64 B, list-dirs [--path P | --path-base64 B]   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -15,7 +15,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { credentialHandleSchema } from "./remote-contract.js";
-import { inspectPath, makeDirectory } from "./remote-path.js";
+import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
 import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization } from "./remote-authorize.js";
 import { provision, runtimeSmoke } from "./remote-provision.js";
 
@@ -95,7 +95,7 @@ function serve(): void {
     try { return ok(await bound().wait(waitProcess, extra.signal)); } catch (error) { return fail(error); }
   });
   server.registerTool("remote_terminal_command", {
-    description: "Fixed Claude Code setup operation on the terminal",
+    description: "Fixed operation on the terminal: Claude Code setup, or a path check / mkdir / read-only folder listing",
     inputSchema: { op: z.enum(REMOTE_COMMAND_OPS), path: z.string().optional() },
   }, guarded(({ op, path }) => bound().command(op as RemoteCommandOp, path)));
   server.registerTool("remote_terminal_close", { description: "Close the bound connection and exit", inputSchema: {} },
@@ -134,13 +134,14 @@ export function main(args: string[]): void {
   if (command === "provision") return oneShot(() => provision(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "path-status") return oneShot(() => inspectPath(pathArgument(rest)), "aiterm.remote-binding-error.v1");
   if (command === "make-dir") return oneShot(() => makeDirectory(pathArgument(rest)), "aiterm.remote-binding-error.v1");
+  if (command === "list-dirs") return oneShot(() => listDirectories(rest.length ? pathArgument(rest) : undefined), "aiterm.remote-binding-error.v1");
   if (command === "runtime-smoke") return oneShot(() => runtimeSmoke(option(rest, "--expect-version") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "trust-confirm") return oneShot(() => confirmHostKey(option(rest, "--ref") ?? "", option(rest, "--fingerprint") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "transcript-read") return oneShot(() => {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|runtime-smoke\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke\n");
   process.exit(64);
 }
 

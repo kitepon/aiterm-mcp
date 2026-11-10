@@ -23,7 +23,7 @@ digraph remote_terminal {
  provision [label="provision --ref R (R16, before MCP)\ntrusted key SSH, /bin/sh -s bootstrap\nstage, sha256, runtime-smoke, current/previous"];
  runtime [label="terminal ~/.aiterm/runtime/current\nnode + aiterm-mcp + tmux (own libs)\nbin first on PATH (posixCommand)",fillcolor="#fff7e6"];
  assets [label="GitHub Release assets (R17)\naiterm-runtime-V-darwin-arm64/x64.tar.gz + SHA256SUMS\nruntime.yml on the macOS runner",fillcolor="#f0f0f0"];
- pathops [label="terminal: path-status / make-dir (R15)\n{exists, directory, writable}\nFOLDER_NOT_PERMITTED"];
+ pathops [label="terminal: path-status / make-dir / list-dirs (R15)\n{exists, directory, writable}\nlist-dirs: {home, path, exists, directory, entries, truncated}, read only\nFOLDER_NOT_PERMITTED"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
  trust -> terminals [label="revisions (public)"];

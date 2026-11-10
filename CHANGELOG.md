@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `remote_terminal_command` takes `list_dirs` with an optional absolute `path` for a folder picker (BellTeam PR 887 S6; docs/architecture/remote-terminal.md R15). Without `path` it lists the SSH user's home. Result `{op, home, path, exists, directory, entries: [{name}] | null, truncated}`: subfolders only (a symlink to a folder counts), no names starting with `.`, ordered by name, at most 500 then `truncated: true`, read only. A missing folder or a file answers `exists`/`directory` false with `entries: null`, never an empty list; permission refusals (macOS privacy consent included) answer `FOLDER_NOT_PERMITTED` as for `path_status`. Needs this release on the terminal (`REMOTE_AITERM_TOO_OLD` otherwise).
+
 ## [0.69.0] - 2026-11-10
 
 - Terminal self-service before a seat can open (docs/architecture/remote-terminal.md R14-R17; BellTeam PR 854 S2-S5).

@@ -265,9 +265,9 @@ export class SshStdioTransport implements Transport {
 
 export const REMOTE_SEAT_TOOLS = new Set(["agent_launch", "pty_send", "pty_observe", "pty_read", "pty_key", "claude_turn", "agent_stop", "pty_close"]);
 export type RemoteTerminalEvent = { type: "ready"; at: string; remoteVersion: string } | { type: "lost"; at: string; code: "CONNECTION_LOST" } | { type: "closed"; at: string };
-export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update" | "path_status" | "make_dir";
-type ClaudeCommandOp = Exclude<RemoteCommandOp, "path_status" | "make_dir">;
-export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir"] as const;
+export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_update" | "path_status" | "make_dir" | "list_dirs";
+type ClaudeCommandOp = Exclude<RemoteCommandOp, "path_status" | "make_dir" | "list_dirs">;
+export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs"] as const;
 
 const COMMANDS: Record<ClaudeCommandOp, string> = {
   claude_version: "claude --version",
@@ -299,6 +299,7 @@ export function versionAtLeast(actual: string, required: string): boolean {
 export const REMOTE_MINIMUM_VERSION = "0.65.0";
 // The first release with the terminal's path-status / make-dir (R15).
 export const REMOTE_PATH_OPS_VERSION = "0.69.0";
+export const REMOTE_LIST_DIRS_VERSION = "0.70.0";
 
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
@@ -436,6 +437,7 @@ export class RemoteTerminalConnection extends EventEmitter {
 
   async command(op: RemoteCommandOp, targetPath?: string): Promise<unknown> {
     if (op === "path_status" || op === "make_dir") return this.pathCommand(op, targetPath);
+    if (op === "list_dirs") return this.listDirs(targetPath);
     if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
     if (!Object.hasOwn(COMMANDS, op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
     const run = await this.exec(`${COMMANDS[op]} 2>&1`, op === "claude_version" ? 60_000 : 900_000);
@@ -459,6 +461,24 @@ export class RemoteTerminalConnection extends EventEmitter {
       return { op, exists: parsed.exists === true, directory: parsed.directory === true, writable: parsed.writable === true };
     if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "path operation failed");
     throw new RemoteTerminalError("COMMAND_FAILED", "the path operation failed on the terminal");
+  }
+
+  /** R15 list-dirs: read-only folder picker listing; no path lists the SSH user's home. */
+  private async listDirs(targetPath: string | undefined): Promise<unknown> {
+    if (targetPath !== undefined) checkRemotePath(targetPath);
+    if (!versionAtLeast(this.remoteVersion, REMOTE_LIST_DIRS_VERSION))
+      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_LIST_DIRS_VERSION} or later is required (update or provision the terminal)`);
+    const flag = targetPath === undefined ? "" : ` --path-base64 ${Buffer.from(targetPath, "utf8").toString("base64")}`;
+    const result = await this.exec(`exec aiterm-remote-terminal list-dirs${flag}`, 60_000);
+    if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    let parsed: any = null;
+    try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
+    if (result.code === 0 && parsed?.schema === "aiterm.remote-dirs.v1") {
+      const { home, path: listed, exists, directory, entries, truncated } = parsed;
+      return { op: "list_dirs", home, path: listed, exists, directory, entries, truncated };
+    }
+    if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "folder listing failed");
+    throw new RemoteTerminalError("COMMAND_FAILED", "the folder listing failed on the terminal");
   }
 
   async close(): Promise<{ closed: true }> {

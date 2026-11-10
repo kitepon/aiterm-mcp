@@ -1,5 +1,6 @@
 // Terminal-side fixed path operations (remote-terminal.md R15). Runs on the terminal as the SSH user.
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { RemoteTerminalError } from "./remote-terminal.js";
 
@@ -31,8 +32,8 @@ function writable(dir: string): boolean {
   return true;
 }
 
-export function inspectPath(target: string): PathStatus {
-  checkRemotePath(target);
+/** missing / file / a folder the SSH user can list; refusals throw FOLDER_NOT_PERMITTED, never read as missing. */
+function folderState(target: string): "missing" | "file" | "directory" {
   let stat: fs.Stats;
   try { stat = fs.statSync(target); }
   catch (error) {
@@ -46,11 +47,47 @@ export function inspectPath(target: string): PathStatus {
       if (parentStat) { if (parentStat.isDirectory() && !listable(parent)) throw notPermitted(); break; }
       if (parent === path.dirname(parent)) break;
     }
-    return MISSING;
+    return "missing";
   }
-  if (!stat.isDirectory()) return { schema: "aiterm.remote-path.v1", exists: true, directory: false, writable: false };
+  if (!stat.isDirectory()) return "file";
   if (!listable(target)) throw notPermitted();
+  return "directory";
+}
+
+export function inspectPath(target: string): PathStatus {
+  checkRemotePath(target);
+  const state = folderState(target);
+  if (state === "missing") return MISSING;
+  if (state === "file") return { schema: "aiterm.remote-path.v1", exists: true, directory: false, writable: false };
   return { schema: "aiterm.remote-path.v1", exists: true, directory: true, writable: writable(target) };
+}
+
+export interface DirListing {
+  schema: "aiterm.remote-dirs.v1"; home: string; path: string; exists: boolean; directory: boolean;
+  entries: { name: string }[] | null; truncated: boolean;
+}
+
+export const LIST_DIRS_MAX = 500;
+
+/** Read-only folder picker listing (R15): subfolders only, no dot names, sorted, at most LIST_DIRS_MAX. */
+export function listDirectories(target: string | undefined, home = os.homedir()): DirListing {
+  const dir = target === undefined ? home : target;
+  checkRemotePath(dir);
+  const base = { schema: "aiterm.remote-dirs.v1" as const, home, path: path.posix.resolve(dir) };
+  const state = folderState(base.path);
+  if (state !== "directory") return { ...base, exists: state === "file", directory: false, entries: null, truncated: false };
+  let dirents: fs.Dirent[];
+  try { dirents = fs.readdirSync(base.path, { withFileTypes: true }); }
+  catch (error) { if (denied(errno(error))) throw notPermitted(); throw new RemoteTerminalError("PATH_UNAVAILABLE", `the folder cannot be listed (${errno(error) ?? "unknown"})`); }
+  const names: string[] = [];
+  for (const entry of dirents) {
+    if (entry.name.startsWith(".")) continue;
+    let folder = entry.isDirectory();
+    if (!folder && entry.isSymbolicLink()) { try { folder = fs.statSync(path.join(base.path, entry.name)).isDirectory(); } catch { /* broken or refused link: not a folder */ } }
+    if (folder) names.push(entry.name);
+  }
+  names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { ...base, exists: true, directory: true, entries: names.slice(0, LIST_DIRS_MAX).map(name => ({ name })), truncated: names.length > LIST_DIRS_MAX };
 }
 
 export function makeDirectory(target: string): PathStatus {

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.9] - 2026-11-10
+
 - All five harnesses can run on a terminal. `agent_launch` (and the per-harness launchers) with `terminal` now accepts `grok-cli`, `cursor-cli` and `antigravity-cli` beside `claude-code` and `codex-cli`, routed to the terminal's `agent_launch` the same way, with the seat-forward URL rewrite and header extraction unchanged. These three need Aiterm 0.70.9 on the terminal (`REMOTE_AITERM_TOO_OLD` before any private value is sent). `TERMINAL_HARNESS_UNSUPPORTED` stays only as a guard for a name outside the five.
 - `remote_terminal_command` gains `cli_version`, `cli_install`, `cli_update` and `cli_auth_status`, each with a required `harness` (`claude-code`, `codex-cli`, `grok-cli`, `cursor-cli`, `antigravity-cli`; a missing or unknown one is `COMMAND_INVALID`; a terminal older than 0.70.9 is `REMOTE_AITERM_TOO_OLD`). The first three answer `{op, harness, exit_code, version, output_tail}` with each CLI's official installer and updater (Windows: PowerShell). `cli_auth_status` answers `{op, harness, logged_in}` and nothing else, from the same status commands Aiterm uses locally; an answer that is not clearly logged in or out is `AUTH_STATUS_UNCONFIRMED`, a missing CLI `CLI_NOT_INSTALLED`. `claude_version`, `claude_install` and `claude_update` stay as aliases for `claude-code` (their version is now also read from `~/.local/bin/claude` when it is not on PATH).
 - A launch of a CLI that is not logged in is `AGENT_LAUNCH_NOT_STARTED` with `_meta["aiterm/launch_error"]` `code: "AGENT_AUTH_REQUIRED"` (`phase: "input"`, `effect: "not_started"`, `session_created: false`, `harness`) for Claude Code, Cursor and Antigravity, locally and on a terminal; Claude keeps its `CLAUDE_AUTH_NOT_AUTHENTICATED` structured answer beside it. Codex and Grok have no launch preflight.
@@ -3226,7 +3228,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...HEAD
+[0.70.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...v0.70.9
 [0.70.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...v0.70.8
 [0.70.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...v0.70.7
 [0.70.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...v0.70.6

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.6] - 2026-11-10
+
 - `agent_launch` takes `fork_from: {session_id, fork_id?}` (claude-code, codex-cli). It starts a disposable fork of that seat's latest saved conversation, in the main's cwd and on the main's account, with the main's tools and MCP servers. Every write inside that cwd (the project folder) is refused below the tools for the whole CLI process tree. That covers file tools, shell redirects, git, sqlite and anything else. Everything outside the folder stays writable, and reads, commands, network and MCP are untouched. Linux uses Landlock (unprivileged; works in standard Docker, where bwrap-based sandboxes do not; needs python3). macOS uses `sandbox-exec`. Windows, and any machine where the ban cannot be proven before launch, answers `READONLY_UNENFORCEABLE`, and no seat is created. Claude forks with `--resume <main> --fork-session` under the seat's own session ID. The tools array equals the main's, and the first fork request read about 99% of the main's prompt cache. Codex forks with `codex fork <main>` and is bound by the rollout's `forked_from_id` plus the first input. The receipt adds `fork_of {session_id, vendor_session_id, write_ban {path, method}}`. The seat environment adds `THROUGHLINE_SESSION_KIND=fork`, `THROUGHLINE_PARENT_SESSION_ID` and `THROUGHLINE_FORK_ID`. A resumed fork keeps the ban. Remote and terminal forks need this release on the terminal (`REMOTE_AITERM_TOO_OLD` otherwise) and go through the terminal's `agent_launch`. Refusals: `FORK_INVALID`, `FORK_SOURCE_UNAVAILABLE`, `FORK_UNSUPPORTED`. ADR 0140.
 - Windows: input sent while a command runs, or before a pane's first prompt, is typed in the dialect of the shell whose prompt the pane last showed (at first, the shell it was opened with), not in the dialect of psmux's foreground name. That name can be stale (`pwsh` for a Git Bash pane), and bash then read a PowerShell scriptblock (`syntax error near unexpected token [scriptblock]::Create`).
 
@@ -3192,7 +3194,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...HEAD
+[0.70.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...v0.70.6
 [0.70.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...v0.70.5
 [0.70.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...v0.70.4
 [0.70.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...v0.70.3

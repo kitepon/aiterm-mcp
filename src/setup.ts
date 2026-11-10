@@ -38,12 +38,16 @@ export function globalRegistration(run: SetupRun = runSetupCommand, options: { p
 
 export async function verifySetupRuntime(registration: Registration): Promise<void> {
   const client = new Client({ name: "aiterm-setup", version: "1.0.0" });
-  const transport = new StdioClientTransport({ ...registration, stderr: "pipe" });
+  // The SDK default passes only HOME/PATH/SHELL/TERM/USER/LOGNAME; without TMPDIR the probe would use another socket directory.
+  const transport = new StdioClientTransport({ ...registration, env: process.env as Record<string, string>, stderr: "pipe" });
   transport.stderr?.on("data", (chunk) => process.stderr.write(chunk));
   const name = `setup-${randomUUID().slice(0, 12)}`;
   const call = async (tool: string, args: Record<string, unknown>) => {
     const result = await client.request({ method: "tools/call", params: { name: tool, arguments: args } }, CallToolResultSchema, { timeout: 25_000 });
-    if (result.isError) throw new SetupError("runtime_probe_failed", `${tool}が失敗しました`);
+    if (result.isError) {
+      const detail = result.content.filter((item) => item.type === "text").map((item) => item.text).join(" ").slice(0, 300);
+      throw new SetupError("runtime_probe_failed", `${tool}が失敗しました${detail ? `: ${detail}` : ""}`);
+    }
     return result;
   };
   await client.connect(transport);

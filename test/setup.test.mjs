@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { globalRegistration, nodeDefaultGlobalRoot, runParentHooksSetup, runSetup } from '../dist/setup.js';
+import { globalRegistration, nodeDefaultGlobalRoot, runParentHooksSetup, runSetup, verifySetupRuntime } from '../dist/setup.js';
 import { SetupError } from '../dist/setup-platform.js';
 import { deliveryProviderFile, writeDeliveryProvider } from '../dist/setup-integrations.js';
 
@@ -19,6 +19,20 @@ test('依存準備・実動作・登録の順で完了を判定する', async ()
   assert.equal(result.status, 'ready');
   assert.equal(result.backend.status, 'ready');
   assert.deepEqual(events, ['prepare', 'verify', 'configure']);
+});
+
+test('実動作の確認は呼び手のTMPDIRで端末を開き、失敗した道具の文を残す', { skip: process.platform === 'win32' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aiterm-probe-'));
+  const before = process.env.TMPDIR;
+  try {
+    writeFileSync(join(dir, 'claude-tmux-sockets'), ''); // a file where the socket directory belongs: pty_open must fail there
+    process.env.TMPDIR = dir;
+    await assert.rejects(verifySetupRuntime({ command: process.execPath, args: [fileURLToPath(new URL('../dist/index.js', import.meta.url))] }),
+      (error) => error instanceof SetupError && error.message.startsWith('pty_openが失敗しました: ') && error.message.includes(dir));
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = before;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('端末実行が失敗したらAI設定を書き換えない', async () => {

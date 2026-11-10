@@ -44,9 +44,11 @@ jobs:
       - name: build both architectures and smoke the host one
         shell: bash
         # The runner account's login shell is /usr/bin/false; tmux runs a one-string window command through $SHELL.
+        # A runner without TMPDIR would share /tmp/claude-tmux-sockets with other users of the Mac.
         env:
           SHELL: /bin/sh
         run: |
+          export TMPDIR="$RUNNER_TEMP"
           out="$RUNNER_TEMP/aiterm-runtime"
           rm -rf "$out"
           node scripts/build-macos-runtime.mjs "$RUNTIME_VERSION" "$out"

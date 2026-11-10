@@ -55,6 +55,7 @@
   "files": [
     "dist/*.js",
     "dist/harnesses/*.js",
+    "native/write-ban/linux-*/aiterm-write-ban",
     "runtime-overlap.json",
     "state-compat.json",
     "README.md",

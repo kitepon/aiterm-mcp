@@ -35,7 +35,7 @@ Steerの未公開release sourceは` scripts/fixtures/steer-release-source.json `
 
 ## Release手順
 
-1. 変更に直結するfocused testを手元で通す。full regressionは手元で回さず、CIに任せる。
+1. 変更に直結するfocused testを手元で通す。`native/write-ban/aiterm-write-ban.c`を変えた時は`pip install ziglang==0.15.2`の上で`node scripts/build-write-ban.mjs`で組み直し、`--check`で同じbytesになることを確かめてから組んだ物をcommitする。full regressionは手元で回さず、CIに任せる。
    個別試験も`node scripts/run-seat-tests.mjs --test ...`で起動する。稼働中の席の保存場所を試験へ継承しない。
 2. `CHANGELOG.md`の`## [Unreleased]`へ内容を書き、mainへcommitしてpushする。
    3環境の全テストを先に通しておく時は、枝をpushして手動実行（`gh workflow run ci.yml --ref <枝> -f environment=all -f comparison_base=<前の公開commit>`）を

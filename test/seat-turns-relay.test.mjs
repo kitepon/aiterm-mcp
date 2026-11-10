@@ -80,6 +80,8 @@ test("loopDeadline: a loop blocked past the budget still takes an answer that is
   const race = async (deadline) => {
     // The relay's answer comes over a pipe while the loop is blocked; it is read in the poll phase, after due timers.
     const child = spawn(process.execPath, ["-e", "setTimeout(() => process.stdout.write('rows'), 50)"]);
+    const hold = setInterval(() => {}, 50); // as above: the relay's pipe is not the only handle in a real server
+    child.once("exit", () => setTimeout(() => clearInterval(hold), 2_000));
     await new Promise(resolve => child.once("spawn", resolve));
     const answer = new Promise(resolve => child.stdout.once("data", data => resolve(data.toString())));
     const timer = deadline();
@@ -89,7 +91,11 @@ test("loopDeadline: a loop blocked past the budget still takes an answer that is
   };
   assert.equal(await race(() => new Promise(resolve => setTimeout(resolve, 300, "unread"))), "unread", "a wall-clock timer wins after a block");
   assert.equal(await race(() => loopDeadline(300, "unread")), "rows");
-  const started = performance.now();
-  assert.equal(await loopDeadline(300, "unread"), "unread");
-  assert.ok(performance.now() - started >= 290, "a free loop waits the whole budget");
+  // Its timers are unref'd like the relay's (the ssh child keeps the loop alive there): hold the loop open here.
+  const hold = setInterval(() => {}, 50);
+  try {
+    const started = performance.now();
+    assert.equal(await loopDeadline(300, "unread"), "unread");
+    assert.ok(performance.now() - started >= 290, "a free loop waits the whole budget");
+  } finally { clearInterval(hold); }
 });

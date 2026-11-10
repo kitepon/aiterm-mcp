@@ -19,6 +19,7 @@ import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableE
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv } from "./private-env.js";
+import { withTerminalLaunchAction } from "./terminal-launch-error.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
@@ -1275,7 +1276,9 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
     ? await callRemoteTool(target, "claude_agent", args, 600_000, privateEnv)
     : await callRemoteTool(target, "agent_launch", { harness, ...args }, 600_000, privateEnv);
   const structured = result.structuredContent as any;
-  if (!structured) return { content: [...result.content, remoteNote(target, result)], isError: true };
+  // The terminal's own launch refusal (e.g. Claude authentication preflight) keeps its structure and stays an error.
+  if (!structured || result.isError && structured.schema === "aiterm.agent-launch-error.v1")
+    return { content: [...result.content, remoteNote(target, result)], ...(structured ? { structuredContent: structured } : {}), isError: true };
   try {
     if (delivery && structured.event_cursor !== null) await registerRemoteDelivery(delivery, target, structured.session_id, structured.event_cursor, null, structured.input_id);
   } catch (e) {
@@ -1329,8 +1332,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra, privateEnv);
     const session = result?.structuredContent?.session_id;
     if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
-    return result;
-  } catch (e) { return fail(e); }
+    return withTerminalLaunchAction(result);
+  } catch (e) { return withTerminalLaunchAction(fail(e)); }
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {

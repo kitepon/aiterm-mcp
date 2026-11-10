@@ -134,7 +134,14 @@ test("launch tools: terminal is refused clearly before any connection when the h
   assert.match(text(await client.callTool({ name: "claude_agent", arguments: { terminal } })), /TERMINAL_INVALID: cwd is required/);
   assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "relative" } })), /TERMINAL_INVALID/);
   assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x", remote: { host: "h" } } })), /TERMINAL_INVALID: use terminal or remote/);
-  assert.match(text(await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x" } })), /BINDING_UNKNOWN/);
+  const unknown = await client.callTool({ name: "agent_launch", arguments: { harness: "claude-code", terminal, cwd: "/x" } });
+  assert.match(text(unknown), /BINDING_UNKNOWN/);
+  // R18: a not-started terminal launch carries its code and a plain Japanese action for the Owner.
+  assert.equal(unknown.structuredContent, undefined);
+  const launchError = unknown._meta["aiterm/launch_error"];
+  assert.deepEqual({ ...launchError, action: typeof launchError.action }, { schema: "aiterm.agent-launch-error.v1",
+    harness: "claude-code", code: "BINDING_UNKNOWN", phase: "terminal", effect: "not_started", session_created: false, action: "string" });
+  assert.equal((await client.callTool({ name: "codex_agent", arguments: { terminal, cwd: "/x" } }))._meta["aiterm/launch_error"].code, "TERMINAL_HARNESS_UNSUPPORTED");
   const malformed = await client.callTool({ name: "claude_agent", arguments: { terminal: { ...terminal, ref: "macbook" }, cwd: "/x" } });
   assert.equal(malformed.isError, true);
   assert.match(text(malformed), /binding ref/);
@@ -345,4 +352,35 @@ test("credential-load: key bytes only from stdin into a private agent; launch ch
     assert.ok(!fs.existsSync(meta.socket));
     assert.throws(() => rt.terminalRemoteTarget({ ...trusted, credential: { handle, revision: 3 } }), /CREDENTIAL_NOT_LOADED/);
   } finally { rt.releaseCredential(status.ref); }
+});
+
+test("R18: terminal launch actions are plain Japanese for listed not-started codes only", async () => {
+  const { withTerminalLaunchAction, terminalLaunchAction, errorCode } = await import("../dist/terminal-launch-error.js");
+  const failed = text => ({ content: [{ type: "text", text }], isError: true });
+  const cwd = withTerminalLaunchAction(failed("aiterm: CWD_UNAVAILABLE: cwd '/Users/kite/secret-project' がディレクトリとして存在しません"));
+  const meta = result => result._meta["aiterm/launch_error"];
+  assert.equal(meta(cwd).code, "CWD_UNAVAILABLE");
+  assert.equal(meta(cwd).effect, "not_started");
+  assert.equal(cwd.structuredContent, undefined);
+  assert.doesNotMatch(meta(cwd).action, /secret-project|\//);
+  const ssh = withTerminalLaunchAction(failed("aiterm: HOST_KEY_MISMATCH: the terminal presented a different host key (confirm the new host key)"));
+  assert.equal(meta(ssh).code, "HOST_KEY_MISMATCH");
+  const auth = { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: "CLAUDE_AUTH_NOT_AUTHENTICATED",
+    phase: "authentication_preflight", effect: "not_issued", session_created: false, message: "x" };
+  const authResult = withTerminalLaunchAction({ ...failed("aiterm: x"), structuredContent: auth });
+  assert.equal(authResult.structuredContent, auth);
+  const { message, ...authCore } = auth;
+  assert.deepEqual(meta(authResult), { ...authCore, action: terminalLaunchAction("CLAUDE_AUTH_NOT_AUTHENTICATED") });
+  // Unlisted or uncoded failures may have started: unchanged.
+  for (const result of [failed("aiterm: MCP error -32001: Request timed out"), failed("aiterm: CONNECTION_LOST: gone"), failed("別端末でagentは起動しましたが")])
+    assert.equal(withTerminalLaunchAction(result), result);
+  const ok = { content: [], structuredContent: { session_id: "s" } };
+  assert.equal(withTerminalLaunchAction(ok), ok);
+  assert.equal(errorCode("CREDENTIAL_NOT_LOADED: x"), "CREDENTIAL_NOT_LOADED");
+  for (const code of ["TERMINAL_INVALID", "TARGET_MISMATCH", "HOST_TRUST_MISSING", "HOST_TRUST_STALE", "CREDENTIAL_NOT_LOADED", "CREDENTIAL_REVISION_STALE",
+    "CREDENTIAL_REQUIRED", "CREDENTIAL_UNAVAILABLE", "AUTH_FAILED", "CONNECTION_REFUSED", "UNREACHABLE", "CONNECTION_FAILED", "REMOTE_AITERM_UNAVAILABLE",
+    "REMOTE_AITERM_TOO_OLD", "SEAT_FORWARD_UNAVAILABLE", "CWD_UNAVAILABLE", "TERMINAL_HARNESS_UNSUPPORTED", "BINDING_UNKNOWN"]) {
+    const action = terminalLaunchAction(code);
+    assert.ok(action && action.length <= 500 && /[\u3040-\u30ff]/.test(action) && !/[A-Z]{2,}_[A-Z]/.test(action), code);
+  }
 });

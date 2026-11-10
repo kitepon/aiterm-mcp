@@ -34,6 +34,7 @@ digraph remote_terminal {
  conn -> terminals [label="R11 events / typed errors"];
  terminals -> execution [label="terminal value (ref, target, revisions)"];
  execution -> tools [label="R6 launch with terminal + cwd; then session_id only"];
+ tools -> execution [label="R18 not started: _meta aiterm/launch_error\n{code, phase terminal, action (Japanese)}",style=dashed];
  tools -> trusted [label="launch: private env line R5\nlater: same tool"];
  trusted -> rmcp [label="R4/R5"];
  tools -> keeper [label="ensure while bound"];

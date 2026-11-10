@@ -996,6 +996,14 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
   } catch (error) {
     ownTelemetryFailure("AITERM.PERSISTENCE_WRITE_FAILED", error);
   }
+  // PowerShell on POSIX garbles input typed before its line editor starts (bash keeps it as a line). Wait, bounded,
+  // until a prompt leaves the cursor off column 0; a pane that never shows one is returned as before.
+  if (process.platform !== "win32" && /^pwsh(?:-preview)?$/u.test(path.basename(shell))) {
+    for (const deadline = Date.now() + 10_000; Date.now() < deadline; pauseSync(100)) {
+      const cursor = tmux("display-message", "-p", "-t", nm, "#{cursor_x}");
+      if (cursor.code !== 0 || Number(cursor.stdout.trim()) > 0) break;
+    }
+  }
   return [nm, attachHint(nm)];
   });
 }

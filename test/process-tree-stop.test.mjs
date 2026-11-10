@@ -76,8 +76,11 @@ test('unknown native session membership refuses every signal',async()=>{
  await assert.rejects(f.run(),/process_tree_session_unconfirmed/);assert.deepEqual(f.effects,[]);
 });
 test('session-aware POSIX observations provide a separate session identity and zombie flag',
- {skip:process.platform==='win32'},()=>{
- const own=readRuntimeProcesses(true).find(r=>r.pid===process.pid);
+ {skip:process.platform==='win32'},t=>{
+ // A pane process leads its own session (tmux setsid). The test runner's session leader may be gone (hosted macOS).
+ const leader=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{detached:true,stdio:'ignore'});
+ t.after(()=>{try{process.kill(leader.pid,'SIGKILL');}catch{}});
+ const own=readRuntimeProcesses(true).find(r=>r.pid===leader.pid);
  assert.ok(own);assert.equal(typeof own.session_identity,'string');assert.equal(own.zombie,false);
 });
 
@@ -94,7 +97,8 @@ if(mode==='root'){
  const grand=spawn(process.execPath,[import.meta.filename??new URL(import.meta.url).pathname,'grand'],{stdio:'ignore'});console.log(grand.pid);
 }
 setInterval(()=>{},60000);`);
- const root=spawn(process.execPath,[script,'root'],{stdio:['ignore','pipe','inherit']});
+ // The root leads its own session like a tmux pane; the runner's own session leader may be gone (hosted macOS).
+ const root=spawn(process.execPath,[script,'root'],{detached:true,stdio:['ignore','pipe','inherit']});
  t.after(()=>{
   for(const row of readRuntimeProcesses(true))if(row.command.includes(script)){
    try{process.kill(row.pid,'SIGKILL');}catch{}

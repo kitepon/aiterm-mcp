@@ -680,7 +680,9 @@ export const TMUX_EMPTY_CONFIG = isWin ? "NUL" : "/dev/null";
 
 // A single POSIX command goes through the account's possibly non-login default-shell.
 export function paneCommandArgs(shell: string): string[] {
-  return isWin ? [shell] : ["/bin/sh", "-c", shell];
+  // A plain command name is exec'd so the pane's foreground is the requested shell: dash forks a lone -c command,
+  // and pane_current_command would then read "sh" (macOS /bin/sh already execs it).
+  return isWin ? [shell] : ["/bin/sh", "-c", /^[A-Za-z0-9_./+-]+$/u.test(shell) ? `exec ${shell}` : shell];
 }
 
 // tmux 3.2 で new-session -e と、update-environment のワイルドカードが入った。

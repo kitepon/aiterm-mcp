@@ -486,6 +486,12 @@ function claudeSecurityNotes(screen: string): boolean {
     && /Press (?:Enter|Return) to continue/u.test(lines.slice(lastMarker + 1).join("\n"));
 }
 
+// Claude Code 2.1.318 (grove): "Updates to Consumer Terms and Policies" with "Accept terms · Help improve our AI models: ON/OFF".
+export function claudeConsumerTermsUpdate(screen: string): boolean {
+  const tail = screen.split("\n").slice(-32).join("\n");
+  return tail.includes("Updates to Consumer Terms and Policies") && /^\s*[❯>]?\s*(?:\d+\.\s*)?Accept terms\b/mu.test(tail);
+}
+
 export function claudeTuiReady(screen: string): boolean {
   if (!screen.includes("Claude Code") && !claudeComposerBox(screen)) return false;
   if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return false;
@@ -555,6 +561,9 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
     return { state: "blocked", reason: "tool_approval" };
   if (claudeTuiBusy(screen)) return { state: "busy", reason: "turn_running" };
   if (claudeTuiReady(screen)) return { state: "idle", reason: "composer_ready" };
+  // The account holder's own choice (terms and model-training data); never answered by Aiterm. After ready, so a seat
+  // that merely talks about this screen stays idle.
+  if (claudeConsumerTermsUpdate(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/new MCP servers? found in this project/i.test(tail)) return { state: "blocked", reason: "project_mcp_consent" };
   if (claudeStartupAction(screen, false)) return { state: "blocked", reason: "startup_dialog" };
   return { state: "unknown", reason: "unrecognized_screen" };

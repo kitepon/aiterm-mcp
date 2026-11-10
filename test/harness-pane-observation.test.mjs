@@ -132,6 +132,31 @@ test("Claude Code 2.1.282の番号付きログイン方式選択も初回設定�
   assert.equal(claudeStartupAction(screen, true), null);
 });
 
+// Claude Code 2.1.318の利用規約の更新（grove）。持ち主が選ぶ画面なので答えず、人の操作が要る理由で止める（Mac 2026-11-10）。
+// 文言は2.1.318の本体の文字列から組んだもので、実画面の写しではない。
+test("Claude Codeの利用規約の更新の画面は、答えずにvendor_onboarding_requiredで止める", () => {
+  const screen = [
+    " Updates to Consumer Terms and Policies",
+    "",
+    " We've updated our Consumer Terms and Privacy Policy.",
+    "",
+    " Help improve our AI models",
+    " Allow the use of your chats and coding sessions to train and improve Anthropic AI models.",
+    "",
+    " Please select how you'd like to continue",
+    " ❯ 1. Accept terms · Help improve our AI models: ON",
+    "   2. Accept terms · Help improve our AI models: OFF",
+  ].join("\n");
+  assert.equal(claudeTuiReady(screen), false);
+  assert.deepEqual(claudePaneObservation(screen), { state: "blocked", reason: "vendor_onboarding_required" });
+  assert.equal(claudeStartupAction(screen, true), null);
+  // 入力待ちの席がこの画面の話をしているだけなら、入力待ちのまま。
+  const talking = ["⏺ The dialog says Updates to Consumer Terms and Policies.", "  Accept terms is the first option.", "",
+    "─".repeat(40), "❯ ", "─".repeat(40), "  ⏵⏵ bypass permissions on (shift+tab to cycle)"].join("\n");
+  assert.equal(claudeTuiReady(talking), true);
+  assert.deepEqual(claudePaneObservation(talking), { state: "idle", reason: "composer_ready" });
+});
+
 // Codex 0.160.1の実画面（BellTeamコンテナ 2026-10-06）。回答に「esc to interrupt」の語が残った席は、止まった後も動作中と読まれ、
 // 次の送信が差し込みになって、その回の完了が届かなかった。
 test("Codexの会話欄にある「esc to interrupt」を、動作中の印にしない", () => {

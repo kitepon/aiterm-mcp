@@ -4954,8 +4954,9 @@ export interface InitialAgentPromptResult {
 // 利用者が端末で済ませるしかない起動前の状態。reasonだけでは直し方が分からないので案内を添える。
 function startupBlockedHint(reason: string): string {
   if (reason === "vendor_onboarding_required") {
-    return "\nClaude Codeの初回案内（テーマ・ログイン方法の選択）が済んでいません。`claude auth status` がログイン済みでも、" +
-      "初回案内が未完了なら起動のたびにこの画面で止まります。対象端末で一度 `claude` を起動し、案内を最後まで進めてください。";
+    return "\nClaude Codeの初回案内（テーマ・ログイン方法の選択）か、利用規約の更新への回答が済んでいません。`claude auth status` がログイン済みでも、" +
+      "済むまでは起動のたびにこの画面で止まります。規約への回答はアカウントの持ち主が選ぶもので、Aitermは答えません。" +
+      "対象端末で一度 `claude` を起動し、画面の案内を最後まで進めてください。";
   }
   return "";
 }

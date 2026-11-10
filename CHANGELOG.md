@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.3] - 2026-11-10
+
 - A terminal seat's BellTeam MCP forward now goes to the container port named in the launch's own seat MCP URLs (`http://127.0.0.1:<D>/api/seat-mcp...`), stored in the terminal binding as `seat_ingress_port`; the forward keeper builds `-R 127.0.0.1:P:127.0.0.1:<D>` from the binding whichever Aiterm process holds it. Before, the keeper read `BELLTEAM_REMOTE_SEAT_PORT` from its own environment with default 4182, so a keeper started by a process without that variable forwarded the seats to BellTeam's admin port (401). The variable and the default are gone. Seat URLs that are not `http`, not `127.0.0.1`, or name different ports refuse the launch with `SEAT_FORWARD_UNAVAILABLE` (`not_started`) before any session. A binding written before this release has no `seat_ingress_port` and builds no forward until its next seat launch writes it, so seats launched earlier lose BellTeam MCP until relaunched. A launch with a different port clears the old forward port and the keeper replaces its ssh. Server side only (the terminal needs no update). Older Aiterm ignores the new binding field.
 - Every active Aiterm process now runs the 60 s forward check, so when the process holding a terminal's forward exits, another one takes it over within a minute. Before, only processes that saw terminal seats when they initialized ran it, and a forward could stay down until another Aiterm started.
 
@@ -3170,7 +3172,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...HEAD
+[0.70.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...v0.70.3
 [0.70.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...v0.70.2
 [0.70.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.0...v0.70.1
 [0.70.0]: https://github.com/kitepon/aiterm-mcp/compare/v0.69.0...v0.70.0

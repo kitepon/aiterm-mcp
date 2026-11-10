@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.11] - 2026-11-10
+
 - macOS: a Codex seat with `mcp_config` no longer stops at `reason=unrecognized_screen` with Codex's "unexpected argument '<cwd>'". The pane's bash 3.2 brace-expanded the typed launch line when it held a `"` (the `-c mcp_servers.<name>={...}` value). The one-line launch now sends every quote and expanding character (single and double quotes, backquote, `$`, `!`, `{`, `}`) as a `printf %b` octal escape. Linux, zsh and dash read the same line.
 - `pty_list` seat turns (caller opt-in): terminal relays start before the local read, and their 4 s budget counts only time the event loop was free. Before, a synchronous local read in another overlapping `pty_list` used up the budget while the terminal's answer waited, so most overlapping calls listed every terminal seat in `unread`. Measured with three overlapping calls against the macbook terminal: 0.70.9 left 2 of 3 unread and dropped a row from the third; 0.70.11 returned both rows in all three.
 
@@ -3237,7 +3239,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...HEAD
+[0.70.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...v0.70.11
 [0.70.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...v0.70.10
 [0.70.9]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...v0.70.9
 [0.70.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...v0.70.8

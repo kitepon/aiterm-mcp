@@ -299,6 +299,17 @@ export function windowsAgentLaunchLine(cwd: string | null, env: [string, string 
 }
 
 /**
+ * The one short line typed into a Windows pane instead of the long launch command, which is read
+ * from `file` (0600, Aiterm launch state), deleted, and run in the pane's own scope. The psmux
+ * worker drains 300 ms per 256 bytes, so a multi-KB line cost 6 s (fox, 0.70.7). Invoke-Expression
+ * is not subject to ExecutionPolicy, unlike running a .ps1.
+ */
+export function windowsLaunchIndirection(file: string): string {
+  const f = `'${file.replace(/'/g, "''")}'`;
+  return `$aitermLaunch=[IO.File]::ReadAllText(${f}); Remove-Item -LiteralPath ${f}; Invoke-Expression $aitermLaunch`;
+}
+
+/**
  * Keep accepted shebang wrappers in the same pane, as for control commands.
  * Invoking .sh directly in PowerShell uses its file association and can open a
  * separate Git Bash window whose process outlives the pane (fox, 2026-10-14).

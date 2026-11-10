@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Windows: a local Claude Code / Codex launch no longer types the whole PowerShell launch command (several KB with the sub-agent instruction) into the pane. The psmux send worker drains 300 ms per 256 bytes, so that one call took about 6.4 s of a 9.9 s launch (fox, 0.70.7). Aiterm now writes the command to a private 0600 file in its launch state and types one short line that reads it, deletes it and runs it in the pane's scope. The command, its exit tracking and the drains are unchanged. Environment values no longer appear in the pane's scrollback. POSIX launches are unchanged.
+
 ## [0.70.7] - 2026-11-10
 
 - `pty_list` seat turns (`aiterm.seat-turns.v1`, BellTeam caller only) add `unread: [session_id]`. It names the terminal-bound sessions whose terminal failed or did not answer within 4 s, so the caller can keep their last state instead of reading them as gone. A session missing from a terminal that did answer is absent, as before.

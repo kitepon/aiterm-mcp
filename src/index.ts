@@ -1588,8 +1588,8 @@ server.registerTool(
       launch_operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe("Claude Codeのpromptなしexact replay相関だけで使用"),
       remote: remoteInputField,
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
-      append_system_prompt: z.string().min(1).optional().describe("claude-code and codex-cli only. Launch instructions added to the system prompt (Codex: appended to developer_instructions after Aiterm's marker, at most 64 KiB); kept in Aiterm state, not in the project or home. Never put secrets here"),
-      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("claude-code and codex-cli only. Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex takes only http servers {type?: \"http\", url, headers}: 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes are refused before the seat starts"),
+      append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; at most 64 KiB for both. Cursor and Antigravity have no system-prompt channel: the text goes in front of the first prompt (Antigravity needs a prompt; at most 64 KiB)"),
+      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server; Grok and Antigravity replace a same-name user server for this seat"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1620,8 +1620,6 @@ server.registerTool(
     },
   },
   async ({ harness, remote, terminal, ...args }: any, extra) => {
-    if (harness !== "claude-code" && harness !== "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined))
-      return fail(launchInputRefusal(harness, `append_system_prompt and mcp_config are claude-code and codex-cli only; ${harness} cannot take them`));
     if (terminal) return launchTerminalAgent(harness, terminal, { ...args, ...(remote ? { remote } : {}) }, extra);
     if (remote && args.require_existing_resume) return fail(typeof args.session_name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(args.session_name)
       ? new AgentResumeUnavailableError(args.session_name)

@@ -18,6 +18,10 @@ Aitermのmetadataはsession・launch・保存home・vendor bindingを所有し�
 
 Codexの**停止本人性**は通常完了待ちより厳しい。候補全列挙、symlink/読取失敗拒否、完全headerの印、一意endpoint、前後statと再列挙を照合する。通常読取の新会話追跡へこの一意性を機械的に当てはめたり、停止経路へ通常fallbackを流用したりしない。復帰proofは旧file出生、prefix digest、cursor下限、旧完了turnを保持し、新launchの開始位置と区別する。
 
+## 呼び手の起動指示とMCP（agent_launch append_system_prompt / mcp_config）
+
+全5 harnessが受ける（詳細は[launch-identity-input](launch-identity-input.md)）。席ごとの状態は Aiterm の launch state だけ（project・各 home に書かない）。Claude は `--append-system-prompt-file` / `--mcp-config`。Codex は `-c developer_instructions=`（Aiterm 印の後ろ）と `-c mcp_servers.NAME=`。Grok は `--rules`（Aiterm の lineage の後ろ）と、席ごとの agent 定義 `--agent <seat>.grok-caller-agent.md`（frontmatter `mcpServers:` の**配列**。本文は空で既定 agent の prompt と tool は保つ。header の `${VAR}` は展開されないため `Bearer ${NAME}` は `bearer_token_env_var`、他の `${NAME}` は席の env から Aiterm が解決して 0600 の定義へ書く）。Cursor は system 指示の口が無く、Aiterm の最初の prompt ブロックへ呼び手の文を足し、MCP は `--plugin-dir <seat>.cursor-plugin/aiterm-caller`（`mcp.json` の `${env:NAME}`）。Antigravity は MCP を `--add-dir <seat>.antigravity-caller`（`.agents/mcp_config.json`、header は解決済みの literal）と `--settings` の `trustedWorkspaces`、指示は最初の prompt の前置き。
+
 ## 認証・model・起動UI
 
 model一覧は5通りのnative窓口に依存する。Claudeは一時settingsでhook/MCP/会話保存を抑えたstream-json初期化、Codexは既Steer receiver経由app-server model/list、GrokはmodelsとACP初期化、Cursorはmodels CLIのeffective ID分解、Antigravityはtab形式のmodel選択肢を使う。model/effort/fastの許可組合せとunsupportedはadapter/catalog側で検証する。認証や一覧を読んだことをpromptの実行成功にしない。

@@ -32,6 +32,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { launchEnvValue } from "./private-env.js";
+import { assertCallerEnv } from "./harnesses/caller-mcp.js";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
@@ -53,7 +54,7 @@ import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExe
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
-import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
+import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
@@ -61,7 +62,7 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
-import { AitermError, launchAuthRequired, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, launchAuthRequired, launchInputRefusal, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -120,7 +121,6 @@ import {
   AGENT_EVENT_TAIL_BYTES,
   agentLabel,
   agentHarness,
-  subagentInstruction,
   agentLineageFields,
   type AgentForkOf,
 } from "./agent-shared.js";
@@ -163,6 +163,8 @@ import {
   observeGrokDone,
   buildGrokAgentCmd,
   grokAgentArgv,
+  writeGrokCallerFiles,
+  checkGrokCallerInput,
   grokLaunchNote,
   grokEnvTokens,
   grokEnvEntries,
@@ -275,6 +277,9 @@ import {
   buildCursorAgentCmd,
   cursorAgentArgv,
   cursorPromptWithLineage,
+  cursorLineagePreface,
+  writeCursorCallerFiles,
+  checkCursorCallerInput,
   createCursorAgentMetadata,
   cursorLaunchNote,
   cursorEffortNavigation,
@@ -643,6 +648,10 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-caller-mcp.json") ||
           f.endsWith(".codex-caller-prompt.md") ||
           f.endsWith(".codex-caller-mcp.json") ||
+          f.endsWith(".grok-caller-prompt.md") ||
+          f.endsWith(".grok-caller-agent.md") ||
+          f.endsWith(".cursor-caller-prompt.md") ||
+          f.endsWith(".antigravity-caller-prompt.md") ||
           f.endsWith(".launch-env") ||
           f.endsWith(".claude-result.json") ||
           f.endsWith(".cursor-result.json") ||
@@ -655,7 +664,7 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".steers.jsonl") ||
           f.endsWith(".auth.json")
         ) fs.unlinkSync(p);
-        else if (f.endsWith(".seat-span.d") || f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
+        else if (f.endsWith(".seat-span.d") || f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".antigravity-caller") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
           fs.rmSync(p, { recursive: true, force: true });
         }
       } catch {
@@ -5109,7 +5118,7 @@ async function sendInitialAgentPromptInLock(
     );
   }
   await o.after_ready?.(name, meta);
-  const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
+  const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : meta.kind === "antigravity" ? antigravityPromptWithCaller(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
   const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   try {
@@ -7385,7 +7394,7 @@ async function dispatchAgentTurnInLock(
   // 画面の確かめを飛ばす送信（force）と、加工なしの送信（raw）には、既定の前置きを打たない（打った文は入力欄がそのまま読む）。
   const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.force && !o.raw });
   const dispatchText = meta.kind === "cursor" && !meta.vendor_session_id
-    ? `${subagentInstruction(meta)}\n\n${prefaced.body}`
+    ? `${cursorLineagePreface(meta)}\n\n${prefaced.body}`
     : prefaced.body;
   prepareSendText(dispatchText, { raw: o.raw });
   const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
@@ -7888,7 +7897,7 @@ function buildAgentCmd(
   if (kind === "claude") return buildClaudeAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "codex") return buildCodexAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "cursor") return buildCursorAgentCmd(bin, model, effort, prompt, meta, cursorFast);
-  if (kind === "antigravity") return antigravityAgentArgv(bin, model, effort, prompt).map(shq).join(" ");
+  if (kind === "antigravity") return antigravityAgentArgv(bin, model, effort, prompt, meta).map(shq).join(" ");
   return buildGrokAgentCmd(kind, bin, model, effort, prompt, meta);
 }
 
@@ -8237,6 +8246,12 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             meta.agent_executable = bin;
             if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
             if (meta.kind === "codex") writeCodexCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
+            if (meta.kind === "grok" || meta.kind === "cursor" || meta.kind === "antigravity") {
+              // The seat's own environment: what ${NAME} in a header resolves to (and what a harness reads at run time).
+              const seatEnv = new Map(agentEnvEntries(meta, sid, envVars));
+              const write = meta.kind === "grok" ? writeGrokCallerFiles : meta.kind === "cursor" ? writeCursorCallerFiles : writeAntigravityCallerFiles;
+              write(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null, name => seatEnv.get(name));
+            }
             if (opts.fork_of) meta.fork_of = opts.fork_of;
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
@@ -8267,7 +8282,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
           const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
             : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
             : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
-            : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt)
+            : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt, meta)
             : grokAgentArgv(kind, bin, model, effort, prompt, meta);
           full = windowsAgentLaunchLine(cwd, [
             ...claudeRootEntries, ...(meta?.kind === "grok" ? grokEnvEntries(meta) : []), ...agentEnvEntries(meta, sid, envVars),
@@ -8427,6 +8442,21 @@ export function resolveForkSource(kind: AgentKind, from: { session_id: string; f
     write_ban, ...(first_input ? { first_input } : {}) }, cwd: main.cwd, ...(root ? { root } : {}) };
 }
 
+/** Caller launch fields refused from the arguments alone, before any session or file exists (phase "input"). */
+function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: string | null; mcp_config?: Record<string, unknown> | null;
+  prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[] }): void {
+  if (kind === "codex") return refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
+  if (kind !== "grok" && kind !== "cursor" && kind !== "antigravity") return;
+  try {
+    const servers = (kind === "grok" ? checkGrokCallerInput : kind === "cursor" ? checkCursorCallerInput : checkAntigravityCallerInput)(opts.append_system_prompt, opts.mcp_config);
+    // Cursor puts the text in the seat's first dispatch whatever it is; agy's only channel is the launch prompt itself.
+    if (kind === "antigravity" && opts.append_system_prompt != null && opts.prompt == null && opts.throughline_source_session == null)
+      throw new AitermError("append_system_prompt needs a prompt for antigravity-cli (agy has no instruction channel; the text prefixes the first prompt)", 2);
+    const envVars = opts.env_vars ?? [];
+    assertCallerEnv(kind.toUpperCase() as "GROK" | "CURSOR" | "ANTIGRAVITY", servers, name => envVars.includes(name) ? launchEnvValue(name) : undefined, true);
+  } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+}
+
 export async function openAgentWithInitialPrompt(
   kind: AgentKind,
   opts: {
@@ -8452,7 +8482,7 @@ export async function openAgentWithInitialPrompt(
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
   // Caller launch fields: refused from the arguments alone, before any session or file exists (phase "input").
-  if (kind === "codex") refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
+  refuseCallerInput(kind, opts);
   const fork = opts.fork_from ? resolveForkSource(kind, opts.fork_from, opts) : null;
   if (opts.configuration_root != null && kind !== "claude")
     throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);

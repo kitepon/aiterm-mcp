@@ -18,6 +18,8 @@ import {
   agentHarness,
   agentLineageFields,
   agentMetadataPath,
+  agentsDir,
+  assertSessionName,
   createEmpty0600,
   readFileRange,
   safeStatSize,
@@ -26,7 +28,9 @@ import {
   subagentInstruction,
   writeAgentMetadata,
   writeScopeLaunchNote,
+  writeText0600,
 } from "../agent-shared.js";
+import { assertCallerEnv, checkCallerInput, readCallerText, writeCallerJson, type CallerServer } from "./caller-mcp.js";
 import type {
   AgentDoneEvent,
   AgentKind,
@@ -562,6 +566,49 @@ export function assertCursorAuthenticationReady(bin: string): void {
   );
 }
 
+// ---- Caller launch fields (launch-identity-input.md "Caller launch fields"). Cursor has no per-run instruction channel, so the
+// text joins Aiterm's first-prompt block; the servers are a per-seat plugin folder passed as --plugin-dir. Both live in Aiterm state.
+
+export function agentCursorCallerPromptPath(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.cursor-caller-prompt.md`);
+}
+
+/** The plugin folder's name becomes part of each server's name (plugin-aiterm-caller-<name>), so it is fixed under a per-seat parent. */
+export function agentCursorCallerPluginDir(name: string): string {
+  assertSessionName(name);
+  return path.join(agentsDir(), `${name}.cursor-plugin`, "aiterm-caller");
+}
+
+/** Cursor expands ${env:NAME} in headers from the seat's environment, so no secret value is written. */
+export function cursorCallerMcpJson(servers: CallerServer[]): { mcpServers: Record<string, unknown> } {
+  return { mcpServers: Object.fromEntries(servers.map(server => [server.name, {
+    url: server.url,
+    ...(server.headers.length ? { headers: Object.fromEntries(server.headers.map(header => [header.name,
+      header.kind === "bearer" ? `Bearer \${env:${header.value}}` : header.kind === "env" ? `\${env:${header.value}}` : header.value])) } : {}),
+  }])) };
+}
+
+export function checkCursorCallerInput(prompt: string | null | undefined, mcp: unknown): CallerServer[] {
+  return checkCallerInput("CURSOR", prompt, mcp);
+}
+
+export function writeCursorCallerFiles(meta: AgentMetadata, prompt: string | null, mcp: Record<string, unknown> | null, valueOf: (name: string) => string | undefined): void {
+  const servers = checkCursorCallerInput(prompt, mcp);
+  assertCallerEnv("CURSOR", servers, valueOf);
+  if (prompt !== null) {
+    const file = agentCursorCallerPromptPath(meta.aiterm_session);
+    writeText0600(file, prompt);
+    meta.cursor_caller_prompt_file = file;
+  }
+  if (mcp !== null) {
+    const dir = agentCursorCallerPluginDir(meta.aiterm_session);
+    writeCallerJson(path.join(dir, ".cursor-plugin", "plugin.json"), { name: "aiterm-caller", version: "1.0.0", description: "MCP servers Aiterm adds for this seat" });
+    writeCallerJson(path.join(dir, "mcp.json"), cursorCallerMcpJson(servers));
+    meta.cursor_caller_mcp_dir = dir;
+  }
+}
+
 /** 起動argv（先頭が実行ファイル）。paneのshellに合わせた引用は呼び出し側が行う。 */
 export function cursorAgentArgv(
   bin: string,
@@ -578,6 +625,7 @@ export function cursorAgentArgv(
   // managed agentは人の対話承認を待てない。Cursor公式の無人運転フラグで
   // workspace・MCP server・各tool callの確認をadapter内に閉じ込める。
   parts.push("--force", "--approve-mcps", "--trust");
+  if (meta?.kind === "cursor" && meta.cursor_caller_mcp_dir) parts.push("--plugin-dir", meta.cursor_caller_mcp_dir);
   if (meta?.kind === "cursor" && meta.write_scope === "read-only") parts.push("--mode", "ask");
   if (prompt) parts.push(meta ? cursorPromptWithLineage(meta, prompt) : prompt);
   return parts;
@@ -594,7 +642,7 @@ export function buildCursorAgentCmd(
   // 固定の語彙（--force、--mode ask等）は引用しない。実行ファイル、model、promptだけを引用する。
   const argv = cursorAgentArgv(bin, model, effort, prompt, meta, fast);
   return argv.map((part, index) =>
-    index === 0 || argv[index - 1] === "--model" || (prompt !== null && index === argv.length - 1) ? shq(part) : part,
+    index === 0 || argv[index - 1] === "--model" || argv[index - 1] === "--plugin-dir" || (prompt !== null && index === argv.length - 1) ? shq(part) : part,
   ).join(" ");
 }
 
@@ -605,8 +653,14 @@ export function buildCursorAgentCmd(
  */
 export { windowsAgentLaunchLine as cursorPwshLaunchLine, windowsAgentArgv as cursorPwshArgv } from "../agent-resolver.js";
 
+/** Aiterm's lineage block, then the caller's text: the one block that precedes the first prompt (Cursor has no system channel). */
+export function cursorLineagePreface(meta: AgentMetadata): string {
+  const caller = readCallerText(meta.cursor_caller_prompt_file);
+  return caller === null ? subagentInstruction(meta) : `${subagentInstruction(meta)}\n\n${caller}`;
+}
+
 export function cursorPromptWithLineage(meta: AgentMetadata, prompt: string): string {
-  return `${subagentInstruction(meta)}\n\n${prompt}`;
+  return `${cursorLineagePreface(meta)}\n\n${prompt}`;
 }
 
 export function cursorLaunchNote(model: string | null, effort: string | null, meta: AgentMetadata | null): string {

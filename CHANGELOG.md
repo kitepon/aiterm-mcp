@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.5] - 2026-11-10
+
 - A fresh managed launch (Claude Code, Codex) whose terminal session could not be set up no longer answers `AGENT_RESUME_UNCONFIRMED: 復帰したnative端末の本人性を確認できません`. That one sentence came from fifteen places, on fresh launches as well as resumes, and a fresh launch refused on a Mac terminal on 2026-11-10 could not be traced to its place afterwards. Every such refusal now names its place as `native_reason=<site>`; a failed tmux command adds its name, exit code and first error line, an unreadable creation receipt adds the output size.
 - After a failed setup Aiterm closes the session it created and then reads the complete session list. When the name is absent and no hibernated seat holds it, the launch answers `AGENT_LAUNCH_NOT_STARTED` with `_meta["aiterm/launch_error"]` (`effect: "not_started"`, `session_created: false`, `phase: "native_create"`; on a terminal seat `phase: "terminal"`, projected by the server like the other not-started codes). The caller can launch again; nothing was typed and nothing remains. When the created session is still listed, or the list cannot be read, the text keeps `creation_rollback_unconfirmed` and no not-started result is given. Before, a failed `has-session` of any kind was read as "already gone". A fresh launch whose identity check fails without that proof answers `AGENT_LAUNCH_UNCONFIRMED`; `pty_close` of the name, then a new launch, is the way out. Resumes keep `AGENT_RESUME_UNCONFIRMED`. A terminal must run this release to answer the new codes.
 - A launch refused because a live session already has the name answers `SESSION_EXISTS: session '<name>' は既に存在します…`.
@@ -3187,7 +3189,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...HEAD
+[0.70.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...v0.70.5
 [0.70.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...v0.70.4
 [0.70.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...v0.70.3
 [0.70.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...v0.70.2

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.13] - 2026-11-10
+
 - A terminal's seat MCP route (the R12 reverse forward) starts seconds after credential-load instead of at the next 60 s check. Every active Aiterm process now watches the credentials directory, and a newly written `<ref>.json` runs the forward check at once. After an execution restart, seats on keyless terminals were without BellTeam MCP for up to a minute after the key arrived. The 60 s check stays as the fallback.
 
 ## [0.70.12] - 2026-11-10
@@ -3245,7 +3247,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...HEAD
+[0.70.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...v0.70.13
 [0.70.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...v0.70.12
 [0.70.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...v0.70.11
 [0.70.10]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.9...v0.70.10

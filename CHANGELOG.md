@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.4] - 2026-11-10
+
 - `agent_configure` on Claude Code reads both `/model` picker layouts. Claude Code 2.1.322 shows, per session, either versioned rows (`Opus 5.5`) or alias rows with the model the alias resolves to in the second column (`Opus ✔  Opus 5.5 · …`). Rows now match by their first column or, outside the `Default` row and only when unique, by that resolved model, so `opus`, `sonnet`, `haiku` and `claude-opus-5-5` work on alias pickers. Before, every model change on an alias picker was refused with `CLAUDE_MODEL_NOT_IN_PICKER`. An alias still matches the native catalog's model, not the picker's alias row: where the session's `Fable` row resolves to Fable 5.1 and the catalog names Fable 5.2, `fable` and `claude-fable-5-2` are refused rather than selecting the older model. The refusal now lists alias rows with their resolved model, e.g. `Fable (Fable 5.1)`. A missing Claude CLI during this lookup now reports `CLAUDE_MODEL_CATALOG_UNAVAILABLE` instead of `CLAUDE_MODEL_NOT_IN_PICKER`.
 - A Claude picker refusal carries `_meta["aiterm/configure_error"]` = `{code, relaunch}` on tracked and untracked calls. `relaunch: true` (`CLAUDE_MODEL_NOT_IN_PICKER` for a model in the native catalog, `CLAUDE_MODEL_NOT_SELECTABLE`, `CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`) means this live session cannot take the model but a launch or resume with it can.
 - A tracked request refused by the Claude picker before its selecting key (`s`, or the switch confirmation's Enter), with the picker and confirmation read closed after Esc, is stored with `native_effect: "selection_excluded"` and reconciles to `later_effect: "excluded"`. Before, the `/model` command alone left it `unconfirmed`. A refusal whose picker stays open, or any refusal after `s`, stays `unconfirmed`. Older Aiterm cannot parse the new value and reads such a receipt as `unavailable`/`unconfirmed`. The change is where the Claude seat runs: the BellTeam body for container seats, the terminal for terminal seats.
@@ -3176,7 +3178,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...HEAD
+[0.70.4]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.3...v0.70.4
 [0.70.3]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.2...v0.70.3
 [0.70.2]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.1...v0.70.2
 [0.70.1]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.0...v0.70.1

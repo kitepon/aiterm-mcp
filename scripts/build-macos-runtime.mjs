@@ -45,9 +45,19 @@ async function fetchPinned(key) {
   const [url, want] = SOURCES[key];
   const file = path.join(work, "dl", path.basename(url));
   if (!fs.existsSync(file) || sha256(file) !== want) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`download ${url}: HTTP ${response.status}`);
-    fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+    // Builds block the event loop for minutes, so a pooled keep-alive socket can be closed by the server by the
+    // next download ("fetch failed"). A new attempt takes a new connection; the pinned sha256 still decides.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`download ${url}: HTTP ${response.status}`);
+        fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+        break;
+      } catch (error) {
+        console.error(`download ${url} attempt ${attempt}: ${error.message}${error.cause ? ` (${error.cause.code ?? error.cause.message})` : ""}`);
+        if (attempt >= 3) throw error;
+      }
+    }
   }
   if (sha256(file) !== want) throw new Error(`sha256 mismatch for ${url}`);
   return file;

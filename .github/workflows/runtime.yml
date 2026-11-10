@@ -25,13 +25,15 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        # The runtime is built from the npm package; the checkout only supplies the build scripts. A manual run takes
+        # them from the dispatched ref, so a build-script fix can supply a released version's missing assets.
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
       - name: resolve version
         shell: bash
         run: |
-          version=$(node -p "require('./package.json').version")
-          test "$VERSION_INPUT" = "v$version"
+          version="${VERSION_INPUT#v}"
+          if [ "$GITHUB_EVENT_NAME" = release ]; then test "$version" = "$(node -p "require('./package.json').version")"; fi
           printf 'RUNTIME_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
       - name: wait for the npm package
         shell: bash

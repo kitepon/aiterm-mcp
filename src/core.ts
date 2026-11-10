@@ -75,6 +75,7 @@ import {
   pasteBufferBaseArgs,
   tmuxNewSession,
   withNativeSessionCreation, withNativeSessionTarget, hasVerifiedNativeSessionTarget,
+  withNativeSessionSetupRollback, hasNativeSessionSetupRollback,
   registeredSessionEnvironment, registerSessionEnvironment,
   attachCommand,
   normalizePaneCommand,
@@ -903,6 +904,7 @@ export function openSession(name?: string | null, shell = "bash", envVars: strin
 function openSessionInternal(name: string | null | undefined, shell: string, envVars: string[], preserveAgentState: boolean): [string, string] {
   assertExecutionContext(name);
   shell = resolveWinPaneShell(shell);
+  return withNativeSessionSetupRollback(shell, () => {
   for (const key of envVars) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_varsの環境変数名が不正です", 2);
   }
@@ -936,7 +938,7 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
           const at = entry.indexOf("=");
           const registered = tmux("set-environment", "-t", nm, entry.slice(0, at), entry.slice(at + 1));
           if (registered.code !== 0) {
-            tmux("kill-session", "-t", nm);
+            if (!hasNativeSessionSetupRollback()) tmux("kill-session", "-t", nm);
             throw new AitermError("session環境変数を登録できません", 2);
           }
         }
@@ -975,11 +977,13 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
   const pr = tmux("pipe-pane", "-t", nm, "-o", `cat >> ${quoted}`);
   if (pr.code !== 0) {
     // 配管に失敗した session は pty_read が永遠に空を返す＝成功を装わない。作った session を片付けて明示エラー。
-    try { tmuxCleanup("kill-session", "-t", nm); } catch { /* cleanup failure is not a second observation */ }
-    try {
-      fs.unlinkSync(logpath(nm)); // B14: 直前に作った空 .log も残さない
-    } catch {
-      /* noop */
+    if (!hasNativeSessionSetupRollback()) {
+      try { tmuxCleanup("kill-session", "-t", nm); } catch { /* cleanup failure is not a second observation */ }
+      try {
+        fs.unlinkSync(logpath(nm)); // B14: 直前に作った空 .log も残さない
+      } catch {
+        /* noop */
+      }
     }
     ownTelemetryFailure(
       "AITERM.PERSISTENCE_WRITE_FAILED",
@@ -993,6 +997,7 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
     ownTelemetryFailure("AITERM.PERSISTENCE_WRITE_FAILED", error);
   }
   return [nm, attachHint(nm)];
+  });
 }
 
 export interface SendOpts {

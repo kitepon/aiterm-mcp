@@ -18,7 +18,11 @@ digraph launch {
  receipt [label="index.ts: structuredContent / fail\nlaunch receipt has no launch_id field"];
  observe [label="pty_observe\ncurrent launch ID / existence / native identity\nseparate observation, no screen or raw argv"];
  request -> root [label="configuration_root"];root -> entry;request -> entry;entry -> create [label="new terminal path"];entry -> resume [label="hibernated / verified failed recovery\nroot change only if <root>/projects/<slug>/<vsid>.jsonl exists"];
- create -> mux;mux -> identity [label="created receipt"];
+ setup [label="openSessionInternal: scoped setup rollback\nnew-session window witness -> receipt -> session-local token\ntransfer / restore names before birth callback"];
+ rollback_setup [label="Setup throw: tuple + creation marker -> conditional own close\nNo birth read; replacement preserved; original error retained",fillcolor="#ffe6e6"];
+ create -> setup;setup -> mux;mux -> identity [label="captured receipt / marker transfer"];
+ setup -> rollback_setup [label="identity / env / log / offset failure"];
+ rollback_setup -> receipt;
  identity -> fail [label="null / unavailable"];fail -> receipt;
  identity -> verify [label="both identities recorded"];
  verify -> launch [label="same target, readable births"];

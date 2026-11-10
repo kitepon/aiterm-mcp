@@ -12,6 +12,8 @@ digraph native_runtime {
  result [label="Caller gets typed state / command result / display\nNo process liveness → turn success shortcut",fillcolor="#eeeeee"];
  diagnostic [label="Read-only diagnostics only\nResolution + one scoped list share 5000ms budget\n1MiB limit / fixed safe failure codes\nNo PTY creation; legacy native unchanged"];
  diagnostic -> backend [label="read-only"];diagnostic -> result [label="no raw path / stderr"];
+ setup [label="Managed native setup rollback\nAtomic window witness -> receipt -> session token\nSynchronous setup errors: tuple + token conditional close\nNo birth-read dependency; no replacement cleanup"];
+ core -> setup;setup -> env;
  core -> gate;gate -> env;env -> backend;gate -> backend;backend -> worker;backend -> processes;backend -> shell;
  processes -> result;worker -> result;shell -> display;display -> result;
 }

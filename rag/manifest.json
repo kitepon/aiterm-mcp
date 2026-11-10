@@ -3967,7 +3967,24 @@
       "relevance": "Native session membership for safe process-tree stop; never interpret redacted sess zero as one shared session.",
       "chars": 26110,
       "fetched": "2026-11-01"
+    },
+    {
+      "slug": "psmux-338-window-rename-options",
+      "topic": "backends",
+      "title": "psmux 3.3.8 window rename options",
+      "source_url": "https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/server/options.rs",
+      "source_type": "official_source",
+      "path": "sources/backends/psmux-338-window-rename-options.md",
+      "tags": [
+        "psmux",
+        "window",
+        "rollback"
+      ],
+      "summary": "Exact automatic-rename option handling and manual name restoration.",
+      "relevance": "Creation rollback ownership uses a temporary window name; restore ordinary window behavior without changing user defaults.",
+      "chars": 31078,
+      "fetched": "2026-11-10"
     }
   ],
-  "updated": "2026-11-01"
+  "updated": "2026-11-10"
 }

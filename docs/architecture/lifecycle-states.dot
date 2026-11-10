@@ -16,6 +16,13 @@ digraph lifecycle {
  published [label="publishAgentGeneration(old,next)\nnext pointer visible before ready"];
  ready [label="prepareAgentInput / restore fast if needed\nthen old attempt = ready"];
  failed [label="Catch: attempt = failed if writable\nresuming also blocks replay\nreturn typed input:not_sent",fillcolor="#ffe9e9"];
+ allocated [label="New managed native: atomic creation witness\nReceipt/token retained before birth callback"];
+ setup_failed [label="Synchronous setup throw\nConditional tuple + marker close, preserve original error\nReplacement untouched / unavailable close is unconfirmed",fillcolor="#ffe9e9"];
+ vacant [label="Created shell removed\nNormal later same-name launch"];
+ allocated -> active [label="setup and launch committed"];
+ allocated -> setup_failed [label="birth / env / log / offset failure"];
+ setup_failed -> vacant [label="owned native closed"];
+ vacant -> allocated [label="normal launch, no replay"];
  active -> eligible;active -> explicit [label="caller request"];explicit -> stopping [label="ready"];eligible -> active [label="not due / unknown",style=dashed];eligible -> stopping [label="ready"];stopping -> effect;
  effect -> asleep [label="exit confirmed"];effect -> rollback [label="pre-effect failure"];rollback -> active [label="cancel persisted"];rollback -> unknown [label="cancel failed"];effect -> unknown [label="effect issued + incomplete"];
  asleep -> resume [label="new normal input request\nor launch with configuration_root (Claude root switch)"];resume -> staged;resume -> unknown [label="precondition not proven"];

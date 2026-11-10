@@ -5,7 +5,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import stringWidth from 'string-width';
@@ -16,10 +16,12 @@ import { ExecutionError } from "./execution-wire.js";
 import { parseNativeSessionReceipt, nativePaneTarget, nativeSessionTarget, nativeSessionCondition, type NativeSessionReceipt } from "./native-session.js";
 export type { NativeSessionReceipt } from "./native-session.js";
 type NativeTarget = { session: string | null; target: NativeSessionReceipt | null; verify: () => void;
-  created?: (receipt: NativeSessionReceipt) => void; checking?: boolean; allowExitedPane?: boolean };
+  created?: (receipt: NativeSessionReceipt) => void; checking?: boolean; allowExitedPane?: boolean;
+  setup?: NativeSetup; creationCondition?: string; allowRefusal?: boolean };
+type NativeSetup = { token: string; window: string; shell: string; target: NativeSessionReceipt | null };
 const nativeTargets = new AsyncLocalStorage<NativeTarget>();
 const nativeReads = new Set(["list-sessions", "list-commands", "list-panes", "list-windows", "has-session", "display-message", "capture-pane", "show-environment", "show-options"]);
-const nativePanes = new Set(["send-keys", "paste-buffer", "pipe-pane", "capture-pane", "display-message", "list-panes"]);
+const nativePanes = new Set(["send-keys", "paste-buffer", "pipe-pane", "capture-pane", "display-message", "list-panes", "rename-window", "set-window-option"]);
 const nativeTargetUnavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative端末の本人性を確認できません。", 2);
 function verifyNativeTarget(frame: NativeTarget): void {
   if (frame.checking) return;
@@ -45,6 +47,40 @@ export function withNativeSessionCreation<T>(session: string | null, created: (r
   if (nativeTargets.getStore()) throw nativeTargetUnavailable();
   return nativeTargets.run({ session, target: null, created, verify }, body);
 }
+
+const CREATION_TOKEN_OPTION = "@aiterm_create_token";
+export function hasNativeSessionSetupRollback(): boolean { return !!nativeTargets.getStore()?.setup; }
+
+/** Only the native setup is transactional; later readiness may intentionally retain a live agent. */
+export function withNativeSessionSetupRollback<T>(shell: string, body: () => T): T {
+  const frame = nativeTargets.getStore();
+  if (!frame?.created || frame.setup) return body();
+  const token = randomBytes(16).toString("hex");
+  const setup: NativeSetup = { token, window: `aiterm-create-${token}`, shell: path.basename(shell), target: null };
+  frame.setup = setup;
+  try { return body(); }
+  catch (error) {
+    if (setup.target) {
+      try {
+        const closed = creationCommand(setup, ["kill-session", "-t", setup.target.session_id], true);
+        // An already absent native is a finished rollback: the created callback may have closed it.
+        if (closed.code !== 0 && creationCommand(setup, ["has-session", "-t", setup.target.session_id]).code === 0) throw nativeTargetUnavailable();
+      } catch {
+        if (error instanceof Error) error.message += "\ncreation_rollback_unconfirmed: 作成した端末の片付けを確認できません。";
+      }
+    }
+    throw error;
+  } finally { delete frame.setup; }
+}
+
+// This scope is private to marker transfer and rollback; ordinary effects still require OS birth identity.
+function creationCommand(setup: NativeSetup, args: string[], allowRefusal = false): { code: number; stdout: string; stderr: string } {
+  const target = setup.target!;
+  const creationCondition = `#{||:#{==:#{window_name},${setup.window}},#{==:#{${CREATION_TOKEN_OPTION}},${setup.token}}}`;
+  return nativeTargets.run({ session: target.session_id, target, verify: () => {}, creationCondition, allowRefusal },
+    () => runTmux(false, undefined, args));
+}
+
 function captureNativeSessionReceipt(receipt: string): void {
   const frame = nativeTargets.getStore();
   if (!frame?.created || frame.target) throw nativeTargetUnavailable();
@@ -53,6 +89,18 @@ function captureNativeSessionReceipt(receipt: string): void {
   if (frame.session !== null && target.session_id !== frame.session) throw nativeTargetUnavailable();
   frame.session = target.session_id;
   frame.target = target;
+  if (frame.setup) {
+    const setup = frame.setup;
+    setup.target = { ...target };
+    const commands = [["set-option", "-t", target.session_id, CREATION_TOKEN_OPTION, setup.token],
+      ["rename-window", "-t", target.session_id, setup.shell]];
+    if (isWin) {
+      const inherited = creationCommand(setup, ["show-options", "-t", target.session_id, "-v", "automatic-rename"]);
+      if (inherited.code !== 0 || !["on", "off"].includes(inherited.stdout.trim())) throw nativeTargetUnavailable();
+      commands.push(["set-window-option", "-t", target.session_id, "automatic-rename", inherited.stdout.trim()]);
+    } else commands.push(["set-window-option", "-t", target.session_id, "-u", "automatic-rename"]);
+    for (const command of commands) if (creationCommand(setup, command).code !== 0) throw nativeTargetUnavailable();
+  }
   frame.created({ ...frame.target });
   verifyNativeTarget(frame);
 }
@@ -93,7 +141,9 @@ const NATIVE_REFUSED = "__AITERM_NATIVE_GENERATION_REFUSED__";
 function nativeConditionalArgs(args: string[]): string[] {
   const target = nativeTargets.getStore()?.target;
   if (!target || nativeReads.has(args[0]) || args[0] === "delete-buffer") return args;
-  const condition = nativeSessionCondition(target, nativeTargets.getStore()?.allowExitedPane);
+  const frame = nativeTargets.getStore()!;
+  const nativeCondition = nativeSessionCondition(target, frame.allowExitedPane);
+  const condition = frame.creationCondition ? `#{&&:${nativeCondition},${frame.creationCondition}}` : nativeCondition;
   const quote = (value: string) => isWin
     ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : `'${value.replace(/'/g, "'\\''")}'`;
@@ -428,7 +478,7 @@ function runTmux(
     ptyDependencyError(tmuxMissingMessage(), observe);
   }
   const native = nativeTargets.getStore();
-  if (native?.target && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable();
+  if (native?.target && !native.allowRefusal && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable();
   if (native?.target && r.status !== 0) verifyNativeTarget(native);
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -701,11 +751,17 @@ export function tmuxNewSession(
   if (guarded) { if (isWin) throw new ExecutionError("EXECUTION_UNSUPPORTED"); cold = prepareExecutionCreation(); }
   const printNative = pinned ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}"]
     : guarded ? ["-P", "-F", "#{session_id}\t#{session_name}\t#{pid}"] : [];
+  const witness = nativeTargets.getStore()?.setup;
+  if (witness) printNative.push("-n", witness.window);
   if (isWin) {
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
     if (result.code === 0) {
       if (pinned) {
-        try { if (parseNativeSessionReceipt(result.stdout).session_id !== name) throw nativeTargetUnavailable(); }
+        try {
+          const receipt = parseNativeSessionReceipt(result.stdout);
+          if (receipt.session_id !== name) throw nativeTargetUnavailable();
+          if (witness) witness.target = receipt;
+        }
         catch { throw nativeTargetUnavailable(); }
       }
       // Existing psmux 3.3.8 registry protection must run before identity reads can trigger registry reaping.

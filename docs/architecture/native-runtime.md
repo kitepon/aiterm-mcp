@@ -74,3 +74,8 @@ Data flow: local MCP or SSH-forwarded managed input -> existing process-local or
 Historical file-lock cleanup and logical-close admission remain outside the managed input path; no user/Host state files are deleted by this source change. Existing close/metadata/recipe/native identity and private execution effect guards are unchanged.
 
 Focused synthetic regression: selected ready Codex with missing legacy directory dispatches its first input without mkdir or either input file lock; actual TUI-unready and absent-native branches send no payload. Standalone ordinary PTY retains file exclusion. Source fixture is not evidence of the old production failure branch or real vendor acceptance.
+
+
+## Creation setup rollback (0.70.2)
+
+Function/data-flow contract: managed creation → `withNativeSessionSetupRollback` around core native setup → `new-session -n aiterm-create-<random>` → actual receipt saved → tuple-and-marker-conditioned session option transfer / normal window restoration → ordinary birth verification / setup. A setup throw issues only a tuple-and-marker-conditioned `kill-session`, through the existing logical execution gate. The token is native option metadata, never a caller/harness env value. Rollback does not use missing OS birth data, does not adopt a same-name target and does not delete its name-based files. Ordinary PTY/private creation stays unchanged; managed resume shares only the synchronous setup boundary, keeping old state and later readiness behavior. See [lifecycle ownership](lifecycle-state-ownership.md) for failure exits and retained sessions.

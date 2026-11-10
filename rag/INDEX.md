@@ -4,7 +4,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 忠実 Markdown 化した版（front-matter にメタdata）。
 **設計/実装の前にまずここを読み、該当資料を再利用する（再フェッチしない）。**
 
-- 総数: **212** 件 / 更新: 2026-11-01
+- 総数: **213** 件 / 更新: 2026-11-10
 - 取り込み: `python3 rag/ingest.py <sources.json>` → `python3 rag/build_index.py`
 - 統合分析: [briefs/](briefs/)
 
@@ -215,7 +215,7 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
   - 出典: <https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration> (docs, 17019 chars)
   - 効きどころ: WSL2上の対象環境そのもの。bashのPS0=133;C/PS1=133;A..B注入の実コードがあり、自前でマーカーを仕込む方式の雛形になる。
 
-## バックエンド (backends) — 44件
+## バックエンド (backends) — 45件
 
 - [Detach — GNU Screen User's Manual](sources/backends/gnu-screen-detach.md) — GNU screenのdetach仕様。C-a dで端末から切離しバックグラウンド化、接続喪失時のautodetach、-rでの再接続を解説。
   - 出典: <https://www.gnu.org/software/screen/manual/html_node/Detach.html> (docs, 1578 chars)
@@ -274,6 +274,9 @@ AIターミナル直接操作プロジェクトの調査一次資料。`rag/sour
 - [psmux v3.3.8 session registry and cleanup](sources/backends/psmux-338-session-registry.md) — Pinned registry ownership and cleanup source for synthetic fixture correctness.
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/v3.3.8/src/session.rs> (official_source, 103738 chars)
   - 効きどころ: Identify the registry schema and scope of read-only query side effects without using real records.
+- [psmux 3.3.8 window rename options](sources/backends/psmux-338-window-rename-options.md) — Exact automatic-rename option handling and manual name restoration.
+  - 出典: <https://raw.githubusercontent.com/psmux/psmux/66cf61354c473b35d4f0c06c57384fc46d61ffdb/src/server/options.rs> (official_source, 31078 chars)
+  - 効きどころ: Creation rollback ownership uses a temporary window name; restore ordinary window behavior without changing user defaults.
 - [psmux features — server persistence, control mode, tmux compatibility](sources\backends\psmux-features-doc.md) — psmuxの機能詳細。session serverはSSH切断・端末クラッシュを生存、warm sessionでバックグラウンドサーバ事前起動、psmux-resurrect/continuumプラグイン、send-keys/capture-pane/pipe-paneをCI/CD自動化向けと明記、control mode -C/-CCの%begin/%end framing、-L名前空間隔離、ConPTY利用。
   - 出典: <https://raw.githubusercontent.com/psmux/psmux/master/docs/features.md> (docs, 14446 chars)
   - 効きどころ: Aitermがtmuxに要求する能力（detached永続・send/capture/pipe-pane・socket隔離）とpsmuxの対応を突合する一次資料。

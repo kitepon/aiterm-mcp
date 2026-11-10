@@ -12,7 +12,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
-import { posixCommand, remotePlatform, type RemotePlatform } from "./remote.js";
+import { WAIT_RESOLVE, powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
 
@@ -181,7 +181,8 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   if (/Host key verification failed|No .* host key is known/i.test(stderr))
     return { code: "HOST_TRUST_MISSING", message: "the terminal's host key is not trusted", action: "confirm the new host key" };
   if (/Permission denied|Too many authentication failures/i.test(stderr)) return { code: "AUTH_FAILED", message: "the terminal refused the key" };
-  if (/aiterm-mcp: (command )?not found|aiterm-mcp: No such file/i.test(stderr))
+  // POSIX, our own Windows guard (any language), and the English cmd / PowerShell wording when it names an Aiterm program.
+  if (/aiterm-[\w-]+: (command )?not found|aiterm-[\w-]+: No such file|aiterm-[\w-]+['"]? is not recognized as (an internal or external command|(the|a) name of a cmdlet)/i.test(stderr))
     return { code: "REMOTE_AITERM_UNAVAILABLE", message: "Aiterm is not installed on the terminal" };
   if (/Connection refused/i.test(stderr)) return { code: "CONNECTION_REFUSED", message: "the terminal refused the SSH connection" };
   if (/timed out|No route to host|Network is unreachable|Could not resolve|Connection closed|Connection reset/i.test(stderr))
@@ -267,11 +268,23 @@ export type RemoteCommandOp = "claude_version" | "claude_install" | "claude_upda
 type ClaudeCommandOp = Exclude<RemoteCommandOp, "path_status" | "make_dir" | "list_dirs">;
 export const REMOTE_COMMAND_OPS = ["claude_version", "claude_install", "claude_update", "path_status", "make_dir", "list_dirs"] as const;
 
-const COMMANDS: Record<ClaudeCommandOp, string> = {
-  claude_version: "claude --version",
-  claude_install: "curl -fsSL https://claude.ai/install.sh | bash",
-  claude_update: "claude update",
+// Fixed operations per terminal shell (R21). Windows: the official PowerShell installer; a failure stops with exit 1 and its message.
+const COMMANDS: Record<ClaudeCommandOp, TerminalScript> = {
+  claude_version: { posix: "claude --version 2>&1", windows: "claude --version 2>&1" },
+  claude_install: { posix: "curl -fsSL https://claude.ai/install.sh | bash 2>&1",
+    windows: "& { $ErrorActionPreference = 'Stop'; try { irm https://claude.ai/install.ps1 | iex } catch { $_.Exception.Message; exit 1 } } *>&1; exit 0" },
+  claude_update: { posix: "claude update 2>&1", windows: "claude update 2>&1" },
 };
+// The official installers' place, which a login shell may not have on PATH yet.
+const CLAUDE_VERSION_AFTER_INSTALL: TerminalScript = {
+  posix: 'claude --version 2>&1 || "$HOME/.local/bin/claude" --version 2>&1',
+  windows: "$p = (Get-Command claude -ErrorAction SilentlyContinue).Source; if (-not $p) { $p = Join-Path $env:USERPROFILE '.local\\bin\\claude.exe' }; & $p --version 2>&1",
+};
+
+/** The remote command the forward keeper holds: it ends exactly when ssh's stdin closes. */
+export function keeperCommand(shell: RemoteShell): string {
+  return shell === "posix" ? "cat >/dev/null" : powershellForShell(shell, "[Console]::In.ReadToEnd() | Out-Null");
+}
 
 const WAIT_FLAGS = new Set(["--session", "--operation", "--timeout", "--cursor", "--steer", "--launch", "--input"]);
 const WAIT_VALUE = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -298,12 +311,14 @@ export const REMOTE_MINIMUM_VERSION = "0.65.0";
 // The first release with the terminal's path-status / make-dir (R15).
 export const REMOTE_PATH_OPS_VERSION = "0.69.0";
 export const REMOTE_LIST_DIRS_VERSION = "0.70.0";
+// The first release whose terminal-side path operations know drive paths.
+export const REMOTE_WINDOWS_PATH_VERSION = "0.70.8";
 
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
     private readonly socket: string, private readonly identity: string, private readonly client: Client, readonly remoteVersion: string,
-    readonly platform: RemotePlatform) { super(); }
+    readonly platform: RemotePlatform, private readonly shell: RemoteShell) { super(); }
 
   static async open(input: { ref: string; target: unknown; os?: RemotePlatform; trustRevision: string; credentialRevision?: string; credential?: CredentialHandle;
     sudoCredential?: CredentialHandle; privateEnv?: Record<string, string> }): Promise<RemoteTerminalConnection> {
@@ -319,6 +334,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") throw new RemoteTerminalError("PRIVATE_ENV_INVALID", "invalid private env entry");
     // R20: the connect command is shell-specific, so the platform is known (and the declared os checked) before any MCP connection.
     const platform = await checkTerminalPlatform(trustedTarget(b), input.os);
+    const shell = await remoteShell(trustedTarget(b));
     // Short path: the agent socket must fit macOS's 104-byte sun_path.
     const dir = fs.mkdtempSync(path.join(os.platform() === "win32" ? os.tmpdir() : "/tmp", "aiterm-rt-"));
     fs.chmodSync(dir, 0o700);
@@ -343,7 +359,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         if ("reason" in key) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", key.reason);
         fs.writeFileSync(identity, `${key.line}\n`, { mode: 0o600 });
       }
-      const transport = new SshStdioTransport(sshArguments(b, agentSocket, identity, posixCommand("exec aiterm-mcp --private-env-stdin")),
+      const transport = new SshStdioTransport(sshArguments(b, agentSocket, identity, terminalCommand(shell, terminalProgram(["aiterm-mcp", "--private-env-stdin"]))),
         `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: input.privateEnv ?? {} })}\n`);
       const client = new Client({ name: "aiterm-remote-terminal", version: pkg.version });
       try { await client.connect(transport, { timeout: 60_000 }); }
@@ -357,7 +373,7 @@ export class RemoteTerminalConnection extends EventEmitter {
         await client.close().catch(() => {});
         throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${remoteVersion}; ${REMOTE_MINIMUM_VERSION} or later is required`);
       }
-      const connection = new RemoteTerminalConnection(b, dir, agent, agentSocket, identity, client, remoteVersion, platform);
+      const connection = new RemoteTerminalConnection(b, dir, agent, agentSocket, identity, client, remoteVersion, platform, shell);
       client.onclose = () => connection.ended();
       // After the caller has attached its listener to the returned connection.
       setImmediate(() => connection.emit("event", { type: "ready", at: new Date().toISOString(), remoteVersion } satisfies RemoteTerminalEvent));
@@ -386,9 +402,9 @@ export class RemoteTerminalConnection extends EventEmitter {
     }
   }
 
-  private exec(script: string, timeoutMs: number, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  private exec(script: TerminalScript, timeoutMs: number, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
-      const child = spawn("ssh", sshArguments(this.b, this.socket, this.identity, posixCommand(script)), { env: sshEnvironment(), stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn("ssh", sshArguments(this.b, this.socket, this.identity, terminalCommand(this.shell, script)), { env: sshEnvironment(), stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "", stderr = "";
       const timer = setTimeout(() => child.kill(), timeoutMs);
       signal?.addEventListener("abort", () => child.kill(), { once: true });
@@ -411,7 +427,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) throw new RemoteTerminalError("TRANSCRIPT_MAX_INVALID", "invalid maxBytes");
       parts.push("--max-bytes", String(input.maxBytes));
     }
-    const result = await this.exec(`exec aiterm-remote-terminal ${parts.join(" ")}`, 120_000);
+    const result = await this.exec(terminalProgram(["aiterm-remote-terminal", ...parts]), 120_000);
     const line = result.stdout.trim().split("\n").pop() ?? "";
     let parsed: any = null;
     try { parsed = JSON.parse(line); } catch { /* classified below */ }
@@ -425,8 +441,7 @@ export class RemoteTerminalConnection extends EventEmitter {
   async wait(waitProcess: { args: unknown }, signal?: AbortSignal): Promise<unknown> {
     const flags = waitArguments(waitProcess?.args);
     // Same resolution as remoteWaitCommand: npm may link only aiterm-mcp.
-    const resolve = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
-    const result = await this.exec(`${resolve}; exec "$w" ${flags.join(" ")}`, 90_000_000, signal);
+    const result = await this.exec({ posix: `${WAIT_RESOLVE}; exec "$w" ${flags.join(" ")}`, windows: terminalProgram(["aiterm-wait", ...flags]).windows }, 90_000_000, signal);
     if (signal?.aborted) throw new RemoteTerminalError("WAIT_CANCELLED", "the wait was cancelled");
     const line = result.stdout.trim().split("\n").pop() ?? "";
     try { return JSON.parse(line); }
@@ -441,21 +456,21 @@ export class RemoteTerminalConnection extends EventEmitter {
     if (op === "list_dirs") return this.listDirs(targetPath);
     if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
     if (!Object.hasOwn(COMMANDS, op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
-    const run = await this.exec(`${COMMANDS[op]} 2>&1`, op === "claude_version" ? 60_000 : 900_000);
+    const run = await this.exec(COMMANDS[op], op === "claude_version" ? 60_000 : 900_000);
     if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-    // The official installer puts claude in ~/.local/bin, which a login shell may not have on PATH yet (Linux).
-    const probe = op === "claude_version" ? run : await this.exec('claude --version 2>&1 || "$HOME/.local/bin/claude" --version 2>&1', 60_000);
+    const probe = op === "claude_version" ? run : await this.exec(CLAUDE_VERSION_AFTER_INSTALL, 60_000);
     const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
     return { op, exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
   }
 
   /** R15: the terminal's own fs answers; the path travels as base64 so no shell reads it. */
   private async pathCommand(op: "path_status" | "make_dir", targetPath: string | undefined): Promise<{ op: string; exists: boolean; directory: boolean; writable: boolean }> {
-    checkRemotePath(targetPath);
-    if (!versionAtLeast(this.remoteVersion, REMOTE_PATH_OPS_VERSION))
-      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_PATH_OPS_VERSION} or later is required (provision the terminal)`);
+    checkRemotePath(targetPath, this.platform === "windows" ? "windows" : "posix");
+    const minimum = this.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_PATH_OPS_VERSION;
+    if (!versionAtLeast(this.remoteVersion, minimum))
+      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (provision the terminal)`);
     const sub = op === "path_status" ? "path-status" : "make-dir";
-    const result = await this.exec(`exec aiterm-remote-terminal ${sub} --path-base64 ${Buffer.from(targetPath, "utf8").toString("base64")}`, 60_000);
+    const result = await this.exec(terminalProgram(["aiterm-remote-terminal", sub, "--path-base64", Buffer.from(targetPath, "utf8").toString("base64")]), 60_000);
     if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
     let parsed: any = null;
     try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
@@ -467,11 +482,12 @@ export class RemoteTerminalConnection extends EventEmitter {
 
   /** R15 list-dirs: read-only folder picker listing; no path lists the SSH user's home. */
   private async listDirs(targetPath: string | undefined): Promise<unknown> {
-    if (targetPath !== undefined) checkRemotePath(targetPath);
-    if (!versionAtLeast(this.remoteVersion, REMOTE_LIST_DIRS_VERSION))
-      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_LIST_DIRS_VERSION} or later is required (update or provision the terminal)`);
-    const flag = targetPath === undefined ? "" : ` --path-base64 ${Buffer.from(targetPath, "utf8").toString("base64")}`;
-    const result = await this.exec(`exec aiterm-remote-terminal list-dirs${flag}`, 60_000);
+    if (targetPath !== undefined) checkRemotePath(targetPath, this.platform === "windows" ? "windows" : "posix");
+    const minimum = this.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_LIST_DIRS_VERSION;
+    if (!versionAtLeast(this.remoteVersion, minimum))
+      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (update or provision the terminal)`);
+    const flag = targetPath === undefined ? [] : ["--path-base64", Buffer.from(targetPath, "utf8").toString("base64")];
+    const result = await this.exec(terminalProgram(["aiterm-remote-terminal", "list-dirs", ...flag]), 60_000);
     if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
     let parsed: any = null;
     try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
@@ -518,15 +534,14 @@ function checkKeySource(ref: string, status: RemoteBindingStatus, input: { crede
 /** What remote.ts calls: the binding's own host/user/port and its ref. Built only here, never from tool input. */
 export interface TrustedRemoteTarget { host: string; user: string; port: number; trusted_ref: string }
 
-const trustedTarget = (b: Binding): TrustedRemoteTarget => ({ host: b.target.host, user: b.target.user, port: b.target.port, trusted_ref: b.ref });
+export const trustedTarget = (b: Binding): TrustedRemoteTarget => ({ host: b.target.host, user: b.target.user, port: b.target.port, trusted_ref: b.ref });
 
-/** R20/T4: the terminal's real platform; macOS and Linux pass. A declared os that differs is a wrong target, Windows comes in 0.70.8. */
+/** R20/T4: the terminal's real platform (macOS, Linux or Windows). A declared os that differs is a wrong target; any other system is refused. */
 export async function checkTerminalPlatform(target: TrustedRemoteTarget, declared?: RemotePlatform): Promise<RemotePlatform> {
   const actual = await remotePlatform(target);
   if (actual === null) throw new RemoteTerminalError("TERMINAL_PLATFORM_UNSUPPORTED", "the terminal is not a macOS, Linux or Windows system (the platform probe printed nothing recognisable)");
   if (declared !== undefined && declared !== actual)
     throw new RemoteTerminalError("TERMINAL_OS_MISMATCH", `the terminal is registered as ${declared} but runs ${actual}; correct the terminal's os or register the right machine`);
-  if (actual === "windows") throw new RemoteTerminalError("TERMINAL_PLATFORM_UNSUPPORTED", "Windows terminals are not supported before Aiterm 0.70.8");
   return actual;
 }
 
@@ -632,7 +647,7 @@ export function extractMcpHeaders(config: Record<string, unknown>): { config: Re
 // ---- R12 forward keeper: one Aiterm process per terminal holds the seats' BellTeam MCP route (T3) ----
 
 const FORWARD_RESTART_MS = 15_000, FORWARD_REFUSALS_BEFORE_NEW_PORT = 4, LAUNCH_GRACE_MS = 120_000;
-interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number }
+interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number; starting?: boolean }
 const keepers = new Map<string, Keeper>();
 let maintainTimer: NodeJS.Timeout | null = null;
 
@@ -675,7 +690,7 @@ function keep(ref: string): void {
   const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null, launchUntil: 0 };
   keepers.set(ref, keeper);
   if (keeper.child) { if (!forwardNeeded(ref) || storedIngress(ref) !== keeper.ingress) keeper.child.kill(); return; }
-  if (keeper.timer) return;
+  if (keeper.timer || keeper.starting) return;
   if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); releaseIdleCredential(ref); return; }
   if (!holdLock(ref)) return;
   let b: Binding;
@@ -684,30 +699,38 @@ function keep(ref: string): void {
   if (!b.seat_ingress_port) { releaseLock(ref); return; }
   const requested = b.seat_forward_port ?? 0;
   keeper.ingress = b.seat_ingress_port;
-  let args: string[];
-  try {
-    // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
-    args = trustedSshArguments(ref, "cat >/dev/null", null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port)]);
-  } catch { releaseLock(ref); return; }
-  const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "ignore", "pipe"] });
-  keeper.child = child;
-  let stderr = "";
-  child.stderr!.on("data", (chunk: Buffer) => {
-    stderr = (stderr + chunk.toString("utf8")).slice(-4000);
-    const forward = parseSeatForward(stderr);
-    if (typeof forward === "number" && forward !== requested) { writeBinding(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
-  });
-  child.on("error", () => { /* close follows */ });
-  child.on("close", () => {
-    keeper.child = null;
-    if (parseSeatForward(stderr) === "refused" && requested !== 0 && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
-      // The old P stays taken on the terminal: let sshd pick a new one (seats launched with the old P need a relaunch).
-      writeBinding(ref, { seat_forward_port: undefined });
-      keeper.refusals = 0;
-    }
+  const again = () => {
     keeper.timer = setTimeout(() => { keeper.timer = null; keep(ref); }, FORWARD_RESTART_MS);
     keeper.timer.unref();
-  });
+  };
+  // The remote command depends on the terminal's shell (T4): known from the cache, or probed once by this process.
+  keeper.starting = true;
+  remoteShell(trustedTarget(b)).then(shell => {
+    keeper.starting = false;
+    let args: string[];
+    try {
+      // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
+      args = trustedSshArguments(ref, keeperCommand(shell), null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port!)]);
+    } catch { releaseLock(ref); return; }
+    const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "ignore", "pipe"] });
+    keeper.child = child;
+    let stderr = "";
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-4000);
+      const forward = parseSeatForward(stderr);
+      if (typeof forward === "number" && forward !== requested) { writeBinding(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
+    });
+    child.on("error", () => { /* close follows */ });
+    child.on("close", () => {
+      keeper.child = null;
+      if (parseSeatForward(stderr) === "refused" && requested !== 0 && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
+        // The old P stays taken on the terminal: let sshd pick a new one (seats launched with the old P need a relaunch).
+        writeBinding(ref, { seat_forward_port: undefined });
+        keeper.refusals = 0;
+      }
+      again();
+    });
+  }, () => { keeper.starting = false; again(); });
 }
 
 /** Every 60 s in every active process: keep (or take over from an exited holder) the forwards this state root needs. */

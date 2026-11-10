@@ -1,12 +1,14 @@
-// provision (remote-terminal.md R16): install this Aiterm version as a product-owned runtime on a macOS or Linux terminal,
+// provision (remote-terminal.md R16): install this Aiterm version as a product-owned runtime on a macOS, Linux or Windows terminal,
 // before any terminal MCP exists. Runs over the binding's trusted key SSH; the terminal fetches the release assets.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { RemoteTerminalError, bindingStatus, classifySshFailure, sshEnvironment, trustedSshArguments } from "./remote-terminal.js";
+import { RemoteTerminalError, binding, bindingStatus, classifySshFailure, sshEnvironment, trustedSshArguments, trustedTarget } from "./remote-terminal.js";
+import { WINDOWS_STDIN_SCRIPT_COMMAND, remotePlatform } from "./remote.js";
 import { verifySetupRuntime } from "./setup.js";
+import { psmuxBin, psmuxVersionSupported } from "./tmux-runtime.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -71,6 +73,78 @@ fi
 echo "AITERM_PROVISION PROVISIONED $V $A"
 `;
 
+/** The Windows bootstrap (PowerShell 5.1 and 7, ASCII only), run from stdin with V and BASE written in (both are validated before). Same result lines as PROVISION_SCRIPT.
+ * `current` is a junction to `runtime\<name>`: a running aiterm-mcp keeps its files open, and repointing a junction does not touch them. */
+export function windowsProvisionScript(version: string, base: string): string {
+  return [
+    "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'",
+    `$V = '${version}'; $BASE = '${base}'`,
+    "function Fail($c) { Write-Output ('AITERM_PROVISION_ERROR ' + $c); exit 3 }",
+    "if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -and $env:PROCESSOR_ARCHITEW6432 -ne 'AMD64') { Fail 'PROVISION_PLATFORM_UNSUPPORTED' }",
+    "$NAME = 'aiterm-runtime-' + $V + '-win32-x64'",
+    "$ROOT = Join-Path $env:USERPROFILE '.aiterm\\runtime'",
+    "try { New-Item -ItemType Directory -Force -Path $ROOT | Out-Null } catch { Fail 'RUNTIME_DIR_UNAVAILABLE' }",
+    // Windows PowerShell 5.1 turns native stderr into a terminating error under 'Stop'. The runtime carries its own psmux.
+    "function Native($exe, $arguments) { $ErrorActionPreference = 'Continue'; $o = & $exe @arguments 2>&1 | Out-String; return @{ ok = ($LASTEXITCODE -eq 0); out = $o } }",
+    "function Smoke($dir) { $r = Native (Join-Path $dir 'bin\\aiterm-remote-terminal.cmd') @('runtime-smoke', '--expect-version', $V); return $r.ok }",
+    "function Target($link) { $i = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue; if ($i -and $i.LinkType -eq 'Junction') { return [string]$i.Target }; return $null }",
+    "function Unlink($link) { if (Test-Path -LiteralPath $link) { [IO.Directory]::Delete($link) } }",
+    "$lock = Join-Path $ROOT '.lock'",
+    "try { New-Item -ItemType Directory -Path $lock | Out-Null } catch {",
+    "  $p = 0; try { $p = [int](Get-Content -LiteralPath (Join-Path $lock 'pid') -ErrorAction Stop) } catch { }",
+    "  if ($p -gt 0 -and (Get-Process -Id $p -ErrorAction SilentlyContinue)) { Fail 'PROVISION_BUSY' }",
+    "  Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue",
+    "  try { New-Item -ItemType Directory -Path $lock | Out-Null } catch { Fail 'PROVISION_BUSY' }",
+    "}",
+    "Set-Content -LiteralPath (Join-Path $lock 'pid') -Value $PID",
+    "$stage = Join-Path $ROOT ('.stage-' + $PID)",
+    "try {",
+    "  $current = Join-Path $ROOT 'current'",
+    "  $runtimeFile = Join-Path $current 'RUNTIME'",
+    "  if ((Test-Path -LiteralPath $runtimeFile) -and ((Get-Content -LiteralPath $runtimeFile -Raw).Trim() -eq $NAME) -and (Smoke $current)) { Write-Output ('AITERM_PROVISION ALREADY_CURRENT ' + $V + ' x64'); exit 0 }",
+    "  Get-ChildItem -LiteralPath $ROOT -Filter '.stage-*' -Force | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
+    "  New-Item -ItemType Directory -Force -Path (Join-Path $stage 'x') | Out-Null",
+    "  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12",
+    "  function Get($file) {",
+    "    try { Invoke-WebRequest -UseBasicParsing -Uri ($BASE + '/v' + $V + '/' + $file) -OutFile (Join-Path $stage $file) }",
+    "    catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -ge 400 -and [int]$_.Exception.Response.StatusCode -lt 500) { Fail 'RUNTIME_ARTIFACT_UNAVAILABLE' } Fail 'RUNTIME_DOWNLOAD_FAILED' }",
+    "  }",
+    "  $sums = 'aiterm-runtime-' + $V + '-SHA256SUMS'; $zip = $NAME + '.zip'",
+    "  Get $sums; Get $zip",
+    "  $want = ''",
+    "  foreach ($line in (Get-Content -LiteralPath (Join-Path $stage $sums))) { $f = $line.Trim() -split '\\s+'; if ($f.Length -eq 2 -and ($f[1] -eq $zip -or $f[1] -eq ('*' + $zip))) { $want = $f[0].ToLower() } }",
+    "  $got = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stage $zip)).Hash.ToLower()",
+    "  if (-not $want -or $want -ne $got) { Fail 'RUNTIME_VERIFY_FAILED' }",
+    "  $x = Join-Path $stage 'x'",
+    "  if (-not (Native (Join-Path $env:SystemRoot 'System32\\tar.exe') @('-xf', (Join-Path $stage $zip), '-C', $x)).ok) { Fail 'RUNTIME_EXTRACT_FAILED' }",
+    "  $N = Join-Path $x $NAME",
+    "  if (-not (Test-Path -LiteralPath (Join-Path $N 'RUNTIME')) -or (Get-Content -LiteralPath (Join-Path $N 'RUNTIME') -Raw).Trim() -ne $NAME) { Fail 'RUNTIME_VERIFY_FAILED' }",
+    "  if (-not (Smoke $N)) { Fail 'RUNTIME_SMOKE_FAILED' }",
+    // Running seats and psmux servers are not touched: the new directory is added beside the old one and only the junction moves.
+    "  $dest = Join-Path $ROOT $NAME",
+    "  $old = Target $current",
+    "  if ($old -and ($old.TrimEnd('\\') -ieq $dest.TrimEnd('\\'))) { Unlink $current; $old = $null }",
+    // A leftover of the same name (its smoke failed) may still be in use: move it aside, never delete files under a running process.
+    "  if (Test-Path -LiteralPath $dest) { try { Move-Item -LiteralPath $dest -Destination ($dest + '.old-' + $PID) } catch { Fail 'RUNTIME_ACTIVATE_FAILED' } }",
+    "  Move-Item -LiteralPath $N -Destination $dest",
+    "  $previous = Join-Path $ROOT 'previous'",
+    "  Unlink $previous",
+    "  if ($old) { New-Item -ItemType Junction -Path $previous -Target $old | Out-Null }",
+    "  Unlink $current",
+    "  try { New-Item -ItemType Junction -Path $current -Target $dest | Out-Null }",
+    "  catch { if ($old) { New-Item -ItemType Junction -Path $current -Target $old | Out-Null }; Fail 'RUNTIME_ACTIVATE_FAILED' }",
+    // Older runtime folders go when nothing uses them; a folder a running aiterm-mcp holds stays (the delete fails and is ignored).
+    "  $keep = @($dest, (Target $previous))",
+    "  Get-ChildItem -LiteralPath $ROOT -Directory -Filter 'aiterm-runtime-*' -ErrorAction SilentlyContinue | Where-Object { $keep -notcontains $_.FullName } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
+    "  Write-Output ('AITERM_PROVISION PROVISIONED ' + $V + ' x64')",
+    "} finally {",
+    "  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue",
+    "  Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue",
+    "}",
+    "",
+  ].join("\n");
+}
+
 export function parseProvisionOutput(stdout: string): { result: "PROVISIONED" | "ALREADY_CURRENT"; version: string } | { code: string } | null {
   const ok = /^AITERM_PROVISION (PROVISIONED|ALREADY_CURRENT) (\S+) /m.exec(stdout);
   if (ok) return { result: ok[1] as "PROVISIONED" | "ALREADY_CURRENT", version: ok[2] };
@@ -85,7 +159,8 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
   if (status.credential.provider === "aiterm.native-ssh-key.v1" && !status.credential.available)
     throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
   // Throws CREDENTIAL_NOT_LOADED for a keyless binding whose key is not loaded.
-  const args = trustedSshArguments(ref, `/bin/sh -s -- ${version} ${RUNTIME_RELEASE_BASE}`, null);
+  const windows = await remotePlatform(trustedTarget(binding(ref))) === "windows";
+  const args = trustedSshArguments(ref, windows ? WINDOWS_STDIN_SCRIPT_COMMAND : `/bin/sh -s -- ${version} ${RUNTIME_RELEASE_BASE}`, null);
   const run = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "", stderr = "";
@@ -95,7 +170,7 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
     child.on("error", reject);
     child.on("close", code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
     child.stdin.on("error", () => { /* classified by the exit */ });
-    child.stdin.end(PROVISION_SCRIPT);
+    child.stdin.end(windows ? windowsProvisionScript(version, RUNTIME_RELEASE_BASE) : PROVISION_SCRIPT);
   });
   const parsed = parseProvisionOutput(run.stdout);
   if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version };
@@ -107,6 +182,14 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
 /** runtime-smoke on the terminal: this runtime's version, its tmux, and the setup probe through its own aiterm-mcp. */
 export async function runtimeSmoke(expectVersion: string): Promise<{ schema: string; version: string; tmux: string }> {
   if (pkg.version !== expectVersion) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", `runtime is ${pkg.version}, expected ${expectVersion}`);
+  if (process.platform === "win32") {
+    // The runtime's own psmux (<runtime>\bin\psmux.exe, beside <runtime>\node\node.exe); Aiterm's lookup only in a build tree.
+    const ownPsmux = path.resolve(process.execPath, "../../bin/psmux.exe");
+    const psmux = spawnSync(fs.existsSync(ownPsmux) ? ownPsmux : psmuxBin(), ["-V"], { encoding: "utf8", timeout: 10_000 });
+    if (psmux.status !== 0 || !psmuxVersionSupported(psmux.stdout ?? "")) throw new RemoteTerminalError("RUNTIME_SMOKE_FAILED", "the runtime's psmux does not run");
+    await verifySetupRuntime({ command: process.execPath, args: [fileURLToPath(new URL("./index.js", import.meta.url))] });
+    return { schema: "aiterm.runtime-smoke.v1", version: pkg.version, tmux: (/^psmux .*/mu.exec(psmux.stdout ?? "")?.[0] ?? "psmux").trim() };
+  }
   // The runtime's own tmux (<runtime>/bin/tmux, beside <runtime>/node/bin/node); another one on PATH is only for a build tree.
   const own = path.resolve(process.execPath, "../../../bin/tmux");
   const tmux = spawnSync(fs.existsSync(own) ? own : "tmux", ["-V"], { encoding: "utf8", timeout: 10_000 });

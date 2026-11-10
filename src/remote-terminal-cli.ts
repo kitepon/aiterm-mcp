@@ -4,7 +4,7 @@
 //   serve        stdio MCP for one bound connection, spawned by BellTeam terminals
 //   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
-//   authorize-key --ref R   (login password on stdin until EOF; R14)      provision --ref R   (macOS/Linux runtime; R16)
+//   authorize-key --ref R [--os macos|linux|windows]   (login password on stdin until EOF; R14)      provision --ref R   (macOS/Linux runtime; R16)
 //   path-status|make-dir --path P | --path-base64 B, list-dirs [--path P | --path-base64 B]   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -128,7 +128,9 @@ export function main(args: string[]): void {
   if (command === "authorize-key") return oneShot(() => {
     // Trust and the held key are checked before stdin is read (R14).
     const prepared = prepareAuthorization(option(rest, "--ref") ?? "");
-    return readStdin().then(password => authorizeKey(prepared, password));
+    const system = option(rest, "--os");
+    if (system !== undefined && !terminalOsSchema.safeParse(system).success) throw new RemoteTerminalError("OS_INVALID", "--os must be macos, linux or windows");
+    return readStdin().then(password => authorizeKey(prepared, password, system === "windows" ? "windows" : "posix"));
   }, "aiterm.remote-binding-error.v1");
   if (command === "askpass") return askpass(rest.join(" "), process.env[ASKPASS_SOCKET_ENV]);
   if (command === "provision") return oneShot(() => provision(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");

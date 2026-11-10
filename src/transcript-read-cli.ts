@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { boundTerminalTarget, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
-import { posixCommand } from "./remote.js";
+import { remoteShell, terminalCommand, terminalProgram } from "./remote.js";
 
 const ERROR = "aiterm.transcript-read-error.v1";
 
@@ -31,7 +31,7 @@ export function transcriptFlags(args: string[]): string[] {
   return flags;
 }
 
-function run(args: string[]): { line: string; code: number } {
+async function run(args: string[]): Promise<{ line: string; code: number }> {
   const flags = transcriptFlags(args);
   const target = boundTerminalTarget(flags[1]);
   if (!target) {
@@ -39,7 +39,7 @@ function run(args: string[]): { line: string; code: number } {
     return { line: JSON.stringify(readCompletedTranscript(flags[1], id ? { claudeSessionId: id, offset: Number(option(flags, "--offset")) } : null,
       max ? Number(max) : undefined)), code: 0 };
   }
-  const ssh = spawnSync("ssh", trustedSshArguments(target.trusted_ref, posixCommand(`exec aiterm-remote-terminal transcript-read ${flags.join(" ")}`), null),
+  const ssh = spawnSync("ssh", trustedSshArguments(target.trusted_ref, terminalCommand(await remoteShell(target), terminalProgram(["aiterm-remote-terminal", "transcript-read", ...flags])), null),
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   const line = (ssh.stdout ?? "").trim().split("\n").pop() ?? "";
   let parsed: { schema?: string } | null = null;
@@ -53,10 +53,9 @@ function run(args: string[]): { line: string; code: number } {
 let entry = false;
 try { entry = !!process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { /* imported */ }
 if (entry) {
-  try { const { line, code } = run(process.argv.slice(2)); process.stdout.write(`${line}\n`); process.exit(code); }
-  catch (error) {
+  run(process.argv.slice(2)).then(({ line, code }) => { process.stdout.write(`${line}\n`); process.exit(code); }, (error) => {
     const message = error instanceof Error ? error.message : String(error);
     process.stdout.write(`${JSON.stringify({ schema: ERROR, code: /^([A-Z][A-Z0-9_]+):/.exec(message)?.[1] ?? "AITERM_FAILED", message })}\n`);
     process.exit(2);
-  }
+  });
 }

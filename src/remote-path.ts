@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { RemoteTerminalError } from "./remote-terminal.js";
+import type { RemotePlatform } from "./remote.js";
 
 export interface PathStatus { schema: "aiterm.remote-path.v1"; exists: boolean; directory: boolean; writable: boolean }
 
@@ -10,10 +11,32 @@ const MISSING: PathStatus = { schema: "aiterm.remote-path.v1", exists: false, di
 const denied = (code: string | undefined) => code === "EACCES" || code === "EPERM";
 const notPermitted = () => new RemoteTerminalError("FOLDER_NOT_PERMITTED", "the folder cannot be used by the terminal's SSH user (privacy consent, ACL or permissions)");
 
-export function checkRemotePath(value: unknown): asserts value is string {
+// Drive-absolute with backslashes: UNC (\\server), device (\\?\), drive-relative (C:x), `/` separators and the characters
+// Windows forbids in a name (a second `:` would be an alternate data stream) are refused.
+// eslint-disable-next-line no-control-regex
+const WINDOWS_ABSOLUTE = /^[A-Za-z]:\\[^<>:"/|?*\x00-\x1f\x7f]*$/;
+export type PathSystem = "posix" | "windows";
+
+/** The native absolute form of a terminal's system: `/...` on macOS and Linux, `X:\...` on Windows. */
+export function isNativeAbsolute(value: unknown, system: PathSystem): boolean {
+  if (typeof value !== "string") return false;
   // eslint-disable-next-line no-control-regex
-  if (typeof value !== "string" || !path.posix.isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value) || Buffer.byteLength(value) > 4096)
-    throw new RemoteTerminalError("PATH_INVALID", "path must be an absolute path without control characters");
+  if (/[\x00-\x1f\x7f]/.test(value)) return false;
+  return system === "windows" ? WINDOWS_ABSOLUTE.test(value) : path.posix.isAbsolute(value);
+}
+
+/** A launch `cwd` in the form of the terminal's system; without a known system either native form passes (the probed one is checked later). */
+export function terminalCwdFits(cwd: unknown, platform?: RemotePlatform): boolean {
+  if (typeof cwd !== "string") return false;
+  if (platform === "windows") return isNativeAbsolute(cwd, "windows");
+  return cwd.startsWith("/") || (platform === undefined && isNativeAbsolute(cwd, "windows"));
+}
+
+/** The terminal's own system by default (this code runs on the terminal); the container side names the terminal's system. */
+export function checkRemotePath(value: unknown, system: PathSystem = process.platform === "win32" ? "windows" : "posix"): asserts value is string {
+  if (typeof value !== "string" || !isNativeAbsolute(value, system) || Buffer.byteLength(value) > 4096)
+    throw new RemoteTerminalError("PATH_INVALID", system === "windows"
+      ? "path must be a drive-absolute path like C:\\folder (backslashes, no UNC, no control characters)" : "path must be an absolute path without control characters");
 }
 
 function errno(error: unknown): string | undefined { return (error as NodeJS.ErrnoException)?.code; }
@@ -68,12 +91,14 @@ export interface DirListing {
 }
 
 export const LIST_DIRS_MAX = 500;
+// Folders every drive root has: listing them raises access errors or shows system internals, never a project.
+const WINDOWS_SYSTEM_FOLDERS = new Set(["$recycle.bin", "system volume information"]);
 
 /** Read-only folder picker listing (R15): subfolders only, no dot names, sorted, at most LIST_DIRS_MAX. */
 export function listDirectories(target: string | undefined, home = os.homedir()): DirListing {
   const dir = target === undefined ? home : target;
   checkRemotePath(dir);
-  const base = { schema: "aiterm.remote-dirs.v1" as const, home, path: path.posix.resolve(dir) };
+  const base = { schema: "aiterm.remote-dirs.v1" as const, home, path: path.resolve(dir) };
   const state = folderState(base.path);
   if (state !== "directory") return { ...base, exists: state === "file", directory: false, entries: null, truncated: false };
   let dirents: fs.Dirent[];
@@ -81,7 +106,7 @@ export function listDirectories(target: string | undefined, home = os.homedir())
   catch (error) { if (denied(errno(error))) throw notPermitted(); throw new RemoteTerminalError("PATH_UNAVAILABLE", `the folder cannot be listed (${errno(error) ?? "unknown"})`); }
   const names: string[] = [];
   for (const entry of dirents) {
-    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith(".") || (process.platform === "win32" && WINDOWS_SYSTEM_FOLDERS.has(entry.name.toLowerCase()))) continue;
     let folder = entry.isDirectory();
     if (!folder && entry.isSymbolicLink()) { try { folder = fs.statSync(path.join(base.path, entry.name)).isDirectory(); } catch { /* broken or refused link: not a folder */ } }
     if (folder) names.push(entry.name);

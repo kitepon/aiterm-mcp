@@ -91,7 +91,7 @@ test("grok, cursor and antigravity terminal launch: need Aiterm 0.70.9 (refused 
   t.after(() => { process.env.PATH = savedPath; if (savedToken === undefined) delete process.env.BELLTEAM_MCP_TOKEN; else process.env.BELLTEAM_MCP_TOKEN = savedToken; });
   await withClient(async client => {
     for (const harness of ["grok-cli", "cursor-cli", "antigravity-cli"]) {
-      const args = terminal => ({ harness, terminal, cwd: "/Users/k/p", prompt: "hi", env_vars: ["BELLTEAM_MCP_TOKEN"] });
+      const args = terminal => ({ harness, terminal, cwd: "/Users/k/p", prompt: "hi", env_vars: ["BELLTEAM_MCP_TOKEN"], append_system_prompt: "CALLER RULES", mcp_config });
       fakeSsh("0.70.8");
       const before = recorded().length;
       const old = await client.callTool({ name: "agent_launch", arguments: args(terminalFor()) });
@@ -106,8 +106,11 @@ test("grok, cursor and antigravity terminal launch: need Aiterm 0.70.9 (refused 
       assert.equal(ok.isError, undefined, text(ok));
       const launch = recorded().slice(before).find(call => call.name === "agent_launch");
       assert.equal(launch.arguments.harness, harness);
-      // The private line carries the named env value, as for Codex (append_system_prompt / mcp_config for these three are accepted by another change).
-      assert.deepEqual(launch.private_env, { BELLTEAM_MCP_TOKEN: "tok-123" });
+      // The caller fields go to the terminal unchanged except the literal header, which travels only on the private line.
+      assert.equal(launch.arguments.append_system_prompt, "CALLER RULES");
+      assert.equal(launch.arguments.mcp_config.mcpServers.bellteam.headers.Authorization, "Bearer ${BELLTEAM_MCP_TOKEN}");
+      assert.equal(launch.private_env.BELLTEAM_MCP_TOKEN, "tok-123");
+      assert.ok(Object.values(launch.private_env).includes("Bearer plain-secret"));
       assert.ok(!JSON.stringify(launch.arguments).includes("tok-123"));
       rt.unbindTerminalSession("fake_codex");
 

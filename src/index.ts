@@ -19,7 +19,7 @@ import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableE
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv } from "./private-env.js";
-import { withTerminalLaunchAction } from "./terminal-launch-error.js";
+import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta } from "./terminal-launch-error.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
@@ -261,6 +261,8 @@ function fail(e: unknown): ToolResult {
     structuredContent: { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: e.reasonCode,
       phase: "authentication_preflight", effect: "not_issued", session_created: false, message: msg },
   };
+  if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    _meta: launchNotStartedMeta(e.launchNotStarted.harness) };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 
@@ -345,8 +347,8 @@ function registerRemoteAwareTool(name: string, config: any, handler: (args: any,
         if (!target) return handler(args, extra);
         const result = await remoteHandler(target, args, extra);
         if (name === "pty_close" && !remote && !result?.isError) unbindTerminalSession(args.session_id);
-        return result;
-      } catch (e) { return fail(e); }
+        return remote ? result : withErrorCode(result);
+      } catch (e) { return remote ? fail(e) : withErrorCode(fail(e)); }
     });
 }
 
@@ -1338,8 +1340,8 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra, privateEnv);
     const session = result?.structuredContent?.session_id;
     if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
-    return withTerminalLaunchAction(result);
-  } catch (e) { return withTerminalLaunchAction(fail(e)); }
+    return withErrorCode(withTerminalLaunchAction(result));
+  } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e))); }
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {

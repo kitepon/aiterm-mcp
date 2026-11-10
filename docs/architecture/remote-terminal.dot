@@ -13,7 +13,7 @@ digraph remote_terminal {
  ssh [label="ssh -F /dev/null StrictHostKeyChecking=yes\nUserKnownHostsFile=trust file\nIdentityAgent=private socket, BatchMode"];
  conn [label="bound connection\ncall / transcript_read / command(op)\nevents ready|lost|closed / close"];
  rmcp [label="terminal: aiterm-mcp --private-env-stdin\nprivate env map (not process.env)"];
- launch [label="terminal: agent_launch\ncwd must exist (CWD_UNAVAILABLE)\n0600 launch env file + prompt/MCP files"];
+ launch [label="terminal: agent_launch\ncwd must exist (CWD_UNAVAILABLE)\n0600 launch env file + prompt/MCP files\nnative setup failure: rollback + complete listing\nname absent -> AGENT_LAUNCH_NOT_STARTED (native_reason)"];
  pane [label="terminal pane: cd cwd && . envfile && rm envfile && claude\n--append-system-prompt-file --mcp-config\nno values in PTY / log",fillcolor="#fff7e6"];
  jsonl [label="terminal: aiterm-transcript-read\nclaude projects jsonl from {claudeSessionId, offset}"];
  cmd [label="fixed ops: claude --version\nofficial install.sh / claude update"];
@@ -34,7 +34,7 @@ digraph remote_terminal {
  conn -> terminals [label="R11 events / typed errors"];
  terminals -> execution [label="terminal value (ref, target, revisions)"];
  execution -> tools [label="R6 launch with terminal + cwd; then session_id only"];
- tools -> execution [label="R18 not started: _meta aiterm/launch_error\n{code, phase terminal, action (Japanese)}",style=dashed];
+ tools -> execution [label="R18 not started: _meta aiterm/launch_error\n{code, phase terminal, action (Japanese)}\nR19 any coded refusal (launch or session tool):\n_meta aiterm/error_code {code}",style=dashed];
  tools -> trusted [label="launch: private env line R5\nlater: same tool"];
  trusted -> rmcp [label="R4/R5"];
  tools -> keeper [label="ensure while bound\nD from seat URLs -> binding"];

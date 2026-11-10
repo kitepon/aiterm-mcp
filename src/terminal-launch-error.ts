@@ -24,6 +24,7 @@ const ACTIONS: Record<string, string> = {
   REMOTE_AITERM_TOO_OLD: "端末のAitermが古いため起こせません。端末のAitermを更新してください。",
   SEAT_FORWARD_UNAVAILABLE: "端末からBellTeamへ戻る通り道がまだ用意できていません。少し待ってから起こし直してください。",
   CWD_UNAVAILABLE: "端末に作業フォルダがありません。メンバーの作業フォルダを選び直すか、そのフォルダを作ってください。",
+  AGENT_LAUNCH_NOT_STARTED: "席を作る途中で失敗しました。席は残っていません。もう一度起こし直します。",
   CLAUDE_AUTH_NOT_AUTHENTICATED: "端末のClaude Codeにログインしていません。端末でClaude Codeにログインしてください。",
   CLAUDE_AUTH_STATUS_UNCONFIRMED: "端末のClaude Codeのログイン状態を確かめられませんでした。少し待ってから起こし直してください。",
   CLAUDE_AUTH_STATUS_TIMEOUT: "端末のClaude Codeのログイン状態を時間内に確かめられませんでした。少し待ってから起こし直してください。",
@@ -39,6 +40,21 @@ export function terminalLaunchAction(code: unknown): string | null {
 }
 
 export const LAUNCH_ERROR_META = "aiterm/launch_error";
+export const ERROR_CODE_META = "aiterm/error_code";
+
+/** R18 for a local launch: the fresh native creation left no seat (core.freshLaunchFailure). */
+export function launchNotStartedMeta(harness: string): Record<string, unknown> {
+  const code = "AGENT_LAUNCH_NOT_STARTED";
+  return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase: "native_create",
+    effect: "not_started", session_created: false, action: ACTIONS[code] } };
+}
+
+/** R19: the leading symbolic code of a refused call, so the caller does not parse text. It claims no effect. */
+export function withErrorCode(result: any): any {
+  if (!result?.isError) return result;
+  const code = errorCode(result.content?.find((item: any) => item.type === "text")?.text ?? "");
+  return code ? { ...result, _meta: { ...result._meta, [ERROR_CODE_META]: { schema: "aiterm.error-code.v1", code } } } : result;
+}
 
 /** Adds R18's `_meta` to a failed terminal launch result; a result whose code is not listed is returned unchanged.
  * `_meta`, not structuredContent: SDK clients that listed the tools validate structuredContent against the

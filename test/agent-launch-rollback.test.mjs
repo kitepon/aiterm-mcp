@@ -57,6 +57,13 @@ for(const fault of ['identity','server_identity','log','offset',...(win?[]:['env
   finally{t.mock.restoreAll();syncBuiltinESMExports();}
   assert.ok(failure,'setup failure must be returned');
   assert.equal(injected,true,'the requested fault was exercised');
+  // R18: the name is proven absent, so a fresh launch answers not-started with its cause and never the resume code.
+  assert.match(failure.message,/^AGENT_LAUNCH_NOT_STARTED: /);
+  assert.doesNotMatch(failure.message,/AGENT_RESUME_UNCONFIRMED|creation_rollback_unconfirmed/);
+  assert.deepEqual(failure.launchNotStarted,{harness:'claude-code'});
+  if(['marker','marker_ack'].includes(fault))
+    assert.match(failure.message,new RegExp(`native_reason=creation_command_failed\\(set-option; rc=1 fixture marker ${fault==='marker'?'registration':'acknowledgement'} failed\\)`));
+  if(fault==='rename')assert.match(failure.message,/native_reason=creation_command_failed\(set-window-option; rc=1 fixture rename registration failed\)/);
   assert.equal(core.listSessionsResult().sessions.some(row=>row.session_id===name),false,'no named native remnant');
   assert.equal(core.openAgent('claude',{session_name:name,agent_done:true,cwd:process.env.HOME})[0],name);
   core.closeSession(name);
@@ -84,6 +91,8 @@ for(const state of ['absent','present'])test(`a failed close ${state==='present'
   finally{t.mock.restoreAll();syncBuiltinESMExports();}
   assert.match(failure.message,/fixture setup failed/);
   assert.equal(/creation_rollback_unconfirmed/.test(failure.message),state==='present');
+  assert.equal(/^AGENT_LAUNCH_NOT_STARTED: /.test(failure.message),state==='absent');
+  assert.equal(failure.launchNotStarted!==undefined,state==='absent','a remaining native is never reported as not started');
   assert.equal(spawn(native,[...prefix,'has-session','-t',name],{encoding:'utf8'}).status===0,state==='present');
   if(state==='present')core.closeSession(name);
   core.closeSession(`rollback_close_anchor_${state}`);
@@ -112,7 +121,8 @@ for(const when of ['created','rollback'])test(`a same-name replacement survives 
     return result;
   });
   syncBuiltinESMExports();
-  try{assert.throws(()=>core.openAgent('claude',{session_name:name,agent_done:true,cwd:process.env.HOME}));}
+  try{assert.throws(()=>core.openAgent('claude',{session_name:name,agent_done:true,cwd:process.env.HOME}),
+    error=>error.launchNotStarted===undefined&&!/^AGENT_(?:LAUNCH_NOT_STARTED|RESUME_UNCONFIRMED): /.test(error.message));}
   finally{t.mock.restoreAll();syncBuiltinESMExports();}
   assert.equal(replaced,true);
   assert.equal(spawn(native,[...prefix,'has-session','-t',name],{encoding:'utf8'}).status,0,'replacement is not closed');

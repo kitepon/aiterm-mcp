@@ -19,6 +19,10 @@ export class AitermError extends Error {
   };
   /** Claudeの選ぶ画面での拒否。selection_excludedは、sを打つ前に断り、閉じた画面を読んだ時だけtrue。 */
   configureRefusal?: { code: string; relaunch: boolean; selection_excluded: boolean };
+  /** Native setup failed and a complete listing then showed this session name absent (tmux-runtime). */
+  nativeSessionAbsent?: string;
+  /** remote-terminal.md R18: a fresh launch that left no seat. */
+  launchNotStarted?: { harness: string };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;

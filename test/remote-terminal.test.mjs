@@ -416,3 +416,31 @@ test("R18: terminal launch actions are plain Japanese for listed not-started cod
     assert.ok(action && action.length <= 500 && /[\u3040-\u30ff]/.test(action) && !/[A-Z]{2,}_[A-Z]/.test(action), code);
   }
 });
+
+test("R18/R19: a rolled-back fresh creation is not started, and every coded refusal carries its code", async () => {
+  const { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, terminalLaunchAction } = await import("../dist/terminal-launch-error.js");
+  const failed = text => ({ content: [{ type: "text", text }], isError: true });
+  // The terminal answers the code as text; the server projects it like its own pre-seat refusals.
+  const created = withErrorCode(withTerminalLaunchAction(failed(
+    "aiterm: AGENT_LAUNCH_NOT_STARTED: 新しい端末を作成できませんでした。席は作られていません。native端末の本人性を確認できません。native_reason=creation_command_failed(set-option; rc=1 no server running on /private/x)")));
+  const action = terminalLaunchAction("AGENT_LAUNCH_NOT_STARTED");
+  assert.deepEqual(created._meta["aiterm/launch_error"], { schema: "aiterm.agent-launch-error.v1", harness: "claude-code",
+    code: "AGENT_LAUNCH_NOT_STARTED", phase: "terminal", effect: "not_started", session_created: false, action });
+  assert.ok(/[\u3040-\u30ff]/.test(action) && !/[A-Z]{2,}_[A-Z]|\//.test(action));
+  assert.deepEqual(created._meta["aiterm/error_code"], { schema: "aiterm.error-code.v1", code: "AGENT_LAUNCH_NOT_STARTED" });
+  assert.deepEqual(launchNotStartedMeta("codex-cli")["aiterm/launch_error"], { schema: "aiterm.agent-launch-error.v1", harness: "codex-cli",
+    code: "AGENT_LAUNCH_NOT_STARTED", phase: "native_create", effect: "not_started", session_created: false, action });
+  // A possibly remaining native and a live same-name seat are coded but never projected as not started.
+  for (const [text, code] of [["aiterm: AGENT_LAUNCH_UNCONFIRMED: 新規起動の結果を確認できません。", "AGENT_LAUNCH_UNCONFIRMED"],
+    ["aiterm: SESSION_EXISTS: session 'bot-1' は既に存在します（list で確認）", "SESSION_EXISTS"],
+    ["aiterm: CREDENTIAL_NOT_LOADED: no key is loaded for this terminal", "CREDENTIAL_NOT_LOADED"]]) {
+    const result = withErrorCode(withTerminalLaunchAction(failed(text)));
+    assert.equal(result._meta["aiterm/error_code"].code, code);
+    assert.equal(result._meta["aiterm/launch_error"]?.code, code === "CREDENTIAL_NOT_LOADED" ? code : undefined);
+  }
+  const uncoded = failed("aiterm: MCP error -32001: Request timed out"), ok = { content: [], structuredContent: { session_id: "s" } };
+  assert.equal(withErrorCode(uncoded), uncoded);
+  assert.equal(withErrorCode(ok), ok);
+  assert.deepEqual(withErrorCode({ ...failed("aiterm: UNREACHABLE: x"), _meta: { kept: 1 } })._meta,
+    { kept: 1, "aiterm/error_code": { schema: "aiterm.error-code.v1", code: "UNREACHABLE" } });
+});

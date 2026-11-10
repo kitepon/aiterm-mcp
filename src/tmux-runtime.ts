@@ -22,7 +22,9 @@ type NativeSetup = { token: string; window: string; shell: string; target: Nativ
 const nativeTargets = new AsyncLocalStorage<NativeTarget>();
 const nativeReads = new Set(["list-sessions", "list-commands", "list-panes", "list-windows", "has-session", "display-message", "capture-pane", "show-environment", "show-options"]);
 const nativePanes = new Set(["send-keys", "paste-buffer", "pipe-pane", "capture-pane", "display-message", "list-panes", "rename-window", "set-window-option"]);
-const nativeTargetUnavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 復帰したnative端末の本人性を確認できません。", 2);
+// Every site names itself: the same refusal text from fifteen places could not be traced (macbook 2026-11-10).
+const nativeTargetUnavailable = (reason: string) => new AitermError(`AGENT_RESUME_UNCONFIRMED: native端末の本人性を確認できません。native_reason=${reason}`, 2);
+const tmuxFailure = (r: { code: number; stderr: string }) => `rc=${r.code} ${r.stderr.trim().split("\n")[0].slice(0, 160)}`.trim();
 function verifyNativeTarget(frame: NativeTarget): void {
   if (frame.checking) return;
   frame.checking = true;
@@ -32,7 +34,7 @@ function verifyNativeTarget(frame: NativeTarget): void {
 /** Target routing only: guardTmuxExecution still owns every effect authorization. */
 export function withNativeSessionTarget<T>(target: NativeSessionReceipt, verify: () => void, body: () => T, allowExitedPane = false): T {
   const enclosing = nativeTargets.getStore();
-  if (enclosing && JSON.stringify(enclosing.target) !== JSON.stringify(target)) throw nativeTargetUnavailable();
+  if (enclosing && JSON.stringify(enclosing.target) !== JSON.stringify(target)) throw nativeTargetUnavailable("enclosing_target_differs");
   const frame = { session: target.session_id, target, verify, allowExitedPane };
   return nativeTargets.run(frame, () => { verifyNativeTarget(frame); return body(); });
 }
@@ -44,7 +46,7 @@ export function hasVerifiedNativeSessionTarget(name: string): boolean {
 }
 export function withNativeSessionCreation<T>(session: string | null, created: (receipt: NativeSessionReceipt) => void,
   verify: () => void, body: () => T): T {
-  if (nativeTargets.getStore()) throw nativeTargetUnavailable();
+  if (nativeTargets.getStore()) throw nativeTargetUnavailable("nested_creation");
   return nativeTargets.run({ session, target: null, created, verify }, body);
 }
 
@@ -60,17 +62,32 @@ export function withNativeSessionSetupRollback<T>(shell: string, body: () => T):
   frame.setup = setup;
   try { return body(); }
   catch (error) {
-    if (setup.target) {
-      try {
-        const closed = creationCommand(setup, ["kill-session", "-t", setup.target.session_id], true);
-        // An already absent native is a finished rollback: the created callback may have closed it.
-        if (closed.code !== 0 && creationCommand(setup, ["has-session", "-t", setup.target.session_id]).code === 0) throw nativeTargetUnavailable();
-      } catch {
-        if (error instanceof Error) error.message += "\ncreation_rollback_unconfirmed: 作成した端末の片付けを確認できません。";
-      }
-    }
+    const created = setup.target, name = created?.session_id ?? frame.session;
+    let rows: string[][] | null = null;
+    try {
+      if (created) creationCommand(setup, ["kill-session", "-t", created.session_id], true);
+      rows = nativeSessionRows();
+    } catch { /* an unavailable listing proves nothing */ }
+    // Only a complete listing proves absence; an already absent native (the created callback may have closed it) is a finished rollback.
+    if (rows && name !== null && !rows.some(row => row[1] === name)) { if (error instanceof AitermError) error.nativeSessionAbsent = name; }
+    else if (created && (!rows || rows.some(row => row[0] === created.native_id)) && error instanceof Error)
+      error.message += "\ncreation_rollback_unconfirmed: 作成した端末の片付けを確認できません。";
     throw error;
   } finally { delete frame.setup; }
+}
+
+/** [native id, name] of every session, or null when the listing is unavailable. Reads absence as core.listNativeSessionsResult does. */
+function nativeSessionRows(): string[][] | null {
+  // Outside the creation frame: its verify would throw on the non-zero exit that proves the server is gone.
+  const list = () => nativeTargets.exit(() => runTmux(false, undefined, ["list-sessions", "-F", "#{session_id}\t#{session_name}"]));
+  let listed = list();
+  // A server that just lost its last session answers this for a moment before "no server running" (macOS, 2026-10-23).
+  for (const deadline = performance.now() + 500; listed.code !== 0 && /server exited unexpectedly/i.test(listed.stderr) && performance.now() < deadline;) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    listed = list();
+  }
+  if (listed.code === 0) return listed.stdout.split(/\r?\n/).filter(Boolean).map(row => row.split(/[\t ]/));
+  return /no server running|No such file or directory/i.test(listed.stderr) ? [] : null;
 }
 
 // This scope is private to marker transfer and rollback; ordinary effects still require OS birth identity.
@@ -81,12 +98,13 @@ function creationCommand(setup: NativeSetup, args: string[], allowRefusal = fals
     () => runTmux(false, undefined, args));
 }
 
-function captureNativeSessionReceipt(receipt: string): void {
+const receiptUnparsed = (r: { code: number; stdout: string; stderr: string }) => `receipt_unparsed(stdout_bytes=${Buffer.byteLength(r.stdout)}; ${tmuxFailure(r)})`;
+function captureNativeSessionReceipt(created: { code: number; stdout: string; stderr: string }): void {
   const frame = nativeTargets.getStore();
-  if (!frame?.created || frame.target) throw nativeTargetUnavailable();
+  if (!frame?.created || frame.target) throw nativeTargetUnavailable("receipt_not_expected");
   let target: NativeSessionReceipt;
-  try { target = parseNativeSessionReceipt(receipt); } catch { throw nativeTargetUnavailable(); }
-  if (frame.session !== null && target.session_id !== frame.session) throw nativeTargetUnavailable();
+  try { target = parseNativeSessionReceipt(created.stdout); } catch { throw nativeTargetUnavailable(receiptUnparsed(created)); }
+  if (frame.session !== null && target.session_id !== frame.session) throw nativeTargetUnavailable("receipt_name_differs");
   frame.session = target.session_id;
   frame.target = target;
   if (frame.setup) {
@@ -96,10 +114,13 @@ function captureNativeSessionReceipt(receipt: string): void {
       ["rename-window", "-t", target.session_id, setup.shell]];
     if (isWin) {
       const inherited = creationCommand(setup, ["show-options", "-t", target.session_id, "-v", "automatic-rename"]);
-      if (inherited.code !== 0 || !["on", "off"].includes(inherited.stdout.trim())) throw nativeTargetUnavailable();
+      if (inherited.code !== 0 || !["on", "off"].includes(inherited.stdout.trim())) throw nativeTargetUnavailable(`automatic_rename_unread(${tmuxFailure(inherited)})`);
       commands.push(["set-window-option", "-t", target.session_id, "automatic-rename", inherited.stdout.trim()]);
     } else commands.push(["set-window-option", "-t", target.session_id, "-u", "automatic-rename"]);
-    for (const command of commands) if (creationCommand(setup, command).code !== 0) throw nativeTargetUnavailable();
+    for (const command of commands) {
+      const result = creationCommand(setup, command);
+      if (result.code !== 0) throw nativeTargetUnavailable(`creation_command_failed(${command[0]}; ${tmuxFailure(result)})`);
+    }
   }
   frame.created({ ...frame.target });
   verifyNativeTarget(frame);
@@ -115,7 +136,7 @@ function nativeSessionArgs(input: string[]): string[] {
     if (!nativeReads.has(command) && command !== "delete-buffer") effect = true;
     if (command === "new-session") {
       const named = args.findIndex((value, index) => index > start && index < end && value === "-s");
-      if (frame.target || !frame.created || named < 0 || frame.session !== null && args[named + 1] !== frame.session) throw nativeTargetUnavailable();
+      if (frame.target || !frame.created || named < 0 || frame.session !== null && args[named + 1] !== frame.session) throw nativeTargetUnavailable("new_session_not_admitted");
     }
     const at = args.findIndex((value, index) => index > start && index < end && value === "-t");
     if (at >= 0) {
@@ -124,14 +145,14 @@ function nativeSessionArgs(input: string[]): string[] {
       const raw = args[at + 1], named = /^=?([A-Za-z0-9_-]{1,64})(?::(?:\d+(?:\.\d+)?)?)?$/.exec(raw);
       const own = named?.[1] === frame.session || raw === frame.target?.native_id || raw === frame.target?.pane_id
         || frame.target !== null && raw === nativePaneTarget(frame.target);
-      if (!own || (!frame.target && !nativeReads.has(command))) throw nativeTargetUnavailable();
+      if (!own || (!frame.target && !nativeReads.has(command))) throw nativeTargetUnavailable(`target_not_owned(${command})`);
       args[at + 1] = frame.target ? (nativePanes.has(command) ? nativePaneTarget(frame.target) : nativeSessionTarget(frame.target)) : `=${frame.session}`;
     }
     start = end + 1;
   }
   if (effect || (targetedRead && frame.target)) {
     if (frame.target) verifyNativeTarget(frame);
-    else if (!args.includes("new-session") && !(args.length === 3 && args[0] === "set-option" && args[1] === "-gu" && args[2] === "update-environment")) throw nativeTargetUnavailable();
+    else if (!args.includes("new-session") && !(args.length === 3 && args[0] === "set-option" && args[1] === "-gu" && args[2] === "update-environment")) throw nativeTargetUnavailable(`effect_before_creation(${args[0]})`);
   }
   return args;
 }
@@ -478,7 +499,7 @@ function runTmux(
     ptyDependencyError(tmuxMissingMessage(), observe);
   }
   const native = nativeTargets.getStore();
-  if (native?.target && !native.allowRefusal && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable();
+  if (native?.target && !native.allowRefusal && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable("native_condition_refused");
   if (native?.target && r.status !== 0) verifyNativeTarget(native);
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -609,7 +630,7 @@ export function sendPsmuxPayload(
   ensureWinPsmux(observe);
   beforeExecutionEffect(sessionName);
   const frame = nativeTargets.getStore();
-  if (frame && (!frame.target || frame.session !== sessionName)) throw nativeTargetUnavailable();
+  if (frame && (!frame.target || frame.session !== sessionName)) throw nativeTargetUnavailable("send_target_differs");
   if (frame) verifyNativeTarget(frame);
   const target = frame?.target;
   const proof = target ? [target.native_id, target.session_id, target.server_pid, target.pane_id, target.pane_pid].join("\t") : null;
@@ -757,18 +778,16 @@ export function tmuxNewSession(
     const result = runTmux(observe, undefined, ["new-session", "-d", "-s", name, ...printNative, ...launch.args, "-f", TMUX_EMPTY_CONFIG, launch.shell]);
     if (result.code === 0) {
       if (pinned) {
-        try {
-          const receipt = parseNativeSessionReceipt(result.stdout);
-          if (receipt.session_id !== name) throw nativeTargetUnavailable();
-          if (witness) witness.target = receipt;
-        }
-        catch { throw nativeTargetUnavailable(); }
+        let receipt: NativeSessionReceipt;
+        try { receipt = parseNativeSessionReceipt(result.stdout); } catch { throw nativeTargetUnavailable(receiptUnparsed(result)); }
+        if (receipt.session_id !== name) throw nativeTargetUnavailable("receipt_name_differs");
+        if (witness) witness.target = receipt;
       }
       // Existing psmux 3.3.8 registry protection must run before identity reads can trigger registry reaping.
       openPsmuxServerToDesktop(name);
     }
     if (guarded && (result.code === 0 || result.stdout)) captureExecutionCreatedNative(result.stdout);
-    if (pinned && (result.code === 0 || result.stdout)) captureNativeSessionReceipt(result.stdout);
+    if (pinned && (result.code === 0 || result.stdout)) captureNativeSessionReceipt(result);
     return result;
   }
   const env = sessionCallerEnvironment();
@@ -795,7 +814,7 @@ export function tmuxNewSession(
     // Bind only the ID printed by this exact create command. Target-specific
     // setup runs later through that native ID, never a fresh same-name lookup.
     if (guarded && (r.code === 0 || r.stdout)) captureExecutionCreatedNative(r.stdout);
-    if (pinned && (r.code === 0 || r.stdout)) captureNativeSessionReceipt(r.stdout);
+    if (pinned && (r.code === 0 || r.stdout)) captureNativeSessionReceipt(r);
     if (r.code !== 0) {
       // 途中の命令が失敗すると、後続の命令は実行されない。差し替えた設定を戻す。
       runTmux(false, undefined, ["set-option", "-gu", "update-environment"]);

@@ -142,7 +142,7 @@ for(const phase of ['created','metadata'])test(`a fresh launch never types into 
   return result;
  });
  syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
- assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_LAUNCH_UNCONFIRMED: /);
  assert.equal(replaced,true);assert.equal(original(bin,[...prefix,'has-session','-t',f.name]).status,0);
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });
@@ -233,7 +233,7 @@ test('a missing actual create receipt never adopts the current same-name native 
  t.mock.method(childProcess,'spawnSync',function(binary,args,options){const result=original(binary,args,options);
   return binary===bin&&args.includes('new-session')&&args.includes(f.name)&&result.status===0?{...result,stdout:''}:result;
  });syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
- assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_RESUME_UNCONFIRMED/);
+ assert.throws(()=>core.openAgent('codex',{session_name:f.name,agent_done:true,model:'fixture-model',reasoning_effort:'high',cwd:process.env.HOME}),/AGENT_LAUNCH_UNCONFIRMED: /);
  assert.equal(original(bin,['-S',SOCK,'has-session','-t',f.name]).status,0);
  assert.equal(fs.readFileSync(f.keys+'-launches','utf8').trim().split('\n').length,1);
 });

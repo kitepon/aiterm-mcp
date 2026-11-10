@@ -927,7 +927,7 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
   for (let attempt = 0; ; attempt++) {
     if (attempt >= 20) throw new AitermError("openSession: 自動採番のリトライ上限（tmux new-session が重複以外で失敗し続けている可能性）", 2);
     if (sessionExists(nm)) {
-      if (explicit) throw new AitermError(`session '${nm}' は既に存在します（list で確認）`, 2);
+      if (explicit) throw new AitermError(`SESSION_EXISTS: session '${nm}' は既に存在します（list で確認）`, 2);
     } else {
       const environment = [...banner, ...envVars.filter(key => key !== "AITERM_SESSION_ID" && launchEnvValue(key) !== undefined)
         .map(key => `${key}=${launchEnvValue(key)}`), `AITERM_SESSION_ID=${nm}`];
@@ -8300,6 +8300,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         if (initialLaunch && initialProof) verifyAgentResumeNative(initialLaunch, initialProof);
         else verifyCreatedNative(initialNative);
       }, create);
+    } catch (error) {
+      throw freshLaunchFailure(error, agentHarness(kind));
     } finally {
       if (initialAdmission) {
         const { name } = initialAdmission;
@@ -8309,6 +8311,21 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   };
 }
 
+
+/** remote-terminal.md R18: a fresh launch never answers the resume code. A setup failure whose session name a
+ * complete listing proved absent, with no dormant record under it, left no seat. */
+function freshLaunchFailure(error: unknown, harness: string): unknown {
+  if (!(error instanceof AitermError)) return error;
+  const resume = "AGENT_RESUME_UNCONFIRMED: ";
+  const cause = error.message.startsWith(resume) ? error.message.slice(resume.length) : error.message;
+  let absent = error.nativeSessionAbsent !== undefined;
+  if (absent) try { assertNoDormantSession(error.nativeSessionAbsent); } catch { absent = false; }
+  if (absent) {
+    error.message = `AGENT_LAUNCH_NOT_STARTED: 新しい端末を作成できませんでした。席は作られていません。${cause}`;
+    error.launchNotStarted = { harness };
+  } else if (cause !== error.message) error.message = `AGENT_LAUNCH_UNCONFIRMED: 新規起動の結果を確認できません。${cause}`;
+  return error;
+}
 
 export class AgentLaunchPromptError extends AitermError {
   constructor(message: string, code: number, readonly session_id: string,

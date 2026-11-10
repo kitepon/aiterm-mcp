@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
-import {observeManagedSpan,withManagedSpan,managedSpanDirectory} from '../dist/managed-seat-turn.js';
+import {observeManagedSpan,withManagedSpan,managedSpanDirectory,SPAN_HELD} from '../dist/managed-seat-turn.js';
 import {agentEventPath,writeAgentMetadata} from '../dist/agent-shared.js';
 import {agentManagedClaudeSettingsPath,agentClaudeResultPath} from '../dist/harnesses/claude.js';
 import {cursorTranscriptForSession} from '../dist/harnesses/cursor.js';
@@ -130,7 +130,8 @@ test('real metadata producer projects four original rows from mocked live native
  assert.equal(batch.seats.at(-1).turn.state,'running');readCost=0;
  const meta=metas.claude;
  const lockDir=path.join(managedSpanDirectory(meta),'lock');
- withManagedSpan(meta,()=>assert.equal(withManagedSpan(meta,()=>{throw Error('Concurrent writer');}),null));
+ withManagedSpan(meta,()=>assert.equal(withManagedSpan(meta,()=>{throw Error('Concurrent writer');}),SPAN_HELD));
+ withManagedSpan(meta,()=>assert.deepEqual(core.readSeatTurns([meta.aiterm_session]),{schema:'aiterm.seat-turns.v1',seats:[],unread:[meta.aiterm_session]},'A seat another live reader holds is unread, not an unknown turn'));
  fs.mkdirSync(lockDir);fs.writeFileSync(path.join(lockDir,'owner.json'),JSON.stringify({pid:2147483000,started_identity:born,token:'dead'}));
  assert.equal(withManagedSpan(meta,()=>42),42,'Dead observer lock recovers by retained inode quarantine');
  assert.ok(fs.readdirSync(managedSpanDirectory(meta)).some(name=>name.startsWith('retired-')));

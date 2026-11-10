@@ -22,8 +22,11 @@ const ownerSchema = z.object({ pid: z.number().int().positive(), started_identit
 export const managedSpanDirectory = (meta: Pick<AgentMetadata, "aiterm_session" | "launch_id">) =>
   agentMetadataPath(meta.aiterm_session, meta.launch_id).replace(/\.agent\.json$/, ".seat-span.d");
 
+/** Another live reader holds the span this instant: no observation this tick (seat-turns `unread`), not an unknown turn. */
+export const SPAN_HELD: unique symbol = Symbol("span-held");
+
 /** Same callback owns live capture and the short identity transaction. Never waits or sends input. */
-export function withManagedSpan<T>(meta: AgentMetadata, capture: (file: string) => T): T | null {
+export function withManagedSpan<T>(meta: AgentMetadata, capture: (file: string) => T): T | null | typeof SPAN_HELD {
   const directory = managedSpanDirectory(meta);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const actor = readProcessIdentities([process.pid]).find(row => row.pid === process.pid);
@@ -43,9 +46,9 @@ export function withManagedSpan<T>(meta: AgentMetadata, capture: (file: string) 
         const observed = observeExecutionActor(prior.pid);
         return observed.state === "absent" || observed.state === "present" && observed.actor.started_identity !== prior.started_identity;
       };
-      if (!dead()) return null;
+      if (!dead()) return SPAN_HELD;
       const after = fs.lstatSync(lock, { bigint: true });
-      if (before.dev !== after.dev || before.ino !== after.ino || !dead()) return null;
+      if (before.dev !== after.dev || before.ino !== after.ino || !dead()) return SPAN_HELD;
       // Retain this nonempty destination: a competing reap cannot move a later owner's lock over it.
       fs.renameSync(lock, path.join(directory, `retired-${before.dev}-${before.ino}`));
       fs.renameSync(candidate, lock); acquired = true;
@@ -83,7 +86,8 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
     return { state: "running", turn_id, started_at, event_cursor: null, interim_from, wait_process: null };
   }
   // A launch that never showed busy nor any terminal has no turn to hide: its settled ready is idle.
-  if (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal) return null;
+  // An idle compaction has no Stop of its own; its notice settles the span its spinner opened.
+  if (evidence !== "ready_compacted" && (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal)) return null;
   if (!record) record = { binding, span: null, terminal, ready: null };
   if (!record.ready || record.ready.terminal !== terminal || Date.parse(at) < Date.parse(record.ready.since)) {
     record.ready = { since: at, terminal }; writeJson0600(file, record); return null;

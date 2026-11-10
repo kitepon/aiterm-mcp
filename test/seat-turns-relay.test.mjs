@@ -29,7 +29,8 @@ s.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: "tex
   _meta: { "aiterm/seat_turns": { schema: "aiterm.seat-turns.v1", seats: [
     { session_id: "relay_a", launch_id: "a".repeat(32), harness: "claude-code", turn: { state: "idle" } },
     { session_id: "relay_b", launch_id: "b".repeat(32), harness: "codex-cli", turn: null },
-    { session_id: "not_bound_here", launch_id: "c".repeat(32), harness: "claude-code", turn: { state: "idle" } }] } } }));
+    { session_id: "not_bound_here", launch_id: "c".repeat(32), harness: "claude-code", turn: { state: "idle" } }],
+    unread: ["relay_held", "held_not_bound_here"] } } }));
 await s.connect(new StdioServerTransport());
 `);
 const fakeBin = path.join(tmp, "bin");
@@ -37,6 +38,7 @@ fs.mkdirSync(fakeBin);
 fs.writeFileSync(path.join(fakeBin, "ssh"), `#!/bin/sh
 case "$*" in *10.8.0.2*) echo "ssh: connect to host 10.8.0.2 port 22: No route to host" >&2; exit 255;; esac
 case "$*" in *aiterm-probe*) echo posix; exit 0;; esac
+echo relay >> ${JSON.stringify(path.join(tmp, "relays.log"))}
 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(serverFile)}
 `, { mode: 0o755 });
 
@@ -49,11 +51,11 @@ function bind(host, sessions) {
   for (const session of sessions) rt.bindTerminalSession(session, ref);
 }
 
-test("seat turns relay: an unreachable terminal's sessions are unread, an answering terminal's missing session is absent", { skip }, async t => {
+test("seat turns relay: an unreachable terminal's sessions are unread, an answering terminal's missing session is absent, its held seats stay unread", { skip }, async t => {
   const savedPath = process.env.PATH;
   process.env.PATH = `${fakeBin}${path.delimiter}${savedPath}`;
   t.after(() => { process.env.PATH = savedPath; });
-  bind("10.8.0.1", ["relay_a", "relay_b", "relay_gone"]);
+  bind("10.8.0.1", ["relay_a", "relay_b", "relay_gone", "relay_held"]);
   bind("10.8.0.2", ["relay_x", "relay_y"]);
   const server = createAitermServer(), client = new Client({ name: "seat-relay-test", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -62,6 +64,12 @@ test("seat turns relay: an unreachable terminal's sessions are unread, an answer
     const listed = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
     const turns = listed._meta["aiterm/seat_turns"];
     assert.deepEqual(turns.seats.map(seat => [seat.session_id, seat.turn]), [["relay_a", { state: "idle" }], ["relay_b", null]]);
-    assert.deepEqual(turns.unread, ["relay_x", "relay_y"]);
+    assert.deepEqual(turns.unread, ["relay_held", "relay_x", "relay_y"]);
+    // Overlapping callers share the one in-flight relay to a terminal instead of starting a reader each.
+    const log = path.join(tmp, "relays.log");
+    fs.rmSync(log, { force: true });
+    const both = await Promise.all([0, 1].map(() => client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } })));
+    for (const result of both) assert.deepEqual(result._meta["aiterm/seat_turns"].seats.map(seat => seat.session_id), ["relay_a", "relay_b"]);
+    assert.equal(fs.readFileSync(log, "utf8").trim().split("\n").length, 1, "one relay for both callers");
   } finally { await client.close(); }
 });

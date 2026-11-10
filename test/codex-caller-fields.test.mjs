@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -40,20 +41,56 @@ test("mcp_config: what Codex's http server table cannot say is refused, never gu
   ]) assert.throws(() => codex.codexMcpOverrides(bad), /^Error: CODEX_MCP_CONFIG_UNSUPPORTED: /, JSON.stringify(bad));
 });
 
-test("checkCodexCallerInput: size, and a same-name user stdio server is refused while an http one is overridden", () => {
+test("a same-name user stdio server is taken over with Aiterm's relay; an http one is merged; checkCodexCallerInput checks size", () => {
   const home = path.join(tmp, "home");
   fs.mkdirSync(home);
   fs.writeFileSync(path.join(home, "config.toml"), [
     "[mcp_servers.aiterm]", 'command = "/x"', "[mcp_servers.aiterm.env]", 'A = "b"', "",
     "[mcp_servers.bellteam]", 'url = "http://127.0.0.1:4181/mcp"', 'env_http_headers = { "X-Bellteam-Seat" = "AITERM_SESSION_ID" }', "",
     '[mcp_servers."quoted-stdio"]', "command = 'y'", ""].join("\n"));
-  const mcp = servers => ({ mcpServers: Object.fromEntries(servers.map(name => [name, { url: "http://127.0.0.1:1/m" }])) });
-  assert.doesNotThrow(() => codex.checkCodexCallerInput("rules", mcp(["bellteam", "other"]), home));
-  assert.throws(() => codex.checkCodexCallerInput(null, mcp(["bellteam", "aiterm"]), home), /^Error: CODEX_MCP_SERVER_CONFLICT: .*'aiterm'/);
-  assert.throws(() => codex.checkCodexCallerInput(null, mcp(["quoted-stdio"]), home), /CODEX_MCP_SERVER_CONFLICT/);
-  assert.doesNotThrow(() => codex.checkCodexCallerInput(null, mcp(["aiterm"]), path.join(tmp, "no-such-home")), "no user config, nothing to conflict with");
-  assert.throws(() => codex.checkCodexCallerInput("  ", null, home), /non-empty/);
-  assert.throws(() => codex.checkCodexCallerInput("x".repeat(64 * 1024 + 1), null, home), /64 KiB/);
+  const stdio = codex.codexUserStdioServers(home);
+  assert.deepEqual([...stdio].sort(), ["aiterm", "quoted-stdio"]);
+  assert.deepEqual(codex.codexUserStdioServers(path.join(tmp, "no-such-home")), new Set(), "no user config, nothing to take over");
+  const [http, relayed] = codex.codexMcpOverrides({ mcpServers: { bellteam, aiterm: bellteam } }, stdio);
+  assert.match(http, /^mcp_servers\.bellteam=\{url=/);
+  const bridge = fileURLToPath(new URL("../dist/mcp-http-bridge.js", import.meta.url));
+  assert.equal(relayed, `mcp_servers.aiterm={command=${JSON.stringify(process.execPath)},args=${JSON.stringify([bridge, bellteam.url,
+    "--bearer-env", "BELLTEAM_MCP_TOKEN", "--env-header", "X-Bellteam-Seat=AITERM_SESSION_ID", "--env-header", "X-Bellteam-Launch-Id=AITERM_AGENT_LAUNCH_ID", "--header", "X-Fixed=v1"])},`
+    + 'env_vars=["BELLTEAM_MCP_TOKEN","AITERM_SESSION_ID","AITERM_AGENT_LAUNCH_ID"],enabled=true,disabled_tools=[]}');
+  assert.doesNotThrow(() => codex.checkCodexCallerInput("rules", { mcpServers: { aiterm: bellteam } }), "no longer refused");
+  assert.throws(() => codex.checkCodexCallerInput("  ", null), /non-empty/);
+  assert.throws(() => codex.checkCodexCallerInput("x".repeat(64 * 1024 + 1), null), /64 KiB/);
+});
+
+test("the relay carries a tool call between stdio and the http server with the seat's headers", async () => {
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+  const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const http = await import("node:http");
+  const seen = [];
+  const server = http.createServer(async (req, res) => {
+    seen.push([req.headers.authorization, req.headers["x-seat"], req.headers["x-fixed"]]);
+    const mcp = new McpServer({ name: "probe", version: "1" });
+    mcp.registerTool("echo", { description: "echo" }, async () => ({ content: [{ type: "text", text: "pong" }] }));
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    res.on("close", () => { void transport.close(); void mcp.close(); });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res);
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/mcp`;
+  const [override] = codex.codexMcpOverrides({ mcpServers: { s: { url, headers: { Authorization: "Bearer ${TOK}", "X-Seat": "${SEAT}", "X-Fixed": "v1" } } } }, new Set(["s"]));
+  const args = JSON.parse(/args=(\[.*?\]),env_vars/.exec(override)[1]);
+  const client = new Client({ name: "relay-test", version: "1" });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args, env: { TOK: "t0k", SEAT: "seat-1" }, stderr: "pipe" }));
+  try {
+    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), ["echo"]);
+    assert.equal((await client.callTool({ name: "echo", arguments: {} })).content[0].text, "pong");
+    assert.ok(seen.length >= 3 && seen.every(h => JSON.stringify(h) === JSON.stringify(["Bearer t0k", "seat-1", "v1"])), JSON.stringify(seen));
+  } finally {
+    await client.close();
+    server.close();
+  }
 });
 
 const meta = (extra = {}) => ({ kind: "codex", aiterm_session: "caller_fixture", launch_id: "a".repeat(32), hook_route: "shared_codex_home", node_platform: process.platform,

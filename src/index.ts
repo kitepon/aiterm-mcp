@@ -874,6 +874,8 @@ registerRemoteAwareTool(
   },
 );
 
+const remoteSeatTurnsInFlight = new Map<string, Promise<any>>();
+
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
 async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): Promise<{ _meta?: Record<string, unknown> }> {
@@ -883,14 +885,26 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
     // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
     // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a terminal that fails or is slow contributes
     // no rows, and its sessions are listed in `unread` so the caller keeps their last state instead of reading them as gone.
-    const remote = await Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => Promise.race([
-      callRemoteTool(target, "pty_list", {}, 4_000, undefined, requestMeta as Record<string, unknown>).then(result => {
-        const seats = (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any)?.seats;
-        return Array.isArray(seats) ? { seats: seats.filter((seat: any) => bound.includes(seat?.session_id)), unread: [] } : { seats: [], unread: bound };
-      }, () => ({ seats: [], unread: bound })),
-      new Promise<{ seats: any[]; unread: string[] }>(resolve => setTimeout(resolve, 4_000, { seats: [], unread: bound }).unref()),
-    ])));
-    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: remote.flatMap(r => r.unread) } } };
+    // Overlapping callers share one in-flight relay per terminal: each relay starts its own reader on the terminal, and
+    // two readers of one seat at once leave one of them without the span lock (that seat comes back in its `unread`).
+    const remote = await Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => {
+      const key = JSON.stringify([target, requestMeta]);
+      let call = remoteSeatTurnsInFlight.get(key);
+      if (!call) {
+        call = callRemoteTool(target, "pty_list", {}, 4_000, undefined, requestMeta as Record<string, unknown>)
+          .then(result => (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any) ?? null, () => null)
+          .finally(() => remoteSeatTurnsInFlight.delete(key));
+        remoteSeatTurnsInFlight.set(key, call);
+      }
+      return Promise.race([
+        call.then(answer => Array.isArray(answer?.seats)
+          ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)),
+              unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
+          : { seats: [], unread: bound }),
+        new Promise<{ seats: any[]; unread: string[] }>(resolve => setTimeout(resolve, 4_000, { seats: [], unread: bound }).unref()),
+      ]);
+    }));
+    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: [...local.unread, ...remote.flatMap(r => r.unread)] } } };
   } catch (e) {
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };
   }
@@ -1589,7 +1603,7 @@ server.registerTool(
       remote: remoteInputField,
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; at most 64 KiB for both. Cursor and Antigravity have no system-prompt channel: the text goes in front of the first prompt (Antigravity needs a prompt; at most 64 KiB)"),
-      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server; Grok and Antigravity replace a same-name user server for this seat"),
+      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server; Codex, Grok and Antigravity replace a same-name user server for this seat (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead)"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),

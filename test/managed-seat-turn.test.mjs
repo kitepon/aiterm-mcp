@@ -106,3 +106,21 @@ test('Claude ready_no_completion settles only a binding that never saw a span or
  assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(1400)),null);
  assert.equal(observeManagedSpan(file,'fresh','ready_no_completion','done',at(1700)),null,'A recorded terminal keeps the completion-line requirement');
 });
+
+test('Claude idle compaction: its spinner opens a span and its notice settles it without a Stop (Rapi, 0.70.9)',()=>{
+ const compacting=['Claude Code','✻ Cooked for 2m 32s · done 12:32 AM','','✢ Compacting conversation… (51s · ↓ 2.1k tokens)',rule,'❯ ',rule,'  bypass permissions'].join('\n');
+ const compacted=['Claude Code','✻ Cooked for 2m 32s · done 12:32 AM','  ⎿  Referenced file ../x/TerminalsView.swift','',
+  '⏺ Compacted while idle, before the prompt cache expired · turn off with','  "idleCompaction": false in settings.json','',rule,'❯ ',rule,'  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 3 agents'].join('\n');
+ assert.equal(parentPaneEvidence('claude',compacting),'busy');
+ assert.equal(parentPaneEvidence('claude',compacted),'ready_compacted');
+ assert.equal(parentPaneEvidence('claude',[compacted.replace(/\n─[\s\S]*$/,''),'❯ next question','⏺ answer','',rule,'❯ ',rule,'  bypass'].join('\n')),'ready_no_completion','a later block above the composer is not the compaction');
+ const file=path.join(directory(),'span.json');
+ assert.equal(observeManagedSpan(file,'b','ready','stop-1',at(0)),null);
+ assert.deepEqual(observeManagedSpan(file,'b','ready','stop-1',at(300)),{state:'idle'});
+ assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(400)).state,'running','the compaction spinner');
+ assert.equal(observeManagedSpan(file,'b','ready_no_completion','stop-1',at(500)),null,'before the fix the span stayed here');
+ assert.equal(observeManagedSpan(file,'b','ready_compacted','stop-1',at(600)),null,'first ready is not idle');
+ assert.deepEqual(observeManagedSpan(file,'b','ready_compacted','stop-1',at(900)),{state:'idle'});
+ assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(1000)).state,'running','the next real turn');
+ assert.equal(observeManagedSpan(file,'b','ready','stop-1',at(1300)),null,'a real turn still needs its own Stop');
+});

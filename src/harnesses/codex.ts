@@ -5,12 +5,14 @@ import { authUrl, authUserCode, type AgentAuthPlan, type AgentAuthStatus, type A
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { z } from "zod";
 import { AitermError, launchInputRefusal } from "../errors.js";
 import { spawnAgentControlCommand } from "../agent-resolver.js";
 import * as steer from "aiterm-steer-delivery";
 import { AITERM_PROFILE } from "../steer-profile.js";
+import { setupNodeExecutable } from "../setup-node.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, type AgentModelCatalog, type AgentModelChoice } from "../model-catalog.js";
 import {
   shq,
@@ -860,8 +862,11 @@ const HEADER_NAME = /^[A-Za-z0-9-]{1,128}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const toml = (value: string): string => JSON.stringify(value); // JSON strings are valid TOML basic strings
 
-/** `mcp_config` -> one `-c` value per server. Refuses (CODEX_MCP_CONFIG_UNSUPPORTED) what Codex's http server table cannot say. */
-export function codexMcpOverrides(mcp: unknown): string[] {
+/** `mcp_config` -> one `-c` value per server. Refuses (CODEX_MCP_CONFIG_UNSUPPORTED) what Codex's http server table cannot say.
+ * `userStdio`: names the user's config.toml already defines as stdio servers. `-c` merges key by key into that table and
+ * Codex refuses `command` + `url`, so such a server is taken over as stdio running Aiterm's relay to the same url and headers
+ * (mcp-http-bridge.ts); the user's other keys of that table (env, cwd, timeouts, enabled_tools) still apply. */
+export function codexMcpOverrides(mcp: unknown, userStdio: ReadonlySet<string> = new Set()): string[] {
   const refuse = (message: string): never => { throw new AitermError(`CODEX_MCP_CONFIG_UNSUPPORTED: ${message}`, 2); };
   const servers = (mcp as { mcpServers?: unknown } | null)?.mcpServers;
   if (!mcp || typeof mcp !== "object" || Object.keys(mcp).some(key => key !== "mcpServers") || !servers || typeof servers !== "object" || Array.isArray(servers))
@@ -876,7 +881,7 @@ export function codexMcpOverrides(mcp: unknown): string[] {
     try { url = typeof spec.url === "string" ? new URL(spec.url) : null; } catch { /* refused below */ }
     if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) return refuse(`server '${name}': url must be an http(s) URL`);
     const fields = [`url=${toml(spec.url as string)}`];
-    const envHeaders: string[] = [], literalHeaders: string[] = [], seen = new Set<string>();
+    const envHeaders: string[] = [], literalHeaders: string[] = [], seen = new Set<string>(), bridgeArgs: string[] = [], envNames: string[] = [];
     let bearer: string | null = null;
     if (spec.headers !== undefined && (!spec.headers || typeof spec.headers !== "object" || Array.isArray(spec.headers))) return refuse(`server '${name}': headers must be an object`);
     for (const [header, value] of Object.entries((spec.headers ?? {}) as Record<string, unknown>)) {
@@ -889,8 +894,14 @@ export function codexMcpOverrides(mcp: unknown): string[] {
         const envName = (bearerName ?? wholeName)!;
         if (!ENV_NAME.test(envName)) return refuse(`server '${name}': header '${header}' names an invalid environment variable`);
         if (bearerName !== undefined) bearer = envName; else envHeaders.push(`${toml(header)}=${toml(envName)}`);
+        bridgeArgs.push(...(bearerName !== undefined ? ["--bearer-env", envName] : ["--env-header", `${header}=${envName}`]));
+        envNames.push(envName);
       } else if (value.includes("${")) return refuse(`server '${name}': header '${header}' mixes text with \${NAME}; only the whole value or 'Bearer \${NAME}' can be given`);
-      else literalHeaders.push(`${toml(header)}=${toml(value)}`);
+      else { literalHeaders.push(`${toml(header)}=${toml(value)}`); bridgeArgs.push("--header", `${header}=${value}`); }
+    }
+    if (userStdio.has(name)) {
+      const args = [fileURLToPath(new URL("../mcp-http-bridge.js", import.meta.url)), spec.url as string, ...bridgeArgs];
+      return `mcp_servers.${name}={command=${toml(setupNodeExecutable(process.execPath))},args=[${args.map(toml).join(",")}],env_vars=[${envNames.map(toml).join(",")}],enabled=true,disabled_tools=[]}`;
     }
     if (bearer !== null) fields.push(`bearer_token_env_var=${toml(bearer)}`);
     if (envHeaders.length) fields.push(`env_http_headers={${envHeaders.join(",")}}`);
@@ -899,15 +910,9 @@ export function codexMcpOverrides(mcp: unknown): string[] {
   });
 }
 
-/** Pre-start check of the caller fields for a Codex launch. `-c` merges key by key into a same-name table of
- * config.toml, so an http server of that name is overridden but a user stdio server (`command`) cannot be:
- * Codex would fail to load its config ("url is not supported for stdio"). Refused before anything starts.
- * shortcut: reads only `[mcp_servers.NAME]` section headers, an inline or dotted-key definition is not seen (Codex then refuses at start); upgrade with a TOML parser. */
-export function checkCodexCallerInput(prompt: string | null | undefined, mcp: unknown, codexHome: string): void {
-  if (prompt != null && (!prompt.trim() || Buffer.byteLength(prompt, "utf8") > CODEX_CALLER_PROMPT_MAX))
-    throw new AitermError("append_system_prompt must be non-empty and at most 64 KiB for codex-cli (it travels in argv)", 2);
-  if (mcp == null) return;
-  const overrides = codexMcpOverrides(mcp);
+/** Names of the stdio MCP servers in the user's config.toml (codexMcpOverrides takes those over with the relay).
+ * shortcut: reads only `[mcp_servers.NAME]` section headers, an inline or dotted-key definition is not seen (Codex then refuses that seat's config at start); upgrade with a TOML parser. */
+export function codexUserStdioServers(codexHome: string): Set<string> {
   let body = "";
   try { body = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8"); } catch { /* no user config: nothing to conflict with */ }
   let inside: string | null = null;
@@ -918,15 +923,19 @@ export function checkCodexCallerInput(prompt: string | null | undefined, mcp: un
     if (/^\s*\[/.test(line)) { inside = null; continue; }
     if (inside && /^\s*command\s*=/.test(line)) stdio.add(inside);
   }
-  for (const override of overrides) {
-    const name = override.slice("mcp_servers.".length, override.indexOf("="));
-    if (stdio.has(name)) throw new AitermError(`CODEX_MCP_SERVER_CONFLICT: ~/.codex/config.toml already defines a stdio MCP server named '${name}', which a -c override cannot turn into an http server; rename it there or use another server name`, 2);
-  }
+  return stdio;
+}
+
+/** Pre-start check of the caller fields for a Codex launch: the text size and the server shapes. */
+export function checkCodexCallerInput(prompt: string | null | undefined, mcp: unknown): void {
+  if (prompt != null && (!prompt.trim() || Buffer.byteLength(prompt, "utf8") > CODEX_CALLER_PROMPT_MAX))
+    throw new AitermError("append_system_prompt must be non-empty and at most 64 KiB for codex-cli (it travels in argv)", 2);
+  if (mcp != null) codexMcpOverrides(mcp);
 }
 
 /** Both caller files, as Claude's writeClaudeCallerFiles: Aiterm state, 0600, never the project or the Codex home. */
 export function writeCodexCallerFiles(meta: AgentMetadata, prompt: string | null, mcp: Record<string, unknown> | null): void {
-  checkCodexCallerInput(prompt, mcp, meta.codex_home ?? realCodexHome());
+  checkCodexCallerInput(prompt, mcp);
   if (prompt !== null) {
     const file = agentCodexCallerPromptPath(meta.aiterm_session);
     fs.writeFileSync(file, prompt, { mode: 0o600 });
@@ -942,7 +951,7 @@ export function writeCodexCallerFiles(meta: AgentMetadata, prompt: string | null
 
 /** The caller launch fields of a Codex input, refused as a not-started input refusal (phase "input"). */
 export function refuseCodexCallerInput(prompt: string | null | undefined, mcp: unknown): void {
-  try { checkCodexCallerInput(prompt, mcp, realCodexHome()); }
+  try { checkCodexCallerInput(prompt, mcp); }
   catch (e) { throw e instanceof AitermError ? launchInputRefusal("codex-cli", e.message) : e; }
 }
 
@@ -970,7 +979,7 @@ export function codexAgentArgv(
     parts.push("-c", `developer_instructions=${subagentInstruction(meta)}${meta.codex_caller_prompt_file ? `\n\n${fs.readFileSync(meta.codex_caller_prompt_file, "utf8")}` : ""}`);
   }
   if (meta?.kind === "codex" && meta.codex_caller_mcp_file)
-    for (const override of codexMcpOverrides(JSON.parse(fs.readFileSync(meta.codex_caller_mcp_file, "utf8")))) parts.push("-c", override);
+    for (const override of codexMcpOverrides(JSON.parse(fs.readFileSync(meta.codex_caller_mcp_file, "utf8")), codexUserStdioServers(meta.codex_home ?? realCodexHome()))) parts.push("-c", override);
   if (prompt) parts.push(prompt); // 初手プロンプト（任意）
   return parts;
 }

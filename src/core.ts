@@ -16,7 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
-import { withManagedSpan, observeManagedSpan, type ManagedSeatTurn } from "./managed-seat-turn.js";
+import { withManagedSpan, observeManagedSpan, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
  * core — CLI/MCP が共有する端末操作とharness進行（Node/TS 版）。
  *
@@ -4049,6 +4049,8 @@ export interface SeatTurnsResult {
     /** Codex native turn/tracking, or a live-observed managed parent span with null tracking. */
     turn: (Extract<SeatTurn, { state: "running" }> & { wait_process: AgentWaitProcess }) | ManagedSeatTurn | null;
   }>;
+  /** Seats another live reader held this instant: no row, the caller keeps their last state. */
+  unread: string[];
 }
 
 /**
@@ -4056,17 +4058,18 @@ export interface SeatTurnsResult {
  * read current original-pane activity, with observation identity and no waiter.
  */
 export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
-  const seats: SeatTurnsResult["seats"] = [];
+  const seats: SeatTurnsResult["seats"] = [], unread: string[] = [];
   const observedAt = new Map<string, number>();
   for (const name of sessionIds) {
     const meta = tryLoadAgentMetadata(name);
     if (!meta) continue;
-    let turn: SeatTurn | ManagedSeatTurn | null = null;
+    let turn: SeatTurn | ManagedSeatTurn | null | typeof SPAN_HELD = null;
     try {
       const state = agentDormantState(meta);
       turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null)
         : meta.kind === "codex" ? codexSeatTurn(meta) : readManagedSeatTurn(meta);
     } catch { /* 読めない席は、分からないまま返す */ }
+    if (turn === SPAN_HELD) { unread.push(name); continue; }
     if (meta.kind !== "codex") observedAt.set(name, performance.now());
     seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
       turn: turn?.state === "running" && turn.event_cursor !== null
@@ -4074,7 +4077,7 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
   }
   for (const seat of seats) if (seat.harness !== "codex-cli"
     && performance.now() - observedAt.get(seat.session_id)! >= 15_000) seat.turn = null;
-  return { schema: "aiterm.seat-turns.v1", seats };
+  return { schema: "aiterm.seat-turns.v1", seats, unread };
 }
 
 function managedSeatConversation(meta: AgentMetadata): string | null {
@@ -4122,7 +4125,7 @@ function managedSpanStart(meta: AgentMetadata): string | null {
   try { return interimFromToken(interimFromNow(meta, agentCompletionCursor(meta))); } catch { return null; }
 }
 
-function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null {
+function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null | typeof SPAN_HELD {
   const started = performance.now();
   const result = withManagedSpan(meta, file => {
     const conversation = managedSeatConversation(meta);

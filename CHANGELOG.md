@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Claude seats that compacted while idle no longer read as `turn: null` until their next turn. Claude's idle compaction shows a busy spinner and sends no Stop; the `⏺ Compacted while idle` notice above the composer now ends the span that spinner opened, and the row settles to `{state: "idle"}`.
+- `pty_list` seat turns (caller opt-in): a seat whose span another live reader holds at that instant is listed in `unread` (the caller keeps its last state) instead of a row with `turn: null`. A terminal's own `unread` is relayed for its bound sessions, and overlapping callers share one in-flight relay per terminal instead of starting one reader on the terminal each.
+- Codex seats whose `~/.codex/config.toml` already has a stdio MCP server with the same name as an `mcp_config` server (for example `call-bridge`) now start instead of `AGENT_LAUNCH_NOT_STARTED: CODEX_MCP_SERVER_CONFLICT`. For that seat only, Aiterm takes over the user's entry with its own stdio relay (`dist/mcp-http-bridge.js`), which forwards every MCP message to the seat's http server with the seat's headers; the tool names keep the server name and the user's config.toml is not written. `CODEX_MCP_SERVER_CONFLICT` is gone.
+
 ## [0.70.9] - 2026-11-10
 
 - All five harnesses can run on a terminal. `agent_launch` (and the per-harness launchers) with `terminal` now accepts `grok-cli`, `cursor-cli` and `antigravity-cli` beside `claude-code` and `codex-cli`, routed to the terminal's `agent_launch` the same way, with the seat-forward URL rewrite and header extraction unchanged. These three need Aiterm 0.70.9 on the terminal (`REMOTE_AITERM_TOO_OLD` before any private value is sent). `TERMINAL_HARNESS_UNSUPPORTED` stays only as a guard for a name outside the five.

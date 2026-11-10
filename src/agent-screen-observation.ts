@@ -362,8 +362,10 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
   agentTuiReadyStableSamplesTestOverride = value;
 }
 
-/** ready_no_completion: Claude composer ready without a completed-progress line (also seen in a quiet wait). */
-export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "unknown";
+/** ready_no_completion: Claude composer ready without a completed-progress line (also seen in a quiet wait).
+ * ready_compacted: Claude's idle-compaction notice is the last block above the composer. Claude compacts only while
+ * idle and sends no Stop for it, so this ends whatever its spinner opened. */
+export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "ready_compacted" | "unknown";
 
 /** Only the current native composer/progress/footer can establish occupancy. */
 // shortcut: pane snapshots cannot certify hidden native turn boundaries, use a continuous native lifecycle when that distinction is required.
@@ -392,6 +394,7 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   if (kind === "claude" && /running UserPromptSubmit hook/u.test(current)) return "unknown";
   const observed = agentPaneObservation(kind, current);
   if (observed.state === "blocked" || observed.state === "unknown") return "unknown";
+  if (kind === "claude" && observed.state === "idle" && /^⏺ Compacted while idle\b/u.test(current)) return "ready_compacted";
   if (kind === "claude" && observed.state === "idle"
     && !/^[·✢✳✶✻✽*∗] [^…\n]+ for \d[^…\n]*$/mu.test(current)) return "ready_no_completion";
   if (kind === "cursor") {

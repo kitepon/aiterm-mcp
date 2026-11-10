@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.8] - 2026-11-10
+
 - Windows forks (x64): `agent_launch.fork_from` now starts the fork with every write inside the project folder refused instead of answering `READONLY_UNENFORCEABLE`. A bundled helper (`native/write-ban/win32-x64/aiterm-write-ban.exe`, about 24 KB, built reproducibly with the Linux ones) runs the CLI under a restricted copy of the user's token with no privileges and an Aiterm marker SID. The project folder carries, once, an inheritable Deny ACE for that marker SID (plus OWNER RIGHTS = READ_CONTROL and WRITE_DAC, so the DACL cannot be rewritten). The ACEs affect no other process, so the main seat writes as before and nothing is cleaned up later. npm shims run through `pwsh -File`. Measured on fox: new file, append, delete, rename, attributes, Set-Acl, icacls, takeown, git and cmd redirects inside were refused; writes outside succeeded. `fork_of.write_ban.method` is `restricted-token`.
 - The Linux terminal runtime now carries its own tmux, so a Linux terminal needs no tmux installed. `aiterm-runtime-<version>-linux-<x64|arm64>.tar.gz` holds `bin/tmux` 3.8, a fully static musl binary (libevent 2.1.13, utf8proc 2.12.0 and ncurses 6.5 linked in, no libc of the terminal), cross-built on the runner with `zig cc` (`ziglang` 0.15.2 from PyPI, as the write-ban helper) from source tarballs pinned by sha256 in `scripts/build-linux-runtime.mjs`. ncurses keeps compiled-in entries for `screen-256color`, `tmux-256color`, `xterm-256color`, `xterm`, `screen`, `tmux`, `linux`, `vt100`, `dumb` and `ansi`, so tmux also starts on a machine without a terminfo database; it still reads the terminal's own database first. `default-terminal` stays `screen-256color`. The runtime `bin` is first on PATH, so seats use it.
 - `provision` no longer checks for tmux on a Linux terminal, and `PROVISION_TMUX_MISSING` is gone (the bootstrap and `runtime-smoke` never answer it). `runtime-smoke` runs the runtime's own `bin/tmux -V` on both systems. The runtime build checks both tmux binaries are static ELF files of the right machine and, for the host architecture, starts a session with no terminfo database in reach. `runtime.yml` installs `ziglang` in the Linux job and no longer installs a system tmux there.
@@ -3219,7 +3221,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.8...HEAD
+[0.70.8]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.7...v0.70.8
 [0.70.7]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.6...v0.70.7
 [0.70.6]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.5...v0.70.6
 [0.70.5]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.4...v0.70.5

@@ -21,3 +21,8 @@ The preface recorder's shell script also ended with its Node child command. A sh
 ## Exec a plain shell name (2026-11-10)
 
 `/bin/sh -c pwsh` on Linux (dash) forks the shell instead of replacing itself, so `pane_current_command` reads `sh` and a `mark` sentinel was written in POSIX syntax into PowerShell. A command that is one plain word now runs as `/bin/sh -c 'exec <word>'`; the pane process is the requested shell, as macOS `/bin/sh` already did. Compound commands are unchanged. The first hosted macOS run (pwsh installed there, absent from the factory hosts) showed the second POSIX PowerShell defect: text typed before PSReadLine starts is garbled, so `pty_open` of `pwsh` on POSIX waits, bounded to 10 s, until its first prompt moves the cursor off column 0.
+
+## Addendum 2026-11-10: Windows input typed while no prompt is visible
+
+psmux can report a stale `#{pane_current_command}` for a pane, for example `pwsh` for a Git Bash pane. `markShellCommand` corrects it only from a visible prompt. Input sent while a command runs, or before the first prompt, therefore got the PowerShell scriptblock form, and bash read it afterwards (fox run 42807231169, `bash: syntax error near unexpected token [scriptblock]::Create`). `paneShellForSubmission` now remembers per pane the shell whose prompt it last saw. The pane's opening shell is remembered at `pty_open`. When no prompt is visible, the remembered shell is used instead of psmux's name. The remembered shell is per server process. A new process falls back to the previous reading until it sees a prompt.
+

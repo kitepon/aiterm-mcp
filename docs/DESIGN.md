@@ -169,7 +169,7 @@ Claude Codeの入力待ちは、起動時の見出しが取得範囲から流れ
 
 ## Agent model
 
-POSIXのpane作成は要求したshellを直接実行するargvを渡し、サービス用アカウントのログイン不可shellへ仲介させない（ADR 0136）。単語だけのshell名は`/bin/sh -c 'exec <shell>'`で置き換え、paneの前面を要求したshellにする（dashは単独の-c命令をforkし、前面が`sh`に見える）。POSIXのPowerShellは行編集の開始前に打たれた文を壊すので、`pty_open`は最初のpromptで行頭からcursorが動くまで最大10秒待つ。WindowsのPowerShell/psmux経路は従来どおり。
+POSIXのpane作成は要求したshellを直接実行するargvを渡し、サービス用アカウントのログイン不可shellへ仲介させない（ADR 0136）。単語だけのshell名は`/bin/sh -c 'exec <shell>'`で置き換え、paneの前面を要求したshellにする（dashは単独の-c命令をforkし、前面が`sh`に見える）。POSIXのPowerShellは行編集の開始前に打たれた文を壊すので、`pty_open`は最初のpromptで行頭からcursorが動くまで最大10秒待つ。WindowsのPowerShell/psmux経路は従来どおり。WindowsではpsmuxのFG名が古いまま（Git Bashのpaneでpwsh）返ることがあるため、送信の方言は見えているpromptで決め、promptが見えない時（命令の実行中や最初のpromptの前）は、そのpaneで最後にpromptを見たshell（最初はpaneを開いたshell）を使う（ADR 0136追補）。
 
 AntigravityのTUI＋公式hook、発話位置とexecutionNumによる完了相関は[ADR 0135](https://github.com/kitepon/aiterm-mcp/blob/main/docs/adr/0135-antigravity-native-harness.md)を正とする。
 

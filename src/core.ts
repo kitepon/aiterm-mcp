@@ -87,6 +87,7 @@ import {
   paneCwdArgument,
   sessionEnvironmentLaunch,
   paneCommandArgs,
+  rememberPaneShell,
 } from "./tmux-runtime.js";
 import {
   AGENT_DEFAULT_PREFACE,
@@ -1004,6 +1005,7 @@ function openSessionInternal(name: string | null | undefined, shell: string, env
       if (cursor.code !== 0 || Number(cursor.stdout.trim()) > 0) break;
     }
   }
+  rememberPaneShell(nm, shell);
   return [nm, attachHint(nm)];
   });
 }

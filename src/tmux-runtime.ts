@@ -904,6 +904,14 @@ export function markShellCommand(foreground: string, screen: string, platform: N
   return foreground;
 }
 
+// Windows: the shell that last showed its prompt in each pane (seeded with the shell the pane was opened with).
+// psmux's foreground name can be stale (pwsh for a Git Bash pane), so input typed while a command runs, or before the
+// first prompt, would get the wrong dialect; the shell that reads it is the one whose prompt was last seen.
+const windowsPromptShells = new Map<string, string>();
+export function rememberPaneShell(name: string, shell: string): void {
+  if (isWin) windowsPromptShells.set(name, normalizePaneCommand(shell));
+}
+
 /** The runtime owns platform foreground queries and shell-dialect reconciliation. */
 export function paneShellForSubmission(name: string): string {
   const r = tmuxCommand(true, "display-message", "-p", "-t", name, "#{pane_current_command}");
@@ -911,11 +919,19 @@ export function paneShellForSubmission(name: string): string {
   if (!isWin && foreground !== "ssh") return foreground;
   const screen = tmuxCommand(true, "capture-pane", "-p", "-J", "-t", name, "-S", "-4");
   const text = screen.code === 0 ? screen.stdout : "";
-  const selected = markShellCommand(foreground, text);
-  if (!isWin || selected !== foreground || selected === "bash" || !/(?:^|\n)\$\s*$/u.test(text.trimEnd())) return selected;
-  const width = tmuxCommand(true, "display-message", "-p", "-t", name, "#{pane_width}");
-  const columns = width.code === 0 && /^\d+\s*$/u.test(width.stdout) ? Number(width.stdout.trim()) : undefined;
-  return markShellCommand(foreground, text, "win32", columns);
+  let selected = markShellCommand(foreground, text);
+  if (isWin && selected === foreground && selected !== "bash" && /(?:^|\n)\$\s*$/u.test(text.trimEnd())) {
+    const width = tmuxCommand(true, "display-message", "-p", "-t", name, "#{pane_width}");
+    const columns = width.code === 0 && /^\d+\s*$/u.test(width.stdout) ? Number(width.stdout.trim()) : undefined;
+    selected = markShellCommand(foreground, text, "win32", columns);
+  }
+  if (!isWin) return selected;
+  const current = text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trimEnd();
+  if (/(?:^|\n)PS [^\r\n]*>$/u.test(current) || /(?:^|\n)\$$/u.test(current)) {
+    windowsPromptShells.set(name, selected);
+    return selected;
+  }
+  return windowsPromptShells.get(name) ?? selected;
 }
 
 /** Common send code supplies intent; the runtime decides whether/how to encode it. */

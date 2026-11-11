@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.15] - 2026-11-11
+
 - An antigravity-cli turn stopped by the account quota now ends as `rate_limited` with the limit line in `rate_limit` (for example "Individual quota reached. ... Resets in 73h4m30s."), as Claude Code, Codex, Grok and Cursor already did. agy ends such a turn with `terminationReason: ERROR` and names the limit only in its Stop hook `error` (`RESOURCE_EXHAUSTED (code 429)`). Aiterm's hook now keeps that text in the turn's record. Before, the caller saw a generic turn error ("Antigravity execution ended: ERROR") and the reason was on the pane only. Other agy turn errors now carry agy's error text after the reason.
 
 ## [0.70.14] - 2026-11-11
@@ -3253,7 +3255,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...HEAD
+[0.70.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...v0.70.15
 [0.70.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...v0.70.14
 [0.70.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...v0.70.13
 [0.70.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...v0.70.12

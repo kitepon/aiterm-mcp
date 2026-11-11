@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.24] - 2026-11-11
+
 - Closing a seat now also ends its idle-clock worker. `pty_close`, killing all sessions, and a fresh launch under the same name removed the clock record but left the waiting `sh`/`sleep` (PowerShell on Windows) running until its wake time, so a deleted member's `agent-idle-cli --session <name>` stayed visible on the host. Before the record is removed, the worker is ended when its PID and start time still match the record: on Linux and macOS its own process group (the shell, its sleep, and a checker that is just waking), on Windows its PowerShell. A process never ends its own clock. If the worker cannot be ended, it still exits at wake on the missing token, as before. Live seats are unchanged.
 
 ## [0.70.23] - 2026-11-11
@@ -3299,7 +3301,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.23...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.24...HEAD
+[0.70.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.23...v0.70.24
 [0.70.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.22...v0.70.23
 [0.70.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...v0.70.22
 [0.70.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.20...v0.70.21

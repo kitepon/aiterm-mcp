@@ -434,6 +434,7 @@ native/server stampと新しいauth世代を保存・結合する。通常agent 
 BellTeamのrefなしpty_send/pty_keyは、この作成proofを保持するauth PTYにだけ許可し、通常Botの未登録本文には広げない。
 初回案内のrespawnも同じsession世代を保ち、phase保存は準備受付を通す。旧auth metadataの欠測を現nativeから補わず、
 不明な入力・世代・未返却RPCのslotをstatusだけで解除しない。credentialの保存・操作は公式CLIが所有する。
+例外は`login: "oauth_token"`（claude-codeだけ、0.70.20、BellTeam usageのClaude 2nd slot。指揮官氏の裁定 2026-11-09）。`token_file`は`<HOME>/.bellteam-accounts/claude/<slot>/oauth-token`だけを受け、他は開始前に`AGENT_AUTH_TOKEN_FILE_REJECTED`。startは状態を聞かずに必ず`claude setup-token`を起こす（configuration_root・auth_ui・binding・respondは従来どおり、paneは400桁でtokenを折らない）。画面に出た`sk-ant-oat01-…`がちょうど1つの時、Aitermがそのtokenを`token_file`へ書く（本人・0600・tmp+fsync+rename・親dirもfsync、古いtokenは置き換え）。書いた直後に`clear-history`と`respawn-pane -k`（`exit 0`）でpaneの画面と履歴を消し、metadataへ`token_written`を残す。tokenはreceipt・auth_ui・log（pipe-paneは開始時に外す）・env・argvに出ない。失敗・取消・tokenの無いexit 0は書かず、元のfileは触らない。statusは、このmodeでは`.credentials.json`を見ず、`token_file`が本人の0600の通常fileで空でない時だけauthenticated（sessionありは加えて`token_written`）。receiptは`login: "oauth_token"`を返し、知らない旧版（黙って`claude auth login`を起こす）を呼び手が見分ける。
 
 
 PTYが消失した場合は、相関記録の有無にかかわらず`status`が`failed`、`cancel`が既に終了・取消済みを示す`blocked`を返し、どちらも`session_id:null`となる。保存したsession IDを解除して`start`で再開始できる。生存中の通常PTYやharness不一致、記録の破損・読取り失敗はエラーを返す。

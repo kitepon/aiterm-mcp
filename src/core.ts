@@ -218,7 +218,7 @@ import {
 } from "./harnesses/codex.js";
 import type { CodexConfigPin } from "./harnesses/codex.js";
 import {
-  claudeAuthPlan, claudeAuthStatus, claudeAuthPane,
+  claudeAuthPlan, claudeAuthStatus, claudeAuthPane, claudeOauthTokenFile, claudeSetupTokenPlan, claudeOauthToken, claudeOauthTokenPresent, writeClaudeOauthToken,
   OPERATION_ID_RE,
   CLAUDE_RESULT_MAX_BYTES,
   CLAUDE_EFFORTS,
@@ -5354,7 +5354,8 @@ function authMetadataPath(name: string): string {
   return path.join(agentsDir(), `${name}.auth.json`);
 }
 
-function authPlan(kind: AgentKind, phase: AgentAuthMetadata["phase"]): AgentAuthPlan {
+function authPlan(kind: AgentKind, phase: AgentAuthMetadata["phase"], login?: AgentAuthMetadata["login"]): AgentAuthPlan {
+  if (login === "oauth_token") return claudeSetupTokenPlan();
   switch (kind) {
     case "claude": return claudeAuthPlan(phase === "onboarding");
     case "codex": return codexAuthPlan();
@@ -5404,7 +5405,9 @@ function loadAuthMetadata(name: string, kind: AgentKind): AgentAuthMetadata | nu
     || !["login", "onboarding"].includes(value.phase) || !Array.isArray(value.env_vars)
     || value.env_vars.some(key => typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
     || (value.claude_root !== undefined && (kind !== "claude" || typeof value.claude_root?.root !== "string" || !path.isAbsolute(value.claude_root.root)
-      || (value.claude_root.selector !== null && value.claude_root.selector !== value.claude_root.root)))) {
+      || (value.claude_root.selector !== null && value.claude_root.selector !== value.claude_root.root)))
+    || (value.login !== undefined && (kind !== "claude" || value.login !== "oauth_token" || typeof value.token_file !== "string"))
+    || (value.login === undefined && (value.token_file !== undefined || value.token_written !== undefined))) {
     throw new AitermError("AGENT_AUTH_STATE_INVALID: 認証sessionの記録が不正です。", 2);
   }
   return value;
@@ -5557,7 +5560,7 @@ async function respondAgentAuth(kind: AgentKind, options: { session_id?: string;
 }
 
 function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
-  const plan = authPlan(meta.kind, meta.phase);
+  const plan = authPlan(meta.kind, meta.phase, meta.login);
   const root = meta.claude_root;
   const env = [...(!root ? [] : root.selector === null ? ["-u", "CLAUDE_CONFIG_DIR"] : [shq(`CLAUDE_CONFIG_DIR=${root.selector}`)]),
     ...plan.env.map(([key, value]) => shq(`${key}=${value}`))];
@@ -5573,11 +5576,22 @@ function launchAuthProcess(name: string, meta: AgentAuthMetadata): void {
 export async function authenticateAgent(kind: AgentKind, options: {
   action: "start" | "status" | "cancel" | "respond"; session_id?: string; cwd?: string; env_vars?: string[]; relogin?: boolean;
   expected_binding?: AuthBinding; expected_prompt_digest?: string; response?: AuthResponse; configuration_root?: string;
+  login?: "oauth_token"; token_file?: string;
 }): Promise<AgentAuthResult> {
   if (options.action !== "status" || options.session_id !== undefined) assertExecutionContext(options.session_id);
   if (options.configuration_root !== undefined && kind !== "claude")
     throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
   const claudeRoot = options.configuration_root === undefined ? undefined : resolveClaudeConfigurationRoot(options.configuration_root);
+  if ((options.login !== undefined || options.token_file !== undefined) && (kind !== "claude" || options.login !== "oauth_token" || options.token_file === undefined))
+    throw new AitermError("AGENT_AUTH_LOGIN_REJECTED: login:\"oauth_token\"はclaude-code harnessだけで、token_fileと組で使えます。開始していません。", 2);
+  const tokenFile = options.token_file === undefined ? undefined : claudeOauthTokenFile(options.token_file);
+  // The mode of an existing session is its own; a request naming another mode or file is refused like another root.
+  // A broken or foreign record fails later at its usual place, in the usual order.
+  let savedAuth: AgentAuthMetadata | null = null;
+  try { if (options.session_id !== undefined && options.action !== "start") savedAuth = loadAuthMetadata(options.session_id, kind); } catch { /* below */ }
+  if (savedAuth && tokenFile !== undefined && savedAuth.token_file !== tokenFile)
+    throw new AitermError("AGENT_AUTH_LOGIN_REJECTED: 認証sessionは別のloginかtoken_fileで始まっています。", 2);
+  const login = options.action === "start" || !savedAuth ? options.login : savedAuth.login;
   if (claudeRoot && options.session_id !== undefined && options.action !== "start") {
     const saved = loadAuthMetadata(options.session_id, kind);
     if (saved && (saved.claude_root?.root !== claudeRoot.root || saved.claude_root.selector !== claudeRoot.selector))
@@ -5590,7 +5604,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const receipt: AgentAuthResult = { schema: "aiterm.agent-auth-result.v1", harness: agentHarness(kind), status,
       session_id: session, url: pane?.url ?? null, user_code: pane?.user_code ?? null,
       input_required: pane?.input_required ?? false, message: message ?? pane?.message ?? null,
-      ...(kind === "claude" && status === "authenticated" ? { account_label: label ?? null } : {}) };
+      ...(kind === "claude" && status === "authenticated" && !login ? { account_label: label ?? null } : {}),
+      ...(login ? { login } : {}) };
     receipt.auth_ui = authUi(receipt, pane, session ? readAuthBinding(session, kind) : null);
     if (isWin && receipt.auth_ui.input !== null) receipt.auth_ui = { ...receipt.auth_ui, stage: "unavailable", input: null, choices: [],
       message: "Windowsの認証入力は端末の前面所有の受入が未完了です。入力は送信できません。" };
@@ -5621,12 +5636,13 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const envVars = options.env_vars ?? [];
     if (claudeRoot && envVars.includes("CLAUDE_CONFIG_DIR"))
       throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: env_varsのCLAUDE_CONFIG_DIRとconfiguration_rootは同時に指定できません。", 2);
-    const before: AgentAuthStatus = options.relogin ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd, rootEnv(process.env));
+    const before: AgentAuthStatus = options.relogin || login ? { status: "unauthenticated", message: null } : await authStatus(kind, bin, cwd, rootEnv(process.env));
     if (before.status === "failed") return result("failed", null, before.message);
     if (before.status === "authenticated" && !before.verify_onboarding) return result("authenticated", null, null, undefined, before.account_label);
     [name] = openSession(name, "bash", envVars);
     meta = { kind, bin, cwd, phase: before.status === "authenticated" ? "onboarding" : "login",
-      env_vars: envVars.filter(key => process.env[key] !== undefined), ...(claudeRoot ? { claude_root: claudeRoot } : {}) };
+      env_vars: envVars.filter(key => process.env[key] !== undefined), ...(claudeRoot ? { claude_root: claudeRoot } : {}),
+      ...(login ? { login, token_file: tokenFile } : {}) };
     try {
       const kept = tmux("set-option", "-t", name, "remain-on-exit", "on");
       if (kept.code !== 0) throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証processの終了観測を設定できません。", 2);
@@ -5634,6 +5650,9 @@ export async function authenticateAgent(kind: AgentKind, options: {
       // shortcut: AGY 1.4.12 hides its OAuth code field at 80x24; revisit if its auth layout grows.
       if (kind === "antigravity" && tmux("resize-window", "-t", name, "-x", "120", "-y", "60").code !== 0)
         throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: Antigravityの認証画面サイズを設定できません。", 2);
+      // The ~110-character token must not be wrapped into separate lines by the CLI's own layout.
+      if (login && tmux("resize-window", "-t", name, "-x", "400", "-y", "50").code !== 0)
+        throw new AitermError("AGENT_AUTH_PANE_CONFIG_FAILED: 認証画面サイズを設定できません。", 2);
       meta.launch_id = randomBytes(16).toString("hex");
       if (hasExecutionCreationScope()) {
         meta.execution_native = executionCreatedNativeBinding(name);
@@ -5647,6 +5666,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
     if (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError("cwdは存在するディレクトリの絶対パスで指定してください。", 2);
     const bin = resolveAgentBin(kind);
     if (!bin) return result("failed", null, `${agentLabel(kind)}の公式CLIが見つかりません。`);
+    if (tokenFile) return claudeOauthTokenPresent(tokenFile) ? result("authenticated", null, null)
+      : result("blocked", null, "token_fileがありません。agent_authのstartで開始してください。");
     const checked = await authStatus(kind, bin, cwd, rootEnv(process.env));
     return result(checked.status === "authenticated" ? "authenticated" : checked.status === "failed" ? "failed" : "blocked",
       null, checked.message ?? (checked.status === "unauthenticated" ? "公式CLIの認証が必要です。agent_authのstartで開始してください。" : null),
@@ -5678,7 +5699,22 @@ export async function authenticateAgent(kind: AgentKind, options: {
     const observed = tmux("display-message", "-p", "-t", session, "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}");
     if (observed.code !== 0) return result("failed", session, "認証processの終了状態を取得できません。");
     const [dead, exit, signal] = observed.stdout.trim().split("\t");
-    const pane = authPane(meta, stripControl(captureScreen(session, 0)));
+    const screen = stripControl(captureScreen(session, 0));
+    const pane = authPane(meta, screen);
+    let token = meta.login ? claudeOauthToken(screen) : null;
+    // While the CLI still runs, take the token only when a second look shows the same one (no half-drawn line).
+    if (token && dead === "0") { await sleep(200); if (claudeOauthToken(stripControl(captureScreen(session, 0))) !== token) token = null; }
+    if (token) {
+      const tokenRefusal = pendingExitRefusal();
+      if (tokenRefusal) return tokenRefusal;
+      writeClaudeOauthToken(meta.token_file!, token);
+      withExecutionPreparation(session, () => { meta.token_written = true; writeJson0600(authMetadataPath(session), meta); });
+      // The token was only on this pane: clear its history and screen, leaving a dead pane that exited 0.
+      const wiped = tmux("clear-history", "-t", session).code === 0
+        && tmux("respawn-pane", "-k", "-t", session, ...(isWin ? ["cmd.exe", "/d", "/c", "exit 0"] : ["/bin/sh", "-c", "exit 0"])).code === 0;
+      if (!wiped) closeSession(session);
+      return result("authenticated", wiped ? session : null, null);
+    }
     const afterExitRead = pendingExitRefusal();
     if (afterExitRead) return afterExitRead;
     if (pendingExit && dead === "0") return result("failed", null, "認証processが終了観測中に交代しました。元の終了状態は未確認です。");
@@ -5687,6 +5723,8 @@ export async function authenticateAgent(kind: AgentKind, options: {
       if (!exit && !signal && performance.now() < exitDeadline) { pendingExit = true; await sleep(100); continue; }
       if (signal) return result("failed", session, `公式認証processがsignalで終了しました（signal=${/^[A-Z0-9]+$/.test(signal) ? signal : "unknown"}）。`);
       if (exit !== "0") return result("failed", session, `公式認証processが失敗しました（exit=${/^\d+$/.test(exit ?? "") ? exit : "unknown"}）。`);
+      if (meta.login) return meta.token_written && claudeOauthTokenPresent(meta.token_file!) ? result("authenticated", session, null)
+        : result("failed", session, "公式CLIは終了しましたが、tokenを確認できません。token_fileは変えていません。");
       const checked = await authStatus(kind, meta.bin, meta.cwd, sessionEnv(session, meta));
       const afterOfficialStatus = pendingExitRefusal();
       if (afterOfficialStatus) return afterOfficialStatus;

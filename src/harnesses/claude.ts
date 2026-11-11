@@ -951,6 +951,50 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
 }
 
 
+// ---- login "oauth_token" (BellTeam Claude 2nd slot, Owner ruling 2026-11-09): `claude setup-token` prints a 1-year token once;
+// Aiterm, as the PTY owner, writes it to the slot's token file. The CLI keeps no copy, so the file is the credential.
+const OAUTH_TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/g;
+
+/** The only accepted token file: `<HOME>/.bellteam-accounts/claude/<slot>/oauth-token`. Anything else is refused before any start. */
+export function claudeOauthTokenFile(file: unknown): string {
+  const home = process.env.HOME ?? os.homedir();
+  const slot = typeof file === "string" && path.isAbsolute(file) && path.basename(file) === "oauth-token" ? path.basename(path.dirname(file)) : "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(slot) || file !== path.join(home, ".bellteam-accounts", "claude", slot, "oauth-token"))
+    throw new AitermError("AGENT_AUTH_TOKEN_FILE_REJECTED: token_fileは<HOME>/.bellteam-accounts/claude/<slot>/oauth-tokenだけを受けます。開始していません。", 2);
+  return file;
+}
+
+export function claudeSetupTokenPlan(): AgentAuthPlan { return { args: ["setup-token"], env: [] }; }
+
+/** The token on the setup-token screen, only when exactly one distinct token is shown. */
+export function claudeOauthToken(screen: string): string | null {
+  const found = new Set(screen.match(OAUTH_TOKEN_RE) ?? []);
+  return found.size === 1 ? [...found][0] : null;
+}
+
+/** Authenticated iff the token file is this user's non-empty regular 0600 file (POSIX; Windows has no such mode bits). */
+export function claudeOauthTokenPresent(file: string): boolean {
+  let stat: fs.Stats;
+  try { stat = fs.lstatSync(file); } catch { return false; }
+  if (!stat.isFile() || stat.size === 0) return false;
+  return process.platform === "win32" || ((stat.mode & 0o777) === 0o600 && stat.uid === process.getuid!());
+}
+
+/** tmp + fsync + rename in the same directory, then fsync the directory. An older token is replaced (the Owner's relogin). */
+export function writeClaudeOauthToken(file: string, token: string): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = path.join(dir, `.oauth-token.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  const bytes = Buffer.from(token, "utf8");
+  try {
+    const fd = fs.openSync(tmp, "wx", 0o600);
+    try { fs.writeSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+  } catch (error) { try { fs.unlinkSync(tmp); } catch { /* not created */ } throw error; }
+  finally { bytes.fill(0); }
+  if (process.platform !== "win32") { const fd = fs.openSync(dir, "r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+}
+
 export function claudeAuthPlan(onboarding = false): AgentAuthPlan { return { args: onboarding ? [] : ["auth", "login"], env: [] }; }
 
 export function claudeAuthStatus(bin: string, cwd: string, env = process.env): AgentAuthStatus {

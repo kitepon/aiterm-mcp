@@ -15,6 +15,8 @@ export interface AgentAuthResult {
   message: string | null;
   /** Claude only: the logged-in account e-mail of the selected root. Display text, never a credential. */
   account_label?: string | null;
+  /** Echo of the requested login mode, so a caller can refuse an Aiterm that does not know it. */
+  login?: "oauth_token";
 }
 
 export interface AgentAuthPlan {
@@ -51,6 +53,10 @@ export interface AgentAuthMetadata {
   env_vars: string[];
   /** Claude only: the configuration root chosen at start (selector null = CLAUDE_CONFIG_DIR unset). */
   claude_root?: { root: string; selector: string | null };
+  /** Claude only: `claude setup-token`, whose token Aiterm writes to token_file; token_written once it did. */
+  login?: "oauth_token";
+  token_file?: string;
+  token_written?: boolean;
 }
 
 /** CLIが示した公式HTTPS URLだけを返す。tokenやOAuth callbackのcodeは公開しない。 */

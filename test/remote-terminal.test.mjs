@@ -134,20 +134,25 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
     const status = rt.registerBinding({ target: { host: "10.0.0.10", user: "kite", port: 22 } });
     rt.bindTerminalSession("seat-mac", status.ref);
     const first = await rt.ensureSeatForward(status.ref, 4183, 600).then(port => port, error => error.message.split(":")[0]);
+    // The keeper started by that launch waits for the key holding the lock (0.70.22), so no one else needs to start one.
+    const lockOf = () => { for (const name of fs.readdirSync(${JSON.stringify(path.join(dir, "state"))}, { recursive: true }))
+      if (String(name).endsWith(".lock")) try { return JSON.parse(fs.readFileSync(${JSON.stringify(path.join(dir, "state"))} + "/" + name, "utf8")).pid; } catch {} return null; };
+    let waiting = false;
+    for (let i = 0; i < 50 && !waiting; i++) { const a = lockOf(); await new Promise(r => setTimeout(r, 200)); waiting = a !== null && a !== process.pid && lockOf() === a; }
     const load = await rt.loadCredential({ ref: status.ref, terminalId: "pc-1", handle: "0d6c1f0e-2b8a-4c3d-9e7f-112233445567", revision: "1", purpose: "ssh-key" }, fs.readFileSync(${JSON.stringify(key)}));
     // No maintainSeatForwards() here: the credentials-directory watch starts the forward, not the 60 s check.
     const deadline = Date.now() + 5000;
     while (!rt.binding(status.ref).seat_forward_port && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
     const forwarded = fs.existsSync(${JSON.stringify(log)}) && fs.readFileSync(${JSON.stringify(log)}, "utf8").includes(" -R ");
     rt.releaseCredential(status.ref);
-    console.log(JSON.stringify({ first, loaded: load.accepted, forwarded, port: rt.binding(status.ref).seat_forward_port ?? null }));
+    console.log(JSON.stringify({ first, waiting, loaded: load.accepted, forwarded, port: rt.binding(status.ref).seat_forward_port ?? null }));
     process.exit(0);`;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
   stopKeepers(path.join(dir, "state"));
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", loaded: true, forwarded: true, port: 61001 },
-    "before the key the launch is told the route is not ready; credential-load wakes the keeper at once");
+  assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", waiting: true, loaded: true, forwarded: true, port: 61001 },
+    "before the key the launch is told the route is not ready; the keeper waits for the key and starts the forward when it lands");
 });
 
 test("seat forward keeper: after a restart a reused pid or a thread id in the old lock is not the owner; the old P waits for a new keeper", { skip: process.platform !== "linux" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {

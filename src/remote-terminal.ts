@@ -835,6 +835,11 @@ export function runForwardKeeper(ref: string): void {
   binding(ref);
   keeperProcess = true;
   keeperHold = setInterval(() => { keep(ref); settleKeeper(ref); }, 5_000);
+  try { // a key that lands while this keeper waits for it: retry at once, not at the next 5 s turn
+    const watch = fs.watch(credentialDir(), (_event, name) => { if (!name || String(name).endsWith(".json")) keep(ref); });
+    watch.on("error", () => watch.close());
+    watch.unref();
+  } catch { /* the 5 s turn still covers it */ }
   keep(ref);
   settleKeeper(ref);
 }
@@ -869,8 +874,10 @@ function keep(ref: string): void {
   // The remote command depends on the terminal's shell (T4): known from the cache, or probed once by this process.
   // The probe's ssh arguments can refuse synchronously (CREDENTIAL_NOT_LOADED before credential-load): leave like the
   // argument refusal below, never with `starting` set, or no later keep() would ever start the forward (0.70.9).
+  // Keep the lock and stay (0.70.22): this keeper retries when the key lands. Exiting here left a credential-load
+  // that landed while it was still running with no keeper until the 60 s check (other processes saw it alive).
   let probe: Promise<RemoteShell>;
-  try { probe = remoteShell(trustedTarget(b)); } catch { releaseLock(ref); return; }
+  try { probe = remoteShell(trustedTarget(b)); } catch { return; }
   keeper.starting = true;
   probe.then(shell => {
     keeper.starting = false;
@@ -878,7 +885,7 @@ function keep(ref: string): void {
     try {
       // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
       args = trustedSshArguments(ref, keeperCommand(shell), null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port!)]);
-    } catch { releaseLock(ref); return; }
+    } catch { return; /* as above: keep the lock, retry when the key lands */ }
     const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     keeper.child = child;
     let stderr = "", stdout = "", ready = false;

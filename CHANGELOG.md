@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.14] - 2026-11-11
+
 - An antigravity-cli seat can start without a prompt while `append_system_prompt` is set, as a wake-first caller (BellTeam) launches every seat. Aiterm keeps the text with the seat and puts it, exactly once, in front of the first input sent to the seat before agy binds a conversation, the same rule Cursor uses for a promptless seat. A restart is a new launch and its own first input carries the text again. Before, such a launch was refused (`AGENT_LAUNCH_NOT_STARTED: append_system_prompt needs a prompt for antigravity-cli`), so a remote agy seat could never start.
 
 ## [0.70.13] - 2026-11-10
@@ -3249,7 +3251,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...HEAD
+[0.70.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...v0.70.14
 [0.70.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...v0.70.13
 [0.70.12]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.11...v0.70.12
 [0.70.11]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.10...v0.70.11

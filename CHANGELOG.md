@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.27] - 2026-11-11
+
 - `pty_list` now lists a Claude agent seat whose terminal is gone with no lifecycle record (for example, it vanished with a container restart) as `current_command: "vanished"`, with its `last_input_at` and `limit_end`. Before, such a seat had no row until the next send adopted it, so a restart dropped a limit-held seat's record. Seat turns read it as idle. The next send still adopts and resumes it as before.
 
 ## [0.70.26] - 2026-11-11
@@ -3312,7 +3314,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.26...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.27...HEAD
+[0.70.27]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.26...v0.70.27
 [0.70.26]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.25...v0.70.26
 [0.70.25]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.24...v0.70.25
 [0.70.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.23...v0.70.24

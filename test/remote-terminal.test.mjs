@@ -81,8 +81,8 @@ test("seat MCP forward: the keeper's -R spec, P from ssh stderr, seat URLs get t
 test("seat forward keeper: -R goes to the D the launch's URLs named, from the binding, never an env or default port", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
-  // Stub ssh: records argv, answers like sshd for -R 0, then exits (the keeper's restart timer is unref'd).
-  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61000 for remote forward to x' >&2\n`, { mode: 0o755 });
+  // Stub ssh: records argv, answers like sshd for -R 0; the forward holds until our stdin closes, like the real keeper.
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61000 for remote forward to x' >&2\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
   const key = path.join(dir, "id");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const script = `
@@ -115,7 +115,7 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
 test("seat forward keeper: a credential loaded after the keeper's first try still gets the forward (0.70.9 stayed down)", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined || spawnSync("ssh-agent", ["-?"]).error !== undefined }, () => {
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-cred-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
-  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61001 for remote forward to x' >&2\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61001 for remote forward to x' >&2\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
   const key = path.join(dir, "id");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const script = `
@@ -138,6 +138,53 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", loaded: true, forwarded: true, port: 61001 },
     "before the key the launch is told the route is not ready; credential-load wakes the keeper at once");
+});
+
+test("seat forward keeper: after a restart a reused pid or a thread id in the old lock is not the owner; the old P waits for a new keeper", { skip: process.platform !== "linux" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
+  const dir = fs.mkdtempSync(path.join(tmp, "keeper-restart-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
+  fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\ncase "$*" in *" -R 127.0.0.1:0:"*) echo 'Allocated port 6100'"$(echo "$*" | grep -c 10.0.0.12)"' for remote forward to x' >&2;; esac\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
+  const key = path.join(dir, "id");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") };
+  const rtUrl = JSON.stringify(new URL("../dist/remote-terminal.js", import.meta.url).href);
+  // The old body: two terminals forwarded, then gone without releasing its locks.
+  const first = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const rt = await import(${rtUrl});
+    const refs = [];
+    for (const host of ["10.0.0.11", "10.0.0.12"]) {
+      const status = rt.registerBinding({ target: { host, user: "kite", port: 22 }, keyFile: ${JSON.stringify(key)} });
+      rt.bindTerminalSession("seat-" + host, status.ref);
+      refs.push([status.ref, await rt.ensureSeatForward(status.ref, 4183, 5000)]);
+    }
+    console.log(JSON.stringify(refs));
+    process.exit(0);`], { encoding: "utf8", env });
+  assert.equal(first.status, 0, first.stderr);
+  const refs = JSON.parse(first.stdout.trim().split("\n").pop());
+  assert.deepEqual(refs.map(([, port]) => port), [61000, 61001]);
+  fs.writeFileSync(log, "");
+  // The new body: one lock names a running process started at another time, the other a thread of a running process.
+  const second = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const rt = await import(${rtUrl});
+    const fs = await import("node:fs"), path = await import("node:path");
+    const state = ${JSON.stringify(path.join(dir, "state"))};
+    const files = fs.readdirSync(state, { recursive: true }).map(String);
+    const locks = ${JSON.stringify(refs.map(([ref]) => ref))}.map(ref => [ref, path.join(state, files.find(name => name.endsWith("terminal-forward-" + ref + ".lock")))]);
+    const tid = fs.readdirSync("/proc/self/task").map(Number).find(id => id !== process.pid);
+    fs.writeFileSync(locks[0][1], JSON.stringify({ pid: process.ppid, boot: Math.round(Date.now() / 1000 - (await import("node:os")).uptime()), start: "1" }));
+    fs.writeFileSync(locks[1][1], JSON.stringify({ pid: tid }));
+    const ports = [];
+    for (const [ref] of locks) ports.push(await rt.ensureSeatForward(ref, 4183, 5000).catch(error => error.message.split(":")[0]));
+    const owners = locks.map(([, file]) => JSON.parse(fs.readFileSync(file, "utf8")).pid === process.pid);
+    console.log(JSON.stringify({ ports, owners, tid: tid > 0 }));
+    process.exit(0);`], { encoding: "utf8", env });
+  assert.equal(second.status, 0, second.stderr);
+  assert.deepEqual(JSON.parse(second.stdout.trim().split("\n").pop()), { ports: [61000, 61001], owners: [true, true], tid: true },
+    "both stale locks are taken and the stored P is returned only with the new keeper running");
+  const forwards = fs.readFileSync(log, "utf8").split("\n").filter(line => line.includes(" -R "));
+  assert.equal(forwards.length, 2);
+  assert.match(forwards.join("\n"), /-R 127\.0\.0\.1:61000:127\.0\.0\.1:4183 /);
+  assert.match(forwards.join("\n"), /-R 127\.0\.0\.1:61001:127\.0\.0\.1:4183 /);
 });
 
 test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {

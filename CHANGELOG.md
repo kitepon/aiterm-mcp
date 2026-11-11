@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- After a restart of the controlling host (for example a container restart, which starts a new pid namespace), a terminal's seat MCP forward is started again. The forward lock kept only the old keeper's pid. The new host reused that number at once, here for a thread of a long-lived process, and `kill(pid, 0)` succeeds on a Linux thread id too, so the lock read as held and no process started the forward. Every seat on that terminal lost its BellTeam MCP tools. The lock now also records the boot time and, on Linux, the process start time; a pid that differs in either, or a thread id in an older lock, is not the owner. macOS and Windows have no thread ids in the pid space; a lock from an earlier boot is now also ignored there.
+- A terminal launch no longer receives the stored seat forward port when no keeper is running. Before, the port kept from the previous host was returned at once and the seat started with an MCP URL that reached nothing. Now the launch waits for the new keeper's ssh, or ends with `SEAT_FORWARD_UNAVAILABLE`.
+
 ## [0.70.16] - 2026-11-11
 
 - `pty_list` no longer starts an idle-clock checker process for every hibernated, closed or dead seat on every call. A seat without a live session retires its clock at once, so each list re-spawned a checker for it (about 30 per call on a BellTeam host with 50 saved seats and 18 live). The sweep now covers only seats with a live terminal session, and confirms all clock owners with one process read instead of one per seat. On that host this load kept the serving process busy 95 % of the time, with stretches up to 7 s, so a terminal relay's answer often arrived after the 4 s budget and the terminal's seats came back `unread`.

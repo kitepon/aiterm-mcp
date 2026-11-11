@@ -729,25 +729,51 @@ function writeBinding(ref: string, change: Partial<Binding>): void {
 }
 
 function lockFile(ref: string): string { return path.join(ensureStateRoot(), `terminal-forward-${ref}.lock`); }
+interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown }
+function lockOwner(ref: string): LockOwner | null {
+  try { return JSON.parse(fs.readFileSync(lockFile(ref), "utf8")); } catch { return null; /* absent or unreadable: no owner */ }
+}
+const bootTime = () => Math.round(Date.now() / 1000 - os.uptime());
+/** Linux: the start time (field 22 of /proc/<pid>/stat, counted after the comm's last ") "); null elsewhere. */
+function procStart(pid: number): string | null {
+  try { return fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19] ?? null; } catch { return null; }
+}
+/** T3: the recorded owner is this same process still running, not a later process or a thread given the same number. */
+function ownerAlive(owner: LockOwner): boolean {
+  const pid = Number(owner.pid);
+  if (!(pid > 0)) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  if (typeof owner.boot === "number" && Math.abs(owner.boot - bootTime()) > 60) return false; // from an earlier boot
+  if (process.platform !== "linux") return true; // shortcut: a pid reused within one boot looks alive until that process exits
+  // A container restart reuses pids at once, and kill(pid, 0) also succeeds on a thread id (0.70.16 stayed down).
+  if (typeof owner.start === "string") return procStart(pid) === owner.start;
+  try { return /^Tgid:\s*(\d+)$/m.exec(fs.readFileSync(`/proc/${pid}/status`, "utf8"))?.[1] === String(pid); } catch { return true; }
+}
 /** T3: true when this process holds the keeper lock for ref (taking it from a dead owner). */
 function holdLock(ref: string): boolean {
   const file = lockFile(ref);
   for (let attempt = 0; attempt < 2; attempt++) {
-    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: "wx", mode: 0o600 }); return true; }
-    catch (error) {
+    try {
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, boot: bootTime(), start: procStart(process.pid) }), { flag: "wx", mode: 0o600 });
+      return true;
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") return false;
-      let pid = 0;
-      try { pid = Number(JSON.parse(fs.readFileSync(file, "utf8")).pid); } catch { /* unreadable: treat as dead */ }
-      if (pid === process.pid) return true;
-      // shortcut: a reused pid looks alive; the next owner check after that process exits takes over.
-      try { if (pid > 0) { process.kill(pid, 0); return false; } } catch { /* owner gone */ }
+      const owner = lockOwner(ref);
+      if (Number(owner?.pid) === process.pid) return true;
+      if (owner && ownerAlive(owner)) return false;
       fs.rmSync(file, { force: true });
     }
   }
   return false;
 }
 function releaseLock(ref: string): void {
-  try { if (Number(JSON.parse(fs.readFileSync(lockFile(ref), "utf8")).pid) === process.pid) fs.rmSync(lockFile(ref), { force: true }); } catch { /* none */ }
+  if (Number(lockOwner(ref)?.pid) === process.pid) fs.rmSync(lockFile(ref), { force: true });
+}
+/** A stored P is usable only while a keeper runs: this process's ssh -R, or another live lock owner's. */
+function forwardLive(ref: string): boolean {
+  const owner = lockOwner(ref);
+  if (!owner) return false;
+  return Number(owner.pid) === process.pid ? Boolean(keepers.get(ref)?.child) : ownerAlive(owner);
 }
 
 function forwardNeeded(ref: string): boolean {
@@ -832,8 +858,9 @@ export async function ensureSeatForward(ref: string, ingress: number, timeoutMs 
   maintainSeatForwards();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    // A P stored by an earlier process (before a restart) without a running keeper reaches nothing.
     const port = binding(ref).seat_forward_port;
-    if (port) return port;
+    if (port && forwardLive(ref)) return port;
     if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }

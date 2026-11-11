@@ -136,6 +136,9 @@ test("完了待ちはPATHに無いaiterm-waitも同じpackageから探し、不�
   assert.match(command, /--session t1 --timeout 600 --cursor 3/);
   assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600), "aiterm-wait --session t1 --timeout 600 --cursor 3");
   assert.throws(() => remoteWaitCommand("posix", "t1;rm", 0, null, 1), /REMOTE_SESSION_INVALID/);
+  assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, false, "0123456789abcdef"), "aiterm-wait --session t1 --timeout 600 --cursor 3 --steer 0123456789abcdef");
+  assert.match(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, true, "0123456789abcdef"), /'--steer' '0123456789abcdef'/);
+  assert.throws(() => remoteWaitCommand("posix", "t1", 3, null, 600, undefined, false, "x; rm"), /REMOTE_STEER_INVALID/);
 });
 
 function fakeSsh(t, script) {

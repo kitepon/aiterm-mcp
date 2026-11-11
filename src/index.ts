@@ -397,6 +397,7 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   if (delivery) await remoteParentDelivery!.beforeChange(key);
   const result = await callRemoteTool(target, "pty_send", args, undefined, undefined, extra?._meta);
   const structured = result.structuredContent as any;
+  if (structured?.wait_process && (structured.mode === "agent_steer" || result.isError)) return relaySteerWait(target, result);
   if (result.isError || !structured || structured.mode !== "agent_dispatch") return remoteResult(target, result);
   try {
     // 現地がdispatchを選んだのは子がidleだった時なので、前の依頼はもう保存できる。残っていれば登録しない。
@@ -409,6 +410,18 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor, structured.input_id);
   const relayed = remoteResult(target, result, { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) });
   return { ...relayed, content: [...relayed.content, { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }] };
+}
+
+/** 現地の差し込みの返りのwait_processは現地のNodeとpathなので、ここで走らない。同じ差し込みの番の終わりをssh越しに待つものへ替える。 */
+async function relaySteerWait(target: RemoteTarget, result: RemoteCallResult): Promise<any> {
+  const structured = result.structuredContent as any;
+  const steerId = structured.steer_id ?? (result._meta?.[STEER_RESULT_META_KEY] as any)?.steer_id;
+  // 番を特定できない待ちは返さない。呼び手は追えない差し込みとして扱う（steer-refも外す）。
+  if (structured.event_cursor === null || typeof steerId !== "string") {
+    const { [STEER_RESULT_META_KEY]: _dropped, ...meta } = (result._meta ?? {}) as Record<string, unknown>;
+    return remoteResult(target, { ...result, _meta: Object.keys(meta).length ? meta : undefined }, { ...structured, event_cursor: null, wait_process: null });
+  }
+  return remoteResult(target, result, { ...structured, wait_process: await remoteWaitProcess(target, structured.session_id, structured.event_cursor, undefined, steerId) });
 }
 
 /** 別端末の子の依頼を、この端末の親への配送に登録する。launch_idは現地の完了観測から取る。 */

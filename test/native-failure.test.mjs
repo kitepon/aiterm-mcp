@@ -20,10 +20,17 @@ test('provider classifications require native error records, preserve auth failu
   for(const record of [{type:'response_item',payload:{type:'message',role:'user',content:capacity}},
     {type:'event_msg',payload:{type:'user_message',message:capacity}},complete(null)]) assert.equal(codexFailureCategory(record),null);
   for(const [status,text,expected] of [[529,'overloaded','capacity'],[429,'limit','rate_limited'],[503,'temporary','transient'],
-    [401,'unauthorized','other'],[null,"You've reached your Fable limit. Run /usage-credits to continue or switch models with /model.",'rate_limited']]) {
+    [401,'unauthorized','authentication'],[null,"You've reached your Fable limit. Run /usage-credits to continue or switch models with /model.",'rate_limited'],
+    [null,'OAuth token revoked','authentication'],[null,'Invalid API key · Fix external API key','authentication'],[null,'something else','other']]) {
     const error=claudeApiErrorFromLine(JSON.stringify({type:'assistant',isApiErrorMessage:true,apiErrorStatus:status,message:{content:text}}));
     assert.equal(claudeFailureCategory(error),expected);
   }
+  // The real signed-out records (2.1.310, 2.1.319): the CLI's error field, no apiErrorStatus.
+  for(const text of ['Login expired · Please run /login','Not logged in · Please run /login'])
+    assert.equal(claudeFailureCategory(claudeApiErrorFromLine(JSON.stringify({type:'assistant',isApiErrorMessage:true,error:'authentication_failed',message:{content:[{type:'text',text}]}}))),'authentication');
+  // A limit stays a limit, whatever its text says; another error kind is not matched by text.
+  assert.equal(claudeFailureCategory(claudeApiErrorFromLine(JSON.stringify({type:'assistant',isApiErrorMessage:true,error:'rate_limit',message:{content:'Please run /login'}}))),'rate_limited');
+  assert.equal(claudeFailureCategory(claudeApiErrorFromLine(JSON.stringify({type:'assistant',isApiErrorMessage:true,error:'unknown',message:{content:'Please run /login'}}))),'other');
   assert.equal(claudeApiErrorFromLine(JSON.stringify({type:'assistant',isApiErrorMessage:true,isSidechain:true})),null);
 });
 

@@ -2427,7 +2427,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     let command: string = state;
     const recipe = readAgentResumeRecipe(meta);
     if (recipe?.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id)
-      for (const key of envKeys) environment[key] = recipe.environment[key] ?? null;
+      for (const key of envKeys) environment[key] = key === CLAUDE_LOGIN_ENV ? null : recipe.environment[key] ?? null;
     if (state === "hibernated") {
       try { confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!); }
       catch { command = "unknown"; }
@@ -7188,7 +7188,11 @@ function adoptVanishedAgentNative(meta: AgentMetadata): void {
   }
 }
 
-async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot): Promise<AgentMetadata> {
+// Claude's login, not a recipe setting (lifecycle-state-ownership 4b): a resume through agent_launch may replace it.
+const CLAUDE_LOGIN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
+
+async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot,
+  claudeLogin?: { value: string | null }): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -7229,8 +7233,11 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
   assertExecutionResumeSupported();
   const confirmed = confirmedAgentResumeRecipe(previous, lifecycle);
   // Same vendor session under another Claude root; the caller proved the transcript is there.
-  const recipe = claudeRoot && confirmed.kind === "claude" ? { ...confirmed, configuration_root: claudeRoot.root,
+  const rooted = claudeRoot && confirmed.kind === "claude" ? { ...confirmed, configuration_root: claudeRoot.root,
     environment: { ...confirmed.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : confirmed;
+  // null = unset in the seat: it resumes on the root's own login.
+  const recipe = claudeLogin && rooted.kind === "claude"
+    ? { ...rooted, environment: { ...rooted.environment, [CLAUDE_LOGIN_ENV]: claudeLogin.value } } : rooted;
   if (sessionExists(name)) throw uncertain();
   const controlEnv = { ...process.env };
   for (const [key, value] of Object.entries(recipe.environment)) {
@@ -7294,6 +7301,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       const environment: [string, string | null][] = [...Object.entries(recipe.environment),
         ...(next.kind === "codex" ? [["CODEX_HOME", recipe.configuration_root] as [string, string]] : []), ...agentEnvEntries(next, name)];
       for (const [key, value] of environment) {
+        // The Claude login never goes on a multiplexer argv or into pty_list; the launch reads it from the 0600 file.
+        if (value !== null && key === CLAUDE_LOGIN_ENV) continue;
         const stored = value === null ? tmux("set-environment", isWin ? "-u" : "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
         if (stored.code !== 0) throw uncertain();
       }
@@ -7306,8 +7315,9 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       const winArgv = () => (cli => forkBan ? windowsWriteBanArgv(forkBan, cli) : cli)(windowsAgentArgv(cliArgv, () => resolveWinPaneShell("bash")));
       const full = isWin ? windowsLaunchTyped(name, next.launch_id, windowsAgentLaunchLine(recipe.cwd, environment, winArgv(),
         { file: agentMetadataPath(name, next.launch_id) + ".launch-exited", launch_id: next.launch_id }))
-        : `cd ${shq(recipe.cwd)} && /usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} `
-          + `${environment.filter(([, value]) => value !== null).map(([key, value]) => shq(`${key}=${value}`)).join(" ")} ${argv.map(shq).join(" ")}`;
+        // Values only by the 0600 launch-env file, as in a fresh launch: typed into the pane they stayed on its screen and log.
+        : `cd ${shq(recipe.cwd)} && ${launchEnvSource(name, environment.filter((entry): entry is [string, string] => entry[1] !== null))}`
+          + `/usr/bin/env ${environment.filter(([, value]) => value === null).map(([key]) => `-u ${shq(key)}`).join(" ")} ${argv.map(shq).join(" ")}`;
       agentLaunchLines.set(name, atomicShellMultiline(full, shell));
       send(name, full, { enter: true, mark: false, force: true, rtk: false, raw: true, launchShell: shell, preserveAgentOperation: true });
       phase = "generation_publish";
@@ -8026,6 +8036,12 @@ function agentEnvPrefix(meta: AgentMetadata | null, sid: string, envVars: string
 
 /** Inherited values are written to a 0600 file the launch line sources and deletes, so the typed
  * line and the pane log carry only its path (remote-terminal.md R7). Identity names stay inline. */
+/** The env names a resume compares. Claude: the login is not a setting (lifecycle-state-ownership 4b), and every Claude
+ * recipe carries CLAUDE_CONFIG_DIR, which Aiterm adds from the root (configuration_root decides it), not the caller. */
+function resumeEnvNames(kind: AgentKind, names: string[]): string[] {
+  return [...new Set(names)].filter(name => kind !== "claude" || (name !== CLAUDE_LOGIN_ENV && name !== "CLAUDE_CONFIG_DIR")).sort();
+}
+
 function launchEnvSource(sid: string, entries: [string, string][]): string {
   if (entries.length === 0) return "";
   const file = path.join(agentsDir(), `${sid}.${randomBytes(8).toString("hex")}.launch-env`);
@@ -8616,7 +8632,7 @@ export async function openAgentWithInitialPrompt(
           || (opts.fast != null && opts.fast !== recipe.fast)
           || (opts.cwd != null && path.resolve(opts.cwd) !== recipe.cwd)
           || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
-          || (opts.env_vars !== undefined && !isDeepStrictEqual([...new Set(opts.env_vars)].sort(), Object.keys(recipe.environment).sort())))
+          || (opts.env_vars !== undefined && !isDeepStrictEqual(resumeEnvNames(kind, opts.env_vars), resumeEnvNames(kind, Object.keys(recipe.environment)))))
           throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
         // The only setting a resume may change: the Claude root, when it holds this conversation's transcript.
         const rootChange = claudeRoot && (claudeRoot.root !== recipe.configuration_root
@@ -8627,7 +8643,9 @@ export async function openAgentWithInitialPrompt(
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
-        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange);
+        const claudeLogin = kind === "claude" && opts.env_vars !== undefined
+          ? { value: opts.env_vars.includes(CLAUDE_LOGIN_ENV) ? launchEnvValue(CLAUDE_LOGIN_ENV) ?? null : null } : undefined;
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, claudeLogin);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };

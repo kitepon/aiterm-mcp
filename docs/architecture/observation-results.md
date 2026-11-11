@@ -2,13 +2,13 @@
 
 # 観測・完了・回答の現在構造
 
-## capacity・利用上限・一時失敗
+## capacity・利用上限・一時失敗・ログイン切れ
 
 既`AgentWaitObservation`にoptional `failure`を加える。harness adapterが実error記録からcategoryを分類し、core/steerの観測、parent-delivery-recordの保存・検証とreceipt/通知まで同じ値を保持する。outcomeとwait CLI exitの既存対応は維持する。provider失敗は`execution:not_started`を発行しない。既tool/assistant記録は`started`、欠測は`unknown`。`terminal`は当該turn記録だけで、`future_effects:unknown`は旧invocationの遅いhook、queue、native自動再試行、別producerを排除する証拠がない意味である。
 
 Codexは既task_complete.errorの種類/固定capacity文言から分類する。boundaryは元wait cursorとその最初の完了turnとの観測相関で、本文受理・未実行の証明ではない。会話自動追跡で読取先が変わればboundary=null。steerは分類を保持しても境界の受理証明へ昇格せずboundary=null。
 
-Claudeは初手/dispatchの入力前、既operation marker v3へ生成したinput_id、元event_cursor/op、vendor会話、transcript cursor/BigInt由来のdevice/inode文字列を必須保存する。保存失敗なら入力前に拒否する。before_sendの親watchがmarker作成より先でも、期限/signal内で出現を待ってから送信前位置を採用する。APIエラーはroot・同sessionの記録だけを読み、最初のuser以後のparent UUID鎖を照合する。後続の別user入力は対応を失効し、tool_resultだけは同じ鎖として追う。正規root user/error鎖が欠ければboundary=null/terminal=false。画面上限だけでも同様。CLIの`error`欄が`rate_limit`のAPIエラー記録は、文面やHTTP状態の有無に依らず`rate_limited`。利用上限ではStopも走るため、done eventを得た時はStopの時刻までの最後のroot・同session記録を見て、それがAPIエラーのassistant行ならdoneでなくerrorを返す（先にuser行が来たら判定しない。前の番の誤りを持ち出さない）。これはnativeの本文受理/旧producer停止receiptではない。
+Claudeは初手/dispatchの入力前、既operation marker v3へ生成したinput_id、元event_cursor/op、vendor会話、transcript cursor/BigInt由来のdevice/inode文字列を必須保存する。保存失敗なら入力前に拒否する。before_sendの親watchがmarker作成より先でも、期限/signal内で出現を待ってから送信前位置を採用する。APIエラーはroot・同sessionの記録だけを読み、最初のuser以後のparent UUID鎖を照合する。後続の別user入力は対応を失効し、tool_resultだけは同じ鎖として追う。正規root user/error鎖が欠ければboundary=null/terminal=false。画面上限だけでも同様。CLIの`error`欄が`rate_limit`のAPIエラー記録は、文面やHTTP状態の有無に依らず`rate_limited`。`error`欄が`authentication_failed`か`apiErrorStatus`が401の記録は`authentication`（0.70.23。実測2.1.310/2.1.319はapiErrorStatus無しで`Login expired · Please run /login`／`Not logged in · Please run /login`）。両方とも無い記録だけ、文の`Please run /login`・`OAuth token revoked`・`Invalid API key`で`authentication`。利用上限の判定が先。利用上限ではStopも走るため、done eventを得た時はStopの時刻までの最後のroot・同session記録を見て、それがAPIエラーのassistant行ならdoneでなくerrorを返す（先にuser行が来たら判定しない。前の番の誤りを持ち出さない）。これはnativeの本文受理/旧producer停止receiptではない。
 
 Stop hookはv3 markerのinput_idをagent_doneへ保持し、bound waiterは成功eventも同じIDだけを読む。markerが次の入力へ変われば拒否する。hookが記録したIDはその時のAiterm予約との対応で、native turn取消/非波及/将来作用fenceへは使わない。旧v1/v2 markerは互換読取し、旧StopにIDを後付けしない。新しい呼出元は返りのwait_processをそのまま実行する。remoteも同じinput IDを転送し、親watch/beforeChange/再構築は保存した元IDを保持する。
 

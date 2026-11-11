@@ -143,6 +143,59 @@ test("resume-only launch moves the same Claude conversation to another root only
   } finally { core.closeSession(name); }
 });
 
+test("a Claude resume takes CLAUDE_CODE_OAUTH_TOKEN as the login: named or not it is no conflict, the new value reaches the seat but not the pane", { skip: skipAgentDone ?? (process.platform === "win32" ? "POSIX fake CLI" : false), timeout: 60000 }, async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  const { SOCK, resolveTmux } = await import("../dist/tmux-runtime.js");
+  const { readAgentResumeRecipe } = await import("../dist/agent-lifecycle.js");
+  const { loadAgentMetadata } = await import("../dist/agent-metadata-reader.js");
+  const seen = path.join(base, "seen-login"); fs.mkdirSync(seen, { recursive: true });
+  const bin = path.join(base, "login-claude.sh");
+  fs.writeFileSync(bin, ["#!/bin/sh",
+    `printf '%s %s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-UNSET}" "\${LOGIN_FIXTURE_OTHER-UNSET}" > '${seen}'"/$AITERM_AGENT_LAUNCH_ID"`,
+    "printf 'Claude Code\\n\\n────────────\\n❯ \\n────────────\\n'",
+    "exec sleep 60", ""].join("\n"), { mode: 0o700 });
+  const saved = { bin: process.env.CLAUDE_BIN, token: process.env.CLAUDE_CODE_OAUTH_TOKEN, other: process.env.LOGIN_FIXTURE_OTHER };
+  process.env.CLAUDE_BIN = bin; process.env.LOGIN_FIXTURE_OTHER = "kept"; delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  t.after(() => { for (const [key, value] of [["CLAUDE_BIN", saved.bin], ["CLAUDE_CODE_OAUTH_TOKEN", saved.token], ["LOGIN_FIXTURE_OTHER", saved.other]])
+    if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  const observed = async launchId => {
+    const file = path.join(seen, launchId);
+    for (const until = Date.now() + 10000; Date.now() < until && !fs.existsSync(file);) await new Promise(r => setTimeout(r, 50));
+    return fs.readFileSync(file, "utf8").trim();
+  };
+  const name = "claude_login_resume";
+  // The old seat's recipe lacks the login name (every hibernated 1st seat today).
+  core.openAgent("claude", { session_name: name, agent_done: true, cwd: base, model: "fixture", reasoning_effort: "high", env_vars: ["LOGIN_FIXTURE_OTHER"] });
+  try {
+    const first = readAgentMeta(name);
+    assert.equal(await observed(first.launch_id), "UNSET kept");
+    const resume = async (envVars, token) => {
+      assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", name]).status, 0);
+      if (token === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN; else process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
+      const before = loadAgentMetadata(name).launch_id;
+      // shortcut: the fake CLI never satisfies Claude readiness, so the resume stops after the native start (as above).
+      await assert.rejects(core.openAgentWithInitialPrompt("claude", { session_name: name, require_existing_resume: true, env_vars: envVars, ready_timeout: 3 }),
+        /^Error: AGENT_RESUME_FAILED: /);
+      const next = loadAgentMetadata(name);
+      assert.notEqual(next.launch_id, before);
+      const screen = spawnSync(resolveTmux(), ["-S", SOCK, "capture-pane", "-p", "-S", "-", "-t", name], { encoding: "utf8" }).stdout;
+      if (token) assert.ok(!screen.includes(token), "the login value is never typed into the pane");
+      return { line: await observed(next.launch_id), recipe: readAgentResumeRecipe(next).environment };
+    };
+    const named = await resume(["LOGIN_FIXTURE_OTHER", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-one");
+    assert.equal(named.line, "fixture-token-one kept");
+    assert.equal(named.recipe.CLAUDE_CODE_OAUTH_TOKEN, "fixture-token-one");
+    const renewed = await resume(["LOGIN_FIXTURE_OTHER", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-two");
+    assert.equal(renewed.line, "fixture-token-two kept", "a re-login reaches the resumed seat");
+    const dropped = await resume(["LOGIN_FIXTURE_OTHER"], "fixture-token-three");
+    assert.equal(dropped.line, "UNSET kept", "not named: the seat resumes on the root's own login");
+    assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", name]).status, 0);
+    // Any other env difference still conflicts.
+    await assert.rejects(core.openAgentWithInitialPrompt("claude", { session_name: name, require_existing_resume: true, env_vars: ["CLAUDE_CODE_OAUTH_TOKEN"], ready_timeout: 3 }),
+      /^Error: AGENT_RESUME_UNAVAILABLE: /);
+  } finally { core.closeSession(name); }
+});
+
 test("the listed parents stay with the serving process and never reach a seat's environment", async () => {
   const { sessionCallerEnvironment } = await import("../dist/tmux-runtime.js");
   assert.deepEqual(sessionCallerEnvironment({ AITERM_CLAUDE_CONFIG_ROOTS: parent, KEEP: "1" }), { KEEP: "1" });

@@ -2264,9 +2264,12 @@ export async function maintainAgentIdleClocks(): Promise<void> {
   if (!AGENT_IDLE_ENABLED) return;
   // Only seats with a live terminal session: a hibernated, closed or dead seat retires its clock at once, so requesting
   // one on every list started a checker process per such seat per call (2026-11-11: ~30 per pty_list on the BellTeam host).
-  const listed = tmux("list-sessions", "-F", "#{session_name}");
-  if (listed.code !== 0) return;
-  const live = new Set(listed.stdout.split(/\r?\n/).filter(Boolean));
+  let live: Set<string>;
+  try {
+    const listed = tmux("list-sessions", "-F", "#{session_name}");
+    if (listed.code !== 0) return;
+    live = new Set(listed.stdout.split(/\r?\n/).filter(Boolean));
+  } catch { return; } // no usable tmux here: no live seat to time, and the list call itself must not fail
   const seats: { session: string; launchId: string }[] = [];
   for (const name of savedAgentSessionNames()) {
     if (!live.has(name)) continue;

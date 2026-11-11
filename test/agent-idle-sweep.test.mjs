@@ -31,6 +31,7 @@ test('idle sweep: only live seats, one process read for all clocks, a checker on
   seat('sweep_hibernated', 'c'.repeat(32));
   const oldSync = childProcess.spawnSync, oldSpawn = childProcess.spawn, ps = [], started = [];
   childProcess.spawnSync = (command, args, options) => {
+    if (command === tmux && args.includes('-V')) return { status: 0, stdout: 'tmux 3.4\n', stderr: '', output: [] };
     if (command === tmux && args.includes('list-sessions')) return { status: 0, stdout: 'sweep_live\nsweep_timed\nunrelated\n', stderr: '', output: [] };
     if (command.endsWith('ps')) { ps.push(args.at(-1)); return { status: 0, stdout: `${process.pid} Wed Nov 11 00:00:00 2026\n`, stderr: '', output: [] }; }
     return oldSync(command, args, options);
@@ -50,4 +51,8 @@ test('idle sweep: only live seats, one process read for all clocks, a checker on
   assert.equal(started.length, 1, 'a checker only for the live seat without a clock');
   assert.match(started[0], new RegExp(`--session ${live.aiterm_session} --launch ${live.launch_id}`));
   assert.ok(!started.some(line => line.includes('sweep_hibernated')), 'a seat without a live session gets no checker');
+  // A host whose tmux cannot run: the sweep is skipped and pty_list does not fail.
+  childProcess.spawnSync = (command, args, options) => command === tmux ? { status: 1, stdout: '', stderr: 'no', output: [], error: new Error('ENOENT') } : oldSync(command, args, options);
+  syncBuiltinESMExports();
+  await assert.doesNotReject(maintainAgentIdleClocks());
 });

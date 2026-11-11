@@ -53,8 +53,9 @@ jobs:
       - name: wait for the npm package
         shell: bash
         run: |
+          # The version can be listed before its tarball is served (0.70.19: build 404 at 22 s); wait for the tarball itself.
           for i in $(seq 1 45); do
-            npm view "aiterm-mcp@$RUNTIME_VERSION" version >/dev/null 2>&1 && exit 0
+            url=$(npm view "aiterm-mcp@$RUNTIME_VERSION" dist.tarball 2>/dev/null) && [ -n "$url" ] && curl -fsI -o /dev/null "$url" && exit 0
             sleep 20
           done
           echo "::error::aiterm-mcp@$RUNTIME_VERSION did not appear on npm within 15 minutes"

@@ -45,6 +45,9 @@ digraph lifecycle {
   resume -> failure_record [label="new-attempt preflight failure only",style=dashed];
   vanished [label="Native vanished with no lifecycle (e.g. container restart)\nnormal send/dispatch under send lock: known absence\nprepareWorkingAgentResume -> lifecycle = hibernated origin:restart",fillcolor="#eaf7ed"];
   required [label="Not resumable (harness / vendor ID / recipe / proof)\nAGENT_SESSION_REQUIRED, input not_sent, records unchanged\ncaller launches fresh under the same name",fillcolor="#fff0d8"];
+  closed [label="pty_close / killAll / same-name fresh launch\ncleanupAgentState: before removing .idle-clock.json\nend its sleep worker (owner PID + birth identity; POSIX: its own process group)\nnever the caller's own clock; failure leaves the finite sleep to its token check",fillcolor="#eaf7ed"];
+  active -> closed [label="normal close"];
+  asleep -> closed [label="dormant close"];
   active -> vanished [label="native list known, name absent",style=dashed];
   vanished -> resume [label="same send continues"];
   vanished -> required [label="preparation refused",style=dashed];

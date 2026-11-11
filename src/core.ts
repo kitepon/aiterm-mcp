@@ -44,7 +44,7 @@ import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
 import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgentActivity } from "./agent-activity.js";
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
-import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
+import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
 import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -620,6 +620,10 @@ function cleanupAgentState(name: string): void {
     for (const f of fs.readdirSync(dir)) {
       if (!f.startsWith(prefix)) continue;
       const p = path.join(dir, f);
+      if (f.endsWith(".idle-clock.json")) try {
+        const clock = readAgentIdleClock({ aiterm_session: name, launch_id: f.slice(prefix.length, -".idle-clock.json".length) });
+        if (clock) endAgentIdleClock(clock);
+      } catch { /* an unended worker still exits at wake: its token is gone with the record below */ }
       try {
         if (
           f.endsWith(".agent.json") ||

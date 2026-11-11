@@ -523,9 +523,9 @@ test("the stdin stub runs a whole multi-line script and is the Windows entry for
 });
 
 test("keeper command: the remote command ends with stdin on every shell", () => {
-  assert.equal(rt.keeperCommand("posix"), "cat >/dev/null");
-  assert.equal(rt.keeperCommand("powershell"), "[Console]::In.ReadToEnd() | Out-Null");
-  assert.equal(decodeEncoded(rt.keeperCommand("cmd")), "[Console]::In.ReadToEnd() | Out-Null");
+  assert.equal(rt.keeperCommand("posix"), "echo AITERM_FORWARD_READY; exec cat >/dev/null");
+  assert.equal(rt.keeperCommand("powershell"), "[Console]::Out.WriteLine('AITERM_FORWARD_READY'); [Console]::In.ReadToEnd() | Out-Null");
+  assert.equal(decodeEncoded(rt.keeperCommand("cmd")), "[Console]::Out.WriteLine('AITERM_FORWARD_READY'); [Console]::In.ReadToEnd() | Out-Null");
 });
 
 test("Windows paths: drive-absolute with backslashes only; UNC, device, relative, drive-relative, / separators and forbidden characters are refused", () => {

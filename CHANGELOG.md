@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat relaunched on a terminal right after its last seat closed (for example `restart_session`) no longer gets a seat MCP port with no forward behind it (`ECONNREFUSED` at Claude start, and Claude Code never retries a failed MCP). The forward keeper stopped once no seat was bound, but the binding kept its port, and the next launch received that port at once. A launch in another Aiterm process was also invisible to the keeper. Now the keeper's remote command prints a mark once the forward's listener is up; a launch receives the port only when a live keeper reported that mark for it. A launch in any process keeps the forward needed until its seat is bound, and a stopped keeper hands over its lock at once, so the relaunch's process starts a new forward without the 15 s restart delay.
+
 ## [0.70.17] - 2026-11-11
 
 - On a POSIX terminal where npm linked only `aiterm-mcp` onto the login PATH, Aiterm's other programs on the terminal (`aiterm-remote-terminal` for `path_status` / `make_dir` / `list_dirs` and transcript reads) now run from the same package, as `aiterm-wait` already did. Before, the folder picker failed there with `/bin/sh: aiterm-remote-terminal: not found`.

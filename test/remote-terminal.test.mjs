@@ -82,7 +82,7 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
   // Stub ssh: records argv, answers like sshd for -R 0; the forward holds until our stdin closes, like the real keeper.
-  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61000 for remote forward to x' >&2\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61000 for remote forward to x' >&2\ncase "$*" in *" -R "*) echo AITERM_FORWARD_READY; exec cat >/dev/null;; esac\n`, { mode: 0o755 });
   const key = path.join(dir, "id");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const script = `
@@ -115,7 +115,7 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
 test("seat forward keeper: a credential loaded after the keeper's first try still gets the forward (0.70.9 stayed down)", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined || spawnSync("ssh-agent", ["-?"]).error !== undefined }, () => {
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-cred-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
-  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61001 for remote forward to x' >&2\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\necho 'Allocated port 61001 for remote forward to x' >&2\ncase "$*" in *" -R "*) echo AITERM_FORWARD_READY; exec cat >/dev/null;; esac\n`, { mode: 0o755 });
   const key = path.join(dir, "id");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const script = `
@@ -143,7 +143,7 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
 test("seat forward keeper: after a restart a reused pid or a thread id in the old lock is not the owner; the old P waits for a new keeper", { skip: process.platform !== "linux" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-restart-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
-  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\ncase "$*" in *" -R 127.0.0.1:0:"*) echo 'Allocated port 6100'"$(echo "$*" | grep -c 10.0.0.12)"' for remote forward to x' >&2;; esac\ncase "$*" in *" -R "*) exec cat >/dev/null;; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\ncase "$*" in *" -R 127.0.0.1:0:"*) echo 'Allocated port 6100'"$(echo "$*" | grep -c 10.0.0.12)"' for remote forward to x' >&2;; esac\ncase "$*" in *" -R "*) echo AITERM_FORWARD_READY; exec cat >/dev/null;; esac\n`, { mode: 0o755 });
   const key = path.join(dir, "id");
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") };
@@ -185,6 +185,39 @@ test("seat forward keeper: after a restart a reused pid or a thread id in the ol
   assert.equal(forwards.length, 2);
   assert.match(forwards.join("\n"), /-R 127\.0\.0\.1:61000:127\.0\.0\.1:4183 /);
   assert.match(forwards.join("\n"), /-R 127\.0\.0\.1:61001:127\.0\.0\.1:4183 /);
+});
+
+test("seat forward keeper: a relaunch after the last seat closed waits for a ready forward, not the stopped keeper's P (restart_session ECONNREFUSED)", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
+  const dir = fs.mkdtempSync(path.join(tmp, "keeper-relaunch-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
+  fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\ncase "$*" in *" -R 127.0.0.1:0:"*) echo 'Allocated port 61002 for remote forward to x' >&2;; esac\ncase "$*" in *" -R "*) echo AITERM_FORWARD_READY; exec cat >/dev/null;; esac\n`, { mode: 0o755 });
+  const key = path.join(dir, "id");
+  assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
+  const script = `
+    const rt = await import(${JSON.stringify(new URL("../dist/remote-terminal.js", import.meta.url).href)});
+    const fs = await import("node:fs"), path = await import("node:path");
+    const state = ${JSON.stringify(path.join(dir, "state"))};
+    const find = suffix => path.join(state, fs.readdirSync(state, { recursive: true }).map(String).find(name => name.endsWith(suffix)));
+    const status = rt.registerBinding({ target: { host: "10.0.0.13", user: "kite", port: 22 }, keyFile: ${JSON.stringify(key)} });
+    const first = await rt.ensureSeatForward(status.ref, 4183, 5000);
+    rt.bindTerminalSession("seat-neon", status.ref);
+    // restart_session: pty_close unbinds the only seat; the owner's next check stops the forward once the launch grace is over.
+    rt.unbindTerminalSession("seat-neon");
+    fs.rmSync(find("terminal-forward-" + status.ref + ".launch"));
+    rt.maintainSeatForwards();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const lockGone = !fs.readdirSync(state, { recursive: true }).map(String).some(name => name.endsWith(".lock"));
+    const started = Date.now();
+    const second = await rt.ensureSeatForward(status.ref, 4183, 5000);
+    const lock = JSON.parse(fs.readFileSync(find(".lock"), "utf8"));
+    console.log(JSON.stringify({ first, second, lockGone, ready: lock.ready, quick: Date.now() - started < 3000 }));
+    process.exit(0);`;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: 61002, second: 61002, lockGone: true, ready: 61002, quick: true },
+    "the stopped keeper hands the lock over at once; the relaunch gets P only from a new ready forward");
+  assert.equal(fs.readFileSync(log, "utf8").split("\n").filter(line => line.includes(" -R ")).length, 2);
 });
 
 test("terminal argument: strict schema with plain messages; trusted ssh ignores user config; seats bind by session", { skip: spawnSync("ssh-keygen", ["-?"]).error !== undefined }, async () => {

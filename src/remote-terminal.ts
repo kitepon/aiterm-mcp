@@ -331,8 +331,10 @@ const cliAuthScript = (c: CliSpec): TerminalScript => ({
 });
 
 /** The remote command the forward keeper holds: it ends exactly when ssh's stdin closes. */
+export const FORWARD_READY_MARK = "AITERM_FORWARD_READY";
 export function keeperCommand(shell: RemoteShell): string {
-  return shell === "posix" ? "cat >/dev/null" : powershellForShell(shell, "[Console]::In.ReadToEnd() | Out-Null");
+  return shell === "posix" ? `echo ${FORWARD_READY_MARK}; exec cat >/dev/null`
+    : powershellForShell(shell, `[Console]::Out.WriteLine('${FORWARD_READY_MARK}'); [Console]::In.ReadToEnd() | Out-Null`);
 }
 
 const WAIT_FLAGS = new Set(["--session", "--operation", "--timeout", "--cursor", "--steer", "--launch", "--input"]);
@@ -725,7 +727,7 @@ export function extractMcpHeaders(config: Record<string, unknown>): { config: Re
 // ---- R12 forward keeper: one Aiterm process per terminal holds the seats' BellTeam MCP route (T3) ----
 
 const FORWARD_RESTART_MS = 15_000, FORWARD_REFUSALS_BEFORE_NEW_PORT = 4, LAUNCH_GRACE_MS = 120_000;
-interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; launchUntil: number; starting?: boolean }
+interface Keeper { child: ChildProcess | null; ingress: number; refusals: number; timer: NodeJS.Timeout | null; starting?: boolean }
 const keepers = new Map<string, Keeper>();
 let maintainTimer: NodeJS.Timeout | null = null;
 let credentialWatch: fs.FSWatcher | null = null;
@@ -736,7 +738,7 @@ function writeBinding(ref: string, change: Partial<Binding>): void {
 }
 
 function lockFile(ref: string): string { return path.join(ensureStateRoot(), `terminal-forward-${ref}.lock`); }
-interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown }
+interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown; ready?: unknown }
 function lockOwner(ref: string): LockOwner | null {
   try { return JSON.parse(fs.readFileSync(lockFile(ref), "utf8")); } catch { return null; /* absent or unreadable: no owner */ }
 }
@@ -756,12 +758,22 @@ function ownerAlive(owner: LockOwner): boolean {
   if (typeof owner.start === "string") return procStart(pid) === owner.start;
   try { return /^Tgid:\s*(\d+)$/m.exec(fs.readFileSync(`/proc/${pid}/status`, "utf8"))?.[1] === String(pid); } catch { return true; }
 }
+const lockIdentity = () => ({ pid: process.pid, boot: bootTime(), start: procStart(process.pid) });
+/** T3: only the owner rewrites its lock (rename, so no reader sees half a file): `ready` = the P its running ssh -R holds. */
+function markReady(ref: string, ready: number | null): void {
+  if (Number(lockOwner(ref)?.pid) !== process.pid) return;
+  const file = lockFile(ref), staged = `${file}.${process.pid}`;
+  try {
+    fs.writeFileSync(staged, JSON.stringify(ready ? { ...lockIdentity(), ready } : lockIdentity()), { mode: 0o600 });
+    fs.renameSync(staged, file);
+  } catch { fs.rmSync(staged, { force: true }); }
+}
 /** T3: true when this process holds the keeper lock for ref (taking it from a dead owner). */
 function holdLock(ref: string): boolean {
   const file = lockFile(ref);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, boot: bootTime(), start: procStart(process.pid) }), { flag: "wx", mode: 0o600 });
+      fs.writeFileSync(file, JSON.stringify(lockIdentity()), { flag: "wx", mode: 0o600 });
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") return false;
@@ -776,15 +788,21 @@ function holdLock(ref: string): boolean {
 function releaseLock(ref: string): void {
   if (Number(lockOwner(ref)?.pid) === process.pid) fs.rmSync(lockFile(ref), { force: true });
 }
-/** A stored P is usable only while a keeper runs: this process's ssh -R, or another live lock owner's. */
-function forwardLive(ref: string): boolean {
+/** P is usable only when a live owner's running ssh -R has reported it ready (its remote command started after the listener). */
+function forwardReady(ref: string, port: number): boolean {
   const owner = lockOwner(ref);
-  if (!owner) return false;
+  // shortcut: a keeper of Aiterm 0.70.16 or older (lock without boot) never reports ready; trust it while alive, until it exits.
+  if (owner && owner.boot === undefined) return ownerAlive(owner);
+  if (!owner || owner.ready !== port) return false;
   return Number(owner.pid) === process.pid ? Boolean(keepers.get(ref)?.child) : ownerAlive(owner);
 }
 
+// T3: a launch in any process keeps the forward needed (the seat is bound only after it), so the owner never stops it meanwhile.
+const launchFile = (ref: string) => path.join(ensureStateRoot(), `terminal-forward-${ref}.launch`);
 function forwardNeeded(ref: string): boolean {
-  return (keepers.get(ref)?.launchUntil ?? 0) > Date.now() || Object.values(readSeats()).includes(ref);
+  let until = 0;
+  try { until = Number(fs.readFileSync(launchFile(ref), "utf8")); } catch { /* no launch */ }
+  return until > Date.now() || Object.values(readSeats()).includes(ref);
 }
 
 function storedIngress(ref: string): number | undefined {
@@ -792,7 +810,7 @@ function storedIngress(ref: string): number | undefined {
 }
 
 function keep(ref: string): void {
-  const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null, launchUntil: 0 };
+  const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null };
   keepers.set(ref, keeper);
   if (keeper.child) { if (!forwardNeeded(ref) || storedIngress(ref) !== keeper.ingress) keeper.child.kill(); return; }
   if (keeper.timer || keeper.starting) return;
@@ -821,23 +839,32 @@ function keep(ref: string): void {
       // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
       args = trustedSshArguments(ref, keeperCommand(shell), null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port!)]);
     } catch { releaseLock(ref); return; }
-    const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "ignore", "pipe"] });
+    const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     keeper.child = child;
-    let stderr = "";
+    let stderr = "", stdout = "", ready = false;
+    // Ready = the remote command printed its mark (sshd binds the -R listener before it runs the session) and P is known.
+    const report = () => {
+      const forward = parseSeatForward(stderr), port = typeof forward === "number" ? forward : requested;
+      if (!ready && port && stdout.includes(FORWARD_READY_MARK)) { ready = true; markReady(ref, port); }
+    };
+    child.stdout!.on("data", (chunk: Buffer) => { stdout = (stdout + chunk.toString("utf8")).slice(-200); report(); });
     child.stderr!.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-4000);
       const forward = parseSeatForward(stderr);
       if (typeof forward === "number" && forward !== requested) { writeBinding(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
+      report();
     });
     child.on("error", () => { /* close follows */ });
     child.on("close", () => {
       keeper.child = null;
+      markReady(ref, null);
       if (parseSeatForward(stderr) === "refused" && requested !== 0 && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
         // The old P stays taken on the terminal: let sshd pick a new one (seats launched with the old P need a relaunch).
         writeBinding(ref, { seat_forward_port: undefined });
         keeper.refusals = 0;
       }
-      again();
+      // Stopped because no seat needs it: hand the lock over at once, so a launch in another process starts its own.
+      if (forwardNeeded(ref)) again(); else keep(ref);
     });
   }, () => { keeper.starting = false; again(); });
 }
@@ -859,15 +886,14 @@ export function maintainSeatForwards(): void {
 export async function ensureSeatForward(ref: string, ingress: number, timeoutMs = 30_000): Promise<number> {
   // A new D makes the old P (forwarding to the old D) useless: clear it so the wait below sees only a forward to D.
   if (binding(ref).seat_ingress_port !== ingress) writeBinding(ref, { seat_ingress_port: ingress, seat_forward_port: undefined });
-  const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null, launchUntil: 0 };
-  keeper.launchUntil = Date.now() + LAUNCH_GRACE_MS;
-  keepers.set(ref, keeper);
+  fs.writeFileSync(launchFile(ref), String(Date.now() + LAUNCH_GRACE_MS), { mode: 0o600 });
   maintainSeatForwards();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    // A P stored by an earlier process (before a restart) without a running keeper reaches nothing.
+    // A stored P without a ready forward (after a restart, or a keeper just stopped) reaches nothing: wait for one.
     const port = binding(ref).seat_forward_port;
-    if (port && forwardLive(ref)) return port;
+    if (port && forwardReady(ref, port)) return port;
+    keep(ref); // takes over at once when the owner stopped and released the lock
     if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }

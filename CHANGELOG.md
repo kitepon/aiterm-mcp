@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `aiterm-update` now keeps the reason when the new version's `aiterm-setup` does not end `ready`. The result already carried `setup_status` and `setup_reason_code`, but the setup's own message (for example which probe step failed and why) was dropped, so reading it meant running setup again on that host. The last lines of the setup's error output now go into the result's `message`.
+
 ## [0.70.25] - 2026-11-11
 
 - `pty_list` with seat turns is faster on a host with many seats. Checking whether one seat exists listed every seat with its agent metadata, and each metadata read scanned the whole agents folder, so one call grew with the number of seats squared (10-27 s for about 140 members). The check now reads only the session names, with the same tmux call, retry and failures. On the production state, reading the turns of 48 seats went from 4.6 s to 2.3 s. What `pty_list` returns is unchanged.

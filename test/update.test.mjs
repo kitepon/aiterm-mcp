@@ -124,3 +124,17 @@ test("remoteUpdateResult: 現地の全体結果から現地自身の1件を取�
   assert.equal(remoteUpdateResult(missing).reason_code, "update_command_missing");
   assert.equal(remoteUpdateResult("changed 96 packages in 2s"), null);
 });
+
+test("updateLocal: setupがready以外なら、その理由をmessageへ残す", { skip: process.platform === "win32" }, () => {
+  const { prefix, root } = fakeGlobalInstall(process.platform, "0.39.0");
+  const { run } = recordingRun({
+    view: { status: 0, stdout: "\"0.39.0\"", stderr: "" },
+    setup: { status: 2, stdout: "{\"schema\":\"aiterm.setup-result.v1\",\"status\":\"failed\",\"reason_code\":\"runtime_probe_failed\"}\n", stderr: "aiterm-setup: MCP経由で端末を開きます\naiterm-setup: pty_openが失敗しました: fixture\n" },
+    ps: { status: 0, stdout: "", stderr: "" },
+  });
+  const result = updateLocal({ version: "0.39.0", run, root });
+  assert.equal(result.setup_status, "failed");
+  assert.equal(result.setup_reason_code, "runtime_probe_failed");
+  assert.match(result.message, /pty_openが失敗しました: fixture/u);
+  fs.rmSync(prefix, { recursive: true, force: true });
+});

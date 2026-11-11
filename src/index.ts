@@ -1134,7 +1134,7 @@ registerRemoteAwareTool(
       configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。認証する設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ。startで決めたrootと違う指定はAGENT_CONFIGURATION_ROOT_REJECTED"),
       login: z.enum(["oauth_token"]).optional().describe("claude-code harnessだけ、token_fileと組。startは状態を聞かずに必ず `claude setup-token` を起こし、出たtokenをAitermがtoken_fileへ書く（本人・0600・置き換え）。" +
         "statusはtoken_fileが本人の0600の空でない通常fileの時だけauthenticated（.credentials.jsonは見ない）。失敗・取消では書かない。receiptはloginを返す"),
-      token_file: z.string().min(1).optional().describe("login:\"oauth_token\"の書き先。<HOME>/.bellteam-accounts/claude/<slot>/oauth-token だけを受け、他はAGENT_AUTH_TOKEN_FILE_REJECTED（開始しない）"),
+      token_file: z.string().min(1).optional().describe("login:\"oauth_token\"の書き先。HOME配下の決まった形のslotのoauth-tokenだけを受け、他はAGENT_AUTH_TOKEN_FILE_REJECTED（開始しない）"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),

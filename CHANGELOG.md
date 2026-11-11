@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.16] - 2026-11-11
+
 - `pty_list` no longer starts an idle-clock checker process for every hibernated, closed or dead seat on every call. A seat without a live session retires its clock at once, so each list re-spawned a checker for it (about 30 per call on a BellTeam host with 50 saved seats and 18 live). The sweep now covers only seats with a live terminal session, and confirms all clock owners with one process read instead of one per seat. On that host this load kept the serving process busy 95 % of the time, with stretches up to 7 s, so a terminal relay's answer often arrived after the 4 s budget and the terminal's seats came back `unread`.
 - The terminal relays of `pty_list` seat turns now really start before the local read. `callRemoteTool` spawns its ssh only after an `await`, so every relay used to start after the synchronous local read.
 - A freshly launched Codex seat that has taken no input reads `idle` in seat turns, instead of `null` until its first turn. Codex writes no rollout before the first input. Aiterm now answers idle when it recorded no input for the launch and the pane is a ready composer.
@@ -3259,7 +3261,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.16...HEAD
+[0.70.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...v0.70.16
 [0.70.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...v0.70.15
 [0.70.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...v0.70.14
 [0.70.13]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.12...v0.70.13

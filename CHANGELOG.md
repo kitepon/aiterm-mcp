@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- An antigravity-cli seat can start without a prompt while `append_system_prompt` is set, as a wake-first caller (BellTeam) launches every seat. Aiterm keeps the text with the seat and puts it, exactly once, in front of the first input sent to the seat before agy binds a conversation, the same rule Cursor uses for a promptless seat. A restart is a new launch and its own first input carries the text again. Before, such a launch was refused (`AGENT_LAUNCH_NOT_STARTED: append_system_prompt needs a prompt for antigravity-cli`), so a remote agy seat could never start.
+
 ## [0.70.13] - 2026-11-10
 
 - A terminal's seat MCP route (the R12 reverse forward) starts seconds after credential-load instead of at the next 60 s check. Every active Aiterm process now watches the credentials directory, and a newly written `<ref>.json` runs the forward check at once. After an execution restart, seats on keyless terminals were without BellTeam MCP for up to a minute after the key arrived. The 60 s check stays as the fallback.

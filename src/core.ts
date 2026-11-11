@@ -7296,6 +7296,17 @@ export async function dispatchAgentTurn(
   });
 }
 
+/**
+ * A seat launched without a prompt has no conversation yet at its first dispatch. Cursor gets Aiterm's launch context and the
+ * caller text there, Antigravity the caller text (neither has an instruction channel); later dispatches go to the bound
+ * conversation as plain text. A new launch (restart) starts unbound again, so its own first dispatch carries them.
+ */
+export function firstDispatchText(meta: AgentMetadata, body: string): string {
+  if (meta.vendor_session_id) return body;
+  return meta.kind === "cursor" ? `${cursorLineagePreface(meta)}\n\n${body}`
+    : meta.kind === "antigravity" ? antigravityPromptWithCaller(meta, body) : body;
+}
+
 function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts): Promise<AgentDispatchReceipt>;
 function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts,
   pendingSend: { follow?: boolean }): Promise<AgentSendReceipt>;
@@ -7392,13 +7403,9 @@ async function dispatchAgentTurnInLock(
   if (limitDialog) paneInputRecovery.push("grok_rate_limit_dialog_dismissed");
   if (grokRestoredPromptCleared) paneInputRecovery.push("grok_unaccepted_prompt_cleared");
   const startOffset = agentCompletionCursor(meta);
-  // promptなしで起動したCursorは、最初のdispatch時点ではtranscriptとの相関markerをまだ持たない。
-  // その1回だけlaunch contextを加え、以後はbind済みconversationへ通常textだけを送る。
   // 画面の確かめを飛ばす送信（force）と、加工なしの送信（raw）には、既定の前置きを打たない（打った文は入力欄がそのまま読む）。
   const prefaced = splitAgentPreface(meta.kind, o.preface, text, { defaultForWrapped: !o.force && !o.raw });
-  const dispatchText = meta.kind === "cursor" && !meta.vendor_session_id
-    ? `${cursorLineagePreface(meta)}\n\n${prefaced.body}`
-    : prefaced.body;
+  const dispatchText = firstDispatchText(meta, prefaced.body);
   prepareSendText(dispatchText, { raw: o.raw });
   const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
@@ -8452,9 +8459,6 @@ function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: strin
   if (kind !== "grok" && kind !== "cursor" && kind !== "antigravity") return;
   try {
     const servers = (kind === "grok" ? checkGrokCallerInput : kind === "cursor" ? checkCursorCallerInput : checkAntigravityCallerInput)(opts.append_system_prompt, opts.mcp_config);
-    // Cursor puts the text in the seat's first dispatch whatever it is; agy's only channel is the launch prompt itself.
-    if (kind === "antigravity" && opts.append_system_prompt != null && opts.prompt == null && opts.throughline_source_session == null)
-      throw new AitermError("append_system_prompt needs a prompt for antigravity-cli (agy has no instruction channel; the text prefixes the first prompt)", 2);
     const envVars = opts.env_vars ?? [];
     assertCallerEnv(kind.toUpperCase() as "GROK" | "CURSOR" | "ANTIGRAVITY", servers, name => envVars.includes(name) ? launchEnvValue(name) : undefined, true);
   } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }

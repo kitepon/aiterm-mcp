@@ -12,6 +12,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 const grok = await import("../dist/harnesses/grok.js");
 const cursor = await import("../dist/harnesses/cursor.js");
 const agy = await import("../dist/harnesses/antigravity.js");
+const core = await import("../dist/core.js");
 const { parseCallerMcp, assertCallerEnv } = await import("../dist/harnesses/caller-mcp.js");
 const { agentsDir } = await import("../dist/agent-shared.js");
 const { writeAgentMetadata } = await import("../dist/agent-shared.js");
@@ -171,6 +172,10 @@ test("antigravity: mcp_config.json holds resolved values (0600) in a seat folder
   assert.deepEqual(agy.antigravityAgentArgv("agy", null, null, null), ["agy", "--dangerously-skip-permissions", "--settings", '{"queuedMessages":"send-immediately"}']);
   assert.deepEqual(agy.antigravityAgentArgv("agy", null, null, "p", meta("antigravity")), ["agy", "--dangerously-skip-permissions", "--settings", '{"queuedMessages":"send-immediately"}', "--prompt-interactive", "p"]);
   assert.equal(agy.antigravityPromptWithCaller(meta("antigravity"), "do it"), "do it");
+  // A promptless seat: the first input to the unbound conversation carries the text once; the bound conversation gets plain text.
+  assert.equal(core.firstDispatchText(m, "work"), "CALLER_RULE\n\nwork");
+  assert.equal(core.firstDispatchText({ ...m, vendor_session_id: "11111111-1111-4111-8111-111111111111" }, "work"), "work");
+  assert.equal(core.firstDispatchText(meta("antigravity"), "work"), "work");
   assert.throws(() => agy.writeAntigravityCallerFiles(meta("antigravity", { aiterm_session: "caller_agy2" }), null, mcp, name => name === "X-none" ? "" : undefined), /ANTIGRAVITY_MCP_ENV_UNAVAILABLE/);
 });
 
@@ -213,7 +218,7 @@ test("metadata keeps the caller files across a reload, and closing the seat remo
   }
 });
 
-test("agent_launch: every harness takes the fields; an inexpressible shape, a missing ${NAME} and a promptless agy text are input refusals before any seat", async () => {
+test("agent_launch: every harness takes the fields; an inexpressible shape and a missing ${NAME} are input refusals before any seat", async () => {
   const { createAitermServer } = await import("../dist/index.js");
   const server = createAitermServer(), client = new Client({ name: "harness-caller-test2", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -234,9 +239,6 @@ test("agent_launch: every harness takes the fields; an inexpressible shape, a mi
       const big = await call({ harness, cwd: tmp, append_system_prompt: "x".repeat(64 * 1024 + 1), prompt: "p" });
       assert.match(big.content[0].text, /AGENT_LAUNCH_NOT_STARTED: append_system_prompt must be non-empty and at most 64 KiB/);
     }
-    const promptless = await call({ harness: "antigravity-cli", cwd: tmp, append_system_prompt: "rules" });
-    assert.match(promptless.content[0].text, /^aiterm: AGENT_LAUNCH_NOT_STARTED: append_system_prompt needs a prompt for antigravity-cli/);
-    assert.equal(launchError(promptless).phase, "input");
     // the old blanket refusal is gone
     for (const harness of ["grok-cli", "cursor-cli", "antigravity-cli"]) {
       const result = await call({ harness, cwd: tmp, mcp_config: stdio });

@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { AitermError, AgentAuthenticationPreflightError } from "../errors.js";
+import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { claudeCatalogRoot } from "../claude-catalog-root.js";
@@ -209,7 +209,6 @@ export function readClaudeResultText(
   return result.text;
 }
 
-const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 5_000;
 const CLAUDE_MODELS_TIMEOUT_MS = 30_000;
 const CLAUDE_MODELS_MAX_BYTES = 4 * 1024 * 1024;
 
@@ -356,51 +355,6 @@ export function claudeCatalogFromInitialize(stdout: string, requestId: string, s
     fast_ids: fastIds,
     fast_unavailable: claudeFastUnavailable(response.response.response?.fast_mode_disabled_reason),
   });
-}
-
-export function assertClaudeAuthenticationReady(bin: string, env: NodeJS.ProcessEnv = process.env): void {
-  const result = spawnAgentControlCommand(bin, ["auth", "status", "--json"], process.cwd(), {
-    env,
-    encoding: "utf8",
-    timeout: CLAUDE_AUTH_STATUS_TIMEOUT_MS,
-    maxBuffer: 64 * 1024,
-  });
-  let status: unknown = null;
-  try {
-    status = JSON.parse((result.stdout ?? "").trim());
-  } catch {
-    status = null;
-  }
-  if (
-    result.error == null &&
-    result.status === 0 &&
-    status !== null &&
-    typeof status === "object" &&
-    !Array.isArray(status) &&
-    (status as { loggedIn?: unknown }).loggedIn === true
-  ) {
-    return;
-  }
-  if (
-    status !== null &&
-    typeof status === "object" &&
-    !Array.isArray(status) &&
-    (status as { loggedIn?: unknown }).loggedIn === false
-  ) {
-    throw new AgentAuthenticationPreflightError(
-      "CLAUDE_AUTH_NOT_AUTHENTICATED",
-      "Claude Codeの認証を利用できません。sessionは作成していません。" +
-        "通常端末で `claude doctor` を実行し、Keychain／credential storeを直してから一度だけ `claude auth login` を実行してください。" +
-        "aiterm相関付きClaude session内で /login を繰り返さないでください。",
-    );
-  }
-  // A slow check is not a refusal (ADR 0020, 2026-11-10): launch on; a logged-out Claude stops at its login screen.
-  if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") return;
-  throw new AgentAuthenticationPreflightError(
-    "CLAUDE_AUTH_STATUS_UNCONFIRMED",
-    "Claude Codeの認証状態を起動前に確認できません。sessionは作成していません。" +
-      "`claude auth status --json` と `claude doctor` が成功することを通常端末で確認してください。",
-  );
 }
 
 /**

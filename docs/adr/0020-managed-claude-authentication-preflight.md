@@ -18,6 +18,14 @@ loggedIn:trueの席が`CLAUDE_AUTH_STATUS_TIMEOUT`で起こせなかった（Bel
 遅いだけの確認で止まる状態には自分で抜ける遷移が無かった。`loggedIn:false`・malformed・失敗exitの拒否は維持する。
 `CLAUDE_AUTH_STATUS_TIMEOUT`はこの版の前の端末だけが返す。
 
+2026-11-11追補（0.70.22）: Decision 1・2の起動前検証を廃止する。`auth status`はAitermの`process.env`で走り、
+席だけへ渡す私的envの資格（2つ目の枠の`CLAUDE_CODE_OAUTH_TOKEN`など）を見ない。端末自身のloginが切れていると、
+渡した資格で動く席まで`AGENT_AUTH_REQUIRED`で断っていた（rabbit、BellTeamの全Claude席が2つ目の枠で動いていた時）。
+この拒否は守る物（データ消失・接続先の誤り・秘密・権限・上書き）を名指さず、進める起動を止める。直さず消す。
+未ログインは起動後の画面判定（`Select login method:` -> `vendor_onboarding_required`、初回prompt未送信）が、
+拒まれた資格は最初のturnのClaude自身の誤りが示す。`loggedIn:false`でもsessionは作られる。
+呼び手側の写像（0.70.21までの端末の`CLAUDE_AUTH_*`）は残す。
+
 ## Context
 
 `claude_agent`はlaunchごとのStop hook settingsとPTY stateを隔離する一方、Claude Codeの認証は

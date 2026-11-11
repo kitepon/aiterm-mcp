@@ -7,7 +7,7 @@ import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
-import { AitermError, AgentAuthenticationPreflightError, AgentResumeUnavailableError, AgentResumeError, launchInputRefusal } from "./errors.js";
+import { AitermError, AgentResumeUnavailableError, AgentResumeError, launchInputRefusal } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -258,12 +258,6 @@ function fail(e: unknown): ToolResult {
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     structuredContent: { ...configurationFailure }, ...configureErrorMeta(e),
-  };
-  if (e instanceof AgentAuthenticationPreflightError) return {
-    content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { schema: "aiterm.agent-launch-error.v1", harness: "claude-code", code: e.reasonCode,
-      phase: "authentication_preflight", effect: "not_issued", session_created: false, message: msg },
-    ...(e.reasonCode === "CLAUDE_AUTH_NOT_AUTHENTICATED" ? { _meta: launchNotStartedMeta("claude-code", "input", "AGENT_AUTH_REQUIRED") } : {}),
   };
   if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code) };

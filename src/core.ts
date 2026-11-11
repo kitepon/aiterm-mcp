@@ -229,7 +229,6 @@ import {
   agentClaudeDispatchReceiptPath,
   validateOperationId,
   readClaudeResultText,
-  assertClaudeAuthenticationReady,
   claudeModelChoices,
   claudeConfigDir,
   claudeProjectSlug,
@@ -8229,7 +8228,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
     throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: env_varsのCLAUDE_CONFIG_DIRとconfiguration_rootは同時に指定できません。", 2);
   const claudeEnv = claudeRoot ? withClaudeConfigRoot(process.env, claudeRoot) : process.env;
   const claudeRootEntries: [string, string | null][] = claudeRoot ? [["CLAUDE_CONFIG_DIR", claudeRoot.selector]] : [];
-  if (kind === "claude") assertClaudeAuthenticationReady(bin, claudeEnv);
+  // No Claude pre-check (ADR 0020, 2026-11-11): it read this computer's login, not the seat's private-env credential; a logged-out Claude stops at its login screen.
   if (kind === "cursor") assertCursorAuthenticationReady(bin);
   if (kind === "antigravity") {
     const auth = antigravityAuthStatus(bin, cwd ?? process.cwd());

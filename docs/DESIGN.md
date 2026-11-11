@@ -541,7 +541,7 @@ Claude authentication URL receipts recognize the official claude.com/cai/oauth/a
 
 ### 認証画面と専用応答
 
-Claude起動前の公式auth status拒否はharnessが`AgentAuthenticationPreflightError`として所有し、通常MCPのfailが`aiterm.agent-launch-error.v1`へ投影する。既存数値exit codeと文言を維持し、未認証・確認不能の機械code（timeoutは拒否せず起動へ進み、未認証なら起動後のlogin画面判定が止める。`CLAUDE_AUTH_STATUS_TIMEOUT`は旧版の端末だけが返す。ADR 0020追補）、authentication_preflight/not_issued/session_created:falseだけを追加する。CLI status本文・stderr・資格・推定したexpiry原因は持ち出さず、この拒否は認証PTYの入力や起動後turnの終端とは分ける。
+（0.70.22で廃止: Claudeの起動前auth statusは席の私的envの資格を見ずに動く席を断っていたため、起動前確認をやめ、未ログインは起動後のlogin画面判定が止める。以下は0.70.21までの端末の答えとして呼び手側の写像だけ残る。）Claude起動前の公式auth status拒否はharnessが`AgentAuthenticationPreflightError`として所有し、通常MCPのfailが`aiterm.agent-launch-error.v1`へ投影する。既存数値exit codeと文言を維持し、未認証・確認不能の機械code（timeoutは拒否せず起動へ進み、未認証なら起動後のlogin画面判定が止める。`CLAUDE_AUTH_STATUS_TIMEOUT`は旧版の端末だけが返す。ADR 0020追補）、authentication_preflight/not_issued/session_created:falseだけを追加する。CLI status本文・stderr・資格・推定したexpiry原因は持ち出さず、この拒否は認証PTYの入力や起動後turnの終端とは分ける。
 
 `agent-auth-ui.ts`が既v1 receiptに追加する`auth_ui`とrespondの型を所有する。Native harnessが公式URL・device code・空code欄・現在のラベル付き選択肢を識別し、Rootはキー列を作らない。不明な入力段階はunavailable。coreが既auth metadataのdev/ino/作成・更新時刻、native session/pane/server/PID開始識別を照合する。legacyのlaunch UUID欠測はnullのまま扱い、無関係なflowをadoptしない。新startは既launch_id欄を必ず設定する。
 

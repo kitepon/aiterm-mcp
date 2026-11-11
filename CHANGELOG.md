@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude turn that ends on a usage limit now has a terminal outcome. Claude Code 2.1.322 holds such a turn ("Usage limit reached · continuing automatically at 7pm · esc to cancel") and runs no Stop hook, so its operation stayed pending, `pty_key` refused every key but C-c, and the seat's span kept running. Now, from the transcript and Aiterm's activity record only: `pty_list` rows of Claude agent sessions carry `last_input_at` and `limit_end {at, reset_at, continued, hold: armed|cancelled|null}`; the Claude wait returns `rate_limited` (exit 6) with the record text and `reset_at` (it was `error` with failure category `rate_limited`); seat turns close the span; and an operation whose turn ended on an API error or an interrupt record no longer counts as pending. `pty_key` now refuses keys other than C-c only while an operation is pending (before, on every correlated Claude seat), so Escape cancels an armed hold, and `hold` turns `cancelled`.
 - `aiterm-update` now keeps the reason when the new version's `aiterm-setup` does not end `ready`. The result already carried `setup_status` and `setup_reason_code`, but the setup's own message (for example which probe step failed and why) was dropped, so reading it meant running setup again on that host. The last lines of the setup's error output now go into the result's `message`.
 
 ## [0.70.25] - 2026-11-11

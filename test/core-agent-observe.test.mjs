@@ -43,7 +43,7 @@ test("Claude: a pre-wait API failure keeps its input binding; an old waiter cann
     append({ type: "user", uuid: "user-1", parentUuid: "old-error", sessionId: meta.vendor_session_id, message: { content: "new input" } });
     append(error());
     const failed = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
-    assert.equal(failed.outcome, "error"); assert.equal(failed.error_kind, "http_429");
+    assert.equal(failed.outcome, "rate_limited"); assert.equal(failed.error_kind, "http_429");
     assert.deepEqual(failed.failure, { category: "rate_limited", execution: "unknown", terminal: true, future_effects: "unknown",
       boundary: { event_cursor: receipt.event_cursor, operation_id: null, turn_id: null, input_id: receipt.input_id } });
     assert.deepEqual((await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 })).failure, failed.failure);
@@ -70,13 +70,47 @@ test("Claude: a limit record that still fires Stop ends the wait as rate_limited
     assert.equal(invokeClaudeStopHook(meta, text).status, 0);
     // Stop's event lands before the waiter reads the transcript (the production order).
     const failed = await core.observeAgentDone(sid, { cursor: first.event_cursor, input_id: first.input_id, timeout: 0 });
-    assert.equal(failed.outcome, "error"); assert.equal(failed.error, text); assert.equal(failed.failure.category, "rate_limited");
+    assert.equal(failed.outcome, "rate_limited"); assert.equal(failed.rate_limit, text); assert.equal(failed.error, null);
+    assert.equal(failed.failure.category, "rate_limited");
     // The next turn answers normally: the earlier limit record must not turn its Stop into an error.
     const second = await core.dispatchAgentTurn(sid, "CLAUDE_AFTER_LIMIT");
     append({ type: "user", uuid: "u2", parentUuid: "e1", message: { content: "second" } });
     append({ type: "assistant", uuid: "a2", parentUuid: "u2", message: { content: [{ type: "text", text: "ok" }] } });
     assert.equal(invokeClaudeStopHook(meta, "ok").status, 0);
     assert.equal((await core.observeAgentDone(sid, { cursor: second.event_cursor, input_id: second.input_id, timeout: 0 })).outcome, "done");
+  } finally { core.closeSession(sid); }
+});
+
+test("Claude: a limit hold (no Stop) is a terminal rate_limited end that pty_list, seat keys and the wait all read", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true }); fs.writeFileSync(transcript, "");
+    const append = value => fs.appendFileSync(transcript, JSON.stringify({ sessionId: meta.vendor_session_id, timestamp: new Date().toISOString(), ...value }) + "\n");
+    const row = () => core.listSessionsResult().sessions.find(item => item.session_id === sid);
+    const receipt = await core.dispatchAgentTurn(sid, "CLAUDE_LIMIT_HOLD");
+    assert.equal(row().limit_end, null); assert.match(row().last_input_at, /^\d{4}-/);
+    assert.throws(() => core.sendKey(sid, "Escape"), /C-c/, "a running turn still refuses keys that could start another turn");
+    // Claude Code 2.1.322, production transcript shape: the limit record, the hold notice, turn_duration, and no Stop.
+    const text = "You've hit your weekly limit · resets 7pm (UTC)";
+    append({ type: "user", uuid: "u1", parentUuid: null, message: { content: "work" } });
+    append({ type: "assistant", uuid: "e1", parentUuid: "u1", isApiErrorMessage: true, error: "rate_limit", message: { model: "<synthetic>", content: [{ type: "text", text }] } });
+    append({ type: "system", subtype: "informational", content: "Usage limit reached · continuing automatically at 7pm · esc to cancel", level: "notice" });
+    append({ type: "system", subtype: "turn_duration", durationMs: 1000 });
+    const held = row().limit_end;
+    assert.equal(held.continued, false); assert.equal(held.hold, "armed");
+    assert.match(held.reset_at, /T19:00:00\.000Z$/); assert.ok(Date.parse(held.reset_at) > Date.parse(held.at));
+    assert.doesNotThrow(() => core.sendKey(sid, "Escape"), "the limit ended the turn: Escape cancels the hold");
+    const ended = await core.observeAgentDone(sid, { cursor: receipt.event_cursor, input_id: receipt.input_id, timeout: 0 });
+    assert.equal(ended.outcome, "rate_limited"); assert.equal(ended.rate_limit, text); assert.equal(ended.reset_at, held.reset_at);
+    append({ type: "system", subtype: "informational", content: "Automatic continue cancelled · /rate-limit-options to re-arm", level: "notice" });
+    assert.equal(row().limit_end.hold, "cancelled");
+    append({ type: "user", uuid: "c1", parentUuid: "e1", message: { content: "<command-name>/rate-limit-options</command-name>" } });
+    assert.equal(row().limit_end.continued, false, "a slash command typed on the seat is not conversation work");
+    append({ type: "assistant", uuid: "a2", parentUuid: "e1", message: { content: [{ type: "text", text: "continuing" }] } });
+    assert.deepEqual({ ...row().limit_end, at: null, reset_at: null }, { at: null, reset_at: null, continued: true, hold: null });
   } finally { core.closeSession(sid); }
 });
 

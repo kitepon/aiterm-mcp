@@ -1019,3 +1019,15 @@ test("pty_list: server片付け中の一覧は短く読み直し、片付けが�
   assert.equal(once, 1, "別の失敗は読み直さない");
   assert.equal(core.listSessionsResult([], () => ({ code: 0, stdout: "s1\tbash\t0\t80\t24\n", stderr: "" })).sessions.length, 1);
 });
+
+test("claudeLimitResetAt: the named reset as the next such instant after the limit record", async () => {
+  const { claudeLimitResetAt } = await import("../dist/harnesses/claude.js");
+  const at = Date.parse("2026-11-11T12:51:56.309Z");
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets 7pm (UTC)", at), "2026-11-11T19:00:00.000Z");
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets 7pm (UTC)", Date.parse("2026-11-11T20:00:00Z")), "2026-11-12T19:00:00.000Z");
+  assert.equal(claudeLimitResetAt("You've hit your session limit · resets 4:30am (Asia/Tokyo)", at), "2026-11-11T19:30:00.000Z");
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets Nov 14, 7pm (Asia/Tokyo)", at), "2026-11-14T10:00:00.000Z");
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets Jan 2, 12am (UTC)", at), "2027-01-02T00:00:00.000Z");
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets 7pm (Not/AZone)", at), null);
+  assert.equal(claudeLimitResetAt("You've hit your weekly limit", at), null);
+});

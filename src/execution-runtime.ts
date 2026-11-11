@@ -41,7 +41,7 @@ const waitSchema = z.object({
   schema: z.literal("aiterm.agent-wait-result.v1"), session_id: executionLaunchSchema.shape.session_id,
   launch_id: executionLaunchSchema.shape.launch_id,
   outcome: z.enum(["done", "running", "timeout", "closed", "rate_limited", "error", "not_taken"]),
-  operation_id: z.string().nullable(), turn_id: z.string().nullable(),
+  operation_id: z.string().nullable(), turn_id: z.string().nullable(), at: z.string().nullable().optional(),
   steer: z.object({ placement: z.enum(["same_turn", "next_turn", "unknown"]) }).optional(),
 });
 export interface ExecutionRuntimeBindings {
@@ -159,7 +159,8 @@ export function createExecutionRuntime(bindings: ExecutionRuntimeBindings): Exec
         if (after.state !== "present" || !same(after.launch, point.launch)) return unknown;
         // core's typed error means the harness recorded a terminal turn error;
         // generic MCP/RPC errors do not satisfy waitSchema and cannot get here.
-        if (result.outcome !== "done" && result.outcome !== "error") return unknown;
+        // rate_limited with `at` is a recorded terminal end (Claude limit record, Antigravity quota Stop); a screen-read limit is not.
+        if (result.outcome !== "done" && result.outcome !== "error" && !(result.outcome === "rate_limited" && result.at)) return unknown;
         const evidence = await bindings.invocationFence?.(structuredClone(point)).catch(() => "unknown" as const) ?? "unknown";
         const final = await observe(point.launch.session_id);
         if (final.state !== "present" || !same(final.launch, point.launch)) return unknown;

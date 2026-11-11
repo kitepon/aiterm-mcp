@@ -99,3 +99,13 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
   }
   return { state: "idle" };
 }
+
+/** A turn the harness's own record ended without a completion hook (Claude's usage-limit hold): close its span now.
+ * `terminal` names that end, so a later busy frame opens a new span and only a newer terminal settles it. */
+export function closeManagedSpan(file: string, binding: string, terminal: string, position: () => string | null = () => null): ManagedSeatTurn {
+  let record: z.infer<typeof recordSchema> | null = null;
+  try { record = recordSchema.parse(JSON.parse(fs.readFileSync(file, "utf8"))); } catch { /* absent or unreadable: write a closed one */ }
+  if (record?.binding !== binding || record.span || record.terminal !== terminal)
+    writeJson0600(file, { binding, span: null, terminal, ready: null, settled_from: position() });
+  return { state: "idle" };
+}

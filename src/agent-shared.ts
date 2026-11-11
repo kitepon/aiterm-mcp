@@ -470,6 +470,8 @@ export interface AgentWaitObservation {
   malformed_events: number;
   at: string | null;
   rate_limit: string | null;
+  /** Claude rate_limited from its limit record only: when the record says the limit resets (null if it does not parse). */
+  reset_at?: string | null;
   // outcome=error の時だけ harness の記録にあるエラー本文（例: "API Error: 529 Overloaded ..."）。
   error: string | null;
   // outcome=error の時、harness が記録に書いたエラーの種類。Codex（task_completeのcodex_error_info。internal_server_error・

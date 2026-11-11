@@ -37,7 +37,7 @@ Claudeの一覧の置き場（[claude-catalog-root](../../src/claude-catalog-roo
 
 一覧専用rootは一覧だけが書く。席・認証・他processの書込はここへ届かない。stateRootの消失（再起動）は冷えた置き場として再び温める。
 
-Claudeはauth statusのloggedIn陽性を必要とし、Codexはlogin statusとtoken非取得のAPIを照合する（旧API拒否時の互換分岐あり）。Grokは明示auth pathの絶対path検証とnative modelsの判定を分け、否認を一回再確認する。Cursorのpreflightと詳細authStatusには確認条件の差がある。既存差を統一する修理は今回行わない。許可URL・device code・onboardingの解釈をadapterに残し、資格本文は図/原本へ出さない。
+Claudeは起動前にauth statusを見ない（0.70.22。端末自身のloginを読み、席が使う私的env側の資格を見ないため拒否が誤る。未ログインは起動後のlogin画面で止まる）。`agent_auth`のstatusだけがloggedIn陽性を見る。Codexはlogin statusとtoken非取得のAPIを照合する（旧API拒否時の互換分岐あり）。Grokは明示auth pathの絶対path検証とnative modelsの判定を分け、否認を一回再確認する。Cursorのpreflightと詳細authStatusには確認条件の差がある。既存差を統一する修理は今回行わない。許可URL・device code・onboardingの解釈をadapterに残し、資格本文は図/原本へ出さない。
 
 pane parserは現composer/現footer/現dialogを優先し、過去の引用や古いrate-limit表示からbusy/blockedを決めない。ready・busy・承認待ち・認証待ち・不明と、vendorのturn境界は別の証拠。cancel keyはClaude/CodexがEscape、Grok/CursorがC-c。readonly sandbox、trustProject、vendor既定引数とuser-defaultの退避/復元もadapter固有。復元の既存best-effortを全設定復元保証へ広げない。
 

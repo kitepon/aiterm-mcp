@@ -21,66 +21,6 @@ import {
   fileSnapshot,
 } from "./core-agent-support.mjs";
 
-test("openAgent claude: 未認証はsession作成前に拒否して残骸を残さない", { skip: process.platform === "win32" ? "POSIX fake Claude専用" : undefined }, () => {
-  const savedBin = process.env.CLAUDE_BIN;
-  const fakeBin = makeFakeClaudeTuiBin({ authJson: '{"loggedIn":false}', authExit: 1 });
-  const sessionsBefore = core.listSessions();
-  const stateBefore = agentStateFiles();
-  process.env.CLAUDE_BIN = fakeBin;
-  try {
-    assert.throws(
-      () => core.openAgent("claude", { session_name: "claude_auth_rejected", agent_done: true }),
-      (error) =>
-        error.code === 2 &&
-        /認証を利用できません/.test(error.message) &&
-        /sessionは作成していません/.test(error.message) &&
-        /claude auth login/.test(error.message),
-    );
-    assert.equal(core.listSessions(), sessionsBefore, "未認証launchがtmux sessionを残さない");
-    assert.deepEqual(agentStateFiles(), stateBefore, "未認証launchがagent stateを残さない");
-  } finally {
-    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
-    else process.env.CLAUDE_BIN = savedBin;
-    fs.rmSync(fakeBin, { force: true });
-  }
-});
-
-test("openAgent claude: 認証statusが壊れていれば偽成功せずsession作成前に拒否する", { skip: process.platform === "win32" ? "POSIX fake Claude専用" : undefined }, () => {
-  const savedBin = process.env.CLAUDE_BIN;
-  const fakeBin = makeFakeClaudeTuiBin({ authJson: "not-json" });
-  const sessionsBefore = core.listSessions();
-  process.env.CLAUDE_BIN = fakeBin;
-  try {
-    assert.throws(
-      () => core.openAgent("claude", { session_name: "claude_auth_unknown", agent_done: true }),
-      (error) => error.code === 2 && /認証状態を起動前に確認できません/.test(error.message),
-    );
-    assert.equal(core.listSessions(), sessionsBefore, "壊れたstatusでtmux sessionを残さない");
-  } finally {
-    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
-    else process.env.CLAUDE_BIN = savedBin;
-    fs.rmSync(fakeBin, { force: true });
-  }
-});
-
-test("openAgent claude: loggedIn=trueでもauth status失敗exitを成功扱いしない", { skip: process.platform === "win32" ? "POSIX fake Claude専用" : undefined }, () => {
-  const savedBin = process.env.CLAUDE_BIN;
-  const fakeBin = makeFakeClaudeTuiBin({ authExit: 1 });
-  const sessionsBefore = core.listSessions();
-  process.env.CLAUDE_BIN = fakeBin;
-  try {
-    assert.throws(
-      () => core.openAgent("claude", { session_name: "claude_auth_failed_exit", agent_done: true }),
-      (error) => error.code === 2 && /認証状態を起動前に確認できません/.test(error.message),
-    );
-    assert.equal(core.listSessions(), sessionsBefore, "失敗exitでtmux sessionを残さない");
-  } finally {
-    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
-    else process.env.CLAUDE_BIN = savedBin;
-    fs.rmSync(fakeBin, { force: true });
-  }
-});
-
 test("openAgent claude: 共有認証で複数sessionを反復起動できる", { skip: skipAgentDone }, () => {
   const created = [];
   try {

@@ -43,15 +43,6 @@ export function launchAuthRequired(harness: string, reason: string): AitermError
   return error;
 }
 
-/** A harness authentication check refused launch before any session creation.
- * Keep the native CLI's status body and credential diagnostics out of the wire. */
-export class AgentAuthenticationPreflightError extends AitermError {
-  constructor(readonly reasonCode: "CLAUDE_AUTH_NOT_AUTHENTICATED" | "CLAUDE_AUTH_STATUS_UNCONFIRMED" | "CLAUDE_AUTH_STATUS_TIMEOUT", message: string) {
-    super(message, 2);
-    this.name = "AgentAuthenticationPreflightError";
-  }
-}
-
 /** Admission refusal before the requested resume starts. */
 export class AgentResumeUnavailableError extends AitermError {
   readonly resumeUnavailable;

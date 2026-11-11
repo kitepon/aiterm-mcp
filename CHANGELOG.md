@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.18] - 2026-11-11
+
 - A seat relaunched on a terminal right after its last seat closed (for example `restart_session`) no longer gets a seat MCP port with no forward behind it (`ECONNREFUSED` at Claude start, and Claude Code never retries a failed MCP). The forward keeper stopped once no seat was bound, but the binding kept its port, and the next launch received that port at once. A launch in another Aiterm process was also invisible to the keeper. Now the keeper's remote command prints a mark once the forward's listener is up; a launch receives the port only when a live keeper reported that mark for it. A launch in any process keeps the forward needed until its seat is bound, and a stopped keeper hands over its lock at once, so the relaunch's process starts a new forward without the 15 s restart delay.
 
 ## [0.70.17] - 2026-11-11
@@ -3271,7 +3273,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.17...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.18...HEAD
+[0.70.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.17...v0.70.18
 [0.70.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.16...v0.70.17
 [0.70.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...v0.70.16
 [0.70.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...v0.70.15

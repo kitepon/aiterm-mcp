@@ -873,7 +873,7 @@ Owner認証済みの本体だけが、既存のローカルbellteam MCP接続に
 
 結果は正本のbinding、capabilities、availability、outcome、mutation、readbackを分ける。goal省略は未確認、availableかつgoal:nullだけが「ゴールなし」。createのactiveを含む明示要求fieldは全て正規読戻しとの一致を確認する。変化した状態は観測値を残して結果不明とし、再送しない。clearは現在turnの停止ではなく、resumeはpausedから、目的を変える編集はCodexの使用量を初期化する。Ownerの明示的な全体停止だけ、native delivery入口のagent_stopへpause_goals:trueと同じuser metadataを渡す。子のgoal一時停止と停止キー一回を親より先に完了し、独立rootは並行する。goal未確認はキー送信済みでもpartialを保持。通常の一Bot中断のwireは維持し、AI ONでgoalを暗黙に再開しない。
 
-Claude Code 2.1.310は同じ生存TUIへのinspectと利用者由来create・目的文edit・clearに対応する。空のcomposerと元TTY所有を確認し、新しいnative goal dialogと同native root sessionのattachmentを照合し、確認したdialogだけを閉じる。draftは消さず、未知/切れた表示はunavailable。Claude結果はaiterm.agent-goal-result.v2で、goalはnull又は{kind:claude-code,phase:active,native,reported_turns?}。達成と明示clearは別native_historyへ保持し、欠測会計は作らない。Codexのv1は維持。Claude pause/resumeは未対応で、全体停止でもactive goalのpause未確認を保持する。
+Claude Code 2.1.310以上の2.1系（実測2.1.310・2.1.322）は同じ生存TUIへのinspectと利用者由来create・目的文edit・clearに対応する。空のcomposerと元TTY所有を確認し、新しいnative goal dialogと同native root sessionのattachmentを照合し、確認したdialogだけを閉じる。draftは消さず、未知/切れた表示はunavailable。Claude結果はaiterm.agent-goal-result.v2で、goalはnull又は{kind:claude-code,phase:active,native,reported_turns?}。達成と明示clearは別native_historyへ保持し、欠測会計は作らない。Codexのv1は維持。それ以外の版は入力前に`availability:"unsupported"`、reason `claude_code_version_unverified:<版>`。Claude pause/resumeは未対応で、全体停止でもactive goalのpause未確認を保持する。
 
 Claude公式claude.com/cai/oauth/authorizeのPKCE認証要求と非秘密code=true表示flagを認識する。callbackの認可codeやtokenは公開しない。
 

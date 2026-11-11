@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_goal` on Claude Code accepts 2.1.310 and later 2.1 releases. It was pinned to exactly 2.1.310, so every 2.1.322 seat read as `unavailable` (`goal_native_session_unavailable`). The 2.1.322 dialog, transcript attachment and session registration were measured and match. Any other Claude version now returns `availability: "unsupported"` with reason `claude_code_version_unverified:<version>`, without touching the seat.
+
 ## [0.70.27] - 2026-11-11
 
 - `pty_list` now lists a Claude agent seat whose terminal is gone with no lifecycle record (for example, it vanished with a container restart) as `current_command: "vanished"`, with its `last_input_at` and `limit_end`. Before, such a seat had no row until the next send adopted it, so a restart dropped a limit-held seat's record. Seat turns read it as idle. The next send still adopts and resumes it as before.

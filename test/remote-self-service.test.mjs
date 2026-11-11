@@ -484,11 +484,26 @@ test("PowerShell quoting: spaces, quotes, $, backticks and non-ASCII stay one li
 
 test("terminal command: the same operation for each shell; Windows gets the runtime preamble, a missing-program guard and the real exit code", () => {
   const script = remote.terminalProgram(["aiterm-remote-terminal", "path-status", "--path-base64", "QzpcVXNlcnNc"]);
-  assert.equal(script.posix, "exec aiterm-remote-terminal path-status --path-base64 QzpcVXNlcnNc");
+  assert.equal(script.posix, 'p=$(command -v aiterm-remote-terminal) || p="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/remote-terminal-cli.js"; [ -x "$p" ] || p=aiterm-remote-terminal; exec "$p" path-status --path-base64 QzpcVXNlcnNc');
+  assert.equal(remote.terminalProgram(["claude", "--version"]).posix, "exec claude --version");
+  if (process.platform !== "win32") {
+    // rabbit-linux: npm linked only aiterm-mcp onto PATH; the other programs run from the same package, a missing one exits 127.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-bin-")), dist = path.join(dir, "pkg", "dist"), bin = path.join(dir, "bin");
+    fs.mkdirSync(dist, { recursive: true }); fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(dist, "index.js"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(dist, "remote-terminal-cli.js"), '#!/bin/sh\necho "ran $*"\n', { mode: 0o755 });
+    fs.symlinkSync(path.join(dist, "index.js"), path.join(bin, "aiterm-mcp"));
+    const env = { PATH: `${bin}:/usr/bin:/bin` };
+    assert.equal(spawnSync("/bin/sh", ["-c", script.posix], { encoding: "utf8", env }).stdout, "ran path-status --path-base64 QzpcVXNlcnNc\n");
+    const missing = spawnSync("/bin/sh", ["-c", remote.terminalProgram(["aiterm-wait", "--session", "s"]).posix], { encoding: "utf8", env });
+    assert.equal(missing.status, 127);
+    assert.match(missing.stderr, /aiterm-wait: not found/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   assert.match(script.windows, /^if \(-not \(Get-Command 'aiterm-remote-terminal' -ErrorAction SilentlyContinue\)\) \{ \[Console\]::Error\.WriteLine\('aiterm-remote-terminal: command not found'\); exit 127 \}; & 'aiterm-remote-terminal' 'path-status' '--path-base64' 'QzpcVXNlcnNc'$/);
   assert.equal(remote.terminalProgram(["claude", "--version"]).windows, "& 'claude' '--version'", "only Aiterm's own programs carry the guard");
 
-  assert.match(remote.terminalCommand("posix", script), /^\/bin\/sh -c '.*exec aiterm-remote-terminal path-status/);
+  assert.match(remote.terminalCommand("posix", script), /^\/bin\/sh -c '.*exec "\$p" path-status/);
   const ps = remote.terminalCommand("powershell", script);
   assert.match(ps, /^Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue; \$r = Join-Path \$env:USERPROFILE '\.aiterm\\runtime\\current\\bin'; if \(Test-Path -LiteralPath \(Join-Path \$r 'aiterm-mcp\.cmd'\)\)/);
   assert.match(ps, /; \$ok = \$\?; \$code = \$LASTEXITCODE; if \(\$code\) \{ exit \$code \}; if \(\$ok\) \{ exit 0 \}; exit 1$/);

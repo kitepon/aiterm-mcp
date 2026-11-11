@@ -13,7 +13,7 @@ import { currentUid } from "./state-root.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { RemoteTerminalError, SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
 
-const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
+const pkg = createRequire(import.meta.url)("../package.json") as { version: string; bin: Record<string, string> };
 
 import { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type RemoteTarget, type RemoteInput } from "./remote-contract.js";
 export { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type RemoteTarget, type RemoteInput } from "./remote-contract.js";
@@ -205,8 +205,11 @@ export const powershellInvoke = (argv: string[]): string => `& ${argv.map(powers
 /** 固定のプログラム呼び出し。windowsのaiterm-*は、無い時に言語によらず読める`command not found`を出す。 */
 export function terminalProgram(argv: string[]): TerminalScript {
   const [program] = argv;
+  const file = program.startsWith("aiterm-") ? pkg.bin[program]?.replace(/^dist\//, "") : undefined;
   return {
-    posix: `exec ${argv.join(" ")}`,
+    // npm may link only aiterm-mcp onto PATH: then the program runs from the same package; else the shell's exit 127.
+    posix: file ? `p=$(command -v ${program}) || p="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/${file}"; [ -x "$p" ] || p=${program}; exec "$p" ${argv.slice(1).join(" ")}`.trimEnd()
+      : `exec ${argv.join(" ")}`,
     windows: `${program.startsWith("aiterm-") ? `if (-not (Get-Command ${powershellQuote(program)} -ErrorAction SilentlyContinue)) { [Console]::Error.WriteLine(${powershellQuote(`${program}: command not found`)}); exit 127 }; ` : ""}${powershellInvoke(argv)}`,
   };
 }
@@ -286,8 +289,6 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
   }
 }
 
-// npmのbinをPATHへ通さず aiterm-mcp だけリンクしている端末がある。見つからなければ同じpackageのCLIを使う。
-export const WAIT_RESOLVE = 'w=$(command -v aiterm-wait) || w="$(dirname "$(readlink -f "$(command -v aiterm-mcp)")")/aiterm-wait-cli.js"';
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 
@@ -299,9 +300,9 @@ export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: n
   if (cursor !== null) parts.push("--cursor", String(cursor));
   if (operationId !== null) parts.push("--operation", operationId);
   if (inputId !== undefined) parts.push("--input", inputId);
-  if (trusted) return terminalCommand(shell, { posix: `${WAIT_RESOLVE}; exec "$w" ${parts.join(" ")}`, windows: terminalProgram(["aiterm-wait", ...parts]).windows });
+  if (trusted) return terminalCommand(shell, terminalProgram(["aiterm-wait", ...parts]));
   if (shell !== "posix") return `aiterm-wait ${parts.join(" ")}`;
-  return posixCommand(`${WAIT_RESOLVE}; exec "$w" ${parts.join(" ")}`);
+  return posixCommand(terminalProgram(["aiterm-wait", ...parts]).posix);
 }
 
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */

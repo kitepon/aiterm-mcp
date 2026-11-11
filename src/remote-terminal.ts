@@ -12,7 +12,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
-import { WAIT_RESOLVE, powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
+import { powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
 
@@ -175,6 +175,15 @@ export function confirmHostKey(ref: string, fingerprint: string): RemoteBindingS
 
 // ---- connection ----
 
+const AITERM_MISSING_ACTION = "install Aiterm on the terminal with its programs on the login PATH (npm install -g aiterm-mcp), or provision the terminal";
+/** 255 = ssh failed; 127 = an Aiterm program is missing on the terminal (terminalProgram exits so on every shell). */
+function failedRun(result: { code: number | null; stderr: string }): RemoteTerminalError | null {
+  if (result.code === 127) return new RemoteTerminalError("REMOTE_AITERM_UNAVAILABLE", "an Aiterm program is missing on the terminal (Aiterm is incomplete there)", AITERM_MISSING_ACTION);
+  if (result.code !== 255) return null;
+  const f = classifySshFailure(result.stderr);
+  return new RemoteTerminalError(f.code, f.message, f.action);
+}
+
 export function classifySshFailure(stderr: string): { code: string; message: string; action?: string } {
   if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key for .* has changed/i.test(stderr))
     return { code: "HOST_KEY_MISMATCH", message: "the terminal presented a different host key", action: "confirm the new host key" };
@@ -183,7 +192,7 @@ export function classifySshFailure(stderr: string): { code: string; message: str
   if (/Permission denied|Too many authentication failures/i.test(stderr)) return { code: "AUTH_FAILED", message: "the terminal refused the key" };
   // POSIX, our own Windows guard (any language), and the English cmd / PowerShell wording when it names an Aiterm program.
   if (/aiterm-[\w-]+: (command )?not found|aiterm-[\w-]+: No such file|aiterm-[\w-]+['"]? is not recognized as (an internal or external command|(the|a) name of a cmdlet)/i.test(stderr))
-    return { code: "REMOTE_AITERM_UNAVAILABLE", message: "Aiterm is not installed on the terminal" };
+    return { code: "REMOTE_AITERM_UNAVAILABLE", message: "Aiterm is not installed on the terminal", action: AITERM_MISSING_ACTION };
   if (/Connection refused/i.test(stderr)) return { code: "CONNECTION_REFUSED", message: "the terminal refused the SSH connection" };
   if (/timed out|No route to host|Network is unreachable|Could not resolve|Connection closed|Connection reset/i.test(stderr))
     return { code: "UNREACHABLE", message: "the terminal cannot be reached" };
@@ -475,21 +484,19 @@ export class RemoteTerminalConnection extends EventEmitter {
     try { parsed = JSON.parse(line); } catch { /* classified below */ }
     if (result.code === 0 && parsed?.schema === "aiterm.transcript-read.v1") return parsed;
     if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "transcript read failed");
-    if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    { const f = failedRun(result); if (f) throw f; }
     throw new RemoteTerminalError("COMMAND_FAILED", "the transcript reader failed on the terminal");
   }
 
   /** Run the terminal's aiterm-wait with the flags of a receipt's wait_process; its one-line JSON comes back unchanged. */
   async wait(waitProcess: { args: unknown }, signal?: AbortSignal): Promise<unknown> {
     const flags = waitArguments(waitProcess?.args);
-    // Same resolution as remoteWaitCommand: npm may link only aiterm-mcp.
-    const result = await this.exec({ posix: `${WAIT_RESOLVE}; exec "$w" ${flags.join(" ")}`, windows: terminalProgram(["aiterm-wait", ...flags]).windows }, 90_000_000, signal);
+    const result = await this.exec(terminalProgram(["aiterm-wait", ...flags]), 90_000_000, signal);
     if (signal?.aborted) throw new RemoteTerminalError("WAIT_CANCELLED", "the wait was cancelled");
     const line = result.stdout.trim().split("\n").pop() ?? "";
     try { return JSON.parse(line); }
     catch {
-      if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-      throw new RemoteTerminalError("COMMAND_FAILED", "aiterm-wait returned no receipt");
+      throw failedRun(result) ?? new RemoteTerminalError("COMMAND_FAILED", "aiterm-wait returned no receipt");
     }
   }
 
@@ -542,7 +549,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (provision the terminal)`);
     const sub = op === "path_status" ? "path-status" : "make-dir";
     const result = await this.exec(terminalProgram(["aiterm-remote-terminal", sub, "--path-base64", Buffer.from(targetPath, "utf8").toString("base64")]), 60_000);
-    if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    { const f = failedRun(result); if (f) throw f; }
     let parsed: any = null;
     try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
     if (result.code === 0 && parsed?.schema === "aiterm.remote-path.v1")
@@ -559,7 +566,7 @@ export class RemoteTerminalConnection extends EventEmitter {
       throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (update or provision the terminal)`);
     const flag = targetPath === undefined ? [] : ["--path-base64", Buffer.from(targetPath, "utf8").toString("base64")];
     const result = await this.exec(terminalProgram(["aiterm-remote-terminal", "list-dirs", ...flag]), 60_000);
-    if (result.code === 255) { const f = classifySshFailure(result.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    { const f = failedRun(result); if (f) throw f; }
     let parsed: any = null;
     try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
     if (result.code === 0 && parsed?.schema === "aiterm.remote-dirs.v1") {

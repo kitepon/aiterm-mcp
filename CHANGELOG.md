@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- On a POSIX terminal where npm linked only `aiterm-mcp` onto the login PATH, Aiterm's other programs on the terminal (`aiterm-remote-terminal` for `path_status` / `make_dir` / `list_dirs` and transcript reads) now run from the same package, as `aiterm-wait` already did. Before, the folder picker failed there with `/bin/sh: aiterm-remote-terminal: not found`.
+- An Aiterm program missing on the terminal (exit 127) now ends as `REMOTE_AITERM_UNAVAILABLE` with an action (install Aiterm with its programs on the login PATH, or provision the terminal), instead of `COMMAND_FAILED`.
+
 - After a restart of the controlling host (for example a container restart, which starts a new pid namespace), a terminal's seat MCP forward is started again. The forward lock kept only the old keeper's pid. The new host reused that number at once, here for a thread of a long-lived process, and `kill(pid, 0)` succeeds on a Linux thread id too, so the lock read as held and no process started the forward. Every seat on that terminal lost its BellTeam MCP tools. The lock now also records the boot time and, on Linux, the process start time; a pid that differs in either, or a thread id in an older lock, is not the owner. macOS and Windows have no thread ids in the pid space; a lock from an earlier boot is now also ignored there.
 - A terminal launch no longer receives the stored seat forward port when no keeper is running. Before, the port kept from the previous host was returned at once and the seat started with an MCP URL that reached nothing. Now the launch waits for the new keeper's ssh, or ends with `SEAT_FORWARD_UNAVAILABLE`.
 

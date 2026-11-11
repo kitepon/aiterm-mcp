@@ -2456,7 +2456,8 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
 }
 
-export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): ReturnType<typeof listNativeSessionsResult> {
+/** `vanished` is the public pty_list's view only: generation existence (observeSessionGeneration) and lineage keep native + dormant. */
+export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux, o: { vanished?: boolean } = {}): ReturnType<typeof listNativeSessionsResult> {
   const result = listNativeSessionsResult(envKeys, runTmux);
   const present = new Set(result.sessions.map(row => row.session_id));
   for (const name of savedAgentSessionNames()) {
@@ -2466,7 +2467,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     const state = agentDormantState(meta);
     // A Claude seat whose native session is gone with no lifecycle (e.g. it vanished with the container) stays listed as
     // "vanished": its last_input_at/limit_end survive, and the next dispatch adopts and resumes it (adoptVanishedAgentNative).
-    if (!state && (present.has(name) || meta.kind !== "claude")) continue;
+    if (!state && (!o.vanished || present.has(name) || meta.kind !== "claude")) continue;
     const environment: Record<string, string | null> = Object.fromEntries(envKeys.map(key => [key, null]));
     let command: string = state ?? "vanished";
     const recipe = readAgentResumeRecipe(meta);

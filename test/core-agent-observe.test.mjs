@@ -129,7 +129,8 @@ test("Claude: a seat that vanished with the container stays listed as vanished w
     const live = core.listSessionsResult().sessions.find(item => item.session_id === sid);
     // The container restart: the native session is gone, Aiterm's records stay.
     assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", sid]).status, 0);
-    const row = core.listSessionsResult().sessions.find(item => item.session_id === sid);
+    assert.equal(core.observeSessionGeneration(sid).exists, false, "generation existence stays native + dormant");
+    const row = core.listSessionsResult([], undefined, { vanished: true }).sessions.find(item => item.session_id === sid);
     assert.equal(row?.current_command, "vanished");
     assert.equal(row.launch_id, meta.launch_id); assert.equal(row.width, 0); assert.equal(row.attached, false);
     assert.equal(row.last_input_at, live.last_input_at); assert.deepEqual(row.limit_end, live.limit_end);
@@ -137,7 +138,7 @@ test("Claude: a seat that vanished with the container stays listed as vanished w
     const turns = core.readSeatTurns([sid]);
     assert.deepEqual(turns.seats.find(seat => seat.session_id === sid)?.turn, { state: "idle" });
   } finally { core.closeSession(sid); }
-  assert.equal(core.listSessionsResult().sessions.some(item => item.session_id === sid), false, "a closed seat is not listed");
+  assert.equal(core.listSessionsResult([], undefined, { vanished: true }).sessions.some(item => item.session_id === sid), false, "a closed seat is not listed");
 });
 
 test("Claude: tool work before capacity remains started, and malformed ancestry never becomes a bound terminal", { skip: skipAgentDone }, async () => {

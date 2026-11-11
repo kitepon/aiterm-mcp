@@ -882,7 +882,7 @@ registerRemoteAwareTool(
   async ({ env_keys }, extra) => {
     try {
       await core.maintainAgentIdleClocks();
-      const result = core.listSessionsResult(env_keys);
+      const result = core.listSessionsResult(env_keys, undefined, { vanished: true });
       return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...await seatTurnsMeta(result.sessions, extra._meta) };
     } catch (e) {
       return fail(e);

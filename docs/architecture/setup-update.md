@@ -30,7 +30,7 @@ ensureCodexParentSteerは指定home配下に絞った登録口で、既設定と
 
 CLIはtarget specを一回だけ具体版へ解決し、localを先行、各remoteを並行更新する。local失敗でもremoteを継続する。接続先は呼出ごとで、製品の永続host一覧へ保存しない。version/host入力の検証を維持する。
 
-updateLocalはpackage実体とbinからglobal prefixを決め、その**同prefix**へnpm installする。checkは版解決と既導入/稼働MCP数の観測だけで戻る。入替後のpackage versionを確認し、新版setup-cliを別processで実行する。`updated/already_current`はpackage側、`setup_status/setup_reason_code`はsetup側の別field。setupが失敗しても既入替を元へrollbackしない。CLI exitは両方を見て成功/再起動要求/失敗を決める。
+updateLocalはpackage実体とbinからglobal prefixを決め、その**同prefix**へnpm installする。checkは版解決と既導入/稼働MCP数の観測だけで戻る。入替後のpackage versionを確認し、新版setup-cliを別processで実行する。`updated/already_current`はpackage側、`setup_status/setup_reason_code`はsetup側の別field。setupがready以外なら、その理由（setup stderrの末尾）を`message`へ残す。setupが失敗しても既入替を元へrollbackしない。CLI exitは両方を見て成功/再起動要求/失敗を決める。
 
 旧MCP processのコードは自動で入れ替わらず、running_serversは観測できなければnull。tmux/psmux席の保持と、新MCP登録の反映は別である。更新成功を稼働全consumerの新版利用へ直結させない。
 

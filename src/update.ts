@@ -159,6 +159,8 @@ export function updateLocal(options: { version: string; check?: boolean; run?: U
     const setupResult = parseLastJson(setup.stdout);
     base.setup_status = typeof setupResult?.status === "string" ? setupResult.status : null;
     if (typeof setupResult?.reason_code === "string") base.setup_reason_code = setupResult.reason_code;
+    // setupの失敗理由はstderrにしか出ない。残さないと読むために現地でsetupを流し直すことになる。
+    if (base.setup_status && base.setup_status !== "ready" && tail(setup.stderr)) base.message = `aiterm-setup: ${tail(setup.stderr)}`;
     if (!base.setup_status) {
       return { ...base, status, reason_code: "setup_failed", message: `aiterm-setup --json が結果を返しません: ${tail(setup.stderr) || setup.error || `exit ${setup.status}`}` };
     }

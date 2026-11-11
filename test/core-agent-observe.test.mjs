@@ -114,6 +114,32 @@ test("Claude: a limit hold (no Stop) is a terminal rate_limited end that pty_lis
   } finally { core.closeSession(sid); }
 });
 
+test("Claude: a seat that vanished with the container stays listed as vanished with its limit end, and runs no turn", { skip: skipAgentDone || process.platform === "win32" }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const { SOCK, resolveTmux } = await import("../dist/tmux-runtime.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    await markFakeAgentReady(sid, "claude");
+    const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true }); fs.writeFileSync(transcript, "");
+    await core.dispatchAgentTurn(sid, "CLAUDE_LIMIT_THEN_RESTART");
+    const append = value => fs.appendFileSync(transcript, JSON.stringify({ sessionId: meta.vendor_session_id, timestamp: new Date().toISOString(), ...value }) + "\n");
+    append({ type: "user", uuid: "u1", parentUuid: null, message: { content: "work" } });
+    append({ type: "assistant", uuid: "e1", parentUuid: "u1", isApiErrorMessage: true, error: "rate_limit", message: { content: [{ type: "text", text: "You've hit your weekly limit · resets 7pm (UTC)" }] } });
+    const live = core.listSessionsResult().sessions.find(item => item.session_id === sid);
+    // The container restart: the native session is gone, Aiterm's records stay.
+    assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", sid]).status, 0);
+    const row = core.listSessionsResult().sessions.find(item => item.session_id === sid);
+    assert.equal(row?.current_command, "vanished");
+    assert.equal(row.launch_id, meta.launch_id); assert.equal(row.width, 0); assert.equal(row.attached, false);
+    assert.equal(row.last_input_at, live.last_input_at); assert.deepEqual(row.limit_end, live.limit_end);
+    assert.equal(row.limit_end.continued, false);
+    const turns = core.readSeatTurns([sid]);
+    assert.deepEqual(turns.seats.find(seat => seat.session_id === sid)?.turn, { state: "idle" });
+  } finally { core.closeSession(sid); }
+  assert.equal(core.listSessionsResult().sessions.some(item => item.session_id === sid), false, "a closed seat is not listed");
+});
+
 test("Claude: tool work before capacity remains started, and malformed ancestry never becomes a bound terminal", { skip: skipAgentDone }, async () => {
   const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
   for (const scenario of ["valid", "wrong_parent", "later_input", "tool_result"]) {

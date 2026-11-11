@@ -857,7 +857,9 @@ registerRemoteAwareTool(
       schema: z.literal("aiterm.pty-list-result.v1"),
       observed_at: z.string(),
       sessions: z.array(z.object({
-        session_id: z.string(), current_command: z.string(), attached: z.boolean(),
+        session_id: z.string(), current_command: z.string().describe(
+          "前面コマンド。休止などの席は状態名（hibernated等）、端末が消えたClaudeの席（コンテナ再起動等）は\"vanished\"。次の送信で再開する"),
+        attached: z.boolean(),
         width: z.number(), height: z.number(),
         harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
         launch_id: z.string().nullable().optional().describe(

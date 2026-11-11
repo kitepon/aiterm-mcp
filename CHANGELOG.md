@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.25] - 2026-11-11
+
 - `pty_list` with seat turns is faster on a host with many seats. Checking whether one seat exists listed every seat with its agent metadata, and each metadata read scanned the whole agents folder, so one call grew with the number of seats squared (10-27 s for about 140 members). The check now reads only the session names, with the same tmux call, retry and failures. On the production state, reading the turns of 48 seats went from 4.6 s to 2.3 s. What `pty_list` returns is unchanged.
 
 ## [0.70.24] - 2026-11-11
@@ -3303,7 +3305,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.24...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.25...HEAD
+[0.70.25]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.24...v0.70.25
 [0.70.24]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.23...v0.70.24
 [0.70.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.22...v0.70.23
 [0.70.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...v0.70.22

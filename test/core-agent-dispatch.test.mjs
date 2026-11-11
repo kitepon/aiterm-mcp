@@ -77,14 +77,16 @@ test("dispatch: この起動でturnを1つ終えたCodexの席は11回の確か�
       // 起動直後。記録にturnが無いので、短い道は使わない。
       await assert.rejects(core.dispatchAgentTurn(sid, "echo COLD_MUST_NOT_SEND", { ready_timeout: 1_200 }), refused);
       appendCodexTranscript(meta, "codex-session-settled", [turn("task_started", "turn-1"), turn("task_complete", "turn-1")]);
-      const first = await core.dispatchAgentTurn(sid, "echo SETTLED_FIRST_BODY", { ready_timeout: 1_200 });
+      // The short path's time is two screen reads; on a loaded Windows runner two psmux reads passed 1.2 s (main CI 2026-11-11).
+      // 15 s stays far below what the 1000-sample path needs (999 x 500 ms), so a send still proves the short path.
+      const first = await core.dispatchAgentTurn(sid, "echo SETTLED_FIRST_BODY", { ready_timeout: 15_000 });
       assert.equal(first.schema, "aiterm.agent-dispatch.v1");
       // 記録の上で次のturnが動いている間は、画面が入力待ちに見えても短い道を使わない。
       appendCodexTranscript(meta, "codex-session-settled", [turn("task_started", "turn-2")]);
       await assert.rejects(core.dispatchAgentTurn(sid, "echo RUNNING_MUST_NOT_SEND", { ready_timeout: 1_200 }), refused);
       // そのturnが終われば、また短い道で送る（画面は変えていない）。
       appendCodexTranscript(meta, "codex-session-settled", [turn("task_complete", "turn-2")]);
-      const second = await core.dispatchAgentTurn(sid, "echo SETTLED_SECOND_BODY", { ready_timeout: 1_200 });
+      const second = await core.dispatchAgentTurn(sid, "echo SETTLED_SECOND_BODY", { ready_timeout: 15_000 });
       assert.ok(second.event_cursor > first.event_cursor, "境界は、終わったturnの後ろに切る");
       const log = fs.readFileSync(sessionLogPath(sid), "utf8");
       assert.match(log, /SETTLED_FIRST_BODY/);

@@ -78,6 +78,14 @@ test("seat MCP forward: the keeper's -R spec, P from ssh stderr, seat URLs get t
   assert.ok(!JSON.stringify(extracted.config).includes("literal-value"), "no header value stays in the config");
 });
 
+// The forward is held by a detached keeper process (0.70.21); stop every keeper a test started, by its lock.
+function stopKeepers(state) {
+  for (const name of fs.readdirSync(state, { recursive: true }).map(String).filter(name => /terminal-forward-.*\.lock$/.test(name))) {
+    try { process.kill(JSON.parse(fs.readFileSync(path.join(state, name), "utf8")).pid, "SIGKILL"); } catch { /* gone */ }
+  }
+}
+const keeperCommand = pid => { try { return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" "); } catch { return ""; } };
+
 test("seat forward keeper: -R goes to the D the launch's URLs named, from the binding, never an env or default port", { skip: process.platform === "win32" || spawnSync("ssh-keygen", ["-?"]).error !== undefined }, () => {
   const dir = fs.mkdtempSync(path.join(tmp, "keeper-")), bin = path.join(dir, "bin"), log = path.join(dir, "ssh.log");
   fs.mkdirSync(bin); fs.mkdirSync(path.join(dir, "state"));
@@ -99,6 +107,7 @@ test("seat forward keeper: -R goes to the D the launch's URLs named, from the bi
     process.exit(0);`;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state"), BELLTEAM_REMOTE_SEAT_PORT: "4182" } });
+  stopKeepers(path.join(dir, "state"));
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { before: false, port: 61000, ingress: 4183, forward: 61000 },
     "a binding without D builds no forward; the launch's D is stored and P recorded");
@@ -135,6 +144,7 @@ test("seat forward keeper: a credential loaded after the keeper's first try stil
     process.exit(0);`;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
+  stopKeepers(path.join(dir, "state"));
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: "SEAT_FORWARD_UNAVAILABLE", loaded: true, forwarded: true, port: 61001 },
     "before the key the launch is told the route is not ready; credential-load wakes the keeper at once");
@@ -159,6 +169,7 @@ test("seat forward keeper: after a restart a reused pid or a thread id in the ol
     }
     console.log(JSON.stringify(refs));
     process.exit(0);`], { encoding: "utf8", env });
+  stopKeepers(path.join(dir, "state")); // the old body's keepers die with it; their locks stay
   assert.equal(first.status, 0, first.stderr);
   const refs = JSON.parse(first.stdout.trim().split("\n").pop());
   assert.deepEqual(refs.map(([, port]) => port), [61000, 61001]);
@@ -175,12 +186,15 @@ test("seat forward keeper: after a restart a reused pid or a thread id in the ol
     fs.writeFileSync(locks[1][1], JSON.stringify({ pid: tid }));
     const ports = [];
     for (const [ref] of locks) ports.push(await rt.ensureSeatForward(ref, 4183, 5000).catch(error => error.message.split(":")[0]));
-    const owners = locks.map(([, file]) => JSON.parse(fs.readFileSync(file, "utf8")).pid === process.pid);
+    const owners = locks.map(([, file]) => JSON.parse(fs.readFileSync(file, "utf8")).pid);
     console.log(JSON.stringify({ ports, owners, tid: tid > 0 }));
     process.exit(0);`], { encoding: "utf8", env });
+  const out = JSON.parse(second.stdout.trim().split("\n").pop() || "{}");
+  const keepers = (out.owners ?? []).map(pid => keeperCommand(pid).includes("forward-keeper"));
+  stopKeepers(path.join(dir, "state"));
   assert.equal(second.status, 0, second.stderr);
-  assert.deepEqual(JSON.parse(second.stdout.trim().split("\n").pop()), { ports: [61000, 61001], owners: [true, true], tid: true },
-    "both stale locks are taken and the stored P is returned only with the new keeper running");
+  assert.deepEqual({ ports: out.ports, keepers, tid: out.tid }, { ports: [61000, 61001], keepers: [true, true], tid: true },
+    "both stale locks are taken by new keeper processes and the stored P is returned only with them running");
   const forwards = fs.readFileSync(log, "utf8").split("\n").filter(line => line.includes(" -R "));
   assert.equal(forwards.length, 2);
   assert.match(forwards.join("\n"), /-R 127\.0\.0\.1:61000:127\.0\.0\.1:4183 /);
@@ -205,8 +219,9 @@ test("seat forward keeper: a relaunch after the last seat closed waits for a rea
     rt.unbindTerminalSession("seat-neon");
     fs.rmSync(find("terminal-forward-" + status.ref + ".launch"));
     rt.maintainSeatForwards();
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const lockGone = !fs.readdirSync(state, { recursive: true }).map(String).some(name => name.endsWith(".lock"));
+    const hasLock = () => fs.readdirSync(state, { recursive: true }).map(String).some(name => name.endsWith(".lock"));
+    for (const until = Date.now() + 8000; hasLock() && Date.now() < until;) await new Promise(resolve => setTimeout(resolve, 100));
+    const lockGone = !hasLock();
     const started = Date.now();
     const second = await rt.ensureSeatForward(status.ref, 4183, 5000);
     const lock = JSON.parse(fs.readFileSync(find(".lock"), "utf8"));
@@ -214,6 +229,7 @@ test("seat forward keeper: a relaunch after the last seat closed waits for a rea
     process.exit(0);`;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(dir, "home"), AITERM_STATE_BASE: path.join(dir, "state") } });
+  stopKeepers(path.join(dir, "state"));
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout.trim().split("\n").pop()), { first: 61002, second: 61002, lockGone: true, ready: 61002, quick: true },
     "the stopped keeper hands the lock over at once; the relaunch gets P only from a new ready forward");

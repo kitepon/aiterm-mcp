@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, type RemoteCommandOp } from "./remote-terminal.js";
+import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, runForwardKeeper, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { credentialHandleSchema, terminalOsSchema } from "./remote-contract.js";
 import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
@@ -106,6 +106,8 @@ function serve(): void {
 export function main(args: string[]): void {
   const [command, ...rest] = args;
   if (command === "serve") return serve();
+  // Started detached by Aiterm itself (remote-terminal.md forward keeper); not an operator command.
+  if (command === "forward-keeper") return runForwardKeeper(option(rest, "--ref") ?? "");
   if (command === "status") return oneShot(() => bindingStatus(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "register") return oneShot(() => registerBinding({
     target: { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", port: Number(option(rest, "--port") ?? "22") },

@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
@@ -15,6 +16,7 @@ import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
 import { powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
+import { liveNodeExecutable } from "./live-node.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -809,7 +811,45 @@ function storedIngress(ref: string): number | undefined {
   try { return binding(ref).seat_ingress_port; } catch { return undefined; }
 }
 
+// Only the detached keeper process (`forward-keeper --ref R`) holds the ssh. BellTeam launches through a one-shot Aiterm,
+// and a forward held there died with it right after the launch (lab 2026-11-11: ~45 s refused until a 60 s check).
+let keeperProcess = false;
+const startedKeepers = new Map<string, ChildProcess>();
+const KEEPER_CLI = new URL("./remote-terminal-cli.js", import.meta.url);
+
+function startForwardKeeper(ref: string): void {
+  if (!forwardNeeded(ref)) { releaseIdleCredential(ref); return; }
+  const owner = lockOwner(ref);
+  if (owner && ownerAlive(owner)) return;
+  const started = startedKeepers.get(ref); // one keeper per process at a time, while it takes the lock
+  if (started && started.exitCode === null && started.signalCode === null) return;
+  const child = spawn(liveNodeExecutable(), [fileURLToPath(KEEPER_CLI), "forward-keeper", "--ref", ref],
+    { detached: true, stdio: "ignore", env: process.env, windowsHide: true });
+  child.on("error", () => { /* exitCode stays null: clear it so the next check starts another */ startedKeepers.delete(ref); });
+  child.unref();
+  startedKeepers.set(ref, child);
+}
+
+/** `aiterm-remote-terminal forward-keeper --ref R`: hold R's forward while it is needed; exit when this process has nothing to hold. */
+export function runForwardKeeper(ref: string): void {
+  binding(ref);
+  keeperProcess = true;
+  keeperHold = setInterval(() => { keep(ref); settleKeeper(ref); }, 5_000);
+  keep(ref);
+  settleKeeper(ref);
+}
+let keeperHold: NodeJS.Timeout | null = null;
+/** The keeper process ends (its loop stops, nothing else holds it) once it has no forward, timer, probe or lock. */
+function settleKeeper(ref: string): void {
+  const keeper = keepers.get(ref);
+  if (!keeperHold || (keeper && (keeper.child || keeper.timer || keeper.starting || Number(lockOwner(ref)?.pid) === process.pid))) return;
+  clearInterval(keeperHold);
+  keeperHold = null;
+  keepers.delete(ref);
+}
+
 function keep(ref: string): void {
+  if (!keeperProcess) { startForwardKeeper(ref); return; }
   const keeper = keepers.get(ref) ?? { child: null, ingress: 0, refusals: 0, timer: null };
   keepers.set(ref, keeper);
   if (keeper.child) { if (!forwardNeeded(ref) || storedIngress(ref) !== keeper.ingress) keeper.child.kill(); return; }
@@ -865,6 +905,7 @@ function keep(ref: string): void {
       }
       // Stopped because no seat needs it: hand the lock over at once, so a launch in another process starts its own.
       if (forwardNeeded(ref)) again(); else keep(ref);
+      settleKeeper(ref);
     });
   }, () => { keeper.starting = false; again(); });
 }

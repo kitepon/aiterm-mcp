@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A terminal's seat MCP forward no longer goes down a few seconds after a launch. The `ssh -R` keeper ran inside the MCP process that handled the launch; BellTeam launches through a one-shot Aiterm, so the forward died when that process ended and stayed refused until another process's 60-second check (about 45 s in a lab run). A seat whose Claude was still connecting its MCP servers then, or that started in that window, lost its tools for good. The forward is now held by a detached keeper process (`aiterm-remote-terminal forward-keeper --ref R`) that lives while the forward is needed; MCP processes only start it when no live keeper holds the lock.
+
 ## [0.70.20] - 2026-11-11
 
 - `agent_auth` (claude-code) takes `login: "oauth_token"` with `token_file` (only `<HOME>/.bellteam-accounts/claude/<slot>/oauth-token`; any other path is `AGENT_AUTH_TOKEN_FILE_REJECTED` before anything starts). `start` always runs `claude setup-token` (under `configuration_root`, same `auth_ui` stages, binding and `respond`), and Aiterm writes the printed token to `token_file` as the seat user, 0600, through a temp file, fsync and rename; the pane's history and screen are then cleared. The token is never in a receipt, `auth_ui`, a log, env or argv. Failure or cancel writes nothing. `status` in this mode reports `authenticated` only for a non-empty 0600 regular file of the user and never reads `.credentials.json`. Receipts echo `login: "oauth_token"`, so a caller can refuse an older Aiterm that would run `claude auth login` instead.

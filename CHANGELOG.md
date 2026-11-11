@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.19] - 2026-11-11
+
 - Windows: a Claude Code installed by npm (`claude.cmd`) now gets every launch argument. The `.cmd` shim passes `%*` through `cmd.exe`, which ends the arguments at the first newline, so everything after the multi-line `--append-system-prompt` (`--mcp-config`, `--model`, `--effort`) was lost and the seat ran without its MCP servers on the default model. Aiterm now runs the shim's `.exe` directly.
 - Seat `env_vars` values (for example a seat MCP token) are no longer put on the terminal multiplexer's command line (`new-session -e`), where any process on the machine could read them from the process list (the psmux server keeps them in its argv on Windows). They reach the CLI only through the launch line's 0600 file, as before.
 - A message sent to a terminal seat while its turn was running (`pty_send` taken as `agent_steer`) now returns a `wait_process` that waits over ssh for the end of the turn that took it (`aiterm-wait --cursor C --steer <id>` on the terminal). Before, the relay passed the terminal's own `wait_process` through: its Node path and files do not exist on the controlling host, so the wait failed and BellTeam recorded the accepted message as failed. A steer the relay cannot follow now answers `event_cursor`/`wait_process` null without the `aiterm/steer` meta.
@@ -3277,7 +3279,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.18...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.19...HEAD
+[0.70.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.18...v0.70.19
 [0.70.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.17...v0.70.18
 [0.70.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.16...v0.70.17
 [0.70.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...v0.70.16

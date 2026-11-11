@@ -811,7 +811,8 @@ test('a clock tick discovers autonomous native completion without a parent waite
  let spawned;
  t.after(()=>{
   if(spawned&&readProcessIdentities([spawned.owner.pid]).some(row=>row.started_identity===spawned.owner.started_identity)){
-   try{process.kill(-spawned.owner.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}
+   // The fixture's close already ended this worker; macOS answers EPERM for a group left with only its unreaped zombie.
+   try{process.kill(-spawned.owner.pid,'SIGTERM');}catch(error){if(!['ESRCH','EPERM'].includes(error.code))throw error;}
   }
   retireAgentIdleClock(f.meta);
  });

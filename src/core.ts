@@ -2456,7 +2456,8 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
 }
 
-export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): ReturnType<typeof listNativeSessionsResult> {
+/** `vanished` is the public pty_list's view only: generation existence (observeSessionGeneration) and lineage keep native + dormant. */
+export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux, o: { vanished?: boolean } = {}): ReturnType<typeof listNativeSessionsResult> {
   const result = listNativeSessionsResult(envKeys, runTmux);
   const present = new Set(result.sessions.map(row => row.session_id));
   for (const name of savedAgentSessionNames()) {
@@ -2464,9 +2465,11 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     const meta = present.has(name) ? tryLoadAgentMetadata(name) : loadAgentMetadata(name);
     if (!meta) continue;
     const state = agentDormantState(meta);
-    if (!state) continue;
+    // A Claude seat whose native session is gone with no lifecycle (e.g. it vanished with the container) stays listed as
+    // "vanished": its last_input_at/limit_end survive, and the next dispatch adopts and resumes it (adoptVanishedAgentNative).
+    if (!state && (!o.vanished || present.has(name) || meta.kind !== "claude")) continue;
     const environment: Record<string, string | null> = Object.fromEntries(envKeys.map(key => [key, null]));
-    let command: string = state;
+    let command: string = state ?? "vanished";
     const recipe = readAgentResumeRecipe(meta);
     if (recipe?.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id)
       for (const key of envKeys) environment[key] = key === CLAUDE_LOGIN_ENV ? null : recipe.environment[key] ?? null;
@@ -4124,6 +4127,9 @@ export interface SeatTurnsResult {
 export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
   const seats: SeatTurnsResult["seats"] = [], unread: string[] = [];
   const observedAt = new Map<string, number>();
+  let native: Set<string> | null = null;
+  // One listing for the call: a Claude seat with no native session and no lifecycle vanished (pty_list "vanished") and runs no turn.
+  const vanished = (name: string) => !(native ??= new Set(listNativeSessionRows().map(([listed]) => listed))).has(name);
   for (const name of sessionIds) {
     const meta = tryLoadAgentMetadata(name);
     if (!meta) continue;
@@ -4131,7 +4137,8 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
     try {
       const state = agentDormantState(meta);
       turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null)
-        : meta.kind === "codex" ? codexSeatTurn(meta) ?? freshCodexSeatTurn(meta) : readManagedSeatTurn(meta);
+        : meta.kind === "codex" ? codexSeatTurn(meta) ?? freshCodexSeatTurn(meta)
+        : meta.kind === "claude" && vanished(name) ? { state: "idle" } : readManagedSeatTurn(meta);
     } catch { /* 読めない席は、分からないまま返す */ }
     if (turn === SPAN_HELD) { unread.push(name); continue; }
     if (meta.kind !== "codex") observedAt.set(name, performance.now());

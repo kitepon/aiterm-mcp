@@ -194,7 +194,10 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
       const listed = await client.callTool({ name: "pty_list", arguments: {} });
       assert.equal(listed._meta, undefined);
       const marked = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
-      assert.deepEqual(marked._meta["aiterm/seat_turns"], { schema: "aiterm.seat-turns.v1", seats: [], unread: [] });
+      // A Claude seat whose native session is gone is listed as vanished (0.70.27) and runs no turn.
+      const vanished = marked.structuredContent.sessions.filter(row => row.current_command === "vanished").map(row => row.session_id);
+      assert.deepEqual(marked._meta["aiterm/seat_turns"].unread, []);
+      assert.deepEqual(marked._meta["aiterm/seat_turns"].seats.map(seat => [seat.session_id, seat.turn]), vanished.map(id => [id, { state: "idle" }]));
       assert.deepEqual(marked.structuredContent.sessions, listed.structuredContent.sessions);
     }
   } finally {

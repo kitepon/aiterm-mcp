@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_list` now lists a Claude agent seat whose terminal is gone with no lifecycle record (for example, it vanished with a container restart) as `current_command: "vanished"`, with its `last_input_at` and `limit_end`. Before, such a seat had no row until the next send adopted it, so a restart dropped a limit-held seat's record. Seat turns read it as idle. The next send still adopts and resumes it as before.
+
 ## [0.70.26] - 2026-11-11
 
 - A Claude turn that ends on a usage limit now has a terminal outcome. Claude Code 2.1.322 holds such a turn ("Usage limit reached · continuing automatically at 7pm · esc to cancel") and runs no Stop hook, so its operation stayed pending, `pty_key` refused every key but C-c, and the seat's span kept running. Now, from the transcript and Aiterm's activity record only: `pty_list` rows of Claude agent sessions carry `last_input_at` and `limit_end {at, reset_at, continued, hold: armed|cancelled|null}`; the Claude wait returns `rate_limited` (exit 6) with the record text and `reset_at` (it was `error` with failure category `rate_limited`); seat turns close the span; and an operation whose turn ended on an API error or an interrupt record no longer counts as pending. `pty_key` now refuses keys other than C-c only while an operation is pending (before, on every correlated Claude seat), so Escape cancels an armed hold, and `hold` turns `cancelled`.

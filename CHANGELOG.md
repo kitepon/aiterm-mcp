@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_list` with seat turns is faster on a host with many seats. Checking whether one seat exists listed every seat with its agent metadata, and each metadata read scanned the whole agents folder, so one call grew with the number of seats squared (10-27 s for about 140 members). The check now reads only the session names, with the same tmux call, retry and failures. On the production state, reading the turns of 48 seats went from 4.6 s to 2.3 s. What `pty_list` returns is unchanged.
+
 ## [0.70.24] - 2026-11-11
 
 - Closing a seat now also ends its idle-clock worker. `pty_close`, killing all sessions, and a fresh launch under the same name removed the clock record but left the waiting `sh`/`sleep` (PowerShell on Windows) running until its wake time, so a deleted member's `agent-idle-cli --session <name>` stayed visible on the host. Before the record is removed, the worker is ended when its PID and start time still match the record: on Linux and macOS its own process group (the shell, its sleep, and a checker that is just waking), on Windows its PowerShell. A process never ends its own clock. If the worker cannot be ended, it still exits at wake on the missing token, as before. Live seats are unchanged.

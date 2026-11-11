@@ -908,6 +908,107 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
 }
 
 
+/** Claude wrote its interrupt record ("[Request interrupted by user…]") at or after `sinceMs`: the turn was interrupted. */
+export function claudeInterruptedAfter(meta: AgentMetadata, sinceMs: number): boolean {
+  const file = claudeSessionTranscriptPath(meta);
+  if (!file) return false;
+  let size: number;
+  try { size = fs.statSync(file).size; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  const lines = readFileRange(file, Math.max(0, size - AGENT_EVENT_TAIL_BYTES), size).toString("utf8").split("\n");
+  lines.pop();
+  return lines.some(line => {
+    if (!line.includes("[Request interrupted by user")) return false;
+    try {
+      const record = JSON.parse(line), content = record?.message?.content;
+      const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((part: any) => part?.text ?? "").join("") : "";
+      return record?.type === "user" && record.isSidechain !== true && (!record.sessionId || record.sessionId === meta.vendor_session_id)
+        && Date.parse(record.timestamp) >= sinceMs && /^\[Request interrupted by user\b/u.test(text.trim());
+    } catch { return false; }
+  });
+}
+
+export interface ClaudeLimitEnd {
+  at: string;
+  reset_at: string | null;
+  /** Main-chain conversation work was recorded after the limit (Claude's own continue or anything else). */
+  continued: boolean;
+  /** Claude Code's own notice after the limit: armed = "continuing automatically at …", cancelled = "Automatic continue cancelled". */
+  hold: "armed" | "cancelled" | null;
+  text: string;
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const zoneOffset = (ms: number, zone: string) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric",
+    day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" }).formatToParts(ms).map(part => [part.type, part.value]));
+  return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - Math.floor(ms / 1000) * 1000;
+};
+
+/** "… resets 7pm (UTC)" / "resets Nov 14, 4:30am (Asia/Tokyo)": the first such wall-clock instant after `atMs`. Null when it does not parse. */
+export function claudeLimitResetAt(text: string, atMs: number): string | null {
+  const hit = /\bresets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)\s]+)\)/i.exec(text);
+  if (!hit || !Number.isFinite(atMs)) return null;
+  const [, mon, day, hour, minute = "0", meridiem, zone] = hit;
+  const month = mon ? MONTHS.indexOf(mon.toLowerCase()) : -1;
+  if (mon && month < 0) return null;
+  const h = (+hour % 12) + (meridiem.toLowerCase() === "pm" ? 12 : 0);
+  try {
+    const local = new Date(atMs + zoneOffset(atMs, zone));
+    const toUtc = (y: number, m: number, d: number) => {
+      const wall = Date.UTC(y, m, d, h, +minute);
+      const first = wall - zoneOffset(wall, zone);
+      return wall - zoneOffset(first, zone);
+    };
+    let y = local.getUTCFullYear(), m = mon ? month : local.getUTCMonth(), d = mon ? +day : local.getUTCDate();
+    let result = toUtc(y, m, d);
+    // Not after the limit itself: the named time is the next one (tomorrow, or next year for a dated reset).
+    if (result <= atMs) result = mon ? toUtc(++y, m, d) : toUtc(y, m, d + 1);
+    return Number.isFinite(result) ? new Date(result).toISOString() : null;
+  } catch { return null; }
+}
+
+/**
+ * The rate_limited API error that ended the turn after `sinceMs` (the last input), with what Claude Code recorded after it.
+ * Claude Code 2.1.322 holds such a turn without a Stop hook ("Usage limit reached · continuing automatically at 7pm · esc to cancel")
+ * and continues it at the reset by itself; only its transcript shows the hold. Null when no such error follows the input.
+ */
+export function claudeLimitEnd(meta: AgentMetadata, sinceMs: number): ClaudeLimitEnd | null {
+  const file = claudeSessionTranscriptPath(meta);
+  if (!file || !Number.isFinite(sinceMs)) return null;
+  let size: number;
+  try { size = fs.statSync(file).size; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  const lines = readFileRange(file, Math.max(0, size - AGENT_EVENT_TAIL_BYTES), size).toString("utf8").split("\n");
+  lines.pop();
+  let end: ClaudeLimitEnd | null = null;
+  for (const line of lines) {
+    const error = claudeApiErrorFromLine(line);
+    if (error) {
+      if (error.at && Date.parse(error.at) >= sinceMs && (error.session_id === null || error.session_id === meta.vendor_session_id)
+        && claudeFailureCategory(error) === "rate_limited")
+        end = { at: error.at, reset_at: claudeLimitResetAt(error.text, Date.parse(error.at)), continued: false, hold: null, text: error.text };
+      else if (end) end.continued = true;
+      continue;
+    }
+    if (!end) continue;
+    let record: any;
+    try { record = JSON.parse(line); } catch { continue; }
+    if (record?.isSidechain === true || (record?.sessionId && record.sessionId !== meta.vendor_session_id)) continue;
+    if (record?.type === "system" && record.subtype === "informational" && typeof record.content === "string") {
+      if (/^Usage limit reached\b.*\bcontinuing automatically\b/i.test(record.content)) end.hold = "armed";
+      else if (/^Automatic continue cancelled\b/i.test(record.content)) end.hold = "cancelled";
+    } else if ((record?.type === "user" || record?.type === "assistant") && record.isMeta !== true) {
+      const content = record.message?.content;
+      // Slash commands typed on the seat (/rate-limit-options to re-arm) are not conversation work.
+      if (typeof content === "string" && /^\s*<(?:command-|local-command-)/u.test(content)) continue;
+      end.continued = true;
+    }
+  }
+  if (end?.continued) end.hold = null;
+  return end;
+}
+
 // ---- login "oauth_token" (BellTeam Claude 2nd slot, Owner ruling 2026-11-09): `claude setup-token` prints a 1-year token once;
 // Aiterm, as the PTY owner, writes it to the slot's token file. The CLI keeps no copy, so the file is the credential.
 const OAUTH_TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/g;

@@ -867,6 +867,13 @@ registerRemoteAwareTool(
           "agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値（席の中で会話を移した後は追わない）、" +
             "CodexとCursorは分かった後の値。通常PTYと、まだ分からない席はnull"),
         environment: z.record(z.string(), z.string().nullable()),
+        // Claude agent rows only (0.70.26). Transcript and Aiterm's activity record, no screen; other rows omit both.
+        last_input_at: z.string().nullable().optional().describe("Claude agent rows: the last input Aiterm typed into this launch"),
+        limit_end: z.object({
+          at: z.string(), reset_at: z.string().nullable(), continued: z.boolean(), hold: z.enum(["armed", "cancelled"]).nullable(),
+        }).nullable().optional().describe(
+          "Claude agent rows: the usage limit that ended the turn after last_input_at (that turn is over; no Stop follows). " +
+            "continued: Claude recorded work after it. hold: Claude's automatic continue is armed, or was cancelled (pty_key Escape cancels an armed hold)"),
       })),
     },
   },

@@ -16,7 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
-import { withManagedSpan, observeManagedSpan, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
+import { withManagedSpan, observeManagedSpan, closeManagedSpan, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
  * core — CLI/MCP が共有する端末操作とharness進行（Node/TS 版）。
  *
@@ -249,6 +249,10 @@ import {
   claudeSessionTranscriptPath,
   claudeApiErrorFromLine,
   claudeApiErrorAfter,
+  claudeLimitEnd,
+  claudeInterruptedAfter,
+  claudeLimitResetAt,
+  type ClaudeLimitEnd,
   claudeApiErrorEndingTurn,
   claudeFailureCategory,
   type ClaudeApiError,
@@ -1290,9 +1294,11 @@ export function sendKeyResult(name: string, key: string, o: { preserveAgentOpera
   assertExecutionContext(name);
   assertSessionName(name);
   const k = KEYMAP[key.toLowerCase()] ?? key;
-  if (!o.preserveAgentOperation && k !== "C-c" && isAgentSession(name) && managedClaudeOperation(name) !== undefined) {
+  // Protects a pending operation: another key (Enter, history, a menu choice) could submit other input whose Stop the hook would
+  // file under that operation. Exits on its own at the turn's Stop, its API-error/limit record, or its interrupt record; close too.
+  if (!o.preserveAgentOperation && k !== "C-c" && isAgentSession(name) && managedClaudeOperation(name)) {
     throw new AitermError(
-      "aiterm相関付きClaude agent sessionではturn相関を壊さないC-cだけをpty_keyで送れます。" +
+      "aiterm相関付きClaude agent sessionのturnが終わるまでは、turn相関を壊さないC-cだけをpty_keyで送れます。" +
         "他の対話操作はpty_send（自動dispatch）、終了はpty_closeを使ってください。",
       2,
     );
@@ -1749,6 +1755,26 @@ export interface ListedSession {
   /** agent sessionのharness側の会話ID。Claude CodeとGrokは起動時に--session-idで渡した値、CodexとCursorは分かった後。 */
   vendor_session_id: string | null;
   environment: Record<string, string | null>;
+  /** Claude agent rows only: the last input Aiterm typed into this launch (activity record). */
+  last_input_at?: string | null;
+  /** Claude agent rows only: the usage limit that ended the turn after last_input_at, from the transcript (0.70.26). */
+  limit_end?: Omit<ClaudeLimitEnd, "text"> | null;
+}
+
+/** The usage limit that ended the turn after this launch's last input, or null. Transcript and activity only, no screen. */
+function claudeSeatLimitEnd(meta: AgentMetadata): ClaudeLimitEnd | null {
+  const input = Date.parse(readAgentActivity(meta).last_input_at ?? "");
+  return Number.isFinite(input) ? claudeLimitEnd(meta, input) : null;
+}
+
+/** pty_list fields of a Claude agent row. */
+function claudeListedFields(meta: AgentMetadata | null): Pick<ListedSession, "last_input_at" | "limit_end"> {
+  if (meta?.kind !== "claude") return {};
+  try {
+    const end = claudeSeatLimitEnd(meta);
+    return { last_input_at: readAgentActivity(meta).last_input_at,
+      limit_end: end && { at: end.at, reset_at: end.reset_at, continued: end.continued, hold: end.hold } };
+  } catch { return { last_input_at: null, limit_end: null }; }
 }
 
 interface ActivitySample {
@@ -2425,7 +2451,7 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
       width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
       launch_id: meta?.launch_id ?? null,
-      vendor_session_id: meta?.vendor_session_id ?? null, environment });
+      vendor_session_id: meta?.vendor_session_id ?? null, environment, ...claudeListedFields(meta) });
   }
   return { schema: "aiterm.pty-list-result.v1", observed_at: new Date().toISOString(), sessions };
 }
@@ -2453,7 +2479,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
       continue;
     }
     result.sessions.push({ session_id: name, launch_id: meta.launch_id, current_command: command, attached: false, width: 0, height: 0,
-      harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment });
+      harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment, ...claudeListedFields(meta) });
   }
   return result;
 }
@@ -3143,7 +3169,18 @@ function managedClaudeOperation(name: string): ClaudeOperationMarker | null | un
     throw error;
   }
   if (meta.kind !== "claude") return undefined;
-  return readClaudeOperationMarker(meta);
+  return pendingClaudeOperation(meta);
+}
+
+/** The marker of a turn still pending. A turn its API error ended (a usage-limit hold included) or an interrupt ended may never
+ * get a Stop: its marker is kept, so the original waiter can still bind its input and read that end, but it is not pending. */
+function pendingClaudeOperation(meta: AgentMetadata): ClaudeOperationMarker | null {
+  const marker = readClaudeOperationMarker(meta);
+  if (!marker) return null;
+  let at: number;
+  try { at = fs.statSync(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id)).mtimeMs; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  return claudeApiErrorAfter(meta, at) || claudeInterruptedAfter(meta, at) ? null : marker;
 }
 
 function clearClaudeApiErrorOperation(meta: AgentMetadata): void {
@@ -4187,6 +4224,11 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null | type
       || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null
       || performance.now() - started >= 15_000) return null;
     const binding = JSON.stringify([meta.aiterm_session, meta.launch_id, meta.kind, conversation, proof, live.pane_process, live.harness_process]);
+    // Claude holds a limit-ended turn with no Stop and a busy-looking footer; its transcript says the turn ended.
+    const limited = meta.kind === "claude" ? claudeSeatLimitEnd(meta) : null;
+    if (limited && !limited.continued) {
+      return closeManagedSpan(file, binding, `limit:${limited.at}`, () => managedSpanStart(meta));
+    }
     return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString(), () => managedSpanStart(meta));
   });
   return performance.now() - started < 15_000 ? result : null;
@@ -4490,7 +4532,8 @@ export async function observeAgentDone(
 ): Promise<AgentWaitObservation> {
   if (o.expected_launch_id && !fs.existsSync(agentMetadataPath(name, o.expected_launch_id))) throw new ExecutionError("EXECUTION_STALE_GENERATION");
   const result = await observeAgentDoneInternal(name, o);
-  if ((result.outcome === "done" || result.outcome === "error") && result.at !== null) {
+  // A rate_limited with `at` is a recorded end (Claude's limit record, Antigravity's quota Stop); a screen-read limit has none.
+  if ((result.outcome === "done" || result.outcome === "error" || result.outcome === "rate_limited") && result.at !== null) {
     try {
       recordAgentTurnEnd({ aiterm_session: name, launch_id: result.launch_id }, {
         ...result, at: Number.isFinite(Date.parse(result.at)) ? result.at : new Date().toISOString(),
@@ -4593,8 +4636,9 @@ async function observeAgentDoneInternal(
     turn_id: ev?.turn_id ?? null,
     malformed_events: malformedEvents,
     at: ev?.at ?? apiError?.at ?? null,
-    rate_limit: rateLimit,
-    error: apiError?.text ?? null,
+    rate_limit: rateLimit ?? (outcome === "rate_limited" ? apiError?.text ?? null : null),
+    ...(outcome === "rate_limited" && apiError?.at ? { reset_at: claudeLimitResetAt(apiError.text, Date.parse(apiError.at)) } : {}),
+    error: outcome === "rate_limited" ? null : apiError?.text ?? null,
     error_kind: apiError?.status ? `http_${apiError.status}` : null,
     ...(apiError ? { failure: { category: claudeFailureCategory(apiError), execution: sawExecution ? "started" as const : "unknown" as const,
       boundary: transcriptBound && sawUser && apiError.session_id === meta.vendor_session_id && parentUuid !== null && apiError.parent_uuid === parentUuid && apiError.uuid !== null ? {
@@ -4637,7 +4681,7 @@ async function observeAgentDoneInternal(
         throw new AitermError("AGENT_WAIT_INPUT_CHANGED: completion belongs to another or unconfirmed input", 2);
       // 利用上限ではStopも走る。その番の最後の記録がAPIエラーなら、doneでなく誤りとして返す。
       const ended = scanned.event && meta.kind === "claude" ? claudeApiErrorEndingTurn(meta, scanned.event.at) : null;
-      if (ended) return observation("error", null, null, ended);
+      if (ended) return observation(claudeFailureCategory(ended) === "rate_limited" ? "rate_limited" : "error", null, null, ended);
       if (scanned.event?.done_status === "turn_error") {
         // agy ends a quota-stopped turn with ERROR; its Stop error names the limit (RESOURCE_EXHAUSTED, code 429).
         const limited = antigravityQuotaLimit(scanned.event.error);
@@ -4683,7 +4727,7 @@ async function observeAgentDoneInternal(
         for (const line of lines) {
           const apiError = claudeApiErrorFromLine(line);
           if (apiError && (apiError.session_id === null || apiError.session_id === meta.vendor_session_id))
-            return observation("error", null, null, apiError);
+            return observation(claudeFailureCategory(apiError) === "rate_limited" ? "rate_limited" : "error", null, null, apiError);
           let record: any;
           try { record = JSON.parse(line); } catch { transcriptBound = false; continue; }
           if (record.isSidechain === true || (record.sessionId && record.sessionId !== meta.vendor_session_id)) continue;

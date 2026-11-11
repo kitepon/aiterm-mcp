@@ -43,7 +43,7 @@ pane parserは現composer/現footer/現dialogを優先し、過去の引用や�
 
 ## Stopの公開順序と途中失敗
 
-[Claude Stop](../../src/claude-stop-hook.ts) は結果を一時fileへ書き、短書込確認/fsync/renameの後にdone eventを追記する。event短書込はftruncateで戻す。operation markerは読み取ったdev/inoが一致する場合だけ、event/activity保存後に消費する。失敗はstderr診断となり、偽の完了を作らない。idle clock依頼失敗は取得済みの結果を消さない。v2 markerのcursorは送信前の位置であり、native入力受理や取消完了の証明ではない。
+[Claude Stop](../../src/claude-stop-hook.ts) は結果を一時fileへ書き、短書込確認/fsync/renameの後にdone eventを追記する。event短書込はftruncateで戻す。operation markerは読み取ったdev/inoが一致する場合だけ、event/activity保存後に消費する。失敗はstderr診断となり、偽の完了を作らない。idle clock依頼失敗は取得済みの結果を消さない。v2 markerのcursorは送信前の位置であり、native入力受理や取消完了の証明ではない。利用上限で止まった番（Claude 2.1.322のhold）と中断した番にはStopが来ない。会話記録のAPIエラー・中断の記録がmarkerより後にあれば、markerは保留中に数えない（observation-results「Claude limit end」）。
 
 [Antigravity hook](../../src/antigravity-hook.ts) は同turn resultが既存ならreturnし、失敗時は固定診断と空JSONへ収束する。result保存後のevent追記が失敗すると、再hookも既存resultでreturnするため通知が欠測し得る。この作用順序を既存分岐として記録し、今回修理しない。[Grok Stop互換](../../src/grok-stop-hook.ts) は通常Grok events-transcript routeとは別。旧event書込口・配布/test参照があり、通常adapterで使わないことだけを理由に消さない。Claudeとのfsyncやpayload条件の差も既存契約として残す。
 

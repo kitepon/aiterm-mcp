@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
-import {observeManagedSpan,withManagedSpan,managedSpanDirectory,SPAN_HELD} from '../dist/managed-seat-turn.js';
+import {observeManagedSpan,closeManagedSpan,withManagedSpan,managedSpanDirectory,SPAN_HELD} from '../dist/managed-seat-turn.js';
 import {agentEventPath,writeAgentMetadata} from '../dist/agent-shared.js';
 import {agentManagedClaudeSettingsPath,agentClaudeResultPath} from '../dist/harnesses/claude.js';
 import {cursorTranscriptForSession} from '../dist/harnesses/cursor.js';
@@ -136,4 +136,14 @@ test('real metadata producer projects four original rows from mocked live native
  assert.equal(withManagedSpan(meta,()=>42),42,'Dead observer lock recovers by retained inode quarantine');
  assert.ok(fs.readdirSync(managedSpanDirectory(meta)).some(name=>name.startsWith('retired-')));
  assert.ok(calls.every(([bin])=>bin===tmux||bin==='/bin/ps'||bin==='where.exe'||bin.toLowerCase().endsWith('pwsh.exe')));
+});
+
+test('closeManagedSpan ends a running span on a recorded end without a Stop; the next busy frame opens a new span',()=>{
+ const file=path.join(process.env.HOME,'close-span.json'),binding='["close"]';
+ const running=observeManagedSpan(file,binding,'busy','stop-1',new Date().toISOString());
+ assert.equal(running.state,'running');
+ assert.deepEqual(closeManagedSpan(file,binding,'limit:2026-11-11T12:51:56.309Z',()=>'pos'),{state:'idle'});
+ assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).span,null);
+ const next=observeManagedSpan(file,binding,'busy','stop-1',new Date().toISOString());
+ assert.equal(next.state,'running');assert.notEqual(next.turn_id,running.turn_id);assert.equal(next.interim_from,'pos');
 });

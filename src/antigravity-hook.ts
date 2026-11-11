@@ -44,7 +44,8 @@ async function main(): Promise<unknown> {
   const record = { type: "agent_done", vendor: "antigravity", aiterm_session: name, launch_id: launch,
     vendor_session_id: payload.conversationId, turn_id: turn, operation_id: null,
     reason: payload.terminationReason, done_status: success ? "turn_done" : "turn_error",
-    result_digest: createHash("sha256").update(text).digest("hex"), result_bytes: Buffer.byteLength(text), at: new Date().toISOString() };
+    result_digest: createHash("sha256").update(text).digest("hex"), result_bytes: Buffer.byteLength(text),
+    ...(payload.error ? { error: payload.error.slice(0, 2000) } : {}), at: new Date().toISOString() };
   fs.appendFileSync(meta.event_file, JSON.stringify(record) + "\n", { mode: 0o600 });
   return {};
 }

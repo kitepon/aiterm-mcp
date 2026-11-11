@@ -442,6 +442,8 @@ export interface AgentDoneEvent {
   stop_hook_active?: boolean;
   result_digest?: string;
   result_bytes?: number;
+  // The harness's own error text for a turn_error (Antigravity Stop payload `error`), at most 2000 characters.
+  error?: string;
   at: string;
 }
 

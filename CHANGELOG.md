@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- An antigravity-cli turn stopped by the account quota now ends as `rate_limited` with the limit line in `rate_limit` (for example "Individual quota reached. ... Resets in 73h4m30s."), as Claude Code, Codex, Grok and Cursor already did. agy ends such a turn with `terminationReason: ERROR` and names the limit only in its Stop hook `error` (`RESOURCE_EXHAUSTED (code 429)`). Aiterm's hook now keeps that text in the turn's record. Before, the caller saw a generic turn error ("Antigravity execution ended: ERROR") and the reason was on the pane only. Other agy turn errors now carry agy's error text after the reason.
+
 ## [0.70.14] - 2026-11-11
 
 - An antigravity-cli seat can start without a prompt while `append_system_prompt` is set, as a wake-first caller (BellTeam) launches every seat. Aiterm keeps the text with the seat and puts it, exactly once, in front of the first input sent to the seat before agy binds a conversation, the same rule Cursor uses for a promptless seat. A restart is a new launch and its own first input carries the text again. Before, such a launch was refused (`AGENT_LAUNCH_NOT_STARTED: append_system_prompt needs a prompt for antigravity-cli`), so a remote agy seat could never start.

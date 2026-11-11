@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { authenticateAgent } from '../dist/core.js';
-import { antigravityCatalog, antigravityAuthPane, antigravityAuthChoiceKey, antigravityStartupAction, antigravityPaneObservation, mergeAntigravityHooks, createAntigravityAgentMetadata, antigravityTranscriptText } from '../dist/harnesses/antigravity.js';
+import { authenticateAgent, observeAgentDone } from '../dist/core.js';
+import { antigravityCatalog, antigravityAuthPane, antigravityAuthChoiceKey, antigravityStartupAction, antigravityPaneObservation, mergeAntigravityHooks, createAntigravityAgentMetadata, antigravityTranscriptText, antigravityQuotaLimit } from '../dist/harnesses/antigravity.js';
 
 test('Antigravity trusts only the exact displayed workspace across native separators and wrapping', () => {
   const screen = 'C:\\Users\\kite\\long-\nfolder\\fixture\n\nDo you trust the contents of this project?\n> Yes, I trust this folder\n  No, exit';
@@ -137,4 +137,36 @@ test('Antigravity hooks bind one conversation and publish only a fully idle fina
   assert.equal(second.length, 2, 'executionNum zero is a new execution after a new native user step');
   assert.equal(second[1].turn_id, '3-0');
   assert.equal(antigravityTranscriptText(meta, second[1]), 'second answer');
+});
+
+test('Antigravity: a quota-stopped turn is rate_limited with the limit line; another ERROR stays an error with its text', async t => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-hook-quota-'));
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  const meta = createAntigravityAgentMetadata('agy-quota-fixture', cwd, 'none', undefined, {
+    agentRole: 'subagent', parentSessionId: 'host-root', delegationDepth: 1, lineage: 'host-root>antigravity:agy-quota-fixture', delegationAllowed: true,
+  });
+  const id = 'c1a2b3c4-0a02-490b-b3f6-15b37817ef52';
+  const transcript = path.join(meta.antigravity_home, 'brain', id, '.system_generated', 'logs', 'transcript_full.jsonl');
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'question' }) + '\n');
+  const payload = { conversationId: id, workspacePaths: [cwd], transcriptPath: transcript };
+  const hook = (event, input) => spawnSync(process.execPath, ['dist/antigravity-hook.js', event], {
+    env: { ...process.env, AITERM_AGENT_KIND: 'antigravity', AITERM_SESSION_ID: meta.aiterm_session, AITERM_AGENT_LAUNCH_ID: meta.launch_id },
+    input: JSON.stringify(input), encoding: 'utf8', timeout: 5000 });
+  hook('SessionStart', payload);
+  // agy 1.5.5 Stop payload of a quota-stopped turn (captured 2026-11-11).
+  const quota = 'generating and executing: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 73h4m30s.';
+  hook('Stop', { ...payload, executionNum: 0, fullyIdle: true, terminationReason: 'ERROR', error: quota });
+  const [event] = fs.readFileSync(meta.event_file, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual([event.done_status, event.reason, event.error], ['turn_error', 'ERROR', quota]);
+  const limited = await observeAgentDone(meta.aiterm_session, { timeout: 0, cursor: 0 });
+  assert.equal(limited.outcome, 'rate_limited');
+  assert.equal(limited.rate_limit, 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 73h4m30s.');
+  assert.equal(limited.failure.category, 'rate_limited');
+  const offset = fs.statSync(meta.event_file).size;
+  fs.appendFileSync(transcript, JSON.stringify({ step_index: 1, type: 'USER_INPUT', content: 'again' }) + '\n');
+  hook('Stop', { ...payload, executionNum: 0, fullyIdle: true, terminationReason: 'ERROR', error: 'tool crashed' });
+  const failed = await observeAgentDone(meta.aiterm_session, { timeout: 0, cursor: offset });
+  assert.deepEqual([failed.outcome, failed.error, failed.rate_limit], ['error', 'Antigravity execution ended: ERROR: tool crashed', null]);
+  assert.equal(antigravityQuotaLimit(undefined), null);
 });

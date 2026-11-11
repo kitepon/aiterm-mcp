@@ -218,6 +218,15 @@ export function writeAntigravityCallerFiles(meta: AgentMetadata, prompt: string 
   }
 }
 
+/**
+ * The limit line of a quota-stopped turn, from agy's Stop `error` (agy 1.5.5:
+ * "generating and executing: RESOURCE_EXHAUSTED (code 429): Individual quota reached. ... Resets in 73h4m30s.").
+ */
+export function antigravityQuotaLimit(error: string | null | undefined): string | null {
+  const m = error ? /\bRESOURCE_EXHAUSTED\b[^:]*:\s*([\s\S]+)|\(code 429\):\s*([\s\S]+)/.exec(error) : null;
+  return m ? (m[1] ?? m[2]).trim() : null;
+}
+
 /** The first prompt with the caller's text in front (the seat's only instruction channel here). */
 export function antigravityPromptWithCaller(meta: AgentMetadata, prompt: string): string {
   const caller = readCallerText(meta.antigravity_caller_prompt_file);

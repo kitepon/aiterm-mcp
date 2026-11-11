@@ -54,7 +54,7 @@ import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExe
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
-import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
+import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
@@ -3739,6 +3739,7 @@ function parseAgentDoneEvent(line: string, meta: AgentMetadata): AgentDoneParseR
       stop_hook_active: !!ev.stop_hook_active,
       result_digest: typeof ev.result_digest === "string" && /^[0-9a-f]{64}$/.test(ev.result_digest) ? ev.result_digest : undefined,
       result_bytes: Number.isInteger(ev.result_bytes) && (ev.result_bytes as number) >= 0 ? ev.result_bytes : undefined,
+      ...(typeof ev.error === "string" && ev.error ? { error: ev.error.slice(0, 2000) } : {}),
       at: typeof ev.at === "string" ? ev.at : new Date().toISOString(),
     },
     malformed: false,
@@ -4599,9 +4600,15 @@ async function observeAgentDoneInternal(
       // 利用上限ではStopも走る。その番の最後の記録がAPIエラーなら、doneでなく誤りとして返す。
       const ended = scanned.event && meta.kind === "claude" ? claudeApiErrorEndingTurn(meta, scanned.event.at) : null;
       if (ended) return observation("error", null, null, ended);
-      if (scanned.event) return scanned.event.done_status === "turn_error"
-        ? { ...observation("error", scanned.event), error: `Antigravity execution ended: ${scanned.event.reason}`, error_kind: scanned.event.reason }
-        : observation("done", scanned.event);
+      if (scanned.event?.done_status === "turn_error") {
+        // agy ends a quota-stopped turn with ERROR; its Stop error names the limit (RESOURCE_EXHAUSTED, code 429).
+        const limited = antigravityQuotaLimit(scanned.event.error);
+        if (limited) return { ...observation("rate_limited", scanned.event, limited), failure: { category: "rate_limited", execution: "unknown",
+          boundary: null, terminal: true, future_effects: "unknown" } };
+        return { ...observation("error", scanned.event), error: `Antigravity execution ended: ${scanned.event.reason}${scanned.event.error ? `: ${scanned.event.error}` : ""}`,
+          error_kind: scanned.event.reason };
+      }
+      if (scanned.event) return observation("done", scanned.event);
     }
     if (o.input_id) {
       const current = readClaudeOperationMarker(meta);

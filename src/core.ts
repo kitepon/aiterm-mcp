@@ -1930,7 +1930,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   const result = emptySessionObservation(name, true);
   result.harness = agentHarness(meta.kind); result.launch_id = meta.launch_id;
   result.state = "unknown"; result.reason = `agent_${state}`; result.pane_alive = null;
-  const native = listNativeSessionsResult().sessions.some(row => row.session_id === name);
+  const native = nativeSessionExists(name);
   if (state !== "hibernated" || native) {
     if (native && state === "hibernated") result.reason = "resume_native_conflict";
     return result;
@@ -1939,7 +1939,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   catch { result.reason = "resume_unconfirmed"; return result; }
   // Discard the old pane's cursor; hibernation proves absence, not an activity delta.
   if (!isDeepStrictEqual(loadAgentMetadata(name), meta) || agentDormantState(meta) !== "hibernated"
-    || listNativeSessionsResult().sessions.some(row => row.session_id === name)) return result;
+    || nativeSessionExists(name)) return result;
   result.state = "hibernated"; result.reason = "idle_timeout";
   result.pane_alive = false; result.harness_alive = false; result.pending_child_deliveries = 0;
   result.activity.cpu_seconds = 0; result.activity.background_cpu_seconds = 0;
@@ -1959,10 +1959,10 @@ export function absentHarnessAlive(meta: AgentMetadata, platform: NodeJS.Platfor
 // Input admission needs the same native ownership proof, without activity capture or child-delivery scans.
 function observeSessionNative(name: string) {
   assertSessionName(name);
-  const listed = listNativeSessionsResult().sessions.find(session => session.session_id === name);
+  const listed = nativeSessionExists(name);
   const result: SessionObservation = {
     schema: "aiterm.pty-observe-result.v1", session_id: name, observed_at: new Date().toISOString(),
-    exists: !!listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
+    exists: listed, harness: null, launch_id: null, state: "missing", reason: "session_missing",
     pane_alive: false, harness_alive: null, pane_process: null, harness_process: null, process_identity: null,
     token_hint: null, pending_child_deliveries: null,
     activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
@@ -2360,7 +2360,7 @@ function observeEmptyCreatedLaunch(target: ExecutionLaunch, alive: boolean): unk
 export function observeExecutionParentProcess(name: string): unknown {
   assertSessionName(name);
   return readExecutionParentProcess(name, {
-    present: () => listNativeSessionsResult().sessions.some(session => session.session_id === name),
+    present: () => nativeSessionExists(name),
     metadata: () => tryLoadAgentMetadata(name),
     pane: () => tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}"),
     processes: readRuntimeProcesses,
@@ -2375,12 +2375,8 @@ const SESSION_LIST_EXITING_RETRY_MS = 500;
 const SESSION_LIST_EXITING_POLL_MS = 20;
 const SESSION_LIST_SERVER_EXITING_RE = /server exited unexpectedly/i;
 
-function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): {
-  schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
-} {
-  for (const key of envKeys) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_keysの環境変数名が不正です", 2);
-  }
+/** The native session rows, unenriched. Each row is [name, command, attached, width, height]. */
+function listNativeSessionRows(runTmux: typeof tmux = tmux): string[][] {
   const list = () => runTmux("list-sessions", "-F", "#{session_name}\t#{pane_current_command}\t#{session_attached}\t#{window_width}\t#{window_height}");
   let r = list();
   for (const deadline = performance.now() + SESSION_LIST_EXITING_RETRY_MS;
@@ -2388,12 +2384,28 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
     pauseSync(SESSION_LIST_EXITING_POLL_MS);
     r = list();
   }
-  const sessions: ListedSession[] = [];
   if (r.code !== 0 && !/no server running|No such file or directory/i.test(r.stderr))
     throw new AitermError("セッション一覧を取得できません: " + r.stderr.trim(), 2);
-  if (r.code === 0) for (const line of r.stdout.trim().split("\n").filter(Boolean)) {
-    const [name, command, attached, width, height] = line.split("\t");
-    assertSessionName(name);
+  if (r.code !== 0) return [];
+  const rows = r.stdout.trim().split("\n").filter(Boolean).map(line => line.split("\t"));
+  for (const [name] of rows) assertSessionName(name);
+  return rows;
+}
+
+/** Same listing and failure as pty_list, without loading every seat's metadata: one seat's existence check stays one
+ * tmux call (2026-11-11: per-seat full lists made a CurrentWork pty_list take 10-27 s for ~140 members). */
+function nativeSessionExists(name: string): boolean {
+  return listNativeSessionRows().some(([listed]) => listed === name);
+}
+
+function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux = tmux): {
+  schema: "aiterm.pty-list-result.v1"; observed_at: string; sessions: ListedSession[];
+} {
+  for (const key of envKeys) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new AitermError("env_keysの環境変数名が不正です", 2);
+  }
+  const sessions: ListedSession[] = [];
+  for (const [name, command, attached, width, height] of listNativeSessionRows(runTmux)) {
     const environment: Record<string, string | null> = {};
     const registered = envKeys.length ? registeredSessionEnvironment(name) : null;
     for (const key of envKeys) {
@@ -5428,7 +5440,7 @@ function readExecutionAuthMetadata(name: string): (AgentAuthMetadata & { launch_
 
 /** 一覧の取得失敗を端末の消失へ丸めず、正規PTY一覧で存在を確認する。 */
 function authSessionExists(name: string): boolean {
-  return listNativeSessionsResult().sessions.some(session => session.session_id === name);
+  return nativeSessionExists(name);
 }
 
 function authSessionEnvironment(name: string, keys: string[]): NodeJS.ProcessEnv {

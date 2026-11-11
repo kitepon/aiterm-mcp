@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.21] - 2026-11-11
+
 - A terminal's seat MCP forward no longer goes down a few seconds after a launch. The `ssh -R` keeper ran inside the MCP process that handled the launch; BellTeam launches through a one-shot Aiterm, so the forward died when that process ended and stayed refused until another process's 60-second check (about 45 s in a lab run). A seat whose Claude was still connecting its MCP servers then, or that started in that window, lost its tools for good. The forward is now held by a detached keeper process (`aiterm-remote-terminal forward-keeper --ref R`) that lives while the forward is needed; MCP processes only start it when no live keeper holds the lock.
 
 ## [0.70.20] - 2026-11-11
@@ -3285,7 +3287,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.20...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...HEAD
+[0.70.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.20...v0.70.21
 [0.70.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.19...v0.70.20
 [0.70.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.18...v0.70.19
 [0.70.18]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.17...v0.70.18

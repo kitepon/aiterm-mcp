@@ -27,6 +27,28 @@ export interface RuntimeProcess extends NativeProcessIdentity {
   stopped: boolean | null;
 }
 
+/**
+ * The named variables of one live process's environment (null = unset), or null when this OS gives no way to read it.
+ * Linux reads /proc/<pid>/environ; macOS reads `ps -wwE`, which prints the environment after the arguments.
+ */
+export function readProcessEnvironment(pid: number, names: string[], platform: NodeJS.Platform = process.platform,
+  psOutput?: string): Record<string, string | null> | null {
+  if (platform === "linux" && psOutput === undefined) {
+    let raw: string;
+    try { raw = fs.readFileSync(`/proc/${pid}/environ`, "utf8"); } catch { return null; }
+    const env = new Map(raw.split("\0").filter(Boolean).map(entry => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]));
+    return Object.fromEntries(names.map(name => [name, env.get(name) ?? null]));
+  }
+  if (platform !== "darwin") return null;
+  if (psOutput === undefined) {
+    const ps = spawnSync("/bin/ps", ["-wwE", "-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 5000, env: { ...process.env, LC_ALL: "C" } });
+    if (ps.error || ps.status !== 0 || !ps.stdout.trim()) return null;
+    psOutput = ps.stdout;
+  }
+  // shortcut: ps joins entries with spaces, so a value with a space is cut there; Aiterm's values (token, root path) have none.
+  return Object.fromEntries(names.map(name => [name, [...psOutput!.trimEnd().matchAll(new RegExp(`(?:^| )${name}=(\\S*)`, "gu"))].at(-1)?.[1] ?? null]));
+}
+
 /** Claude's native macOS keep-awake helper does no user work of its own. */
 export function macKeepAwakeProcess(row: RuntimeProcess, harness?: NativeProcessIdentity | null, platform: NodeJS.Platform = process.platform): boolean {
   const started = Date.parse(row.started_identity), parentStarted = Date.parse(harness?.started_identity ?? "");

@@ -21,6 +21,8 @@ export const agentGoalInputSchema = agentGoalInputObject.superRefine((value, con
 });
 export type AgentGoalInput = z.infer<typeof agentGoalInputSchema>;
 export const GOAL_HOST_META_KEY = "aiterm/goal";
+/** The caller's user origin relayed to a terminal's Aiterm on the private stdin line (never process env). */
+export const GOAL_ORIGIN_PRIVATE_ENV = "AITERM_GOAL_ORIGIN";
 const hostOrigin = z.object({ origin: z.literal("user") }).strict();
 /** Host provenance on the existing local MCP channel, not authentication.
  * The controller must authenticate the user and reject seat ingress before stamping

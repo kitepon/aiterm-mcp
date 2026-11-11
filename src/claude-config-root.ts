@@ -31,6 +31,27 @@ export function resolveClaudeConfigurationRoot(requested: string, env: NodeJS.Pr
   return { root: actual, selector: actual };
 }
 
+const LOGIN_TOKEN = /^sk-ant-oat01-[A-Za-z0-9_-]{20,}$/u;
+/**
+ * The login a seat launcher gives a slot: `<parent in AITERM_CLAUDE_CONFIG_ROOTS>/<slot>/oauth-token` as
+ * CLAUDE_CODE_OAUTH_TOKEN. When `rootSelected` is false and the slot directory is itself a Claude root (it has
+ * `.claude.json`), it is also the root, as for a seat of that slot. Refused rather than read on another account's login.
+ */
+export function withClaudeSlotLogin(env: NodeJS.ProcessEnv, slot: string, rootSelected = false): NodeJS.ProcessEnv {
+  const unavailable = () => new AitermError(`CLAUDE_LOGIN_UNAVAILABLE: claude_login '${slot}' のoauth-tokenを` +
+    "AITERM_CLAUDE_CONFIG_ROOTSの下に読めません。一覧は読んでいません。", 2);
+  if (!/^[A-Za-z0-9_-]{1,64}$/u.test(slot)) throw unavailable();
+  for (const parent of (env.AITERM_CLAUDE_CONFIG_ROOTS ?? "").split(path.delimiter).filter(parent => path.isAbsolute(parent))) {
+    let token: string;
+    try { token = fs.readFileSync(path.join(parent, slot, "oauth-token"), "utf8").trim(); } catch { continue; }
+    if (!LOGIN_TOKEN.test(token)) throw unavailable();
+    const own = !rootSelected && fs.existsSync(path.join(parent, slot, ".claude.json"))
+      ? withClaudeConfigRoot(env, resolveClaudeConfigurationRoot(path.join(parent, slot), env)) : env;
+    return { ...own, CLAUDE_CODE_OAUTH_TOKEN: token };
+  }
+  throw unavailable();
+}
+
 /** The same environment with this root selected. */
 export function withClaudeConfigRoot(env: NodeJS.ProcessEnv, selected: ClaudeConfigRoot): NodeJS.ProcessEnv {
   const next = { ...env };

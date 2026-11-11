@@ -30,9 +30,10 @@ Claudeの一覧の置き場（[claude-catalog-root](../../src/claude-catalog-roo
 
 | 段 | 入力 | 作用 | 出力 |
 | --- | --- | --- | --- |
-| C1 選択 | `agent_models.configuration_root`（claude-codeだけ。受入はagent_launchと同じ`resolveClaudeConfigurationRoot`）、省略は呼び手のenvのroot | 他harnessへの指定はAGENT_CONFIGURATION_ROOT_REJECTED | rootを選んだenv |
+| C1 選択 | `agent_models.configuration_root`（claude-codeだけ。受入はagent_launchと同じ`resolveClaudeConfigurationRoot`）、省略は呼び手のenvのroot。`agent_models.claude_login`（slot名、claude-codeだけ）は`AITERM_CLAUDE_CONFIG_ROOTS`の親の直下`<slot>/oauth-token`を読み、`CLAUDE_CODE_OAUTH_TOKEN`として渡す（席の起動と同じlogin。tokenはAitermの外へ出さない）。configuration_rootを省き、slotのdirectory自体がClaudeのroot（`.claude.json`がある）なら、そのslotの席と同じくそれをrootにする。省略は呼び手のenvのlogin | 他harnessへの指定はAGENT_CONFIGURATION_ROOT_REJECTED。slotのfileが無い・形が違う時はCLAUDE_LOGIN_UNAVAILABLE（一覧を読まない） | rootとloginを選んだenv |
 | C2 写し | rootの`.credentials.json`の`claudeAiOauth` | `refreshToken`と他の資格を除いて一覧専用rootへ原子的に0600で書く。refresh tokenは使い捨て（invalid_grantで失効）なので、写しの側で更新させずrootのloginを守る | 一覧専用rootのenv |
-| C3 鮮度 | `expiresAt` | 残り10分未満・読めない・fileが無い（macOSのKeychain）・envにtoken/API keyがある時は、従来どおりroot自身で1回走らせ（更新はrootで正規に起きる）、写しを作り直す。作れなければその結果を返す | — |
+| C2b token login | envの`CLAUDE_CODE_OAUTH_TOKEN`（席・`claude_login`） | rootとtokenごとの一覧専用root（stateRoot/claude-catalog/<root+tokenのsha256先頭16桁>）へ、rootのglobal config（既定rootは`~/.claude.json`、他は`<root>/.claude.json`）の`oauthAccount`だけを写す。Claude Codeはserved catalogを`oauthAccount`込みで判定し、token loginは`oauthAccount`を自分で取らない。無いと短い5行、あると席のpickerと同じ14行（2026-11-12実測、1st・2nd） | 一覧専用rootのenv（tokenは残す）。C4で安定させる |
+| C3 鮮度 | `expiresAt` | 残り10分未満・読めない・fileが無い（macOSのKeychain）・envにAPI keyがある時は、従来どおりroot自身で1回走らせ（更新はrootで正規に起きる）、写しを作り直す。作れなければその結果を返す | — |
 | C4 安定 | 一覧専用rootの`last-catalog.sha256` | 1回走らせ、結果のdigestが前回と同じなら返す。違えば記録して走らせ直す（最大4回、冷えた置き場は実測で3回目から安定） | 同じrootなら毎回同じ一覧 |
 
 一覧専用rootは一覧だけが書く。席・認証・他processの書込はここへ届かない。stateRootの消失（再起動）は冷えた置き場として再び温める。

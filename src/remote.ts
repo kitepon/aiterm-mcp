@@ -247,6 +247,7 @@ export interface RemoteCallResult {
   remote_version: string | null;
 }
 
+export const REMOTE_CLIENT_NAME = "aiterm-remote";
 /** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。privateEnvは暗号化されたstdinの先頭行だけで渡す（remote-terminal.md R5）。 */
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
   privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
@@ -261,7 +262,7 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
     : new StdioClientTransport({ command: "ssh", args: sshArgs, env, stderr: "pipe" });
   let stderr = "";
   if (transport instanceof StdioClientTransport) transport.stderr?.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-2000); });
-  const client = new Client({ name: "aiterm-remote", version: pkg.version });
+  const client = new Client({ name: REMOTE_CLIENT_NAME, version: pkg.version });
   try {
     try { await client.connect(transport, { timeout: 60_000 }); }
     catch (error) {

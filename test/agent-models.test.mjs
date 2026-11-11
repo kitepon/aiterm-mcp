@@ -250,7 +250,7 @@ const conf = process.env.CLAUDE_CONFIG_DIR;
 const counter = path.join(conf, "runs");
 const run = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) + 1 : 1;
 fs.writeFileSync(counter, String(run));
-fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ conf, run, creds: JSON.parse(fs.readFileSync(path.join(conf, ".credentials.json"), "utf8")) }) + "\\n");
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ conf, run, creds: fs.existsSync(path.join(conf, ".credentials.json")) ? JSON.parse(fs.readFileSync(path.join(conf, ".credentials.json"), "utf8")) : null }) + "\\n");
 const models = ${JSON.stringify(claudeModels)}.slice(0, Math.min(run, 3));
 require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
   const id = JSON.parse(line).request_id;
@@ -270,13 +270,15 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".credentials.json"), "utf8")), creds, "the root is untouched");
   assert.equal(fs.existsSync(path.join(root, "runs")), false);
 
-  // Near expiry the root itself refreshes as before; with a token in env the root's file is not the identity.
+  // Near expiry the root itself refreshes as before; a token login gets its own catalog root without the root's file.
   fs.writeFileSync(log, "");
   creds.claudeAiOauth.expiresAt = Date.now() + 60_000;
   fs.writeFileSync(path.join(root, ".credentials.json"), JSON.stringify(creds), { mode: 0o600 });
   await claudeModelChoices(bin, dir, env);
   await claudeModelChoices(bin, dir, { ...env, CLAUDE_CODE_OAUTH_TOKEN: "dummy-token" });
-  assert.deepEqual(fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line).conf), [root, root]);
+  const late = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(late[0].conf, root);
+  assert.ok(late.slice(1).every((r) => r.conf !== root && r.conf !== runs[0].conf && r.creds === null), "token login: own root, no file credential");
 });
 
 test("agent_modelsのconfiguration_rootはclaude-codeだけで、agent_launchと同じ範囲だけ受ける", async () => {

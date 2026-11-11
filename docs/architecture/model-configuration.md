@@ -24,7 +24,7 @@ Codex 0.167.0は`-c`上書き付き起動ではin-process app-serverを使い、
 
 初期のpickerコマンド/keyとmodel選択の作用境界は区別する。beforeChangeを越えた後の失敗を未作用へ戻さず、coreが元のconfigurationFailureへ射影する。中断・取消・画面取得失敗も元の例外を伝え、既存の画面後始末とfinally復元を通す。再送はしない。readyと画面通知と公開receiptは同じ意味ではない。
 
-adapterへ渡すready/text waitはcoreの元の関数・既定timeoutのまま。catalogは元と同じfallback時点で取得する。設定fileの保存形式、3回/400ms、picker再試行の回数・待ち時間、goalと排他の順序を変更しない。
+adapterへ渡すready/text waitはcoreの元の関数・既定timeoutのまま。catalogは元と同じfallback時点で取得する。Claudeのconfigure内のcatalog（別名の照合・fastの確かめ・fastを外す判定）は、席のroot（meta.claude_home）と席のnative processのlogin（`CLAUDE_CODE_OAUTH_TOKEN`。Linuxは/proc/<pid>/environ、macOSは`ps -wwE`）で読む。席のenvを読めない時（Windows等）だけ呼び手のenvのloginのまま。設定fileの保存形式、3回/400ms、picker再試行の回数・待ち時間、goalと排他の順序を変更しない。
 
 ## failed復帰用の現在会話・設定プレビュー（R1準備部品）
 

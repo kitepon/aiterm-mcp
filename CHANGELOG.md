@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.23] - 2026-11-11
+
 - A Claude seat that is signed out now reports failure category `authentication`. The real signed-out API error record of Claude Code 2.1.310/2.1.319 carries `error: "authentication_failed"` and no `apiErrorStatus`; that record, a 401, or (for a record with neither) the CLI's login line is now `authentication`, and the parent-delivery record accepts the value.
 - Resuming a hibernated Claude seat through `agent_launch` with `env_vars` no longer conflicts on its login or config directory. `CLAUDE_CODE_OAUTH_TOKEN` is the seat's login, not a setting: it is left out of the env-name comparison, the launch's value (private env line, then process env) goes into the resumed seat, and a login that is not named or has no value is unset. `CLAUDE_CONFIG_DIR`, which Aiterm adds to every Claude recipe, is left out of the comparison too; before, every `env_vars` resume conflicted on it. On Linux and macOS the resume line reads the values from the same 0600 launch-env file a fresh launch uses instead of typing them into the pane, and the login stays out of the multiplexer environment and `pty_list`.
 
@@ -3295,7 +3297,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.22...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.23...HEAD
+[0.70.23]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.22...v0.70.23
 [0.70.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...v0.70.22
 [0.70.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.20...v0.70.21
 [0.70.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.19...v0.70.20

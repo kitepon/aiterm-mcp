@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.17] - 2026-11-11
+
 - On a POSIX terminal where npm linked only `aiterm-mcp` onto the login PATH, Aiterm's other programs on the terminal (`aiterm-remote-terminal` for `path_status` / `make_dir` / `list_dirs` and transcript reads) now run from the same package, as `aiterm-wait` already did. Before, the folder picker failed there with `/bin/sh: aiterm-remote-terminal: not found`.
 - An Aiterm program missing on the terminal (exit 127) now ends as `REMOTE_AITERM_UNAVAILABLE` with an action (install Aiterm with its programs on the login PATH, or provision the terminal), instead of `COMMAND_FAILED`.
 
@@ -3267,7 +3269,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.16...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.17...HEAD
+[0.70.17]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.16...v0.70.17
 [0.70.16]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.15...v0.70.16
 [0.70.15]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.14...v0.70.15
 [0.70.14]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.13...v0.70.14

@@ -9,6 +9,7 @@ import {armAgentIdleClock,idleClockDeadline,AGENT_IDLE_ENABLED} from '../dist/ag
 import {readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {readProcessIdentities,readRuntimeProcesses,processSubtree,idleClockCommand} from '../dist/process-runtime.js';
 import {parseIdleArgs} from '../dist/agent-idle-cli.js';
+import {closeSessionResult} from '../dist/core.js';
 const base={outcome:'skipped',reason:'turn_running',anchor:null,due_at:null,stalled:false};
 const meta={aiterm_session:'clock-fixture',launch_id:'a'.repeat(32)};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -108,4 +109,16 @@ test('a short controller exits before its sleeper can belong to the managed call
  const rows=readRuntimeProcesses(true);assert.ok(rows.some(row=>row.pid===clock.owner.pid));
  assert.equal(rows.some(row=>row.pid===child.pid),false);
  assert.equal(processSubtree(rows,process.pid).some(row=>row.pid===clock.owner.pid),false);
+});
+
+test('closing a seat ends its sleep worker, not only its record',{timeout:15000},async t=>{
+ t.after(stopOwnClock);
+ assert.equal(await armAgentIdleClock(meta,'close',Date.now()+600000),'armed');
+ const {owner}=readAgentIdleClock(meta),alive=()=>readProcessIdentities([owner.pid]).some(row=>row.started_identity===owner.started_identity);
+ const group=()=>process.platform==='win32'?[]:readRuntimeProcesses(true).filter(row=>row.process_group_id===owner.pid);
+ assert.ok(alive());if(process.platform!=='win32')assert.ok(group().length>=2,'sh and its sleep share the worker group');
+ assert.equal(closeSessionResult(meta.aiterm_session).outcome,'already_closed');
+ assert.equal(readAgentIdleClock(meta),null);
+ for(let i=0;i<50&&(alive()||group().length);i++)await sleep(100);
+ assert.equal(alive(),false);assert.deepEqual(group(),[],'no orphaned sleep is left behind');
 });

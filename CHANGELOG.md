@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Closing a seat now also ends its idle-clock worker. `pty_close`, killing all sessions, and a fresh launch under the same name removed the clock record but left the waiting `sh`/`sleep` (PowerShell on Windows) running until its wake time, so a deleted member's `agent-idle-cli --session <name>` stayed visible on the host. Before the record is removed, the worker is ended when its PID and start time still match the record: on Linux and macOS its own process group (the shell, its sleep, and a checker that is just waking), on Windows its PowerShell. A process never ends its own clock. If the worker cannot be ended, it still exits at wake on the missing token, as before. Live seats are unchanged.
+
 ## [0.70.23] - 2026-11-11
 
 - A Claude seat that is signed out now reports failure category `authentication`. The real signed-out API error record of Claude Code 2.1.310/2.1.319 carries `error: "authentication_failed"` and no `apiErrorStatus`; that record, a 401, or (for a record with neither) the CLI's login line is now `authentication`, and the parent-delivery record accepts the value.

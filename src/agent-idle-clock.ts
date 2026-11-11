@@ -47,6 +47,15 @@ export function isAgentIdleClockOwner(clock: AgentIdleClock): boolean {
   return [process.pid, process.ppid].includes(clock.owner.pid) && readProcessIdentities([clock.owner.pid])
     .some(row => row.started_identity === clock.owner.started_identity);
 }
+/** A closed seat's sleep worker ends with it; the caller's own clock (its checker or that checker's sh) is left alone. */
+export function endAgentIdleClock(clock: AgentIdleClock): void {
+  const { pid, started_identity } = clock.owner;
+  if ([process.pid, process.ppid].includes(pid)
+    || !readProcessIdentities([pid]).some(row => row.started_identity === started_identity)) return;
+  // POSIX workers are spawned detached (setsid), so the owner leads a group holding its sleep and any waking checker.
+  const windows = process.platform === "win32";
+  signalRuntimeProcess({ pid, started_identity, process_group_id: pid, argv_digest: "" }, windows ? "SIGKILL" : "SIGTERM", !windows);
+}
 /** Called under the existing seat send lock; the record is not an independent admission. */
 export async function armAgentIdleClock(meta: AgentMetadata, anchor: string | null, wakeAt: number,
   replaceToken?: string): Promise<"armed" | "existing" | "superseded"> {

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude launch no longer refuses on an authentication pre-check. `claude auth status` read the computer's own login, while a seat may run on a credential passed only in its private environment (for example `CLAUDE_CODE_OAUTH_TOKEN`); with the computer's own login expired, seats that would run were refused as `AGENT_AUTH_REQUIRED`. A logged-out Claude now stops at its own login screen (`vendor_onboarding_required`, initial prompt not sent). Terminals on older versions still answer the old codes, and callers keep reading them.
+- A terminal's seat forward no longer waits up to 60 seconds when the key arrives just after a launch asked for it. The keeper started before the key gave up and exited, and a key that landed while it was still running started no new one; it now waits for the key and starts the forward when it lands.
+
 ## [0.70.21] - 2026-11-11
 
 - A terminal's seat MCP forward no longer goes down a few seconds after a launch. The `ssh -R` keeper ran inside the MCP process that handled the launch; BellTeam launches through a one-shot Aiterm, so the forward died when that process ended and stayed refused until another process's 60-second check (about 45 s in a lab run). A seat whose Claude was still connecting its MCP servers then, or that started in that window, lost its tools for good. The forward is now held by a detached keeper process (`aiterm-remote-terminal forward-keeper --ref R`) that lives while the forward is needed; MCP processes only start it when no live keeper holds the lock.

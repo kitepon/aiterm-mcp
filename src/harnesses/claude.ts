@@ -849,8 +849,11 @@ export function claudeApiErrorFromLine(line: string): ClaudeApiError | null {
   };
 }
 
-export function claudeFailureCategory(error: ClaudeApiError): "capacity" | "rate_limited" | "transient" | "other" {
+export function claudeFailureCategory(error: ClaudeApiError): "capacity" | "rate_limited" | "transient" | "authentication" | "other" {
   if (error.status === 429 || error.kind === "rate_limit" || /^You've (?:reached your [^.\r\n]{1,80} limit\.|hit your (?:[a-z0-9-]+ ){0,3}limit\b)/i.test(error.text)) return "rate_limited";
+  // The real record (2.1.310, 2.1.319): error "authentication_failed", no apiErrorStatus, "Login expired · Please run /login".
+  if (error.kind === "authentication_failed" || error.status === 401
+    || (error.kind === null && error.status === null && /Please run \/login|OAuth token (?:has been )?revoked|Invalid API key/i.test(error.text))) return "authentication";
   if (error.status === 529) return "capacity";
   return error.status !== null && error.status >= 500 ? "transient" : "other";
 }

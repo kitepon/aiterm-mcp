@@ -483,7 +483,7 @@ export interface AgentWaitObservation {
 }
 
 export interface AgentFailureObservation {
-  category: "capacity" | "rate_limited" | "transient" | "other";
+  category: "capacity" | "rate_limited" | "transient" | "authentication" | "other";
   execution: "not_started" | "started" | "unknown";
   boundary: { event_cursor: number; operation_id: string | null; turn_id: string | null; input_id?: string } | null;
   terminal: boolean;

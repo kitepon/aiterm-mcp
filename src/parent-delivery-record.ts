@@ -11,7 +11,7 @@ import { parentSourceSchema } from "./execution-parent-source.js";
 import { executionActorSchema } from "./execution-inventory.js";
 
 export const failureObservationSchema = z.object({
-  category: z.enum(["capacity", "rate_limited", "transient", "other"]),
+  category: z.enum(["capacity", "rate_limited", "transient", "authentication", "other"]),
   execution: z.enum(["not_started", "started", "unknown"]),
   boundary: z.object({ event_cursor: z.number().int().nonnegative(), operation_id: z.string().nullable(), turn_id: z.string().nullable(),
     input_id: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().nullable(),

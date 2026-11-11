@@ -128,7 +128,10 @@ test('official current-session registry binds the native PID birth and namespace
  const row={...expected,sessionId:expected.sessionId,version:'2.1.310',kind:'interactive'};
  assert.equal(claudeCurrentSessionOwner(row,expected),'match');
  assert.equal(claudeCurrentSessionOwner({...row,sessionId:'fedcba98-1234-4567-8123-0123456789ab'},expected),'mismatch');
- for(const fields of [{pid:124},{procStart:'457'},{pidDomain:'linux::pid:[100]'},{version:'future'},{kind:'print'}])assert.equal(claudeCurrentSessionOwner({...row,...fields},expected),'unavailable');
+ for(const fields of [{pid:124},{procStart:'457'},{pidDomain:'linux::pid:[100]'},{kind:'print'}])assert.equal(claudeCurrentSessionOwner({...row,...fields},expected),'unavailable');
+ assert.equal(claudeCurrentSessionOwner({...row,version:'2.1.322'},expected),'match');
+ for(const version of ['2.2.0','2.1.309','future'])assert.deepEqual(claudeCurrentSessionOwner({...row,version},expected),{unsupported:version});
+ assert.equal(claudeCurrentSessionOwner({...row,version:'2.2.0',pid:124},expected),'unavailable');
  assert.equal(claudeCurrentSessionOwner(null,expected),'unavailable');
 });
 test('shared OS birth identity keeps the runtime-store API and gives the same live Linux registration ticks',async t=>{
@@ -138,4 +141,20 @@ test('shared OS birth identity keeps the runtime-store API and gives the same li
  const {readLinuxProcessRegistrationIdentity}=await import('../dist/process-runtime.js');
  if(process.platform!=='linux'){assert.equal(readLinuxProcessRegistrationIdentity(process.pid),null);return;}
  const value=readLinuxProcessRegistrationIdentity(process.pid);assert.equal('linux:'+value.procStart,processStartIdentity(process.pid,'linux'));assert.match(value.pidDomain,/^linux::pid:\[\d+\]$/);assert.equal(readLinuxProcessRegistrationIdentity(-1),null);
+});
+
+test('measured Claude 2.1.322 goal dialog and attachments are read like 2.1.310',async()=>{
+ const fs=await import('node:fs');const dir=new URL('./fixtures/claude-goal-2.1.322/',import.meta.url);
+ const screen=name=>fs.readFileSync(new URL(name+'.screen',dir),'utf8');
+ const rows=fs.readFileSync(new URL('attachments.jsonl',dir),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+ const id=rows[0].sessionId;
+ assert.deepEqual(observeClaudeGoalDialog(screen('active'),rows.slice(0,1),id).current,{kind:'claude-code',phase:'active',native:{type:'goal_status',met:false,sentinel:true,condition:'Artificial condition'}});
+ const cleared=observeClaudeGoalDialog(screen('cleared'),rows,id);assert.equal(cleared.current,null);assert.equal(cleared.history.terminal,'cleared');
+ assert.equal(observeClaudeGoalDialog(screen('active'),rows.slice(0,1).map(row=>({...row,version:'2.2.0'})),id),null);
+});
+test('an unverified Claude version is unsupported with the version in the reason, not a read failure',async()=>{
+ const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');
+ const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};
+ const r=agentGoalWireResultSchema.parse(await manageClaudeAgentGoal({session_id:'a',launch_id:target.launch_id,action:'inspect'},{resolve:()=>target,read:async()=>{throw new AgentGoalNotIssuedError('claude_code_version_unverified:2.2.0','unsupported');}}));
+ assert.equal(r.availability,'unsupported');assert.equal(r.outcome,'unsupported');assert.equal(r.reason,'claude_code_version_unverified:2.2.0');assert.equal(r.readback,'not_attempted');assert.equal('goal' in r,false);
 });

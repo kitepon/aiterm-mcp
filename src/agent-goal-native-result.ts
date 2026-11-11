@@ -119,6 +119,7 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
     if(issued)return {...result,outcome:"outcome_unknown",mutation:"outcome_unknown",readback:"failed",reason:"native_goal_mutation_unconfirmed"};
     const reasons=new Set(["native_goal_status_input_unconfirmed","native_goal_fresh_dialog_unavailable","native_goal_dialog_changed","native_goal_binding_mismatch"]);
     const reason=error instanceof AgentGoalNotIssuedError?error.reason:error instanceof Error&&reasons.has(error.message)?error.message:"native_goal_fresh_status_unavailable";
+    if(error instanceof AgentGoalNotIssuedError&&error.outcome==="unsupported")return {...result,availability:"unsupported",outcome:"unsupported",reason};
     return {...result,reason,readback:"failed"};
   }
 }

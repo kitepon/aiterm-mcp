@@ -6433,8 +6433,8 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
         throw new ExecutionError("EXECUTION_STALE_GENERATION");
       const tty = paneTtyOf(input.session_id);
       const owner = target.native_process;
-      const rejectOwner = (reason="goal_input_owner_unavailable"): never => {
-        if (!inputStarted) throw new AgentGoalNotIssuedError(reason);
+      const rejectOwner = (reason="goal_input_owner_unavailable", outcome?: "unsupported"): never => {
+        if (!inputStarted) throw new AgentGoalNotIssuedError(reason, outcome);
         throw new Error("Goal input owner changed after input began");
       };
       if(target.harness==="claude-code"){
@@ -6447,6 +6447,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
           registration=JSON.parse(fs.readFileSync(file,"utf8"));
         }catch{rejectOwner("goal_native_session_unavailable");}
         const ownership=generation&&owner?claudeCurrentSessionOwner(registration,{pid:owner.pid,sessionId:target.vendor_session_id!,...generation}):"unavailable";
+        if(typeof ownership==="object")rejectOwner(`claude_code_version_unverified:${ownership.unsupported}`,"unsupported");
         if(ownership!=="match")rejectOwner(ownership==="mismatch"?"goal_native_session_mismatch":"goal_native_session_unavailable");
       }
       if(target.harness==='grok-cli'){

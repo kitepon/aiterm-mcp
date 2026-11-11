@@ -1,0 +1,2 @@
+{"type": "attachment", "uuid": "d72cbc63-1791-42b5-8635-d2a8684a97e7", "sessionId": "a93702df-3e35-401b-b46e-5dd48afcb3d2", "isSidechain": false, "version": "2.1.322", "attachment": {"type": "goal_status", "met": false, "sentinel": true, "condition": "Artificial condition"}}
+{"type": "attachment", "uuid": "44c19d5e-e0ff-4436-8d3c-5b4649def1e0", "sessionId": "a93702df-3e35-401b-b46e-5dd48afcb3d2", "isSidechain": false, "version": "2.1.322", "attachment": {"type": "goal_status", "met": true, "sentinel": true, "condition": "Artificial condition"}}

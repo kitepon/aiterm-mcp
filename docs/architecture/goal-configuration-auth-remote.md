@@ -10,12 +10,12 @@ goalの本文/予算/使用量/状態はvendor CLIだけが持つ。Aitermはgoa
 
 MCP `agent_goal` はremote wrapperの外にあるlocal toolである。変更originはmodel引数から選べず、trusted ingress callbackまたはbellteam clientの厳密なhost metadataからuserを決める。これは独立した認証ではなく、BellTeam側のOwner認証/seat ingress拒否を前提とする接点契約。inspect以外は通常のexecution contextも必要。outcome rejected/unknown/unavailable/unsupportedはMCP isError付きで返す。
 
-core.resolveはnative pane・process表と単一harness候補、同launchを再確認する。coreのgoalUiは毎作用のgeneration/vendor/PID/TTY/foreground/端末modeを確認し、Claude/Grokのnative登録も同じLinux process registrationへ束縛する。所有や版を確認できない場合はunavailableであり、別会話・新processからresumeして補わない。
+core.resolveはnative pane・process表と単一harness候補、同launchを再確認する。coreのgoalUiは毎作用のgeneration/vendor/PID/TTY/foreground/端末modeを確認し、Claude/Grokのnative登録も同じLinux process registrationへ束縛する。所有を確認できない場合はunavailableであり、別会話・新processからresumeして補わない。
 
 | harness | 現在の経路と能力 | 確認・失敗・後始末 |
 | --- | --- | --- |
 | Codex v1 | protected native App Server socket→loaded thread検証→既接続のgoal API。接続前のtopology失敗だけ通常App Serverの読取へ選び直す。接続後のactionを別transportへ再実行しない | ordinary経路ではbudget-onlyがAPI、objective/controlは当人CLIのTUI。createはobjectiveだけ、editのobjectiveとbudget同時変更はunsupported。各回canonical readback。Windows native socketはunsupportedで通常fallbackへ落とさない |
-| Claude v2 | 同sessionのfresh `/goal` dialog＋version2.1.310のnative transcript attachmentを照合。inspect/create/edit/clear、token budget・pause/resumeは未対応 | inspect自体がUIコマンド/認識済dialogのEscapeを使い送信排他に入る。literal objectiveはviewport/制御文字/空行/予約語を事前検証。clearの後は元conditionのcleared historyを確認。旧attachmentだけを現在値にしない |
+| Claude v2 | 同sessionのfresh `/goal` dialog＋native transcript attachmentを照合。受け入れる版は2.1.310以上の2.1系（実測2.1.310・2.1.322。`sessions/<pid>.json`・dialog・attachmentの版で判定）。それ以外の版は入力前に`availability:"unsupported"`、reason `claude_code_version_unverified:<版>`。inspect/create/edit/clear、token budget・pause/resumeは未対応 | inspect自体がUIコマンド/認識済dialogのEscapeを使い送信排他に入る。literal objectiveはviewport/制御文字/空行/予約語を事前検証。clearの後は元conditionのcleared historyを確認。旧attachmentだけを現在値にしない |
 | Grok v2 | 同sessionのfresh `/goal status` とupdates/state前後照合、または認識済Goal detailを開いて読む | inspectはUI作用と排他を持つ。clearはsaved user_pausedかつfresh UserPaused/Idle、直前state一致が必要。detailを閉じたことも確認。create/edit/pause/resumeは未対応。保存phaseと現在workerのphaseは別field |
 | Cursor/Antigravity | native goal adapter未実装 | unsupportedを返し、Aiterm独自goalへ代用しない |
 

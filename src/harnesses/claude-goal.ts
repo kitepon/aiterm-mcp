@@ -1,10 +1,17 @@
 // Claude owns goal state. A fresh local status command, never a historical
 // attachment alone, establishes current state for the bound native session.
 import { z } from "zod";
-const currentSessionSchema=z.object({pid:z.number().int().positive(),sessionId:z.string().uuid(),procStart:z.string().regex(/^\d+$/u),pidDomain:z.string(),version:z.literal("2.1.310"),kind:z.literal("interactive")});
-export function claudeCurrentSessionOwner(record:unknown,expected:{pid:number;sessionId:string;procStart:string;pidDomain:string}):"match"|"mismatch"|"unavailable" {
+// Measured /goal surface: 2.1.310 and 2.1.322 (dialog, attachment, sessions/<pid>.json).
+// Patch updates of the 2.1 line keep it; every step below still proves the screen and records.
+export function claudeGoalVersionSupported(version:unknown):boolean {
+  const patch=typeof version==="string"?/^2\.1\.(\d+)$/u.exec(version)?.[1]:undefined;
+  return patch!==undefined&&Number(patch)>=310;
+}
+const currentSessionSchema=z.object({pid:z.number().int().positive(),sessionId:z.string().uuid(),procStart:z.string().regex(/^\d+$/u),pidDomain:z.string(),version:z.string(),kind:z.literal("interactive")});
+export function claudeCurrentSessionOwner(record:unknown,expected:{pid:number;sessionId:string;procStart:string;pidDomain:string}):"match"|"mismatch"|"unavailable"|{unsupported:string} {
   const parsed=currentSessionSchema.safeParse(record);
   if(!parsed.success||parsed.data.pid!==expected.pid||parsed.data.procStart!==expected.procStart||parsed.data.pidDomain!==expected.pidDomain)return "unavailable";
+  if(!claudeGoalVersionSupported(parsed.data.version))return {unsupported:parsed.data.version};
   return parsed.data.sessionId===expected.sessionId?"match":"mismatch";
 }
 export const claudeNativeGoalStatusSchema = z.object({
@@ -27,7 +34,7 @@ export interface ClaudeGoalObservation {
   query_uuid: string; observed_at: string;
 }
 const querySchema = z.object({ uuid: z.string().min(1), timestamp: z.string().datetime(),
-  sessionId: z.string().min(1), isSidechain: z.literal(false), version: z.literal("2.1.310"),
+  sessionId: z.string().min(1), isSidechain: z.literal(false), version: z.string().refine(claudeGoalVersionSupported),
   type: z.literal("system"), subtype: z.literal("local_command"), content: z.string(),
   commandRun: z.object({ command: z.literal("goal"), args: z.literal("") }),
 });
@@ -117,8 +124,8 @@ export function claudeGoalComposerEmpty(screen: string): boolean {
 }
 export function observeClaudeGoalDialog(screen: string, rows: unknown[], sessionId: string): Pick<ClaudeGoalObservation,"current"|"history"> | null {
   const lines = plain(screen).split("\n").map(line => line.trim());
-  const knownVersion=lines.some(line=>/Claude Code v2\.1\.310(?:\s|$)/u.test(line))
-    || rows.some(value=>{const row=value as Record<string,any>;return row?.sessionId===sessionId&&row.isSidechain===false&&row.version==="2.1.310";});
+  const knownVersion=lines.some(line=>claudeGoalVersionSupported(/Claude Code v(\S+)(?:\s|$)/u.exec(line)?.[1]))
+    || rows.some(value=>{const row=value as Record<string,any>;return row?.sessionId===sessionId&&row.isSidechain===false&&claudeGoalVersionSupported(row.version);});
   if(!knownVersion)return null;
   let end = lines.length - 1;
   while (end >= 0 && lines[end] !== "Esc to dismiss" && lines[end] !== "/goal clear to stop early · Esc to dismiss") end--;
@@ -128,7 +135,7 @@ export function observeClaudeGoalDialog(screen: string, rows: unknown[], session
   for (const value of rows) {
     const row = value as Record<string, any>;
     if (row?.type !== "attachment" || row.attachment?.type !== "goal_status") continue;
-    if (row.sessionId !== sessionId || row.isSidechain !== false || row.version !== "2.1.310") throw new Error("native_goal_binding_mismatch");
+    if (row.sessionId !== sessionId || row.isSidechain !== false || !claudeGoalVersionSupported(row.version)) throw new Error("native_goal_binding_mismatch");
     const native = claudeNativeGoalStatusSchema.parse(row.attachment);
     if (native.met) { current=null;history={kind:"claude-code",terminal:native.sentinel?"cleared":"achieved",native}; }
     else current=native;

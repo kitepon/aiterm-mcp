@@ -44,7 +44,7 @@ import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
 import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgentActivity } from "./agent-activity.js";
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
-import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock } from "./agent-idle-clock.js";
+import { AGENT_IDLE_ENABLED, armAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
 import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -293,7 +293,7 @@ import {
 } from "./harnesses/cursor.js";
 import { interimFromNow, interimFromToken, readInterimWords, recordInterimBoundary } from "./interim-words.js";
 import type { InterimFrom, InterimWordsResult } from "./interim-words.js";
-import { codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
+import { codexSeatAwaitingRollout, codexSeatTurn, grokSteerAcceptance, observeSteerDone, readSteerEntry, recordSteer } from "./steer-follow.js";
 import type { SeatTurn } from "./steer-follow.js";
 import { resolveAgentBin, spawnAgentControlCommand, resolveThroughlineBin, runThroughlineHandoffContext, isUsableExecutableFile, isWindowsNativeExecutable, isUsableAgentExecutableFile, agentBinForPaneShell, resolveWinPaneShell, windowsAgentArgv, windowsAgentLaunchLine, windowsLaunchIndirection } from "./agent-resolver.js";
 export { AitermError } from "./errors.js";
@@ -2262,12 +2262,20 @@ export async function serviceAgentIdleClock(expectedInput: ExecutionLaunch, toke
 /** Only public list/launch entries sweep; internal observation must never recurse into an idle check. */
 export async function maintainAgentIdleClocks(): Promise<void> {
   if (!AGENT_IDLE_ENABLED) return;
+  // Only seats with a live terminal session: a hibernated, closed or dead seat retires its clock at once, so requesting
+  // one on every list started a checker process per such seat per call (2026-11-11: ~30 per pty_list on the BellTeam host).
+  const listed = tmux("list-sessions", "-F", "#{session_name}");
+  if (listed.code !== 0) return;
+  const live = new Set(listed.stdout.split(/\r?\n/).filter(Boolean));
+  const seats: { session: string; launchId: string }[] = [];
   for (const name of savedAgentSessionNames()) {
+    if (!live.has(name)) continue;
     try {
       const meta = loadAgentMetadata(name);
-      if (["claude", "codex"].includes(meta.kind)) requestAgentIdleClock(name, meta.launch_id);
+      if (["claude", "codex"].includes(meta.kind)) seats.push({ session: name, launchId: meta.launch_id });
     } catch { process.stderr.write("aiterm: idle_clock_sweep_unconfirmed\n"); }
   }
+  requestAgentIdleClocks(seats);
 }
 
 /** Private guarded-runtime read. Legacy metadata without an original native
@@ -4068,7 +4076,7 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
     try {
       const state = agentDormantState(meta);
       turn = state ? (state === "hibernated" && observeSession(name).state === "hibernated" ? { state: "idle" } : null)
-        : meta.kind === "codex" ? codexSeatTurn(meta) : readManagedSeatTurn(meta);
+        : meta.kind === "codex" ? codexSeatTurn(meta) ?? freshCodexSeatTurn(meta) : readManagedSeatTurn(meta);
     } catch { /* 読めない席は、分からないまま返す */ }
     if (turn === SPAN_HELD) { unread.push(name); continue; }
     if (meta.kind !== "codex") observedAt.set(name, performance.now());
@@ -4079,6 +4087,18 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
   for (const seat of seats) if (seat.harness !== "codex-cli"
     && performance.now() - observedAt.get(seat.session_id)! >= 15_000) seat.turn = null;
   return { schema: "aiterm.seat-turns.v1", seats, unread };
+}
+
+/**
+ * Codex writes no rollout before its first input, so codexSeatTurn has nothing to read for a fresh launch. A launch that
+ * never took input (Aiterm records every input it types) and whose pane is a ready composer has no turn to hide: idle,
+ * the rule the other harnesses got in 0.64.1 / 0.68.1. Any recorded input keeps the rollout as the only source.
+ */
+export function freshCodexSeatTurn(meta: AgentMetadata, paneState = () => observeSession(meta.aiterm_session).state): { state: "idle" } | null {
+  if (!codexSeatAwaitingRollout(meta)) return null;
+  const activity = readAgentActivity(meta);
+  if (!activity.tracked || activity.last_input_at !== null) return null;
+  return paneState() === "idle" ? { state: "idle" } : null;
 }
 
 function managedSeatConversation(meta: AgentMetadata): string | null {

@@ -907,6 +907,8 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
         loopDeadline(4_000, { seats: [] as any[], unread: bound }),
       ]);
     }));
+    // callRemoteTool spawns its ssh only after an await: let the relays start before this process blocks on the local read.
+    await new Promise(resolve => setImmediate(resolve));
     const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
     const remote = await relays;
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: [...local.unread, ...remote.flatMap(r => r.unread)] } } };

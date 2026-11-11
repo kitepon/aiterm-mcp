@@ -396,6 +396,25 @@ test("aiterm-wait: --steer を受け、--operation とは併用できない", ()
 
 // ---------------------------------------------------------------- 席の今の番
 
+test("起きたばかりのCodexの席: 記録がまだ無く、入力を一度も打っていない入力待ちの席は待機中。入力を打った後は記録だけを読む", async () => {
+  follow.__testResetSeatTurns();
+  const { freshCodexSeatTurn } = await import("../dist/core.js");
+  const { initializeAgentActivity, recordAgentInput } = await import("../dist/agent-activity.js");
+  const home = fs.mkdtempSync(path.join(process.env.TMPDIR, "codex-fresh-"));
+  const launch = launchId();
+  const meta = { kind: "codex", aiterm_session: `sf_codex_fresh_${serial}`, launch_id: launch, codex_home: home, hook_route: "shared_codex_home",
+    completion_route: "codex_transcript", created_at: new Date(Date.now() - 60_000).toISOString(), vendor_session_id: null };
+  fs.writeFileSync(agentMetadataPath(meta.aiterm_session, launch), "{}\n");
+  initializeAgentActivity(meta);
+  assert.equal(freshCodexSeatTurn(meta, () => "idle"), null, "codexSeatTurnがまだ記録を探していない");
+  assert.equal(follow.codexSeatTurn(meta), null, "Codexは最初の入力まで記録を書かない");
+  assert.deepEqual(freshCodexSeatTurn(meta, () => "idle"), { state: "idle" });
+  assert.equal(freshCodexSeatTurn(meta, () => "busy"), null, "入力待ちでない画面は決めない");
+  recordAgentInput(meta);
+  assert.equal(freshCodexSeatTurn(meta, () => "idle"), null, "入力を打った後は記録だけが答える");
+  assert.equal(freshCodexSeatTurn({ ...meta, vendor_session_id: "01a13576-15fd-7583-9c76-000000000000" }, () => "idle"), null);
+});
+
 test("席の今の番: 最後の境界が番の開始なら動いている。位置は開始の印の行の頭", async () => {
   follow.__testResetSeatTurns();
   const seat = codexSeat();

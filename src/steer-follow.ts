@@ -612,6 +612,11 @@ function codexSeatTranscript(meta: AgentMetadata): string | null {
  * （実物 2026-10-13: 最初の番の間も、終わった後も、会話のIDは席の登録に入っていなかった）。
  * harnessが落ちた席は、終わりの印が書かれないので、動いていると読んだままになる（呼び手は、席が閉じた事を待ちのclosedで知る）。
  */
+/** codexSeatTurn's last look found no rollout for this unbound launch (Codex writes none before the first input). */
+export function codexSeatAwaitingRollout(meta: AgentMetadata): boolean {
+  return meta.kind === "codex" && !meta.vendor_session_id && codexSeatUnresolved.get(meta.aiterm_session)?.key === `${meta.launch_id}:`;
+}
+
 export function codexSeatTurn(meta: AgentMetadata, now: number = performance.now()): SeatTurn | null {
   if (meta.kind !== "codex") return null;
   const key = `${meta.launch_id}:${meta.vendor_session_id ?? ""}`;

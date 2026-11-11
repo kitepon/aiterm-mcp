@@ -70,12 +70,25 @@ export async function armAgentIdleClock(meta: AgentMetadata, anchor: string | nu
   }
 }
 export function requestAgentIdleClock(session: string, launchId: string): void {
+  requestAgentIdleClocks([{ session, launchId }]);
+}
+/** Starts a checker for each seat whose clock owner is gone; every owner is confirmed with one process read. */
+export function requestAgentIdleClocks(seats: { session: string; launchId: string }[]): void {
   if (!AGENT_IDLE_ENABLED) return;
-  try {
-    if (!readAgentResumeNative({ aiterm_session: session, launch_id: launchId })) return;
-    const clock = readAgentIdleClock({ aiterm_session: session, launch_id: launchId });
-    if (clock && readProcessIdentities([clock.owner.pid]).some(row => row.started_identity === clock.owner.started_identity)) return;
-  } catch { process.stderr.write("aiterm: idle_clock_state_unconfirmed\n"); return; }
-  void detached(idleClockCommand(0, liveNodeExecutable(), [CLI, "--session", session, "--launch", launchId]))
-    .catch(() => { process.stderr.write("aiterm: idle_clock_start_failed\n"); });
+  const wanted: { session: string; launchId: string; clock: AgentIdleClock | null }[] = [];
+  for (const { session, launchId } of seats) {
+    try {
+      if (!readAgentResumeNative({ aiterm_session: session, launch_id: launchId })) continue;
+      wanted.push({ session, launchId, clock: readAgentIdleClock({ aiterm_session: session, launch_id: launchId }) });
+    } catch { process.stderr.write("aiterm: idle_clock_state_unconfirmed\n"); }
+  }
+  const owners = wanted.flatMap(seat => seat.clock ? [seat.clock.owner.pid] : []);
+  let alive: Set<string>;
+  try { alive = new Set(owners.length ? readProcessIdentities(owners).map(row => `${row.pid}:${row.started_identity}`) : []); }
+  catch { process.stderr.write("aiterm: idle_clock_state_unconfirmed\n"); return; }
+  for (const { session, launchId, clock } of wanted) {
+    if (clock && alive.has(`${clock.owner.pid}:${clock.owner.started_identity}`)) continue;
+    void detached(idleClockCommand(0, liveNodeExecutable(), [CLI, "--session", session, "--launch", launchId]))
+      .catch(() => { process.stderr.write("aiterm: idle_clock_start_failed\n"); });
+  }
 }

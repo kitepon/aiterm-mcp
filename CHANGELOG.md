@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.22] - 2026-11-11
+
 - A Claude launch no longer refuses on an authentication pre-check. `claude auth status` read the computer's own login, while a seat may run on a credential passed only in its private environment (for example `CLAUDE_CODE_OAUTH_TOKEN`); with the computer's own login expired, seats that would run were refused as `AGENT_AUTH_REQUIRED`. A logged-out Claude now stops at its own login screen (`vendor_onboarding_required`, initial prompt not sent). Terminals on older versions still answer the old codes, and callers keep reading them.
 - A terminal's seat forward no longer waits up to 60 seconds when the key arrives just after a launch asked for it. The keeper started before the key gave up and exited, and a key that landed while it was still running started no new one; it now waits for the key and starts the forward when it lands.
 
@@ -3290,7 +3292,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.22...HEAD
+[0.70.22]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.21...v0.70.22
 [0.70.21]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.20...v0.70.21
 [0.70.20]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.19...v0.70.20
 [0.70.19]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.18...v0.70.19

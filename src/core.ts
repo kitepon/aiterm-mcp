@@ -8245,7 +8245,9 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       // command through MSYS interactive select/console-master input handling.
       const paneShell = isWin ? "pwsh" : "bash";
       try {
-        [sid, hint] = openSession(opts.session_name ?? null, paneShell, envVars);
+        // env_vars values go only by the launch line's 0600 file: session -e would put them in the multiplexer's argv,
+        // which any process can list (psmux server on Windows, fox 2026-11-11).
+        [sid, hint] = openSession(opts.session_name ?? null, paneShell, []);
       } catch (error) {
         if (launchOperationId !== null && sessionExists(opts.session_name as string)) {
           requireMatchingClaudeLaunch(opts.session_name as string, launchOperationId, launchRequestDigest as string);

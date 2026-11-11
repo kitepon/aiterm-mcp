@@ -283,6 +283,17 @@ export function runThroughlineHandoffContext(
   });
 }
 
+/** The .exe an npm cmd-shim runs (`"%dp0%\\...\\x.exe"   %*`), when it exists; null for any other .cmd. */
+// shortcut: only exe targets; a node-script shim still goes through cmd.exe, upgrade when a harness ships one with multi-line argv.
+export function npmShimExecutable(shim: string): string | null {
+  let text: string;
+  try { text = fs.readFileSync(shim, "utf8"); } catch { return null; }
+  const match = /^"%dp0%\\([^"%\r\n]+\.exe)"\s+%\*\s*$/im.exec(text);
+  if (!match) return null;
+  const exe = path.join(path.dirname(shim), ...match[1].split("\\"));
+  return fs.existsSync(exe) ? exe : null;
+}
+
 /** Owned Windows agent launch: PowerShell uses argv, without interactive MSYS input. */
 export function windowsAgentLaunchLine(cwd: string | null, env: [string, string | null][], argv: string[],
   exited?: { file: string; launch_id: string }): string {
@@ -315,6 +326,9 @@ export function windowsLaunchIndirection(file: string): string {
  * separate Git Bash window whose process outlives the pane (fox, 2026-10-14).
  */
 export function windowsAgentArgv(argv: string[], scriptShell: () => string): string[] {
+  // cmd.exe ends %* at the first newline, so a multi-line --append-system-prompt dropped every later argument (fox 2026-11-11).
+  const npmExe = /\.cmd$/i.test(argv[0]) ? npmShimExecutable(argv[0]) : null;
+  if (npmExe) return [npmExe, ...argv.slice(1)];
   if (/\.(?:exe|com|cmd|bat|ps1)$/i.test(argv[0])) return argv;
   return [scriptShell(), argv[0].replace(/\\/g, "/"), ...argv.slice(1)];
 }

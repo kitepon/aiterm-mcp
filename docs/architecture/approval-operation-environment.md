@@ -23,7 +23,7 @@ markerはv1 operation相関とprivate frameのv2 anonymous boundaryを分ける�
 
 ## 環境と系譜
 
-`agentEnvEntries`がcallerの明示env継承と、kind/session/launch/vendor-session/role/parent/depth/lineage/delegation/state-baseの一覧を所有する。POSIX `agentEnvPrefix`とWindows `windowsAgentLaunchLine`は同一覧を別shellへ引用する。Grok専用auth/update環境はharness側の既存tokenを使う。通常HOMEとvendor設定/資格の所有はvendorのまま。環境値や本文を機能図の証拠へ出さない。
+`agentEnvEntries`がcallerの明示env継承と、kind/session/launch/vendor-session/role/parent/depth/lineage/delegation/state-baseの一覧を所有する。POSIX `agentEnvPrefix`とWindows `windowsAgentLaunchLine`は同一覧を別shellへ引用する。席のsession作成はenv_varsを受け取らず、値をmultiplexerのargvへ置かない（0.70.19）。Grok専用auth/update環境はharness側の既存tokenを使う。通常HOMEとvendor設定/資格の所有はvendorのまま。環境値や本文を機能図の証拠へ出さない。
 
 継承lineageの一項目でも存在すればnestedとして全項目を検証する。subagent/true、session名、数値depth、lineage形式と4096文字、depth上限を保持し、欠けた環境を新rootへ補完しない。初回のhost-root seed、子depth+1とlineage追記を区別する。
 

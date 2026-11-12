@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.38] - 2026-11-12
+
 - A Claude Code 2.1.322 seat on its first run (no `hasCompletedOnboarding`) is no longer reported `startup.ready` on the theme screen. 2.1.322 draws the theme choices without numbers (`❯ ✔ Dark mode`), and Aiterm read that row as the composer, so `agent_launch` returned ready within seconds and the prompt was never typed (BellTeam lab, Centi, 2026-11-12; 0.70.36 still did this). The theme screen is recognized again and answered with Enter as before; the next first-run screen (Security notes) then ends the launch with `AGENT_STARTUP_BLOCKED` (0.70.36). Measured on real Claude Code 2.1.322 with a fresh HOME.
 
 ## [0.70.37] - 2026-11-12
@@ -3366,7 +3368,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.37...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.38...HEAD
+[0.70.38]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.37...v0.70.38
 [0.70.37]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.36...v0.70.37
 [0.70.36]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...v0.70.36
 [0.70.35]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...v0.70.35

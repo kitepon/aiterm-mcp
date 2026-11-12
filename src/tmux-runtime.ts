@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import stringWidth from 'string-width';
 import { AitermError, ptyDependencyError } from "./errors.js";
+import { freshShared, spawnCollect } from "./spawn-collect.js";
 import { guardTmuxExecution, beforeExecutionEffect, hasExecutionCreationScope, prepareExecutionCreation, captureExecutionCreatedNative } from "./execution-effect.js";
 import { ExecutionError } from "./execution-wire.js";
 
@@ -487,6 +488,35 @@ function runTmux(
       || spawnSync(bin, argv, spawnOpts());
   }
   diagnosticSpawnFailure(r, deadline);
+  return finishTmux(r, args, observe);
+}
+
+/** A read-only tmux command (display-message and the like) that does not block the event loop. Same routing, guards and failures as tmux(). */
+export async function tmuxReadAsync(...input: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const args = nativeConditionalArgs(nativeSessionArgs(guardTmuxExecution(input)));
+  let bin: string, argv: string[];
+  if (isWin) { ensureWinPsmux(true); bin = psmuxBin(); argv = ["-L", WIN_NS, ...args]; }
+  else { bin = resolveTmux(true); argv = ["-S", SOCK, ...args]; }
+  const r = await spawnCollect(bin, argv, { env: tmuxSpawnEnv(), timeout: 60_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+  return finishTmux(r, args, true);
+}
+
+const listPanesShared = freshShared(() => tmuxReadAsync("list-panes", "-a", "-F", "#{session_name}\t#{window_active}\t#{pane_active}\t#{pane_pid}\t#{pane_dead}"));
+/**
+ * `display-message -p -t =<name>: "#{pane_pid}\t#{pane_dead}"` without blocking the event loop.
+ * Outside a native target frame on POSIX, the checks arriving together share one `list-panes -a` read (the session's active window and pane).
+ * A native target frame routes the session to its pinned pane, and psmux is not measured for `list-panes -a`: both keep the per-session read.
+ */
+export async function sessionPaneAsync(name: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  if (isWin || nativeTargets.getStore()) return tmuxReadAsync("display-message", "-p", "-t", `=${name}:`, "#{pane_pid}\t#{pane_dead}");
+  guardTmuxExecution(["list-panes", "-a"]);
+  const all = await listPanesShared();
+  if (all.code !== 0) return all;
+  const row = all.stdout.split("\n").map(line => line.split("\t")).find(fields => fields[0] === name && fields[1] === "1" && fields[2] === "1");
+  return row ? { code: 0, stdout: `${row[3]}\t${row[4]}\n`, stderr: "" } : { code: 1, stdout: "", stderr: `can't find session: ${name}` };
+}
+
+function finishTmux(r: SpawnSyncReturns<string>, args: string[], observe: boolean): { code: number; stdout: string; stderr: string } {
   // ENOBUFS（出力が 64MiB 超）を「code=1 の失敗」へ握り潰すと部分/空 stdout を正常扱いしてしまう。区別して投げる。
   // EXPECTED-FAILURE: 外部システム境界（tmux 出力過大）
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOBUFS") {

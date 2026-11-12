@@ -82,7 +82,7 @@ export class AgentGoalNotIssuedError extends Error {
 }
 export interface AgentGoalRuntime {
   // Both functions come from the serving runtime, never from tool arguments.
-  resolve(): GoalTarget | null;
+  resolve(): GoalTarget | null | Promise<GoalTarget | null>;
   connect<T>(target: GoalTarget, run: GoalConnectionRun<T>): Promise<T>;
   beforeMutation?(goal: NativeGoal | null): boolean;
 }
@@ -96,8 +96,8 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
     outcome: "unavailable", mutation: input.action === "inspect" ? "not_requested" : "not_issued",
     readback: "not_attempted", reason: "binding_unavailable", observed_at: new Date().toISOString() };
   let target: GoalTarget | null;
-  try { target = runtime.resolve(); } catch { return result; }
-  const same = () => sameGoalTarget(runtime.resolve(),target);
+  try { target = await runtime.resolve(); } catch { return result; }
+  const same = async () => sameGoalTarget(await runtime.resolve(),target);
   if (!target || target.session_id !== input.session_id || target.launch_id !== input.launch_id) return result;
   result.harness = target.harness;
   if (target.harness !== "codex-cli") return { ...result, availability: "unsupported", outcome: "unsupported", reason: "native_goal_adapter_not_implemented" };
@@ -113,9 +113,9 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
         if (value.goal && value.goal.threadId !== threadId) throw new Error("goal_thread_mismatch");
         return value.goal;
       };
-      if (!same()) return { ...result, reason: "generation_replaced" };
+      if (!(await same())) return { ...result, reason: "generation_replaced" };
       const before = await read();
-      if (!same()) return { ...result, reason: "generation_replaced" };
+      if (!(await same())) return { ...result, reason: "generation_replaced" };
       Object.assign(result, { availability: "available", capabilities: supported, goal: before,
         binding: { session_id: target.session_id, launch_id: target.launch_id, thread_id: threadId },
         readback: "confirmed", outcome: "observed", reason: "native_goal_observed" });
@@ -142,7 +142,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
       if (input.action === "resume" && before?.status !== "paused") return reject("resume_requires_paused_goal");
       if (input.action === "pause" && before?.status !== "active") return reject("pause_requires_active_goal");
       if (runtime.beforeMutation && !runtime.beforeMutation(before)) return reject("goal_changed_before_mutation");
-      if (!same()) return { ...result, availability: "unavailable", outcome: "unavailable", reason: "generation_replaced" };
+      if (!(await same())) return { ...result, availability: "unavailable", outcome: "unavailable", reason: "generation_replaced" };
       const method = input.action === "clear" ? "thread/goal/clear" : "thread/goal/set";
       const params: Record<string, unknown> = { threadId, origin };
       if (input.objective !== undefined) params.objective = input.objective;
@@ -161,7 +161,7 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
         // UI preparation may have taken time. Do not restore a stale snapshot.
         try {
           const current = await read();
-          if (!same()) throw new Error("generation_replaced");
+          if (!(await same())) throw new Error("generation_replaced");
           return { ...result, goal: current, outcome: error.outcome, readback: "confirmed", reason: error.reason };
         } catch {
           return { ...result, outcome: error.outcome, readback: "failed", reason: error.reason };
@@ -173,10 +173,10 @@ export async function manageAgentGoal(input: AgentGoalInput, runtime: AgentGoalR
         if (ack.goal.threadId !== threadId) throw new Error("goal_thread_mismatch");
       }
       result.mutation = "acknowledged";
-      if (!same()) return { ...result, outcome: "outcome_unknown", readback: "failed", reason: "generation_replaced_after_mutation" };
+      if (!(await same())) return { ...result, outcome: "outcome_unknown", readback: "failed", reason: "generation_replaced_after_mutation" };
       try {
         const after = await read();
-        if (!same()) return { ...result, outcome: "outcome_unknown", readback: "failed", reason: "generation_replaced_after_readback" };
+        if (!(await same())) return { ...result, outcome: "outcome_unknown", readback: "failed", reason: "generation_replaced_after_readback" };
         result.goal = after;
         const matches = input.action === "clear" ? after === null : after !== null
           && (input.objective === undefined || after.objective === input.objective)

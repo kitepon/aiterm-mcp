@@ -1,9 +1,10 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, parsePosixElapsed, processElapsedSeconds } from "../dist/process-runtime.js";
+import { parsePosixProcessTable, parseCpuTime, processSubtree, processIdentity, readRuntimeProcesses, readProcessIdentities, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, parsePosixElapsed, processElapsedSeconds, readRuntimeProcessesShared } from "../dist/process-runtime.js";
+import { spawnCollect } from "../dist/spawn-collect.js";
 
 test('only the exact native keep-awake child of the current harness is idle infrastructure',()=>{
  const harness={pid:10,started_identity:'2026-11-01T12:00:00Z'};
@@ -125,4 +126,31 @@ test("processの経過時間: 生きているprocessは経過を返し、終了�
   assert.equal(gone.status, 0);
   assert.equal(processElapsedSeconds(gone.pid), null);
   assert.throws(() => processElapsedSeconds(0), /pidが不正/);
+});
+
+test("the shared process table is shared only by calls made before its read started", async () => {
+  const first = readRuntimeProcessesShared();
+  // Started after the first read began: only a later read can see it.
+  const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},5000)"], { stdio: "ignore" });
+  try {
+    const second = readRuntimeProcessesShared(), third = readRuntimeProcessesShared();
+    const [a, b, c] = await Promise.all([first, second, third]);
+    assert.notEqual(a, b);
+    assert.equal(b, c);
+    assert.ok(b.some(row => row.pid === child.pid));
+    assert.ok(b.some(row => row.pid === process.pid));
+    const fourth = await readRuntimeProcessesShared();
+    assert.notEqual(fourth, b);
+  } finally { child.kill(); }
+});
+
+test("spawnCollect reports status, timeout and output limit in the spawnSync form", { skip: process.platform === "win32" }, async () => {
+  const ok = await spawnCollect(process.execPath, ["-e", "process.stdout.write('x');process.exit(3)"], { timeout: 10000, maxBuffer: 1024 });
+  assert.equal(ok.status, 3); assert.equal(ok.stdout, "x"); assert.equal(ok.error, undefined);
+  const slow = await spawnCollect(process.execPath, ["-e", "setTimeout(()=>{},10000)"], { timeout: 100, maxBuffer: 1024 });
+  assert.equal(slow.error?.code, "ETIMEDOUT"); assert.equal(slow.status, null);
+  const big = await spawnCollect(process.execPath, ["-e", "process.stdout.write('y'.repeat(4096))"], { timeout: 10000, maxBuffer: 16 });
+  assert.equal(big.error?.code, "ENOBUFS");
+  const missing = await spawnCollect("/nonexistent/aiterm-probe", [], { timeout: 1000, maxBuffer: 16 });
+  assert.equal(missing.error?.code, "ENOENT");
 });

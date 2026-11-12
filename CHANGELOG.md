@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Parallel `agent_goal` `inspect` calls no longer run one at a time or stall the server. Every binding check (`resolve`, run 2-4 times per call) ran `tmux display-message` and the full `ps` table with `spawnSync`, so N inspects arriving together ran serially and blocked the event loop, delivery to every seat included (Kiro, 2026-11-13: BellTeam `GET /api/goals` took 8-17 s with ~25 live seats). These checks now run asynchronously, and checks that arrive together share one `tmux list-panes -a` read and one process table read (`freshShared`: a check only receives a read that began after its call, so no generation check uses an older table). Measured on the BellTeam container's live state, 27 seats (21 Claude, 6 Codex), inspect only: all in parallel 3.5 s → 0.68 s, longest event-loop block 3.1 s → 0.2 s, results identical to 0.70.39 for every seat. The check right before an input effect (`goalUi`) stays synchronous; inside a native target frame and on Windows the pane is read per session (asynchronously).
+
 ## [0.70.39] - 2026-11-12
 
 - A Codex goal read or Codex parent delivery no longer times out while the App Server's answer is already waiting. When Aiterm's event loop was blocked past the request deadline (15 s by default), the timer fired before the answer was read and the read failed (`native_goal_connection_unavailable`; Kiro, 2026-11-12, body Aiterm blocked ~16 s by Claude goal reads, which 0.70.34 removed). The timer now waits one turn of the loop and fails only if the request is still pending. Same change in the bundled Steer 0.5.3.

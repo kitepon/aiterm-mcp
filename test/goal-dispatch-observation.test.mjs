@@ -12,8 +12,10 @@ test('goal resolve rejects stale metadata before sampling and still rejects a mi
 const fs=require('node:fs'),args=process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+'\\n');
 if(args.includes('-V'))console.log('tmux 3.6');
-if(args.includes('display-message')&&fs.existsSync(${JSON.stringify(path.join(root,'live'))}))console.log([${process.pid},'0'].join(String.fromCharCode(9)));
-if(args.includes('display-message')&&fs.existsSync(${JSON.stringify(path.join(root,'replace'))})){const file=fs.readFileSync(${JSON.stringify(path.join(root,'replace'))},'utf8');const meta=JSON.parse(fs.readFileSync(file,'utf8'));meta.launch_id='b'.repeat(32);fs.writeFileSync(file,JSON.stringify(meta));}
+const pane=args.includes('display-message')||args.includes('list-panes');
+if(args.includes('list-panes')&&fs.existsSync(${JSON.stringify(path.join(root,'live'))}))console.log(['other-seat','1','1','1','0'].join(String.fromCharCode(9))+String.fromCharCode(10)+['missing-goal-fixture','1','0','1','0'].join(String.fromCharCode(9))+String.fromCharCode(10)+['missing-goal-fixture','1','1',${process.pid},'0'].join(String.fromCharCode(9)));
+else if(args.includes('list-panes'))process.exit(1);
+if(pane&&fs.existsSync(${JSON.stringify(path.join(root,'replace'))})){const file=fs.readFileSync(${JSON.stringify(path.join(root,'replace'))},'utf8');const meta=JSON.parse(fs.readFileSync(file,'utf8'));meta.launch_id='b'.repeat(32);fs.writeFileSync(file,JSON.stringify(meta));}
 `,{mode:0o755});
   Object.assign(process.env,{HOME:root,TMPDIR:root,XDG_RUNTIME_DIR:root,AITERM_TMUX:bin});
   const {agentGoal}=await import('../dist/core.js');
@@ -37,8 +39,9 @@ if(args.includes('display-message')&&fs.existsSync(${JSON.stringify(path.join(ro
     assert.equal(absent.availability,'unavailable');
     assert.equal(absent.mutation,'not_requested');
     const rows=fs.readFileSync(calls,'utf8').trim().split('\n').map(x=>JSON.parse(x));
-    assert.equal(rows.filter(row=>row.includes('display-message')).length,2);
-    assert.ok(rows.every(row=>row.includes('-V')||row.includes('display-message')));
+    // Pane checks share one list-panes -a read per wave (sessionPaneAsync), outside a native target frame.
+    assert.equal(rows.filter(row=>row.includes('list-panes')).length,2);
+    assert.ok(rows.every(row=>row.includes('-V')||row.includes('list-panes')&&row.includes('-a')));
     const {writeAgentMetadata}=await import('../dist/agent-shared.js');
     const {readRuntimeProcesses}=await import('../dist/process-runtime.js');
     const self=readRuntimeProcesses().find(row=>row.pid===process.pid);
@@ -49,9 +52,8 @@ if(args.includes('display-message')&&fs.existsSync(${JSON.stringify(path.join(ro
     assert.equal(live.reason,'thread_binding_unavailable');
     assert.equal(live.mutation,'not_requested');
     const native=fs.readFileSync(calls,'utf8').trim().split('\n').map(x=>JSON.parse(x));
-    assert.equal(native.filter(row=>row.includes('display-message')).length,2);
-    assert.ok(native.every(row=>row.includes('display-message')));
-    assert.ok(native.every(row=>row.includes('='+meta.aiterm_session+':')));
+    assert.equal(native.filter(row=>row.includes('list-panes')).length,2);
+    assert.ok(native.every(row=>row.includes('list-panes')&&row.includes('-a')));
     const {agentMetadataPath}=await import('../dist/agent-shared.js');
     fs.writeFileSync(path.join(root,'replace'),agentMetadataPath(meta.aiterm_session,meta.launch_id));
     const replaced=await agentGoal({session_id:meta.aiterm_session,launch_id:meta.launch_id,action:'inspect'});

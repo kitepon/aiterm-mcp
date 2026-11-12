@@ -3,7 +3,7 @@ digraph configuration {
  node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12];
  edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
  goal [label="agent_goal: schema + trusted host origin\nexact session/launch + vendor binding\nCLI owns goal; no Aiterm goal loop"];
- target [label="Resolve fresh native process + TTY owner\nper-effect generation / home / session checks\nunsupported or unproven binding refuses"];
+ target [label="Resolve fresh native process + TTY owner\nper-effect generation / home / session checks\nunsupported or unproven binding refuses\nbinding checks: one shared async pane list + process table\nper wave (read started after every joined call)"];
  read [label="Codex: attached API or topology-only fallback\nClaude: session transcript goal_status rows\nGrok: saved goal/state.json\ninspect issues no UI and takes no lock\n(Grok clear: fresh status UI under send lock)"];
  mutate [label="Capability + field + origin + current-state guards\nAPI or exact native UI action once\nold snapshot removed before submission"];
  readback [label="Native read / mutation ack → canonical readback\nsame generation and expected fields required\nobserved / confirmed applied / unknown / not_issued"];

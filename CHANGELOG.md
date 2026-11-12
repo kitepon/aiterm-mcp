@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.33] - 2026-11-12
+
 - `agent_launch` with `fork_from` works on a closed main seat (ADR 0140). Closing a seat used to delete its launch record, so a fork of a Bot whose seat BellTeam had idle-closed was refused with `FORK_SOURCE_UNAVAILABLE` ("no managed seat of this harness") although the conversation was saved. Closing a Claude Code or Codex seat now leaves `<seat>.fork-source.json` in Aiterm's state (0600: kind, cwd, last conversation ID, Claude root or Codex rollout). The fork reads it and never wakes the main. The file is replaced at the next close of that name and removed after 30 days. A seat closed before this version has no such file. If the saved conversation is gone, the refusal is still `FORK_SOURCE_UNAVAILABLE`.
 - A local or `remote` `agent_launch` refusal now carries `_meta["aiterm/error_code"]` (for example `FORK_SOURCE_UNAVAILABLE`, `FORK_INVALID`, `READONLY_UNENFORCEABLE`), as terminal launches already did. The text is unchanged.
 
@@ -3340,7 +3342,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...HEAD
+[0.70.33]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...v0.70.33
 [0.70.32]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...v0.70.32
 [0.70.31]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...v0.70.31
 [0.70.30]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...v0.70.30

@@ -38,7 +38,7 @@ import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
 import {grokCurrentSessionOwner,readFreshGrokGoal,clearGrokGoal,grokGoalClearReady} from './harnesses/grok-goal.js';
 import {nativeGoalClickBytes} from './agent-goal-ui.js';
-import { readClaudeGoalDialog, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
+import { observeClaudeGoalRows, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
 import { withCodexGoal } from "./harnesses/codex-goal.js";
 import { configureWithPausedGoal } from "./configure-goal.js";
@@ -6564,17 +6564,24 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     canClear:target=>grokGoalClearReady(grokPort(target).ui),
     clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
   },origin));
-  if (harness === "claude-code") return withAgentSendLock(input.session_id, () => manageClaudeAgentGoal(input, {resolve,
-    read: target => readClaudeGoalDialog(target.vendor_session_id!, goalUi(target), () => {
-      const meta=tryLoadAgentMetadata(input.session_id);
-      if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
-      const file=claudeSessionTranscriptPath(meta);
-      if (!file || !fs.existsSync(file)) return [];
-      return readTranscriptLines(file).filter(line=>line.trim()).map(line=>JSON.parse(line));
-    }),
-    clear: target => clearClaudeGoal(goalUi(target)),
-    setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
-  }, origin));
+  if (harness === "claude-code") {
+    // Reading is the session transcript only: it writes nothing to the seat, so it needs no send lock,
+    // composer, turn state, TTY owner or version check. Only a mutation types into the composer.
+    const run = () => manageClaudeAgentGoal(input, {resolve,
+      read: async target => {
+        const meta=tryLoadAgentMetadata(input.session_id);
+        if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
+        const file=claudeSessionTranscriptPath(meta);
+        // No transcript yet (before the first turn) is a session without a goal. A half-written last line is skipped.
+        const rows=!file || !fs.existsSync(file) ? [] : readTranscriptLines(file).filter(line=>line.includes('"goal_status"'))
+          .flatMap(line=>{try{return [JSON.parse(line) as unknown];}catch{return [];}});
+        return observeClaudeGoalRows(rows,target.vendor_session_id!);
+      },
+      clear: target => clearClaudeGoal(goalUi(target)),
+      setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
+    }, origin);
+    return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
+  }
   const run = () => manageAgentGoal(input, { resolve,
     ...(expectedGoal ? { beforeMutation: (current: import("./agent-goal.js").NativeGoal | null) => JSON.stringify(current) === JSON.stringify(expectedGoal) } : {}),
     connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {

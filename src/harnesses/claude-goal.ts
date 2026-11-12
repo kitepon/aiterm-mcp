@@ -1,5 +1,6 @@
-// Claude owns goal state. A fresh local status command, never a historical
-// attachment alone, establishes current state for the bound native session.
+// Claude owns goal state and persists it as goal_status attachment rows in the session transcript.
+// It restores the goal from the last such row on resume and re-carries it across compaction
+// (2.1.322 lBn/sVo/uit), so reading that row is reading the current state. A read types nothing.
 import { z } from "zod";
 // Measured /goal surface: 2.1.310 and 2.1.322 (dialog, attachment, sessions/<pid>.json).
 // Patch updates of the 2.1 line keep it; every step below still proves the screen and records.
@@ -65,6 +66,25 @@ export function observeClaudeGoalStatus(rows: unknown[], nativeSessionId: string
   if (!active || active[2] !== current.reason || !Number.isSafeInteger(Number(active[1]))) throw new Error("native_goal_status_mismatch");
   return {...result,current:claudeCurrentGoalSchema.parse({kind:"claude-code",phase:"active",native:current,reported_turns:Number(active[1])})};
 }
+const goalRowSchema = claudeNativeGoalStatusSchema.extend({ failed: z.boolean().optional() }).strip();
+/** Current goal of the bound session from its own transcript rows. No UI, no composer, no lock. */
+export function observeClaudeGoalRows(rows: unknown[], sessionId: string): Pick<ClaudeGoalObservation,"current"|"history"> {
+  let current: z.infer<typeof claudeCurrentGoalSchema> | null = null, unknown = false;
+  let history: ClaudeGoalObservation["history"];
+  for (const value of rows) {
+    const row = value as Record<string, any>;
+    if (row?.type !== "attachment" || row.attachment?.type !== "goal_status" || row.sessionId !== sessionId || row.isSidechain !== false) continue;
+    const parsed = goalRowSchema.safeParse(row.attachment);
+    current = null; unknown = !parsed.success;
+    // An unknown row shape or a failed goal ends what was known; neither is an achieved/cleared history.
+    if (!parsed.success || parsed.data.failed) { history = undefined; continue; }
+    const { failed: _failed, ...native } = parsed.data;
+    if (native.met) history = { kind: "claude-code", terminal: native.sentinel ? "cleared" : "achieved", native };
+    else current = { kind: "claude-code", phase: "active", native: { ...native, met: false } };
+  }
+  if (unknown) throw new Error("native_status_format_unavailable");
+  return { current, ...(history ? { history } : {}) };
+}
 /** The port owns the original worker's TTY and a native transcript cursor.
  * A request is sent once. No old command can satisfy a new query. */
 export interface ClaudeGoalStatusPort {
@@ -127,40 +147,7 @@ export function claudeGoalComposer(screen: string): { text: string; columns: num
 export function claudeGoalComposerEmpty(screen: string): boolean {
   return claudeGoalComposer(screen)?.text==="";
 }
-export function observeClaudeGoalDialog(screen: string, rows: unknown[], sessionId: string): Pick<ClaudeGoalObservation,"current"|"history"> | null {
-  const lines = plain(screen).split("\n").map(line => line.trim());
-  const knownVersion=lines.some(line=>claudeGoalVersionSupported(/Claude Code v(\S+)(?:\s|$)/u.exec(line)?.[1]))
-    || rows.some(value=>{const row=value as Record<string,any>;return row?.sessionId===sessionId&&row.isSidechain===false&&claudeGoalVersionSupported(row.version);});
-  if(!knownVersion)return null;
-  let end = lines.length - 1;
-  while (end >= 0 && lines[end] !== "Esc to dismiss" && lines[end] !== "/goal clear to stop early · Esc to dismiss") end--;
-  if (end < 0 || lines.slice(end + 1).some(line => line !== "")) return null;
-  let current: z.infer<typeof claudeNativeGoalStatusSchema> | null = null;
-  let history: ClaudeGoalObservation["history"];
-  for (const value of rows) {
-    const row = value as Record<string, any>;
-    if (row?.type !== "attachment" || row.attachment?.type !== "goal_status") continue;
-    if (row.sessionId !== sessionId || row.isSidechain !== false || !claudeGoalVersionSupported(row.version)) throw new Error("native_goal_binding_mismatch");
-    const native = claudeNativeGoalStatusSchema.parse(row.attachment);
-    if (native.met) { current=null;history={kind:"claude-code",terminal:native.sentinel?"cleared":"achieved",native}; }
-    else current=native;
-  }
-  if (lines[end] === "Esc to dismiss" && lines.slice(end - 5,end).filter(Boolean).join("\n") === "Goal\nNo goal set\n/goal <condition> to set one")
-    return {current:null,...(history?{history}:{})};
-  if (!current || lines[end] !== "/goal clear to stop early · Esc to dismiss") return null;
-  let header = end - 1;
-  while (header >= 0 && lines[header] !== "◎ Goal active") header--;
-  if (header < 0) return null;
-  const body = lines.slice(header + 1,end).filter(Boolean);
-  // Wrapped/truncated conditions are not a canonical match. Keep the native
-  // original and refuse this viewport rather than inventing a normalized goal.
-  const conditionLines=current.condition.split("\n");
-  // Exact native newlines are supported; no guessed wrapping/whitespace.
-  if(conditionLines.some(line=>!line||line!==line.trim()))return null;
-  if (!/^running .+ · .+ tokens$/u.test(body[0]) || JSON.stringify(body.slice(1)) !== JSON.stringify(["Goal: "+conditionLines[0],...conditionLines.slice(1)])) return null;
-  return {current:{kind:"claude-code",phase:"active",native:{...current,met:false}},...(history?{history}:{})};
-}
-export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: "/goal" | `/goal ${string}`): Promise<void> {
+export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: `/goal ${string}`): Promise<void> {
   if (!claudeGoalComposerEmpty(ui.read())) throw new AgentGoalNotIssuedError("goal_input_not_empty_or_ready");
   await ui.paste(command);
   const now=ui.now??(()=>performance.now());
@@ -169,7 +156,16 @@ export async function submitClaudeGoalCommand(ui: GoalNativeUi, command: "/goal"
     if(claudeGoalComposer(ui.read())?.text===command){ready=true;break;}
     await ui.pause(40);
   } while(now()<until);
-  if(!ready)throw new Error("native_goal_status_input_unconfirmed");
+  if(!ready){
+    // A paste that renders late must not stay behind. Only text that is exactly ours is removed
+    // (one Backspace per code point; extra ones on an empty composer do nothing). Nothing was submitted.
+    const settle=async(done:()=>boolean)=>{for(const end=now()+1500;now()<end;await ui.pause(40))if(done())return true;return false;};
+    if(await settle(()=>claudeGoalComposer(ui.read())?.text===command)){
+      await ui.keys(Array.from(command,()=>"BSpace"));
+      if(await settle(()=>claudeGoalComposerEmpty(ui.read())))throw new AgentGoalNotIssuedError("native_goal_status_input_unconfirmed");
+    }
+    throw new Error("native_goal_status_input_unconfirmed");
+  }
   await ui.keys(["Enter"]);
 }
 /** A bounded, fully visible literal objective. Native wrapping and file
@@ -201,20 +197,4 @@ export async function clearClaudeGoal(ui: GoalNativeUi): Promise<void> {
     await ui.pause(40);
   }while(now()<until);
   throw new Error("native_goal_clear_command_unconfirmed");
-}
-export async function readClaudeGoalDialog(sessionId: string, ui: GoalNativeUi, readRows: () => unknown[]): Promise<Pick<ClaudeGoalObservation,"current"|"history">> {
-  await submitClaudeGoalCommand(ui,"/goal");
-  const now=ui.now??(()=>performance.now());
-  let until=now()+2000;
-  do {
-    const observation=observeClaudeGoalDialog(ui.read(),readRows(),sessionId);
-    if(observation){
-      // Dismiss only the same recognized native goal dialog, once.
-      if(!observeClaudeGoalDialog(ui.read(),readRows(),sessionId))throw new Error("native_goal_dialog_changed");
-      await ui.keys(["Escape"]);
-      return observation;
-    }
-    await ui.pause(40);
-  }while(now()<until);
-  throw new Error("native_goal_fresh_dialog_unavailable");
 }

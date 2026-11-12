@@ -4,7 +4,7 @@ digraph configuration {
  edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
  goal [label="agent_goal: schema + trusted host origin\nexact session/launch + vendor binding\nCLI owns goal; no Aiterm goal loop"];
  target [label="Resolve fresh native process + TTY owner\nper-effect generation / home / session checks\nunsupported or unproven binding refuses"];
- read [label="Codex: attached API or topology-only fallback\nClaude/Grok: same CLI status UI under send lock\ninspect may issue query UI, not goal mutation"];
+ read [label="Codex: attached API or topology-only fallback\nClaude: session transcript goal_status rows, no UI, no lock\nGrok: same CLI status UI under send lock\nonly Grok inspect issues query UI"];
  mutate [label="Capability + field + origin + current-state guards\nAPI or exact native UI action once\nold snapshot removed before submission"];
  readback [label="Native read / mutation ack → canonical readback\nsame generation and expected fields required\nobserved / confirmed applied / unknown / not_issued"];
  config [label="agent_configure: validate request + pin launch\nCodex active goal: inspect → pause owned goal\nwait record turn end + busy line gone, outside send lock\n(kept: orders the deferred setting before the goal's next turn)"];

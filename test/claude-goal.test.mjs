@@ -1,14 +1,12 @@
 import './seat-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observeClaudeGoalStatus,readFreshClaudeGoal,observeClaudeGoalDialog,claudeGoalComposerEmpty} from '../dist/harnesses/claude-goal.js';
+import {observeClaudeGoalStatus,readFreshClaudeGoal,observeClaudeGoalRows,submitClaudeGoalCommand,claudeGoalComposerEmpty} from '../dist/harnesses/claude-goal.js';
 import {manageClaudeAgentGoal,agentGoalWireResultSchema,agentGoalOutputSchema} from '../dist/agent-goal-native-result.js';
 const session='official-native-session';
 const native={type:'goal_status',condition:'Artificial condition',met:false,sentinel:true};
 const attachment=payload=>({type:'attachment',uuid:'event-native',attachment:payload,sessionId:session,isSidechain:false,version:'2.1.310'});
 const query=(content,rest={})=>({type:'system',subtype:'local_command',sessionId:session,isSidechain:false,uuid:'query-native',timestamp:'2026-10-25T10:00:00.000Z',version:'2.1.310',commandRun:{command:'goal',args:''},content:`<local-command-stdout>${content}</local-command-stdout>`,...rest});
-const empty='Claude Code v2.1.310\n\n   Goal\n\n   No goal set\n   /goal <condition> to set one\n\n   Esc to dismiss\n\n';
-const active='Claude Code v2.1.310\n\n   ◎ Goal active\n   running 1s · 0 tokens\n\n   Goal: Artificial condition\n\n   /goal clear to stop early · Esc to dismiss\n';
 test('fresh stream status preserves native fields without invented Codex usage',()=>{
  const r=observeClaudeGoalStatus([attachment(native),query('Goal active: Artificial condition (2 turns)')],session,'query-native');
  assert.equal(r.current.native.condition,native.condition);assert.equal(r.current.reported_turns,2);assert.equal('tokensUsed' in r.current.native,false);assert.equal('tokens' in r.current.native,false);
@@ -29,13 +27,43 @@ test('fresh stream read sends one query; old evidence, transcript replacement an
   await assert.rejects(readFreshClaudeGoal(session,{readRows:()=>calls&&mode==='replace'?[]:old,query:async()=>{calls++;},same:()=>!(calls&&mode==='generation'),pause:async()=>{ticks+=1000;},now:()=>ticks}));assert.equal(calls,1);
  }
 });
-test('native dialog requires exact current modal and matching root attachment; truncated conditions remain unavailable',()=>{
- assert.equal(observeClaudeGoalDialog(empty,[],session).current,null);
- assert.equal(observeClaudeGoalDialog(active,[attachment(native)],session).current.native.condition,native.condition);
- assert.equal(observeClaudeGoalDialog(active,[],session),null);
- assert.equal(observeClaudeGoalDialog(active.replace('Artificial condition','Artificial…'),[attachment(native)],session),null);
- assert.equal(observeClaudeGoalDialog(active+'❯ new draft',[attachment(native)],session),null);
- assert.throws(()=>observeClaudeGoalDialog(active,[{...attachment(native),sessionId:'other'}],session));
+test('inspect reads the last goal_status row of the bound session; no row is no goal',()=>{
+ const met={...native,met:true,sentinel:undefined,reason:'done',iterations:2,durationMs:10,tokens:5};
+ assert.deepEqual(observeClaudeGoalRows([],session),{current:null});
+ assert.deepEqual(observeClaudeGoalRows([{type:'user',sessionId:session},attachment(native)],session).current,{kind:'claude-code',phase:'active',native});
+ // A check that did not meet the goal keeps it active with its reason.
+ assert.equal(observeClaudeGoalRows([attachment(native),attachment({type:'goal_status',met:false,condition:native.condition,reason:'not yet'})],session).current.native.reason,'not yet');
+ const achieved=observeClaudeGoalRows([attachment(native),attachment(met)],session);assert.equal(achieved.current,null);assert.equal(achieved.history.terminal,'achieved');
+ const cleared=observeClaudeGoalRows([attachment(native),attachment({...native,met:true})],session);assert.equal(cleared.current,null);assert.equal(cleared.history.terminal,'cleared');
+ // A later goal is current and keeps the last terminal history.
+ const again=observeClaudeGoalRows([attachment(native),attachment(met),attachment({...native,condition:'Next'})],session);assert.equal(again.current.native.condition,'Next');assert.equal(again.history.terminal,'achieved');
+ // Rows of another session or a sidechain are not this session's state.
+ assert.deepEqual(observeClaudeGoalRows([{...attachment(native),sessionId:'other'},{...attachment(native),isSidechain:true}],session),{current:null});
+ // The Claude Code version of a row is not a condition of reading it; fields added later are dropped.
+ assert.equal(observeClaudeGoalRows([{...attachment({...native,added_later:1}),version:'2.2.0'}],session).current.native.condition,native.condition);
+});
+test('a goal Claude gave up on (failed) is over without an achieved or cleared history',()=>{
+ const r=observeClaudeGoalRows([attachment(native),attachment({type:'goal_status',met:false,failed:true,condition:native.condition,reason:'impossible',iterations:1,durationMs:1,tokens:1})],session);
+ assert.deepEqual(r,{current:null});
+});
+test('an unknown goal_status row shape is unavailable until the next known row',()=>{
+ const unknown=attachment({type:'goal_status',met:'maybe',condition:native.condition});
+ assert.throws(()=>observeClaudeGoalRows([attachment(native),unknown],session),/native_status_format_unavailable/u);
+ assert.equal(observeClaudeGoalRows([unknown,attachment(native)],session).current.native.condition,native.condition);
+});
+test('an unconfirmed paste that then shows exactly our command is removed and reported as not issued',async()=>{
+ const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');
+ const rule='─'.repeat(40),frame=text=>`${rule}\n❯ ${text}\n${rule}`;
+ for(const late of ['/goal clear','/goal clear/goal clear']){
+  let ticks=0,text='',keys=[];
+  const ui={read:()=>frame(text),paste:async()=>{},keys:async sent=>{keys.push(...sent);if(sent[0]==='BSpace')text='';},
+   pause:async ms=>{ticks+=ms;if(ticks>1600)text=text===''&&!keys.length?late:text;},now:()=>ticks};
+  const error=await submitClaudeGoalCommand(ui,'/goal clear').then(()=>null,e=>e);
+  // Ours alone is removed; text mixed with another writer's input is left as it is. Enter is never sent.
+  if(late==='/goal clear'){assert.ok(error instanceof AgentGoalNotIssuedError);assert.deepEqual(keys,Array(11).fill('BSpace'));assert.equal(text,'');}
+  else{assert.ok(!(error instanceof AgentGoalNotIssuedError));assert.deepEqual(keys,[]);assert.equal(text,late);}
+  assert.equal(error.message,'native_goal_status_input_unconfirmed');
+ }
 });
 test('dialog input requires a strictly empty native composer, preserving drafts and selection menus',()=>{
  assert.equal(claudeGoalComposerEmpty('────────────\n❯\n────────────'),true);
@@ -65,7 +93,7 @@ function clearRuntime(options={}) {
  const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};let currentTarget=target,reads=0,clears=0;
  const before={current:{kind:'claude-code',phase:'active',native}};
  const after={current:null,history:{kind:'claude-code',terminal:'cleared',native:{...native,met:true,sentinel:true}}};
- const runtime={resolve:()=>currentTarget,read:async()=>{reads++;if(reads===1)return before;if(options.readFails)throw Error('read disconnected');return options.after??after;},clear:async()=>{clears++;if(options.clearFails)throw Error('write disconnected');if(options.changed)currentTarget={...target,vendor_session_id:'other'};}};
+ const runtime={pause:async()=>{},resolve:()=>currentTarget,read:async()=>{reads++;if(reads===1)return before;if(options.readFails)throw Error('read disconnected');return options.after??after;},clear:async()=>{clears++;if(options.clearFails)throw Error('write disconnected');if(options.changed)currentTarget={...target,vendor_session_id:'other'};}};
  return {input:{session_id:'a',launch_id:target.launch_id,action:'clear'},runtime,counts:()=>({reads,clears})};
 }
 test('Owner clear requires the same live native binding and fresh empty plus matching cleared history',async()=>{
@@ -111,13 +139,11 @@ test('Windows slash menu below the bottom rule is not the composer',async()=>{
   '\x1b[0m  \x1b[0;38;5;246m \x1b[0m \x1b[0;38;5;246m/jev-bookmarks\x1b[0m              \x1b[0;38;5;246mOpen a bookmark\x1b[0m'].join('\n');
  assert.equal(claudeGoalComposer(screen).text,'/goal');
 });
-test('multiline native composer and goal dialog preserve exact newlines',async()=>{
+test('multiline native composer and goal rows preserve exact newlines',async()=>{
  const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
  const border='─'.repeat(80),condition='日本語🧪\n二行目';
  assert.equal(claudeGoalComposer(`${border}\n❯\u00a0/goal 日本語🧪\n  二行目\n${border}`).text,'/goal '+condition);
- const dialog=active.replace('Goal: Artificial condition','Goal: 日本語🧪\n         二行目');
- const r=observeClaudeGoalDialog(dialog,[attachment({...native,condition})],session);assert.equal(r.current.native.condition,condition);
- assert.equal(observeClaudeGoalDialog(dialog.replace('         二行目','         異なる行'),[attachment({...native,condition})],session),null);
+ assert.equal(observeClaudeGoalRows([attachment({...native,condition})],session).current.native.condition,condition);
 });
 test('unsupported native objective forms are refused before any paste',async()=>{
  const {validateClaudeGoalObjective}=await import('../dist/harnesses/claude-goal.js');
@@ -127,7 +153,7 @@ test('unsupported native objective forms are refused before any paste',async()=>
 });
 function objectiveRuntime(initial){
  const target={session_id:'a',launch_id:'a'.repeat(32),harness:'claude-code',vendor_session_id:session};let current=initial,calls=0;
- return {input:{session_id:'a',launch_id:target.launch_id},runtime:{resolve:()=>target,read:async()=>({current}),setObjective:async(_target,objective)=>{calls++;current={kind:'claude-code',phase:'active',native:{type:'goal_status',condition:objective,met:false,sentinel:true}};}},calls:()=>calls};
+ return {input:{session_id:'a',launch_id:target.launch_id},runtime:{pause:async()=>{},resolve:()=>target,read:async()=>({current}),setObjective:async(_target,objective)=>{calls++;current={kind:'claude-code',phase:'active',native:{type:'goal_status',condition:objective,met:false,sentinel:true}};}},calls:()=>calls};
 }
 test('create and objective edit share the native setter but enforce existence and per-field capability',async()=>{
  const f=objectiveRuntime(null);let r=await manageClaudeAgentGoal({...f.input,action:'edit',objective:'missing'},f.runtime,'user');assert.equal(r.reason,'goal_missing');assert.equal(f.calls(),0);
@@ -162,14 +188,12 @@ test('shared OS birth identity keeps the runtime-store API and gives the same li
  const value=readLinuxProcessRegistrationIdentity(process.pid);assert.equal('linux:'+value.procStart,processStartIdentity(process.pid,'linux'));assert.match(value.pidDomain,/^linux::pid:\[\d+\]$/);assert.equal(readLinuxProcessRegistrationIdentity(-1),null);
 });
 
-test('measured Claude 2.1.322 goal dialog and attachments are read like 2.1.310',async()=>{
+test('measured Claude 2.1.322 goal attachments (set, then clear) are read from the rows alone',async()=>{
  const fs=await import('node:fs');const dir=new URL('./fixtures/claude-goal-2.1.322/',import.meta.url);
- const screen=name=>fs.readFileSync(new URL(name+'.screen',dir),'utf8');
  const rows=fs.readFileSync(new URL('attachments.jsonl',dir),'utf8').trim().split('\n').map(line=>JSON.parse(line));
  const id=rows[0].sessionId;
- assert.deepEqual(observeClaudeGoalDialog(screen('active'),rows.slice(0,1),id).current,{kind:'claude-code',phase:'active',native:{type:'goal_status',met:false,sentinel:true,condition:'Artificial condition'}});
- const cleared=observeClaudeGoalDialog(screen('cleared'),rows,id);assert.equal(cleared.current,null);assert.equal(cleared.history.terminal,'cleared');
- assert.equal(observeClaudeGoalDialog(screen('active'),rows.slice(0,1).map(row=>({...row,version:'2.2.0'})),id),null);
+ assert.deepEqual(observeClaudeGoalRows(rows.slice(0,1),id).current,{kind:'claude-code',phase:'active',native:{type:'goal_status',met:false,sentinel:true,condition:'Artificial condition'}});
+ const cleared=observeClaudeGoalRows(rows,id);assert.equal(cleared.current,null);assert.equal(cleared.history.terminal,'cleared');
 });
 test('an unverified Claude version is unsupported with the version in the reason, not a read failure',async()=>{
  const {AgentGoalNotIssuedError}=await import('../dist/agent-goal.js');

@@ -92,6 +92,16 @@ test('native dim queued placeholder is empty while the same literal draft remain
  const draft=`${border}\n❯\u00a0\x1b[7mP\x1b[0m${text.slice(1)}\n${border}`;
  assert.equal(claudeGoalComposerEmpty(native),true);assert.equal(claudeGoalComposerEmpty(draft),false);assert.equal(claudeGoalComposer(draft).text,text);
 });
+test('native dim prompt suggestion of any text is empty; the pasted command replaces it',async()=>{
+ const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
+ // Measured on Claude Code 2.1.322 after a second turn (capture-pane -e -J).
+ const border='\x1b[38;5;244m'+'─'.repeat(80)+'\x1b[39m';
+ const suggestion=`${border}\n\x1b[39m❯\u00a0\x1b[2mrun the doctests\x1b[0m\n${border}`;
+ const pasted=`${border}\n\x1b[39m❯\u00a0\x1b[38;5;153m/goal\x1b[39m\n${border}`;
+ const typed=`${border}\n\x1b[39m❯\u00a0run the doctests\n${border}`;
+ assert.equal(claudeGoalComposerEmpty(suggestion),true);assert.equal(claudeGoalComposerEmpty(`${border}\n❯\u00a0\x1b[2mCIの結果を見ておいて\x1b[0m\n${border}`),true);
+ assert.equal(claudeGoalComposer(pasted).text,'/goal');assert.equal(claudeGoalComposerEmpty(typed),false);
+});
 test('multiline native composer and goal dialog preserve exact newlines',async()=>{
  const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
  const border='─'.repeat(80),condition='日本語🧪\n二行目';

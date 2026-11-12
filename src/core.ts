@@ -62,7 +62,7 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
-import { AitermError, launchAuthRequired, launchInputRefusal, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, launchAuthRequired, launchInputRefusal, launchStartupBlocked, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -5128,11 +5128,19 @@ export interface InitialAgentPromptResult {
 // 利用者が端末で済ませるしかない起動前の状態。reasonだけでは直し方が分からないので案内を添える。
 function startupBlockedHint(reason: string): string {
   if (reason === "vendor_onboarding_required") {
-    return "\nClaude Codeの初回案内（テーマ・ログイン方法の選択）か、利用規約の更新への回答が済んでいません。`claude auth status` がログイン済みでも、" +
+    return "\nClaude Codeの初回案内（テーマ・ログイン方法の選択・セキュリティの注意）か、利用規約の更新への回答が済んでいません。`claude auth status` がログイン済みでも、" +
       "済むまでは起動のたびにこの画面で止まります。規約への回答はアカウントの持ち主が選ぶもので、Aitermは答えません。" +
       "対象端末で一度 `claude` を起動し、画面の案内を最後まで進めてください。";
   }
   return "";
+}
+
+/** A fresh launch blocked before any prompt byte closes the seat it created and refuses (launch-identity-input.md).
+ * If the close fails, null: the caller keeps its refusal that leaves the seat. */
+function startupBlockedRefusal(name: string, kind: AgentKind, reason: string): AitermError | null {
+  try { closeSessionInternal(name, true); } catch { return null; }
+  return launchStartupBlocked(agentHarness(kind), reason, startupBlockedHint(reason).trim()
+    || `起動の途中の画面（${reason}）で止まりました。端末でそのAIを一度起動して画面を進めてから、起こし直してください。`);
 }
 
 function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, cursor: number | null): void {
@@ -5240,12 +5248,12 @@ async function sendInitialAgentPromptInLock(
   const startup = await prepareAgentInput(name, meta, o);
   if (startup.status !== "ready") {
     setInitialDelivery(meta, { status: "not_sent", reason: startup.reason, turn_started: false }, null);
-    throw new AitermError(
+    throw Object.assign(new AitermError(
       `initial_prompt=not_sent vendor=${meta.kind} ready=false harness=${agentHarness(meta.kind)}\n` +
         `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}` +
         startupBlockedHint(startup.reason),
       2,
-    );
+    ), { startupBlocked: startup.reason });
   }
   await o.after_ready?.(name, meta);
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : meta.kind === "antigravity" ? antigravityPromptWithCaller(meta, text) : text;
@@ -8894,7 +8902,7 @@ export async function openAgentWithInitialPrompt(
           { status: "blocked", reason: "startup_failed" },
         );
       }
-      if (startup.status !== "ready") throw new AgentLaunchPromptError(
+      if (startup.status !== "ready") throw startupBlockedRefusal(sid, kind, startup.reason) ?? new AgentLaunchPromptError(
         `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}${startupBlockedHint(startup.reason)}`,
         2, sid, delivery, null, startup,
       );
@@ -8916,6 +8924,12 @@ export async function openAgentWithInitialPrompt(
     const code = e instanceof AitermError ? e.code : 1;
     const message = e instanceof Error ? e.message : String(e);
     const meta = loadAgentMetadata(sid);
+    // Blocked before any prompt byte: nothing of the caller's reached the seat, so the seat is closed and the launch refused.
+    const blocked = (e as { startupBlocked?: string }).startupBlocked;
+    if (blocked && meta.initial_prompt_delivery?.status === "not_sent") {
+      const refusal = startupBlockedRefusal(sid, kind, blocked);
+      if (refusal) throw refusal;
+    }
     throw new AgentLaunchPromptError(
       `session_id: ${sid}\n` +
         `起動後の初回 prompt 処理で失敗しました。session は調査/復旧用に残しています。\n${message}`,

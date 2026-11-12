@@ -22,7 +22,7 @@ export class AitermError extends Error {
   /** Native setup failed and a complete listing then showed this session name absent (tmux-runtime). */
   nativeSessionAbsent?: string;
   /** remote-terminal.md R18: a fresh launch that left no seat. */
-  launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" };
+  launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED"; action?: string };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;
@@ -33,6 +33,13 @@ export class AitermError extends Error {
 export function launchInputRefusal(harness: string, reason: string): AitermError {
   const error = new AitermError(`AGENT_LAUNCH_NOT_STARTED: ${reason}`, 2);
   error.launchNotStarted = { harness, phase: "input" };
+  return error;
+}
+
+/** The launch stopped on a startup screen Aiterm does not answer and closed the seat it created (R18, AGENT_STARTUP_BLOCKED). */
+export function launchStartupBlocked(harness: string, reason: string, action: string): AitermError {
+  const error = new AitermError(`AGENT_STARTUP_BLOCKED: 起動の途中の画面で止まったため、作った席を閉じました。席は残っていません。reason=${reason}\n${action}`, 2);
+  error.launchNotStarted = { harness, phase: "input", code: "AGENT_STARTUP_BLOCKED", action };
   return error;
 }
 

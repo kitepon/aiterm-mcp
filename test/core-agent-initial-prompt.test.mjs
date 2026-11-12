@@ -29,32 +29,24 @@ import {
 // （旧 "openAgentWithInitialPrompt: wait agent_done は prompt と agent_done:true を必須にする" は
 // 概念ごと消滅したため削除）。
 
-test("openAgentWithInitialPrompt: TUI ready 失敗は明示エラーにし prompt を送らず session を残す", { skip: skipAgentDone }, async () => {
+// 0.70.36 (Kiro a15): a launch whose seat is not ready before any prompt byte closes that seat and refuses
+// (AGENT_STARTUP_BLOCKED, R18). It never leaves a seat the caller would wait on.
+test("openAgentWithInitialPrompt: TUI ready 失敗はpromptを送らず、作った席を閉じてAGENT_STARTUP_BLOCKEDで断る", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
-    let sid = null;
+    const sid = `initial_unready_${Date.now().toString(36)}`;
     try {
       await assert.rejects(
-        core.openAgentWithInitialPrompt("codex", {
-          prompt: "Reply READY.",
-          agent_done: true,
-          ready_timeout: 0,
-        }),
+        core.openAgentWithInitialPrompt("codex", { session_name: sid, prompt: "Reply READY.", agent_done: true, ready_timeout: 0 }),
         (e) => {
-          assert.equal(e.initial_prompt.status, "not_sent");
-          assert.equal(e.initial_prompt.turn_started, false);
-          assert.equal(typeof e.session_id, "string");
-          assert.match(e.message, /initial_prompt=not_sent/, `ready failure error: ${e.message}`);
-          assert.match(e.message, /session は調査\/復旧用に残しています/, `session保全の明示: ${e.message}`);
-          sid = e.message.match(/session_id: (\S+)/)?.[1] ?? null;
+          assert.match(e.message, /^AGENT_STARTUP_BLOCKED: .*reason=/u, `ready failure error: ${e.message}`);
+          assert.equal(e.launchNotStarted.code, "AGENT_STARTUP_BLOCKED");
+          assert.equal(e.launchNotStarted.harness, "codex-cli");
           return true;
         },
       );
-      assert.ok(sid, "エラーメッセージに session_id を含める");
-      assert.match(core.listSessions(), new RegExp(`(^|\\n)${sid}\\t`), "session は調査用に残す");
-      const meta = readAgentMeta(sid);
-      assert.equal(meta.initial_prompt, "not_sent");
+      assert.ok(!core.listSessionsResult().sessions.some((row) => row.session_id === sid), "the seat it created is closed");
     } finally {
-      if (sid) core.closeSession(sid);
+      try { core.closeSession(sid); } catch {}
     }
   });
 });
@@ -88,6 +80,7 @@ for (const dropFirstDown of [false, true]) test(`openAgentWithInitialPrompt: Cla
     if (savedBin === undefined) delete process.env.CLAUDE_BIN;
     else process.env.CLAUDE_BIN = savedBin;
     fs.rmSync(fakeBin, { force: true });
+    fs.rmSync(`${fakeBin}.prompts`, { force: true });
   }
 });
 
@@ -104,7 +97,7 @@ function makeFakeClaudeOnboardingTuiBin() {
       "printf '%s\\n' 'Welcome to Claude Code v2.1.282' 'Choose the text style that looks best with your terminal' '  1. Auto (match terminal)' '❯ 2. Dark mode ✔' '  3. Light mode'",
       "IFS= read -r theme_response",
       "printf '%s\\n' 'Select login method:' ' ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise' '   2. Anthropic Console account · API usage billing' '   3. 3rd-party platform · Amazon Bedrock, Microsoft Foundry, or Vertex AI'",
-      "while IFS= read -r line; do printf 'PROMPT:%s\\n' \"$line\"; done",
+      "while IFS= read -r line; do printf 'PROMPT:%s\\n' \"$line\" >> \"$0.prompts\"; printf 'PROMPT:%s\\n' \"$line\"; done",
       "",
     ].join("\n"),
     { mode: 0o700 },
@@ -125,14 +118,17 @@ test("openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeout
     await assert.rejects(
       core.openAgentWithInitialPrompt("claude", { session_name: sid, prompt: marker, ready_timeout: 20_000 }),
       (error) => {
-        assert.equal(error.initial_prompt.reason, "vendor_onboarding_required");
+        // 0.70.36: blocked before any prompt byte -> the launch closes its seat and refuses (R18 AGENT_STARTUP_BLOCKED).
+        assert.match(error.message, /^AGENT_STARTUP_BLOCKED: .*reason=vendor_onboarding_required/u);
         assert.match(error.message, /初回案内/);
+        assert.deepEqual({ ...error.launchNotStarted, action: typeof error.launchNotStarted.action },
+          { harness: "claude-code", phase: "input", code: "AGENT_STARTUP_BLOCKED", action: "string" });
         return true;
       },
     );
     assert.ok(performance.now() - started < 15_000, "ready timeoutまで待たない");
-    const screen = await core.readOutput(sid, { screen: true, raw: true });
-    assert.doesNotMatch(screen, new RegExp(marker), "ログイン方法の選択へpromptを送らない");
+    assert.ok(!fs.existsSync(`${fakeBin}.prompts`) || !fs.readFileSync(`${fakeBin}.prompts`, "utf8").includes(marker), "ログイン方法の選択へpromptを送らない");
+    assert.ok(!core.listSessionsResult().sessions.some((row) => row.session_id === sid), "the seat it created is closed");
   } finally {
     try { core.closeSession(sid); } catch {}
     if (savedBin === undefined) delete process.env.CLAUDE_BIN;
@@ -194,15 +190,14 @@ test("openAgentWithInitialPrompt: 終了したharnessの残画面へpromptを送
   try {
     await withFakeCodexHome(async () => {
       await assert.rejects(core.openAgentWithInitialPrompt("codex", { session_name: sid, prompt: "SHOULD_NOT_REACH_SHELL" }), error => {
-        assert.equal(error.initial_prompt.status, "not_sent");
-        assert.equal(error.initial_prompt.reason, "harness_exited");
+        // The prompt is never typed into the leftover shell; the seat is closed and the launch refused (0.70.36).
+        assert.match(error.message, /^AGENT_STARTUP_BLOCKED: .*reason=harness_exited/u);
         return true;
       });
-      const output = await core.readOutput(sid, { screen: true, raw: true });
-      assert.ok(!output.includes("SHOULD_NOT_REACH_SHELL"));
+      assert.ok(!core.listSessionsResult().sessions.some((row) => row.session_id === sid), "the seat it created is closed");
     });
   } finally {
-    core.closeSession(sid);
+    try { core.closeSession(sid); } catch {}
     if (savedBin === undefined) delete process.env.CODEX_BIN;
     else process.env.CODEX_BIN = savedBin;
     fs.rmSync(fakeBin, { force: true });

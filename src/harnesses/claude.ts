@@ -459,7 +459,8 @@ export function claudeTuiReady(screen: string): boolean {
   // Claude Code 2.1.251 のworkspace trust UIも選択カーソルに❯を使う。
   // 最後のmarker行だけを見ることで、古いtrust表示がscrollbackに残っていても
   // その下に描画された現在のcomposerを優先する。
-  return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b)/iu.test(lastMarker);
+  // A dialog draws its choices with the same ❯ (the Bypass Permissions warning's "❯ Yes, I accept" has no index).
+  return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b|Yes,\s*I accept\b)/iu.test(lastMarker);
 }
 
 // Claude Codeは動いている間、入力欄の上へ進行行を出し続ける（2.1.291の実画面 2026-10-06）。

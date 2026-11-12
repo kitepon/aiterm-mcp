@@ -242,6 +242,19 @@ test("agent_done ready gate: 非対話型のCodex更新通知は入力待ちを�
   assert.equal(result.ready, true);
 });
 
+test("agent_done ready gate: the Bypass Permissions accept row is not the composer (Claude 2.1.322 draws it without an index)", () => {
+  const bypass = (selected) => [
+    "WARNING: Claude Code running in Bypass Permissions mode",
+    "In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.",
+    "By proceeding, you accept all responsibility for actions taken while running in Bypass Permissions mode.",
+    selected === "no" ? "❯ No, exit" : "  No, exit",
+    selected === "yes" ? "❯ Yes, I accept" : "  Yes, I accept",
+  ].join("\n");
+  for (const selected of ["no", "yes"]) {
+    assert.equal(core.__testIsAgentTuiReady("claude", bypass(selected)), false, selected);
+    assert.equal(core.__testIsAgentTuiIdleReady("claude", bypass(selected)), false, selected);
+  }
+});
 test("agent_done ready gate: Claude workspace trustの選択カーソルをcomposerと誤認しない", async () => {
   const trustScreen = [
     "Claude Code v2.1.251",

@@ -50,10 +50,12 @@ export async function withCodexRelay<T>(socketPath: string, action: (request: Re
     if (failure || socket.readyState !== WebSocket.OPEN) { reject(new CodexDeliveryError("CODEX_RELAY_UNAVAILABLE", failure ?? "接続が開いていません")); return; }
     const id = ++sequence;
     const writing = method === "turn/start";
-    const timer = setTimeout(() => {
+    // A loop blocked past the deadline fires this timer before reading an answer already received (Steer 0.5.3 does the same).
+    const timer = setTimeout(() => setImmediate(() => {
+      if (!pending.has(id)) return;
       pending.delete(id);
       reject(new CodexDeliveryError("CODEX_RECEIVER_TIMEOUT", `${method}の応答を確認できません`, writing));
-    }, timeout);
+    }), timeout);
     pending.set(id, { resolve, reject, timer, writing });
     socket.send(JSON.stringify({ id, method, params }), error => { if (error) fail("公式App Serverへの送信に失敗しました"); });
   });

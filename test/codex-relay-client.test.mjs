@@ -22,7 +22,11 @@ async function receiver(t, mode = 'normal') {
     if (!call.id) return;
     const send = result => client.send(JSON.stringify({ id: call.id, result }));
     if (call.method === 'initialize') send({ userAgent: 'fixture' });
-    else if (call.method === 'thread/loaded/list') send({ data: mode === 'unloaded' ? [] : [parent.thread_id], nextCursor: null });
+    else if (call.method === 'thread/loaded/list') {
+      send({ data: mode === 'unloaded' ? [] : [parent.thread_id], nextCursor: null });
+      // The answer is on its way; then this process blocks past the 150 ms deadline before it can read it.
+      if (mode === 'blocked') setImmediate(() => { const until = Date.now() + 400; while (Date.now() < until) { /* blocked */ } });
+    }
     else if (call.method === 'thread/read') send({ thread: { id: parent.thread_id, source: mode === 'native' ? { subAgent: { thread_spawn: {} } } : 'vscode' } });
     else if (call.method === 'turn/start') {
       if (mode === 'timeout') return;
@@ -78,4 +82,11 @@ test('socketのRPCが通ってもDesktopの公式子processでなければready�
   const fixture = await receiver(t);
   assert.equal(await liveRelay({ socket_root: fixture.root, binary: '/Applications/Codex.app/Contents/Resources/codex' }), false);
   assert.equal(fixture.requests.length, 0);
+});
+
+// Kiro 2026-11-12: a blocked event loop fired the request timer before the answer already received was read.
+test('a request whose answer arrived while the loop was blocked past the deadline still succeeds', async t => {
+  const fixture = await receiver(t, 'blocked');
+  await verifyCodexParent(parent, fixture.runtime);
+  assert.ok(fixture.requests.some(call => call.method === 'thread/loaded/list'));
 });

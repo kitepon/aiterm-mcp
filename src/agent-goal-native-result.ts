@@ -74,6 +74,7 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
   read(target: GoalTarget): Promise<Pick<ClaudeGoalObservation,"current"|"history">>;
   clear?(target: GoalTarget): Promise<void>;
   setObjective?(target: GoalTarget,objective:string): Promise<void>;
+  pause?(ms: number): Promise<void>;
 }, origin: "user"|"automatic"="automatic"): Promise<z.infer<typeof agentGoalNativeResultSchema>> {
   input=agentGoalInputSchema.parse(input);
   const result:z.infer<typeof agentGoalNativeResultSchema>={schema:"aiterm.agent-goal-result.v2",session_id:input.session_id,launch_id:input.launch_id,harness:"claude-code",binding:null,
@@ -110,14 +111,18 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
       }catch{return {...result,outcome:error.outcome,mutation:"not_issued",readback:"failed",reason:error.reason};}
     }
     if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_mutation");
-    const after=await runtime.read(target);
+    const matched=(after:Pick<ClaudeGoalObservation,"current"|"history">)=>input.action==="clear" ? after.current===null && (observed.current===null || (after.history?.terminal==="cleared"&&after.history.native.condition===observed.current.native.condition)) : after.current?.phase==="active" && after.current.native.condition===input.objective;
+    // Claude appends the new goal_status row shortly after it takes the command.
+    const pause=runtime.pause??((ms:number)=>new Promise<void>(done=>setTimeout(done,ms)));
+    let after=await runtime.read(target);
+    for(let polls=0;polls<40&&!matched(after);polls++){await pause(50);after=await runtime.read(target);}
     if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_readback");
-    const matches=input.action==="clear" ? after.current===null && (observed.current===null || (after.history?.terminal==="cleared"&&after.history.native.condition===observed.current.native.condition)) : after.current?.phase==="active" && after.current.native.condition===input.objective;
+    const matches=matched(after);
     return agentGoalNativeResultSchema.parse({...result,...snapshot(after),mutation:matches?"acknowledged":"outcome_unknown",outcome:matches?"applied":"outcome_unknown",readback:matches?"confirmed":"mismatch",reason:matches?"native_goal_readback_confirmed":"native_goal_changed_before_readback",observed_at:new Date().toISOString()});
 
   }catch(error){
     if(issued)return {...result,outcome:"outcome_unknown",mutation:"outcome_unknown",readback:"failed",reason:"native_goal_mutation_unconfirmed"};
-    const reasons=new Set(["native_goal_status_input_unconfirmed","native_goal_fresh_dialog_unavailable","native_goal_dialog_changed","native_goal_binding_mismatch"]);
+    const reasons=new Set(["native_goal_status_input_unconfirmed","native_status_format_unavailable"]);
     const reason=error instanceof AgentGoalNotIssuedError?error.reason:error instanceof Error&&reasons.has(error.message)?error.message:"native_goal_fresh_status_unavailable";
     if(error instanceof AgentGoalNotIssuedError&&error.outcome==="unsupported")return {...result,availability:"unsupported",outcome:"unsupported",reason};
     return {...result,reason,readback:"failed"};

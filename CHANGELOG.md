@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.31] - 2026-11-12
+
 - `agent_goal` on a Claude Code seat running on macOS or Windows no longer answers `goal_native_session_unavailable` every time. The goal check binds to Claude's own `sessions/<pid>.json`, and Aiterm could compute that record's process birth only on Linux. Measured on 2.1.322: macOS writes `procStart` as `LC_ALL=C TZ=UTC ps -o lstart=` with `pidDomain` `darwin`; Windows writes the process creation FILETIME with `pidDomain` `win32:<lower-case hostname>`. Aiterm now computes both. The exact birth is read once per goal operation, because every check already re-proves the same process. Windows has no terminal foreground group, so for Claude the pane's single harness process is the input owner there; the macOS and Linux terminal checks are unchanged.
 
 ## [0.70.30] - 2026-11-12
@@ -3331,7 +3333,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...HEAD
+[0.70.31]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...v0.70.31
 [0.70.30]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...v0.70.30
 [0.70.29]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.28...v0.70.29
 [0.70.28]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.27...v0.70.28

@@ -460,7 +460,8 @@ export function claudeTuiReady(screen: string): boolean {
   // 最後のmarker行だけを見ることで、古いtrust表示がscrollbackに残っていても
   // その下に描画された現在のcomposerを優先する。
   // A dialog draws its choices with the same ❯ (the Bypass Permissions warning's "❯ Yes, I accept" has no index).
-  return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b|Yes,\s*I accept\b)/iu.test(lastMarker);
+  return !/^❯\s*(?:\d+\.|\[|Enable selected\b|No,\s*exit\b|Yes,\s*I trust this folder\b|Yes,\s*I accept\b)/iu.test(lastMarker)
+    && !CLAUDE_THEME_CHOICE_RE.test(lastMarker);
 }
 
 // Claude Codeは動いている間、入力欄の上へ進行行を出し続ける（2.1.291の実画面 2026-10-06）。
@@ -718,11 +719,14 @@ export function claudeLoginMethodMenu(screen: string): boolean {
     && /^❯\s*(?:\d+\.\s*)?(?:Claude account with subscription|Anthropic Console account|3rd-party platform)/u.test(lastMarker ?? "");
 }
 
+// First-run theme choices. 2.1.282 numbered them ("❯ 2. Dark mode ✔"); 2.1.322 does not ("❯ ✔ Dark mode").
+const CLAUDE_THEME_CHOICE_RE = /^❯\s*(?:[1-7]\.\s*)?(?:✔\s*)?(?:Auto \(match terminal\)|(?:Dark|Light) mode(?: \((?:colorblind-friendly|ANSI colors only)\))?)(?:\s*✔)?\s*$/u;
+
 export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
   const tail = screen.split("\n").slice(-32).join("\n");
   const lastMarker = tail.split(/\r?\n/u).filter(line => /^\s*❯/u.test(line)).at(-1)?.trim();
   if (tail.includes("Choose the text style that looks best with your terminal")
-    && /^❯\s*[1-7]\.\s*(?:Auto \(match terminal\)|Dark mode|Light mode)/u.test(lastMarker ?? ""))
+    && CLAUDE_THEME_CHOICE_RE.test(lastMarker ?? ""))
     return { kind: "initial_theme_selected", keys: ["Enter"] };
   // 既存launcherで扱っていた2確認は従来の起動契約を維持する。
   if (screen.includes("Is this a project you created or one you trust")

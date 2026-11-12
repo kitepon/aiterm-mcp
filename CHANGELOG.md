@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude Code 2.1.322 seat on its first run (no `hasCompletedOnboarding`) is no longer reported `startup.ready` on the theme screen. 2.1.322 draws the theme choices without numbers (`❯ ✔ Dark mode`), and Aiterm read that row as the composer, so `agent_launch` returned ready within seconds and the prompt was never typed (BellTeam lab, Centi, 2026-11-12; 0.70.36 still did this). The theme screen is recognized again and answered with Enter as before; the next first-run screen (Security notes) then ends the launch with `AGENT_STARTUP_BLOCKED` (0.70.36). Measured on real Claude Code 2.1.322 with a fresh HOME.
+
 ## [0.70.37] - 2026-11-12
 
 - `agent_goal` `inspect` on a Grok seat no longer types into the seat. It used to paste `/goal status` (or click the Goal header and press `g`) under the send lock. It now reads the session's saved `goal/state.json`: no file is no goal, otherwise `goal = {kind: "grok-cli", native}` without `current_status`. No send lock, no composer or TTY dependence. With this, no harness types on `inspect` (Claude 0.70.34; Codex reads its App Server; Cursor and Antigravity are unsupported before any connection).

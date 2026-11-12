@@ -57,7 +57,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
@@ -6427,6 +6427,8 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
   const goalUi = (target: GoalTarget): CodexGoalUi => {
     let inputStarted = false;
     let pinnedTty: string | null = null;
+    // The exact birth is read once; every check below re-proves the same pid, birth and argv through resolve().
+    let claudeGeneration: {procStart:string;pidDomain:string} | null = null;
     const check = () => {
       const current = resolve();
       if (!current || current.vendor_session_id !== target.vendor_session_id
@@ -6439,7 +6441,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
         throw new Error("Goal input owner changed after input began");
       };
       if(target.harness==="claude-code"){
-        const generation=owner?readLinuxProcessRegistrationIdentity(owner.pid):null;
+        const generation=owner?(claudeGeneration??=readClaudeRegistrationIdentity(owner.pid)):null;
         let registration:unknown;
         try{
           const file=path.join(target.claude_home ?? claudeConfigDir(),"sessions",`${owner?.pid}.json`);
@@ -6463,6 +6465,8 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
         const ownership=identity&&owner?grokCurrentSessionOwner(record,{pid:owner.pid,procStart:identity.procStart,sessionId:target.vendor_session_id!,cwd:target.cwd!}):'unavailable';
         if(ownership!=='match')rejectOwner(ownership==='mismatch'?'goal_native_session_mismatch':'goal_native_session_unavailable');
       }
+      // shortcut: Windows consoles have no tty foreground group; the owner is the pane's harness process proven by resolve(). Upgrade if a console-input owner probe appears.
+      if (isWin && target.harness === "claude-code") { if (!owner) rejectOwner(); return; }
       if (!tty || !owner?.process_group_id || pinnedTty !== null && pinnedTty !== tty) rejectOwner();
       const ps = spawnSync("/bin/ps", ["-t", tty!.replace(/^\/dev\//u, ""), "-o", "pid=,pgid=,stat=,command="],
         { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 });

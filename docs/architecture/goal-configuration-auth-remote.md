@@ -10,7 +10,7 @@ goalの本文/予算/使用量/状態はvendor CLIだけが持つ。Aitermはgoa
 
 MCP `agent_goal` は`remote`引数を持たない。端末へ結んだsession（terminal session map、remote-terminal.md T2）だけは、同じ引数のまま端末のAitermへtrusted SSHで中継し、端末の`aiterm.agent-goal-result`（v1/v2）を変えずに返す。こちらで決めたoriginがuserの時だけ、private env行（R5、端末の結びを持つAitermだけが送れる）の`AITERM_GOAL_ORIGIN=user`で渡し、端末側は`aiterm-remote` clientのその値だけをuserとして受ける（process envは見ない）。それを知らない古い端末は変更をautomaticとして`user_authorization_required`で断る（黙って別の結果にならない）。変更originはmodel引数から選べず、trusted ingress callbackまたはbellteam clientの厳密なhost metadataからuserを決める。これは独立した認証ではなく、BellTeam側のOwner認証/seat ingress拒否を前提とする接点契約。inspect以外は通常のexecution contextも必要。outcome rejected/unknown/unavailable/unsupportedはMCP isError付きで返す。
 
-core.resolveはnative pane・process表と単一harness候補、同launchを再確認する。coreのgoalUiは毎作用のgeneration/vendor/PID/TTY/foreground/端末modeを確認し、Claude/Grokのnative登録も同じLinux process registrationへ束縛する。所有を確認できない場合はunavailableであり、別会話・新processからresumeして補わない。
+core.resolveはnative pane・process表と単一harness候補、同launchを再確認する。coreのgoalUiは毎作用のgeneration/vendor/PID/TTY/foreground/端末modeを確認し、Claude/Grokのnative登録もprocess registrationへ束縛する（GrokはLinux、ClaudeはLinux・macOS・WindowsのOS別の生まれの形。WindowsのClaudeはTTYが無く、resolveが示すpaneの単一harness processを入力の持ち主とする）。所有を確認できない場合はunavailableであり、別会話・新processからresumeして補わない。
 
 | harness | 現在の経路と能力 | 確認・失敗・後始末 |
 | --- | --- | --- |

@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import os from "node:os";
 import {processStartIdentity} from "./process-start.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
@@ -387,6 +388,29 @@ export function readLinuxProcessRegistrationIdentity(pid:number): {procStart:str
   }catch{return null;}
 }
 
+
+/** Claude Code's sessions/<pid>.json birth and pid domain, measured on 2.1.322.
+ * linux: the Linux registry identity above. darwin: `LC_ALL=C TZ=UTC ps -o lstart=` trimmed, domain "darwin".
+ * win32: process creation FILETIME (UTC, 100 ns since 1601) as decimal, domain "win32:" + lower-case hostname. */
+export function claudeRegistrationIdentity(platform: NodeJS.Platform, start: string | null, hostname: string): {procStart:string;pidDomain:string}|null {
+  if (!start) return null;
+  if (platform === "darwin") return {procStart:start,pidDomain:"darwin"};
+  // processStartIdentity("win32") gives .NET UTC ticks (since 0001); FILETIME = ticks - ticks(1601-01-01).
+  const ticks = /^win32:(\d+)$/u.exec(start)?.[1];
+  if (platform === "win32" && ticks && hostname) {
+    const filetime = BigInt(ticks) - 504911232000000000n;
+    return filetime > 0n ? {procStart:filetime.toString(),pidDomain:`win32:${hostname.toLowerCase()}`} : null;
+  }
+  return null;
+}
+export function readClaudeRegistrationIdentity(pid: number): {procStart:string;pidDomain:string}|null {
+  if (process.platform === "linux") return readLinuxProcessRegistrationIdentity(pid);
+  if (process.platform === "win32") return claudeRegistrationIdentity("win32", processStartIdentity(pid, "win32"), os.hostname());
+  if (process.platform !== "darwin" || !Number.isInteger(pid) || pid < 1) return null;
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    encoding: "utf8", timeout: 1000, maxBuffer: 4096, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+  return claudeRegistrationIdentity("darwin", result.status === 0 ? (result.stdout ?? "").trim() : null, os.hostname());
+}
 
 /** A detached seat clock sleeps in the native shell; exit 75 retries admission without keeping Node resident. */
 export function idleClockCommand(delayMs: number, executable: string, args: string[], windows = isWin): { executable: string; args: string[] } {

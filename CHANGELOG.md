@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_goal` on a Claude Code seat running on macOS or Windows no longer answers `goal_native_session_unavailable` every time. The goal check binds to Claude's own `sessions/<pid>.json`, and Aiterm could compute that record's process birth only on Linux. Measured on 2.1.322: macOS writes `procStart` as `LC_ALL=C TZ=UTC ps -o lstart=` with `pidDomain` `darwin`; Windows writes the process creation FILETIME with `pidDomain` `win32:<lower-case hostname>`. Aiterm now computes both. The exact birth is read once per goal operation, because every check already re-proves the same process. Windows has no terminal foreground group, so for Claude the pane's single harness process is the input owner there; the macOS and Linux terminal checks are unchanged.
+
 ## [0.70.30] - 2026-11-12
 
 - `agent_goal` on an idle Claude Code seat no longer refuses with `goal_input_not_empty_or_ready` when the composer shows Claude's own dim ghost text. After a second turn Claude Code 2.1.322 shows a prompt suggestion there (for example `run the doctests`), and a new session shows a `Try "…"` example. Any single composer row whose visible cells are all dim or inverse, with at least one dim, now counts as empty, whatever its words; text the user typed is not dim and still blocks. Inspect, create, edit and clear all use this check. Measured on 2.1.322: a bracketed paste of `/goal` over a shown suggestion leaves exactly `/goal`, which the existing check before Enter confirms.

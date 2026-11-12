@@ -7,7 +7,7 @@ export function claudeGoalVersionSupported(version:unknown):boolean {
   const patch=typeof version==="string"?/^2\.1\.(\d+)$/u.exec(version)?.[1]:undefined;
   return patch!==undefined&&Number(patch)>=310;
 }
-const currentSessionSchema=z.object({pid:z.number().int().positive(),sessionId:z.string().uuid(),procStart:z.string().regex(/^\d+$/u),pidDomain:z.string(),version:z.string(),kind:z.literal("interactive")});
+const currentSessionSchema=z.object({pid:z.number().int().positive(),sessionId:z.string().uuid(),procStart:z.string().min(1),pidDomain:z.string(),version:z.string(),kind:z.literal("interactive")});
 export function claudeCurrentSessionOwner(record:unknown,expected:{pid:number;sessionId:string;procStart:string;pidDomain:string}):"match"|"mismatch"|"unavailable"|{unsupported:string} {
   const parsed=currentSessionSchema.safeParse(record);
   if(!parsed.success||parsed.data.pid!==expected.pid||parsed.data.procStart!==expected.procStart||parsed.data.pidDomain!==expected.pidDomain)return "unavailable";

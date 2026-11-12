@@ -16,15 +16,16 @@ export function grokCurrentSessionOwner(record:unknown,expected:{pid:number;proc
   return rows[0].session_id===expected.sessionId?'match':'mismatch';
 }
 
+// Grok owns the status vocabulary (1.0.77 adds budget_limited, ...): kept as an open string. Keys it adds later are dropped.
 export const grokNativeGoalStateSchema=z.object({
-  goal_id:z.string().uuid(),objective:z.string().min(1),status:z.enum(['active','user_paused']),phase:z.enum(['Idle','Planning','Executing']),
+  goal_id:z.string().uuid(),objective:z.string().min(1),status:z.string().min(1),phase:z.enum(['Idle','Planning','Executing']),
   token_budget:z.number().int().positive(),elapsed_ms:z.number().int().nonnegative(),created_at:z.string().datetime({offset:true}),
   current_subagent_id:z.string().nullable(),current_subagent_role:z.string().nullable(),
   total_worker_rounds:z.number().int().nonnegative(),total_verify_rounds:z.number().int().nonnegative(),
   token_baseline:z.number().int().nonnegative(),tokens_used_high_water:z.number().int().nonnegative(),parent_tokens_spent:z.number().int().nonnegative(),last_session_tokens_seen:z.number().int().nonnegative(),
   history:z.array(z.object({timestamp:z.string().datetime({offset:true}),event:z.string(),detail:z.string().optional()}).strict()),
   evaluator_blocked_streak:z.number().int().nonnegative(),verifier_id:z.string().min(1),classifier_runs_attempted:z.number().int().nonnegative(),rounds_since_verify:z.number().int().nonnegative(),classifier_stall_count:z.number().int().nonnegative(),consecutive_not_achieved:z.number().int().nonnegative(),last_strategist_fired_at:z.number().int().nonnegative(),strategist_cap_bonus:z.number().int().nonnegative(),
-}).strict();
+}).strip();
 const elapsedDisplay=z.string().max(64).regex(/^(?:\d+s|\d+m[0-5]\ds|\d+h[0-5]\dm)$/u);
 export const grokCurrentStatusSchema=z.discriminatedUnion('source',[z.object({
   source:z.literal('/goal status'),status:z.enum(['Active','UserPaused']),phase:z.enum(['Idle','Planning','Executing']),
@@ -37,7 +38,13 @@ export const grokCurrentStatusSchema=z.discriminatedUnion('source',[z.object({
 // Keep the persisted native snapshot distinct from the current worker's
 // fresh status. Resuming a worker can reset its in-memory phase without
 // rewriting that snapshot; never present the stored phase as current.
-export const grokCurrentGoalSchema=z.object({kind:z.literal('grok-cli'),native:grokNativeGoalStateSchema,current_status:grokCurrentStatusSchema}).strict();
+// inspect returns the saved snapshot alone; only a fresh UI read (clear) adds current_status.
+export const grokCurrentGoalSchema=z.object({kind:z.literal('grok-cli'),native:grokNativeGoalStateSchema,current_status:grokCurrentStatusSchema.optional()}).strict();
+
+/** inspect: the session's saved goal/state.json only. Types nothing; no file is no goal. */
+export function readSavedGrokGoal(state:unknown|null):{current:z.infer<typeof grokCurrentGoalSchema>|null}{
+  return {current:state===null?null:grokCurrentGoalSchema.parse({kind:'grok-cli',native:state})};
+}
 
 export function grokGoalFromFreshStatus(text:string,before:unknown,after:unknown):z.infer<typeof grokCurrentGoalSchema>{
   const first=grokNativeGoalStateSchema.parse(before),native=grokNativeGoalStateSchema.parse(after);
@@ -202,7 +209,7 @@ export async function readFreshGrokGoal(sessionId:string,port:GrokGoalStatusPort
 export function grokGoalClearReady(ui:GoalNativeUi):boolean{return composer(ui.read())==='';}
 export async function clearGrokGoal(sessionId:string,expected:z.infer<typeof grokCurrentGoalSchema>,port:GrokGoalStatusPort):Promise<void>{
   const status=expected.current_status;
-  if(expected.native.status!=='user_paused'||status.source!=='/goal status'||status.status!=='UserPaused'||status.phase!=='Idle')
+  if(expected.native.status!=='user_paused'||status?.source!=='/goal status'||status.status!=='UserPaused'||status.phase!=='Idle')
     throw new AgentGoalNotIssuedError('native_goal_clear_input_unconfirmed');
   let enterAttempted=false;
   const guard=()=>{

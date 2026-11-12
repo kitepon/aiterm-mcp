@@ -36,7 +36,7 @@ import { assertCallerEnv } from "./harnesses/caller-mcp.js";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
-import {grokCurrentSessionOwner,readFreshGrokGoal,clearGrokGoal,grokGoalClearReady} from './harnesses/grok-goal.js';
+import {grokCurrentSessionOwner,readFreshGrokGoal,readSavedGrokGoal,clearGrokGoal,grokGoalClearReady} from './harnesses/grok-goal.js';
 import {nativeGoalClickBytes} from './agent-goal-ui.js';
 import { observeClaudeGoalRows, clearClaudeGoal, setClaudeGoalObjective, claudeCurrentSessionOwner } from "./harnesses/claude-goal.js";
 import { AgentGoalNotIssuedError, manageAgentGoal, type AgentGoalInput, type AgentGoalResult, type GoalTarget } from "./agent-goal.js";
@@ -6549,6 +6549,17 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
       pause: sleep,
     };
   };
+  const grokSavedState=(target:GoalTarget):unknown|null=>{
+    const meta=tryLoadAgentMetadata(input.session_id);
+    if(!meta||meta.launch_id!==target.launch_id||meta.vendor_session_id!==target.vendor_session_id)throw Error('generation_replaced');
+    const directory=grokSessionDirectory(meta);
+    if(!directory)throw Error('native session directory unavailable');
+    const file=path.join(directory,'goal/state.json');
+    let st:fs.Stats;
+    try{st=fs.lstatSync(file);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+    if(!st.isFile()||st.isSymbolicLink()||st.size>4*1024*1024)throw Error('native state unavailable');
+    return JSON.parse(fs.readFileSync(file,'utf8'));
+  };
   const grokPort=(target:GoalTarget)=>{
     const ui=goalUi(target);
     const read=(relative:string,optional=false)=>{
@@ -6567,11 +6578,15 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
   };
   const harness = resolve()?.harness;
   if (sendHeld && harness !== "codex-cli") throw new ExecutionError("EXECUTION_STALE_GENERATION");
-  if(harness==='grok-cli')return withAgentSendLock(input.session_id,()=>manageGrokAgentGoal(input,{resolve,
-    read:target=>readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
-    canClear:target=>grokGoalClearReady(grokPort(target).ui),
-    clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
-  },origin));
+  if(harness==='grok-cli'){
+    // inspect reads the saved goal/state.json: no typing, no send lock. clear keeps the fresh UI status under the lock.
+    const run=()=>manageGrokAgentGoal(input,{resolve,
+      read:async target=>input.action==='inspect'?readSavedGrokGoal(grokSavedState(target)):readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
+      canClear:target=>grokGoalClearReady(grokPort(target).ui),
+      clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
+    },origin);
+    return input.action==='inspect'?run():withAgentSendLock(input.session_id,run);
+  }
   if (harness === "claude-code") {
     // Reading is the session transcript only: it writes nothing to the seat, so it needs no send lock,
     // composer, turn state, TTY owner or version check. Only a mutation types into the composer.

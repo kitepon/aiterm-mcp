@@ -29,9 +29,13 @@ test('Grok clear does not retry, restore an old goal or expose a stale goal afte
 test('Grok proven pre-input refusal retains not_issued and only a fresh observation',async()=>{
  const f=fixture({failure:new AgentGoalNotIssuedError('native_goal_changed_before_clear')});const result=await manageGrokAgentGoal(input,f.runtime,'user');assert.equal(result.mutation,'not_issued');assert.equal(result.reason,'native_goal_changed_before_clear');assert.equal(result.goal.native.goal_id,state.goal_id);assert.equal(f.calls(),1);assert.equal(f.reads(),2);
 });
-test('Grok inspect advertises clear only for confirmed existing goal and current idle input',async()=>{
+// inspect reads the saved state only (0.70.37): clear is a candidate for a saved user_paused goal, whatever the composer shows.
+// The clear action itself still requires the fresh UserPaused/Idle status and an idle composer (tests above).
+test('Grok inspect advertises clear for a saved user_paused goal without looking at the composer',async()=>{
  const f=fixture();const result=await manageGrokAgentGoal({...input,action:'inspect'},f.runtime);assert.equal(result.capabilities.clear,true);for(const action of ['create','edit','pause','resume'])assert.equal(result.capabilities[action],false);
- const busy=fixture({ready:false});assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},busy.runtime)).capabilities.clear,false);
+ const busy=fixture({ready:false});assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},busy.runtime)).capabilities.clear,true);
+ const active=fixture();active.runtime.read=async()=>({current:{kind:'grok-cli',native:{...state,status:'active'}}});
+ assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},active.runtime)).capabilities.clear,false);
 });
 
 const {clearGrokGoal,readFreshGrokGoal}=await import('../dist/harnesses/grok-goal.js');
@@ -59,8 +63,26 @@ test('Grok native clear never acknowledges a failure reply, retained goal, or mi
 test('Grok current Active or detail views never advertise or submit clear despite an idle-looking composer',async()=>{
  for(const current of [{...goal,native:{...state,status:'active'},current_status:{...goal.current_status,status:'Active'}},{...goal,current_status:{source:'goal detail',status:'Paused',phase:null,tokens_used:null,status_display:'Paused',phase_display:null,budget_display:'4.9k / 1 tokens (100%)',elapsed_display:'15s'}}]){
   const f=fixture();f.runtime.read=async()=>({current});
-  assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},f.runtime)).capabilities.clear,false);
+  assert.equal((await manageGrokAgentGoal({...input,action:'inspect'},f.runtime)).capabilities.clear,current.native.status==='user_paused');
   const result=await manageGrokAgentGoal(input,f.runtime,'user');assert.equal(result.mutation,'not_issued');assert.equal(f.calls(),0);
   const p=nativePort();await assert.rejects(clearGrokGoal(session,current,p),error=>error instanceof AgentGoalNotIssuedError);assert.equal(p.enters(),0);assert.equal(p.pastes(),0);
  }
+});
+
+const {readSavedGrokGoal}=await import('../dist/harnesses/grok-goal.js');
+// Measured on Grok 1.0.77 (isolated seat, 2026-11-12): over budget the saved goal is budget_limited and gains plan_file keys.
+test('Grok saved goal: no file is no goal; an unknown status passes through and keys Grok adds later are dropped',()=>{
+ assert.deepEqual(readSavedGrokGoal(null),{current:null});
+ const saved={...state,status:'budget_limited',phase:'Idle',plan_file:'/home/x/.grok/sessions/s/goal/plan.md',plan_baseline_file:'/home/x/plan.baseline.md'};
+ const {current}=readSavedGrokGoal(saved);
+ assert.equal(current.kind,'grok-cli');assert.equal(current.native.status,'budget_limited');
+ assert.equal('plan_file' in current.native,false);assert.equal('plan_baseline_file' in current.native,false);assert.equal('current_status' in current,false);
+ assert.throws(()=>readSavedGrokGoal({...state,objective:''}));
+});
+test('Grok inspect of a saved goal returns it without current_status and validates as the v2 wire result',async()=>{
+ const {agentGoalNativeResultSchema}=await import('../dist/agent-goal-native-result.js');
+ const f=fixture();f.runtime.read=async()=>readSavedGrokGoal({...state,status:'budget_limited'});
+ const result=await manageGrokAgentGoal({...input,action:'inspect'},f.runtime);
+ assert.equal(result.outcome,'observed');assert.equal(result.goal.native.status,'budget_limited');assert.equal(result.capabilities.clear,false);
+ assert.ok(agentGoalNativeResultSchema.safeParse(result).success);
 });

@@ -115,7 +115,9 @@ export function claudeGoalComposer(screen: string): { text: string; columns: num
   if(continuation.some(line=>!line.startsWith("  ")))return null;
   const prefix=/^\s*❯[ \u00a0]?/u.exec(lines[at])![0];
   const styled=nativeGoalStyledRows(screen)[at]?.slice([...prefix].length).filter(cell=>cell.text.trim())??[];
-  const placeholder=continuation.length===0&&first[1].trimEnd()==="Press up to edit queued messages"
+  // Native ghost text (queued hint, startup "Try …", post-turn prompt suggestion) is one all-dim row;
+  // typed text is never dim, so any text with that styling counts as empty.
+  const placeholder=continuation.length===0
     &&styled.length>0&&styled.some(cell=>cell.dim)&&styled.every(cell=>cell.dim||cell.inverse);
   return {text:placeholder?"":[first[1].trimEnd(),...continuation.map(line=>line.slice(2).trimEnd())].join("\n"),columns:lines[at-1].trim().length,rows:lines.length};
 }

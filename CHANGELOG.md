@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_goal` on an idle Claude Code seat no longer refuses with `goal_input_not_empty_or_ready` when the composer shows Claude's own dim ghost text. After a second turn Claude Code 2.1.322 shows a prompt suggestion there (for example `run the doctests`), and a new session shows a `Try "…"` example. Any single composer row whose visible cells are all dim or inverse, with at least one dim, now counts as empty, whatever its words; text the user typed is not dim and still blocks. Inspect, create, edit and clear all use this check. Measured on 2.1.322: a bracketed paste of `/goal` over a shown suggestion leaves exactly `/goal`, which the existing check before Enter confirms.
+
 ## [0.70.29] - 2026-11-12
 
 - `agent_models` takes `claude_login` (claude-code only, a slot name such as `1st`). Aiterm reads `<parent in AITERM_CLAUDE_CONFIG_ROOTS>/<slot>/oauth-token` and lists models on that login, the one a seat of that slot runs with. When `configuration_root` is omitted and the slot directory is itself a Claude root (it has `.claude.json`), it is also the root, as for that slot's seats. The token never leaves Aiterm. A missing or malformed token file answers `CLAUDE_LOGIN_UNAVAILABLE` without reading a list. Without `claude_login` nothing changes.

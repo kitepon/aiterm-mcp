@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.37] - 2026-11-12
+
 - `agent_goal` `inspect` on a Grok seat no longer types into the seat. It used to paste `/goal status` (or click the Goal header and press `g`) under the send lock. It now reads the session's saved `goal/state.json`: no file is no goal, otherwise `goal = {kind: "grok-cli", native}` without `current_status`. No send lock, no composer or TTY dependence. With this, no harness types on `inspect` (Claude 0.70.34; Codex reads its App Server; Cursor and Antigravity are unsupported before any connection).
 - `native.status` of a Grok goal is an open string, and keys Grok adds later are dropped from `native`. Grok 1.0.77 writes `budget_limited` and the keys `plan_file` / `plan_baseline_file` once a goal plan exists; the strict schema rejected both, so `inspect` on such a goal was unavailable. Measured on an isolated 1.0.77 seat: the saved status changes within about 1 s of each change; `elapsed_ms` and `tokens_used_high_water` are written only about every 30 s while a goal runs; `phase` may be stale.
 - `capabilities.clear` on a Grok `inspect` is now `native.status === "user_paused"` (a candidate). The `clear` action itself still requires the fresh `/goal status` (UserPaused, Idle) and an empty composer, under the send lock, and its result carries `current_status` from that fresh read.
@@ -3362,7 +3364,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.36...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.37...HEAD
+[0.70.37]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.36...v0.70.37
 [0.70.36]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...v0.70.36
 [0.70.35]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...v0.70.35
 [0.70.34]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...v0.70.34

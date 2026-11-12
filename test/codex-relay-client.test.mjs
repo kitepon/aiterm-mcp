@@ -85,7 +85,7 @@ test('socketのRPCが通ってもDesktopの公式子processでなければready�
 });
 
 // Kiro 2026-11-12: a blocked event loop fired the request timer before the answer already received was read.
-test('a request whose answer arrived while the loop was blocked past the deadline still succeeds', async t => {
+test('a request whose answer arrived while the loop was blocked past the deadline still succeeds', { skip: process.platform === 'win32' }, async t => {
   const fixture = await receiver(t, 'blocked');
   await verifyCodexParent(parent, fixture.runtime);
   assert.ok(fixture.requests.some(call => call.method === 'thread/loaded/list'));

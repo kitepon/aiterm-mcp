@@ -174,7 +174,7 @@ test('prepared Steer release archive matches the consumer version and npm lock i
   const [pkg, lock, source, bytes] = await Promise.all([
     readJson(new URL('../package.json', import.meta.url)), readJson(new URL('../package-lock.json', import.meta.url)),
     readJson(new URL('../scripts/fixtures/steer-release-source.json', import.meta.url)),
-    readFile(new URL('../scripts/fixtures/aiterm-steer-delivery-0.5.0.tgz', import.meta.url)),
+    readJson(new URL('../scripts/fixtures/steer-release-source.json', import.meta.url)).then(receipt => readFile(new URL('../scripts/fixtures/' + receipt.file, import.meta.url))),
   ]);
   const integrity = 'sha512-' + createHash('sha512').update(bytes).digest('base64');
   assert.match(source.commit, /^[0-9a-f]{40}$/);

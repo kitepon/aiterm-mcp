@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.30] - 2026-11-12
+
 - `agent_goal` on an idle Claude Code seat no longer refuses with `goal_input_not_empty_or_ready` when the composer shows Claude's own dim ghost text. After a second turn Claude Code 2.1.322 shows a prompt suggestion there (for example `run the doctests`), and a new session shows a `Try "…"` example. Any single composer row whose visible cells are all dim or inverse, with at least one dim, now counts as empty, whatever its words; text the user typed is not dim and still blocks. Inspect, create, edit and clear all use this check. Measured on 2.1.322: a bracketed paste of `/goal` over a shown suggestion leaves exactly `/goal`, which the existing check before Enter confirms.
 
 ## [0.70.29] - 2026-11-12
@@ -3327,7 +3329,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...HEAD
+[0.70.30]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...v0.70.30
 [0.70.29]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.28...v0.70.29
 [0.70.28]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.27...v0.70.28
 [0.70.27]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.26...v0.70.27

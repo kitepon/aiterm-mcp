@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.34] - 2026-11-12
+
 - `agent_goal` `inspect` on a Claude Code seat no longer types anything into the seat. It used to paste `/goal` into the composer, press Enter, read the dialog and press Escape, so a plain read depended on an empty composer, the turn state, the TTY owner, the screen layout of one Claude Code version and on being the only writer to that composer. Every goal-read failure of 2026-11-12 came from one of those conditions; the last one left `/goal/goal` in a Mac seat's composer when two SSH-forwarded reads (one `aiterm-mcp` process each) pasted at the same time, and every later read was refused. The read now takes the last `goal_status` row of the seat's own session transcript, which is the record Claude Code itself restores the goal from on resume and carries across compaction (2.1.322). It takes no send lock, works while a turn runs or the composer holds a draft, reads a seat that has not had its first turn as "no goal", and does not check the Claude Code version. Result schema and reasons are unchanged, except that the dialog-only reasons (`native_goal_fresh_dialog_unavailable`, `native_goal_dialog_changed`, `goal_input_not_empty_or_ready` on inspect) no longer occur and an unknown row shape reports `native_status_format_unavailable`. Measured on a live seat mid-turn: 64 ms instead of 0.7 s (17 s on Windows).
 - A goal Claude gave up on (`failed: true` row, present in 2.1.322) reads as no current goal. The strict row schema used to reject that row, which would have made every later read of that session unavailable.
 - Claude `create` / `edit` / `clear` still type `/goal …` (user origin only). If the pasted command is not confirmed within 1.5 s, nothing is submitted, as before; when the composer then shows exactly the pasted command, Aiterm removes it (one Backspace per code point) and returns `mutation: "not_issued"`, so the seat does not keep the leftover. Text mixed with another writer's input is not touched. Readback after a mutation polls the transcript for up to 2 s.
@@ -3347,7 +3349,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...HEAD
+[0.70.34]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...v0.70.34
 [0.70.33]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...v0.70.33
 [0.70.32]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...v0.70.32
 [0.70.31]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...v0.70.31

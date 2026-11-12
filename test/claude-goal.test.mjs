@@ -102,6 +102,15 @@ test('native dim prompt suggestion of any text is empty; the pasted command repl
  assert.equal(claudeGoalComposerEmpty(suggestion),true);assert.equal(claudeGoalComposerEmpty(`${border}\n❯\u00a0\x1b[2mCIの結果を見ておいて\x1b[0m\n${border}`),true);
  assert.equal(claudeGoalComposer(pasted).text,'/goal');assert.equal(claudeGoalComposerEmpty(typed),false);
 });
+test('Windows slash menu below the bottom rule is not the composer',async()=>{
+ const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
+ // Measured on fox (psmux capture-pane -e -J, Claude Code 2.1.322) right after pasting /goal.
+ const rule='\x1b[0;38;5;244m'+'─'.repeat(120)+'\x1b[0m';
+ const screen=['\x1b[0;38;5;246m✻ Cooked for 6s · done 12:07\x1b[0m','\x1b[0m',rule,'\x1b[0m❯ \x1b[0;38;5;153m/goal\x1b[0m',rule,
+  '\x1b[0m  \x1b[0;38;5;153m❯ /\x1b[0;1;38;5;153mgoal\x1b[0;38;5;153m                       Set a \x1b[0;1;38;5;153mgoal\x1b[0;38;5;153m Claude checks before stopping\x1b[0m',
+  '\x1b[0m  \x1b[0;38;5;246m \x1b[0m \x1b[0;38;5;246m/jev-bookmarks\x1b[0m              \x1b[0;38;5;246mOpen a bookmark\x1b[0m'].join('\n');
+ assert.equal(claudeGoalComposer(screen).text,'/goal');
+});
 test('multiline native composer and goal dialog preserve exact newlines',async()=>{
  const {claudeGoalComposer}=await import('../dist/harnesses/claude-goal.js');
  const border='─'.repeat(80),condition='日本語🧪\n二行目';

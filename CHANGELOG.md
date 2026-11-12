@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_goal` on a Claude Code seat on Windows no longer fails with `native_goal_status_input_unconfirmed` right after pasting `/goal`. On Windows, Claude draws the slash-command menu (whose first row also starts with `❯`) under the composer's bottom rule, and Aiterm took that menu row for the composer. The composer is now the lowest `❯` row framed by a rule above and below. Measured on fox with Claude Code 2.1.322.
+
 ## [0.70.31] - 2026-11-12
 
 - `agent_goal` on a Claude Code seat running on macOS or Windows no longer answers `goal_native_session_unavailable` every time. The goal check binds to Claude's own `sessions/<pid>.json`, and Aiterm could compute that record's process birth only on Linux. Measured on 2.1.322: macOS writes `procStart` as `LC_ALL=C TZ=UTC ps -o lstart=` with `pidDomain` `darwin`; Windows writes the process creation FILETIME with `pidDomain` `win32:<lower-case hostname>`. Aiterm now computes both. The exact birth is read once per goal operation, because every check already re-proves the same process. Windows has no terminal foreground group, so for Claude the pane's single harness process is the input owner there; the macOS and Linux terminal checks are unchanged.

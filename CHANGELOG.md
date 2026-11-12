@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.39] - 2026-11-12
+
 - A Codex goal read or Codex parent delivery no longer times out while the App Server's answer is already waiting. When Aiterm's event loop was blocked past the request deadline (15 s by default), the timer fired before the answer was read and the read failed (`native_goal_connection_unavailable`; Kiro, 2026-11-12, body Aiterm blocked ~16 s by Claude goal reads, which 0.70.34 removed). The timer now waits one turn of the loop and fails only if the request is still pending. Same change in the bundled Steer 0.5.3.
 
 ## [0.70.38] - 2026-11-12
@@ -3370,7 +3372,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.38...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.39...HEAD
+[0.70.39]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.38...v0.70.39
 [0.70.38]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.37...v0.70.38
 [0.70.37]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.36...v0.70.37
 [0.70.36]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...v0.70.36

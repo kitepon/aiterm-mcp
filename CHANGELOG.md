@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.36] - 2026-11-12
+
 - A fresh `agent_launch` whose seat is not ready before any prompt byte no longer leaves that seat behind. When the startup check ends blocked (a first-run or onboarding screen such as Claude's "Security notes", an unknown dialog, a dialog Aiterm does not answer, a harness that exited), the launch closes the seat it created and refuses with `AGENT_STARTUP_BLOCKED: … reason=<observation reason>` and `_meta["aiterm/launch_error"]` `{code: "AGENT_STARTUP_BLOCKED", phase: "input", effect: "not_started", session_created: false, action}`. `action` says what the account holder does (for Claude's first run: start `claude` once on that computer and finish its steps). This covers the `trust_project` launch without a prompt and every launch with a prompt, on all five harnesses. If the close itself fails, the previous refusal that leaves the seat is returned. A resume and a launch without a prompt, `trust_project` or fast (startup `not_checked`) are unchanged.
 - Claude's Bypass Permissions warning (2.1.322 draws "No, exit" / "Yes, I accept" without numbers) is no longer read as an idle composer when "Yes, I accept" is selected. That misread could report a launch `startup.ready` on the warning screen, and the prompt was never typed (Centi, BellTeam lab 2026-11-12).
 
@@ -3356,7 +3358,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.36...HEAD
+[0.70.36]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...v0.70.36
 [0.70.35]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...v0.70.35
 [0.70.34]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...v0.70.34
 [0.70.33]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...v0.70.33

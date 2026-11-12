@@ -501,6 +501,18 @@ test("openAgent grok agent_done: cleanup は共有 auth/config/GROK_HOME を残�
   }
 });
 
+test("closing a Claude seat leaves its last conversation for a later fork (ADR 0140)", { skip: skipAgentDone }, () => {
+  const [sid] = core.openAgent("claude", { session_name: `fork_source_${Date.now().toString(36)}`, agent_done: true });
+  const saved = path.join(agentStateDir(), `${sid}.fork-source.json`);
+  try {
+    const meta = readAgentMeta(sid);
+    core.closeSession(sid);
+    assert.deepEqual(JSON.parse(fs.readFileSync(saved, "utf8")),
+      { kind: "claude", cwd: meta.cwd, vendor_session_id: meta.vendor_session_id, claude_home: meta.claude_home });
+    assert.equal(fs.statSync(saved).mode & 0o777, process.platform === "win32" ? fs.statSync(saved).mode & 0o777 : 0o600);
+  } finally { try { core.closeSession(sid); } catch {} fs.rmSync(saved, { force: true }); }
+});
+
 test("killAll: 同じstateを使う別socketのagent登録を残す", { skip: skipAgentDone }, () => {
   const foreignRoot = fs.mkdtempSync(path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", "ak-"));
   const foreignSession = "foreign_socket_agent";

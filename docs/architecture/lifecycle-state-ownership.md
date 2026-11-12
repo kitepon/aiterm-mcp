@@ -67,6 +67,7 @@ dispatchでは入力回復・既知のmodal/上限処理・readyを確認し、�
 
 ## 保持すべき現在の制限・未調査
 
+- `cleanupAgentState`は記録を消す前に、Claude/Codexの席の最後の会話（kind・cwd・vendor_session_id・claude_homeかCodexのrollout）を`<seat>.fork-source.json`へ写す（ADR 0140、閉じた席のfork元。席名ごとに1つ、次のcloseで上書き、書く時に30日より古い物を消す）。この控えは席を起こさず、再開・送信の根拠にしない。
 - `cleanupAgentState`と複数のfile削除はbest-effort。元のエラーを優先する箇所とnative close未確認を例外にする箇所を維持する。
 - generic closeの`finish`ではkill-sessionの非0を一律例外にはしておらず、私的management targetの時に明示拒否する。これを今回の抽出で黙って変えない。改善/不具合判定は別commitの議題に分ける。
 - Windows出生本人性はstatus/JSON/行数/order/形式等の不成立がnullへ射影される。基準73件の欠測原因はこのコード読取で確定しない。

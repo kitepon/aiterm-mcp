@@ -334,6 +334,18 @@ function remoteResult(target: RemoteTarget, result: RemoteCallResult, structured
   };
 }
 
+// Writes forwarded to one terminal seat leave this process one at a time, as local seats do under withAgentSendLock.
+// Process-local only: other processes forwarding to the same seat are the caller's to order (0.63.12).
+const remoteSeatOrder = new Map<string, Promise<void>>();
+function inRemoteSeatOrder<T>(target: RemoteTarget, session: unknown, run: () => Promise<T>): Promise<T> {
+  const key = `${remoteLabel(target)}\0${String(session)}`;
+  const mine = (remoteSeatOrder.get(key) ?? Promise.resolve()).then(run);
+  const tail = mine.then(() => {}, () => {});
+  remoteSeatOrder.set(key, tail);
+  void tail.then(() => { if (remoteSeatOrder.get(key) === tail) remoteSeatOrder.delete(key); });
+  return mine;
+}
+
 async function forwardRemote(target: RemoteTarget, name: string, args: Record<string, unknown>, extra?: any): Promise<any> {
   return remoteResult(target, await callRemoteTool(target, name, args, undefined, undefined, extra?._meta));
 }
@@ -361,7 +373,7 @@ function remoteToolHandler(name: string): RemoteToolHandler {
     case "agent_configure": return async (target, args, extra) => {
       // Older remote servers strip unknown input fields and could apply without tracking.
       if (args.request || args.action === "reconcile") throw new Error("REMOTE_UNSUPPORTED: tracked configuration requires the exact local connection; not issued");
-      return forwardRemote(target, name, args, extra);
+      return inRemoteSeatOrder(target, args.session_id, () => forwardRemote(target, name, args, extra));
     };
     case "pty_send": return sendRemote;
     case "pty_close": return async (target, args, extra) => {
@@ -389,7 +401,7 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   const delivery = args.force ? null : await deliveryForRequest(extra, true);
   // 終わった依頼の回答は送る前に保存する。実行中の依頼は残る。現地が差し込みを選べばその依頼が回答を受け取る。
   if (delivery) await remoteParentDelivery!.beforeChange(key);
-  const result = await callRemoteTool(target, "pty_send", args, undefined, undefined, extra?._meta);
+  const result = await inRemoteSeatOrder(target, args.session_id, () => callRemoteTool(target, "pty_send", args, undefined, undefined, extra?._meta));
   const structured = result.structuredContent as any;
   if (structured?.wait_process && (structured.mode === "agent_steer" || result.isError)) return relaySteerWait(target, result);
   if (result.isError || !structured || structured.mode !== "agent_dispatch") return remoteResult(target, result);
@@ -1195,8 +1207,10 @@ server.registerTool("agent_goal", {
     const terminal = boundTerminalTarget(args.session_id);
     if (terminal) {
       try {
-        const remote = await callRemoteTool(terminal, "agent_goal", args, undefined,
+        const call = () => callRemoteTool(terminal, "agent_goal", args, undefined,
           origin === "user" ? { [GOAL_ORIGIN_PRIVATE_ENV]: "user" } : undefined, extra?._meta as Record<string, unknown> | undefined);
+        // A read writes nothing and is not queued behind writes.
+        const remote = await (args.action === "inspect" ? call() : inRemoteSeatOrder(terminal, args.session_id, call));
         return withErrorCode(remoteResult(terminal, remote));
       } catch (e) { return withErrorCode(fail(e)); }
     }

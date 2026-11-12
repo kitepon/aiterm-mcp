@@ -29,8 +29,10 @@ const privateEnv = process.argv.includes("--private-env-stdin") ? await readPriv
 const s = new Server({ name: "aiterm-mcp", version: "0.70.29" }, { capabilities: { tools: {} } });
 s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }));
 s.setRequestHandler(CallToolRequestSchema, async request => {
+  const slow = request.params.arguments.launch_id === "b".repeat(32), start = Date.now();
+  if (slow) await new Promise(done => setTimeout(done, 400));
   fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ name: request.params.name, args: request.params.arguments,
-    meta: request.params._meta ?? null, client: s.getClientVersion()?.name, privateEnv }) + "\\n");
+    meta: request.params._meta ?? null, client: s.getClientVersion()?.name, privateEnv, start, end: Date.now() }) + "\\n");
   const result = { schema: "aiterm.agent-goal-result.v2", session_id: request.params.arguments.session_id, launch_id: request.params.arguments.launch_id,
     harness: "claude-code", binding: null, availability: "unsupported", capabilities: { inspect: false, create: false, edit: false, pause: false, resume: false, clear: false },
     outcome: "unsupported", mutation: "not_requested", readback: "not_attempted", reason: "claude_code_version_unverified:2.2.0", observed_at: "2026-11-12T00:00:00.000Z" };
@@ -86,4 +88,24 @@ test("agent_goal on a terminal seat is forwarded by session; the terminal's resu
   assert.deepEqual(calls[0].args, input, "same arguments");
   assert.equal(calls[0].meta?.["aiterm/caller"], "BellTeam", "request _meta passes through");
   assert.ok(calls.every(call => call.client === "aiterm-remote"));
+});
+
+test("goal writes forwarded from one process to one terminal seat run one at a time; reads and other seats are not queued", { skip }, async t => {
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}${path.delimiter}${savedPath}`;
+  t.after(() => { process.env.PATH = savedPath; });
+  bind("10.9.0.2", ["order_seat", "other_seat"]);
+  fs.rmSync(log, { force: true });
+  const client = await connect({ goalOrigin: () => "user" });
+  const call = (session, action) => client.callTool({ name: "agent_goal", arguments: { session_id: session, launch_id: "b".repeat(32), action } });
+  try {
+    await Promise.all([call("order_seat", "clear"), call("order_seat", "clear"), call("other_seat", "clear"), call("order_seat", "inspect")]);
+  } finally { await client.close(); }
+  const calls = fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const span = (session, action) => calls.filter(c => c.args.session_id === session && c.args.action === action).sort((a, b) => a.start - b.start);
+  const [first, second] = span("order_seat", "clear");
+  assert.ok(second.start >= first.end, "the second write to the same seat starts after the first returned");
+  const [other] = span("other_seat", "clear"), [read] = span("order_seat", "inspect");
+  assert.ok(other.start < first.end || other.start < second.end, "another seat is not queued behind this seat");
+  assert.ok(read.start < second.end, "a read is not queued behind writes");
 });

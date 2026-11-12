@@ -242,6 +242,22 @@ test("agent_done ready gate: 非対話型のCodex更新通知は入力待ちを�
   assert.equal(result.ready, true);
 });
 
+// Measured on real Claude Code 2.1.322 on a fresh HOME (2026-11-12): the first-run theme screen draws its choices without
+// an index. 0.70.33-0.70.36 read "❯ ✔ Dark mode" as the composer and reported the launch ready (Centi, BellTeam lab).
+test("agent_done ready gate: the 2.1.322 first-run theme screen is not the composer and is answered with Enter", async () => {
+  const { claudeStartupAction } = await import("../dist/harnesses/claude.js");
+  const theme = ["Welcome to Claude Code v2.1.322", "", " Let's get started.", "", " Choose the text style that looks best with your terminal",
+    " To change this later, run /theme", "", "     Auto (match terminal)", " ❯ ✔ Dark mode", "     Light mode",
+    "     Dark mode (colorblind-friendly)", "     Light mode (colorblind-friendly)", "", "  Syntax theme: Monokai Extended (ctrl+t to disable)"].join("\n");
+  assert.equal(core.__testIsAgentTuiReady("claude", theme), false);
+  assert.equal(core.__testIsAgentTuiIdleReady("claude", theme), false);
+  assert.deepEqual(claudeStartupAction(theme, false), { kind: "initial_theme_selected", keys: ["Enter"] });
+  for (const choice of ["❯ Light mode (ANSI colors only)", "❯ 2. Dark mode ✔"])
+    assert.equal(core.__testIsAgentTuiReady("claude", theme.replace(" ❯ ✔ Dark mode", " " + choice)), false, choice);
+  // A composer draft that only mentions a theme is still a composer.
+  const composer = ["Claude Code v2.1.322", "─".repeat(40), "❯ switch to Dark mode please", "─".repeat(40)].join("\n");
+  assert.equal(core.__testIsAgentTuiReady("claude", composer), true);
+});
 test("agent_done ready gate: the Bypass Permissions accept row is not the composer (Claude 2.1.322 draws it without an index)", () => {
   const bypass = (selected) => [
     "WARNING: Claude Code running in Bypass Permissions mode",

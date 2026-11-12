@@ -1,9 +1,9 @@
 {
   "name": "aiterm-steer-delivery",
-  "version": "0.5.0",
-  "commit": "6b446f733b65c2e037e982b474d886ad72fc5f3c",
+  "version": "0.5.3",
+  "commit": "20b3a7246c23479b75e0dfadc144d026609ec8ef",
   "repository": "https://github.com/kitepon/aiterm-steer-delivery",
-  "file": "aiterm-steer-delivery-0.5.0.tgz",
-  "integrity": "sha512-iz0xvNGHxRM54hCCHhFPNU7wasdPAaOIQHvRYZ0zLak5GQuUkGZgoOcXmcc/VMAUQdsCIPAedRV/LPc6VQqpSg==",
+  "file": "aiterm-steer-delivery-0.5.3.tgz",
+  "integrity": "sha512-M/w0tDPQxN9aikkmViBdHXPhXxp5gAm45zDZ40A95kaX83gQqKmdgag//OsyBM6qjuHx55pDskHZJIGnZeK9BQ==",
   "purpose": "Prepublication CI only; normal npm consumers use the registry lock entry."
 }

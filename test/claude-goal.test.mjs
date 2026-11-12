@@ -168,3 +168,22 @@ test('an unverified Claude version is unsupported with the version in the reason
  const r=agentGoalWireResultSchema.parse(await manageClaudeAgentGoal({session_id:'a',launch_id:target.launch_id,action:'inspect'},{resolve:()=>target,read:async()=>{throw new AgentGoalNotIssuedError('claude_code_version_unverified:2.2.0','unsupported');}}));
  assert.equal(r.availability,'unsupported');assert.equal(r.outcome,'unsupported');assert.equal(r.reason,'claude_code_version_unverified:2.2.0');assert.equal(r.readback,'not_attempted');assert.equal('goal' in r,false);
 });
+// Records measured on Claude Code 2.1.322 (Mac seat 34667, fox seat 47076, 2026-11-12).
+const registration=(over)=>({pid:1,sessionId:'586615a2-c656-43c6-a41c-c9436e331122',version:'2.1.322',kind:'interactive',...over});
+test('darwin registration identity is UTC ps lstart with domain darwin',async()=>{
+ const {claudeRegistrationIdentity}=await import('../dist/process-runtime.js');const {claudeCurrentSessionOwner}=await import('../dist/harnesses/claude-goal.js');
+ const id=claudeRegistrationIdentity('darwin','Thu Nov 12 00:38:39 2026','mac');
+ assert.deepEqual(id,{procStart:'Thu Nov 12 00:38:39 2026',pidDomain:'darwin'});
+ const record=registration({pid:34667,procStart:'Thu Nov 12 00:38:39 2026',pidDomain:'darwin'});
+ assert.equal(claudeCurrentSessionOwner(record,{pid:34667,sessionId:record.sessionId,...id}),'match');
+ assert.equal(claudeCurrentSessionOwner(record,{pid:34667,sessionId:record.sessionId,...claudeRegistrationIdentity('darwin','Thu Nov 12 00:38:40 2026','mac')}),'unavailable');
+ assert.equal(claudeRegistrationIdentity('darwin',null,'mac'),null);
+});
+test('win32 registration identity is the creation FILETIME with domain win32:<hostname>',async()=>{
+ const {claudeRegistrationIdentity}=await import('../dist/process-runtime.js');const {claudeCurrentSessionOwner}=await import('../dist/harnesses/claude-goal.js');
+ const id=claudeRegistrationIdentity('win32','win32:639300494488810150','FOX');
+ assert.deepEqual(id,{procStart:'134389262488810150',pidDomain:'win32:fox'});
+ const record=registration({pid:47076,sessionId:'a0f33796-df3c-4b9e-8774-11611ecd55fc',procStart:'134389262488810150',pidDomain:'win32:fox'});
+ assert.equal(claudeCurrentSessionOwner(record,{pid:47076,sessionId:record.sessionId,...id}),'match');
+ for(const start of [null,'linux:12','win32:1'])assert.equal(claudeRegistrationIdentity('win32',start,'fox'),null);
+});

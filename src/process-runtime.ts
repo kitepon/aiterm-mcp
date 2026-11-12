@@ -3,6 +3,7 @@ import os from "node:os";
 import {processStartIdentity} from "./process-start.js";
 // OSのprocess表とnative PIDの所有者。argvは相関にだけ使い、公開identityにはdigestだけを載せる。
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { freshShared, spawnCollect } from "./spawn-collect.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { AitermError } from "./errors.js";
@@ -152,24 +153,23 @@ function processReadError(probe: string, result: SpawnSyncReturns<string>): Aite
     Object.freeze({ code: detail.code, status: detail.status, signal: detail.signal }));
 }
 
-export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
-  if (!isWin) {
-    const result = spawnSync(POSIX_PS, includeSession ? POSIX_SESSION_TABLE_ARGS : POSIX_TABLE_ARGS, {
-      encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024,
-    });
-    if (result.error || result.status !== 0) throw processReadError(includeSession ? "session_table" : "table", result);
-    return parsePosixProcessTable(result.stdout, includeSession);
-  }
+function posixTableRun(includeSession: boolean) {
+  return [POSIX_PS, includeSession ? POSIX_SESSION_TABLE_ARGS : POSIX_TABLE_ARGS,
+    { encoding: "utf8" as const, env: { ...process.env, LC_ALL: "C" }, timeout: 10000, maxBuffer: 16 * 1024 * 1024 }] as const;
+}
+function windowsTableRun() {
   const script = [
     ...WINDOWS_PROBE_HEADER,
     "@(Get-CimInstance Win32_Process | Where-Object { $null -ne $_.CreationDate -and $null -ne $_.CommandLine } | ForEach-Object {",
     "[ordered]@{ pid=[int]$_.ProcessId; parent_pid=[int]$_.ParentProcessId; executable=[string]$_.ExecutablePath; started_identity=$_.CreationDate.ToUniversalTime().ToString('o'); command=$_.CommandLine; cpu_seconds=([double]$_.KernelModeTime+[double]$_.UserModeTime)/10000000 }",
     "}) | ConvertTo-Json -Compress",
   ].join("\n");
-  const result = spawnSync(resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")], {
-    encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
-  });
+  return [resolveWindowsPowerShell7(), [...WINDOWS_PROBE_ARGS, Buffer.from(script, "utf16le").toString("base64")],
+    { encoding: "utf8" as const, timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }] as const;
+}
+function parseRuntimeTable(result: SpawnSyncReturns<string>, includeSession: boolean): RuntimeProcess[] {
   if (result.error || result.status !== 0) throw processReadError(includeSession ? "session_table" : "table", result);
+  if (!isWin) return parsePosixProcessTable(result.stdout, includeSession);
   let rows: unknown;
   try { rows = JSON.parse(result.stdout); } catch { throw new AitermError("Windows process一覧のJSONを読めません", 2); }
   if (!Array.isArray(rows)) throw new AitermError("Windows process一覧が配列ではありません", 2);
@@ -187,6 +187,17 @@ export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
     };
   });
 }
+
+export function readRuntimeProcesses(includeSession = false): RuntimeProcess[] {
+  const [bin, args, options] = isWin ? windowsTableRun() : posixTableRun(includeSession);
+  return parseRuntimeTable(spawnSync(bin, args, options), includeSession);
+}
+
+/** The process table without blocking the event loop; checks arriving together share one read that began after each call. */
+export const readRuntimeProcessesShared = freshShared(() => {
+  const [bin, args, options] = isWin ? windowsTableRun() : posixTableRun(false);
+  return spawnCollect(bin, args, options).then(result => parseRuntimeTable(result, false));
+});
 
 /** A held Process handle on Windows prevents a PID replacement from becoming the target. */
 export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIGTERM" | "SIGHUP" | "SIGKILL", group: boolean): void {

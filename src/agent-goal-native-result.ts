@@ -23,7 +23,7 @@ export const agentGoalOutputSchema = agentGoalResultSchema.extend({
 });
 export type AgentGoalWireResult = z.infer<typeof agentGoalWireResultSchema>;
 export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{
-  resolve():GoalTarget|null;
+  resolve():GoalTarget|null|Promise<GoalTarget|null>;
   read(target:GoalTarget):Promise<{current:z.infer<typeof grokCurrentGoalSchema>|null}>;
   canClear?(target:GoalTarget):boolean;
   clear?(target:GoalTarget,before:z.infer<typeof grokCurrentGoalSchema>):Promise<void>;
@@ -34,14 +34,14 @@ export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{
   let issued=false;
   const unavailable=()=>{delete result.goal;result.binding=null;result.availability='unavailable';for(const key of Object.keys(result.capabilities) as (keyof typeof result.capabilities)[])result.capabilities[key]=false;};
   try{
-    const target=runtime.resolve();
+    const target=await runtime.resolve();
     if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||target.harness!=='grok-cli'||!target.vendor_session_id)return result;
     if(input.expected_thread_id!==undefined&&input.expected_thread_id!==target.vendor_session_id)return {...result,reason:'thread_binding_mismatch'};
     if(input.action!=='inspect'&&!(input.action==='clear'&&runtime.clear))return {...result,availability:'unsupported',outcome:'unsupported',reason:'native_goal_operation_unsupported'};
     if(input.action!=='inspect'&&origin!=='user')return {...result,outcome:'rejected',reason:'user_authorization_required'};
     if(input.action==='clear'&&(input.objective!==undefined||input.token_budget!==undefined))return {...result,outcome:'unsupported',reason:'native_goal_field_unsupported'};
     const observed=await runtime.read(target);
-    if(!sameGoalTarget(runtime.resolve(),target))return {...result,reason:'generation_replaced_after_status',readback:'failed'};
+    if(!sameGoalTarget(await runtime.resolve(),target))return {...result,reason:'generation_replaced_after_status',readback:'failed'};
     const clearStatus=observed.current?.current_status;
     // inspect reads the saved state only, so clear there is a candidate; the clear action itself requires the fresh UI status.
     const freshPaused=clearStatus?.source==='/goal status'&&clearStatus.status==='UserPaused'&&clearStatus.phase==='Idle'&&runtime.canClear?.(target)===true;
@@ -50,21 +50,21 @@ export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{
     if(input.action==='inspect')return agentGoalNativeResultSchema.parse(result);
     if(observed.current===null)return {...result,outcome:'rejected',reason:'goal_missing'};
     if(!ready)return {...result,outcome:'rejected',reason:'native_goal_clear_input_unconfirmed'};
-    if(!sameGoalTarget(runtime.resolve(),target)){unavailable();return {...result,outcome:'unavailable',reason:'generation_replaced'};}
+    if(!sameGoalTarget(await runtime.resolve(),target)){unavailable();return {...result,outcome:'unavailable',reason:'generation_replaced'};}
     issued=true;delete result.goal;result.readback='not_attempted';
     try{await runtime.clear!(target,observed.current);}catch(error){
       if(!(error instanceof AgentGoalNotIssuedError))throw error;
       issued=false;unavailable();
       try{
-        if(!sameGoalTarget(runtime.resolve(),target))throw Error('generation_replaced');
+        if(!sameGoalTarget(await runtime.resolve(),target))throw Error('generation_replaced');
         const fresh=await runtime.read(target);
-        if(!sameGoalTarget(runtime.resolve(),target))throw Error('generation_replaced');
+        if(!sameGoalTarget(await runtime.resolve(),target))throw Error('generation_replaced');
         return {...result,goal:fresh.current,binding:{session_id:target.session_id,launch_id:target.launch_id,thread_id:target.vendor_session_id},availability:'available',capabilities:{...result.capabilities,inspect:true},outcome:error.outcome,mutation:'not_issued',readback:'confirmed',reason:error.reason};
       }catch{return {...result,outcome:error.outcome,mutation:'not_issued',readback:'failed',reason:error.reason};}
     }
-    if(!sameGoalTarget(runtime.resolve(),target))throw Error('generation_replaced_after_mutation');
+    if(!sameGoalTarget(await runtime.resolve(),target))throw Error('generation_replaced_after_mutation');
     const after=await runtime.read(target);
-    if(!sameGoalTarget(runtime.resolve(),target)||after.current!==null)throw Error('native_goal_clear_readback_unconfirmed');
+    if(!sameGoalTarget(await runtime.resolve(),target)||after.current!==null)throw Error('native_goal_clear_readback_unconfirmed');
     return agentGoalNativeResultSchema.parse({...result,goal:null,capabilities:{...result.capabilities,clear:false},outcome:'applied',mutation:'acknowledged',readback:'confirmed',reason:'native_goal_readback_confirmed',observed_at:new Date().toISOString()});
   }catch(error){
     unavailable();
@@ -72,7 +72,7 @@ export async function manageGrokAgentGoal(input:AgentGoalInput,runtime:{
   }
 }
 export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
-  resolve(): GoalTarget|null;
+  resolve(): GoalTarget|null|Promise<GoalTarget|null>;
   read(target: GoalTarget): Promise<Pick<ClaudeGoalObservation,"current"|"history">>;
   clear?(target: GoalTarget): Promise<void>;
   setObjective?(target: GoalTarget,objective:string): Promise<void>;
@@ -85,13 +85,13 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
     outcome:"unavailable",mutation:input.action==="inspect"?"not_requested":"not_issued",readback:"not_attempted",reason:"binding_unavailable",observed_at:new Date().toISOString()};
   let issued=false;
   try{
-    const target=runtime.resolve();
+    const target=await runtime.resolve();
     if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||target.harness!=="claude-code"||!target.vendor_session_id)return result;
     if(input.expected_thread_id!==undefined&&input.expected_thread_id!==target.vendor_session_id)return {...result,reason:"thread_binding_mismatch"};
     if(input.action!=="inspect" && !(input.action==="clear"&&runtime.clear) && !(["create","edit"].includes(input.action)&&runtime.setObjective))return {...result,availability:"unsupported",outcome:"unsupported",reason:"native_goal_operation_unsupported"};
     if(input.action!=="inspect"&&origin!=="user")return {...result,outcome:"rejected",reason:"user_authorization_required"};
     const observed=await runtime.read(target);
-    if(!sameGoalTarget(runtime.resolve(),target))return {...result,reason:"generation_replaced_after_status",readback:"failed"};
+    if(!sameGoalTarget(await runtime.resolve(),target))return {...result,reason:"generation_replaced_after_status",readback:"failed"};
     const snapshot = (value: Pick<ClaudeGoalObservation,"current"|"history">) => ({goal:value.current,...(value.history?{native_history:value.history}:{})});
     Object.assign(result,{availability:"available",capabilities:{...result.capabilities,inspect:true,clear:!!runtime.clear,create:!!runtime.setObjective,edit:!!runtime.setObjective},
       field_capabilities:{create:{objective:!!runtime.setObjective,token_budget:false},edit:{objective:!!runtime.setObjective,token_budget:false,combined:false}},
@@ -101,24 +101,24 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
     if(input.token_budget!==undefined)return {...result,outcome:"unsupported",reason:"native_goal_field_unsupported"};
     if(input.action==="create"&&observed.current!==null)return {...result,outcome:"rejected",reason:"goal_already_exists"};
     if(input.action==="edit"&&observed.current===null)return {...result,outcome:"rejected",reason:"goal_missing"};
-    if(!sameGoalTarget(runtime.resolve(),target))return {...result,availability:"unavailable",outcome:"unavailable",reason:"generation_replaced"};
+    if(!sameGoalTarget(await runtime.resolve(),target))return {...result,availability:"unavailable",outcome:"unavailable",reason:"generation_replaced"};
     issued=true;delete result.goal;delete result.native_history;result.readback="not_attempted";
     try{if(input.action==="clear")await runtime.clear!(target);else await runtime.setObjective!(target,input.objective!);}catch(error){
       if(!(error instanceof AgentGoalNotIssuedError))throw error;
       issued=false;
       try{
         const fresh=await runtime.read(target);
-        if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced");
+        if(!sameGoalTarget(await runtime.resolve(),target))throw new Error("generation_replaced");
         return {...result,...snapshot(fresh),outcome:error.outcome,mutation:"not_issued",readback:"confirmed",reason:error.reason};
       }catch{return {...result,outcome:error.outcome,mutation:"not_issued",readback:"failed",reason:error.reason};}
     }
-    if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_mutation");
+    if(!sameGoalTarget(await runtime.resolve(),target))throw new Error("generation_replaced_after_mutation");
     const matched=(after:Pick<ClaudeGoalObservation,"current"|"history">)=>input.action==="clear" ? after.current===null && (observed.current===null || (after.history?.terminal==="cleared"&&after.history.native.condition===observed.current.native.condition)) : after.current?.phase==="active" && after.current.native.condition===input.objective;
     // Claude appends the new goal_status row shortly after it takes the command.
     const pause=runtime.pause??((ms:number)=>new Promise<void>(done=>setTimeout(done,ms)));
     let after=await runtime.read(target);
     for(let polls=0;polls<40&&!matched(after);polls++){await pause(50);after=await runtime.read(target);}
-    if(!sameGoalTarget(runtime.resolve(),target))throw new Error("generation_replaced_after_readback");
+    if(!sameGoalTarget(await runtime.resolve(),target))throw new Error("generation_replaced_after_readback");
     const matches=matched(after);
     return agentGoalNativeResultSchema.parse({...result,...snapshot(after),mutation:matches?"acknowledged":"outcome_unknown",outcome:matches?"applied":"outcome_unknown",readback:matches?"confirmed":"mismatch",reason:matches?"native_goal_readback_confirmed":"native_goal_changed_before_readback",observed_at:new Date().toISOString()});
 

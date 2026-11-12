@@ -57,7 +57,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
@@ -90,6 +90,7 @@ import {
   sessionEnvironmentLaunch,
   paneCommandArgs,
   rememberPaneShell,
+  sessionPaneAsync,
 } from "./tmux-runtime.js";
 import {
   AGENT_DEFAULT_PREFACE,
@@ -6447,15 +6448,28 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     throw new ExecutionError("EXECUTION_STALE_GENERATION");
   assertSessionName(input.session_id);
   if (input.action !== "inspect") assertExecutionContext(input.session_id);
+  // Goal binding needs a live native process, not screen/CPU/activity collection.
+  const panePid = (pane: { code: number; stdout: string }): number | null => {
+    if (pane.code !== 0) return null;
+    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]);
+    return fields.length !== 2 || !Number.isSafeInteger(pid) || pid < 1 || fields[1] !== "0" ? null : pid;
+  };
+  const paneArgs = ["display-message", "-p", "-t", `=${input.session_id}:`, "#{pane_pid}\t#{pane_dead}"];
+  // Right before an input effect (goalUi check) the binding is read synchronously, inside the admission.
   const resolve = (): GoalTarget | null => {
     const meta = tryLoadAgentMetadata(input.session_id);
     if (meta?.launch_id !== input.launch_id) return null;
-    // Goal binding needs a live native process, not screen/CPU/activity collection.
-    const pane = tmux("display-message", "-p", "-t", `=${input.session_id}:`, "#{pane_pid}\t#{pane_dead}");
-    if (pane.code !== 0) return null;
-    const fields = pane.stdout.trim().split("\t"), pid = Number(fields[0]);
-    if (fields.length !== 2 || !Number.isSafeInteger(pid) || pid < 1 || fields[1] !== "0") return null;
-    const rows = readRuntimeProcesses();
+    const pid = panePid(tmux(...paneArgs));
+    return pid === null ? null : bindGoalTarget(meta, pid, readRuntimeProcesses());
+  };
+  // Every other binding check waits without blocking the event loop and shares one process table with the checks that arrive together.
+  const resolveShared = async (): Promise<GoalTarget | null> => {
+    const meta = tryLoadAgentMetadata(input.session_id);
+    if (meta?.launch_id !== input.launch_id) return null;
+    const pid = panePid(await sessionPaneAsync(input.session_id));
+    return pid === null ? null : bindGoalTarget(meta, pid, await readRuntimeProcessesShared());
+  };
+  const bindGoalTarget = (meta: AgentMetadata, pid: number, rows: RuntimeProcess[]): GoalTarget | null => {
     if (!rows.some(row => row.pid === pid)) return null;
     const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
     if (candidates.length !== 1 || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
@@ -6576,11 +6590,11 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     };
     return {ui,rows:()=>{const text=read('updates.jsonl',true);return text===null?[]:text.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line));},state:()=>{const text=read('goal/state.json',true);return text===null?null:JSON.parse(text);}};
   };
-  const harness = resolve()?.harness;
+  const harness = (await resolveShared())?.harness;
   if (sendHeld && harness !== "codex-cli") throw new ExecutionError("EXECUTION_STALE_GENERATION");
   if(harness==='grok-cli'){
     // inspect reads the saved goal/state.json: no typing, no send lock. clear keeps the fresh UI status under the lock.
-    const run=()=>manageGrokAgentGoal(input,{resolve,
+    const run=()=>manageGrokAgentGoal(input,{resolve:resolveShared,
       read:async target=>input.action==='inspect'?readSavedGrokGoal(grokSavedState(target)):readFreshGrokGoal(target.vendor_session_id!,grokPort(target)),
       canClear:target=>grokGoalClearReady(grokPort(target).ui),
       clear:(target,before)=>clearGrokGoal(target.vendor_session_id!,before,grokPort(target)),
@@ -6590,7 +6604,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
   if (harness === "claude-code") {
     // Reading is the session transcript only: it writes nothing to the seat, so it needs no send lock,
     // composer, turn state, TTY owner or version check. Only a mutation types into the composer.
-    const run = () => manageClaudeAgentGoal(input, {resolve,
+    const run = () => manageClaudeAgentGoal(input, {resolve: resolveShared,
       read: async target => {
         const meta=tryLoadAgentMetadata(input.session_id);
         if (!meta || meta.launch_id!==target.launch_id || meta.vendor_session_id!==target.vendor_session_id) throw new Error("generation_replaced");
@@ -6605,7 +6619,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     }, origin);
     return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
   }
-  const run = () => manageAgentGoal(input, { resolve,
+  const run = () => manageAgentGoal(input, { resolve: resolveShared,
     ...(expectedGoal ? { beforeMutation: (current: import("./agent-goal.js").NativeGoal | null) => JSON.stringify(current) === JSON.stringify(expectedGoal) } : {}),
     connect: (target, callback) => withCodexGoal(target, (request, supported, fields) => callback((method, params) => {
     if (method !== "thread/goal/set" && method !== "thread/goal/clear") return request(method, params);

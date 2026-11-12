@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Codex goal read or Codex parent delivery no longer times out while the App Server's answer is already waiting. When Aiterm's event loop was blocked past the request deadline (15 s by default), the timer fired before the answer was read and the read failed (`native_goal_connection_unavailable`; Kiro, 2026-11-12, body Aiterm blocked ~16 s by Claude goal reads, which 0.70.34 removed). The timer now waits one turn of the loop and fails only if the request is still pending. Same change in the bundled Steer 0.5.3.
+
 ## [0.70.38] - 2026-11-12
 
 - A Claude Code 2.1.322 seat on its first run (no `hasCompletedOnboarding`) is no longer reported `startup.ready` on the theme screen. 2.1.322 draws the theme choices without numbers (`❯ ✔ Dark mode`), and Aiterm read that row as the composer, so `agent_launch` returned ready within seconds and the prompt was never typed (BellTeam lab, Centi, 2026-11-12; 0.70.36 still did this). The theme screen is recognized again and answered with Enter as before; the next first-run screen (Security notes) then ends the launch with `AGENT_STARTUP_BLOCKED` (0.70.36). Measured on real Claude Code 2.1.322 with a fresh HOME.

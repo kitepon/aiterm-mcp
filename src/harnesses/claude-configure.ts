@@ -18,6 +18,7 @@ export async function configureClaudeForSessionOnly(
   effort: string | null,
   beforeChange: () => void,
   ui: AgentModelUi & { ready(): Promise<{ ready: boolean }> },
+  catalogEnv: NodeJS.ProcessEnv = process.env, // the seat's own root and login (model-configuration.md)
 ): Promise<void> {
   let selectionIssued = false;
   const screen = () => ui.screen();
@@ -111,7 +112,7 @@ export async function configureClaudeForSessionOnly(
       const bin = meta.agent_executable ?? resolveAgentBin("claude");
       if (!bin) return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", "Claude CodeのCLIが見つかりません");
       let catalog: AgentModelCatalog;
-      try { catalog = await claudeModelChoices(bin, meta.cwd ?? process.cwd()); }
+      try { catalog = await claudeModelChoices(bin, meta.cwd ?? process.cwd(), catalogEnv); }
       catch (error) { return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", error instanceof Error ? error.message : String(error)); }
       const native = catalog.models.find(item => item.id.toLowerCase() === model.toLowerCase());
       // The native alias can resolve to an older model; picker order and the picker's alias rows are not alias authority.

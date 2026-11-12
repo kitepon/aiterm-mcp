@@ -200,3 +200,56 @@ test("the listed parents stay with the serving process and never reach a seat's 
   const { sessionCallerEnvironment } = await import("../dist/tmux-runtime.js");
   assert.deepEqual(sessionCallerEnvironment({ AITERM_CLAUDE_CONFIG_ROOTS: parent, KEEP: "1" }), { KEEP: "1" });
 });
+
+test("claude_login reads the slot's oauth-token like the seat launcher, and a slot that is a Claude root is also the root", async () => {
+  const { withClaudeSlotLogin } = await import("../dist/claude-config-root.js");
+  const token = "sk-ant-oat01-" + "a".repeat(40), other = "sk-ant-oat01-" + "b".repeat(40), first = path.join(parent, "1st");
+  fs.mkdirSync(first, { recursive: true });
+  fs.writeFileSync(path.join(first, "oauth-token"), token + "\n");
+  fs.writeFileSync(path.join(second, "oauth-token"), other);
+  const one = withClaudeSlotLogin({ ...env, CLAUDE_CONFIG_DIR: "/kept" }, "1st");
+  assert.equal(one.CLAUDE_CODE_OAUTH_TOKEN, token); assert.equal(one.CLAUDE_CONFIG_DIR, "/kept");
+  fs.writeFileSync(path.join(second, ".claude.json"), "{}");
+  const two = withClaudeSlotLogin(env, "2nd");
+  assert.equal(two.CLAUDE_CONFIG_DIR, second); assert.equal(two.CLAUDE_CODE_OAUTH_TOKEN, other);
+  assert.equal(withClaudeSlotLogin(env, "2nd", true).CLAUDE_CONFIG_DIR, undefined, "an explicit configuration_root wins");
+  fs.writeFileSync(path.join(first, "oauth-token"), "not-a-token");
+  for (const slot of ["1st", "3rd", "../2nd", ""]) assert.throws(() => withClaudeSlotLogin(env, slot), /^Error: CLAUDE_LOGIN_UNAVAILABLE: /, slot);
+  assert.throws(() => withClaudeSlotLogin({ HOME: home }, "2nd"), /CLAUDE_LOGIN_UNAVAILABLE/, "no listed parent");
+  await assert.rejects(core.listAgentModels("codex", { claude_login: "2nd" }), /AGENT_CONFIGURATION_ROOT_REJECTED/);
+});
+
+test("a token login's catalog root is its own per root and login, seeded with only the root's oauthAccount", async () => {
+  const { claudeCatalogRoot } = await import("../dist/claude-catalog-root.js");
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "u1" }, userID: "x", projects: {} }));
+  const a = claudeCatalogRoot({ ...env, CLAUDE_CODE_OAUTH_TOKEN: "t1" });
+  const seeded = JSON.parse(fs.readFileSync(path.join(a.env.CLAUDE_CONFIG_DIR, ".claude.json"), "utf8"));
+  assert.deepEqual(seeded, { oauthAccount: { accountUuid: "u1" } });
+  assert.equal(a.env.CLAUDE_CODE_OAUTH_TOKEN, "t1");
+  assert.equal(fs.existsSync(path.join(a.env.CLAUDE_CONFIG_DIR, ".credentials.json")), false);
+  assert.notEqual(claudeCatalogRoot({ ...env, CLAUDE_CODE_OAUTH_TOKEN: "t2" }).env.CLAUDE_CONFIG_DIR, a.env.CLAUDE_CONFIG_DIR);
+  // Claude Code's own cache in the catalog root survives; only oauthAccount follows the root.
+  fs.writeFileSync(path.join(a.env.CLAUDE_CONFIG_DIR, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "u1" }, cachedGrowthBookFeatures: { f: true } }));
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "u2" } }));
+  const again = claudeCatalogRoot({ ...env, CLAUDE_CODE_OAUTH_TOKEN: "t1" });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(again.env.CLAUDE_CONFIG_DIR, ".claude.json"), "utf8")), { oauthAccount: { accountUuid: "u2" }, cachedGrowthBookFeatures: { f: true } });
+  // A non-default root's global config is <root>/.claude.json.
+  fs.writeFileSync(path.join(second, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "u3" } }));
+  const rooted = claudeCatalogRoot({ ...env, CLAUDE_CONFIG_DIR: second, CLAUDE_CODE_OAUTH_TOKEN: "t1" });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(rooted.env.CLAUDE_CONFIG_DIR, ".claude.json"), "utf8")).oauthAccount.accountUuid, "u3");
+  assert.equal(claudeCatalogRoot({ ...env, ANTHROPIC_API_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "t1" }), null);
+});
+
+test("a live process's named environment is read on Linux and macOS, and is unknown elsewhere", async () => {
+  const { readProcessEnvironment } = await import("../dist/process-runtime.js");
+  const ps = "/usr/local/bin/claude --model opus HOME=/Users/k CLAUDE_CONFIG_DIR=/Users/k/r CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-abc\n";
+  assert.deepEqual(readProcessEnvironment(1, ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "MISSING"], "darwin", ps),
+    { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-abc", CLAUDE_CONFIG_DIR: "/Users/k/r", MISSING: null });
+  assert.equal(readProcessEnvironment(process.pid, ["PATH"], "win32"), null);
+  if (process.platform === "linux") {
+    const { spawn } = await import("node:child_process");
+    const child = spawn("sleep", ["5"], { env: { PATH: process.env.PATH, AITERM_PROBE: "on" } });
+    try { assert.deepEqual(readProcessEnvironment(child.pid, ["AITERM_PROBE", "AITERM_NO_SUCH"]), { AITERM_PROBE: "on", AITERM_NO_SUCH: null }); }
+    finally { child.kill(); }
+  }
+});

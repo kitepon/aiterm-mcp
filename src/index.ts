@@ -20,14 +20,14 @@ import { AitermError, AgentResumeUnavailableError, AgentResumeError, launchInput
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readPrivateEnvLine, setPrivateEnv } from "./private-env.js";
+import { readPrivateEnvLine, setPrivateEnv, privateEnvValue } from "./private-env.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta } from "./terminal-launch-error.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
 import { agentGoalWireResultSchema, agentGoalOutputSchema } from "./agent-goal-native-result.js";
-import { agentGoalInputSchema, goalOriginFromHost } from "./agent-goal.js";
+import { agentGoalInputSchema, goalOriginFromHost, GOAL_ORIGIN_PRIVATE_ENV } from "./agent-goal.js";
 import * as core from "./core.js";
 import { runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
@@ -40,7 +40,7 @@ import { attachExecutionControlRegistrar } from "./execution-tools.js";
 import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { failureObservationSchema } from "./parent-delivery-record.js";
-import { acceptRemote, callRemoteTool, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
+import { acceptRemote, callRemoteTool, REMOTE_CLIENT_NAME, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
@@ -1185,8 +1185,21 @@ server.registerTool("agent_goal", {
   outputSchema: agentGoalOutputSchema,
 }, async (args, extra) => {
   try {
-    const origin = goalOrigin ? goalOrigin(extra) : goalOriginFromHost(server.server.getClientVersion()?.name, extra._meta, server.server.getClientCapabilities());
+    const client = server.server.getClientVersion()?.name;
+    // A terminal's goal call from the Aiterm that holds its binding carries the caller's origin on the private line,
+    // which only that Aiterm can send (remote-terminal.md R5).
+    const relayed = client === REMOTE_CLIENT_NAME && privateEnvValue(GOAL_ORIGIN_PRIVATE_ENV) === "user" ? "user" : undefined;
+    const origin = relayed ?? (goalOrigin ? goalOrigin(extra) : goalOriginFromHost(client, extra._meta, server.server.getClientCapabilities()));
     if (origin !== "user" && origin !== "automatic") throw new Error("Invalid trusted goal provenance");
+    // A terminal seat is addressed by session alone, like agent_configure (remote-terminal.md T2).
+    const terminal = boundTerminalTarget(args.session_id);
+    if (terminal) {
+      try {
+        const remote = await callRemoteTool(terminal, "agent_goal", args, undefined,
+          origin === "user" ? { [GOAL_ORIGIN_PRIVATE_ENV]: "user" } : undefined, extra?._meta as Record<string, unknown> | undefined);
+        return withErrorCode(remoteResult(terminal, remote));
+      } catch (e) { return withErrorCode(fail(e)); }
+    }
     const result = agentGoalWireResultSchema.parse(await core.agentGoal(agentGoalInputSchema.parse(args), origin));
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result },
       ...(["rejected", "outcome_unknown", "unavailable", "unsupported"].includes(result.outcome) ? { isError: true } : {}) };
@@ -1261,6 +1274,7 @@ registerRemoteAwareTool(
       cwd: z.string().nullish().describe("CLIを実行する作業ディレクトリ（絶対パス・任意）。project設定で候補が変わるharness向け"),
       include_hidden: z.boolean().optional().describe("Codexが一覧で隠すmodelも返す（既定false）。他のharnessには隠すmodelが無い"),
       configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。一覧を読むアカウントの設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ（既定のroot、またはAITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下）。他はAGENT_CONFIGURATION_ROOT_REJECTED。省略は既定のroot"),
+      claude_login: z.string().min(1).optional().describe("claude-code harnessだけ。一覧を読むlogin（slot名、例 1st）。AITERM_CLAUDE_CONFIG_ROOTSの下の<slot>/oauth-tokenを、席の起動と同じCLAUDE_CODE_OAUTH_TOKENとして使う。tokenはAitermの外へ出さない。読めない時はCLAUDE_LOGIN_UNAVAILABLE。省略はこのAitermのenvのlogin"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-models.v1"),
@@ -1275,9 +1289,9 @@ registerRemoteAwareTool(
       models: z.array(agentModelChoiceSchema),
     },
   },
-  async ({ harness, cwd, include_hidden, configuration_root }: any) => {
+  async ({ harness, cwd, include_hidden, configuration_root, claude_login }: any) => {
     try {
-      const catalog = await core.listAgentModels(kindForHarness(harness), { cwd, include_hidden, configuration_root });
+      const catalog = await core.listAgentModels(kindForHarness(harness), { cwd, include_hidden, configuration_root, claude_login });
       const result = agentModelsResult(harness, catalog);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],

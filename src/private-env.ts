@@ -28,6 +28,11 @@ export function setPrivateEnv(env: Record<string, string>): void {
   for (const [name, value] of Object.entries(env)) values.set(name, value);
 }
 
+/** A value that came only on the private stdin line, never this process's env. */
+export function privateEnvValue(name: string): string | undefined {
+  return values.get(name);
+}
+
 /** The value a launch uses for an env_vars name: the private value first, then this process's env. */
 export function launchEnvValue(name: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   return values.get(name) ?? env[name];

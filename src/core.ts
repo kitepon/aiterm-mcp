@@ -57,10 +57,10 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
-import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, type ClaudeConfigRoot } from "./claude-config-root.js";
+import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
 import { AitermError, launchAuthRequired, launchInputRefusal, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
@@ -5826,12 +5826,13 @@ export async function authenticateAgent(kind: AgentKind, options: {
  */
 export async function listAgentModels(
   kind: AgentKind,
-  options: { cwd?: string | null; include_hidden?: boolean; configuration_root?: string } = {},
+  options: { cwd?: string | null; include_hidden?: boolean; configuration_root?: string; claude_login?: string } = {},
 ): Promise<AgentModelCatalog> {
-  if (options.configuration_root !== undefined && kind !== "claude")
-    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootはclaude-code harnessだけで使えます。", 2);
-  const claudeEnv = options.configuration_root === undefined ? process.env
+  if ((options.configuration_root !== undefined || options.claude_login !== undefined) && kind !== "claude")
+    throw new AitermError("AGENT_CONFIGURATION_ROOT_REJECTED: configuration_rootとclaude_loginはclaude-code harnessだけで使えます。", 2);
+  const rooted = options.configuration_root === undefined ? process.env
     : withClaudeConfigRoot(process.env, resolveClaudeConfigurationRoot(options.configuration_root));
+  const claudeEnv = options.claude_login === undefined ? rooted : withClaudeSlotLogin(rooted, options.claude_login, options.configuration_root !== undefined);
   const cwd = options.cwd ?? process.cwd();
   if (!path.isAbsolute(cwd)) throw new AitermError("cwd は絶対パスで指定してください", 2);
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new AitermError(`cwd が見つかりません: ${cwd}`, 2);
@@ -6659,6 +6660,23 @@ export async function configureAgent(
   }
 }
 
+/**
+ * The env a Claude catalog read for this seat runs with: the seat's own root and login, read from its live native process
+ * (model-configuration.md). null when the process or its environment cannot be read; callers then keep their own env.
+ */
+function claudeSeatCatalogEnv(name: string, meta: AgentMetadata): NodeJS.ProcessEnv | null {
+  const pane = tmux("display-message", "-p", "-t", `=${name}:`, "#{pane_pid}");
+  const pid = Number(pane.stdout.trim());
+  if (pane.code !== 0 || !Number.isSafeInteger(pid) || pid < 1) return null;
+  const rows = readRuntimeProcesses();
+  const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
+  const seat = candidates.length === 1 ? readProcessEnvironment(candidates[0].pid, [CLAUDE_LOGIN_ENV, "CLAUDE_CONFIG_DIR"]) : null;
+  if (!seat) return null;
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(seat)) if (value === null) delete env[key]; else env[key] = value;
+  return env;
+}
+
 /** 返りの null は、席の画面が番の最中を示していて、何も打っていない時。 */
 async function configureAgentInLock(
   name: string,
@@ -6670,6 +6688,8 @@ async function configureAgentInLock(
   // 席の控えは、行列の順番が来てから読む（前の送信が書いた分を、古い控えで上書きしない）。
   const meta = loadAgentMetadata(name);
   bindCompletedInitialPrompt(meta);
+  let seatEnv: NodeJS.ProcessEnv | null | undefined;
+  const claudeSeatEnv = () => seatEnv === undefined ? (seatEnv = claudeSeatCatalogEnv(name, meta)) : seatEnv;
   // Codexは回答を流している間、動作中の行を出さない（ADR 0101）。送信と同じく記録の番の開始を見て、動いている席へ命令を打たない。
   if (isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))
     || (meta.kind === "codex" && codexRunningTurn(meta) !== null && observeSession(name).harness_alive === true)) return null;
@@ -6741,7 +6761,7 @@ async function configureAgentInLock(
           `この席のmodelが控えに無く（前の版のAitermが起こした席）、fastの対応を確かめられません。modelも渡してください。${untouched}`);
       }
       const unavailable = await assertClaudeFastSupported(bin, meta.cwd ?? process.cwd(), target, untouched,
-        { ...process.env, CLAUDE_CONFIG_DIR: meta.claude_home ?? claudeConfigDir() });
+        claudeSeatEnv() ?? { ...process.env, CLAUDE_CONFIG_DIR: meta.claude_home ?? claudeConfigDir() });
       if (unavailable) throw new FastModeError("FAST_MODE_UNAVAILABLE", `${unavailable.message.replace(/^FAST_MODE_UNAVAILABLE: /, "")}${untouched}`);
     } else {
       await assertCodexFastSupported(bin, meta.codex_home ?? realCodexHome(), model ?? meta.model ?? null, untouched);
@@ -6753,7 +6773,7 @@ async function configureAgentInLock(
     if (fast !== null || !model || meta.fast !== true) return;
     const bin = meta.agent_executable ?? resolveAgentBin(meta.kind);
     if (!bin) return;
-    const catalog = meta.kind === "claude" ? await claudeModelChoices(bin, meta.cwd ?? process.cwd()) : await codexModelChoices(bin, true);
+    const catalog = meta.kind === "claude" ? await claudeModelChoices(bin, meta.cwd ?? process.cwd(), claudeSeatEnv() ?? process.env) : await codexModelChoices(bin, true);
     if (!catalog.fast_ids?.[model]) recordAgentFast(meta, false);
   };
 
@@ -6763,7 +6783,8 @@ async function configureAgentInLock(
     if (effort && !level && effort !== "ultracode") {
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
-    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) });
+    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) },
+      claudeSeatEnv() ?? process.env);
     if (effort && !level) {
       beforeChange();
       await sendAgentPromptText(name, `/effort ${effort}`);

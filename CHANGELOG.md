@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_launch` with `fork_from` works on a closed main seat (ADR 0140). Closing a seat used to delete its launch record, so a fork of a Bot whose seat BellTeam had idle-closed was refused with `FORK_SOURCE_UNAVAILABLE` ("no managed seat of this harness") although the conversation was saved. Closing a Claude Code or Codex seat now leaves `<seat>.fork-source.json` in Aiterm's state (0600: kind, cwd, last conversation ID, Claude root or Codex rollout). The fork reads it and never wakes the main. The file is replaced at the next close of that name and removed after 30 days. A seat closed before this version has no such file. If the saved conversation is gone, the refusal is still `FORK_SOURCE_UNAVAILABLE`.
+- A local or `remote` `agent_launch` refusal now carries `_meta["aiterm/error_code"]` (for example `FORK_SOURCE_UNAVAILABLE`, `FORK_INVALID`, `READONLY_UNENFORCEABLE`), as terminal launches already did. The text is unchanged.
+
 ## [0.70.32] - 2026-11-12
 
 - `agent_goal` on a Claude Code seat on Windows no longer fails with `native_goal_status_input_unconfirmed` right after pasting `/goal`. On Windows, Claude draws the slash-command menu (whose first row also starts with `❯`) under the composer's bottom rule, and Aiterm took that menu row for the composer. The composer is now the lowest `❯` row framed by a rule above and below. Measured on fox with Claude Code 2.1.322.

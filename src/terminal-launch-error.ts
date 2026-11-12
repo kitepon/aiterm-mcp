@@ -27,6 +27,7 @@ const ACTIONS: Record<string, string> = {
   REMOTE_AITERM_TOO_OLD: "端末のAitermが古いため起こせません。端末のAitermを更新してください。",
   SEAT_FORWARD_UNAVAILABLE: "端末からBellTeamへ戻る通り道がまだ用意できていません。少し待ってから起こし直してください。",
   CWD_UNAVAILABLE: "端末に作業フォルダがありません。メンバーの作業フォルダを選び直すか、そのフォルダを作ってください。",
+  AGENT_STARTUP_BLOCKED: "AIの起動の途中の画面（初回の案内や確認）で止まったため、席を閉じました。端末でそのAIを一度起動して画面を最後まで進めてから、起こし直してください。",
   AGENT_LAUNCH_NOT_STARTED: "席を作る途中で失敗しました。席は残っていません。もう一度起こし直します。",
   CLAUDE_AUTH_STATUS_UNCONFIRMED: "端末のClaude Codeのログイン状態を確かめられませんでした。少し待ってから起こし直してください。",
   CLAUDE_AUTH_STATUS_TIMEOUT: "端末のClaude Codeのログイン状態を時間内に確かめられませんでした。少し待ってから起こし直してください。",
@@ -46,9 +47,9 @@ export const ERROR_CODE_META = "aiterm/error_code";
 
 /** R18 for a local launch: the fresh native creation left no seat (core.freshLaunchFailure). */
 export function launchNotStartedMeta(harness: string, phase: "native_create" | "input" = "native_create",
-  code: "AGENT_LAUNCH_NOT_STARTED" | "AGENT_AUTH_REQUIRED" = "AGENT_LAUNCH_NOT_STARTED"): Record<string, unknown> {
+  code: "AGENT_LAUNCH_NOT_STARTED" | "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED" = "AGENT_LAUNCH_NOT_STARTED", action?: string): Record<string, unknown> {
   return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase,
-    effect: "not_started", session_created: false, action: code === "AGENT_AUTH_REQUIRED" || phase !== "input" ? ACTIONS[code] : INPUT_ACTION } };
+    effect: "not_started", session_created: false, action: action ?? (code !== "AGENT_LAUNCH_NOT_STARTED" || phase !== "input" ? ACTIONS[code] : INPUT_ACTION) } };
 }
 // phase "input": refused from the arguments alone; nothing was started, so launching again unchanged fails the same way.
 const INPUT_ACTION = "起動の指定（追加の指示かMCPの設定）をこのAIでは使えません。席は作られていません。指定を見直してください。";

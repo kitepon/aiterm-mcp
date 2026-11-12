@@ -260,7 +260,7 @@ function fail(e: unknown): ToolResult {
     structuredContent: { ...configurationFailure }, ...configureErrorMeta(e),
   };
   if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code) };
+    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code, e.launchNotStarted.action) };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 

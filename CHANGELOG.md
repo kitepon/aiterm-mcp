@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.32] - 2026-11-12
+
 - `agent_goal` on a Claude Code seat on Windows no longer fails with `native_goal_status_input_unconfirmed` right after pasting `/goal`. On Windows, Claude draws the slash-command menu (whose first row also starts with `❯`) under the composer's bottom rule, and Aiterm took that menu row for the composer. The composer is now the lowest `❯` row framed by a rule above and below. Measured on fox with Claude Code 2.1.322.
 
 ## [0.70.31] - 2026-11-12
@@ -3335,7 +3337,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...HEAD
+[0.70.32]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...v0.70.32
 [0.70.31]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.30...v0.70.31
 [0.70.30]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...v0.70.30
 [0.70.29]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.28...v0.70.29

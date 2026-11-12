@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.35] - 2026-11-12
+
 - Writes that one Aiterm process forwards to the same terminal seat now leave it one at a time: `pty_send`, `agent_configure` and `agent_goal` other than `inspect`, keyed by terminal and session. The next one starts when the previous forward has returned, success or failure. A local seat already had this inside one process (`withAgentSendLock`); a terminal seat did not, because each forward runs its own `aiterm-mcp` on the terminal. Reads are not queued, other seats are not queued, and a `pty_send` holds the order only for its forward, not for the steer `wait_process` relay that may follow. Two Aiterm processes forwarding to one seat are still not ordered by Aiterm (0.63.12).
 
 ## [0.70.34] - 2026-11-12
@@ -3351,7 +3353,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.35...HEAD
+[0.70.35]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.34...v0.70.35
 [0.70.34]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.33...v0.70.34
 [0.70.33]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.32...v0.70.33
 [0.70.32]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.31...v0.70.32

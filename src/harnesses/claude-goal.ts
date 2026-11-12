@@ -103,11 +103,14 @@ import { AgentGoalNotIssuedError } from "../agent-goal.js";
 function plain(screen: string): string { return screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, ""); }
 export function claudeGoalComposer(screen: string): { text: string; columns: number; rows: number } | null {
   const lines = plain(screen).split("\n");
-  let at=lines.length-1;
-  while(at>=0&&!/^\s*❯/u.test(lines[at]))at--;
   const rule=/^\s*─{8,}\s*$/u;
-  if(at<1||!rule.test(lines[at-1]))return null;
-  const end=lines.findIndex((line,i)=>i>at&&rule.test(line));
+  // The composer is the lowest ❯ row between two rules; Windows draws the slash-command menu (also ❯) below the bottom rule.
+  let at=lines.length-1,end=-1;
+  for(;at>=1;at--){
+    if(!/^\s*❯/u.test(lines[at])||!rule.test(lines[at-1]))continue;
+    end=lines.findIndex((line,i)=>i>at&&rule.test(line));
+    if(end>=0)break;
+  }
   if(end<0)return null;
   const first=/^\s*❯[ \u00a0]?(.*)$/u.exec(lines[at]);
   if(!first)return null;

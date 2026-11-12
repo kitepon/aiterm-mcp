@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.29] - 2026-11-12
+
 - `agent_models` takes `claude_login` (claude-code only, a slot name such as `1st`). Aiterm reads `<parent in AITERM_CLAUDE_CONFIG_ROOTS>/<slot>/oauth-token` and lists models on that login, the one a seat of that slot runs with. When `configuration_root` is omitted and the slot directory is itself a Claude root (it has `.claude.json`), it is also the root, as for that slot's seats. The token never leaves Aiterm. A missing or malformed token file answers `CLAUDE_LOGIN_UNAVAILABLE` without reading a list. Without `claude_login` nothing changes.
 - A Claude list read on a token login (`CLAUDE_CODE_OAUTH_TOKEN`) runs in its own catalog-only root per root and login, seeded with only the root's `oauthAccount`. Claude Code decides the served catalog with `oauthAccount`, which a token login never fetches. Without it the list was the short one (5 rows, e.g. `claude-fable-5-1[1m]`), unlike the seat's `/model` picker (14 rows: `opus` "Opus 5.5", `fable` "Fable 5.2", …). Measured on both BellTeam slots.
 - `agent_configure` on a Claude seat reads its catalog (alias match, fast check, dropping fast) with the seat's own root and login, read from the seat's live process (Linux `/proc/<pid>/environ`, macOS `ps -wwE`). Before, it used Aiterm's own login, so a model the seat could pick could be refused as `CLAUDE_MODEL_NOT_IN_PICKER`. Where the seat's environment cannot be read (Windows), it keeps Aiterm's env as before.
@@ -3323,7 +3325,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.28...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.29...HEAD
+[0.70.29]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.28...v0.70.29
 [0.70.28]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.27...v0.70.28
 [0.70.27]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.26...v0.70.27
 [0.70.26]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.25...v0.70.26

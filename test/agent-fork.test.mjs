@@ -8,6 +8,7 @@ import {spawnSync} from 'node:child_process';
 import {claudeAgentArgv,claudeResumeArgv} from '../dist/harnesses/claude.js';
 import {codexAgentArgv,codexResumeArgv,codexTranscriptMatchesLaunch} from '../dist/harnesses/codex.js';
 import {resolveForkSource,forkInputKey} from '../dist/core.js';
+import {agentsDir} from '../dist/agent-shared.js';
 import {probeWriteBan,writeBanPrefix,windowsWriteBanArgv} from '../dist/write-ban.js';
 const main='11111111-2222-4333-8444-555555555555', own='66666666-7777-4888-9999-000000000000';
 const ban={path:'/srv/project',method:'landlock'};
@@ -50,6 +51,31 @@ test('fork requests that cannot hold the contract never start a seat',()=>{
  assert.throws(()=>resolveForkSource('codex',{session_id:'no-such-seat-fork'},ok,probe),/FORK_SOURCE_UNAVAILABLE/);
  if(process.platform!=='win32')assert.throws(()=>probeWriteBan(os.tmpdir(),'win32'),/READONLY_UNENFORCEABLE/,'the Windows helper cannot prove the ban on another OS');
  assert.throws(()=>probeWriteBan('/'),/READONLY_UNENFORCEABLE/);
+});
+test('a closed main forks from the conversation its close saved, and refuses once that conversation is gone',()=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'fork-closed-')),cwd=path.join(tmp,'project'),rollout=path.join(tmp,'rollout.jsonl');
+ fs.mkdirSync(cwd);fs.writeFileSync(rollout,'{}\n');
+ const parent=path.join(tmp,'roots'),home=path.join(parent,'1st'),transcript=path.join(home,'projects',cwd.replace(/[^a-zA-Z0-9]/g,'-'),`${main}.jsonl`);
+ fs.mkdirSync(path.dirname(transcript),{recursive:true});fs.writeFileSync(transcript,'{}\n');
+ const saved=(name,v)=>fs.writeFileSync(path.join(agentsDir(),`${name}.fork-source.json`),JSON.stringify(v));
+ const ok={prompt:'q'},probe=()=>ban,prev=process.env.AITERM_CLAUDE_CONFIG_ROOTS;
+ process.env.AITERM_CLAUDE_CONFIG_ROOTS=parent;
+ try{
+  saved('closed-codex-main',{kind:'codex',cwd,vendor_session_id:main,rollout});
+  const r=resolveForkSource('codex',{session_id:'closed-codex-main'},ok,probe);
+  assert.equal(r.fork_of.vendor_session_id,main);assert.equal(r.cwd,cwd);assert.equal(r.fork_of.session_id,'closed-codex-main');
+  assert.throws(()=>resolveForkSource('claude',{session_id:'closed-codex-main'},ok,probe),/FORK_SOURCE_UNAVAILABLE/,'another harness never forks it');
+  saved('closed-claude-main',{kind:'claude',cwd,vendor_session_id:main,claude_home:home});
+  const c=resolveForkSource('claude',{session_id:'closed-claude-main'},ok,probe);
+  assert.equal(c.fork_of.vendor_session_id,main);assert.equal(fs.realpathSync(c.root.root),fs.realpathSync(home));
+  fs.rmSync(rollout);fs.rmSync(transcript);
+  assert.throws(()=>resolveForkSource('codex',{session_id:'closed-codex-main'},ok,probe),/FORK_SOURCE_UNAVAILABLE.*no longer exists/);
+  assert.throws(()=>resolveForkSource('claude',{session_id:'closed-claude-main'},ok,probe),/FORK_SOURCE_UNAVAILABLE.*no longer exists/);
+ }finally{
+  if(prev===undefined)delete process.env.AITERM_CLAUDE_CONFIG_ROOTS;else process.env.AITERM_CLAUDE_CONFIG_ROOTS=prev;
+  for(const n of ['closed-codex-main','closed-claude-main'])fs.rmSync(path.join(agentsDir(),`${n}.fork-source.json`),{force:true});
+  fs.rmSync(tmp,{recursive:true,force:true});
+ }
 });
 test('the write-ban refuses every write route inside the folder and allows writes outside',{skip:process.platform==='win32'},()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'fork-ban-')),inside=path.join(root,'project'),outside=path.join(root,'outside');

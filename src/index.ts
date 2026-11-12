@@ -1525,7 +1525,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
         },
       };
     }
-    return fail(e);
+    return withErrorCode(fail(e));
   }
 }
 
@@ -1680,8 +1680,8 @@ server.registerTool(
       ? new AgentResumeUnavailableError(args.session_name)
       : launchInputRefusal(harness, "require_existing_resume requires session_name"));
     if (!remote) return launchAgent(kindForHarness(harness), args, extra);
-    try { return await launchRemoteAgent(acceptRemote(remote), harness, args, extra); }
-    catch (e) { return fail(e); }
+    try { return withErrorCode(await launchRemoteAgent(acceptRemote(remote), harness, args, extra)); }
+    catch (e) { return withErrorCode(fail(e)); }
   },
 );
 

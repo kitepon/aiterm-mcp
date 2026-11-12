@@ -614,11 +614,42 @@ export function windowsLaunchTyped(name: string, launchId: string, full: string)
   return windowsLaunchIndirection(file);
 }
 
+type ForkSource = { kind: "claude" | "codex"; cwd: string; vendor_session_id: string; claude_home?: string; rollout?: string };
+const FORK_SOURCE_DAYS = 30; // Claude's own transcript retention default (cleanupPeriodDays)
+function forkSourcePath(dir: string, name: string): string { return path.join(dir, `${name}.fork-source.json`); }
+
+/** ADR 0140: a closed main's last conversation, so a fork never needs the main woken. Never a resume or send authority. */
+function saveForkSource(dir: string, name: string): void {
+  const meta = tryLoadAgentMetadata(name);
+  if (!meta || (meta.kind !== "claude" && meta.kind !== "codex") || !meta.cwd) return;
+  let rollout: string | null = null;
+  try { rollout = meta.kind === "codex" ? codexRootTranscript(meta) : null; } catch { rollout = null; }
+  const vendor = meta.kind === "codex" ? (rollout ? codexRolloutSessionId(meta, rollout) : null) : meta.vendor_session_id;
+  if (!vendor || (meta.kind === "claude" && !meta.claude_home)) return;
+  const source: ForkSource = { kind: meta.kind, cwd: meta.cwd, vendor_session_id: vendor,
+    ...(meta.kind === "claude" ? { claude_home: meta.claude_home! } : { rollout: rollout! }) };
+  writeText0600(forkSourcePath(dir, name), JSON.stringify(source));
+  const stale = Date.now() - FORK_SOURCE_DAYS * 86_400_000;
+  for (const f of fs.readdirSync(dir)) if (f.endsWith(".fork-source.json")) try {
+    if (fs.statSync(path.join(dir, f)).mtimeMs < stale) fs.unlinkSync(path.join(dir, f));
+  } catch { /* another close removed it */ }
+}
+
+function readForkSource(name: string): ForkSource | null {
+  const dir = existingAgentsDir();
+  try {
+    const v = dir ? JSON.parse(fs.readFileSync(forkSourcePath(dir, name), "utf8")) : null;
+    return v && (v.kind === "claude" || v.kind === "codex") && typeof v.cwd === "string" && typeof v.vendor_session_id === "string"
+      && (v.kind === "claude" ? typeof v.claude_home === "string" : typeof v.rollout === "string") ? v : null;
+  } catch { return null; }
+}
+
 function cleanupAgentState(name: string): void {
   assertSessionName(name);
   agentMetadataNegativeCache.delete(name);
   const dir = existingAgentsDir();
   if (!dir) return;
+  try { saveForkSource(dir, name); } catch { /* best-effort like the cleanup below: a missing copy only refuses a later fork */ }
   const prefix = `${name}.`;
   try {
     for (const f of fs.readdirSync(dir)) {
@@ -8607,15 +8638,18 @@ export function resolveForkSource(kind: AgentKind, from: { session_id: string; f
   if (opts.session_name && tryLoadAgentMetadata(opts.session_name)) throw new AitermError(`FORK_INVALID: session_name ${opts.session_name} already names a seat`, 2);
   assertSessionName(from.session_id);
   const unavailable = (why: string) => new AitermError(`FORK_SOURCE_UNAVAILABLE: ${from.session_id}: ${why}`, 2);
-  const main = tryLoadAgentMetadata(from.session_id);
-  if (!main || main.kind !== kind || !main.cwd) throw unavailable("no managed seat of this harness");
+  const live = tryLoadAgentMetadata(from.session_id);
+  // A closed main is read from the copy its close left; it is not woken (ADR 0140).
+  const main = live ?? readForkSource(from.session_id);
+  if (!main || main.kind !== kind || !main.cwd) throw unavailable("no managed seat of this harness and no saved conversation from its close");
   // Codex binds its conversation lazily and may switch it (/new): read the current one without writing the main's record.
   let rollout: string | null = null;
-  try { rollout = main.kind === "codex" ? codexRootTranscript(main) : null; } catch { rollout = null; }
-  const mainVendorId = main.kind === "codex" ? (rollout ? codexRolloutSessionId(main, rollout) : null) : main.vendor_session_id;
+  if (live) try { rollout = live.kind === "codex" ? codexRootTranscript(live) : null; } catch { rollout = null; }
+  else rollout = (main as ForkSource).rollout ?? null;
+  const mainVendorId = !live ? main.vendor_session_id : live.kind === "codex" ? (rollout ? codexRolloutSessionId(live, rollout) : null) : live.vendor_session_id;
   if (!mainVendorId || (main.kind === "claude" ? !main.claude_home
-      || !fs.existsSync(path.join(main.claude_home, "projects", claudeProjectSlug(main.cwd), `${mainVendorId}.jsonl`)) : !rollout))
-    throw unavailable("the saved conversation file does not exist yet");
+      || !fs.existsSync(path.join(main.claude_home, "projects", claudeProjectSlug(main.cwd), `${mainVendorId}.jsonl`)) : !rollout || !fs.existsSync(rollout)))
+    throw unavailable(live ? "the saved conversation file does not exist yet" : "the closed seat's saved conversation file no longer exists");
   if (opts.cwd != null && (!fs.existsSync(opts.cwd) || fs.realpathSync(opts.cwd) !== fs.realpathSync(main.cwd)))
     throw new AitermError("FORK_INVALID: a fork runs in its main seat's cwd; omit cwd", 2);
   // The main's cwd is the project folder the Owner forbade writing (ADR 0140).

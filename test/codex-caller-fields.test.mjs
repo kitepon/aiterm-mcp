@@ -178,6 +178,10 @@ test("input refusal: AGENT_LAUNCH_NOT_STARTED with phase input for every harness
     assert.equal(launchError(scope)?.phase, "input");
     const resume = await call({ harness: "claude-code", require_existing_resume: true, prompt: "x" });
     assert.equal(launchError(resume)?.phase, "input");
+    // A fork refusal names its code in _meta too, so BellTeam need not parse the text (R19).
+    const fork = await call({ harness: "claude-code", prompt: "q", fork_from: { session_id: "no-such-fork-main" } });
+    assert.match(fork.content[0].text, /^aiterm: FORK_SOURCE_UNAVAILABLE: /);
+    assert.deepEqual(fork._meta?.["aiterm/error_code"], { schema: "aiterm.error-code.v1", code: "FORK_SOURCE_UNAVAILABLE" });
   } finally {
     await client.close();
   }

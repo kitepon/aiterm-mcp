@@ -56,7 +56,7 @@ import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
-import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
+import { pendingChildResultsFor } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
@@ -2097,8 +2097,8 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
   const comparable = previous?.pane_identity === sample.pane_identity;
   // 起動完了の控えが無いsession（通常PTY、控える前の版で起動したagent）とharnessを特定できない時は数えない。
   const startup = agent && Array.isArray(meta?.startup_processes) ? new Set(meta.startup_processes) : null;
-  // このsessionが親として待っている子の結果。持ち主はharnessの下で動くAitermのMCP process。
-  result.pending_child_deliveries = agent ? unfinishedDeliveriesOwnedBy(activityRows) : null;
+  // このsessionが親として待っている子の結果。子の記録が名指す親の席に数える（名指しが無ければ持ち主processで）。
+  result.pending_child_deliveries = agent ? pendingChildResultsFor(name, activityRows) : null;
   result.activity = {
     cursor: Buffer.from(JSON.stringify(sample)).toString("base64url"),
     output_changed: comparable ? previous.screen_digest !== sample.screen_digest : null,
@@ -2452,6 +2452,22 @@ function listNativeSessionRows(runTmux: typeof tmux = tmux): string[][] {
 
 /** Same listing and failure as pty_list, without loading every seat's metadata: one seat's existence check stays one
  * tmux call (2026-11-11: per-seat full lists made a CurrentWork pty_list take 10-27 s for ~140 members). */
+/**
+ * Why a parent delivery's local child can no longer complete its boundary (parent-delivery.md), or null while it still can
+ * or when this cannot be told (tmux unreadable). Replaced launch, missing record, hibernated, or vanished native.
+ */
+export function deliveryChildGone(boundary: { session_id: string; launch_id: string; remote?: unknown }): string | null {
+  if (boundary.remote) return null;
+  try {
+    const meta = tryLoadAgentMetadata(boundary.session_id);
+    if (!meta) return "child_missing";
+    if (meta.launch_id !== boundary.launch_id) return "child_replaced";
+    const state = agentDormantState(meta);
+    if (state === "hibernated") return "child_hibernated";
+    return state === null && !nativeSessionExists(boundary.session_id) ? "child_vanished" : null;
+  } catch { return null; }
+}
+
 function nativeSessionExists(name: string): boolean {
   return listNativeSessionRows().some(([listed]) => listed === name);
 }

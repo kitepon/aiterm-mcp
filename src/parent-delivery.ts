@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
-import type { readAgentTranscriptResult } from "./core.js";
+import { deliveryChildGone, type readAgentTranscriptResult } from "./core.js";
 import { ensureStateRoot, writeJson0600, type AgentTurnBoundary, type AgentWaitObservation } from "./agent-shared.js";
 import { readProcessIdentities } from "./process-runtime.js";
 import { deliveryOwnerPrefix } from "./parent-delivery-owners.js";
@@ -71,6 +71,10 @@ export interface ParentDeliveryDependencies {
   // そのpidのprocessが今あるか。OSへ直接聞き、processを起動しない。
   exists: (pid: number) => boolean;
   now: () => number;
+  // この端末の子が境界の完了をもう出せない理由（launchの置換、記録なし、休止、native席なし）。分からない時と別端末はnull。
+  childGone: (boundary: DeliveryRecord["boundary"]) => string | null;
+  // 子を確かめる間隔（ms）。2回続けて同じ答えなら待ちを終える。
+  childCheckMs: number;
   // 壁時計（ms）。持ち主の「生きている印」（fileの時刻）と比べる。
   wall: () => number;
 }
@@ -145,7 +149,7 @@ export class ParentDeliveryManager {
     dependencies?: Partial<ParentDeliveryDependencies> } = {}) {
     this.execution = options.execution;
     this.deps = { observe: observeAnywhere, answer: answerAnywhere, submit: submitParentAnswer,
-      verify: verifyParent, processes: readProcessIdentities, exists: processExists,
+      verify: verifyParent, processes: readProcessIdentities, exists: processExists, childGone: deliveryChildGone, childCheckMs: 30_000,
       now: () => performance.now(), wall: () => Date.now(), ...options.dependencies,
       ...(options.execution ? { submit: options.execution.submit } : {}) };
     if (options.state_root !== undefined && !path.isAbsolute(options.state_root))
@@ -397,18 +401,27 @@ export class ParentDeliveryManager {
 
   private watch(job: OwnedRecord): void {
     const boundary = job.record.boundary;
+    // A child that can no longer complete this boundary (replaced, gone, hibernated) ends the wait: before 0.70.42 it never did.
+    const childStop = new AbortController();
+    let gone: string | null = null, seen: string | null = null;
+    const check = setInterval(() => {
+      const reason = this.deps.childGone(boundary);
+      if (reason && reason === seen) { gone = reason; childStop.abort(); }
+      seen = reason;
+    }, this.deps.childCheckMs);
+    check.unref?.();
     job.task = (async () => {
       try {
         const completion = await this.deps.observe(boundary.session_id, {
           cursor: boundary.event_cursor, operation_id: boundary.operation_id,
           ...(boundary.input_id ? { input_id: boundary.input_id } : {}),
-          timeout: Infinity, signal: job.controller.signal, ...(boundary.remote ? { remote: boundary.remote } : {}),
+          timeout: Infinity, signal: AbortSignal.any([job.controller.signal, childStop.signal]), ...(boundary.remote ? { remote: boundary.remote } : {}),
         });
         await this.capture(job, completion);
       } catch (error) {
         if (job.controller.signal.aborted) return;
-        await this.captureFailure(job, error);
-      }
+        await this.captureFailure(job, gone ? new AitermError(`PARENT_DELIVERY_CHILD_GONE: ${gone}`, 2) : error);
+      } finally { clearInterval(check); }
     })().catch((error) => this.reportServiceError(error));
   }
 

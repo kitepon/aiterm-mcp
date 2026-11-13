@@ -28,7 +28,9 @@ ownerはPIDと出生identityが取得できなければ構築を拒否する。h
 
 ## 子の完了から親へ
 
-watchは期限なしで固定境界をobserveする。doneならraw回答を読み、空回答も「完了したが本文は空」の知らせにする。closed/rate_limited/errorも子outcome付きの本文として保存する。観測失敗は `AGENT_RESULT_UNAVAILABLE` をreadyとして保存し、その通知を配送する。
+watchは期限なしで固定境界をobserveする。doneならraw回答を読み、空回答も「完了したが本文は空」の知らせにする。closed/rate_limited/errorも子outcome付きの本文として保存する。観測失敗は `AGENT_RESULT_UNAVAILABLE` をreadyとして保存し、その通知を配送する。この端末の子は、待つ間30秒ごとに `deliveryChildGone` で確かめる（0.70.42）：子の今のlaunchが境界のlaunchでない（再開・起動し直し）、metadataが無い、休止した、休止でないのにnative席が無い、のどれかが2回続けて見えたら、observeを止めて `AGENT_RESULT_UNAVAILABLE: PARENT_DELIVERY_CHILD_GONE: <理由>` を同じ経路で届ける。どれも境界の完了が二度と来ない状態で、それまでは期限なしの待ちが終わらず、親の席はいつまでも子を待つと数えられた。別端末の子は確かめない（現地のobserveに任せる）。
+
+**親の席への数え方**（`pendingChildResultsFor`、pty_observeの `pending_child_deliveries` とseat_turnsの `own_work.child_results`、0.70.42）：activeにある記録を、子のmetadataの `parent_session_id` が名指す席に数える。名指す席がこの端末のAitermの席でない時、子が別端末の時、子のmetadataを読めない時だけ、今までどおり持ち主processが席の中に居る記録を数える。回復で記録を引き取ったmanagerの席（例：execution-native-serverを抱える席）には数えない。0.70.41までは持ち主processで数えたので、引き取った席がいつまでも子を待つと数えられ、休止も閉じもできなかった（キロ、11/13）。
 
 本文保存でreadyとなり、子の予約を解放する。親の出力を待たず次の子入力へ進めるのが現在の責任分界である。private graphへの完了記録失敗だけで保存済みの本物の回答を捨てない。`deliver` はsendingを保存してからvendor receiverを一度呼ぶ。成功はsubmitted、既知の未作用拒否はfailed、受付が不明な失敗はunknown。`failed` callbackは子dispatchが不明になったwaitingをabortしてunknownへ移す。
 

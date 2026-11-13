@@ -3,7 +3,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { ensureStateRoot } from "./agent-shared.js";
+import { agentHarness, agentMetadataPath, agentsDir, ensureStateRoot, type AgentKind } from "./agent-shared.js";
 
 const DELIVERY_DIRECTORIES = ["parent-deliveries", "claude-parent-deliveries", "cursor-parent-deliveries"];
 
@@ -12,9 +12,22 @@ export function deliveryOwnerPrefix(owner: { pid: number; started_identity: stri
   return `${owner.pid}-${createHash("sha256").update(owner.started_identity).digest("hex").slice(0, 16)}-`;
 }
 
-/** 渡したprocessのどれかが持ち主で、まだ親へ届け終えていない配送の数。届け終えた記録はactiveから出ている。 */
-export function unfinishedDeliveriesOwnedBy(processes: { pid: number; started_identity: string }[], stateRoot = ensureStateRoot()): number {
+/** A child result a seat waits for, as an exclusion entry names it (harness, and session unless null). */
+export type ChildResultRef = { session: string; harness: string | null };
+
+/**
+ * The unfinished deliveries that `seat` waits for (parent-delivery.md "親の席への数え方"): a local child's metadata names its
+ * parent seat (`parent_session_id`). Only when that names no Aiterm seat here, the child is on another terminal, or its metadata
+ * cannot be read, the owner process in the seat's subtree decides, as before 0.70.42. A manager that adopted a dead owner's
+ * records is not charged for them.
+ */
+export function pendingChildResultsFor(seat: string, processes: { pid: number; started_identity: string }[],
+  excluded: (child: ChildResultRef) => boolean = () => false, stateRoot = ensureStateRoot()): number {
   const prefixes = processes.map(deliveryOwnerPrefix);
+  // A parent named by a child is a seat here when Aiterm holds an agent record for that name (host-root and the like are not).
+  let listing: string[] | null = null;
+  const isSeat = (name: string) => (listing ??= (() => { try { return fs.readdirSync(agentsDir()); } catch { return []; } })())
+    .some(file => file.startsWith(`${name}.`) && file.endsWith(".agent.json"));
   let count = 0;
   for (const prefix of ["", "remote-"]) {
     for (const directory of DELIVERY_DIRECTORIES) {
@@ -23,10 +36,26 @@ export function unfinishedDeliveriesOwnedBy(processes: { pid: number; started_id
       try { owners = fs.readdirSync(active, { withFileTypes: true }); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
       for (const owner of owners) {
-        if (!owner.isDirectory() || !prefixes.some(candidate => owner.name.startsWith(candidate))) continue;
-        try {
-          count += fs.readdirSync(path.join(active, owner.name)).filter(name => name !== "owner.json" && name.endsWith(".json")).length;
-        } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        if (!owner.isDirectory()) continue;
+        const ownedHere = prefixes.some(candidate => owner.name.startsWith(candidate));
+        let names: string[];
+        try { names = fs.readdirSync(path.join(active, owner.name)).filter(name => name !== "owner.json" && name.endsWith(".json")); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+        for (const name of names) {
+          let child: ChildResultRef | null = null, parent: string | null = null;
+          try {
+            const boundary = JSON.parse(fs.readFileSync(path.join(active, owner.name, name), "utf8"))?.boundary;
+            if (typeof boundary?.session_id === "string") child = { session: boundary.session_id, harness: null };
+            if (child && !boundary.remote && typeof boundary.launch_id === "string") {
+              const meta = JSON.parse(fs.readFileSync(agentMetadataPath(child.session, boundary.launch_id), "utf8"));
+              child.harness = typeof meta?.kind === "string" ? agentHarness(meta.kind as AgentKind) : null;
+              if (typeof meta?.parent_session_id === "string" && isSeat(meta.parent_session_id)) parent = meta.parent_session_id;
+            }
+          } catch { /* unreadable record or child: the owner decides */ }
+          if (!(parent === null ? ownedHere : parent === seat)) continue;
+          if (child && excluded(child)) continue;
+          count++;
+        }
       }
     }
   }

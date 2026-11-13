@@ -981,7 +981,7 @@ registerRemoteAwareTool(
       activity: z.object({ cursor: z.string().nullable(), output_changed: z.boolean().nullable(),
         cpu_seconds: z.number().nullable(), cpu_delta_seconds: z.number().nullable(), cpu_delta_complete: z.boolean().nullable(),
         background_cpu_seconds: z.number().nullable(), background_cpu_delta_seconds: z.number().nullable(), background_cpu_delta_complete: z.boolean().nullable(),
-        post_startup_process_count: z.number().nullable().optional() }),
+        post_startup_process_count: z.number().nullable().optional(), background_tasks: z.number().nullable().optional() }),
     },
   },
   async ({ session_id, cursor }, extra) => {

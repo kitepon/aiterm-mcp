@@ -13,6 +13,8 @@ export interface IdleSeatSnapshot {
   turn_settled: boolean | null;
   pending_child_deliveries: number | null;
   post_startup_process_count: number | null;
+  /** a68: the harness's own unfinished background tasks (null = no statement; only > 0 holds the seat). */
+  background_tasks?: number | null;
   window_activity_at: number | null;
   /** Claude only, read for an explicit hibernate: time of a rate_limited API error after the last input. */
   rate_limited_at?: string | null;
@@ -49,6 +51,7 @@ export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30
   if (!immediate && seat.attached !== false) return { ...result, reason: seat.attached === true ? "attached" : "attachment_unconfirmed" };
   if (seat.pending_child_deliveries !== 0) return { ...result, reason: "child_delivery_pending_or_unknown" };
   if (seat.post_startup_process_count !== 0) return { ...result, reason: "background_work_or_unknown" };
+  if ((seat.background_tasks ?? 0) > 0) return { ...result, reason: "background_work_or_unknown" };
   if (!seat.vendor_session_id) return { ...result, reason: "conversation_id_unavailable" };
   if (!seat.resume_ready) return { ...result, reason: "resume_unavailable" };
   if (!immediate && seat.resume_needs_launch_values) return { ...result, reason: "resume_needs_launch_values" };

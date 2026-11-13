@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Own work now includes the harness's own unfinished background tasks (a68). For Claude seats Aiterm reads the transcript: an Agent launched in the background (in-process, no child process) or a background Bash counts until Claude's task notification for it. seat-turns `own_work` gains `tasks` and `task` ({kind, label, since}), `pty_observe` `activity` gains `background_tasks`; a seat with tasks > 0 is not hibernated by the idle clock and `pty_close {hibernate:true}` answers AGENT_BUSY. Other harnesses report null (no statement read yet).
+
 ## [0.70.51] - 2026-11-13
 
 - A hibernated terminal seat stays bound to its terminal. `pty_close {hibernate:true}` unbound it like a real close, so the body read the seat as missing and `pty_close` of it ran locally (already_closed) while the seat stayed hibernated on the terminal.

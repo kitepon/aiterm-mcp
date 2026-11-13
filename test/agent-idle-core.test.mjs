@@ -1023,11 +1023,14 @@ test('own_work counts a seat\'s background process, and an exclusion entry for t
  for(const until=Date.now()+4000;!fs.existsSync(f.spawned)&&Date.now()<until;)await sleep(20);
  const pid=Number(fs.readFileSync(f.spawned,'utf8'));
  t.after(()=>{try{process.kill(pid);}catch{}});
- const plain=(await core.seatOwnWork([f.name],{digest:'d1',entries:[]})).get(f.name);
+ // The sh -c child is spawned a moment after the shell itself (a slow hosted Mac once read 1 here).
+ let plain;for(const until=Date.now()+4000;(plain=(await core.seatOwnWork([f.name],{digest:'d1',entries:[]})).get(f.name)).processes!==2&&Date.now()<until;)await sleep(50);
  assert.equal(plain.processes,2,JSON.stringify(plain));assert.equal(plain.excluded,0);assert.equal(plain.exclusions_digest,'d1');
  assert.equal(plain.child_results,0);
- // macOS argv is the ps command line split on whitespace (processArgv shortcut), so the quoted node path becomes its own argument there.
- assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'sh',args:process.platform==='darwin'?['node','…']:['…']},'the exec shell; its command holds = and is masked');
+ // a41-detail: the command (the leaf node -e …, its script holds = and is masked), not the sh -c around it; since = the shell's start.
+ assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'node',args:['…']},'the leaf command, not its exec shell');
+ const shell=readProcessIdentities([pid])[0];
+ assert.equal(plain.oldest.since,new Date(shell.started_identity).toISOString(),'since is the oldest counted process (the shell)');
  const entry={id:'e1',kind:'process',exe:'node',args:['…']};
  const other=(await core.seatOwnWork([f.name],{digest:'d2',entries:[{...entry,sessions:['another_seat']}]})).get(f.name);
  assert.equal(other.processes,2,'an entry for another seat does not apply');

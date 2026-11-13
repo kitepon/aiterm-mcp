@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- seat-turns `own_work.oldest.{exe,args}` now name the oldest counted leaf process (the command, e.g. `sleep 150`), not the shell the harness wrapped it in (Claude's `bash -c … claude-<hex>-cwd`). `oldest.since` stays the start of the oldest counted process. Same fields and shape.
+
 ## [0.70.47] - 2026-11-13
 
 - An Antigravity seat's background command is now counted as own work (seat-turns `own_work.processes`, `pty_observe` `activity.post_startup_process_count`). agy runs each command on its own pty as a session leader (macOS, Linux) or in `pwsh -Command "try { $OutputEncoding = …"` (Windows); its MCP servers and hooks are still not counted (ADR 0141).

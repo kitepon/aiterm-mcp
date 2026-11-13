@@ -389,6 +389,8 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
     while (start > 0 && (!lines[start].trim() || /^[╭─\s]+$/u.test(lines[start]))) start--;
   }
   const current = lines.slice(Math.max(0, start)).join("\n");
+  // Antigravity keeps the turn open while a background task runs: it reruns the model when the task ends, then sends Stop.
+  if (kind === "antigravity" && /·\s*[1-9]\d*\s+task\(s\)/u.test(lines.slice(marker + 1).join("\n"))) return "busy";
   if (kind === "grok" && grokPromptAwaitingAccept(current)) return "unknown";
   if (kind === "cursor" && cursorPromptHooksRunning(screen)) return "unknown";
   if (kind === "claude" && /running UserPromptSubmit hook/u.test(current)) return "unknown";

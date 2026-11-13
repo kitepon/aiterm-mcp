@@ -33,6 +33,13 @@ Codex (or of its sandbox wrapper) that is a session leader (`ps` stat `s`) is an
 standalone: `sleep 300` stat `Ss`, no tty, parent the native binary; MCP servers stat `S` on the seat's tty. Windows pwsh
 does not replace itself, so the shell shape already covers it.
 
+Antigravity (a41-agy, 1.5.8 captured 2026-11-13): on POSIX agy starts each command on its own pty, so the command (or the
+`zsh -c` / `bash -c` around it) is a session leader under `agy`, while MCP servers and hooks stay on the seat's tty: the Codex
+session-leader rule covers it, shell or not. On Windows the command runs in `pwsh -Command "try { $OutputEncoding = …"`.
+agy also keeps the turn open while a background task runs: the composer is ready, the footer counts `N task(s)`, and Stop
+comes only after the task ends and the model reports it. `parentPaneEvidence` reads that footer as busy, so the seat's turn
+reads running (it read neither running nor idle, and BellTeam showed the seat as unknown).
+
 Approval Box answers (Trony ruling A, 2026-11-13): a Claude seat whose Approval Box waiter is waiting reads idle and may
 hibernate. Approval Box (a49, Nayuta) sends the requesting Bot one BellTeam message when an answer finds no live receiver;
 that message resumes the seat and the seat calls `resume_decision`. Aiterm keeps no waiter exception.
@@ -45,7 +52,7 @@ Exec shapes (command lines as the process table shows them; fixtures in `test/ow
 | Codex | `[/bin/bash, -c, <cmd>]` under the native binary (0.167.2); sandbox `codex-linux-sandbox` between. Hooks and MCP: own argv, no shell | `[/bin/zsh, -c, <cmd>]` (0.166.0 Homebrew, 0.168.0 standalone); no `sandbox-exec` seen even with `-s workspace-write` | `pwsh.exe -Command "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n<cmd>"` under `codex.exe`. Hooks: `pwsh -NoProfile -Command "& …"`. Sandboxed: `codex-command-runner-<ver>.exe` (a tool host; its children count) |
 | Grok | `/bin/bash -O extglob -c "IFS= builtin read -r -d '' __grok_user_cmd <&5; …"` (1.0.77). Hooks: `sh -c <hook>` | `/bin/zsh -c "IFS= builtin read -r -d '' __grok_user_cmd <&5; …"` | `"pwsh" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "<cmd>"`; hooks have the same head plus a `$__grokExitCode` tail |
 | Cursor | `/bin/bash -O extglob -c "… builtin eval \"$1\" 3<&- 4>&- < /dev/null; …"` (2026.11.11). Hooks: the same wrapper without `< /dev/null` (stdin piped) | not captured (keychain locked over ssh); the bundle's zsh wrapper is `builtin eval "$1"[ 3<&- 4>&-] < /dev/null` unless stdin is piped | `pwsh -ExecutionPolicy Bypass -NonInteractive -File …\ps-script-<uuid>.ps1`; hooks run the same without `-NonInteractive` (the bundle adds it only when stdin is not piped) |
-| Antigravity | not captured (quota 429 on all hosts until 11-14 ~10:55 JST): not counted yet. Hooks: `sh -c` (Linux), direct node (macOS), `cmd /c "pwsh … -EncodedCommand"` (Windows) | | |
+| Antigravity | not captured (quota); counted by the session-leader rule, which Kiro saw hold by hand (commands in their own session). Hooks: `sh -c` | 1.5.8: each command on its own pty as a session leader under `agy`: a lone `sleep 240` (stat `Ss+`, new tty) or `zsh -c "sleep 230; echo …"` with the command below. MCP servers and hooks: direct children on the seat's tty, not leaders | `"c:\program files\powershell\7\pwsh.exe" -Command "try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding } catch {}; <cmd>"` under `agy.exe` (1.5.8). Hooks: `cmd /c "pwsh … -EncodedCommand"`; MCP servers: plain children |
 
 ## Direction of a miss
 

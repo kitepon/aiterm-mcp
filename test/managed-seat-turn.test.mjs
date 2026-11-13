@@ -28,6 +28,11 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('cursor','Cursor Agent\n⠋ Working\n→ Plan, search, build anything\n'),'unknown');
  assert.equal(parentPaneEvidence('claude',frames.claude.busy.replace('Musing… (esc to interrupt)','Musing… (running UserPromptSubmit hook · 0s)')),'unknown');
  assert.equal(parentPaneEvidence('antigravity','Terms of Service\n> Allow'),'unknown');
+ // Antigravity 1.5.8 holds the turn while a background task runs (Stop only after the task ends and the model reports it).
+ const agyTask=['● Running (sleep 240) (ctrl+o to expand)','','  started','',rule,'>',rule,'  ● [20:08:47] sleep 240 running',rule,'? for shortcuts            auto · Gemini 3.8 Flash · medium · 1 task(s) · /tasks'].join('\n');
+ assert.equal(parentPaneEvidence('antigravity',agyTask),'busy');
+ assert.equal(parentPaneEvidence('antigravity',agyTask.replace('  ● [20:08:47] sleep 240 running\n'+rule+'\n','').replace(' · 1 task(s) · /tasks','')),'ready','the task ended: no footer count');
+ assert.equal(parentPaneEvidence('antigravity','  quoted · 2 task(s) · /tasks\n'+frames.antigravity.ready),'ready','a count above the composer is not the footer');
  assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready_no_completion','A plain composer is also present during a quiet unfinished wait');
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
  for(const typed of ['/model','/effort ultracode','/fast on'])assert.equal(parentPaneEvidence('claude',['⏺ prior result','','✻ Worked for 9s','',`❯ ${typed}`,'  ⎿  Set model to Opus 5.5 for this session only with high effort','',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready',typed+': a configure result line ends that local command');

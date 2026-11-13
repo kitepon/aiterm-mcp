@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.43] - 2026-11-13
+
 - A kept (hibernated) seat can be closed, sent to, resumed or deleted on a fresh container before any launch: the send locks create the socket directory (`claude-tmux-sockets`) when it is missing, as a launch does. Before, the first `pty_close` / `pty_send` failed with `ENOENT ... <name>.agent-send.lock` until some other seat had been launched (a46 lab, 2026-11-13).
 
 - `pty_list` with the seat-turns caller marker no longer stops the server: `readSeatTurns` runs on one persistent worker thread per server (created on the first marked call, unref'd, same environment), with unchanged results (Kiro a37/a44, 2026-11-13: on production 82 rows held the whole server for 2.4 s every 5 s poll, so BellTeam's goal list took 1.6-4.9 s). A lost worker answers with the synchronous read and the next call starts a new one.
@@ -3395,7 +3397,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...HEAD
+[0.70.43]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...v0.70.43
 [0.70.42]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.41...v0.70.42
 [0.70.41]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.40...v0.70.41
 [0.70.40]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.39...v0.70.40

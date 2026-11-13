@@ -2057,8 +2057,11 @@ export async function seatOwnWork(names: string[], requested: unknown): Promise<
       }
       const remaining = counted.filter(row => !excluded.has(row.pid));
       work.processes = remaining.length; work.excluded = excluded.size;
-      const oldest = remaining.reduce<RuntimeProcess | null>((first, row) => !first || Date.parse(row.started_identity) < Date.parse(first.started_identity) ? row : first, null);
-      work.oldest = oldest ? { ...descriptors.get(oldest.pid)!, since: new Date(oldest.started_identity).toISOString() } : null;
+      const first = (rows: RuntimeProcess[]) => rows.reduce<RuntimeProcess | null>((found, row) => !found || Date.parse(row.started_identity) < Date.parse(found.started_identity) ? row : found, null);
+      // Names the command, not the shell around it: the oldest counted process with no counted child. Since = the wait's start.
+      const parents = new Set(remaining.map(row => parentProcess(row, byPid)?.pid));
+      const oldest = first(remaining), leaf = first(remaining.filter(row => !parents.has(row.pid)));
+      work.oldest = oldest && leaf ? { ...descriptors.get(leaf.pid)!, since: new Date(oldest.started_identity).toISOString() } : null;
     } catch { /* this seat could not be read: nulls */ }
   }
   return result;

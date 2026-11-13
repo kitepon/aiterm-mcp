@@ -48,6 +48,12 @@ export function applyClaudeTranscriptLine(line: string, open: Map<string, Backgr
   for (const key of ["shell_id", "task_id"]) if (typeof result[key] === "string") { done.add(result[key]); open.delete(result[key]); }
 }
 
+/** The task a caller names: the oldest unfinished agent, or with no agent the oldest shell/other (Kiro, a68 card order). */
+export function representativeTask(tasks: BackgroundTask[]): BackgroundTask | null {
+  const pool = tasks.some(task => task.kind === "agent") ? tasks.filter(task => task.kind === "agent") : tasks;
+  return pool.reduce<BackgroundTask | null>((first, task) => !first || task.since < first.since ? task : first, null);
+}
+
 type LineApply = (line: string, open: Map<string, BackgroundTask>, done: Set<string>, inputs: Map<string, string>) => void;
 
 /** Apply new complete lines of a harness record to its kept state; null when the file cannot be read. */
@@ -76,7 +82,7 @@ function readRecord(file: string, apply: LineApply): TranscriptState | null {
 function liveTasks(meta: AgentMetadata, state: TranscriptState): BackgroundTasks {
   const start = Date.parse(meta.created_at);
   const live = [...state.open.values()].filter(task => !Number.isFinite(start) || Date.parse(task.since) >= start - 1000);
-  const oldest = live.reduce<BackgroundTask | null>((first, task) => !first || task.since < first.since ? task : first, null);
+  const oldest = representativeTask(live);
   return { count: live.length, oldest };
 }
 
@@ -197,7 +203,7 @@ export function codexBackgroundTasks(meta: AgentMetadata): BackgroundTasks | nul
     }
     if (child.head?.root === root && child.running > 0 && child.since) live.push({ kind: "agent", label: child.head.label, since: child.since });
   }
-  const oldest = live.reduce<BackgroundTask | null>((first, task) => !first || task.since < first.since ? task : first, null);
+  const oldest = representativeTask(live);
   return { count: live.length, oldest };
 }
 

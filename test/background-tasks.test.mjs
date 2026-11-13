@@ -90,3 +90,11 @@ test("Codex subagent rollouts: working while task_started outnumbers task_comple
   bt.applyCodexChildLine(JSON.stringify({ type: "session_meta", payload: { id: "01a1d5b8", session_id: "01a1d5b8", thread_source: "user" } }), root);
   assert.equal(root.head, null, "the root thread itself is not a subagent");
 });
+
+test("the named task is the oldest agent when any agent is open; otherwise the oldest shell or other", () => {
+  const shell = { kind: "shell", label: "sleep 100", since: "2026-11-14T01:00:00.000Z" };
+  const agent = { kind: "agent", label: "review", since: "2026-11-14T01:05:00.000Z" };
+  assert.deepEqual(bt.representativeTask([shell, agent]), agent, "an agent wins over an older shell");
+  assert.deepEqual(bt.representativeTask([shell]), shell);
+  assert.equal(bt.representativeTask([]), null);
+});

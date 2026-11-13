@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.50] - 2026-11-13
+
 - seat-turns no longer returns one unknown (null) turn at every turn end for Claude, Grok, Cursor and Antigravity seats. The first ready frame only started the 250 ms settle clock, so a caller polling every ~10 s saw running → unknown → idle; the read now looks once more past the settle time itself.
 - An Antigravity spinner over an `esc to cancel` footer (`Running command...`, `Loading...`) reads as the running turn (it read unknown).
 
@@ -3425,7 +3427,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.49...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.50...HEAD
+[0.70.50]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.49...v0.70.50
 [0.70.49]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.48...v0.70.49
 [0.70.48]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.47...v0.70.48
 [0.70.47]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.46...v0.70.47

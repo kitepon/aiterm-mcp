@@ -71,6 +71,18 @@ export class AgentResumeError extends AitermError {
   }
 }
 
+/** E8: a resume needs secret values only the caller's agent_launch carries; nothing was started or sent, the seat stays hibernated. */
+export class AgentResumeSecretsError extends AitermError {
+  readonly resumeSecrets;
+  constructor(code: "AGENT_RESUME_SECRET_MISSING" | "AGENT_RESUME_SECRETS_REQUIRED", sessionId: string, names: string[]) {
+    super(`${code}: ${code === "AGENT_RESUME_SECRET_MISSING"
+      ? `再開に要る秘密の値がこの起動にありません（${names.join(", ")}）。`
+      : `この席の再開には秘密の値が要ります（${names.join(", ")}）。agent_launch(session_name)で値を渡して再開してください。`}新規起動も本文送信もしていません。`, 2);
+    this.resumeSecrets = { schema: "aiterm.agent-resume-secrets.v1" as const, code, session_id: sessionId, names,
+      effect: "not_started" as const, input: "not_sent" as const, state: "hibernated" as const };
+  }
+}
+
 export class TelemetryOwnedError extends AitermError {
   readonly telemetryCode: RuntimeErrorCode;
   constructor(message: string, code: number, telemetryCode: RuntimeErrorCode, cause?: unknown) {

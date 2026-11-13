@@ -16,6 +16,8 @@ export interface IdleSeatSnapshot {
   window_activity_at: number | null;
   /** Claude only, read for an explicit hibernate: time of a rate_limited API error after the last input. */
   rate_limited_at?: string | null;
+  /** E8: the recipe names a secret; only agent_launch can bring its value back, so the idle clock leaves the seat running. */
+  resume_needs_launch_values?: boolean;
 }
 export interface IdleDecision {
   outcome: "ready" | "not_due" | "skipped";
@@ -49,6 +51,7 @@ export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30
   if (seat.post_startup_process_count !== 0) return { ...result, reason: "background_work_or_unknown" };
   if (!seat.vendor_session_id) return { ...result, reason: "conversation_id_unavailable" };
   if (!seat.resume_ready) return { ...result, reason: "resume_unavailable" };
+  if (!immediate && seat.resume_needs_launch_values) return { ...result, reason: "resume_needs_launch_values" };
   if (!limited && seat.turn_settled !== true) return { ...result, reason: "turn_end_unconfirmed" };
   const anchor = limited ?? seat.activity.last_turn_end_at ?? (!seat.activity.tracked ? seat.created_at : null);
   if (anchor === null || !Number.isFinite(Date.parse(anchor))) return { ...result, reason: "turn_end_time_unavailable" };

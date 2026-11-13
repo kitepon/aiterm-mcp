@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A call that hangs on a terminal no longer freezes that terminal's seat reads. The warm connection per terminal is split into a read lane (`pty_list`, the seat-turns relay) and one for everything else; the terminal answers each connection in one process, so a close stuck there (fox, 11/14 01:33 JST, ~2 min) held every read behind it.
+
 - `own_work.task` names the oldest open agent when a seat has both agents and shells (before: the oldest of either, so a subagent's background `sleep` could stand for the subagent on the card).
 
 - Codex seats state their working subagents too (a68): each subagent thread's rollout (session_meta thread_source subagent, session_id = the seat's root thread) counts while it has more task_started than task_complete/turn_aborted.

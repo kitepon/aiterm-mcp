@@ -542,6 +542,13 @@ for(const prompt of [null,'launch-first-body'])test(`same-name agent_launch resu
  assert.deepEqual(fs.existsSync(f.keys)?fs.readFileSync(f.keys,'utf8').trim().split('\n'):[],prompt===null?[]:[prompt]);
 });
 
+test('same-name resume accepts the saved project folder through a symlink (Rapi, macOS Nextcloud folder)',{skip,timeout:20000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const link=join(process.env.HOME,`link-${f.name}`);fs.symlinkSync(f.meta.cwd,link);t.after(()=>fs.rmSync(link,{force:true}));
+ const result=await core.openAgentWithInitialPrompt('codex',{session_name:f.name,prompt:null,cwd:link,ready_timeout:1000});
+ assert.equal(result[0],f.name);assert.notEqual(core.observeSession(f.name).launch_id,f.meta.launch_id,'resumed, not refused');
+});
+
 test('a conflicting same-name launch cannot replace the saved conversation or its environment',{skip,timeout:15000},async t=>{
  const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
  assert.throws(()=>core.openSession(f.name),/AGENT_RESUME_REQUIRED/);

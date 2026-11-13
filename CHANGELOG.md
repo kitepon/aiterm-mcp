@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A hibernated seat whose project folder path goes through a symlink resumes again. Claude saves its cwd as a realpath, but the resume check compared the caller's path unresolved, so every resume failed with AGENT_RESUME_CONFLICT (macOS `/tmp`, a cloud-synced folder). Both sides are now compared by realpath.
+
 ## [0.70.50] - 2026-11-13
 
 - seat-turns no longer returns one unknown (null) turn at every turn end for Claude, Grok, Cursor and Antigravity seats. The first ready frame only started the 250 ms settle clock, so a caller polling every ~10 s saw running → unknown → idle; the read now looks once more past the settle time itself.

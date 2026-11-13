@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.55] - 2026-11-13
+
 - Antigravity seats whose turn is over while a background task runs read idle in seat-turns, so the seat's reason is the background task, not the turn (a68, Centi train W). A spinner over `esc to cancel` still reads a running turn.
 
 - A launch no longer closes the seat at the first frame of a startup screen Aiterm does not answer: it watches until the ready budget ends and goes on if the screen leaves by itself (Centi train W F2: agy's login screen for 3 s right after a login). Claude's first-run steps still refuse at once.
@@ -3456,7 +3458,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...HEAD
+[0.70.55]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...v0.70.55
 [0.70.54]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...v0.70.54
 [0.70.53]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.52...v0.70.53
 [0.70.52]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.51...v0.70.52

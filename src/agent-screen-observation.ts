@@ -395,7 +395,8 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   const observed = agentPaneObservation(kind, current);
   if (observed.state === "blocked" || observed.state === "unknown") return "unknown";
   if (kind === "claude" && observed.state === "idle" && /^⏺ Compacted while idle\b/u.test(current)) return "ready_compacted";
-  if (kind === "claude" && observed.state === "idle"
+  // Aiterm's configure commands are local and run no turn: their own ⎿ result line, not a completed-progress line, ends them.
+  if (kind === "claude" && observed.state === "idle" && !/^\s*❯ \/(?:model|effort|fast)\b[^\n]*\n\s*⎿\s+\S/u.test(current)
     && !/^[·✢✳✶✻✽*∗] [^…\n]+ for \d[^…\n]*$/mu.test(current)) return "ready_no_completion";
   if (kind === "cursor") {
     if (/^\s*ctrl\+c to stop\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "busy";

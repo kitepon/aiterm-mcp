@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude seat now reads `idle` in seat-turns right after `agent_configure`. The `/model`, `/effort` or `/fast` it types is a local command that runs no turn and prints no "for Ns" completion line, so the reader kept such a seat `null` (unknown) on every read until the next delivered turn. The command's own `⎿` result line now counts as the finished-state cue; any other screen without a completion line is still unknown.
+
 ## [0.70.44] - 2026-11-13
 
 - A seat's own work (`pty_observe` `activity.post_startup_process_count` and seat-turns `own_work.processes`) now counts only what runs under the harness's own command-execution shell: Claude's Bash (incl. `run_in_background`), Codex exec, and the Grok and Cursor tool shells, recognised per OS by their wrapper shapes (ADR 0141). MCP servers, hooks, relays, helpers and Aiterm's own process-table reads are never counted, so an idle seat with a waiting hook or a restarted MCP server reads 0 and can hibernate. No startup snapshot is used any more, so seats launched by older versions are counted too (0 instead of null). Antigravity commands are not counted yet (exec shape not captured).

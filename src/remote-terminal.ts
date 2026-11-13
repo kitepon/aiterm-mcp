@@ -676,6 +676,12 @@ function readSeats(): Record<string, string> {
 }
 function writeSeats(seats: Record<string, string>): void { writeJson0600(seatsFile(), { schema: "aiterm.terminal-seats.v1", seats }); }
 export function bindTerminalSession(session: string, ref: string): void { writeSeats({ ...readSeats(), [session]: ref }); }
+/** Whether a terminal seat's pty_close ended it: a hibernated seat keeps its binding, so its resume and reads still reach the terminal. */
+export function closeEndsTerminalSeat(args: { hibernate?: unknown }, result: { isError?: unknown; structuredContent?: { outcome?: unknown } } | undefined): boolean {
+  if (!result || result.isError) return false;
+  const outcome = result.structuredContent?.outcome;
+  return typeof outcome === "string" ? outcome !== "hibernated" : args.hibernate !== true;
+}
 export function unbindTerminalSession(session: string): void {
   const seats = readSeats();
   if (!(session in seats)) return;

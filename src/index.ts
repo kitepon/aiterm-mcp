@@ -2,7 +2,7 @@
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
 import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
-  checkTerminalPlatform, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
+  checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
@@ -365,7 +365,7 @@ function registerRemoteAwareTool(name: string, config: any, handler: (args: any,
         const target = remote ? acceptRemote(remote) : boundTerminalTarget(args.session_id);
         if (!target) return handler(args, extra);
         const result = await remoteHandler(target, args, extra);
-        if (name === "pty_close" && !remote && !result?.isError) unbindTerminalSession(args.session_id);
+        if (name === "pty_close" && !remote && closeEndsTerminalSeat(args, result)) unbindTerminalSession(args.session_id);
         return remote ? result : withErrorCode(result);
       } catch (e) { return remote ? fail(e) : withErrorCode(fail(e)); }
     });

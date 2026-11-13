@@ -586,3 +586,13 @@ test("R18/R19: a rolled-back fresh creation is not started, and every coded refu
   assert.deepEqual(withErrorCode({ ...failed("aiterm: UNREACHABLE: x"), _meta: { kept: 1 } })._meta,
     { kept: 1, "aiterm/error_code": { schema: "aiterm.error-code.v1", code: "UNREACHABLE" } });
 });
+
+test("a hibernated terminal seat keeps its binding; only a real close unbinds it (Rapi a66)", async () => {
+  const rt = await import("../dist/remote-terminal.js");
+  const ok = outcome => ({ structuredContent: { schema: "aiterm.pty-close-result.v1", session_id: "s", outcome } });
+  assert.equal(rt.closeEndsTerminalSeat({ hibernate: true }, ok("hibernated")), false);
+  assert.equal(rt.closeEndsTerminalSeat({}, ok("closed")), true);
+  assert.equal(rt.closeEndsTerminalSeat({}, ok("already_closed")), true);
+  assert.equal(rt.closeEndsTerminalSeat({ hibernate: true }, { content: [] }), false, "an old terminal without structured outcome: the request decides");
+  assert.equal(rt.closeEndsTerminalSeat({}, { isError: true, structuredContent: { outcome: "closed" } }), false);
+});

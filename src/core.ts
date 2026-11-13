@@ -335,6 +335,11 @@ const PTY_PASTE_CHUNK_PAUSE_MS = 10;
 // 同期処理の中の短い間（paste chunkの間、server片付け中の一覧の読み直し）。eventループを進めずに待つ。
 const SYNC_PAUSE_BUFFER = new Int32Array(new SharedArrayBuffer(4));
 function pauseSync(ms: number): void { Atomics.wait(SYNC_PAUSE_BUFFER, 0, 0, ms); }
+// A Claude seat saves its cwd as a realpath, so a caller's path through a symlink (macOS /tmp, a cloud-synced folder) is the same project.
+function sameProjectFolder(given: string, saved: string): boolean {
+  if (path.resolve(given) === saved) return true;
+  try { return fs.realpathSync(given) === fs.realpathSync(saved); } catch { return false; }
+}
 const SESSION_SEND_LOCK_WAIT_MS = isWin ? 130_000 : 10_000;
 const SESSION_SEND_LOCK_POLL_MS = 25;
 // 同じagent sessionへの送信が重なった時に、前の1通を待つ上限（ADR 0088）。
@@ -8948,7 +8953,7 @@ export async function openAgentWithInitialPrompt(
           || (opts.model != null && opts.model.trim() !== recipe.model)
           || (opts.reasoning_effort != null && opts.reasoning_effort.trim() !== recipe.reasoning_effort)
           || (opts.fast != null && opts.fast !== recipe.fast)
-          || (opts.cwd != null && path.resolve(opts.cwd) !== recipe.cwd)
+          || (opts.cwd != null && !sameProjectFolder(opts.cwd, recipe.cwd))
           || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
           || (opts.env_vars !== undefined && !isDeepStrictEqual(resumeEnvNames(kind, opts.env_vars), resumeEnvNames(kind, [...Object.keys(recipe.environment), ...recipeSecretNames(recipe)]))))
           throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);

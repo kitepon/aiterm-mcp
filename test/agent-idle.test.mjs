@@ -17,6 +17,11 @@ test('idle threshold is based on native completion, including exact cutoff and l
  assert.equal(decideIdleSeat(legacy,now).outcome,'ready');
  legacy.activity.tracked=true;assert.equal(decideIdleSeat(legacy,now).reason,'turn_end_time_unavailable');
 });
+test('E8: the idle clock leaves a seat whose resume needs launch values; an explicit hibernate still stops it',()=>{
+ const secret={...seat(),resume_needs_launch_values:true};
+ assert.equal(decideIdleSeat(secret,now).reason,'resume_needs_launch_values');
+ assert.equal(decideIdleSeat(secret,now,30,undefined,true).outcome,'ready');
+});
 test('all protected states, unknown observations, inputs without completion and unsupported resume stay alive',()=>{
  const cases=[
   ...['busy','blocked','dead','missing','unknown'].map(state=>({state})),{reason:'draft_present'},

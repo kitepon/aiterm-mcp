@@ -7,7 +7,7 @@ import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
-import { AitermError, AgentResumeUnavailableError, AgentResumeError, launchInputRefusal } from "./errors.js";
+import { AitermError, AgentResumeUnavailableError, AgentResumeError, AgentResumeSecretsError, launchInputRefusal } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
  *
@@ -248,6 +248,8 @@ function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof AgentResumeUnavailableError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     _meta: { "aiterm/resume_unavailable": { ...e.resumeUnavailable } } };
+  if (e instanceof AgentResumeSecretsError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    structuredContent: { ...e.resumeSecrets } };
   if (e instanceof AgentResumeError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     structuredContent: { ...e.resumeFailure } };
   const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
@@ -917,7 +919,7 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
     // two readers of one seat at once leave one of them without the span lock (that seat comes back in its `unread`).
     // Relays start before the synchronous local read so the terminal works meanwhile; their 4 s counts only time this
     // process's event loop was free (loopDeadline), since a blocked loop cannot take the answer however soon it came.
-    const relays = Promise.all(terminalSeatGroups().map(({ target, sessions: bound }) => {
+    const relays = Promise.all(terminalSeatGroups().map(({ target, sessions: bound, route_since }) => {
       const key = JSON.stringify([target, requestMeta]);
       let call = remoteSeatTurnsInFlight.get(key);
       if (!call) {
@@ -929,7 +931,7 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
       }
       return Promise.race([
         call.then(answer => Array.isArray(answer?.seats)
-          ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)),
+          ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)).map((seat: any) => ({ ...seat, route_since })),
               unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
           : { seats: [], unread: bound }),
         loopDeadline(4_000, { seats: [] as any[], unread: bound }),

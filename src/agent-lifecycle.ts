@@ -8,11 +8,18 @@ import { AitermError } from "./errors.js";
 
 const launchId = z.string().regex(/^[a-f0-9]{32}$/);
 const absolute = z.string().min(1).refine(value => path.isAbsolute(value) && !value.includes("\0"));
+const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+/** A credential-shaped name, or a header value the body moved to the private line for a terminal seat (remote-terminal R5). */
+export function isSecretEnvName(name: string): boolean {
+  return /(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(name) || /^AITERM_MCP_HEADER_\d+$/.test(name);
+}
 export const agentResumeRecipeSchema = z.object({
   schema: z.literal("aiterm.agent-resume.v1"), launch_id: launchId,
   kind: z.enum(["claude", "codex"]), vendor_session_id: z.string().regex(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i),
   executable: absolute, cwd: absolute, configuration_root: absolute, model: z.string().nullable(), reasoning_effort: z.string().nullable(), reasoning_effort_source: z.literal("vendor_default").optional(), fast: z.boolean(),
-  environment: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().refine(value => !value.includes("\0")).nullable()),
+  environment: z.record(envName, z.string().refine(value => !value.includes("\0")).nullable()),
+  // E8: names whose values a resume takes from its own launch; the values are never stored.
+  secret_environment: z.array(envName).optional(),
 }).strict();
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
 const identity = z.object({ pid: z.number().int().positive(), process_group_id: z.number().int().positive().nullable(),
@@ -49,6 +56,16 @@ export function writeAgentResumeRecipe(meta: AgentMetadata, input: AgentResumeRe
   const value = agentResumeRecipeSchema.parse(input);
   if (value.launch_id !== meta.launch_id || value.vendor_session_id !== meta.vendor_session_id || value.kind !== meta.kind) throw unavailable();
   writeJson0600(file(meta, ".resume.json"), value);
+}
+/** Secret names of a recipe. A recipe from 0.70.40 or older may hold one in `environment`: its value is never used. */
+export function recipeSecretNames(recipe: Pick<AgentResumeRecipe, "environment" | "secret_environment">): string[] {
+  return [...new Set([...recipe.secret_environment ?? [], ...Object.keys(recipe.environment).filter(isSecretEnvName)])].sort();
+}
+/** The recipe as stored: secret names only, never their values. */
+export function withoutSecretValues<T extends Pick<AgentResumeRecipe, "environment" | "secret_environment">>(recipe: T, secrets = recipeSecretNames(recipe)): T {
+  const { secret_environment: _, ...rest } = recipe;
+  return { ...rest, environment: Object.fromEntries(Object.entries(recipe.environment).filter(([name]) => !isSecretEnvName(name) && !secrets.includes(name))),
+    ...(secrets.length ? { secret_environment: secrets } : {}) } as T;
 }
 export function agentResumeRecipeDigest(recipe: AgentResumeRecipe): string {
   return createHash("sha256").update(JSON.stringify(agentResumeRecipeSchema.parse(recipe))).digest("hex");
@@ -138,11 +155,13 @@ export function writeAgentResumeTemplate(meta: AgentMetadata, input: AgentResume
 }
 export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string | null, envNames: string[], configurationRoot: string, env = process.env): void {
   if (meta.kind !== "claude" && meta.kind !== "codex") return;
-  // Explicit credential variables cannot be persisted as a conversation recipe.
-  if (envNames.some(name => /(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(name))) return;
+  // Secret names are kept without values (E8): a resume takes them from its own launch.
+  const names = [...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])];
+  const secrets = names.filter(isSecretEnvName).sort();
   writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
     executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
-    environment: Object.fromEntries([...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])].map(name => [name, launchEnvValue(name, env) ?? null])), state: "confirmed" });
+    environment: Object.fromEntries(names.filter(name => !isSecretEnvName(name)).map(name => [name, launchEnvValue(name, env) ?? null])),
+    ...(secrets.length ? { secret_environment: secrets } : {}), state: "confirmed" });
 }
 export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
   const complete = !!model && !!effort;
@@ -154,17 +173,20 @@ export function finishAgentResumeConfiguration(meta: AgentMetadata, before: Agen
 export function refreshAgentResumeRecipe(meta: AgentMetadata): AgentResumeRecipe | null {
   const template = readAgentResumeTemplate(meta);
   if (!template) {
-    const recipe = readAgentResumeRecipe(meta);
-    return recipe?.model && recipe.reasoning_effort
-      && (meta.kind !== "claude" || Object.hasOwn(recipe.environment, "CLAUDE_CONFIG_DIR")) ? recipe : null;
+    const stored = readAgentResumeRecipe(meta);
+    if (!stored?.model || !stored.reasoning_effort || (meta.kind === "claude" && !Object.hasOwn(stored.environment, "CLAUDE_CONFIG_DIR"))) return null;
+    // A 0.70.23-0.70.40 recipe may hold the Claude login value: keep its name only (E8).
+    const recipe = withoutSecretValues(stored);
+    if (agentResumeRecipeDigest(recipe) !== agentResumeRecipeDigest(stored)) writeAgentResumeRecipe(meta, recipe);
+    return recipe;
   }
   if (template.state !== "confirmed" || !template.model || (!template.reasoning_effort && !(meta.kind === "codex" && template.reasoning_effort === null && template.reasoning_effort_source === "vendor_default")) || template.model !== meta.model
     || template.executable !== meta.agent_executable || template.cwd !== meta.cwd || typeof meta.fast !== "boolean") return null;
   if (meta.kind === "claude" && (!Object.hasOwn(template.environment, "CLAUDE_CONFIG_DIR")
     || !["low", "medium", "high", "xhigh", "max"].includes(template.reasoning_effort ?? ""))) return null;
   const { state, ...settings } = template;
-  const candidate = agentResumeRecipeSchema.safeParse({ ...settings, schema: "aiterm.agent-resume.v1",
-    vendor_session_id: meta.vendor_session_id, fast: meta.fast });
+  const candidate = agentResumeRecipeSchema.safeParse(withoutSecretValues({ ...settings, schema: "aiterm.agent-resume.v1",
+    vendor_session_id: meta.vendor_session_id, fast: meta.fast }));
   if (!candidate.success) return null;
   const previous = readAgentResumeRecipe(meta);
   if (!previous || agentResumeRecipeDigest(previous) !== agentResumeRecipeDigest(candidate.data)) writeAgentResumeRecipe(meta, candidate.data);

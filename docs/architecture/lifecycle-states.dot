@@ -51,4 +51,7 @@ digraph lifecycle {
   active -> vanished [label="native list known, name absent",style=dashed];
   vanished -> resume [label="same send continues"];
   vanished -> required [label="preparation refused",style=dashed];
+  secrets [label="E8: recipe secret_environment (names only, values never on disk)\nagent_launch(session_name): values from this launch (private line, then env)\nmissing -> AGENT_RESUME_SECRET_MISSING, not_started, stays hibernated\npty_send / dispatch / vanished adopt -> AGENT_RESUME_SECRETS_REQUIRED, nothing sent\nidle clock skips (resume_needs_launch_values); hibernate:true allowed",fillcolor="#fff0d8"];
+  resume -> secrets [label="recipe names a secret",style=dashed];
+  secrets -> staged [label="every value supplied by agent_launch"];
 }

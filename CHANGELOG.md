@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.51] - 2026-11-13
+
 - A hibernated terminal seat stays bound to its terminal. `pty_close {hibernate:true}` unbound it like a real close, so the body read the seat as missing and `pty_close` of it ran locally (already_closed) while the seat stayed hibernated on the terminal.
 - A hibernated seat whose project folder path goes through a symlink resumes again. Claude saves its cwd as a realpath, but the resume check compared the caller's path unresolved, so every resume failed with AGENT_RESUME_CONFLICT (macOS `/tmp`, a cloud-synced folder). Both sides are now compared by realpath.
 
@@ -3430,7 +3432,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.50...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.51...HEAD
+[0.70.51]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.50...v0.70.51
 [0.70.50]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.49...v0.70.50
 [0.70.49]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.48...v0.70.49
 [0.70.48]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.47...v0.70.48

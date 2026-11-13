@@ -72,6 +72,23 @@ test("seat turns relay: an unreachable terminal's sessions are unread, an answer
     for (const result of both) assert.deepEqual(result._meta["aiterm/seat_turns"].seats.map(seat => seat.session_id), ["relay_a", "relay_b"]);
     // a37: the terminal's warm session (opened by the first call) serves both callers without a new ssh.
     assert.equal(fs.existsSync(log), false, "no new ssh for later calls");
+    // E9: route_since is null without a ready forward, and the keeper's ready_at while its live owner holds the binding's P.
+    assert.deepEqual(turns.seats.map(seat => seat.route_since), [null, null]);
+    const store = JSON.parse(fs.readFileSync(rt.storePath(), "utf8"));
+    const ref = store.bindings.find(item => item.target.host === "10.8.0.1").ref;
+    store.bindings = store.bindings.map(item => item.ref === ref ? { ...item, seat_forward_port: 41234 } : item);
+    fs.writeFileSync(rt.storePath(), JSON.stringify(store));
+    const owner = (await import("node:child_process")).spawn("sleep", ["30"]);
+    t.after(() => owner.kill());
+    const lock = path.join((await import("../dist/agent-shared.js")).ensureStateRoot(), `terminal-forward-${ref}.lock`), readyAt = "2026-11-13T00:00:00.000Z";
+    const start = process.platform === "linux" ? fs.readFileSync(`/proc/${owner.pid}/stat`, "utf8").split(") ").pop().split(" ")[19] : undefined;
+    fs.writeFileSync(lock, JSON.stringify({ pid: owner.pid, boot: Math.round(Date.now() / 1000 - os.uptime()), start, ready: 41234, ready_at: readyAt }));
+    const routed = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
+    assert.deepEqual(routed._meta["aiterm/seat_turns"].seats.map(seat => seat.route_since), [readyAt, readyAt]);
+    owner.kill(); await new Promise(resolve => owner.once("exit", resolve));
+    const lost = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
+    assert.deepEqual(lost._meta["aiterm/seat_turns"].seats.map(seat => seat.route_since), [null, null], "a dead keeper is no route");
+    fs.rmSync(lock, { force: true });
   } finally { await client.close(); }
 });
 

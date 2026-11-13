@@ -31,13 +31,30 @@ test('a partially applied configuration cannot revive an old recipe; effort-only
  assert.equal(refreshAgentResumeRecipe({...m,model:'new',fast:true}).fast,true);
 });
 
-test('missing defaults and explicitly requested credentials cannot produce a resumable snapshot',()=>{
- for(const [index,effort,names,model] of [[1,null,[],'fixture-model'],[2,'high',['OPENAI_API_KEY'],'fixture-model'],[3,'high',[],null]]){
+test('missing defaults cannot produce a resumable snapshot',()=>{
+ for(const [index,effort,model] of [[1,null,'fixture-model'],[3,'high',null]]){
   const m={...meta,aiterm_session:'template-missing-'+index,model};
-  captureAgentResumeTemplate(m,effort,names,process.env.CODEX_HOME,{OPENAI_API_KEY:'artificial-do-not-persist'});
+  captureAgentResumeTemplate(m,effort,[],process.env.CODEX_HOME,{});
   assert.equal(refreshAgentResumeRecipe(m),null);
-  if(names.length)assert.equal(readAgentResumeTemplate(m),null);
  }
+});
+
+test('E8: secret-named env is kept by name only; an old recipe holding a value is rewritten without it',()=>{
+ const m={...meta,aiterm_session:'template-secret',vendor_session_id:'11111111-2222-4333-8444-555555555555'};
+ captureAgentResumeTemplate(m,'high',['OPENAI_API_KEY','AITERM_MCP_HEADER_0','PEERTABLE_ROOM'],process.env.CODEX_HOME,
+  {OPENAI_API_KEY:'artificial-do-not-persist',AITERM_MCP_HEADER_0:'header-do-not-persist',PEERTABLE_ROOM:'room'});
+ const recipe=refreshAgentResumeRecipe(m);
+ assert.deepEqual(recipe.environment,{PEERTABLE_ROOM:'room'});
+ assert.deepEqual(recipe.secret_environment,['AITERM_MCP_HEADER_0','OPENAI_API_KEY']);
+ const file=agentMetadataPath(m.aiterm_session,m.launch_id).replace(/\.agent\.json$/,'.resume.json');
+ assert.ok(!/do-not-persist/.test(fs.readFileSync(file,'utf8')));
+ // 0.70.23-0.70.40: the Claude login value in a recipe without a template.
+ const c={...m,aiterm_session:'template-old-login',kind:'claude'};
+ const oldFile=agentMetadataPath(c.aiterm_session,c.launch_id).replace(/\.agent\.json$/,'.resume.json');
+ fs.writeFileSync(oldFile,JSON.stringify({...recipe,secret_environment:undefined,kind:'claude',environment:{CLAUDE_CONFIG_DIR:null,CLAUDE_CODE_OAUTH_TOKEN:'old-login-do-not-keep'}}),{mode:0o600});
+ const cleaned=refreshAgentResumeRecipe(c);
+ assert.deepEqual(cleaned.environment,{CLAUDE_CONFIG_DIR:null});assert.deepEqual(cleaned.secret_environment,['CLAUDE_CODE_OAUTH_TOKEN']);
+ assert.ok(!/do-not-keep/.test(fs.readFileSync(oldFile,'utf8')));
 });
 
 test('Claude resume preserves an unset config selector separately from its resolved directory',()=>{

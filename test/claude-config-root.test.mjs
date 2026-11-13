@@ -151,12 +151,12 @@ test("a Claude resume takes CLAUDE_CODE_OAUTH_TOKEN as the login: named or not i
   const seen = path.join(base, "seen-login"); fs.mkdirSync(seen, { recursive: true });
   const bin = path.join(base, "login-claude.sh");
   fs.writeFileSync(bin, ["#!/bin/sh",
-    `printf '%s %s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-UNSET}" "\${LOGIN_FIXTURE_OTHER-UNSET}" > '${seen}'"/$AITERM_AGENT_LAUNCH_ID"`,
+    `printf '%s %s %s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-UNSET}" "\${LOGIN_FIXTURE_OTHER-UNSET}" "\${FIXTURE_API_KEY-UNSET}" > '${seen}'"/$AITERM_AGENT_LAUNCH_ID"`,
     "printf 'Claude Code\\n\\n────────────\\n❯ \\n────────────\\n'",
     "exec sleep 60", ""].join("\n"), { mode: 0o700 });
-  const saved = { bin: process.env.CLAUDE_BIN, token: process.env.CLAUDE_CODE_OAUTH_TOKEN, other: process.env.LOGIN_FIXTURE_OTHER };
-  process.env.CLAUDE_BIN = bin; process.env.LOGIN_FIXTURE_OTHER = "kept"; delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  t.after(() => { for (const [key, value] of [["CLAUDE_BIN", saved.bin], ["CLAUDE_CODE_OAUTH_TOKEN", saved.token], ["LOGIN_FIXTURE_OTHER", saved.other]])
+  const saved = { bin: process.env.CLAUDE_BIN, token: process.env.CLAUDE_CODE_OAUTH_TOKEN, other: process.env.LOGIN_FIXTURE_OTHER, key: process.env.FIXTURE_API_KEY };
+  process.env.CLAUDE_BIN = bin; process.env.LOGIN_FIXTURE_OTHER = "kept"; process.env.FIXTURE_API_KEY = "key-one"; delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  t.after(() => { for (const [key, value] of [["CLAUDE_BIN", saved.bin], ["CLAUDE_CODE_OAUTH_TOKEN", saved.token], ["LOGIN_FIXTURE_OTHER", saved.other], ["FIXTURE_API_KEY", saved.key]])
     if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   const observed = async launchId => {
     const file = path.join(seen, launchId);
@@ -165,10 +165,14 @@ test("a Claude resume takes CLAUDE_CODE_OAUTH_TOKEN as the login: named or not i
   };
   const name = "claude_login_resume";
   // The old seat's recipe lacks the login name (every hibernated 1st seat today).
-  core.openAgent("claude", { session_name: name, agent_done: true, cwd: base, model: "fixture", reasoning_effort: "high", env_vars: ["LOGIN_FIXTURE_OTHER"] });
+  core.openAgent("claude", { session_name: name, agent_done: true, cwd: base, model: "fixture", reasoning_effort: "high", env_vars: ["LOGIN_FIXTURE_OTHER", "FIXTURE_API_KEY"] });
   try {
     const first = readAgentMeta(name);
-    assert.equal(await observed(first.launch_id), "UNSET kept");
+    assert.equal(await observed(first.launch_id), "UNSET kept key-one");
+    // E8: a secret-named env no longer prevents the resume template; only its name is kept.
+    const { readAgentResumeTemplate } = await import("../dist/agent-lifecycle.js");
+    assert.deepEqual(readAgentResumeTemplate(first).secret_environment, ["FIXTURE_API_KEY"]);
+    assert.equal(readAgentResumeTemplate(first).environment.FIXTURE_API_KEY, undefined);
     const resume = async (envVars, token) => {
       assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", name]).status, 0);
       if (token === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN; else process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
@@ -180,15 +184,27 @@ test("a Claude resume takes CLAUDE_CODE_OAUTH_TOKEN as the login: named or not i
       assert.notEqual(next.launch_id, before);
       const screen = spawnSync(resolveTmux(), ["-S", SOCK, "capture-pane", "-p", "-S", "-", "-t", name], { encoding: "utf8" }).stdout;
       if (token) assert.ok(!screen.includes(token), "the login value is never typed into the pane");
-      return { line: await observed(next.launch_id), recipe: readAgentResumeRecipe(next).environment };
+      const file = (await import("../dist/agent-shared.js")).agentMetadataPath(name, next.launch_id).replace(/\.agent\.json$/, ".resume.json");
+      for (const value of [token, process.env.FIXTURE_API_KEY]) if (value) assert.ok(!fs.readFileSync(file, "utf8").includes(value), "no secret value on disk");
+      return { line: await observed(next.launch_id), recipe: readAgentResumeRecipe(next) };
     };
-    const named = await resume(["LOGIN_FIXTURE_OTHER", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-one");
-    assert.equal(named.line, "fixture-token-one kept");
-    assert.equal(named.recipe.CLAUDE_CODE_OAUTH_TOKEN, "fixture-token-one");
-    const renewed = await resume(["LOGIN_FIXTURE_OTHER", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-two");
-    assert.equal(renewed.line, "fixture-token-two kept", "a re-login reaches the resumed seat");
-    const dropped = await resume(["LOGIN_FIXTURE_OTHER"], "fixture-token-three");
-    assert.equal(dropped.line, "UNSET kept", "not named: the seat resumes on the root's own login");
+    // A secret the resuming launch does not bring: refused before any effect, the seat is not started.
+    assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", name]).status, 0);
+    delete process.env.FIXTURE_API_KEY;
+    await assert.rejects(core.openAgentWithInitialPrompt("claude", { session_name: name, require_existing_resume: true, env_vars: ["LOGIN_FIXTURE_OTHER", "FIXTURE_API_KEY"], ready_timeout: 3 }),
+      /^Error: AGENT_RESUME_SECRET_MISSING: .*FIXTURE_API_KEY/);
+    assert.equal(loadAgentMetadata(name).launch_id, first.launch_id);
+    process.env.FIXTURE_API_KEY = "key-two";
+    spawnSync(resolveTmux(), ["-S", SOCK, "new-session", "-d", "-s", name, "sleep 60"]); // resume() kills it again
+    const named = await resume(["LOGIN_FIXTURE_OTHER", "FIXTURE_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-one");
+    assert.equal(named.line, "fixture-token-one kept key-two", "secret values come from the resuming launch");
+    assert.deepEqual(named.recipe.secret_environment, ["CLAUDE_CODE_OAUTH_TOKEN", "FIXTURE_API_KEY"]);
+    assert.equal(named.recipe.environment.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+    const renewed = await resume(["LOGIN_FIXTURE_OTHER", "FIXTURE_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"], "fixture-token-two");
+    assert.equal(renewed.line, "fixture-token-two kept key-two", "a re-login reaches the resumed seat");
+    const dropped = await resume(["LOGIN_FIXTURE_OTHER", "FIXTURE_API_KEY"], "fixture-token-three");
+    assert.equal(dropped.line, "UNSET kept key-two", "not named: the seat resumes on the root's own login");
+    assert.deepEqual(dropped.recipe.secret_environment, ["FIXTURE_API_KEY"]);
     assert.equal(spawnSync(resolveTmux(), ["-S", SOCK, "kill-session", "-t", name]).status, 0);
     // Any other env difference still conflicts.
     await assert.rejects(core.openAgentWithInitialPrompt("claude", { session_name: name, require_existing_resume: true, env_vars: ["CLAUDE_CODE_OAUTH_TOKEN"], ready_timeout: 3 }),

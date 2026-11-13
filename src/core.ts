@@ -46,7 +46,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -62,7 +62,7 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
-import { AitermError, launchAuthRequired, launchInputRefusal, launchStartupBlocked, AgentResumeUnavailableError, AgentResumeError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
+import { AitermError, launchAuthRequired, launchInputRefusal, launchStartupBlocked, AgentResumeUnavailableError, AgentResumeError, AgentResumeSecretsError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
   SOCKDIR,
@@ -2202,7 +2202,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     const settled = meta.kind === "claude" ? done !== null && readClaudeOperationMarker(meta) === null
       : meta.kind === "codex" ? done?.turn_id != null && done.turn_id === codexCompletedTurnId(meta) : agentTurnSettled(meta);
     return { launch_id: meta.launch_id, created_at: meta.created_at, vendor_session_id: meta.vendor_session_id,
-      resume_ready: resumeReady, native_configuration_confirmed: configurationScreen !== null
+      resume_ready: resumeReady, resume_needs_launch_values: !!recipe && recipeSecretNames(recipe).length > 0, native_configuration_confirmed: configurationScreen !== null
         && (effectIssued || (slot?.last_attached_at != null && slot.last_attached_at < configurationStartedAt
           && configurationScreen === captureScreen(name, AGENT_TUI_READY_LINES))), activity: readAgentActivity(meta), state: live.state, reason: live.reason,
       attached: slot?.attached ?? (effectIssued ? false : null), turn_settled: settled,
@@ -2504,7 +2504,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
     let command: string = state ?? "vanished";
     const recipe = readAgentResumeRecipe(meta);
     if (recipe?.kind === meta.kind && recipe.vendor_session_id === meta.vendor_session_id)
-      for (const key of envKeys) environment[key] = key === CLAUDE_LOGIN_ENV ? null : recipe.environment[key] ?? null;
+      for (const key of envKeys) environment[key] = isSecretEnvName(key) ? null : recipe.environment[key] ?? null;
     if (state === "hibernated") {
       try { confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!); }
       catch { command = "unknown"; }
@@ -7359,8 +7359,12 @@ function adoptVanishedAgentNative(meta: AgentMetadata): void {
 // Claude's login, not a recipe setting (lifecycle-state-ownership 4b): a resume through agent_launch may replace it.
 const CLAUDE_LOGIN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
 
+/**
+ * `secretValues` (E8, lifecycle-state-ownership 4c): the values agent_launch brought for the recipe's secret names (null = unset,
+ * only the Claude login). Without them (pty_send, dispatch, vanished adopt) a recipe naming a secret is refused before any effect.
+ */
 async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot,
-  claudeLogin?: { value: string | null }): Promise<AgentMetadata> {
+  secretValues?: Record<string, string | null>): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -7400,12 +7404,19 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
   try {
   assertExecutionResumeSupported();
   const confirmed = confirmedAgentResumeRecipe(previous, lifecycle);
+  const secretNames = [...new Set([...recipeSecretNames(confirmed), ...Object.keys(secretValues ?? {})])].sort();
+  if (secretNames.length && !secretValues) {
+    recorded = true; // a refusal before any effect, not a failed resume
+    throw new AgentResumeSecretsError("AGENT_RESUME_SECRETS_REQUIRED", name, secretNames);
+  }
+  const stored = withoutSecretValues(confirmed, secretNames);
   // Same vendor session under another Claude root; the caller proved the transcript is there.
-  const rooted = claudeRoot && confirmed.kind === "claude" ? { ...confirmed, configuration_root: claudeRoot.root,
-    environment: { ...confirmed.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : confirmed;
-  // null = unset in the seat: it resumes on the root's own login.
-  const recipe = claudeLogin && rooted.kind === "claude"
-    ? { ...rooted, environment: { ...rooted.environment, [CLAUDE_LOGIN_ENV]: claudeLogin.value } } : rooted;
+  const rooted = claudeRoot && stored.kind === "claude" ? { ...stored, configuration_root: claudeRoot.root,
+    environment: { ...stored.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : stored;
+  // Values of this launch only; null = unset in the seat (the Claude login: it resumes on the root's own login).
+  const recipe = { ...rooted, environment: { ...rooted.environment, ...Object.fromEntries(secretNames.map(key => [key, secretValues![key] ?? null])) } };
+  // What goes to disk: the names still set, never their values.
+  const saved = withoutSecretValues(recipe, secretNames.filter(key => recipe.environment[key] != null));
   if (sessionExists(name)) throw uncertain();
   const controlEnv = { ...process.env };
   for (const [key, value] of Object.entries(recipe.environment)) {
@@ -7457,7 +7468,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       // A resumed fork stays read-only (ADR 0140): argv and env derive from fork_of.
       if (previous.fork_of) next.fork_of = previous.fork_of;
       writeAgentMetadata(next); initializeAgentActivity(next);
-      writeAgentResumeRecipe(next, { ...recipe, launch_id: next.launch_id });
+      writeAgentResumeRecipe(next, { ...saved, launch_id: next.launch_id });
       attempt = { schema: "aiterm.agent-resume-attempt.v1", launch_id: previous.launch_id, next_launch_id: next.launch_id,
         state: "resuming", at: new Date().toISOString(), recipe_digest: lifecycle.recipe_digest };
       phase = "attempt_save"; attemptRecord = "unknown";
@@ -7469,8 +7480,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       const environment: [string, string | null][] = [...Object.entries(recipe.environment),
         ...(next.kind === "codex" ? [["CODEX_HOME", recipe.configuration_root] as [string, string]] : []), ...agentEnvEntries(next, name)];
       for (const [key, value] of environment) {
-        // The Claude login never goes on a multiplexer argv or into pty_list; the launch reads it from the 0600 file.
-        if (value !== null && key === CLAUDE_LOGIN_ENV) continue;
+        // Secret values never go on a multiplexer argv or into pty_list; the launch reads them from the 0600 file.
+        if (value !== null && secretNames.includes(key)) continue;
         const stored = value === null ? tmux("set-environment", isWin ? "-u" : "-r", "-t", name, key) : tmux("set-environment", "-t", name, key, value);
         if (stored.code !== 0) throw uncertain();
       }
@@ -7507,9 +7518,10 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
     phase = "ready_save";
     writeAgentResumeTemplate(resumed, { schema: "aiterm.agent-resume-template.v1", launch_id: resumed.launch_id, state: "confirmed",
       kind: recipe.kind, executable: recipe.executable, cwd: recipe.cwd, configuration_root: recipe.configuration_root,
-      model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: recipe.environment,
+      model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: saved.environment,
+      ...(saved.secret_environment ? { secret_environment: saved.secret_environment } : {}),
       ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
-    writeAgentResumeRecipe(resumed, { ...recipe, launch_id: resumed.launch_id });
+    writeAgentResumeRecipe(resumed, { ...saved, launch_id: resumed.launch_id });
     writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
     return resumed;
   } catch (error) {
@@ -8803,7 +8815,7 @@ export async function openAgentWithInitialPrompt(
           || (opts.fast != null && opts.fast !== recipe.fast)
           || (opts.cwd != null && path.resolve(opts.cwd) !== recipe.cwd)
           || (opts.write_scope !== undefined && opts.write_scope !== previous.write_scope)
-          || (opts.env_vars !== undefined && !isDeepStrictEqual(resumeEnvNames(kind, opts.env_vars), resumeEnvNames(kind, Object.keys(recipe.environment)))))
+          || (opts.env_vars !== undefined && !isDeepStrictEqual(resumeEnvNames(kind, opts.env_vars), resumeEnvNames(kind, [...Object.keys(recipe.environment), ...recipeSecretNames(recipe)]))))
           throw opts.require_existing_resume ? new AgentResumeUnavailableError(name) : new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したharness・設定・project・明示envで再開します。変更は再開後に行ってください。", 2);
         // The only setting a resume may change: the Claude root, when it holds this conversation's transcript.
         const rootChange = claudeRoot && (claudeRoot.root !== recipe.configuration_root
@@ -8813,10 +8825,24 @@ export async function openAgentWithInitialPrompt(
         if (opts.launch_operation_id != null) requireMatchingClaudeLaunch(name, validateOperationId(opts.launch_operation_id),
           claudeLaunchRequestDigest({ sessionName: name, model: opts.model ?? null, effort: opts.reasoning_effort ?? null,
             cwd: opts.cwd ?? null, agentDone: true }));
+        // E8: every secret name takes this launch's value (private line, then env). The Claude login keeps 4b: named or
+        // env_vars omitted -> this launch's value, else unset (root login); every other name without a value refuses.
+        const isLogin = (key: string) => kind === "claude" && key === CLAUDE_LOGIN_ENV;
+        const secretNames = [...new Set([...recipeSecretNames(recipe), ...(kind === "claude" && opts.env_vars?.includes(CLAUDE_LOGIN_ENV) ? [CLAUDE_LOGIN_ENV] : [])])];
+        const secretValues = Object.fromEntries(secretNames.map(key => [key,
+          isLogin(key) && opts.env_vars !== undefined && !opts.env_vars.includes(key) ? null : launchEnvValue(key) ?? null]));
+        const missing = secretNames.filter(key => secretValues[key] === null && !isLogin(key));
+        if (missing.length) throw new AgentResumeSecretsError("AGENT_RESUME_SECRET_MISSING", name, missing);
+        // A terminal seat's forward port P may have changed: the caller MCP file takes the new URLs, same servers only.
+        if (opts.mcp_config != null && (kind === "claude" ? previous.claude_caller_mcp_file : previous.codex_caller_mcp_file)) {
+          const file = (kind === "claude" ? previous.claude_caller_mcp_file : previous.codex_caller_mcp_file)!;
+          const serverNames = (config: unknown) => Object.keys(((config ?? {}) as { mcpServers?: object }).mcpServers ?? {}).sort();
+          if (!isDeepStrictEqual(serverNames(JSON.parse(fs.readFileSync(file, "utf8"))), serverNames(opts.mcp_config)))
+            throw new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したMCP serverの名前で再開します。", 2);
+          (kind === "claude" ? writeClaudeCallerFiles : writeCodexCallerFiles)({ ...previous }, null, opts.mcp_config);
+        }
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
-        const claudeLogin = kind === "claude" && opts.env_vars !== undefined
-          ? { value: opts.env_vars.includes(CLAUDE_LOGIN_ENV) ? launchEnvValue(CLAUDE_LOGIN_ENV) ?? null : null } : undefined;
-        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, claudeLogin);
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };

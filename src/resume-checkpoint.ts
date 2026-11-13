@@ -78,7 +78,7 @@ export function validateResumeCheckpoint(input:unknown):ResumeCheckpoint {
       ||m.event_file!==resumeCheckpointRecordPath(scope,{launch_id:id,kind:'metadata'}).replace(/\.agent\.json$/,'.events.jsonl')
       ||recipe.kind!=='codex'||recipe.vendor_session_id!==scope.vendor_session_id||recipe.configuration_root!==scope.configuration_root
       ||recipe.fast!==false||recipe.cwd!==m.cwd||recipe.executable!==m.agent_executable||recipe.model!==(m.model??null))refuse();
-    if(Object.keys(recipe.environment).some(key=>/(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(key)))refuse();
+    if(recipe.secret_environment?.length||Object.keys(recipe.environment).some(key=>/(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(key)))refuse();
     const lineage=['agent_role','parent_session_id','delegation_depth','lineage','delegation_allowed'];
     if(lineage.some(k=>m[k]!==undefined)&&lineage.some(k=>m[k]===undefined))refuse();
     const life=get(id,'lifecycle',false),origin=get(id,'recovery_origin',false),attempt=get(id,'attempt',false);
@@ -101,7 +101,7 @@ export function validateResumeCheckpoint(input:unknown):ResumeCheckpoint {
     if(proof&&(proof.session_id!==scope.vendor_session_id||!proof.file.startsWith(scope.configuration_root+path.sep+'sessions'+path.sep)))refuse();
     const template=get(id,'template',false);
     if(template&&(template.kind!=='codex'||template.configuration_root!==scope.configuration_root
-      ||Object.keys(template.environment).some(key=>/(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(key))))refuse();
+      ||template.secret_environment?.length||Object.keys(template.environment).some(key=>/(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$/i.test(key))))refuse();
     const failure=get(id,'failure',false);if(failure&&failure.session_id!==scope.session_id)refuse();
     if(id===scope.launch_id){
       if(pointer.previous_launch_id!==(m.resumed_from??null)||attempt)refuse();

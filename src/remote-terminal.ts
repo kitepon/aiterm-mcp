@@ -683,10 +683,10 @@ export function unbindTerminalSession(session: string): void {
   writeSeats(seats);
 }
 /** Bound sessions grouped by terminal, for relaying a session-less call (pty_list seat_turns). An unreadable binding is skipped. */
-export function terminalSeatGroups(): Array<{ target: TrustedRemoteTarget; sessions: string[] }> {
+export function terminalSeatGroups(): Array<{ target: TrustedRemoteTarget; sessions: string[]; route_since: string | null }> {
   const groups = new Map<string, string[]>();
   for (const [session, ref] of Object.entries(readSeats())) groups.set(ref, [...groups.get(ref) ?? [], session]);
-  return [...groups].flatMap(([ref, sessions]) => { try { return [{ target: trustedTarget(binding(ref)), sessions }]; } catch { return []; } });
+  return [...groups].flatMap(([ref, sessions]) => { try { return [{ target: trustedTarget(binding(ref)), sessions, route_since: forwardRouteSince(ref) }]; } catch { return []; } });
 }
 /** A later call's target, by session only. null = a local session. */
 export function boundTerminalTarget(session: unknown): TrustedRemoteTarget | null {
@@ -745,7 +745,7 @@ function writeBinding(ref: string, change: Partial<Binding>): void {
 }
 
 function lockFile(ref: string): string { return path.join(ensureStateRoot(), `terminal-forward-${ref}.lock`); }
-interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown; ready?: unknown }
+interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown; ready?: unknown; ready_at?: unknown }
 function lockOwner(ref: string): LockOwner | null {
   try { return JSON.parse(fs.readFileSync(lockFile(ref), "utf8")); } catch { return null; /* absent or unreadable: no owner */ }
 }
@@ -771,7 +771,8 @@ function markReady(ref: string, ready: number | null): void {
   if (Number(lockOwner(ref)?.pid) !== process.pid) return;
   const file = lockFile(ref), staged = `${file}.${process.pid}`;
   try {
-    fs.writeFileSync(staged, JSON.stringify(ready ? { ...lockIdentity(), ready } : lockIdentity()), { mode: 0o600 });
+    // ready_at (E9): when this ssh -R became ready; a newer one tells BellTeam the seats' route was rebuilt.
+    fs.writeFileSync(staged, JSON.stringify(ready ? { ...lockIdentity(), ready, ready_at: new Date().toISOString() } : lockIdentity()), { mode: 0o600 });
     fs.renameSync(staged, file);
   } catch { fs.rmSync(staged, { force: true }); }
 }
@@ -802,6 +803,11 @@ function forwardReady(ref: string, port: number): boolean {
   if (owner && owner.boot === undefined) return ownerAlive(owner);
   if (!owner || owner.ready !== port) return false;
   return Number(owner.pid) === process.pid ? Boolean(keepers.get(ref)?.child) : ownerAlive(owner);
+}
+/** E9: when the seats' current reverse forward was established; null when it is not ready or the time is unknown. */
+export function forwardRouteSince(ref: string): string | null {
+  const port = binding(ref).seat_forward_port, readyAt = lockOwner(ref)?.ready_at;
+  return port && typeof readyAt === "string" && forwardReady(ref, port) ? readyAt : null;
 }
 
 // T3: a launch in any process keeps the forward needed (the seat is bound only after it), so the owner never stops it meanwhile.

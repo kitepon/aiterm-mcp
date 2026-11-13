@@ -411,7 +411,8 @@ const AGENT_COMMAND_PATTERNS: Record<AgentKind, RegExp> = {
 const AGENT_EXEC_SHELLS: Record<AgentKind, (command: string) => boolean> = {
   // Bash tool and run_in_background (bash/zsh; Git Bash on Windows): the command ends by writing its cwd to claude-<hex>-cwd.
   // Hooks are `sh -c <hook>`, Git Bash or pwsh without that file.
-  claude: command => /claude-[0-9a-f]+-cwd\b/.test(command),
+  // Windows PowerShell tool (2.1.32x, fox 2026-11-14): cmd /d /s /c "chcp 65001 & pwsh … -Command "$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT; …"".
+  claude: command => /claude-[0-9a-f]+-cwd\b/.test(command) || command.includes("$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT"),
   // exec / unified exec: POSIX [shell, -c|-lc, command]; Windows pwsh -Command starting with its UTF-8 console line.
   // Hooks and MCP servers are spawned with their own argv (Windows hooks: pwsh -NoProfile -Command "& ...").
   codex: command => /^\s*\S+\s+-l?c\s/.test(command)

@@ -10,6 +10,8 @@ test("POSIX process表の開始識別とargv digestを保持する", () => {
   const rows = parsePosixProcessTable(" 123 1 123 S Wed Sep  9 20:11:12 2026 1:02.34 /bin/bash -l\n 124 123 124 T+ Wed Sep  9 20:11:13 2026 00:01.20 node worker.mjs\n");
   assert.equal(rows[0].stopped, false);
   assert.equal(rows[1].stopped, true);
+  assert.deepEqual(parsePosixProcessTable(" 125 1 125 Ss Wed Sep  9 20:11:12 2026 0:00.00 sleep 300\n").map(row => row.session_leader), [true]);
+  assert.equal(rows[0].session_leader, false);
   assert.equal(rows[0].cpu_seconds, 62.34);
   assert.equal(rows[0].started_identity, "Wed Sep  9 20:11:12 2026");
   assert.equal(rows[0].argv_digest, createHash("sha256").update("/bin/bash -l").digest("hex"));

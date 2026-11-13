@@ -940,6 +940,12 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
     // callRemoteTool spawns its ssh only after an await: let the relays start before this process blocks on the local read.
     await new Promise(resolve => setImmediate(resolve));
     const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
+    // a41: own_work only for a caller that sends its exclusion list (observation-results.md); terminals compute their own rows.
+    const ownWork = requestMeta && typeof requestMeta === "object" ? (requestMeta as Record<string, unknown>)["aiterm/own_work_exclusions"] : undefined;
+    if (ownWork !== undefined) {
+      const work = await core.seatOwnWork(local.seats.map(seat => seat.session_id), ownWork);
+      for (const seat of local.seats) { const value = work.get(seat.session_id); if (value) Object.assign(seat, { own_work: value }); }
+    }
     const remote = await relays;
     return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: [...local.unread, ...remote.flatMap(r => r.unread)] } } };
   } catch (e) {

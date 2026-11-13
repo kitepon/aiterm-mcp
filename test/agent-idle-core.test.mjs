@@ -1014,3 +1014,24 @@ test('pty_close hibernate stops an idle seat now, before its idle deadline, and 
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
  await assert.rejects(core.hibernateAgentSession(f.name),/^Error: AGENT_HIBERNATE_UNAVAILABLE: /);
 });
+
+// a41 own_work: the processes a seat started itself, minus what the caller's exclusion list names (observation-results.md).
+test('own_work counts a seat\'s background process, and an exclusion entry for this seat removes it',{skip,timeout:20000},async t=>{
+ const f=await fixture(t);
+ fs.writeFileSync(f.spawnFlag,'spawn');
+ for(const until=Date.now()+4000;!fs.existsSync(f.spawned)&&Date.now()<until;)await sleep(20);
+ const pid=Number(fs.readFileSync(f.spawned,'utf8'));
+ t.after(()=>{try{process.kill(pid);}catch{}});
+ const plain=(await core.seatOwnWork([f.name],{digest:'d1',entries:[]})).get(f.name);
+ assert.equal(plain.processes,1,JSON.stringify(plain));assert.equal(plain.excluded,0);assert.equal(plain.exclusions_digest,'d1');
+ assert.equal(plain.child_results,0);
+ assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'node',args:['…']},'the -e script holds = and is masked');
+ const entry={id:'e1',kind:'process',exe:'node',args:['…']};
+ const other=(await core.seatOwnWork([f.name],{digest:'d2',entries:[{...entry,sessions:['another_seat']}]})).get(f.name);
+ assert.equal(other.processes,1,'an entry for another seat does not apply');
+ const listed=(await core.seatOwnWork([f.name],{digest:'d3',entries:[{...entry,sessions:[f.name]}]})).get(f.name);
+ assert.equal(listed.processes,0);assert.equal(listed.excluded,1);assert.equal(listed.oldest,null);
+ const broken=(await core.seatOwnWork([f.name],{digest:'d4',entries:[{id:'x',kind:'unknown'}]})).get(f.name);
+ assert.equal(broken.exclusions_digest,null,'a malformed list is not applied');assert.equal(broken.processes,1);
+});
+

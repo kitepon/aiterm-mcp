@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.53] - 2026-11-13
+
 - A call that hangs on a terminal no longer freezes that terminal's seat reads. The warm connection per terminal is split into a read lane (`pty_list`, the seat-turns relay) and one for everything else; the terminal answers each connection in one process, so a close stuck there (fox, 11/14 01:33 JST, ~2 min) held every read behind it.
 
 - `own_work.task` names the oldest open agent when a seat has both agents and shells (before: the oldest of either, so a subagent's background `sleep` could stand for the subagent on the card).
@@ -3446,7 +3448,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.52...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...HEAD
+[0.70.53]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.52...v0.70.53
 [0.70.52]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.51...v0.70.52
 [0.70.51]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.50...v0.70.51
 [0.70.50]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.49...v0.70.50

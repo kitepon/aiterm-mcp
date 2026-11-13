@@ -249,6 +249,50 @@ export interface RemoteCallResult {
 
 export const REMOTE_CLIENT_NAME = "aiterm-remote";
 /** 現地のaiterm-mcpへ1回だけMCP接続し、指定toolを呼んで閉じる。privateEnvは暗号化されたstdinの先頭行だけで渡す（remote-terminal.md R5）。 */
+// a37: a trusted terminal keeps one warm MCP session (ssh + its aiterm-mcp, initialized) for calls without private values,
+// so a call costs one round trip instead of a shell start, a node start and initialize. A sent request is never replayed.
+const WARM_IDLE_MS = 2 * 60_000, WARM_MAX_AGE_MS = 10 * 60_000;
+interface WarmSession { ready: Promise<void>; client: Client; transport: SshStdioTransport; born: number; inflight: number; idle: NodeJS.Timeout | null; dead: boolean }
+const warmSessions = new Map<string, WarmSession>();
+function retireWarm(ref: string, session: WarmSession): void {
+  if (warmSessions.get(ref) === session) warmSessions.delete(ref);
+  if (session.idle) clearTimeout(session.idle);
+  if (!session.inflight) void session.client.close().catch(() => {});
+}
+function warmSession(target: RemoteTarget, sshArgs: string[]): WarmSession {
+  const ref = target.trusted_ref!;
+  const kept = warmSessions.get(ref);
+  if (kept && !kept.dead && Date.now() - kept.born < WARM_MAX_AGE_MS) return kept;
+  if (kept) retireWarm(ref, kept);
+  const transport = new SshStdioTransport(sshArgs, ""), client = new Client({ name: REMOTE_CLIENT_NAME, version: pkg.version });
+  const session: WarmSession = { client, transport, born: Date.now(), inflight: 0, idle: null, dead: false,
+    ready: client.connect(transport, { timeout: 60_000 }).catch(() => {
+      retireWarm(ref, session);
+      const failure = classifySshFailure(transport.stderr);
+      throw new AitermError(`${failure.code}: ${failure.message}${failure.action ? ` (${failure.action})` : ""}`, 2);
+    }) };
+  client.onclose = () => { session.dead = true; if (warmSessions.get(ref) === session) warmSessions.delete(ref); };
+  warmSessions.set(ref, session);
+  return session;
+}
+async function callWarm(target: RemoteTarget, sshArgs: string[], request: Parameters<Client["callTool"]>[0], timeoutMs: number) {
+  const session = warmSession(target, sshArgs);
+  session.inflight++;
+  if (session.idle) { clearTimeout(session.idle); session.idle = null; }
+  session.transport.hold(true);
+  try {
+    await session.ready;
+    const result = await session.client.callTool(request, undefined, { timeout: timeoutMs, resetTimeoutOnProgress: true });
+    return { result, version: session.client.getServerVersion()?.version ?? null };
+  } finally {
+    if (--session.inflight === 0) {
+      session.transport.hold(false);
+      if (session.dead || warmSessions.get(target.trusted_ref!) !== session) void session.client.close().catch(() => {});
+      else session.idle = setTimeout(() => retireWarm(target.trusted_ref!, session), WARM_IDLE_MS).unref();
+    }
+  }
+}
+
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
   privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
   if (privateEnv && !target.trusted_ref) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding", 2);
@@ -257,6 +301,20 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
   const command = target.trusted_ref ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
     : privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
   const { args: sshArgs, env } = sshInvocation(target, command);
+  // Request _meta is opaque to the relay; progressToken belongs to this hop's client, not the caller's.
+  const { progressToken: _hop, ...forwarded } = meta ?? {};
+  const request = Object.keys(forwarded).length ? { name, arguments: args, _meta: forwarded } : { name, arguments: args };
+  const shape = (result: Awaited<ReturnType<Client["callTool"]>>, version: string | null): RemoteCallResult => ({
+    content: (result.content as RemoteCallResult["content"]) ?? [],
+    ...(result.structuredContent ? { structuredContent: result.structuredContent as Record<string, unknown> } : {}),
+    ...(result.isError ? { isError: true } : {}),
+    ...(result._meta ? { _meta: result._meta as Record<string, unknown> } : {}),
+    remote_version: version,
+  });
+  if (target.trusted_ref && !privateEnv) {
+    const { result, version } = await callWarm(target, sshArgs, request, timeoutMs);
+    return shape(result, version);
+  }
   const transport = privateEnv
     ? new SshStdioTransport(sshArgs, `${JSON.stringify({ schema: PRIVATE_ENV_SCHEMA, env: privateEnv })}\n`)
     : new StdioClientTransport({ command: "ssh", args: sshArgs, env, stderr: "pipe" });
@@ -274,17 +332,8 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
       const detail = stderr.trim().split("\n").slice(-3).join(" / ") || (error instanceof Error ? error.message : String(error));
       throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} のAitermへ接続できません（${detail}）`, 2);
     }
-    // Request _meta is opaque to the relay; progressToken belongs to this hop's client, not the caller's.
-    const { progressToken: _hop, ...forwarded } = meta ?? {};
-    const request = Object.keys(forwarded).length ? { name, arguments: args, _meta: forwarded } : { name, arguments: args };
     const result = await client.callTool(request, undefined, { timeout: timeoutMs, resetTimeoutOnProgress: true });
-    return {
-      content: (result.content as RemoteCallResult["content"]) ?? [],
-      ...(result.structuredContent ? { structuredContent: result.structuredContent as Record<string, unknown> } : {}),
-      ...(result.isError ? { isError: true } : {}),
-      ...(result._meta ? { _meta: result._meta as Record<string, unknown> } : {}),
-      remote_version: client.getServerVersion()?.version ?? null,
-    };
+    return shape(result, client.getServerVersion()?.version ?? null);
   } finally {
     await client.close().catch(() => {});
   }

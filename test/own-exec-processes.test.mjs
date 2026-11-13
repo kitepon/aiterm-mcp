@@ -135,3 +135,26 @@ test("Windows: Codex pwsh with its UTF-8 console line, Grok pwsh without the hoo
   assert.deepEqual(count("claude", claude, [row(20, 10, 3, '"C:\\Program Files\\Git\\bin\\bash.exe" -c "throughline session-start"'),
     row(21, 10, 3, `${PWSH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\kite_\\.approval-box\\runtime\\0.1.32\\approval-box-claude-hook.mjs'; exit (Get-Variable LASTEXITCODE -ValueOnly)"`)]), []);
 });
+
+// Antigravity 1.5.8 (Gemini 3.8 Flash), captured 2026-11-13 20:0x-20:1x JST (a41-agy).
+test("Antigravity: each command is a session leader on its own pty (POSIX), pwsh with its $OutputEncoding line (Windows)", () => {
+  // macOS: a lone `sleep 240` stat Ss+ on a new tty; `sleep 230; echo …` runs as `zsh -c …` (Ss+) with sleep below it.
+  // The seat's servers stay on the seat's tty, not session leaders.
+  const agy = row(10, 5, 1, `/Users/kite/.local/bin/agy --dangerously-skip-permissions --settings {"queuedMessages":"send-immediately"} --model gemini-3.8-flash-medium`);
+  const servers = [row(20, 10, 2, "/opt/homebrew/opt/node/bin/node /opt/homebrew/lib/node_modules/aiterm-mcp/dist/index.js"),
+    row(21, 10, 2, "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python mcp-proxy.py"),
+    row(22, 10, 2, "/opt/homebrew/opt/node/bin/node /opt/homebrew/lib/node_modules/aiterm-mcp/dist/antigravity-hook.js Stop")];
+  const leader = (pid, parent, command) => ({ ...row(pid, parent, 9, command), session_leader: true });
+  assert.deepEqual(count("antigravity", agy, [...servers, leader(30, 10, "sleep 240")]), [30]);
+  assert.deepEqual(count("antigravity", agy, [...servers, leader(30, 10, "zsh -c sleep 230; echo elegg-done"), row(31, 30, 9, "sleep 230")]), [30, 31]);
+  assert.deepEqual(count("antigravity", agy, servers), [], "an idle seat with its servers and hook reads 0");
+  // Windows: the command's pwsh is a direct child of agy.exe; MCP servers are plain children.
+  const win = row(10, 5, 1, `"C:\\Users\\kite_\\AppData\\Local\\agy\\bin\\agy.exe" --dangerously-skip-permissions --settings "{\\"queuedMessages\\":\\"send-immediately\\"}" --model gemini-3.8-flash-medium`);
+  const winServers = [row(20, 10, 2, `"C:\\Program Files\\nodejs\\node.exe" C:\\Users\\kite_\\AppData\\Roaming\\npm\\node_modules\\aiterm-mcp\\dist\\index.js`),
+    row(21, 10, 2, `"C:\\Program Files\\Python314\\python.exe" -u C:\\Users\\kite_\\.gemini\\config\\onepassword-discovery-proxy.py`),
+    row(22, 10, 2, `C:\\WINDOWS\\system32\\cmd.exe /d /s /c "pwsh -NoProfile -EncodedCommand JABhAA=="`)];
+  assert.deepEqual(count("antigravity", win, [...winServers,
+    row(30, 10, 9, `"c:\\program files\\powershell\\7\\pwsh.exe" -Command "try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding } catch {}; Start-Sleep -Seconds 240"`)]), [30]);
+  assert.deepEqual(count("antigravity", win, winServers), []);
+  assert.deepEqual(count("codex", row(10, 5, 1, "codex.exe"), [row(30, 10, 9, `"c:\\program files\\powershell\\7\\pwsh.exe" -Command "try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding } catch {}; Start-Sleep -Seconds 240"`)]), [], "Codex's console line differs");
+});

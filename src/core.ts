@@ -417,8 +417,9 @@ const AGENT_EXEC_SHELLS: Record<AgentKind, (command: string) => boolean> = {
   // shortcut: a command run with the write-to-stdin tool also gets stdin and is not counted; read the script if that matters.
   cursor: command => /builtin eval "\$1"(?: 3<&- 4>&-)? < \/dev\/null/.test(command)
     || /-NonInteractive -File \S*ps-script-[0-9a-f-]+\.ps1/i.test(command),
-  // shortcut: Antigravity's exec shape is not captured yet (quota), so its commands are not counted; add it from a real run.
-  antigravity: () => false,
+  // POSIX: no shell marker; agy runs each command in its own pty session (session-leader rule in ownExecProcesses).
+  // Windows: pwsh -Command starting with its UTF-8 $OutputEncoding line; hooks are cmd /c "pwsh … -EncodedCommand".
+  antigravity: command => command.includes(" -Command \"try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false);"),
 };
 const EXEC_SHELL_NAMES = new Set([...SHELLS, "pwsh", "powershell", "cmd"]);
 // Sandboxes a harness puts between itself and its exec shell.
@@ -1942,8 +1943,9 @@ export function ownExecProcesses(meta: Pick<AgentMetadata, "kind" | "launch_id">
       // arguments passed on (selectHarnessProcesses correlates the same way). A hook or server that merely names the harness is not.
       else if (SANDBOX_WRAPPERS.has(executable) || AGENT_COMMAND_PATTERNS[kind].test(executable)
         || (!EXEC_SHELL_NAMES.has(executable) && child.command.includes(meta.launch_id))) walk(child, false);
-      // A lone command its `-c` shell replaced itself with: Codex starts each exec with setsid, its servers and hooks stay in the seat's session.
-      else if (kind === "codex" && child.session_leader) roots.push(child);
+      // Codex (setsid) and Antigravity (a pty per command) start each exec in a new session; their servers and hooks stay in
+      // the seat's session. This also catches a lone command its `-c` shell replaced itself with.
+      else if ((kind === "codex" || kind === "antigravity") && child.session_leader) roots.push(child);
     }
   };
   walk(agent, false);

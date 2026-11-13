@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.48] - 2026-11-13
+
 - seat-turns `own_work.oldest.{exe,args}` now name the oldest counted leaf process (the command, e.g. `sleep 150`), not the shell the harness wrapped it in (Claude's `bash -c … claude-<hex>-cwd`). `oldest.since` stays the start of the oldest counted process. Same fields and shape.
 
 ## [0.70.47] - 2026-11-13
@@ -3416,7 +3418,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.47...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.48...HEAD
+[0.70.48]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.47...v0.70.48
 [0.70.47]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.46...v0.70.47
 [0.70.46]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.45...v0.70.46
 [0.70.45]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...v0.70.45

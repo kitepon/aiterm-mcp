@@ -5327,8 +5327,8 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   // A resumed Codex can consume its native queue before the composer becomes idle.
   const running = (screen: string) => acceptRunningCodex && meta.kind === "codex" && !!meta.resumed_from
     && codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null;
-  const wait = () => waitAgentTuiReady(name, meta, options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS,
-    { selectSteer: running });
+  const budget = options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, deadline = performance.now() + budget;
+  const wait = (ms = budget) => waitAgentTuiReady(name, meta, ms, { selectSteer: running });
   let ready = await wait();
   const handled = new Set<string>();
   while (!ready.ready && !ready.steer) {
@@ -5336,6 +5336,16 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
       : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "antigravity" ? antigravityStartupAction(ready.lastScreen, options.trust_project === true, meta.cwd) : null;
+    // A screen Aiterm does not answer can leave by itself: agy drew its login screen for 3 s right after a login, then went on
+    // (Centi train W F2). Look until the ready budget ends; only a screen that stays refuses. Claude's first-run steps never
+    // leave without the account owner, so they refuse at once.
+    const unanswered = agentPaneObservation(meta.kind, ready.lastScreen);
+    if (!action && budget > 0 && performance.now() < deadline - AGENT_TUI_READY_POLL_MS
+      && unanswered.state === "blocked" && unanswered.reason !== "vendor_onboarding_required") {
+      await sleep(AGENT_TUI_READY_POLL_MS);
+      ready = await wait(Math.max(1, deadline - performance.now()));
+      continue;
+    }
     if (!action || handled.has(action.kind)) break;
     handled.add(action.kind);
     const keys = action.selected ? action.keys.slice(0, -1) : action.keys;

@@ -364,8 +364,10 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
 
 /** ready_no_completion: Claude composer ready without a completed-progress line (also seen in a quiet wait).
  * ready_compacted: Claude's idle-compaction notice is the last block above the composer. Claude compacts only while
- * idle and sends no Stop for it, so this ends whatever its spinner opened. */
-export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "ready_compacted" | "unknown";
+ * idle and sends no Stop for it, so this ends whatever its spinner opened.
+ * ready_background: Antigravity's ready composer over a footer counting `N task(s)`: the turn is over, its Stop waits for
+ * the background task, so this ends the span like ready_compacted. */
+export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "ready_compacted" | "ready_background" | "unknown";
 
 /** Only the current native composer/progress/footer can establish occupancy. */
 // shortcut: pane snapshots cannot certify hidden native turn boundaries, use a continuous native lifecycle when that distinction is required.
@@ -391,8 +393,6 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
     if (kind === "antigravity" && start > 0 && /^\s*└ Tip:/u.test(lines[start])) start--;
   }
   const current = lines.slice(Math.max(0, start)).join("\n");
-  // Antigravity keeps the turn open while a background task runs: it reruns the model when the task ends, then sends Stop.
-  if (kind === "antigravity" && /·\s*[1-9]\d*\s+task\(s\)/u.test(lines.slice(marker + 1).join("\n"))) return "busy";
   if (kind === "grok" && grokPromptAwaitingAccept(current)) return "unknown";
   if (kind === "cursor" && cursorPromptHooksRunning(screen)) return "unknown";
   if (kind === "claude" && /running UserPromptSubmit hook/u.test(current)) return "unknown";
@@ -415,5 +415,9 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
     && !(/^\s*[^\p{L}\p{N}\s]{1,3}\s+\p{L}[^\n]*?(?:…|\.\.\.)\s*$/mu.test(lines.slice(start, marker).join("\n"))
       && /^\s*esc to cancel\b/imu.test(lines.slice(marker + 1).join("\n")))
     && !/^\s*esc to interrupt\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "unknown";
-  return observed.state === "busy" ? "busy" : "ready";
+  if (observed.state === "busy") return "busy";
+  // agy holds its Stop while a background task runs (it reruns the model when the task ends): the visible turn is over and
+  // only the task works, which the seat's own work counts (a68).
+  if (kind === "antigravity" && /·\s*[1-9]\d*\s+task\(s\)/u.test(lines.slice(marker + 1).join("\n"))) return "ready_background";
+  return "ready";
 }

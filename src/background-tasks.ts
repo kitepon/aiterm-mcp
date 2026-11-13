@@ -4,6 +4,7 @@ import type { AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
 import { codexRootTranscript, codexRolloutSessionId } from "./harnesses/codex.js";
+import { antigravityBinding } from "./harnesses/antigravity.js";
 
 /** A harness's own unfinished background task (a68): in-process agents, background shells. */
 export type BackgroundTask = { kind: "agent" | "shell" | "other"; label: string; since: string };
@@ -207,8 +208,34 @@ export function codexBackgroundTasks(meta: AgentMetadata): BackgroundTasks | nul
   return { count: live.length, oldest };
 }
 
+/**
+ * Apply one Antigravity transcript step (agy 1.5.8, captured 2026-11-14): a step whose content says "Tool is running as a
+ * background task with task id: <ID>" opens it (label = its "Task Description"); a later message carrying
+ * `Task id "<ID>" finished` closes it.
+ */
+export function applyAntigravityStepLine(line: string, open: Map<string, BackgroundTask>, done: Set<string>): void {
+  if (!line.includes("background task with task id") && !line.includes("finished with result")) return;
+  let row: any;
+  try { row = JSON.parse(line); } catch { return; }
+  const content = typeof row?.content === "string" ? row.content : "";
+  for (const match of content.matchAll(/Task id "([^"]+)" finished/g)) { done.add(match[1]); open.delete(match[1]); }
+  const started = /running as a background task with task id: (\S+)/.exec(content);
+  const at = typeof row?.created_at === "string" && Number.isFinite(Date.parse(row.created_at)) ? new Date(row.created_at).toISOString() : null;
+  if (started && at && !done.has(started[1]) && !open.has(started[1]))
+    open.set(started[1], { kind: "shell", label: taskLabel(/Task Description: (.*)/.exec(content)?.[1], "shell"), since: at });
+}
+
+/** Antigravity's own count of unfinished background tasks of this seat, from the bound conversation's transcript. */
+export function antigravityBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
+  let file: string | null = null;
+  try { file = meta.kind === "antigravity" ? antigravityBinding(meta)?.transcript ?? null : null; } catch { return null; }
+  const state = file ? readRecord(file, applyAntigravityStepLine) : null;
+  return state ? liveTasks(meta, state) : null;
+}
+
 /** The harness's own statement of unfinished background tasks; null where the harness gives none Aiterm reads (a68). */
 export function harnessBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
   return meta.kind === "claude" ? claudeBackgroundTasks(meta) : meta.kind === "grok" ? grokBackgroundTasks(meta)
-    : meta.kind === "codex" ? codexBackgroundTasks(meta) : null;
+    : meta.kind === "codex" ? codexBackgroundTasks(meta)
+    : meta.kind === "antigravity" ? antigravityBackgroundTasks(meta) : null;
 }

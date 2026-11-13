@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Antigravity seats state their own background tasks too (a68): read from the bound conversation's transcript ("running as a background task with task id" until "Task id … finished").
+
 ## [0.70.53] - 2026-11-13
 
 - A call that hangs on a terminal no longer freezes that terminal's seat reads. The warm connection per terminal is split into a read lane (`pty_list`, the seat-turns relay) and one for everything else; the terminal answers each connection in one process, so a close stuck there (fox, 11/14 01:33 JST, ~2 min) held every read behind it.

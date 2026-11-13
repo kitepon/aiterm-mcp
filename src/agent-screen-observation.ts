@@ -387,6 +387,8 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   } else if (kind === "grok" || kind === "antigravity") {
     start = marker - 1;
     while (start > 0 && (!lines[start].trim() || /^[╭─\s]+$/u.test(lines[start]))) start--;
+    // agy prints a "└ Tip: …" line under its spinner: the spinner is the current block's first line.
+    if (kind === "antigravity" && start > 0 && /^\s*└ Tip:/u.test(lines[start])) start--;
   }
   const current = lines.slice(Math.max(0, start)).join("\n");
   // Antigravity keeps the turn open while a background task runs: it reruns the model when the task ends, then sends Stop.
@@ -406,11 +408,11 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   }
   if (kind === "grok" && observed.state === "busy"
     && !/^\s*(?:[│┃]\s*)?(?:Waiting for response|Responding(?:…|\.\.\.)).*$/mu.test(current)) return "unknown";
-  // agy reruns the model after a background task ends with a "Loading..." spinner over an "esc to cancel" footer (a41-agy).
+  // Other agy spinners ("Running command...", "Loading..." while it reruns the model after a background task) over an
+  // "esc to cancel" footer (a41-agy).
   if (kind === "antigravity" && observed.state === "busy"
     && !/^\s*(?:[^\p{L}\p{N}\s]{1,3}\s+)?(?:Generating|Working)(?:…|\.\.\.).*$/mu.test(current)
-    // The spinner may sit one line above a "└ Tip: …" line.
-    && !(/^\s*[^\p{L}\p{N}\s]{1,3}\s+Loading(?:…|\.\.\.)\s*$/mu.test(lines.slice(Math.max(0, start - 1), marker).join("\n"))
+    && !(/^\s*[^\p{L}\p{N}\s]{1,3}\s+\p{L}[^\n]*?(?:…|\.\.\.)\s*$/mu.test(lines.slice(start, marker).join("\n"))
       && /^\s*esc to cancel\b/imu.test(lines.slice(marker + 1).join("\n")))
     && !/^\s*esc to interrupt\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "unknown";
   return observed.state === "busy" ? "busy" : "ready";

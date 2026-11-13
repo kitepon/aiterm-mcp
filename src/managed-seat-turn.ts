@@ -62,6 +62,15 @@ export function withManagedSpan<T>(meta: AgentMetadata, capture: (file: string) 
   }
 }
 
+/** How long a ready frame must hold (same terminal) before the span settles idle. */
+export const MANAGED_SPAN_SETTLE_MS = 250;
+
+/** The last observation saw ready and started the settle clock: a second look after MANAGED_SPAN_SETTLE_MS can settle it. */
+export function managedSpanSettling(file: string): boolean {
+  try { const record = recordSchema.parse(JSON.parse(fs.readFileSync(file, "utf8"))); return record.ready !== null && Date.now() - Date.parse(record.ready.since) < MANAGED_SPAN_SETTLE_MS; }
+  catch { return false; }
+}
+
 /** Persistence keeps identity only; evidence must come from a new validated native read. */
 export function observeManagedSpan(file: string, binding: string, evidence: ParentPaneEvidence,
   terminal: string | null, at: string, position: () => string | null = () => null): ManagedSeatTurn | null {
@@ -92,7 +101,7 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
   if (!record.ready || record.ready.terminal !== terminal || Date.parse(at) < Date.parse(record.ready.since)) {
     record.ready = { since: at, terminal }; writeJson0600(file, record); return null;
   }
-  if (Date.parse(at) - Date.parse(record.ready.since) < 250) return null;
+  if (Date.parse(at) - Date.parse(record.ready.since) < MANAGED_SPAN_SETTLE_MS) return null;
   const settled = position();
   if (record.span || (record.settled_from ?? null) !== settled) {
     record.span = null; record.terminal = terminal; record.settled_from = settled; writeJson0600(file, record);

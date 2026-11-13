@@ -16,7 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
-import { withManagedSpan, observeManagedSpan, closeManagedSpan, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
+import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
  * core — CLI/MCP が共有する端末操作とharness進行（Node/TS 版）。
  *
@@ -4385,24 +4385,32 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null | type
     const live = before.result;
     if (live.pane_alive !== true || live.harness_alive !== true || !live.pane_process || !live.harness_process
       || before.native?.agent?.stopped === true || live.launch_id !== meta.launch_id) return null;
-    const captured = tmux("capture-pane", "-p", "-J", "-t", proof ? nativePaneTarget(proof) : meta.aiterm_session);
-    if (captured.code !== 0) return null;
-    const evidence = parentPaneEvidence(meta.kind, captured.stdout);
-    const terminal = managedSeatTerminal(meta);
-    const observedAfter = observeSessionNative(meta.aiterm_session), after = observedAfter.result;
-    if (proof) verifyAgentResumeNative(meta, proof);
-    if (after.pane_alive !== true || after.harness_alive !== true || observedAfter.native?.agent?.stopped === true
-      || !isDeepStrictEqual(after.pane_process, live.pane_process) || !isDeepStrictEqual(after.harness_process, live.harness_process)
-      || !isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta)
-      || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null
-      || performance.now() - started >= 15_000) return null;
-    const binding = JSON.stringify([meta.aiterm_session, meta.launch_id, meta.kind, conversation, proof, live.pane_process, live.harness_process]);
-    // Claude holds a limit-ended turn with no Stop and a busy-looking footer; its transcript says the turn ended.
-    const limited = meta.kind === "claude" ? claudeSeatLimitEnd(meta) : null;
-    if (limited && !limited.continued) {
-      return closeManagedSpan(file, binding, `limit:${limited.at}`, () => managedSpanStart(meta));
-    }
-    return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString(), () => managedSpanStart(meta));
+    const look = (): ManagedSeatTurn | null => {
+      const captured = tmux("capture-pane", "-p", "-J", "-t", proof ? nativePaneTarget(proof) : meta.aiterm_session);
+      if (captured.code !== 0) return null;
+      const evidence = parentPaneEvidence(meta.kind, captured.stdout);
+      const terminal = managedSeatTerminal(meta);
+      const observedAfter = observeSessionNative(meta.aiterm_session), after = observedAfter.result;
+      if (proof) verifyAgentResumeNative(meta, proof);
+      if (after.pane_alive !== true || after.harness_alive !== true || observedAfter.native?.agent?.stopped === true
+        || !isDeepStrictEqual(after.pane_process, live.pane_process) || !isDeepStrictEqual(after.harness_process, live.harness_process)
+        || !isDeepStrictEqual(loadAgentMetadata(meta.aiterm_session), meta)
+        || managedSeatConversation(meta) !== conversation || agentDormantState(meta) !== null
+        || performance.now() - started >= 15_000) return null;
+      const binding = JSON.stringify([meta.aiterm_session, meta.launch_id, meta.kind, conversation, proof, live.pane_process, live.harness_process]);
+      // Claude holds a limit-ended turn with no Stop and a busy-looking footer; its transcript says the turn ended.
+      const limited = meta.kind === "claude" ? claudeSeatLimitEnd(meta) : null;
+      if (limited && !limited.continued) {
+        return closeManagedSpan(file, binding, `limit:${limited.at}`, () => managedSpanStart(meta));
+      }
+      return observeManagedSpan(file, binding, evidence, terminal, new Date().toISOString(), () => managedSpanStart(meta));
+    };
+    const first = look();
+    // A first ready sighting only starts the settle clock (observeManagedSpan): look again past it in this same read, so a
+    // caller polling every ~10 s does not see one unknown read at every turn end (Kiro/Trony a41, 0.70.49).
+    if (first !== null || !managedSpanSettling(file)) return first;
+    pauseSync(MANAGED_SPAN_SETTLE_MS + 50);
+    return look();
   });
   return performance.now() - started < 15_000 ? result : null;
 }

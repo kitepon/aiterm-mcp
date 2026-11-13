@@ -129,6 +129,9 @@ export function antigravityPaneObservation(screen: string): HarnessPaneObservati
   if (/Select login method|authorization code|Choose your color scheme|Terms of Service|Do you trust|ask_permission|Always Allow|Allow for this session/i.test(screen))
     return { state: "blocked", reason: "vendor_action_required" };
   if (/(?:Generating|Working)(?:\.{3}|…)|esc to interrupt/i.test(screen)) return { state: "busy", reason: "vendor_generating" };
+  // Any other spinner line ("⣾  Running command...", "⣻  Loading..." while the model reruns after a background task)
+  // with "esc to cancel" in the footer is a turn in progress (1.5.8).
+  if (/^\s*[^\p{L}\p{N}\s]{1,3}\s+\p{L}[^\n]*?(?:\.{3}|…)\s*$/mu.test(screen) && /^\s*esc to cancel\b/imu.test(screen)) return { state: "busy", reason: "vendor_generating" };
   if (antigravityEmptyComposer(screen)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "vendor_state_unknown" };
 }

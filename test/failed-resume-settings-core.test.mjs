@@ -161,9 +161,10 @@ test('same-name launch repairs failed history before a later configure and send'
  const receipt=await core.dispatchAgentTurn(f.name,'AFTER_CONFIGURE',{raw:true,ready_timeout:2000});
  assert.equal(receipt.launch_id,f.attempt.next_launch_id);assert.equal(fs.readFileSync(f.attemptFile,'utf8'),f.failed);
  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['AFTER_CONFIGURE']);
+ // No startup baseline is needed to count own work (ADR 0141): the repaired seat reads 0, not unknown.
+ assert.equal(core.observeSession(f.name).activity.post_startup_process_count,0);
  const idle=await core.checkAgentIdle({session_id:f.name,launch_id:receipt.launch_id});
- assert.equal(idle.reason,'background_work_or_unknown');
- const saved=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,receipt.launch_id),'utf8'));assert.equal(saved.startup_processes,undefined);
+ assert.notEqual(idle.reason,'background_work_or_unknown');
 });
 
 async function failedAfterReady(t){
@@ -176,7 +177,6 @@ async function failedAfterReady(t){
  try{await assert.rejects(core.dispatchAgentTurn(f.name,'OLD_REJECTED',{raw:true,ready_timeout:2000}),e=>e.resumeFailure?.input==='not_sent');}
  finally{rename.mock.restore();syncBuiltinESMExports();}
  assert.equal(rejected,true);const failed=fs.readFileSync(attemptFile,'utf8'),attempt=JSON.parse(failed);
- assert.ok(JSON.parse(fs.readFileSync(agentMetadataPath(f.name,attempt.next_launch_id),'utf8')).startup_processes);
  return {...f,attemptFile,failed,attempt};
 }
 test('failed ready-save with original startup baseline supports configure and next ordinary hibernation',{skip,timeout:25000},async t=>{

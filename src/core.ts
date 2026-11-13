@@ -58,7 +58,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { pendingChildResultsFor } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
@@ -399,6 +399,38 @@ const AGENT_COMMAND_PATTERNS: Record<AgentKind, RegExp> = {
   grok: /(^|[\s/])grok(-[^\s/]+)?([\s]|$)/,
   cursor: /(^|[\s/])(cursor-agent|agent)([\s]|$)/,
 };
+
+// The shell each harness starts to run a model's command (ADR 0141; fixtures in test/own-exec-processes.test.mjs).
+// Hooks, MCP servers and helpers are started another way, so they never match. Matched on the table's command line.
+const AGENT_EXEC_SHELLS: Record<AgentKind, (command: string) => boolean> = {
+  // Bash tool and run_in_background (bash/zsh; Git Bash on Windows): the command ends by writing its cwd to claude-<hex>-cwd.
+  // Hooks are `sh -c <hook>`, Git Bash or pwsh without that file.
+  claude: command => /claude-[0-9a-f]+-cwd\b/.test(command),
+  // exec / unified exec: POSIX [shell, -c|-lc, command]; Windows pwsh -Command starting with its UTF-8 console line.
+  // Hooks and MCP servers are spawned with their own argv (Windows hooks: pwsh -NoProfile -Command "& ...").
+  codex: command => /^\s*\S+\s+-l?c\s/.test(command)
+    || command.includes(" -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"),
+  // POSIX: the fd-5 wrapper. Windows: pwsh -ExecutionPolicy Bypass -Command <command>; hooks carry the $__grokExitCode tail.
+  grok: command => command.includes("__grok_user_cmd") || (/ -ExecutionPolicy Bypass -Command /.test(command) && !command.includes("__grokExitCode")),
+  // Cursor runs hooks through the same wrapper but passes them stdin (pipeStdin); a model's command gets none:
+  // bash/zsh `builtin eval "$1"[ 3<&- 4>&-] < /dev/null`, Windows pwsh `-NonInteractive -File …ps-script-<uuid>.ps1`.
+  // shortcut: a command run with the write-to-stdin tool also gets stdin and is not counted; read the script if that matters.
+  cursor: command => /builtin eval "\$1"(?: 3<&- 4>&-)? < \/dev\/null/.test(command)
+    || /-NonInteractive -File \S*ps-script-[0-9a-f-]+\.ps1/i.test(command),
+  // shortcut: Antigravity's exec shape is not captured yet (quota), so its commands are not counted; add it from a real run.
+  antigravity: () => false,
+};
+const EXEC_SHELL_NAMES = new Set([...SHELLS, "pwsh", "powershell", "cmd"]);
+// Sandboxes a harness puts between itself and its exec shell.
+const SANDBOX_WRAPPERS = new Set(["codex-linux-sandbox", "sandbox-exec"]);
+// Hosts that exist only to run the model's tools: each child is own work.
+const toolHost = (kind: AgentKind, command: string): boolean => kind === "codex"
+  && (codexHelperProcess(command) || /^codex-command-runner(?:-[\d.]+)?$/.test(commandExecutable(command)));
+
+function commandExecutable(command: string): string {
+  const first = /^(?:"([^"]+)"|(\S+))/.exec(command);
+  return path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/")).replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
+}
 
 /**
  * `ps -t <tty> -o stat=,command=` の出力を分類する（純粋関数）。
@@ -1862,9 +1894,7 @@ function decodeActivityCursor(cursor: string, name: string): ActivitySample {
 
 export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess[], subtree: RuntimeProcess[]): RuntimeProcess[] {
   const matches = (row: RuntimeProcess): boolean => {
-    const first = /^(?:"([^"]+)"|(\S+))/.exec(row.command);
-    const executable = path.posix.basename((first?.[1] ?? first?.[2] ?? "").replace(/\\/g, "/"))
-      .replace(/\.exe$/i, "").replace(/^-/, "").toLowerCase();
+    const executable = commandExecutable(row.command);
     const command = row.command.replace(/\\/g, "/").replace(/\.exe(?=["\s]|$)/gi, "").replace(/"/g, "");
     const tokens = row.command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
     // native本体の先頭tokenと、sh/cmd経由で2番目以降に来るlauncherの両方を照合する。
@@ -1893,71 +1923,29 @@ export function selectHarnessProcesses(meta: AgentMetadata, rows: RuntimeProcess
   return roots;
 }
 
-const processKey = (row: RuntimeProcess): string => `${row.pid}:${row.started_identity}`;
-
-/** 起動完了の控えに入れたprocessの、親とargvのdigest。控えた後に終了したprocessは入らない。 */
-export function startupProcessShapes(identities: string[], rows: RuntimeProcess[]): StartupProcessShape[] {
+/** Own work (ADR 0141): each exec shell the harness started for a model's command, with everything below it. */
+export function ownExecProcesses(meta: Pick<AgentMetadata, "kind" | "launch_id">, agent: RuntimeProcess, rows: RuntimeProcess[]): RuntimeProcess[] {
+  const kind = meta.kind;
   const byPid = new Map(rows.map(row => [row.pid, row]));
-  const byKey = new Map(rows.map(row => [processKey(row), row]));
-  return identities.flatMap(identity => {
-    const row = byKey.get(identity);
-    if (!row) return [];
-    const parent = parentProcess(row, byPid);
-    return [{ identity, parent: parent ? processKey(parent) : null, argv_digest: row.argv_digest }];
-  });
-}
-
-// 起動完了の控えに無いprocessの数。harness・中継・Aitermが自分のために立てるprocessは、利用者の作業ではないので数えない。
-// その下で動くprocessは数える。
-// harnessは起動の足場（MCP、language server）を自分で立て直す。控えた後に立て直されると、控えに無いprocessとして残る。
-// 控えの物が終了していて、同じ親の下に同じargvで立ったprocessは、その立て直しとして数えない。
-// 親も立て直されている時は、立て直された親の下を見る。終了した控え1つにつき、数えないのは1つまで。
-export function postStartupProcessCount(
-  kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
-  shapes: StartupProcessShape[] = [], harness?: NativeProcessIdentity | null,
-): number {
-  return postStartupProcesses(kind, activityRows, rows, startup, shapes, harness).length;
-}
-
-/** The processes postStartupProcessCount counts (own_work, a41). */
-export function postStartupProcesses(
-  kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
-  shapes: StartupProcessShape[] = [], harness?: NativeProcessIdentity | null,
-): RuntimeProcess[] {
-  const byPid = new Map(rows.map(row => [row.pid, row]));
-  const relayChild = (row: RuntimeProcess): boolean => {
-    const parent = parentProcess(row, byPid);
-    return parent !== undefined && lazyRelayProcess(parent.command);
-  };
-  // 席の中のAitermも、配送の持ち主の生存確認でprocess表を引く。その問い合わせと、付いて立つconsole hostは数えない。
-  // 親の問い合わせが先に終わって残ったconsole hostも同じ扱いにする（console hostは最後のconsole processと一緒に消える）。
-  const ownProbe = (row: RuntimeProcess): boolean => {
-    if (aitermProcessProbe(row.command)) return true;
-    const parent = parentProcess(row, byPid);
-    return windowsConsoleHost(row) && (parent === undefined || aitermProcessProbe(parent.command));
-  };
-  const present = new Set(activityRows.map(processKey));
-  const added = new Map(activityRows
-    .filter(row => !startup.has(processKey(row)) && !(kind === "codex" && codexHelperProcess(row.command))
-      && !(kind === "claude" && macKeepAwakeProcess(row, harness)) && !relayChild(row) && !ownProbe(row))
-    .map(row => [processKey(row), row]));
-  const gone = shapes.filter(shape => startup.has(shape.identity) && !present.has(shape.identity));
-  const replacedBy = new Map<string, string>();
-  for (let changed = gone.length > 0; changed;) {
-    changed = false;
-    for (const [key, row] of added) {
-      const parent = parentProcess(row, byPid);
-      if (!parent) continue;
-      const parentKey = processKey(parent);
-      const original = gone.find(shape => !replacedBy.has(shape.identity) && shape.argv_digest === row.argv_digest
-        && shape.parent !== null && (shape.parent === parentKey || replacedBy.get(shape.parent) === parentKey));
-      if (!original) continue;
-      replacedBy.set(original.identity, key);
-      added.delete(key);
-      changed = true;
+  const children = new Map<number, RuntimeProcess[]>();
+  for (const row of rows) if (parentProcess(row, byPid)) children.set(row.parent_pid, [...children.get(row.parent_pid) ?? [], row]);
+  const roots: RuntimeProcess[] = [];
+  const seen = new Set<number>();
+  const walk = (parent: RuntimeProcess, hosted: boolean): void => {
+    for (const child of children.get(parent.pid) ?? []) {
+      if (seen.has(child.pid)) continue;
+      seen.add(child.pid);
+      const executable = commandExecutable(child.command);
+      if (hosted || (EXEC_SHELL_NAMES.has(executable) && AGENT_EXEC_SHELLS[kind](child.command))) roots.push(child);
+      else if (toolHost(kind, child.command)) walk(child, true);
+      // The harness itself again (e.g. Codex's native binary under its npm shim): its executable name, or the launch's own
+      // arguments passed on (selectHarnessProcesses correlates the same way). A hook or server that merely names the harness is not.
+      else if (SANDBOX_WRAPPERS.has(executable) || AGENT_COMMAND_PATTERNS[kind].test(executable)
+        || (!EXEC_SHELL_NAMES.has(executable) && child.command.includes(meta.launch_id))) walk(child, false);
     }
-  }
-  return [...added.values()];
+  };
+  walk(agent, false);
+  return roots.flatMap(root => processSubtree(rows, root.pid));
 }
 
 // ---- own_work (a41, observation-results.md): what a seat started itself and has not finished ----
@@ -2050,8 +2038,7 @@ export async function seatOwnWork(names: string[], requested: unknown): Promise<
       if (!agent) continue;
       const activityRows = subtree.some(row => row.pid === agent.pid) ? subtree : [...subtree, ...processSubtree(rows, agent.pid)];
       work.child_results = pendingChildResultsFor(name, activityRows, childExcluded);
-      if (!Array.isArray(meta.startup_processes)) continue;
-      const counted = postStartupProcesses(meta.kind, activityRows, rows, new Set(meta.startup_processes), meta.startup_process_shapes, agent);
+      const counted = ownExecProcesses(meta, agent, rows);
       const processEntries = entries.filter(entry => entry.kind === "process");
       const descriptors = new Map(counted.map(row => [row.pid, processDescriptor(processArgv(row))]));
       const byPid = new Map(rows.map(row => [row.pid, row]));
@@ -2219,8 +2206,6 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
     screen_digest: createHash("sha256").update(screen).digest("hex"), processes, background_processes: backgroundCpu,
   };
   const comparable = previous?.pane_identity === sample.pane_identity;
-  // 起動完了の控えが無いsession（通常PTY、控える前の版で起動したagent）とharnessを特定できない時は数えない。
-  const startup = agent && Array.isArray(meta?.startup_processes) ? new Set(meta.startup_processes) : null;
   // このsessionが親として待っている子の結果。子の記録が名指す親の席に数える（名指しが無ければ持ち主processで）。
   result.pending_child_deliveries = agent ? pendingChildResultsFor(name, activityRows) : null;
   result.activity = {
@@ -2232,8 +2217,7 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
     background_cpu_seconds: Object.values(backgroundCpu).reduce((sum, cpu) => sum + cpu, 0),
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
-    post_startup_process_count: startup
-      ? postStartupProcessCount(meta!.kind, activityRows, rows, startup, meta!.startup_process_shapes, agent) : null,
+    post_startup_process_count: meta && agent ? ownExecProcesses(meta, agent, rows).length : null,
   };
   return result;
 }
@@ -5350,13 +5334,6 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   if (live.harness_alive !== true || live.harness_process === null
     || (live.state !== "idle" && !(ready.steer && live.state === "busy" && codexRunningTurn(meta) !== null)))
     return { status: "blocked", reason: live.reason };
-  // ここまでに居るprocessは起動時の足場（harness・MCP・起動時hook）。初手を送る前に控える。
-  // shortcut: a native queued turn can already own children, so leave its startup baseline unknown until a future lifecycle can distinguish them.
-  if (live.activity.cursor !== null && !ready.steer) {
-    meta.startup_processes = Object.keys(decodeActivityCursor(live.activity.cursor, name).processes);
-    meta.startup_process_shapes = startupProcessShapes(meta.startup_processes, readRuntimeProcesses());
-    writeAgentMetadata(meta);
-  }
   return { status: "ready", reason: "composer_ready" };
 }
 

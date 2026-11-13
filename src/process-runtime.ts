@@ -5,9 +5,7 @@ import {processStartIdentity} from "./process-start.js";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { freshShared, spawnCollect } from "./spawn-collect.js";
 import { createHash } from "node:crypto";
-import path from "node:path";
 import { AitermError } from "./errors.js";
-import { lazyRelayExecutable } from "./lazy-relay.js";
 import { isWin } from "./tmux-runtime.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
 import type { ExecutionActorObservation } from "./execution-lock.js";
@@ -49,13 +47,6 @@ export function readProcessEnvironment(pid: number, names: string[], platform: N
   }
   // shortcut: ps joins entries with spaces, so a value with a space is cut there; Aiterm's values (token, root path) have none.
   return Object.fromEntries(names.map(name => [name, [...psOutput!.trimEnd().matchAll(new RegExp(`(?:^| )${name}=(\\S*)`, "gu"))].at(-1)?.[1] ?? null]));
-}
-
-/** Claude's native macOS keep-awake helper does no user work of its own. */
-export function macKeepAwakeProcess(row: RuntimeProcess, harness?: NativeProcessIdentity | null, platform: NodeJS.Platform = process.platform): boolean {
-  const started = Date.parse(row.started_identity), parentStarted = Date.parse(harness?.started_identity ?? "");
-  return platform === "darwin" && !!harness && row.parent_pid === harness.pid && Number.isFinite(started)
-    && Number.isFinite(parentStarted) && started >= parentStarted && /^(?:\/usr\/bin\/)?caffeinate -i -t 300$/.test(row.command.trim());
 }
 
 export function processIdentity(process: RuntimeProcess): NativeProcessIdentity {
@@ -107,7 +98,7 @@ export function parsePosixProcessTable(text: string, includeSession = false, pla
   return rows;
 }
 
-// AitermがOSのprocess表を引く時のコマンドの形。席のprocessを数える側が、これを利用者の作業と取り違えないために使う。
+// AitermがOSのprocess表を引く時のコマンドの形。
 const POSIX_PS = "/bin/ps";
 const POSIX_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,stat=,lstart=,time=,command="];
 const POSIX_SESSION_TABLE_ARGS = ["-axww", "-o", "pid=,ppid=,pgid=,sess=,stat=,lstart=,time=,command="];
@@ -115,26 +106,6 @@ const POSIX_IDENTITY_ARGS = ["-o", "pid=,lstart=", "-p"];
 const POSIX_ELAPSED_ARGS = ["-o", "etime=", "-p"];
 const WINDOWS_PROBE_HEADER = ["$ErrorActionPreference='Stop'", "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)"];
 const WINDOWS_PROBE_ARGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"];
-// 先頭2行だけのbase64。3 byteの区切りで切り、後ろの行に左右されない前方一致にする。
-const WINDOWS_PROBE_PREFIX = (() => {
-  const bytes = Buffer.from(WINDOWS_PROBE_HEADER.join("\n") + "\n", "utf16le");
-  return bytes.subarray(0, bytes.length - bytes.length % 3).toString("base64");
-})();
-
-/** Aitermがprocess表を引くために起こしたprocessか。引く側のAitermは、数えられる席の中のMCP processでもある。 */
-export function aitermProcessProbe(command: string): boolean {
-  if (command.includes(` ${WINDOWS_PROBE_ARGS.join(" ")} ${WINDOWS_PROBE_PREFIX}`)) return true;
-  return command === `${POSIX_PS} ${POSIX_TABLE_ARGS.join(" ")}` || command.startsWith(`${POSIX_PS} ${POSIX_IDENTITY_ARGS.join(" ")} `)
-    || command === `${POSIX_PS} ${POSIX_SESSION_TABLE_ARGS.join(" ")}`
-    || command.startsWith(`${POSIX_PS} ${POSIX_ELAPSED_ARGS.join(" ")} `);
-}
-
-/** Windowsのconsole host。console processの起動に付いて立ち、最後のconsole processが終わると消える。 */
-export function windowsConsoleHost(row: RuntimeProcess): boolean {
-  const first = /^(?:"([^"]+)"|(\S+))/.exec(row.command);
-  const name = (row.executable || first?.[1] || first?.[2] || "").replace(/\\/g, "/");
-  return path.posix.basename(name).toLowerCase() === "conhost.exe";
-}
 
 export class ProcessProbeError extends AitermError {
   constructor(message: string, readonly processFailure: Readonly<{ code: string | null; status: number | null; signal: NodeJS.Signals | null }>) {
@@ -369,13 +340,6 @@ export function processSubtree(rows: RuntimeProcess[], rootPid: number): Runtime
   return rows.filter(row => selected.has(row.pid));
 }
 
-// 中継（mcp-lazy）は、登録されたMCPの本体と先行起動の判定を、自分の直接の子として起こす。
-// 見分けるのは起動した実行ファイルの名前（argvの先頭のbasenameが`mcp-lazy`で始まる）。取り決めはmcp-lazyのREADMEにある。
-export function lazyRelayProcess(command: string): boolean {
-  const first = /^(?:"([^"]+)"|(\S+))/.exec(command);
-  return lazyRelayExecutable(first?.[1] ?? first?.[2] ?? "");
-}
-
 export function backgroundProcesses(rows: RuntimeProcess[], root: RuntimeProcess): RuntimeProcess[] {
   // 起動時の足場processを除く既存契約。pane開始から60秒以上後に生成された子孫だけを集計する。
   const rootStart = Date.parse(root.started_identity);
@@ -398,7 +362,6 @@ export function readLinuxProcessRegistrationIdentity(pid:number): {procStart:str
     return {procStart:start.slice(6),pidDomain:`linux::${domain}`};
   }catch{return null;}
 }
-
 
 /** Claude Code's sessions/<pid>.json birth and pid domain, measured on 2.1.322.
  * linux: the Linux registry identity above. darwin: `LC_ALL=C TZ=UTC ps -o lstart=` trimmed, domain "darwin".

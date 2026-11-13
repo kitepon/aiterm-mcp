@@ -70,7 +70,8 @@ test("seat turns relay: an unreachable terminal's sessions are unread, an answer
     fs.rmSync(log, { force: true });
     const both = await Promise.all([0, 1].map(() => client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } })));
     for (const result of both) assert.deepEqual(result._meta["aiterm/seat_turns"].seats.map(seat => seat.session_id), ["relay_a", "relay_b"]);
-    assert.equal(fs.readFileSync(log, "utf8").trim().split("\n").length, 1, "one relay for both callers");
+    // a37: the terminal's warm session (opened by the first call) serves both callers without a new ssh.
+    assert.equal(fs.existsSync(log), false, "no new ssh for later calls");
   } finally { await client.close(); }
 });
 

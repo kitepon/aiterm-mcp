@@ -19,6 +19,18 @@ test('Antigravity distinguishes native generation, tool work, idle and blocked i
   assert.equal(antigravityPaneObservation('⣯ Working...\n>\nesc to cancel').state, 'busy');
   assert.equal(antigravityPaneObservation('⣯ Generating...\n>\nesc to cancel').state, 'busy');
   assert.equal(antigravityPaneObservation('>\n? for shortcuts').state, 'idle');
+  // agy 1.5.7 draws a mode hint in the empty composer; one typed key replaces it.
+  const rule = '─'.repeat(40), footer = '? for shortcuts                         auto · Gemini 4 Argon · medium';
+  for (const hint of ['Auto mode: edits & safe commands auto-approved (shift+tab to cycle)', 'Accept-edits mode: file edits auto-approved (shift+tab to cycle)',
+    'Plan mode: research & plan only (shift+tab to cycle)', 'Best-of-N mode: fork into parallel arms and pick a winner (shift+tab to cycle)']) {
+    const screen = `Antigravity CLI 1.5.7\n${rule}\n> ${hint}\n${rule}\n${footer}`;
+    assert.deepEqual(antigravityPaneObservation(screen), { state: 'idle', reason: 'composer_ready' }, hint);
+    assert.equal(antigravityAuthPane(screen).onboarding_complete, true, hint);
+  }
+  const wrapped = `${rule}\n> Best-of-N mode: fork into parallel arms and pick a winner (shift+tab\nto cycle)\n${rule}\n${footer}`;
+  assert.equal(antigravityPaneObservation(wrapped).state, 'idle', 'the hint wrapped at the pane edge');
+  for (const draft of ['> x', '> Auto mode: please explain this', '> fix the (shift+tab to cycle) text later please'])
+    assert.equal(antigravityPaneObservation(`${rule}\n${draft}\n${rule}\n${footer}`).state, 'unknown', draft);
   assert.equal(antigravityPaneObservation('Do you trust the contents of this project?').state, 'blocked');
 });
 

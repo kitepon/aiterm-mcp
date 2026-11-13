@@ -57,6 +57,15 @@ export function antigravityAuthStatus(bin: string, cwd: string, env = process.en
   return { status: "failed", message: "Antigravity CLIの認証状態を確認できません" };
 }
 
+/**
+ * The empty composer under the `? for shortcuts` footer: a bare `>` line, or the mode hint agy 1.5.7 draws there until
+ * the first key (`> Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`; the hint may wrap at the pane edge).
+ */
+export function antigravityEmptyComposer(screen: string): boolean {
+  return /\? for shortcuts/.test(screen)
+    && /^\s*>\s*(?:[A-Z][\w-]* mode: [^\n]*(?:\n[^\n─>]*)?\(shift\+tab\s+to\s+cycle\)\s*)?$/m.test(screen);
+}
+
 export function antigravityAuthPane(screen: string): AgentAuthPane {
   if (/\binvalid_grant\b/i.test(screen)) return { url: null, user_code: null, input_required: false,
     failed: true, message: "Antigravity CLIが認証を拒否しました（invalid_grant）。同じ認証コードを再送しないでください。" };
@@ -68,7 +77,7 @@ export function antigravityAuthPane(screen: string): AgentAuthPane {
   }
   const url = authUrl(urlLines.join(""), ["accounts.google.com"]);
   const complete = /Do you trust the contents of this project\?/.test(screen)
-    || (/\? for shortcuts/.test(screen) && /^\s*>\s*$/m.test(screen));
+    || antigravityEmptyComposer(screen);
   const base: AgentAuthPane = { url, user_code: null, input_required: false, message: null, onboarding_complete: complete };
   if (complete) return base;
   if (/authorization code/i.test(screen)) {
@@ -120,7 +129,7 @@ export function antigravityPaneObservation(screen: string): HarnessPaneObservati
   if (/Select login method|authorization code|Choose your color scheme|Terms of Service|Do you trust|ask_permission|Always Allow|Allow for this session/i.test(screen))
     return { state: "blocked", reason: "vendor_action_required" };
   if (/(?:Generating|Working)(?:\.{3}|…)|esc to interrupt/i.test(screen)) return { state: "busy", reason: "vendor_generating" };
-  if (/\? for shortcuts/.test(screen) && /^\s*>\s*$/m.test(screen)) return { state: "idle", reason: "composer_ready" };
+  if (antigravityEmptyComposer(screen)) return { state: "idle", reason: "composer_ready" };
   return { state: "unknown", reason: "vendor_state_unknown" };
 }
 

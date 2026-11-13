@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.45] - 2026-11-13
+
 - A Claude seat now reads `idle` in seat-turns right after `agent_configure`. The `/model`, `/effort` or `/fast` it types is a local command that runs no turn and prints no "for Ns" completion line, so the reader kept such a seat `null` (unknown) on every read until the next delivered turn. The command's own `⎿` result line now counts as the finished-state cue; any other screen without a completion line is still unknown.
 
 ## [0.70.44] - 2026-11-13
@@ -3403,7 +3405,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.45...HEAD
+[0.70.45]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...v0.70.45
 [0.70.44]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...v0.70.44
 [0.70.43]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...v0.70.43
 [0.70.42]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.41...v0.70.42

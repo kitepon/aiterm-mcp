@@ -16,6 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
+import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
 import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
  * core — CLI/MCP が共有する端末操作とharness進行（Node/TS 版）。
@@ -410,7 +411,8 @@ const AGENT_COMMAND_PATTERNS: Record<AgentKind, RegExp> = {
 const AGENT_EXEC_SHELLS: Record<AgentKind, (command: string) => boolean> = {
   // Bash tool and run_in_background (bash/zsh; Git Bash on Windows): the command ends by writing its cwd to claude-<hex>-cwd.
   // Hooks are `sh -c <hook>`, Git Bash or pwsh without that file.
-  claude: command => /claude-[0-9a-f]+-cwd\b/.test(command),
+  // Windows PowerShell tool (2.1.32x, fox 2026-11-14): cmd /d /s /c "chcp 65001 & pwsh … -Command "$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT; …"".
+  claude: command => /claude-[0-9a-f]+-cwd\b/.test(command) || command.includes("$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT"),
   // exec / unified exec: POSIX [shell, -c|-lc, command]; Windows pwsh -Command starting with its UTF-8 console line.
   // Hooks and MCP servers are spawned with their own argv (Windows hooks: pwsh -NoProfile -Command "& ...").
   codex: command => /^\s*\S+\s+-l?c\s/.test(command)
@@ -1882,6 +1884,8 @@ export interface SessionObservation {
     background_cpu_delta_seconds: number | null;
     background_cpu_delta_complete: boolean | null;
     post_startup_process_count: number | null;
+    /** a68: the harness's own count of unfinished background tasks (Claude transcript); null where the harness states none. */
+    background_tasks: number | null;
   };
 }
 
@@ -1968,7 +1972,9 @@ const ownWorkExclusionsSchema = z.object({
 });
 export type OwnWorkExclusions = z.infer<typeof ownWorkExclusionsSchema>;
 export type OwnWork = { processes: number | null; excluded: number; child_results: number | null; exclusions_digest: string | null;
-  oldest: { exe: string; args: string[]; since: string } | null };
+  oldest: { exe: string; args: string[]; since: string } | null;
+  /** a68: the harness's own unfinished background tasks (Claude: async agents, background shells); null = no statement. */
+  tasks: number | null; task: BackgroundTask | null };
 
 /** Windows argv from one command line (CommandLineToArgvW rules: backslashes before a quote, doubled quotes). */
 export function windowsCommandLineArgv(line: string): string[] {
@@ -2031,11 +2037,11 @@ export async function seatOwnWork(names: string[], requested: unknown): Promise<
     const entries = list?.entries.filter(entry => entry.sessions.includes(name)) ?? [];
     const childExcluded = (child: { session: string; harness: string | null }) => entries.some(entry => entry.kind === "child"
       && entry.harness === child.harness && (entry.session === null || entry.session === child.session));
-    const work: OwnWork = { processes: null, excluded: 0, child_results: null, exclusions_digest: list?.digest ?? null, oldest: null };
+    const work: OwnWork = { processes: null, excluded: 0, child_results: null, exclusions_digest: list?.digest ?? null, oldest: null, tasks: null, task: null };
     result.set(name, work);
     try {
       const state = agentDormantState(meta);
-      if (state === "hibernated") { work.processes = 0; work.child_results = 0; continue; }
+      if (state === "hibernated") { work.processes = 0; work.child_results = 0; work.tasks = 0; continue; }
       if (state !== null || !rows) continue;
       const pane = await sessionPaneAsync(name);
       const [pidText, dead] = pane.code === 0 ? pane.stdout.trim().split("\t") : [];
@@ -2047,6 +2053,8 @@ export async function seatOwnWork(names: string[], requested: unknown): Promise<
       if (!agent) continue;
       const activityRows = subtree.some(row => row.pid === agent.pid) ? subtree : [...subtree, ...processSubtree(rows, agent.pid)];
       work.child_results = pendingChildResultsFor(name, activityRows, childExcluded);
+      const tasks = harnessBackgroundTasks(meta);
+      work.tasks = tasks?.count ?? null; work.task = tasks?.oldest ?? null;
       const counted = ownExecProcesses(meta, agent, rows);
       const processEntries = entries.filter(entry => entry.kind === "process");
       const descriptors = new Map(counted.map(row => [row.pid, processDescriptor(processArgv(row))]));
@@ -2080,7 +2088,7 @@ function emptySessionObservation(name: string, exists: boolean): SessionObservat
     token_hint: null, pending_child_deliveries: null,
     activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
       background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
-      post_startup_process_count: null },
+      post_startup_process_count: null, background_tasks: null },
   };
 }
 
@@ -2124,7 +2132,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   result.state = "hibernated"; result.reason = "origin" in lifecycle && lifecycle.origin === "restart" ? "native_vanished" : "idle_timeout";
   result.pane_alive = false; result.harness_alive = false; result.pending_child_deliveries = 0;
   result.activity.cpu_seconds = 0; result.activity.background_cpu_seconds = 0;
-  result.activity.post_startup_process_count = 0;
+  result.activity.post_startup_process_count = 0; result.activity.background_tasks = 0;
   return result;
 }
 
@@ -2148,7 +2156,7 @@ function observeSessionNative(name: string) {
     token_hint: null, pending_child_deliveries: null,
     activity: { cursor: null, output_changed: null, cpu_seconds: null, cpu_delta_seconds: null, cpu_delta_complete: null,
       background_cpu_seconds: null, background_cpu_delta_seconds: null, background_cpu_delta_complete: null,
-      post_startup_process_count: null },
+      post_startup_process_count: null, background_tasks: null },
   };
   if (!listed) return { result, native: null };
   const pane = tmux("display-message", "-p", "-t", name, "#{pane_pid}\t#{pane_dead}");
@@ -2230,6 +2238,7 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
     background_cpu_delta_seconds: comparable ? Object.entries(backgroundCpu).reduce((sum, [identity, cpu]) => sum + cpu - (previous.background_processes[identity] ?? 0), 0) : null,
     background_cpu_delta_complete: comparable ? Object.keys(previous.background_processes).every(identity => identity in backgroundCpu) : null,
     post_startup_process_count: meta && agent ? ownExecProcesses(meta, agent, rows).length : null,
+    background_tasks: meta && agent ? harnessBackgroundTasks(meta)?.count ?? null : null,
   };
   return result;
 }
@@ -2328,6 +2337,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       attached: slot?.attached ?? (effectIssued ? false : null), turn_settled: settled,
       pending_child_deliveries: live.pending_child_deliveries,
       post_startup_process_count: live.activity.post_startup_process_count,
+      background_tasks: live.activity.background_tasks,
       window_activity_at: slot?.window_activity_at ?? null,
       ...(immediate && meta.kind === "claude" ? { rate_limited_at: claudeRateLimitedAt(meta) } : {}) };
   };

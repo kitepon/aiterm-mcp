@@ -158,3 +158,13 @@ test("Antigravity: each command is a session leader on its own pty (POSIX), pwsh
   assert.deepEqual(count("antigravity", win, winServers), []);
   assert.deepEqual(count("codex", row(10, 5, 1, "codex.exe"), [row(30, 10, 9, `"c:\\program files\\powershell\\7\\pwsh.exe" -Command "try { $OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding } catch {}; Start-Sleep -Seconds 240"`)]), [], "Codex's console line differs");
 });
+
+test("Claude (Windows): the PowerShell tool's cmd /c chcp & pwsh launcher-script wrapper is exec; MCP servers are not (Lumani, a68)", () => {
+  const claude = row(10, 5, 1, `"C:\\Users\\kite_\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" --dangerously-skip-permissions --setting-sources user,project,local`);
+  const servers = [row(20, 10, 2, `"C:\\Program Files\\nodejs\\node.exe" C:\\Users\\kite_\\AppData\\Roaming\\npm\\node_modules\\aiterm-mcp\\dist\\index.js`),
+    row(21, 10, 2, `C:\\WINDOWS\\system32\\cmd.exe /d /s /c "C:\\Users\\kite_\\AppData\\Local\\Microsoft\\WindowsApps\\1password-mcp.EXE"`)];
+  const exec = `C:\\WINDOWS\\System32\\cmd.exe /d /s /c ""C:\\WINDOWS\\System32\\chcp.com" 65001 >nul & "c:\\program files\\powershell\\7\\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT; $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT = $null; Invoke-Expression $__claudeCodeScript""`;
+  assert.deepEqual(count("claude", claude, [...servers, row(30, 10, 9, exec),
+    row(31, 30, 9, `"c:\\program files\\powershell\\7\\pwsh.exe" -NoProfile -File tools/build_release.ps1`)]), [30, 31]);
+  assert.deepEqual(count("claude", claude, servers), []);
+});

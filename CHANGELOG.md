@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.42] - 2026-11-13
+
 - `pty_list` `aiterm/seat_turns` rows carry `own_work` when the caller sends `_meta["aiterm/own_work_exclusions"]` (a41; Kiro, Owner-approved design 2026-11-13): `{processes, excluded, child_results, exclusions_digest, oldest}` beside `turn`. `processes` are the processes the seat's CLI started after startup and still runs (the same set as `post_startup_process_count`), minus those a process entry of the caller's list names for this seat (exe + leading args, with the match's descendants and post-startup ancestors); `oldest` is the oldest one's descriptor and start time. Descriptors are built where the process runs and never carry raw argv: program basename, first two non-flag arguments as basenames, and any token over 40 characters or containing `=`, `://` or `@` becomes `…` (on macOS arguments are split on whitespace). One process-table read per call; terminals compute their own rows inside the relayed read.
 - A seat no longer waits forever for child results it does not own. `pending_child_deliveries` (and `own_work.child_results`) count an unfinished delivery for the parent seat the child names, not for whichever process adopted the dead owner's records (Kiro, 2026-11-13: a seat running the execution server read 4 adopted deliveries of another seat and could never hibernate or close). A delivery whose local child was replaced, removed, hibernated or vanished now ends after two readings 30 s apart with `AGENT_RESULT_UNAVAILABLE: PARENT_DELIVERY_CHILD_GONE: <reason>`, delivered to its parent; before, the wait never ended.
 
@@ -3386,7 +3388,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.41...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...HEAD
+[0.70.42]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.41...v0.70.42
 [0.70.41]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.40...v0.70.41
 [0.70.40]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.39...v0.70.40
 [0.70.39]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.38...v0.70.39

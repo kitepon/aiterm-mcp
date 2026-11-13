@@ -54,3 +54,47 @@ test("claudeBackgroundTasks reads the seat's transcript incrementally and ignore
   assert.equal(bt.claudeBackgroundTasks({ ...meta, kind: "codex" }), null);
   assert.equal(bt.harnessBackgroundTasks({ ...meta, kind: "grok" }), null, "other harnesses give no statement yet");
 });
+
+// Grok 1.0.77 updates.jsonl rows (captured 2026-11-14 01:13 JST, a test seat with a background subagent and `sleep 70`).
+const grokRow = (timestamp, update) => JSON.stringify({ timestamp, method: "_x.ai/session/update", params: { sessionId: "s", update } });
+test("Grok updates.jsonl: subagents and backgrounded commands are open until finished/completed or a non-running snapshot", () => {
+  const open = new Map(), done = new Set();
+  const rows = [
+    grokRow(1794586385, { sessionUpdate: "task_backgrounded", task_id: "2626c48f", command: "sleep 70" }),
+    grokRow(1794586385, { sessionUpdate: "background_tasks", tasks: [{ task_id: "2626c48f", command: "sleep 70", description: "sleep 70 in background", kind: "bash", status: "running", started_at: "2026-11-13T16:13:05.201931788+00:00" }] }),
+    grokRow(1794586385, { sessionUpdate: "subagent_spawned", subagent_id: "01a1d5af", description: "sleep 60 then reply", subagent_type: "general-purpose" }),
+  ];
+  for (const row of rows) bt.applyGrokUpdateLine(row, open, done);
+  assert.deepEqual([...open.entries()], [
+    ["2626c48f", { kind: "shell", label: "sleep 70", since: "2026-11-13T16:13:05.000Z" }],
+    ["01a1d5af", { kind: "agent", label: "sleep 60 then reply", since: "2026-11-13T16:13:05.000Z" }]]);
+  bt.applyGrokUpdateLine(grokRow(1794586448, { sessionUpdate: "subagent_finished", subagent_id: "01a1d5af", status: "completed" }), open, done);
+  assert.deepEqual([...open.keys()], ["2626c48f"]);
+  bt.applyGrokUpdateLine(grokRow(1794586455, { sessionUpdate: "background_tasks", tasks: [{ task_id: "2626c48f", kind: "bash", status: "completed" }] }), open, done);
+  assert.equal(open.size, 0, "a snapshot that no longer says running closes it");
+  bt.applyGrokUpdateLine(grokRow(1794586456, { sessionUpdate: "task_backgrounded", task_id: "2626c48f", command: "sleep 70" }), open, done);
+  assert.equal(open.size, 0, "a finished task is not reopened");
+});
+
+// Codex 0.169 subagent rollout (captured 2026-11-14 01:23 JST): session_meta names the root thread and thread_source "subagent".
+test("Codex subagent rollouts: working while task_started outnumbers task_complete/turn_aborted, under the seat's root thread", () => {
+  const child = { ino: 1, offset: 0, partial: "", head: undefined, running: 0, since: null };
+  bt.applyCodexChildLine(JSON.stringify({ timestamp: "2026-11-13T16:23:30.000Z", type: "session_meta", payload: { id: "01a1d5b9", session_id: "01a1d5b8", parent_thread_id: "01a1d5b8",
+    thread_source: "subagent", agent_path: "/root/sleep_once", agent_nickname: "Franklin" } }), child);
+  assert.deepEqual(child.head, { root: "01a1d5b8", label: "sleep_once" });
+  bt.applyCodexChildLine(JSON.stringify({ timestamp: "2026-11-13T16:23:31.000Z", type: "event_msg", payload: { type: "task_started" } }), child);
+  assert.equal(child.running, 1); assert.equal(child.since, "2026-11-13T16:23:31.000Z");
+  bt.applyCodexChildLine(JSON.stringify({ timestamp: "2026-11-13T16:24:35.000Z", type: "event_msg", payload: { type: "task_complete" } }), child);
+  assert.equal(child.running, 0);
+  const root = { ino: 1, offset: 0, partial: "", head: undefined, running: 0, since: null };
+  bt.applyCodexChildLine(JSON.stringify({ type: "session_meta", payload: { id: "01a1d5b8", session_id: "01a1d5b8", thread_source: "user" } }), root);
+  assert.equal(root.head, null, "the root thread itself is not a subagent");
+});
+
+test("the named task is the oldest agent when any agent is open; otherwise the oldest shell or other", () => {
+  const shell = { kind: "shell", label: "sleep 100", since: "2026-11-14T01:00:00.000Z" };
+  const agent = { kind: "agent", label: "review", since: "2026-11-14T01:05:00.000Z" };
+  assert.deepEqual(bt.representativeTask([shell, agent]), agent, "an agent wins over an older shell");
+  assert.deepEqual(bt.representativeTask([shell]), shell);
+  assert.equal(bt.representativeTask([]), null);
+});

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A call that hangs on a terminal no longer freezes that terminal's seat reads. The warm connection per terminal is split into a read lane (`pty_list`, the seat-turns relay) and one for everything else; the terminal answers each connection in one process, so a close stuck there (fox, 11/14 01:33 JST, ~2 min) held every read behind it.
+
+- `own_work.task` names the oldest open agent when a seat has both agents and shells (before: the oldest of either, so a subagent's background `sleep` could stand for the subagent on the card).
+
+- Codex seats state their working subagents too (a68): each subagent thread's rollout (session_meta thread_source subagent, session_id = the seat's root thread) counts while it has more task_started than task_complete/turn_aborted.
+
+- Grok seats now state their own unfinished background tasks too (a68): background subagents and backgrounded commands, read from the session's updates.jsonl (subagent_spawned/finished, task_backgrounded/completed, background_tasks). `own_work.tasks`/`task` and `activity.background_tasks` are no longer null for Grok, and tasks > 0 holds the idle clock and explicit hibernate.
+
 ## [0.70.52] - 2026-11-13
 
 - seat-turns: a terminal that answers after the 4 s budget no longer leaves its seats unread poll after poll. Its late answer goes to the next poll (once, up to 60 s old), and every relayed row carries `observed_at` (fox under a build: rows stood still for 85 s).

@@ -259,8 +259,12 @@ function retireWarm(ref: string, session: WarmSession): void {
   if (session.idle) clearTimeout(session.idle);
   if (!session.inflight) void session.client.close().catch(() => {});
 }
-function warmSession(target: RemoteTarget, sshArgs: string[]): WarmSession {
-  const ref = target.trusted_ref!;
+// One warm session per terminal and lane. pty_list (the seat-turns reads) has its own lane: the terminal answers each warm
+// session in one process, so a call that blocks there (a close waiting ~2 min on fox, 11/14 01:33 JST) would freeze every
+// read of that terminal behind it.
+function warmLane(name: string): "list" | "main" { return name === "pty_list" ? "list" : "main"; }
+function warmSession(target: RemoteTarget, sshArgs: string[], lane: "list" | "main"): WarmSession {
+  const ref = `${target.trusted_ref!}\0${lane}`;
   const kept = warmSessions.get(ref);
   if (kept && !kept.dead && Date.now() - kept.born < WARM_MAX_AGE_MS) return kept;
   if (kept) retireWarm(ref, kept);
@@ -276,7 +280,8 @@ function warmSession(target: RemoteTarget, sshArgs: string[]): WarmSession {
   return session;
 }
 async function callWarm(target: RemoteTarget, sshArgs: string[], request: Parameters<Client["callTool"]>[0], timeoutMs: number) {
-  const session = warmSession(target, sshArgs);
+  const lane = warmLane(request.name), key = `${target.trusted_ref!}\0${lane}`;
+  const session = warmSession(target, sshArgs, lane);
   session.inflight++;
   if (session.idle) { clearTimeout(session.idle); session.idle = null; }
   session.transport.hold(true);
@@ -287,8 +292,8 @@ async function callWarm(target: RemoteTarget, sshArgs: string[], request: Parame
   } finally {
     if (--session.inflight === 0) {
       session.transport.hold(false);
-      if (session.dead || warmSessions.get(target.trusted_ref!) !== session) void session.client.close().catch(() => {});
-      else session.idle = setTimeout(() => retireWarm(target.trusted_ref!, session), WARM_IDLE_MS).unref();
+      if (session.dead || warmSessions.get(key) !== session) void session.client.close().catch(() => {});
+      else session.idle = setTimeout(() => retireWarm(key, session), WARM_IDLE_MS).unref();
     }
   }
 }

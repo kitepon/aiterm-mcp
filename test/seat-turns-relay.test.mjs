@@ -36,12 +36,16 @@ await s.connect(new StdioServerTransport());
 // 10.8.0.3 answers like 10.8.0.1 but only after 5 s (a busy terminal, Lumani's build on fox 11/14).
 const slowFile = path.join(tmp, "slow.mjs");
 fs.writeFileSync(slowFile, fs.readFileSync(serverFile, "utf8").replace("async () => ({ content", "async () => (await new Promise(r => setTimeout(r, 5000)), { content"));
+// 10.8.0.4 answers pty_list at once but any other call blocks its whole process for 8 s (a close stuck on fox, 11/14 01:33 JST).
+const stuckFile = path.join(tmp, "stuck.mjs");
+fs.writeFileSync(stuckFile, fs.readFileSync(serverFile, "utf8").replace("async () => ({ content", "async request => (request.params.name === \"pty_list\" ? null : Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000), { content"));
 const fakeBin = path.join(tmp, "bin");
 fs.mkdirSync(fakeBin);
 fs.writeFileSync(path.join(fakeBin, "ssh"), `#!/bin/sh
 case "$*" in *10.8.0.2*) echo "ssh: connect to host 10.8.0.2 port 22: No route to host" >&2; exit 255;; esac
 case "$*" in *aiterm-probe*) echo posix; exit 0;; esac
 case "$*" in *10.8.0.3*) exec ${JSON.stringify(process.execPath)} ${JSON.stringify(slowFile)};; esac
+case "$*" in *10.8.0.4*) exec ${JSON.stringify(process.execPath)} ${JSON.stringify(stuckFile)};; esac
 echo relay >> ${JSON.stringify(path.join(tmp, "relays.log"))}
 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(serverFile)}
 `, { mode: 0o755 });
@@ -139,5 +143,25 @@ test("seat turns relay: a terminal that answers after the 4 s budget hands that 
     const rows = second.seats.filter(seat => ["relay_a", "relay_b"].includes(seat.session_id));
     assert.deepEqual(rows.map(seat => seat.session_id), ["relay_a", "relay_b"], "the late answer, not unread again");
     for (const seat of rows) assert.ok(Date.now() - Date.parse(seat.observed_at) < 20_000, "with the time its terminal answered");
+  } finally { await client.close(); }
+});
+
+test("seat turns relay: a call stuck on a terminal does not hold that terminal's seat reads (separate warm lane)", { skip, timeout: 30_000 }, async t => {
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}${path.delimiter}${savedPath}`;
+  t.after(() => { process.env.PATH = savedPath; });
+  bind("10.8.0.4", ["relay_a", "relay_b"]);
+  const server = createAitermServer(), client = new Client({ name: "seat-relay-stuck", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(b); await client.connect(a);
+  try {
+    const stuck = client.callTool({ name: "pty_observe", arguments: { session_id: "relay_a" } }).catch(() => null);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const started = Date.now();
+    const listed = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
+    const rows = listed._meta["aiterm/seat_turns"].seats.filter(seat => ["relay_a", "relay_b"].includes(seat.session_id));
+    assert.deepEqual(rows.map(seat => seat.session_id), ["relay_a", "relay_b"], "read while the other call is still stuck");
+    assert.ok(Date.now() - started < 4000);
+    await stuck;
   } finally { await client.close(); }
 });

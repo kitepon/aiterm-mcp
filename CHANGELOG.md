@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.54] - 2026-11-13
+
 - Antigravity seats state their own background tasks too (a68): read from the bound conversation's transcript ("running as a background task with task id" until "Task id … finished").
 
 ## [0.70.53] - 2026-11-13
@@ -3450,7 +3452,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...HEAD
+[0.70.54]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...v0.70.54
 [0.70.53]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.52...v0.70.53
 [0.70.52]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.51...v0.70.52
 [0.70.51]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.50...v0.70.51

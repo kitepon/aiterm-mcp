@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- An Antigravity seat no longer reads unknown for a moment when a background task ends: agy reruns the model with a `Loading...` spinner over an `esc to cancel` footer, which now reads as the running turn.
+
 ## [0.70.48] - 2026-11-13
 
 - seat-turns `own_work.oldest.{exe,args}` now name the oldest counted leaf process (the command, e.g. `sleep 150`), not the shell the harness wrapped it in (Claude's `bash -c … claude-<hex>-cwd`). `oldest.since` stays the start of the oldest counted process. Same fields and shape.

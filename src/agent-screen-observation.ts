@@ -406,8 +406,12 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   }
   if (kind === "grok" && observed.state === "busy"
     && !/^\s*(?:[│┃]\s*)?(?:Waiting for response|Responding(?:…|\.\.\.)).*$/mu.test(current)) return "unknown";
+  // agy reruns the model after a background task ends with a "Loading..." spinner over an "esc to cancel" footer (a41-agy).
   if (kind === "antigravity" && observed.state === "busy"
     && !/^\s*(?:[^\p{L}\p{N}\s]{1,3}\s+)?(?:Generating|Working)(?:…|\.\.\.).*$/mu.test(current)
+    // The spinner may sit one line above a "└ Tip: …" line.
+    && !(/^\s*[^\p{L}\p{N}\s]{1,3}\s+Loading(?:…|\.\.\.)\s*$/mu.test(lines.slice(Math.max(0, start - 1), marker).join("\n"))
+      && /^\s*esc to cancel\b/imu.test(lines.slice(marker + 1).join("\n")))
     && !/^\s*esc to interrupt\s*$/imu.test(lines.slice(marker + 1).join("\n"))) return "unknown";
   return observed.state === "busy" ? "busy" : "ready";
 }

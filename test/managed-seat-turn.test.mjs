@@ -33,6 +33,10 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('antigravity',agyTask),'busy');
  assert.equal(parentPaneEvidence('antigravity',agyTask.replace('  ● [20:08:47] sleep 240 running\n'+rule+'\n','').replace(' · 1 task(s) · /tasks','')),'ready','the task ended: no footer count');
  assert.equal(parentPaneEvidence('antigravity','  quoted · 2 task(s) · /tasks\n'+frames.antigravity.ready),'ready','a count above the composer is not the footer');
+ // After the task ends agy reruns the model: a Loading spinner over an esc-to-cancel footer is busy, not unknown.
+ const agyRerun=['● Ran (sleep 45) (ctrl+o to expand)','  started','  The background task sleep 45 has completed successfully (exit code 0).','⢿  Loading...','└ Tip: Press esc to interrupt generation.',rule,'>',rule,'esc to cancel                                   auto · Gemini 3.8 Flash · medium'].join('\n');
+ assert.equal(parentPaneEvidence('antigravity',agyRerun),'busy');
+ assert.equal(parentPaneEvidence('antigravity',agyRerun.replace('esc to cancel ','? for shortcuts')),'unknown','Loading without the cancel footer stays unknown');
  assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready_no_completion','A plain composer is also present during a quiet unfinished wait');
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
  for(const typed of ['/model','/effort ultracode','/fast on'])assert.equal(parentPaneEvidence('claude',['⏺ prior result','','✻ Worked for 9s','',`❯ ${typed}`,'  ⎿  Set model to Opus 5.5 for this session only with high effort','',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready',typed+': a configure result line ends that local command');

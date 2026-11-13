@@ -21,7 +21,7 @@ import { AitermError, AgentResumeUnavailableError, AgentResumeError, AgentResume
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv, privateEnvValue } from "./private-env.js";
-import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta } from "./terminal-launch-error.js";
+import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -251,14 +251,13 @@ function fail(e: unknown): ToolResult {
     _meta: { "aiterm/resume_unavailable": { ...e.resumeUnavailable } } };
   // Typed failures outside a tool's declared outputSchema go in _meta, never structuredContent: a client that listed the
   // tools validates structuredContent against the success outputSchema even on isError -> -32602, code lost (Kiro, 2026-11-13).
-  if (e instanceof AgentResumeSecretsError) return withErrorCode({ content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: { "aiterm/resume_secrets": { ...e.resumeSecrets } } });
-  if (e instanceof AgentResumeError) return withErrorCode({ content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: { "aiterm/resume_error": { ...e.resumeFailure } } });
+  const typed = (key: string, payload: { code: string; [field: string]: unknown }): ToolResult => ({ content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    _meta: { [key]: payload, [ERROR_CODE_META]: { schema: "aiterm.error-code.v1", code: payload.code } } });
+  if (e instanceof AgentResumeSecretsError) return typed("aiterm/resume_secrets", { ...e.resumeSecrets });
+  if (e instanceof AgentResumeError) return typed("aiterm/resume_error", { ...e.resumeFailure });
   const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
-  if (sendFailure) return withErrorCode({ content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: { "aiterm/send_error": { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
-      ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null } } });
+  if (sendFailure) return typed("aiterm/send_error", { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
+    ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null });
   const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- seat-turns: a terminal that answers after the 4 s budget no longer leaves its seats unread poll after poll. Its late answer goes to the next poll (once, up to 60 s old), and every relayed row carries `observed_at` (fox under a build: rows stood still for 85 s).
 - A Claude seat on Windows counts the commands its PowerShell tool runs (`cmd /c chcp 65001 & pwsh … $__claudeCodeScript …`) as own work; they read 0 before, so a seat building in the background read idle (Lumani, a68).
 - Own work now includes the harness's own unfinished background tasks (a68). For Claude seats Aiterm reads the transcript: an Agent launched in the background (in-process, no child process) or a background Bash counts until Claude's task notification for it. seat-turns `own_work` gains `tasks` and `task` ({kind, label, since}), `pty_observe` `activity` gains `background_tasks`; a seat with tasks > 0 is not hibernated by the idle clock and `pty_close {hibernate:true}` answers AGENT_BUSY. Other harnesses report null (no statement read yet).
 

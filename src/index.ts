@@ -907,6 +907,11 @@ registerRemoteAwareTool(
 );
 
 const remoteSeatTurnsInFlight = new Map<string, Promise<any>>();
+// A terminal's answer that came after its caller's 4 s (a busy terminal, Lumani's build on fox 11/14): the next poll for
+// that terminal takes it once instead of listing the seats unread again, so rows age by one slow read, not by the whole
+// time the terminal stays slow. Each relayed row carries `observed_at`, when its terminal answered.
+const remoteSeatTurnsLate = new Map<string, { answer: any; at: number }>();
+const REMOTE_SEAT_TURNS_LATE_MAX_MS = 60_000;
 
 
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
@@ -928,15 +933,32 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
         // The request's own timeout is wall-clock: keep it well above the loop-time budget below.
         call = callRemoteTool(target, "pty_list", {}, 15_000, undefined, requestMeta as Record<string, unknown>)
           .then(result => (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any) ?? null, () => null)
+          .then(answer => ({ answer, at: Date.now() }))
           .finally(() => remoteSeatTurnsInFlight.delete(key));
         remoteSeatTurnsInFlight.set(key, call);
+        void call.then(answered => { if (Array.isArray(answered.answer?.seats)) remoteSeatTurnsLate.set(key, answered); });
       }
+      const rows = ({ answer, at }: { answer: any; at: number }) => Array.isArray(answer?.seats)
+        ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)).map((seat: any) => ({ ...seat, route_since, observed_at: new Date(at).toISOString() })),
+            unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
+        : { seats: [] as any[], unread: bound };
+      // Only the side that decides this poll touches the late answer: the losing side still runs afterwards.
+      let decided = false;
       return Promise.race([
-        call.then(answer => Array.isArray(answer?.seats)
-          ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)).map((seat: any) => ({ ...seat, route_since })),
-              unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
-          : { seats: [], unread: bound }),
-        loopDeadline(4_000, { seats: [] as any[], unread: bound }),
+        call.then(answered => {
+          if (decided) return null as never;
+          decided = true;
+          if (remoteSeatTurnsLate.get(key) === answered) remoteSeatTurnsLate.delete(key);
+          return rows(answered);
+        }),
+        loopDeadline(4_000, null).then(() => {
+          if (decided) return null as never;
+          decided = true;
+          const late = remoteSeatTurnsLate.get(key);
+          if (!late || Date.now() - late.at > REMOTE_SEAT_TURNS_LATE_MAX_MS) return { seats: [] as any[], unread: bound };
+          remoteSeatTurnsLate.delete(key);
+          return rows(late);
+        }),
       ]);
     }));
     // callRemoteTool spawns its ssh only after an await: let the relays start before the local read.

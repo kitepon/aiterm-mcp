@@ -1026,7 +1026,8 @@ test('own_work counts a seat\'s background process, and an exclusion entry for t
  const plain=(await core.seatOwnWork([f.name],{digest:'d1',entries:[]})).get(f.name);
  assert.equal(plain.processes,2,JSON.stringify(plain));assert.equal(plain.excluded,0);assert.equal(plain.exclusions_digest,'d1');
  assert.equal(plain.child_results,0);
- assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'sh',args:['…']},'the exec shell; its command holds = and is masked');
+ // macOS argv is the ps command line split on whitespace (processArgv shortcut), so the quoted node path becomes its own argument there.
+ assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'sh',args:process.platform==='darwin'?['node','…']:['…']},'the exec shell; its command holds = and is masked');
  const entry={id:'e1',kind:'process',exe:'node',args:['…']};
  const other=(await core.seatOwnWork([f.name],{digest:'d2',entries:[{...entry,sessions:['another_seat']}]})).get(f.name);
  assert.equal(other.processes,2,'an entry for another seat does not apply');

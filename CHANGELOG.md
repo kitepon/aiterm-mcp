@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.44] - 2026-11-13
+
 - A seat's own work (`pty_observe` `activity.post_startup_process_count` and seat-turns `own_work.processes`) now counts only what runs under the harness's own command-execution shell: Claude's Bash (incl. `run_in_background`), Codex exec, and the Grok and Cursor tool shells, recognised per OS by their wrapper shapes (ADR 0141). MCP servers, hooks, relays, helpers and Aiterm's own process-table reads are never counted, so an idle seat with a waiting hook or a restarted MCP server reads 0 and can hibernate. No startup snapshot is used any more, so seats launched by older versions are counted too (0 instead of null). Antigravity commands are not counted yet (exec shape not captured).
 
 ## [0.70.43] - 2026-11-13
@@ -3399,7 +3401,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...HEAD
+[0.70.44]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...v0.70.44
 [0.70.43]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...v0.70.43
 [0.70.42]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.41...v0.70.42
 [0.70.41]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.40...v0.70.41

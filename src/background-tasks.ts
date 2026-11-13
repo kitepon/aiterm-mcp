@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
 import { grokSessionDirectory } from "./harnesses/grok.js";
+import { codexRootTranscript, codexRolloutSessionId } from "./harnesses/codex.js";
 
 /** A harness's own unfinished background task (a68): in-process agents, background shells. */
 export type BackgroundTask = { kind: "agent" | "shell" | "other"; label: string; since: string };
@@ -125,7 +126,83 @@ export function grokBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null
   return state ? liveTasks(meta, state) : null;
 }
 
+type CodexChild = { ino: number; offset: number; partial: string; head: { root: string; label: string } | null | undefined;
+  running: number; since: string | null };
+const codexChildren = new Map<string, CodexChild>();
+
+/** Apply one rollout row of a possible Codex subagent: its session_meta head, then task_started / task_complete / turn_aborted. */
+export function applyCodexChildLine(line: string, child: CodexChild): void {
+  let row: any;
+  if (child.head === undefined) {
+    try { row = JSON.parse(line); } catch { child.head = null; return; }
+    const meta = row?.type === "session_meta" ? row.payload : null;
+    child.head = meta?.thread_source === "subagent" && typeof meta.session_id === "string"
+      ? { root: meta.session_id, label: taskLabel(String(meta.agent_path ?? "").split("/").pop() || meta.agent_nickname, "agent") } : null;
+    return;
+  }
+  if (!child.head || !/"type":"(?:task_started|task_complete|turn_aborted)"/.test(line)) return;
+  try { row = JSON.parse(line); } catch { return; }
+  const type = row?.type === "event_msg" ? row.payload?.type : null;
+  if (type === "task_started") { child.running++; if (typeof row.timestamp === "string") child.since = row.timestamp; }
+  else if (type === "task_complete" || type === "turn_aborted") child.running = Math.max(0, child.running - 1);
+}
+
+/** Rollout files under CODEX_HOME/sessions/YYYY/MM/DD created (UUIDv7 in the name) at or after `start`. */
+function codexRolloutsSince(home: string, start: number): string[] {
+  const files: string[] = [];
+  for (let day = start - 86_400_000; day <= Date.now() + 86_400_000; day += 86_400_000) {
+    const date = new Date(day), dir = path.join(home, "sessions", String(date.getUTCFullYear()),
+      String(date.getUTCMonth() + 1).padStart(2, "0"), String(date.getUTCDate()).padStart(2, "0"));
+    let names: string[];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    for (const name of names) {
+      const id = /-([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jsonl$/.exec(name);
+      if (id && Number.parseInt(id[1] + id[2], 16) >= start - 1000) files.push(path.join(dir, name));
+    }
+  }
+  return files;
+}
+
+/**
+ * Codex's own count of its working subagents for this seat (0.169): each subagent thread writes its own rollout whose
+ * session_meta names the root thread (`session_id`) and `thread_source: "subagent"`; it is working while it has more
+ * task_started than task_complete/turn_aborted. Rollouts created before this launch are not read. null when the seat's
+ * root thread is not known yet.
+ */
+export function codexBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
+  if (meta.kind !== "codex" || !meta.codex_home) return null;
+  let root: string | null;
+  try { const transcript = codexRootTranscript(meta); root = transcript ? codexRolloutSessionId(meta, transcript) : null; } catch { return null; }
+  if (!root) return null;
+  const start = Date.parse(meta.created_at);
+  if (!Number.isFinite(start)) return null;
+  const live: BackgroundTask[] = [];
+  for (const file of codexRolloutsSince(meta.codex_home, start)) {
+    let stat: fs.Stats;
+    try { stat = fs.statSync(file); } catch { continue; }
+    let child = codexChildren.get(file);
+    if (!child || child.ino !== stat.ino || stat.size < child.offset)
+      codexChildren.set(file, child = { ino: stat.ino, offset: 0, partial: "", head: undefined, running: 0, since: null });
+    if (child.head !== null && stat.size > child.offset) {
+      let fd: number | null = null;
+      try {
+        fd = fs.openSync(file, "r");
+        const buffer = Buffer.alloc(stat.size - child.offset);
+        const read = fs.readSync(fd, buffer, 0, buffer.length, child.offset);
+        child.offset += read;
+        const lines = (child.partial + buffer.subarray(0, read).toString("utf8")).split("\n");
+        child.partial = lines.pop() ?? "";
+        for (const line of lines) if (line) applyCodexChildLine(line, child);
+      } catch { continue; } finally { if (fd !== null) fs.closeSync(fd); }
+    }
+    if (child.head?.root === root && child.running > 0 && child.since) live.push({ kind: "agent", label: child.head.label, since: child.since });
+  }
+  const oldest = live.reduce<BackgroundTask | null>((first, task) => !first || task.since < first.since ? task : first, null);
+  return { count: live.length, oldest };
+}
+
 /** The harness's own statement of unfinished background tasks; null where the harness gives none Aiterm reads (a68). */
 export function harnessBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
-  return meta.kind === "claude" ? claudeBackgroundTasks(meta) : meta.kind === "grok" ? grokBackgroundTasks(meta) : null;
+  return meta.kind === "claude" ? claudeBackgroundTasks(meta) : meta.kind === "grok" ? grokBackgroundTasks(meta)
+    : meta.kind === "codex" ? codexBackgroundTasks(meta) : null;
 }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Codex seats state their working subagents too (a68): each subagent thread's rollout (session_meta thread_source subagent, session_id = the seat's root thread) counts while it has more task_started than task_complete/turn_aborted.
+
 - Grok seats now state their own unfinished background tasks too (a68): background subagents and backgrounded commands, read from the session's updates.jsonl (subagent_spawned/finished, task_backgrounded/completed, background_tasks). `own_work.tasks`/`task` and `activity.background_tasks` are no longer null for Grok, and tasks > 0 holds the idle clock and explicit hibernate.
 
 ## [0.70.52] - 2026-11-13

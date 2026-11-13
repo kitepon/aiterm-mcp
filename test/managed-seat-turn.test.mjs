@@ -30,7 +30,9 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('antigravity','Terms of Service\n> Allow'),'unknown');
  // Antigravity 1.5.8 holds the turn while a background task runs (Stop only after the task ends and the model reports it).
  const agyTask=['● Running (sleep 240) (ctrl+o to expand)','','  started','',rule,'>',rule,'  ● [20:08:47] sleep 240 running',rule,'? for shortcuts            auto · Gemini 3.8 Flash · medium · 1 task(s) · /tasks'].join('\n');
- assert.equal(parentPaneEvidence('antigravity',agyTask),'busy');
+ assert.equal(parentPaneEvidence('antigravity',agyTask),'ready_background','the turn is over; only the task works (a68, Centi train W)');
+ // A turn really running while a task also runs stays busy.
+ assert.equal(parentPaneEvidence('antigravity',['○ Running (sleep 40) (ctrl+o to expand)','⣾  Running command...',rule,'>',rule,'esc to cancel            auto · Gemini 3.8 Flash · medium · 1 task(s) · /tasks'].join('\n')),'busy');
  assert.equal(parentPaneEvidence('antigravity',agyTask.replace('  ● [20:08:47] sleep 240 running\n'+rule+'\n','').replace(' · 1 task(s) · /tasks','')),'ready','the task ended: no footer count');
  assert.equal(parentPaneEvidence('antigravity','  quoted · 2 task(s) · /tasks\n'+frames.antigravity.ready),'ready','a count above the composer is not the footer');
  // After the task ends agy reruns the model: a Loading spinner over an esc-to-cancel footer is busy, not unknown.
@@ -138,6 +140,18 @@ test('Claude idle compaction: its spinner opens a span and its notice settles it
  assert.deepEqual(observeManagedSpan(file,'b','ready_compacted','stop-1',at(900)),{state:'idle'});
  assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(1000)).state,'running','the next real turn');
  assert.equal(observeManagedSpan(file,'b','ready','stop-1',at(1300)),null,'a real turn still needs its own Stop');
+});
+
+test('Antigravity background task: the ready composer over the task count settles the turn without a Stop (a68)',()=>{
+ const file=path.join(directory(),'span.json');
+ assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(0)).state,'running','the turn that starts the task');
+ assert.equal(observeManagedSpan(file,'b','ready_background','stop-1',at(100)),null,'first ready is not idle');
+ assert.deepEqual(observeManagedSpan(file,'b','ready_background','stop-1',at(400)),{state:'idle'});
+ assert.deepEqual(observeManagedSpan(file,'b','ready_background','stop-1',at(5000)),{state:'idle'},'stays idle while the task runs');
+ assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(6000)).state,'running','the rerun after the task ends');
+ assert.equal(observeManagedSpan(file,'b','ready','stop-1',at(6100)),null,'the rerun still needs its own Stop');
+ assert.equal(observeManagedSpan(file,'b','ready','stop-2',at(6200)),null);
+ assert.deepEqual(observeManagedSpan(file,'b','ready','stop-2',at(6500)),{state:'idle'});
 });
 
 test('a first ready sighting reports it is settling, so one read can look again and settle (a41 end-of-turn unknown)',async()=>{

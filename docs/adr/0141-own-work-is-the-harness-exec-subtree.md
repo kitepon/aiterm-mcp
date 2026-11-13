@@ -37,8 +37,9 @@ Antigravity (a41-agy, 1.5.8 captured 2026-11-13): on POSIX agy starts each comma
 `zsh -c` / `bash -c` around it) is a session leader under `agy`, while MCP servers and hooks stay on the seat's tty: the Codex
 session-leader rule covers it, shell or not. On Windows the command runs in `pwsh -Command "try { $OutputEncoding = …"`.
 agy also keeps the turn open while a background task runs: the composer is ready, the footer counts `N task(s)`, and Stop
-comes only after the task ends and the model reports it. `parentPaneEvidence` reads that footer as busy, so the seat's turn
-reads running (it read neither running nor idle, and BellTeam showed the seat as unknown).
+comes only after the task ends and the model reports it. `parentPaneEvidence` reads that ready composer over the count as
+`ready_background` (0.70.55, a68): the seat's turn reads idle and the task shows in `own_work.background_tasks`, the same as
+Claude, Codex and Grok. 0.70.47-0.70.54 read it busy, so the seat stayed working but always for the turn (Centi train W).
 
 Approval Box answers (Trony ruling A, 2026-11-13): a Claude seat whose Approval Box waiter is waiting reads idle and may
 hibernate. Approval Box (a49, Nayuta) sends the requesting Bot one BellTeam message when an answer finds no live receiver;

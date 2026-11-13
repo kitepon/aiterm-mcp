@@ -105,6 +105,32 @@ function makeFakeClaudeOnboardingTuiBin() {
   return bin;
 }
 
+// Centi train W F2 (2026-11-14): agy drew its login screen for 3 s right after a login, then went on by itself, but the launch
+// had already closed the seat. A screen Aiterm does not answer is watched until the ready budget ends.
+test("openAgentWithInitialPrompt: an unanswered startup screen that leaves by itself goes on to the prompt", { skip: skipAgentDone }, async () => {
+  const savedBin = process.env.CLAUDE_BIN;
+  const bin = path.join(process.env.TMPDIR, `fake-claude-transient-${Date.now().toString(36)}.sh`);
+  fs.writeFileSync(bin, ["#!/bin/sh",
+    "if [ \"$1\" = auth ]; then printf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\"}'; exit 0; fi",
+    "printf '%s\\n' '3 new MCP servers found in this project' 'Press Enter to continue'", "sleep 2", "printf '\\033[2J\\033[H'",
+    "printf 'Claude Code\\n❯ ready\\n'", "while IFS= read -r line; do printf '%s\\n' \"$line\" >> \"$0.prompts\"; done", ""].join("\n"), { mode: 0o700 });
+  const sid = `claude_transient_${Date.now().toString(36)}`;
+  process.env.CLAUDE_BIN = bin;
+  try {
+    const outcome = await core.openAgentWithInitialPrompt("claude", { session_name: sid, prompt: "TRANSIENT_SCREEN_PROMPT", ready_timeout: 20_000 })
+      .then(() => "sent", (error) => error.message);
+    assert.doesNotMatch(outcome, /AGENT_STARTUP_BLOCKED/u);
+    const sent = () => fs.existsSync(`${bin}.prompts`) && fs.readFileSync(`${bin}.prompts`, "utf8").includes("TRANSIENT_SCREEN_PROMPT");
+    for (let i = 0; i < 50 && !sent(); i++) await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(sent(), `the prompt reached the seat after the screen left (${outcome})`);
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (savedBin === undefined) delete process.env.CLAUDE_BIN;
+    else process.env.CLAUDE_BIN = savedBin;
+    fs.rmSync(bin, { force: true }); fs.rmSync(`${bin}.prompts`, { force: true });
+  }
+});
+
 // 実被弾 2026-09-26 rabbit（Claude Code 2.1.282）: ログイン済みでも初回案内が未完了だと
 // ログイン方法の選択で止まる。ready timeoutを待たずに理由と直し方を返す。
 test("openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeoutを待たず理由と直し方を返す", { skip: skipAgentDone }, async () => {

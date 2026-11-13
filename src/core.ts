@@ -3625,6 +3625,7 @@ function liveSendLocks(name: string | null): Array<{ session: string; pid: numbe
 
 function acquireSessionSendFileLock(name: string): () => void {
   const p = sendLockPath(name);
+  fs.mkdirSync(SOCKDIR, { recursive: true });
   const token = randomBytes(16).toString("hex");
   const nofollow = (fs.constants as Record<string, number>).O_NOFOLLOW ?? 0;
   const deadline = Date.now() + SESSION_SEND_LOCK_WAIT_MS;
@@ -3704,6 +3705,8 @@ export function __testSetAgentSendLockWaitMs(value: number | null): void {
 function tryCreateOwnedLock(p: string): string | null {
   const nofollow = (fs.constants as Record<string, number>).O_NOFOLLOW ?? 0;
   let fd: number;
+  // A fresh container has no SOCKDIR until the first launch; close/send/resume/delete of a kept seat lock before that (a46 lab).
+  fs.mkdirSync(path.dirname(p), { recursive: true });
   try {
     fd = fs.openSync(p, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | nofollow, 0o600);
   } catch (e) {

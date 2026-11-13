@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A kept (hibernated) seat can be closed, sent to, resumed or deleted on a fresh container before any launch: the send locks create the socket directory (`claude-tmux-sockets`) when it is missing, as a launch does. Before, the first `pty_close` / `pty_send` failed with `ENOENT ... <name>.agent-send.lock` until some other seat had been launched (a46 lab, 2026-11-13).
+
 - `pty_list` with the seat-turns caller marker no longer stops the server: `readSeatTurns` runs on one persistent worker thread per server (created on the first marked call, unref'd, same environment), with unchanged results (Kiro a37/a44, 2026-11-13: on production 82 rows held the whole server for 2.4 s every 5 s poll, so BellTeam's goal list took 1.6-4.9 s). A lost worker answers with the synchronous read and the next call starts a new one.
 - `pty_close {hibernate:true}` no longer needs the on-screen settings check: an explicit hibernate resumes with the saved settings (launch model/effort/fast; a model changed inside the seat is not kept), as the rate-limited case already did. Before, every Claude seat whose recipe names a model alias (`opus`, as BellTeam launches) failed with `AGENT_HIBERNATE_UNAVAILABLE: native_configuration_unconfirmed` (t29, Centi's lab 2026-11-13). The idle clock keeps the check.
 - `pty_observe` on a hibernated seat says `reason: "native_vanished"` when the hibernation is a restart adoption (its native session vanished, e.g. a container replacement, and a send or launch adopted it), and `idle_timeout` only for the idle clock and an explicit hibernate.

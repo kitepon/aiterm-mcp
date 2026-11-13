@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- seat-turns no longer returns one unknown (null) turn at every turn end for Claude, Grok, Cursor and Antigravity seats. The first ready frame only started the 250 ms settle clock, so a caller polling every ~10 s saw running → unknown → idle; the read now looks once more past the settle time itself.
+- An Antigravity spinner over an `esc to cancel` footer (`Running command...`, `Loading...`) reads as the running turn (it read unknown).
+
 ## [0.70.49] - 2026-11-13
 
 - An Antigravity seat no longer reads unknown for a moment when a background task ends: agy reruns the model with a `Loading...` spinner over an `esc to cancel` footer, which now reads as the running turn.

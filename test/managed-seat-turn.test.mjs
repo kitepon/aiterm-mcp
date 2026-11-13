@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {observeManagedSpan} from '../dist/managed-seat-turn.js';
+import {observeManagedSpan,managedSpanSettling,MANAGED_SPAN_SETTLE_MS} from '../dist/managed-seat-turn.js';
 import {parentPaneEvidence} from '../dist/agent-screen-observation.js';
 
 const rule='────────────────', uuid='11111111-2222-4333-8444-555555555555';
@@ -37,6 +37,10 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  const agyRerun=['● Ran (sleep 45) (ctrl+o to expand)','  started','  The background task sleep 45 has completed successfully (exit code 0).','⢿  Loading...','└ Tip: Press esc to interrupt generation.',rule,'>',rule,'esc to cancel                                   auto · Gemini 3.8 Flash · medium'].join('\n');
  assert.equal(parentPaneEvidence('antigravity',agyRerun),'busy');
  assert.equal(parentPaneEvidence('antigravity',agyRerun.replace('esc to cancel ','? for shortcuts')),'unknown','Loading without the cancel footer stays unknown');
+ // Without the Tip line (macbook 22:44 JST): the spinner sits right above the composer block.
+ assert.equal(parentPaneEvidence('antigravity',agyRerun.replace('└ Tip: Press esc to interrupt generation.\n','')),'busy');
+ // A command running in the turn (macbook 22:46 JST, also Kiro's fox run).
+ assert.equal(parentPaneEvidence('antigravity',['○ Running (sleep 40) (ctrl+o to expand)','⣾  Running command...','└ Tip: Start your message with ! to run a shell command.',rule,'>',rule,'esc to cancel                                   auto · Gemini 3.8 Flash · medium'].join('\n')),'busy');
  assert.equal(parentPaneEvidence('claude',['Claude Code','● prior result',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready_no_completion','A plain composer is also present during a quiet unfinished wait');
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
  for(const typed of ['/model','/effort ultracode','/fast on'])assert.equal(parentPaneEvidence('claude',['⏺ prior result','','✻ Worked for 9s','',`❯ ${typed}`,'  ⎿  Set model to Opus 5.5 for this session only with high effort','',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready',typed+': a configure result line ends that local command');
@@ -134,4 +138,16 @@ test('Claude idle compaction: its spinner opens a span and its notice settles it
  assert.deepEqual(observeManagedSpan(file,'b','ready_compacted','stop-1',at(900)),{state:'idle'});
  assert.equal(observeManagedSpan(file,'b','busy','stop-1',at(1000)).state,'running','the next real turn');
  assert.equal(observeManagedSpan(file,'b','ready','stop-1',at(1300)),null,'a real turn still needs its own Stop');
+});
+
+test('a first ready sighting reports it is settling, so one read can look again and settle (a41 end-of-turn unknown)',async()=>{
+ const file=path.join(directory(),'span.json');
+ assert.equal(managedSpanSettling(file),false,'no record');
+ assert.equal(observeManagedSpan(file,'b','busy','t0',new Date().toISOString()).state,'running');
+ assert.equal(managedSpanSettling(file),false,'busy is not settling');
+ assert.equal(observeManagedSpan(file,'b','ready','t1',new Date().toISOString()),null,'first ready starts the clock');
+ assert.equal(managedSpanSettling(file),true);
+ await new Promise(r=>setTimeout(r,MANAGED_SPAN_SETTLE_MS+50));
+ assert.equal(managedSpanSettling(file),false,'past the settle time');
+ assert.deepEqual(observeManagedSpan(file,'b','ready','t1',new Date().toISOString()),{state:'idle'});
 });

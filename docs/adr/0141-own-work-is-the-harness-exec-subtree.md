@@ -26,6 +26,13 @@ launch id in its arguments) and through the harness's sandbox wrappers; a shell 
 (`AGENT_EXEC_SHELLS[kind]`) is an exec root, and the root with its whole subtree is counted. Codex's tool hosts
 (`codex-code-mode-host`, Windows `codex-command-runner-<ver>`) exist only to run tools: their children are exec roots.
 
+Codex single commands (0.70.46, a56): bash and zsh `-c` replace themselves with a lone simple command (`sleep 300`), so the
+exec shell's shape is gone from the table and the command runs as a direct child of Codex. Codex starts every exec in a new
+session (`setsid`); MCP servers, hooks and `codex-code-mode-host` stay in the seat's session. So on POSIX a non-shell child of
+Codex (or of its sandbox wrapper) that is a session leader (`ps` stat `s`) is an exec root too. Seen on macOS 0.168.0
+standalone: `sleep 300` stat `Ss`, no tty, parent the native binary; MCP servers stat `S` on the seat's tty. Windows pwsh
+does not replace itself, so the shell shape already covers it.
+
 Approval Box answers (Trony ruling A, 2026-11-13): a Claude seat whose Approval Box waiter is waiting reads idle and may
 hibernate. Approval Box (a49, Nayuta) sends the requesting Bot one BellTeam message when an answer finds no live receiver;
 that message resumes the seat and the seat calls `resume_decision`. Aiterm keeps no waiter exception.

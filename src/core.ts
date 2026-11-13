@@ -1942,6 +1942,8 @@ export function ownExecProcesses(meta: Pick<AgentMetadata, "kind" | "launch_id">
       // arguments passed on (selectHarnessProcesses correlates the same way). A hook or server that merely names the harness is not.
       else if (SANDBOX_WRAPPERS.has(executable) || AGENT_COMMAND_PATTERNS[kind].test(executable)
         || (!EXEC_SHELL_NAMES.has(executable) && child.command.includes(meta.launch_id))) walk(child, false);
+      // A lone command its `-c` shell replaced itself with: Codex starts each exec with setsid, its servers and hooks stay in the seat's session.
+      else if (kind === "codex" && child.session_leader) roots.push(child);
     }
   };
   walk(agent, false);

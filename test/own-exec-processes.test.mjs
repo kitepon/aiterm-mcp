@@ -48,6 +48,16 @@ test("Codex (Linux): [shell, -c, command] under the native binary or its code-mo
     row(71, 70, 9, "/bin/bash -lc make"), row(72, 71, 9, "make")]), [71, 72]);
 });
 
+test("Codex: a lone command its -c shell replaced itself with is a session leader under Codex; servers and hooks are not (a56)", () => {
+  // macOS 0.168.0 standalone, 2026-11-13: `sleep 300` stat Ss, no tty, parent the native binary; MCP servers stat S on the seat's tty.
+  const codex = row(10, 5, 1, `/Users/kite/.local/bin/codex -c aiterm_launch_id="${LAUNCH}"`);
+  const host = row(20, 10, 2, "/Users/kite/.codex/packages/standalone/releases/0.168.0-aarch64-apple-darwin/bin/codex-code-mode-host");
+  const rows = [...machinery(10, []), host, { ...row(30, 10, 9, "sleep 300"), session_leader: true }];
+  assert.deepEqual(count("codex", codex, rows), [30]);
+  assert.deepEqual(count("codex", codex, rows.slice(0, -1)), [], "servers, hooks and the code-mode host alone read 0");
+  assert.deepEqual(count("claude", row(10, 5, 1, "/usr/local/bin/claude"), rows), [], "only Codex starts its execs this way");
+});
+
 test("Grok (Linux): the __grok_user_cmd wrapper is exec; hooks are sh -c", () => {
   const grok = row(10, 5, 1, "grok --always-approve");
   const exec = "/bin/bash -O extglob -c IFS= builtin read -r -d '' __grok_user_cmd <&5; exec 5<&-; builtin set -- \"$__grok_user_cmd\" \"$@\"; builtin unset __grok_user_cmd; snap=$(command cat <&3); builtin shopt -s extglob 2>/dev/null; builtin shopt -s expand_aliases 2>/dev/null";

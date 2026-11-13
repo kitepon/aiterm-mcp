@@ -19,6 +19,8 @@ export interface NativeProcessIdentity {
 
 export interface RuntimeProcess extends NativeProcessIdentity {
   session_identity?: string | null;
+  /** POSIX `ps` stat `s`; absent on Windows. */
+  session_leader?: boolean;
   zombie?: boolean;
   executable?: string;
   parent_pid: number;
@@ -75,7 +77,7 @@ export function parsePosixProcessTable(text: string, includeSession = false, pla
     if (match[4 + offset].includes("s")) leaders.add(Number(match[1]));
     return {
       pid: Number(match[1]), parent_pid: Number(match[2]), process_group_id: Number(match[3]),
-      stopped: match[4 + offset].includes("T"), zombie: match[4 + offset].includes("Z"),
+      stopped: match[4 + offset].includes("T"), zombie: match[4 + offset].includes("Z"), session_leader: match[4 + offset].includes("s"),
       ...(includeSession ? { session_identity: match[4] } : {}),
       started_identity: match[5 + offset].trim(), cpu_seconds: parseCpuTime(match[6 + offset]), command,
       argv_digest: createHash("sha256").update(command).digest("hex"),

@@ -160,7 +160,8 @@ function nativeParentDependencies(provider: NativeProvider, profile: steer.Produ
     else if ("kind" in parent && parent.kind === "cursor") provider.verifyCursorParent(profile, parent);
     else await provider.verifyCodexParent(profile, parent as steer.CodexParent);
   },
-    processes: readProcessIdentities, exists: nativeProcessExists, now: () => performance.now(), wall: () => Date.now() };
+    processes: readProcessIdentities, exists: nativeProcessExists, childGone: core.deliveryChildGone, childCheckMs: 30_000,
+    now: () => performance.now(), wall: () => Date.now() };
 }
 /** Historical injected worker; normal parent-hook CLI no longer uses it. */
 export function createNativeExecutionWorker(input: {

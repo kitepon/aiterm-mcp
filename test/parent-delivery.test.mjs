@@ -674,3 +674,19 @@ test("回収処理は、owner.jsonの無い保存場所を、作っている途�
   assert.equal(fs.existsSync(starting), false);
   assert.equal(fs.existsSync(gone), false);
 });
+
+// 0.70.42: a child that can no longer complete its boundary ends the wait; one passing reading does not.
+test("子がもう境界を終えられない（2回続けて同じ理由）時は待ちを終え、結果を取れなかったと届ける", async t => {
+  // Readings: gone, alive, gone, gone -> ends only at the fourth.
+  const sequence = ["child_vanished", null, "child_vanished"];
+  let readings = 0;
+  const h = setup(t, { childCheckMs: 10, childGone: () => { const at = readings++; return at < sequence.length ? sequence[at] : "child_vanished"; } });
+  const manager = h.create(), request = manager.request(parent());
+  await request.before_send(boundary("gone-child"));
+  await until(() => readings >= 3);
+  assert.equal(h.submitted.length, 0, "no two equal readings in a row yet");
+  await until(() => h.submitted.length === 1);
+  assert.ok(readings >= 4);
+  assert.match(h.submitted[0].text, /AGENT_RESULT_UNAVAILABLE: PARENT_DELIVERY_CHILD_GONE: child_vanished/);
+  assert.equal(records(h.root)[0].value.child_outcome, "error");
+});

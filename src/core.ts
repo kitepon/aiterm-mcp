@@ -28,6 +28,7 @@ import { withManagedSpan, observeManagedSpan, closeManagedSpan, SPAN_HELD, type 
  */
 import { spawn, spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import * as fs from "node:fs";
+import { z } from "zod";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -56,7 +57,7 @@ import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
-import { unfinishedDeliveriesOwnedBy } from "./parent-delivery-owners.js";
+import { pendingChildResultsFor } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, lazyRelayProcess, aitermProcessProbe, windowsConsoleHost, macKeepAwakeProcess, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
@@ -1915,6 +1916,14 @@ export function postStartupProcessCount(
   kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
   shapes: StartupProcessShape[] = [], harness?: NativeProcessIdentity | null,
 ): number {
+  return postStartupProcesses(kind, activityRows, rows, startup, shapes, harness).length;
+}
+
+/** The processes postStartupProcessCount counts (own_work, a41). */
+export function postStartupProcesses(
+  kind: AgentMetadata["kind"], activityRows: RuntimeProcess[], rows: RuntimeProcess[], startup: Set<string>,
+  shapes: StartupProcessShape[] = [], harness?: NativeProcessIdentity | null,
+): RuntimeProcess[] {
   const byPid = new Map(rows.map(row => [row.pid, row]));
   const relayChild = (row: RuntimeProcess): boolean => {
     const parent = parentProcess(row, byPid);
@@ -1948,7 +1957,120 @@ export function postStartupProcessCount(
       changed = true;
     }
   }
-  return added.size;
+  return [...added.values()];
+}
+
+// ---- own_work (a41, observation-results.md): what a seat started itself and has not finished ----
+
+const ownWorkExclusionsSchema = z.object({
+  digest: z.string().min(1).max(128),
+  entries: z.array(z.union([
+    z.object({ id: z.string(), kind: z.literal("process"), exe: z.string().min(1), args: z.array(z.string()), sessions: z.array(z.string()) }),
+    z.object({ id: z.string(), kind: z.literal("child"), harness: z.string().min(1), session: z.string().nullable(), sessions: z.array(z.string()) }),
+  ])).max(256),
+});
+export type OwnWorkExclusions = z.infer<typeof ownWorkExclusionsSchema>;
+export type OwnWork = { processes: number | null; excluded: number; child_results: number | null; exclusions_digest: string | null;
+  oldest: { exe: string; args: string[]; since: string } | null };
+
+/** Windows argv from one command line (CommandLineToArgvW rules: backslashes before a quote, doubled quotes). */
+export function windowsCommandLineArgv(line: string): string[] {
+  const argv: string[] = [];
+  let at = 0;
+  while (at < line.length) {
+    while (line[at] === " " || line[at] === "\t") at++;
+    if (at >= line.length) break;
+    let token = "", quoted = false, first = argv.length === 0;
+    for (; at < line.length; at++) {
+      const char = line[at];
+      if (!quoted && (char === " " || char === "\t")) break;
+      if (first) { if (char === '"') quoted = !quoted; else token += char; continue; } // argv[0]: quotes only, no escapes
+      if (char === "\\") {
+        let slashes = 0;
+        while (line[at] === "\\") { slashes++; at++; }
+        if (line[at] === '"') { token += "\\".repeat(slashes >> 1); if (slashes % 2) token += '"'; else { at--; } }
+        else { token += "\\".repeat(slashes); at--; }
+        continue;
+      }
+      if (char === '"') { if (quoted && line[at + 1] === '"') { token += '"'; at++; } else quoted = !quoted; continue; }
+      token += char;
+    }
+    argv.push(token);
+  }
+  return argv;
+}
+
+function processArgv(row: RuntimeProcess): string[] {
+  if (process.platform === "linux") {
+    try { const parts = fs.readFileSync(`/proc/${row.pid}/cmdline`, "utf8").split("\0"); if (parts.at(-1) === "") parts.pop(); if (parts.length) return parts; }
+    catch { /* gone or unreadable: the table's command line */ }
+  }
+  if (isWin) return windowsCommandLineArgv(row.command);
+  // shortcut: macOS ps gives only the joined command line, so an argument containing a space splits; exact argv needs a native call.
+  return row.command.trim().split(/\s+/);
+}
+
+/** The descriptor an exclusion entry matches (raw argv never leaves this machine). */
+export function processDescriptor(argv: string[], windows = isWin): { exe: string; args: string[] } {
+  const base = (value: string) => value.replace(/^["']+|["']+$/g, "").split(/[\\/]/).filter(Boolean).pop() ?? "";
+  // Judged on the whole token before it is shortened: a URL or user@host must not survive as its last path part.
+  const secret = (value: string) => /=|:\/\/|@/.test(value);
+  const token = (value: string) => { const short = base(value); return secret(value) || short.length > 40 ? "…" : short; };
+  let exe = token(argv[0] ?? "").replace(/\.(?:exe|cmd)$/i, "");
+  if (windows) exe = exe.toLowerCase();
+  return { exe, args: argv.slice(1).filter(arg => !arg.startsWith("-")).slice(0, 2).map(token) };
+}
+
+/** own_work for each local agent seat, from one shared process table (seat_turns rows of an opted-in caller). */
+export async function seatOwnWork(names: string[], requested: unknown): Promise<Map<string, OwnWork>> {
+  const parsed = ownWorkExclusionsSchema.safeParse(requested);
+  const list = parsed.success ? parsed.data : null;
+  const result = new Map<string, OwnWork>();
+  let rows: RuntimeProcess[] | null = null;
+  try { rows = await readRuntimeProcessesShared(); } catch { /* table unreadable: processes null */ }
+  for (const name of names) {
+    const meta = tryLoadAgentMetadata(name);
+    if (!meta) continue;
+    const entries = list?.entries.filter(entry => entry.sessions.includes(name)) ?? [];
+    const childExcluded = (child: { session: string; harness: string | null }) => entries.some(entry => entry.kind === "child"
+      && entry.harness === child.harness && (entry.session === null || entry.session === child.session));
+    const work: OwnWork = { processes: null, excluded: 0, child_results: null, exclusions_digest: list?.digest ?? null, oldest: null };
+    result.set(name, work);
+    try {
+      const state = agentDormantState(meta);
+      if (state === "hibernated") { work.processes = 0; work.child_results = 0; continue; }
+      if (state !== null || !rows) continue;
+      const pane = await sessionPaneAsync(name);
+      const [pidText, dead] = pane.code === 0 ? pane.stdout.trim().split("\t") : [];
+      const root = dead === "0" ? rows.find(row => row.pid === Number(pidText)) : undefined;
+      if (!root) continue;
+      const subtree = processSubtree(rows, root.pid);
+      const candidates = selectHarnessProcesses(meta, rows, subtree);
+      const agent = candidates.length === 1 ? candidates[0] : null;
+      if (!agent) continue;
+      const activityRows = subtree.some(row => row.pid === agent.pid) ? subtree : [...subtree, ...processSubtree(rows, agent.pid)];
+      work.child_results = pendingChildResultsFor(name, activityRows, childExcluded);
+      if (!Array.isArray(meta.startup_processes)) continue;
+      const counted = postStartupProcesses(meta.kind, activityRows, rows, new Set(meta.startup_processes), meta.startup_process_shapes, agent);
+      const processEntries = entries.filter(entry => entry.kind === "process");
+      const descriptors = new Map(counted.map(row => [row.pid, processDescriptor(processArgv(row))]));
+      const byPid = new Map(rows.map(row => [row.pid, row]));
+      const countedPids = new Set(counted.map(row => row.pid));
+      const excluded = new Set<number>();
+      for (const row of counted) {
+        const descriptor = descriptors.get(row.pid)!;
+        if (!processEntries.some(entry => entry.exe === descriptor.exe && entry.args.every((arg, at) => descriptor.args[at] === arg))) continue;
+        // The match, its descendants and its post-startup ancestors (the bash -c wrappers CLIs put around commands).
+        for (const below of processSubtree(rows, row.pid)) if (countedPids.has(below.pid)) excluded.add(below.pid);
+        for (let up = parentProcess(row, byPid); up && countedPids.has(up.pid); up = parentProcess(up, byPid)) excluded.add(up.pid);
+      }
+      const remaining = counted.filter(row => !excluded.has(row.pid));
+      work.processes = remaining.length; work.excluded = excluded.size;
+      const oldest = remaining.reduce<RuntimeProcess | null>((first, row) => !first || Date.parse(row.started_identity) < Date.parse(first.started_identity) ? row : first, null);
+      work.oldest = oldest ? { ...descriptors.get(oldest.pid)!, since: new Date(oldest.started_identity).toISOString() } : null;
+    } catch { /* this seat could not be read: nulls */ }
+  }
+  return result;
 }
 
 function emptySessionObservation(name: string, exists: boolean): SessionObservation {
@@ -2097,8 +2219,8 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
   const comparable = previous?.pane_identity === sample.pane_identity;
   // 起動完了の控えが無いsession（通常PTY、控える前の版で起動したagent）とharnessを特定できない時は数えない。
   const startup = agent && Array.isArray(meta?.startup_processes) ? new Set(meta.startup_processes) : null;
-  // このsessionが親として待っている子の結果。持ち主はharnessの下で動くAitermのMCP process。
-  result.pending_child_deliveries = agent ? unfinishedDeliveriesOwnedBy(activityRows) : null;
+  // このsessionが親として待っている子の結果。子の記録が名指す親の席に数える（名指しが無ければ持ち主processで）。
+  result.pending_child_deliveries = agent ? pendingChildResultsFor(name, activityRows) : null;
   result.activity = {
     cursor: Buffer.from(JSON.stringify(sample)).toString("base64url"),
     output_changed: comparable ? previous.screen_digest !== sample.screen_digest : null,
@@ -2452,6 +2574,22 @@ function listNativeSessionRows(runTmux: typeof tmux = tmux): string[][] {
 
 /** Same listing and failure as pty_list, without loading every seat's metadata: one seat's existence check stays one
  * tmux call (2026-11-11: per-seat full lists made a CurrentWork pty_list take 10-27 s for ~140 members). */
+/**
+ * Why a parent delivery's local child can no longer complete its boundary (parent-delivery.md), or null while it still can
+ * or when this cannot be told (tmux unreadable). Replaced launch, missing record, hibernated, or vanished native.
+ */
+export function deliveryChildGone(boundary: { session_id: string; launch_id: string; remote?: unknown }): string | null {
+  if (boundary.remote) return null;
+  try {
+    const meta = tryLoadAgentMetadata(boundary.session_id);
+    if (!meta) return "child_missing";
+    if (meta.launch_id !== boundary.launch_id) return "child_replaced";
+    const state = agentDormantState(meta);
+    if (state === "hibernated") return "child_hibernated";
+    return state === null && !nativeSessionExists(boundary.session_id) ? "child_vanished" : null;
+  } catch { return null; }
+}
+
 function nativeSessionExists(name: string): boolean {
   return listNativeSessionRows().some(([listed]) => listed === name);
 }

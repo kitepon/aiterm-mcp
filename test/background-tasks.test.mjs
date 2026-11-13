@@ -98,3 +98,14 @@ test("the named task is the oldest agent when any agent is open; otherwise the o
   assert.deepEqual(bt.representativeTask([shell]), shell);
   assert.equal(bt.representativeTask([]), null);
 });
+
+// Antigravity 1.5.8 transcript_full.jsonl steps (captured 2026-11-14 02:15 JST, a test seat with a background `sleep 70`).
+test("Antigravity transcript: a background task is open from its 'running as a background task' step until 'Task id ... finished'", () => {
+  const open = new Map(), done = new Set();
+  bt.applyAntigravityStepLine(JSON.stringify({ step_index: 3, type: "GENERIC", status: "RUNNING", created_at: "2026-11-13T17:15:36Z",
+    content: "Created At: 2026-11-13T17:15:36Z\nTool is running as a background task with task id: aebdf7bd-04db-47dc-a690-0e9d2b0ebf3d/task-3\nTask Description: sleep 70\nTask logs are available at: file:///x/task-3.log" }), open, done);
+  assert.deepEqual([...open.entries()], [["aebdf7bd-04db-47dc-a690-0e9d2b0ebf3d/task-3", { kind: "shell", label: "sleep 70", since: "2026-11-13T17:15:36.000Z" }]]);
+  bt.applyAntigravityStepLine(JSON.stringify({ step_index: 5, type: "SYSTEM_MESSAGE", status: "DONE", created_at: "2026-11-13T17:16:46Z",
+    content: "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-13T17:16:46Z sender=aebdf7bd-04db-47dc-a690-0e9d2b0ebf3d/task-3 priority=MESSAGE_PRIORITY_HIGH content=Task id \"aebdf7bd-04db-47dc-a690-0e9d2b0ebf3d/task-3\" finished with result:\nCommand exited with code 0." }), open, done);
+  assert.equal(open.size, 0);
+});

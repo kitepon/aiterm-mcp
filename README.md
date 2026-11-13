@@ -592,15 +592,12 @@ A confirmed hibernation keeps the same logical session in `pty_list`, with the s
 Codex can start a native queued turn during resume. At standard speed, Aiterm accepts that busy state only with the saved conversation proof, a new `task_started` after the hibernation cursor and the same live native launch. A busy screen alone is insufficient. This path does not capture user work as startup scaffolding: its post-startup process count remains unknown and automatic hibernation stays disabled for that launch. Fast restoration still requires an idle composer. Failed attempts remain blocked. Resume failures return `isError: true` and `structuredContent` with schema `aiterm.agent-resume-error.v1`, code `AGENT_RESUME_UNCONFIRMED` or `AGENT_RESUME_FAILED`, `session_id`, `launch_id`, `input: "not_sent"` and `recovery: "inspect_session"`. The input status describes only this request's body; it does not prove that the CLI was never started or that other native input was not processed. Inspect the seat; do not automatically resend or restart it.
 
 Two fields tell a caller what closing an agent session would lose. `activity.post_startup_process_count` is the number of
-processes in the session that did not exist when `agent_launch` finished startup (before the first prompt), so background work
-started in the first minute is counted too. Two kinds of process are not counted: Codex's own `codex-code-mode-host` helper, and
-the direct children of an `mcp-lazy` relay (the MCP server it starts on first use and its wake predicate). What runs below them
-is counted. A startup process that the harness restarted (a process with the same parent and the same arguments as a startup
-process that has exited, such as a reconnected MCP server) is not counted either, and neither are the processes Aiterm itself
-starts to read the process table (`ps`, or PowerShell and its console host on Windows). `pending_child_deliveries`
+processes running under the harness's own command-execution shell: the shell the CLI starts to run a command for the model
+(Claude's Bash tool, including `run_in_background`; Codex exec; the Grok, Cursor and Antigravity tool shells), and everything
+below it. MCP servers, hooks, relays, helpers and Aiterm's own process-table reads are not counted, however long they run
+(ADR 0141, 0.70.44; the name is kept from the older startup-snapshot rule). `pending_child_deliveries`
 is the number of sub-agent results this session is still waiting for as a parent, whoever the caller is. Both are null when
-Aiterm cannot tell (ordinary terminals, agents launched by 0.48.0 or earlier for the process count, or an unresolved harness
-process), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.
+Aiterm cannot tell (ordinary terminals, an unresolved harness process, or an unreadable process table), and may be absent when a remote host runs an older Aiterm. Treat null or absent as unknown, not as zero.
 
 Another product that needs to deliver an answer to a Codex parent can ask Aiterm with `aiterm-parent-delivery` instead of registering its own hooks.
 Aiterm's registered hooks and the official queue deliver it. `codex verify --thread <uuid>` checks the parent and reports configuration in `steer`

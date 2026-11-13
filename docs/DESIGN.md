@@ -151,11 +151,9 @@ PIDは開始識別子・argv digestと組にし、paneとharnessを同一視し�
 同じlaunchに属するnpm shimとnative本体は、中間の非候補processも含めた祖先関係から一つの起動として扱う。
 祖先を共有しない候補は別々に残し、複数候補を一つと推測しない。
 POSIXの停止状態はOSのprocess表から取得し、SIGSTOP中は残画面より優先して`blocked/harness_stopped`を返す。
-sessionを閉じると失うものは数で返す（ADR 0080）。`activity.post_startup_process_count`は起動完了の時点に居なかったprocessの数、
+sessionを閉じると失うものは数で返す（ADR 0080）。`activity.post_startup_process_count`は、harnessが命令を走らせるために立てたshell（ClaudeのBash、Codexのexec、Grok・Cursor・Antigravityの道具のshell）の下で動くprocessの数、
 `pending_child_deliveries`はそのsessionが親として待つ未配送の数。数えられない時はnullで、0と区別する。
-harnessと中継が自分のために立てるprocessは数えない（Codexの`codex-code-mode-host`、中継`mcp-lazy`の直接の子。ADR 0082）。その下は数える。
-harnessが同じ親の下に同じargvで立て直した起動時のprocessも数えない（ADR 0083）。
-Aitermがprocess表を引くために起こしたprocess（`ps`、WindowsのPowerShellと付いて立つconsole host）も数えない（ADR 0084）。
+MCP、hook、中継、補助process、Aiterm自身のprocess表の問い合わせは、その道を通らないので数えない（ADR 0141。起動完了の控えとADR 0082〜0084の除外を置き換えた）。
 中継の後ろで眠っている本体を配送の引き取りのために起こすかは、`aiterm-delivery-wake`が返す（ADR 0082）。
 ほかの製品がCodexの親へ回答を届ける時は、製品のhookを登録せず、`aiterm-parent-delivery`でAitermの親配送へ頼む（ADR 0098）。
 Aitermの登録済みhookと公式キューで届け、設定（`steer`）・受付（`queued_submission_id`）・実際に届いた事（`hook:"emitted"`と`turn_id`）を分けて返す。

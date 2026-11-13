@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat's own work (`pty_observe` `activity.post_startup_process_count` and seat-turns `own_work.processes`) now counts only what runs under the harness's own command-execution shell: Claude's Bash (incl. `run_in_background`), Codex exec, and the Grok and Cursor tool shells, recognised per OS by their wrapper shapes (ADR 0141). MCP servers, hooks, relays, helpers and Aiterm's own process-table reads are never counted, so an idle seat with a waiting hook or a restarted MCP server reads 0 and can hibernate. No startup snapshot is used any more, so seats launched by older versions are counted too (0 instead of null). Antigravity commands are not counted yet (exec shape not captured).
+
 ## [0.70.43] - 2026-11-13
 
 - A kept (hibernated) seat can be closed, sent to, resumed or deleted on a fresh container before any launch: the send locks create the socket directory (`claude-tmux-sockets`) when it is missing, as a launch does. Before, the first `pty_close` / `pty_send` failed with `ENOENT ... <name>.agent-send.lock` until some other seat had been launched (a46 lab, 2026-11-13).

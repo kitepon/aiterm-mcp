@@ -64,7 +64,8 @@ process.stdin.on('data',bytes=>{for(const ch of bytes.toString().replace(/\\x1b\
  }else if(ch>=' '){line+=ch;}}
  fs.writeFileSync(${JSON.stringify(keys+'-draft')},line);draw();});
 setInterval(()=>{if(delayed&&fs.existsSync(${JSON.stringify(keys+'-allow-ready')})){delayed=false;draw();}if(!added&&fs.existsSync(${JSON.stringify(spawnFlag)})){
- added=true;const child=spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
+ // Codex exec shape (ADR 0141): [shell, -c, command]; the trailing ':' keeps the shell from exec-ing into node.
+ added=true;const child=spawn('/bin/sh',['-c',"'"+process.execPath+"' -e 'setInterval(()=>{},60000)'; :"],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(spawned)},String(child.pid));
 }},10);`);
  process.env.CODEX_BIN=bin;core.__testSetAgentTuiReadyStableSamples(1);
  t.after(()=>{core.__testSetAgentTuiReadyStableSamples(null);core.killAll();});
@@ -498,7 +499,7 @@ while(Date.now()<deadline){
   assert.equal(result[4].status,'not_requested');
   const seen=core.observeSession(f.name);
   assert.equal(seen.state,'busy');assert.equal(seen.harness_alive,true);
-  assert.equal(seen.activity.post_startup_process_count,null,'queued work cannot be saved as startup scaffolding');
+  assert.equal(seen.activity.post_startup_process_count,0,'no exec shell yet; counted without any startup baseline (ADR 0141)');
   assert.notEqual(seen.launch_id,f.meta.launch_id);
   const attempt=JSON.parse(fs.readFileSync(agentMetadataPath(f.name,f.meta.launch_id).replace(/\.agent\.json$/,'.resume-attempt.json')));
   assert.equal(attempt.state,'ready');assert.equal(attempt.next_launch_id,seen.launch_id);
@@ -1023,15 +1024,16 @@ test('own_work counts a seat\'s background process, and an exclusion entry for t
  const pid=Number(fs.readFileSync(f.spawned,'utf8'));
  t.after(()=>{try{process.kill(pid);}catch{}});
  const plain=(await core.seatOwnWork([f.name],{digest:'d1',entries:[]})).get(f.name);
- assert.equal(plain.processes,1,JSON.stringify(plain));assert.equal(plain.excluded,0);assert.equal(plain.exclusions_digest,'d1');
+ assert.equal(plain.processes,2,JSON.stringify(plain));assert.equal(plain.excluded,0);assert.equal(plain.exclusions_digest,'d1');
  assert.equal(plain.child_results,0);
- assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'node',args:['…']},'the -e script holds = and is masked');
+ // macOS argv is the ps command line split on whitespace (processArgv shortcut), so the quoted node path becomes its own argument there.
+ assert.deepEqual({exe:plain.oldest.exe,args:plain.oldest.args},{exe:'sh',args:process.platform==='darwin'?['node','…']:['…']},'the exec shell; its command holds = and is masked');
  const entry={id:'e1',kind:'process',exe:'node',args:['…']};
  const other=(await core.seatOwnWork([f.name],{digest:'d2',entries:[{...entry,sessions:['another_seat']}]})).get(f.name);
- assert.equal(other.processes,1,'an entry for another seat does not apply');
+ assert.equal(other.processes,2,'an entry for another seat does not apply');
  const listed=(await core.seatOwnWork([f.name],{digest:'d3',entries:[{...entry,sessions:[f.name]}]})).get(f.name);
- assert.equal(listed.processes,0);assert.equal(listed.excluded,1);assert.equal(listed.oldest,null);
+ assert.equal(listed.processes,0);assert.equal(listed.excluded,2,'the match and its exec shell');assert.equal(listed.oldest,null);
  const broken=(await core.seatOwnWork([f.name],{digest:'d4',entries:[{id:'x',kind:'unknown'}]})).get(f.name);
- assert.equal(broken.exclusions_digest,null,'a malformed list is not applied');assert.equal(broken.processes,1);
+ assert.equal(broken.exclusions_digest,null,'a malformed list is not applied');assert.equal(broken.processes,2);
 });
 

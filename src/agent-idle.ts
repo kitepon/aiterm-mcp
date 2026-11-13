@@ -36,7 +36,7 @@ export function idleMinutes(value = process.env.AITERM_IDLE_MINUTES): number {
 }
 
 /**
- * `immediate` is an explicit hibernate request: no deadline and no attachment refusal. A Claude turn that ended on a
+ * `immediate` is an explicit hibernate request: no deadline, no attachment refusal and no screen settings check. A Claude turn that ended on a
  * rate limit (no Stop event; the CLI then waits in its limit footer or menu) counts as ended at that error.
  */
 export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30, expectedAnchor?: string, immediate = false): IdleDecision {
@@ -61,8 +61,8 @@ export function decideIdleSeat(seat: IdleSeatSnapshot, now: number, minutes = 30
   const due = Date.parse(anchor) + (immediate ? 0 : minutes * 60_000);
   if (!Number.isFinite(due)) return result;
   if (expectedAnchor !== undefined && expectedAnchor !== anchor) return { ...result, reason: "superseded_timer", anchor, due_at: due };
-  // A rate-limited CLI shows its limit footer or menu, not the composer the settings check reads; the saved recipe stands.
-  if (now >= due && !limited && !seat.native_configuration_confirmed) return { ...result, reason: "native_configuration_unconfirmed", anchor, due_at: due };
+  // An explicit hibernate resumes with the saved recipe (no screen settings check; a model changed inside the seat is not kept).
+  if (now >= due && !immediate && !seat.native_configuration_confirmed) return { ...result, reason: "native_configuration_unconfirmed", anchor, due_at: due };
   return { ...result, outcome: now < due ? "not_due" : "ready", reason: now < due ? "before_deadline" : "idle_timeout", anchor, due_at: due };
 }
 

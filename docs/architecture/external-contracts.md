@@ -33,6 +33,8 @@ BellTeamはBot/session-slotと配送ジョブ・設定要求を所有する。Ai
 
 公開0.63.2のlaunch receiptにはlaunch_idがなく、現在の`pty_observe`にstring|nullとして提供する。型付きresume未送信拒否はsession/launch/input/recoveryを持つ。この区別と既consumerが依存する文面・metadataを維持する。
 
+isErrorの結果は、そのtoolが宣言したoutputSchemaに合わないstructuredContentを持たない（tool一覧を読んだSDKの呼び手は、isErrorでも成功のschemaで検査し、-32602にしてcodeを落とすため。0.70.43）。型の付いた失敗は`_meta`：`aiterm/resume_unavailable`、`aiterm/resume_secrets`（agent-resume-secrets.v1）、`aiterm/resume_error`（agent-resume-error.v1）、`aiterm/send_error`（agent-send-error.v1、wait_process付き）、`aiterm/launch_error`、`aiterm/configure_error`、そして`aiterm/error_code`（error-code.v1）。`agent_configure`のagent-configure-error.v1はoutputSchemaに宣言済みでstructuredContentのまま。`pty_observe`の休止した席の`reason`は、idle時計・明示休止なら`idle_timeout`、消えたnativeを送信・起動時に採った休止（lifecycle origin `restart`）なら`native_vanished`。
+
 ## Bridge回復処理の保存形式への読取依存（追加照合）
 
 リターの精読で、Bridge `recover._queue_absent` はCodex inputsのclaims/pending/settledを前後照合し、`codex_delivery.hook_delivery_state` はinputs有無を前判定し、`channel_recover.channels` はsteer-channelsのUUID directory集合を前後照合すると判明した。これらは直接編集ではないが、SDK内部保存形式への読取依存であり、exportだけの接続と記述しない。`transcriptAge`のvendor会話file mtimeは別の読取依存である。

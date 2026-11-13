@@ -21,7 +21,8 @@ import { AitermError, AgentResumeUnavailableError, AgentResumeError, AgentResume
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv, privateEnvValue } from "./private-env.js";
-import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta } from "./terminal-launch-error.js";
+import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
+import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -248,14 +249,15 @@ function fail(e: unknown): ToolResult {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof AgentResumeUnavailableError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     _meta: { "aiterm/resume_unavailable": { ...e.resumeUnavailable } } };
-  if (e instanceof AgentResumeSecretsError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { ...e.resumeSecrets } };
-  if (e instanceof AgentResumeError) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { ...e.resumeFailure } };
+  // Typed failures outside a tool's declared outputSchema go in _meta, never structuredContent: a client that listed the
+  // tools validates structuredContent against the success outputSchema even on isError -> -32602, code lost (Kiro, 2026-11-13).
+  const typed = (key: string, payload: { code: string; [field: string]: unknown }): ToolResult => ({ content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
+    _meta: { [key]: payload, [ERROR_CODE_META]: { schema: "aiterm.error-code.v1", code: payload.code } } });
+  if (e instanceof AgentResumeSecretsError) return typed("aiterm/resume_secrets", { ...e.resumeSecrets });
+  if (e instanceof AgentResumeError) return typed("aiterm/resume_error", { ...e.resumeFailure });
   const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
-  if (sendFailure) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    structuredContent: { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
-      ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null } };
+  if (sendFailure) return typed("aiterm/send_error", { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
+    ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null });
   const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
@@ -829,7 +831,7 @@ registerRemoteAwareTool(
       "セッションを閉じ、ログ／読取位置を破棄する。同じsession_idへの再試行は安全で、" +
       "closed／already_closedのstructured receiptを返す。" +
       "hibernate:trueはClaude・Codexのagent席を今すぐ休止し（idle時計と同じ手順）、会話と再開情報を残してhibernatedを返す。" +
-      "次のagent_launch（session_name）が同じ会話へ再開する。turn・子process・子への配送が動いている間はAGENT_BUSYで断る（終わってから呼び直す）。" +
+      "次のagent_launch（session_name）が同じ会話へ、保存した設定（起動時のmodel等。席の中で替えた物は持ち越さない）で再開する。turn・子process・子への配送が動いている間はAGENT_BUSYで断る（終わってから呼び直す）。" +
       "Claudeの席が利用上限でturnを終えている時（最後の入力の後の会話記録がrate_limited）は、上限の待ち画面のままでも休止できる。" +
       "他の理由で休止できない時はAGENT_HIBERNATE_UNAVAILABLE、席は触らない。",
     inputSchema: {
@@ -937,9 +939,9 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
         loopDeadline(4_000, { seats: [] as any[], unread: bound }),
       ]);
     }));
-    // callRemoteTool spawns its ssh only after an await: let the relays start before this process blocks on the local read.
+    // callRemoteTool spawns its ssh only after an await: let the relays start before the local read.
     await new Promise(resolve => setImmediate(resolve));
-    const local = core.readSeatTurns(sessions.filter(session => session.harness !== null).map(session => session.session_id));
+    const local = await readSeatTurnsOffLoop(sessions.filter(session => session.harness !== null).map(session => session.session_id), core.readSeatTurns);
     // a41: own_work only for a caller that sends its exclusion list (observation-results.md); terminals compute their own rows.
     const ownWork = requestMeta && typeof requestMeta === "object" ? (requestMeta as Record<string, unknown>)["aiterm/own_work_exclusions"] : undefined;
     if (ownWork !== undefined) {

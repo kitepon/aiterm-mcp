@@ -1007,7 +1007,9 @@ for (const race of ["accepted", "unknown", "delivery-failure"]) test(`Grok busy/
               _meta: { "aiterm/caller": "BellTeam" } });
             assert.equal(result.isError, true);
             assert.match(result.content[0].text, /^aiterm: STEER_NOT_QUEUED vendor=grok/);
-            const failure = result.structuredContent;
+            assert.equal(result.structuredContent, undefined, "outside pty_send outputSchema (0.70.43)");
+            assert.equal(result._meta["aiterm/error_code"].code, "STEER_NOT_QUEUED");
+            const failure = result._meta["aiterm/send_error"];
             assert.equal(failure.code, "STEER_NOT_QUEUED");
             assert.equal(failure.effect, "possible");
             assert.equal(failure.outcome, "outcome_unknown");

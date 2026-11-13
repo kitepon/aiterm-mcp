@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.47] - 2026-11-13
+
 - An Antigravity seat's background command is now counted as own work (seat-turns `own_work.processes`, `pty_observe` `activity.post_startup_process_count`). agy runs each command on its own pty as a session leader (macOS, Linux) or in `pwsh -Command "try { $OutputEncoding = …"` (Windows); its MCP servers and hooks are still not counted (ADR 0141).
 - While an Antigravity background task runs, the seat's turn reads running instead of unknown. agy keeps the turn open until the task ends and the model reports it; the footer's `N task(s)` count is that state.
 
@@ -3412,7 +3414,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.46...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.47...HEAD
+[0.70.47]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.46...v0.70.47
 [0.70.46]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.45...v0.70.46
 [0.70.45]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...v0.70.45
 [0.70.44]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...v0.70.44

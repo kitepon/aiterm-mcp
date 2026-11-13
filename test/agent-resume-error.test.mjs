@@ -23,10 +23,12 @@ test('MCP exposes a typed unsent resume refusal without retrying the native laun
  const transport=new StdioClientTransport({command:process.execPath,args:[path.resolve('dist/index.js')],env:{...process.env},stderr:'pipe'});
  try{
   await client.connect(transport);
+  await client.listTools(); // validators on, as BellTeam's shared client had (production 2026-11-13)
   const result=await client.callTool({name:'pty_send',arguments:{session_id:meta.aiterm_session,text:'MUST_NOT_SEND',require_agent:true}});
   assert.equal(result.isError,true);
-  assert.ok(result.structuredContent,JSON.stringify(result));
-  assert.deepEqual(result.structuredContent,{schema:'aiterm.agent-resume-error.v1',code:'AGENT_RESUME_UNCONFIRMED',
+  assert.equal(result.structuredContent,undefined,'outside pty_send outputSchema: a validating client would turn it into -32602');
+  assert.equal(result._meta['aiterm/error_code'].code,'AGENT_RESUME_UNCONFIRMED');
+  assert.deepEqual(result._meta['aiterm/resume_error'],{schema:'aiterm.agent-resume-error.v1',code:'AGENT_RESUME_UNCONFIRMED',
    session_id:meta.aiterm_session,launch_id:meta.launch_id,input:'not_sent',recovery:'inspect_session'});
   assert.match(result.content[0].text,/AGENT_RESUME_UNCONFIRMED/);
   assert.ok(!JSON.stringify(result).includes('MUST_NOT_SEND'));

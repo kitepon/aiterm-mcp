@@ -112,8 +112,10 @@ test('an explicit hibernate skips only the deadline and attachment; a rate-limit
  assert.equal(decideIdleSeat(seat(),early,30,undefined,true).outcome,'ready');
  assert.equal(decideIdleSeat({...seat(),attached:true},early,30,undefined,true).outcome,'ready');
  // Work that a stop would lose still refuses an explicit hibernate.
- for(const change of [{state:'busy',reason:'turn_running'},{pending_child_deliveries:1},{post_startup_process_count:1},{turn_settled:false},{resume_ready:false},{native_configuration_confirmed:false}])
+ for(const change of [{state:'busy',reason:'turn_running'},{pending_child_deliveries:1},{post_startup_process_count:1},{turn_settled:false},{resume_ready:false}])
   assert.equal(decideIdleSeat({...seat(),...change},early,30,undefined,true).outcome,'skipped',JSON.stringify(change));
+ // The saved recipe stands for an explicit hibernate; the idle clock still needs the screen settings check (t29).
+ assert.equal(decideIdleSeat({...seat(),native_configuration_confirmed:false},early,30,undefined,true).outcome,'ready');
  // Limit footer/menu: no Stop event, no composer; the transcript's rate_limited error after the last input ends the turn.
  const limitedAt='2026-10-31T00:00:05.000Z';
  const limited={...seat(),state:'unknown',reason:'unrecognized_screen',turn_settled:false,native_configuration_confirmed:false,rate_limited_at:limitedAt,

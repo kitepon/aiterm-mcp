@@ -2115,12 +2115,14 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
     if (native && state === "hibernated") result.reason = "resume_native_conflict";
     return result;
   }
-  try { confirmedAgentResumeRecipe(meta, readAgentLifecycle(meta)!); }
+  const lifecycle = readAgentLifecycle(meta)!;
+  try { confirmedAgentResumeRecipe(meta, lifecycle); }
   catch { result.reason = "resume_unconfirmed"; return result; }
   // Discard the old pane's cursor; hibernation proves absence, not an activity delta.
   if (!isDeepStrictEqual(loadAgentMetadata(name), meta) || agentDormantState(meta) !== "hibernated"
     || nativeSessionExists(name)) return result;
-  result.state = "hibernated"; result.reason = "idle_timeout";
+  // A seat whose native vanished (container replaced) and was adopted at send/launch is not an idle seat (Kiro, 2026-11-13).
+  result.state = "hibernated"; result.reason = "origin" in lifecycle && lifecycle.origin === "restart" ? "native_vanished" : "idle_timeout";
   result.pane_alive = false; result.harness_alive = false; result.pending_child_deliveries = 0;
   result.activity.cpu_seconds = 0; result.activity.background_cpu_seconds = 0;
   result.activity.post_startup_process_count = 0;

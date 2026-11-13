@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
+import path from "node:path";
 import type { AgentMetadata } from "./agent-shared.js";
 import { claudeSessionTranscriptPath } from "./harnesses/claude.js";
+import { grokSessionDirectory } from "./harnesses/grok.js";
 
 /** A harness's own unfinished background task (a68): in-process agents, background shells. */
 export type BackgroundTask = { kind: "agent" | "shell" | "other"; label: string; since: string };
@@ -45,15 +47,10 @@ export function applyClaudeTranscriptLine(line: string, open: Map<string, Backgr
   for (const key of ["shell_id", "task_id"]) if (typeof result[key] === "string") { done.add(result[key]); open.delete(result[key]); }
 }
 
-/**
- * Claude's own count of unfinished background tasks of this seat, from its transcript: an async Agent launch
- * (toolUseResult.isAsync + agentId) or a background Bash (toolUseResult.backgroundTaskId) with no <task-notification>
- * naming it yet. Launches before this launch's metadata was created belong to an earlier process and are not counted.
- * null: not a Claude seat, or the transcript cannot be read.
- */
-export function claudeBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
-  const file = meta.kind === "claude" ? claudeSessionTranscriptPath(meta) : null;
-  if (!file) return null;
+type LineApply = (line: string, open: Map<string, BackgroundTask>, done: Set<string>, inputs: Map<string, string>) => void;
+
+/** Apply new complete lines of a harness record to its kept state; null when the file cannot be read. */
+function readRecord(file: string, apply: LineApply): TranscriptState | null {
   let stat: fs.Stats;
   try { stat = fs.statSync(file); } catch { return null; }
   let state = states.get(file);
@@ -68,16 +65,67 @@ export function claudeBackgroundTasks(meta: AgentMetadata): BackgroundTasks | nu
       state.offset += read;
       const lines = (state.partial + buffer.subarray(0, read).toString("utf8")).split("\n");
       state.partial = lines.pop() ?? "";
-      for (const line of lines) if (line) applyClaudeTranscriptLine(line, state.open, state.done, state.inputs);
+      for (const line of lines) if (line) apply(line, state.open, state.done, state.inputs);
     } catch { return null; } finally { if (fd !== null) fs.closeSync(fd); }
   }
+  return state;
+}
+
+/** Tasks opened since this launch's metadata was created (earlier ones belonged to an earlier process), and the oldest. */
+function liveTasks(meta: AgentMetadata, state: TranscriptState): BackgroundTasks {
   const start = Date.parse(meta.created_at);
   const live = [...state.open.values()].filter(task => !Number.isFinite(start) || Date.parse(task.since) >= start - 1000);
   const oldest = live.reduce<BackgroundTask | null>((first, task) => !first || task.since < first.since ? task : first, null);
   return { count: live.length, oldest };
 }
 
+/**
+ * Claude's own count of unfinished background tasks of this seat, from its transcript: an async Agent launch
+ * (toolUseResult.isAsync + agentId) or a background Bash (toolUseResult.backgroundTaskId) with no <task-notification>
+ * naming it yet. null: not a Claude seat, or the transcript cannot be read.
+ */
+export function claudeBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
+  const file = meta.kind === "claude" ? claudeSessionTranscriptPath(meta) : null;
+  const state = file ? readRecord(file, applyClaudeTranscriptLine) : null;
+  return state ? liveTasks(meta, state) : null;
+}
+
+/**
+ * Apply one Grok updates.jsonl row (1.0.77, captured 2026-11-14): subagent_spawned / subagent_finished,
+ * task_backgrounded / task_completed, and the background_tasks snapshot (each task's status and kind).
+ */
+export function applyGrokUpdateLine(line: string, open: Map<string, BackgroundTask>, done: Set<string>): void {
+  if (!/"sessionUpdate":"(?:subagent_|task_|background_tasks)/.test(line)) return;
+  let row: any;
+  try { row = JSON.parse(line); } catch { return; }
+  const update = row?.params?.update;
+  const at = Number.isFinite(row?.timestamp) ? new Date(row.timestamp * 1000).toISOString() : null;
+  const close = (id: unknown) => { if (typeof id === "string") { done.add(id); open.delete(id); } };
+  const add = (id: unknown, task: BackgroundTask | null) => { if (typeof id === "string" && task && !done.has(id) && !open.has(id)) open.set(id, task); };
+  switch (update?.sessionUpdate) {
+    case "subagent_spawned": if (at) add(update.subagent_id, { kind: "agent", label: taskLabel(update.description, "agent"), since: at }); break;
+    case "subagent_finished": close(update.subagent_id); break;
+    case "task_backgrounded": if (at) add(update.task_id, { kind: "shell", label: taskLabel(update.command, "shell"), since: at }); break;
+    case "task_completed": close(update.task_snapshot?.task_id ?? update.task_id); break;
+    case "background_tasks":
+      for (const task of Array.isArray(update.tasks) ? update.tasks : []) {
+        if (task?.status !== "running") { close(task?.task_id); continue; }
+        const since = typeof task.started_at === "string" && Number.isFinite(Date.parse(task.started_at)) ? new Date(task.started_at).toISOString() : at;
+        const kind = task.kind === "bash" ? "shell" : task.kind === "subagent" ? "agent" : "other";
+        if (since) add(task.task_id, { kind, label: taskLabel(task.description ?? task.command, kind), since });
+      }
+      break;
+  }
+}
+
+/** Grok's own count of unfinished background tasks of this seat, from its session's updates.jsonl; null if unreadable. */
+export function grokBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
+  const dir = meta.kind === "grok" ? grokSessionDirectory(meta) : null;
+  const state = dir ? readRecord(path.join(dir, "updates.jsonl"), applyGrokUpdateLine) : null;
+  return state ? liveTasks(meta, state) : null;
+}
+
 /** The harness's own statement of unfinished background tasks; null where the harness gives none Aiterm reads (a68). */
 export function harnessBackgroundTasks(meta: AgentMetadata): BackgroundTasks | null {
-  return meta.kind === "claude" ? claudeBackgroundTasks(meta) : null;
+  return meta.kind === "claude" ? claudeBackgroundTasks(meta) : meta.kind === "grok" ? grokBackgroundTasks(meta) : null;
 }

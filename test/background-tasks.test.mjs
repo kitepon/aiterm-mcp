@@ -54,3 +54,24 @@ test("claudeBackgroundTasks reads the seat's transcript incrementally and ignore
   assert.equal(bt.claudeBackgroundTasks({ ...meta, kind: "codex" }), null);
   assert.equal(bt.harnessBackgroundTasks({ ...meta, kind: "grok" }), null, "other harnesses give no statement yet");
 });
+
+// Grok 1.0.77 updates.jsonl rows (captured 2026-11-14 01:13 JST, a test seat with a background subagent and `sleep 70`).
+const grokRow = (timestamp, update) => JSON.stringify({ timestamp, method: "_x.ai/session/update", params: { sessionId: "s", update } });
+test("Grok updates.jsonl: subagents and backgrounded commands are open until finished/completed or a non-running snapshot", () => {
+  const open = new Map(), done = new Set();
+  const rows = [
+    grokRow(1794586385, { sessionUpdate: "task_backgrounded", task_id: "2626c48f", command: "sleep 70" }),
+    grokRow(1794586385, { sessionUpdate: "background_tasks", tasks: [{ task_id: "2626c48f", command: "sleep 70", description: "sleep 70 in background", kind: "bash", status: "running", started_at: "2026-11-13T16:13:05.201931788+00:00" }] }),
+    grokRow(1794586385, { sessionUpdate: "subagent_spawned", subagent_id: "01a1d5af", description: "sleep 60 then reply", subagent_type: "general-purpose" }),
+  ];
+  for (const row of rows) bt.applyGrokUpdateLine(row, open, done);
+  assert.deepEqual([...open.entries()], [
+    ["2626c48f", { kind: "shell", label: "sleep 70", since: "2026-11-13T16:13:05.000Z" }],
+    ["01a1d5af", { kind: "agent", label: "sleep 60 then reply", since: "2026-11-13T16:13:05.000Z" }]]);
+  bt.applyGrokUpdateLine(grokRow(1794586448, { sessionUpdate: "subagent_finished", subagent_id: "01a1d5af", status: "completed" }), open, done);
+  assert.deepEqual([...open.keys()], ["2626c48f"]);
+  bt.applyGrokUpdateLine(grokRow(1794586455, { sessionUpdate: "background_tasks", tasks: [{ task_id: "2626c48f", kind: "bash", status: "completed" }] }), open, done);
+  assert.equal(open.size, 0, "a snapshot that no longer says running closes it");
+  bt.applyGrokUpdateLine(grokRow(1794586456, { sessionUpdate: "task_backgrounded", task_id: "2626c48f", command: "sleep 70" }), open, done);
+  assert.equal(open.size, 0, "a finished task is not reopened");
+});

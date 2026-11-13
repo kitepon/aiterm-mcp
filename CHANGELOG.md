@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Grok seats now state their own unfinished background tasks too (a68): background subagents and backgrounded commands, read from the session's updates.jsonl (subagent_spawned/finished, task_backgrounded/completed, background_tasks). `own_work.tasks`/`task` and `activity.background_tasks` are no longer null for Grok, and tasks > 0 holds the idle clock and explicit hibernate.
+
 ## [0.70.52] - 2026-11-13
 
 - seat-turns: a terminal that answers after the 4 s budget no longer leaves its seats unread poll after poll. Its late answer goes to the next poll (once, up to 60 s old), and every relayed row carries `observed_at` (fox under a build: rows stood still for 85 s).

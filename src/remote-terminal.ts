@@ -264,7 +264,12 @@ export class SshStdioTransport implements Transport {
     child.on("error", error => this.onerror?.(error));
     child.on("close", () => { this.child = null; this.onclose?.(); });
     child.stdin!.on("error", error => this.onerror?.(error));
-    child.stdin!.write(this.privateLine);
+    if (this.privateLine) child.stdin!.write(this.privateLine);
+  }
+  /** A kept session must not keep an idle process alive; it holds the loop only while a request waits on it. */
+  hold(on: boolean): void {
+    for (const handle of [this.child, this.child?.stdin, this.child?.stdout, this.child?.stderr] as Array<{ ref?(): void; unref?(): void } | null | undefined>)
+      on ? handle?.ref?.() : handle?.unref?.();
   }
   async send(message: JSONRPCMessage): Promise<void> {
     if (!this.child?.stdin) throw new RemoteTerminalError("CONNECTION_LOST", "the terminal connection is closed");

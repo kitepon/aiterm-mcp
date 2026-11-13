@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.46] - 2026-11-13
+
 - A Codex seat's own work (seat-turns `own_work.processes`, `pty_observe` `activity.post_startup_process_count`) now counts a lone command such as `sleep 300`. bash and zsh `-c` replace themselves with a single simple command, so the exec shell's shape was gone and the command was missed on Linux and macOS (a seat with one background command read 0 and could hibernate). Codex starts each exec in a new session, so a Codex child that is a session leader is now counted; MCP servers, hooks and the code-mode host stay in the seat's session and are still not counted (ADR 0141).
 
 ## [0.70.45] - 2026-11-13
@@ -3407,7 +3409,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.45...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.46...HEAD
+[0.70.46]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.45...v0.70.46
 [0.70.45]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.44...v0.70.45
 [0.70.44]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.43...v0.70.44
 [0.70.43]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.42...v0.70.43

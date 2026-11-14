@@ -133,7 +133,8 @@ test("openAgentWithInitialPrompt: an unanswered startup screen that leaves by it
 
 // Kiro rabbit-linux (2026-11-14): agy drew an `esc to dismiss` notice on its first start after a self-update; the frame right
 // after Aiterm's one Escape still showed it and the launch refused 0.84 s later. The notice is answered again while it stays.
-test("openAgentWithInitialPrompt: agy's notice that outlives the first Escape is answered again, then the prompt goes", { skip: skipAgentDone }, async () => {
+// POSIX only: the fake is a shebang script on a raw tty; the loop it checks is shared by every platform.
+test("openAgentWithInitialPrompt: agy's notice that outlives the first Escape is answered again, then the prompt goes", { skip: skipAgentDone || process.platform === "win32" }, async () => {
   const saved = process.env.ANTIGRAVITY_BIN;
   const bin = path.join(process.env.TMPDIR, `fake-agy-notice-${Date.now().toString(36)}.js`);
   fs.writeFileSync(bin, `#!${process.execPath}

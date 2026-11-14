@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Antigravity's Linux exec shape is captured (1.5.8, container): `bash -c <cmd>` as a session leader on its own pty, counted by the existing session-leader rule since 0.70.47. Fixture and ADR 0141 table only; no runtime change.
+
 ## [0.70.55] - 2026-11-13
 
 - Antigravity seats whose turn is over while a background task runs read idle in seat-turns, so the seat's reason is the background task, not the turn (a68, Centi train W). A spinner over `esc to cancel` still reads a running turn.

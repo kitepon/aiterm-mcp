@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A fresh launch on a loaded Mac no longer fails with `native_condition_refused` while the seat is fine (Lapi's seat, macbook 19:47). tmux 3.7+ blanks a format that runs past its 100 ms budget, so the identity check took the refusal branch. A refusal is now classified from `has-session` plus one pane read: `native_pane_gone`, `native_identity_changed` (with the field), `native_pane_exited`, `native_creation_marker_changed`, or unevaluated. Only an unevaluated condition re-issues the same command, at most 4 tries, then `native_condition_unevaluated`.
+- Blank or partial `list-sessions` rows read as an unavailable listing, not an absent session; a blank pane read after creation is unreadable, not a replaced native.
+- The Mac GUI LaunchAgent sets `ProcessType=Interactive`, so a new tmux server and its seats leave launchd's background priority.
+
 ## [0.70.58] - 2026-11-14
 
 - `aiterm-setup harness-entries --json` (bd14, BellTeam E1 v1.1): prints the hooks Aiterm needs for Claude, Cursor and Codex as `bellteam.harness-entries.v1` (native groups as the CLI files hold them, `owns.commandIncludes`), for a caller that is the one writer of those files. It writes no CLI file and no Codex trust; it writes only Aiterm's own `codex-parent-hooks/config.json`. The entries are produced by the same Steer writers on an empty file, so they equal what `configureNativeExecutionHooks` writes today.

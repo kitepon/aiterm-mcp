@@ -14,7 +14,7 @@
 | 入力作用 | POSIX load-buffer/paste-buffer、Windows direct worker | load/paste途中の失敗とEnter失敗を区別。先行chunkやprefaceが入った可能性は消えない。自動再送しない |
 | 待機 | `waitCompletion` / mark file / log size / foreground | is_complete、timeout、nested、dead、quiescent、command rc。処理成功、agent完了、画面反映とは同値でない |
 | 読取と表示 | `readOutput` / offset / `stripControl` / `reduceOutput` / `rtk.ts` | delta読取・offset更新とscreen読取を区別。raw、8MiB上限、ANSI/control/CRと表示縮約を保持 |
-| 一覧と終了 | `listNativeSessions` / `listSessionsResult` / `closeSessionInternal` | nativeと保存会話席を併記。登録envキーだけを公開。一覧のagent_done=trueは管理方式であって現在turnの完了でない |
+| 一覧と終了 | `listNativeSessions` / `listSessionsResult` / `closeSessionInternal` | nativeと保存会話席を併記。登録envキーだけを公開。一覧のagent_done=trueは管理方式であって現在turnの完了でない。保存会話席の記録が読めない・一覧の途中で閉じられて消えた時は、その席だけ載せず一覧全体は返す（0.70.61、BugHub d90f8b67） |
 
 正確な各関数の開始行・本体範囲・静的callerは対応表を参照する。MCPの入力schema、結果整形とisErrorは`src/index.ts`が所有し、CLI callerはcoreの例外を各入口へ返す。
 

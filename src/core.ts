@@ -2641,8 +2641,8 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
   const result = listNativeSessionsResult(envKeys, runTmux);
   const present = new Set(result.sessions.map(row => row.session_id));
   for (const name of savedAgentSessionNames()) {
-    // A known native terminal remains present even when its ordinary agent record is invalid.
-    const meta = present.has(name) ? tryLoadAgentMetadata(name) : loadAgentMetadata(name);
+    // An unreadable record, or one a close removed after the readdir, drops only that seat; the list still answers (BugHub d90f8b67).
+    const meta = tryLoadAgentMetadata(name);
     if (!meta) continue;
     const state = agentDormantState(meta);
     // A Claude seat whose native session is gone with no lifecycle (e.g. it vanished with the container) stays listed as

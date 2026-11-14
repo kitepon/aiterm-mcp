@@ -136,7 +136,7 @@ test("Windows: Codex pwsh with its UTF-8 console line, Grok pwsh without the hoo
     row(21, 10, 3, `${PWSH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\kite_\\.approval-box\\runtime\\0.1.32\\approval-box-claude-hook.mjs'; exit (Get-Variable LASTEXITCODE -ValueOnly)"`)]), []);
 });
 
-// Antigravity 1.5.8 (Gemini 3.8 Flash), captured 2026-11-13 20:0x-20:1x JST (a41-agy).
+// Antigravity 1.5.8 (Gemini 3.8 Flash), captured 2026-11-13 20:0x-20:1x JST (a41-agy); Linux 2026-11-14.
 test("Antigravity: each command is a session leader on its own pty (POSIX), pwsh with its $OutputEncoding line (Windows)", () => {
   // macOS: a lone `sleep 240` stat Ss+ on a new tty; `sleep 230; echo …` runs as `zsh -c …` (Ss+) with sleep below it.
   // The seat's servers stay on the seat's tty, not session leaders.
@@ -148,6 +148,15 @@ test("Antigravity: each command is a session leader on its own pty (POSIX), pwsh
   assert.deepEqual(count("antigravity", agy, [...servers, leader(30, 10, "sleep 240")]), [30]);
   assert.deepEqual(count("antigravity", agy, [...servers, leader(30, 10, "zsh -c sleep 230; echo elegg-done"), row(31, 30, 9, "sleep 230")]), [30, 31]);
   assert.deepEqual(count("antigravity", agy, servers), [], "an idle seat with its servers and hook reads 0");
+  // Linux (container, captured 2026-11-14 11:08 JST): foreground and background alike `bash -c <cmd>` (Ss+, new pty) under agy;
+  // MCP servers (mcp-lazy, run-seat-mcp) and the `sh -c` Stop hook stay on the seat's tty.
+  const lin = row(10, 5, 1, `/usr/local/bin/agy --dangerously-skip-permissions --settings {"queuedMessages":"send-immediately"} --model gemini-3.8-flash-medium`);
+  const linServers = [row(20, 10, 2, "/usr/local/bin/mcp-lazy /usr/local/bin/node /usr/local/lib/node_modules/aiterm-mcp/dist/execution-native-server.js --execution-interrupt"),
+    row(21, 20, 2, "/usr/local/bin/node /usr/local/lib/node_modules/aiterm-mcp/dist/execution-native-server.js --execution-interrupt"),
+    row(22, 10, 2, "/usr/local/bin/node /app/src/run-seat-mcp.mjs http://127.0.0.1:4181/mcp"),
+    row(23, 10, 3, "sh -c '/usr/local/bin/node' '/usr/local/lib/node_modules/aiterm-mcp/dist/antigravity-hook.js' 'Stop'")];
+  assert.deepEqual(count("antigravity", lin, [...linServers, leader(30, 10, "bash -c sleep 40; echo elegg-bg"), row(31, 30, 9, "sleep 40")]), [30, 31]);
+  assert.deepEqual(count("antigravity", lin, linServers), []);
   // Windows: the command's pwsh is a direct child of agy.exe; MCP servers are plain children.
   const win = row(10, 5, 1, `"C:\\Users\\kite_\\AppData\\Local\\agy\\bin\\agy.exe" --dangerously-skip-permissions --settings "{\\"queuedMessages\\":\\"send-immediately\\"}" --model gemini-3.8-flash-medium`);
   const winServers = [row(20, 10, 2, `"C:\\Program Files\\nodejs\\node.exe" C:\\Users\\kite_\\AppData\\Roaming\\npm\\node_modules\\aiterm-mcp\\dist\\index.js`),

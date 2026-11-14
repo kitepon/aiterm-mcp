@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Withdrawn at the requester's ask (Kiro 2026-11-14): the `refusal` field of `aiterm.agent-configure-request-result.v1` and the `AGENT_CONFIGURE_NOT_READY` code added in 0.70.56. A not-ready (turn running) configure refusal again carries no `_meta["aiterm/configure_error"]`; only Claude picker refusals do, which is how a caller tells them apart.
+- Diagrams: startup screen states S0-S6 of `prepareAgentInput` (launch-identity-input.md / .dot) and the Claude alias rule (model-configuration.md / .dot).
+
 ## [0.70.56] - 2026-11-14
 
 - Claude `agent_configure` with an alias (`fable`, `opus`) selects the family's newest row on both picker layouts when the seat's catalog names the alias without a version (`Fable`). It refused on versioned rows (`Fable 5.2`) with `CLAUDE_MODEL_NOT_IN_PICKER` (Kiro 2026-11-14). An alias the catalog names with a version still means that version only.

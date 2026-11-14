@@ -26,19 +26,9 @@ const resultSchema = z.object({ schema: z.literal("aiterm.agent-configure-result
   provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]),
   harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
   model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean().nullable() }).strict();
-// configure-reconcile.md `refusal`: why a not_applied request was refused, so a caller can retry at a boundary or tell the requester.
-const refusalSchema = z.object({ code: z.string().min(1).max(128), kind: z.enum(["turn_running", "not_offered", "other"]) }).strict();
-const TURN_RUNNING = new Set(["AGENT_CONFIGURE_NOT_READY", "AGENT_SEND_BUSY", "GOAL_CONFIGURE_TURN_END_UNCONFIRMED"]);
-const NOT_OFFERED = new Set(["CLAUDE_MODEL_NOT_IN_PICKER", "CLAUDE_MODEL_NOT_SELECTABLE", "CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE",
-  "CLAUDE_EFFORT_NOT_SELECTABLE", "FAST_MODE_NOT_SUPPORTED", "FAST_MODE_UNAVAILABLE"]);
-export function configurationRefusal(error: Error): z.infer<typeof refusalSchema> {
-  const code = (error as AitermError).configureRefusal?.code ?? /^([A-Z][A-Z0-9_]{2,})\b/u.exec(error.message)?.[1] ?? "UNCODED";
-  return { code, kind: TURN_RUNNING.has(code) ? "turn_running" : NOT_OFFERED.has(code) ? "not_offered" : "other" };
-}
 const recordSchema = z.object({ schema: z.literal("aiterm.configuration-request.v1"), binding: configurationBindingSchema,
   requested: settingsSchema, terminal_at: z.iso.datetime().nullable(), native_effect: z.enum(["not_issued", "possible", "selection_excluded"]),
   outcome: z.enum(["applied", "not_applied", "outcome_unknown"]), result: resultSchema.nullable(),
-  refusal: refusalSchema.optional(), // absent in records saved before 0.70.56
 }).strict().refine(value => configurationRequestDigest(value.requested) === value.binding.digest
   && (value.result === null || value.result.session_id === value.binding.session_id)
   && (value.terminal_at !== null || value.result === null && value.outcome === "outcome_unknown")
@@ -47,7 +37,7 @@ type Record = z.infer<typeof recordSchema>;
 export const configurationReceiptSchema = z.object({ schema: z.literal("aiterm.agent-configure-request-result.v1"),
   binding: configurationBindingSchema, request_state: z.enum(["not_recorded", "unavailable", "pending_or_unknown", "terminal"]),
   outcome: z.enum(["applied", "not_applied", "outcome_unknown"]), later_effect: z.enum(["excluded", "unconfirmed"]),
-  terminal_at: z.iso.datetime().nullable(), result: resultSchema.nullable(), refusal: refusalSchema.nullable(),
+  terminal_at: z.iso.datetime().nullable(), result: resultSchema.nullable(),
   current: z.object({ availability: z.literal("unsupported") }).strict(), observed_at: z.iso.datetime(),
 }).strict();
 export type ConfigurationReceipt = z.infer<typeof configurationReceiptSchema>;
@@ -89,7 +79,6 @@ function receipt(binding: Binding, record: Record | null, missing: "not_recorded
     outcome: record?.outcome ?? "outcome_unknown",
     later_effect: record && record.terminal_at !== null && record.native_effect !== "possible" ? "excluded" : "unconfirmed",
     terminal_at: record?.terminal_at ?? null, result: record?.result ?? null,
-    refusal: record?.outcome === "not_applied" ? record.refusal ?? null : null,
     current: { availability: "unsupported" }, observed_at: new Date().toISOString() };
 }
 export function reconcileConfigurationRequest(input: Binding): ConfigurationReceipt {
@@ -135,7 +124,6 @@ export async function applyConfigurationRequest(input: Binding, settings: Settin
     // UI input was issued, but the adapter read the picker closed before any selecting key (configure-reconcile.md).
     if (record.outcome === "not_applied" && record.native_effect === "possible" && (failure as AitermError).configureRefusal?.selection_excluded)
       record.native_effect = "selection_excluded";
-    if (record.outcome === "not_applied") record.refusal = configurationRefusal(failure);
   }
   record.terminal_at = new Date().toISOString();
   try { save(); }

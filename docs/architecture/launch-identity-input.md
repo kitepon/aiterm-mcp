@@ -27,6 +27,23 @@
 
 基準CI `41397057670` Windowsでは `process-start.test.mjs` の自身の出生本人性がnullになり、初期native作成callbackで拒否する多数のcase、argv fixture期限・PTY入力/出力の失敗を観測した。これは故障箇所の候補位置であり、原因を確定したものではない。元ログと5snapshot/24filesは `integrations/papillon-resume-20261102/publication/` に保全済み。基準のまま修理を混ぜず、停止・取消・作成後cleanupとresumeの例外順序は下記詳細へ接続した。
 
+## 起動の途中の画面の状態遷移（`prepareAgentInput`、0.70.55・0.70.56）
+
+起動からpromptの1文字目までに、席の画面が取りうる状態と移り方。読むのは `waitAgentTuiReady`（画面の見本を取る）と `agentPaneObservation`（`state`・`reason`）、答えるのは各CLIの `*StartupAction`（`codex`・`claude`・`grok`・`antigravity`）。見本の間隔は `AGENT_TUI_READY_POLL_MS`（500 ms）、待ち時間は `ready_timeout`（既定30秒、`deadline`）。
+
+| 状態 | 入る条件 | 出る先（条件） |
+| --- | --- | --- |
+| S0 見本待ち | 起動直後、または鍵を送った後 | S5 入力欄が空いた（`ready` / Codexの`steer`）／S1 答えのある画面／S3 答えの無い・答え済みの画面／S4 Claudeの初回案内／S6 待ち時間切れ |
+| S1 答えのある画面（未回答） | `*StartupAction` が答え（鍵）を返し、その種類にまだ答えていない | S2（鍵を送る。`answeredAt[kind]` に時刻） |
+| S2 答えた直後 | 鍵を送った（選ぶ行のある答えは行が動いたのを確かめてから決める鍵） | S0（同じ見本の取り直し。描き直し前の古い画面が出ることがある） |
+| S3 待ち切る画面 | `state=blocked` で、答えが無いか、その種類に答え済み（agyのお知らせは1秒たっていない） | S0（500 ms 後に見本を取り直す。画面が自分で消えれば S5）／S1（agyのお知らせ `antigravity_notice` が残り、前の Esc から `AGENT_STARTUP_NOTICE_RESEND_MS` = 1秒たった：Esc を押し直す）／S6 待ち時間切れ |
+| S4 持ち主が進める画面 | `reason=vendor_onboarding_required`（Claudeの初回案内・規約） | S6 すぐ（持ち主が端末で進めない限り消えない） |
+| S5 入力できる | 入力欄が空き、native harnessが生きていて idle | promptを送る、またはpromptなしの起動を `startup.ready` で返す |
+| S6 断る | S3 のまま待ち時間が切れた、S4、または答えの無い・blockedでない画面 | `startupBlockedRefusal`：自分で作った席を閉じ、`AGENT_STARTUP_BLOCKED reason=<観察の理由>`（席は残らない） |
+
+断る（S6）が守る物：呼び手のpromptを、CLIの確かめ・選ぶ画面へ打たないこと（打てば、その画面の選択として読まれる）。S6 へは待ち時間の分だけ待ってから入り、その間に画面が自分で消えれば S3 → S0 → S5 と自分で抜ける。0.70.55 までは S2 の直後の古い画面（答え済み）で S6 へ直行していた（キロ氏 rabbit-linux：agyの自己更新後の最初の起動のお知らせ、Esc 1回、0.84秒後に閉じた）。
+
+
 06:35工程の詳細は [状態所有・途中失敗・取消・cleanup](lifecycle-state-ownership.md)、[関数と静的caller/test参照](source-index.md)へ追加した。初期native本人性取得と、その後のmetadata/CLI起動行のcatchは別の位置にあり、同じcleanupが必ず走ると説明しない。
 
 R1-C候補は公開済みfailedかつnative不在のCodexへ新出生のnativeを作り、同vendor IDを再開する。元failedをhibernatedへ変更せず、正規recovery-originとfresh root floorを既resume作成へ渡す。詳細/返却/unknown/cleanupは[lifecycle正本](lifecycle-state-ownership.md)へ接続する。生きている同名別nativeの採用や旧本文の再送は行わない。

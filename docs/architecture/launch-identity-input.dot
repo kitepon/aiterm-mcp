@@ -14,7 +14,10 @@ digraph launch {
  verify [label="verifyCreatedNative: session/pane route, then births\nknown mismatch → replacement\nnull birth → identity-read failure"];
  fail [label="Missing identity → refuse current operation\nno persistent blocked state; next operation reads afresh",fillcolor="#ffe6e6"];
  launch [label="core.ts: create / send launch command\nmetadata / settings / original vendor environment"];
- ready [label="prepareAgentInput / waitAgentTuiReady\nTUI observation + native harness observation"];
+ ready [label="prepareAgentInput / waitAgentTuiReady\nTUI observation + native harness observation\n(startup screen states S0-S6: launch-identity-input.md)"];
+ startupact [label="*StartupAction (codex / claude / grok / antigravity)\nscreen -> keys (trust / notice / dialog)\nanswered once per kind; agy notice re-answered <= 1/s",fillcolor="#fff2d7"];
+ startupwait [label="Blocked screen waited out until ready budget\n(unanswered or already answered; poll 500 ms)\nleaves by itself -> ready",fillcolor="#fff2d7"];
+ startupref [label="startupBlockedRefusal\nbudget ended on a blocked screen, or Claude onboarding\nclose own pane -> AGENT_STARTUP_BLOCKED reason",fillcolor="#ffe6e6"];
  resume [label="resumeAgentInLock\nstandard-speed busy Codex needs native running turn",fillcolor="#f2ecff"];
  input [label="submitAgentComposerText\npaste → visibility check / delay → Enter"];
  after [label="Caller observes submit residue / turn start\nreceipt distinguishes not_sent / unconfirmed / started"];
@@ -32,7 +35,10 @@ digraph launch {
  verify -> fail [label="null or known mismatch"];
  fail -> verify [label="later caller operation",style=dashed];
  launch -> ready;resume -> ready;ready -> input [label="optional body, readiness proven"];
- ready -> receipt [label="promptless startup / blocked"];
+ ready -> receipt [label="promptless startup ready"];
+ ready -> startupact [label="screen sample"];startupact -> ready [label="keys sent; resample"];
+ ready -> startupwait [label="blocked, no new answer"];startupwait -> ready [label="resample"];
+ startupwait -> startupref [label="budget ended"];ready -> startupref [label="onboarding / not blocked"];startupref -> receipt;
  input -> after;after -> receipt;
  observe -> identity [label="other read path, not old receipt completion",style=dashed];
 }

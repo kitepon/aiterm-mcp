@@ -5309,6 +5309,8 @@ function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, c
 }
 
 const STARTUP_SELECTION_POLL_MS = 100;
+// agy's dismissible startup notice is answered again (Escape) at most this often while it stays on screen.
+const AGENT_STARTUP_NOTICE_RESEND_MS = 1_000;
 const STARTUP_SELECTION_MAX_SAMPLES = 30;
 
 /** 起動時の確認画面で、選択中（❯）の行が目的の選択肢へ移ったことを確かめる。 */
@@ -5331,12 +5333,17 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   const budget = options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, deadline = performance.now() + budget;
   const wait = (ms = budget) => waitAgentTuiReady(name, meta, ms, { selectSteer: running });
   let ready = await wait();
-  const handled = new Set<string>();
+  const answeredAt = new Map<string, number>();
   while (!ready.ready && !ready.steer) {
-    const action = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
+    const found = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "antigravity" ? antigravityStartupAction(ready.lastScreen, options.trust_project === true, meta.cwd) : null;
+    // A screen already answered is waited out like an unanswered one: the sample right after the key can still be the old
+    // frame (Kiro rabbit-linux: agy's notice, one Escape, refused 0.84 s later). agy's notice is answered again while it stays.
+    const last = found ? answeredAt.get(found.kind) : undefined;
+    const action = found && (last === undefined
+      || (found.kind === "antigravity_notice" && performance.now() - last >= AGENT_STARTUP_NOTICE_RESEND_MS)) ? found : null;
     // A screen Aiterm does not answer can leave by itself: agy drew its login screen for 3 s right after a login, then went on
     // (Centi train W F2). Look until the ready budget ends; only a screen that stays refuses. Claude's first-run steps never
     // leave without the account owner, so they refuse at once.
@@ -5347,8 +5354,8 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
       ready = await wait(Math.max(1, deadline - performance.now()));
       continue;
     }
-    if (!action || handled.has(action.kind)) break;
-    handled.add(action.kind);
+    if (!action) break;
+    answeredAt.set(action.kind, performance.now());
     const keys = action.selected ? action.keys.slice(0, -1) : action.keys;
     for (const key of keys) {
       await withExecutionNativeAdmission(name, () => sendKey(name, key, { preserveAgentOperation: true }));

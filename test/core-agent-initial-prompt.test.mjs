@@ -131,6 +131,46 @@ test("openAgentWithInitialPrompt: an unanswered startup screen that leaves by it
   }
 });
 
+// Kiro rabbit-linux (2026-11-14): agy drew an `esc to dismiss` notice on its first start after a self-update; the frame right
+// after Aiterm's one Escape still showed it and the launch refused 0.84 s later. The notice is answered again while it stays.
+test("openAgentWithInitialPrompt: agy's notice that outlives the first Escape is answered again, then the prompt goes", { skip: skipAgentDone }, async () => {
+  const saved = process.env.ANTIGRAVITY_BIN;
+  const bin = path.join(process.env.TMPDIR, `fake-agy-notice-${Date.now().toString(36)}.js`);
+  fs.writeFileSync(bin, `#!${process.execPath}
+const fs = require("node:fs"), out = s => process.stdout.write(s);
+if (process.argv[2] === "models" || process.argv[2] === "-p") { out("gemini-3.8-flash-medium\\tGemini 3.8 Flash (Medium)\\n"); process.exit(0); }
+if (process.argv[2] === "--version") { out("1.5.8\\n"); process.exit(0); }
+const notice = () => out("\\x1b[2J\\x1b[HAntigravity CLI 1.5.8\\n\\n  What's new  esc to dismiss\\n");
+let escapes = 0, line = "";
+out("\\x1b[?1049h"); // agy draws on the alternate screen
+notice();
+process.stdin.setRawMode(true);
+process.stdin.on("data", data => {
+  for (const ch of data.toString()) {
+    if (ch === "\\x1b" && ++escapes === 1) notice();  // the first Escape is lost in the redraw
+    else if (ch === "\\x1b") out("\\x1b[2J\\x1b[H────\\n>\\n────\\n? for shortcuts\\n");
+    else if (ch === "\\r") { fs.appendFileSync(process.argv[1] + ".prompts", line + "\\n"); line = ""; }
+    else line += ch;
+  }
+});
+`, { mode: 0o700 });
+  const sid = `agy_notice_${Date.now().toString(36)}`;
+  process.env.ANTIGRAVITY_BIN = bin;
+  try {
+    const outcome = await core.openAgentWithInitialPrompt("antigravity", { session_name: sid, prompt: "NOTICE_PROMPT", ready_timeout: 20_000 })
+      .then(() => "sent", (error) => error.message);
+    assert.doesNotMatch(outcome, /AGENT_STARTUP_BLOCKED/u);
+    const sent = () => fs.existsSync(`${bin}.prompts`) && fs.readFileSync(`${bin}.prompts`, "utf8").includes("NOTICE_PROMPT");
+    for (let i = 0; i < 50 && !sent(); i++) await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(sent(), `the prompt reached the seat after the notice left (${outcome})`);
+  } finally {
+    try { core.closeSession(sid); } catch {}
+    if (saved === undefined) delete process.env.ANTIGRAVITY_BIN;
+    else process.env.ANTIGRAVITY_BIN = saved;
+    fs.rmSync(bin, { force: true }); fs.rmSync(`${bin}.prompts`, { force: true });
+  }
+});
+
 // 実被弾 2026-09-26 rabbit（Claude Code 2.1.282）: ログイン済みでも初回案内が未完了だと
 // ログイン方法の選択で止まる。ready timeoutを待たずに理由と直し方を返す。
 test("openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeoutを待たず理由と直し方を返す", { skip: skipAgentDone }, async () => {

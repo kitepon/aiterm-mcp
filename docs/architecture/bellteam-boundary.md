@@ -51,6 +51,14 @@ Steer SDK/CLIとBridgeの保存形式読取依存は[接点表](external-contrac
 - 状態の置き場（`AITERM_STATE_BASE`）の中の並びと、入れたpackageの中のファイル一覧（21・22行目）。約束は環境変数 `AITERM_STATE_BASE` と `state-compat.json` だけ。packageは版とintegrityで丸ごと扱う。
 - 子の結果の文の2行目以降（`delivery_id=` などの並び）。頭だけが約束。
 
+BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
+- `dist/*.js` を絶対パスで読む事（16行目）→ 上の表の名前で読む。`execution-native-server` のpathは `import.meta.resolve("aiterm-mcp/execution-native-server")`。
+- `model-handoff-*` を読む事（17・18行目）→ 外す（公開の版に無い）。
+- Aitermの起動の形を手で組む事（19行目）→ `mcpRegistration()` の `{command, args}` を使う。mcp-lazyの中継で包む事と各CLIの設定へ書く事はBellTeamの受け持ちのまま。
+- 子の結果の文の頭を写して持つ事（23行目）→ `CHILD_RESULT_PREFACE`。
+- 入れた `aiterm-mcp` packageの中で `npm ci` を流す事（22行目）→ 公開のtarballを `npm install` で入れる（依存はpackageの `dependencies` で入る）。packageの中のファイルを並べて照らす事もやめ、版とintegrityで照らす。
+- 状態の置き場（21行目）は今のまま：約束は `AITERM_STATE_BASE` と、`state-compat.json` が古いと宣言した置き場をBellTeamが移してよい事（20行目）。
+
 移り方：0.70.58は `exports` を足すだけで、今の絶対パスの読み込みは壊れない（`exports` は名前での読み込みにだけ効く）。BellTeam（キロ氏 bd05・モリー氏 bd06）が名前での読み込みへ移した後も、絶対パスの読み込みを塞ぐ手立てはAitermに無い。約束の外として扱う。
 
 ## 今回の変更範囲

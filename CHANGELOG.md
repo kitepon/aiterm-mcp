@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.58] - 2026-11-14
+
 - `aiterm-setup harness-entries --json` (bd14, BellTeam E1 v1.1): prints the hooks Aiterm needs for Claude, Cursor and Codex as `bellteam.harness-entries.v1` (native groups as the CLI files hold them, `owns.commandIncludes`), for a caller that is the one writer of those files. It writes no CLI file and no Codex trust; it writes only Aiterm's own `codex-parent-hooks/config.json`. The entries are produced by the same Steer writers on an empty file, so they equal what `configureNativeExecutionHooks` writes today.
 
 - Public package entry points (`package.json` `exports`, bd04): `aiterm-mcp/setup-node` (new `mcpRegistration()` = node + this package's `dist/index.js`, no npm call), `setup-integrations`, `execution-parent-worker`, `execution-native-setup`, `execution-native-server`, `child-result` (new `CHILD_RESULT_PREFACE`), `resume-state-cli` (run with node: `restore` / `checkpoint` argv, stdin, one-line `aiterm.resume-state-result.v1`, exit 0 or 2), `state-compat.json`, `package.json`. The exports map itself is the promise (string targets inside the package root), so a caller that selects its own package root reads the targets from that root. Absolute-path imports keep working. Contract: docs/architecture/bellteam-boundary.md.
@@ -3478,7 +3480,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...HEAD
+[0.70.58]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...v0.70.58
 [0.70.57]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...v0.70.57
 [0.70.56]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...v0.70.56
 [0.70.55]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...v0.70.55

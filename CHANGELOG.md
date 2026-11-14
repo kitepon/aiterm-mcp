@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.57] - 2026-11-14
+
 - Withdrawn at the requester's ask (Kiro 2026-11-14): the `refusal` field of `aiterm.agent-configure-request-result.v1` and the `AGENT_CONFIGURE_NOT_READY` code added in 0.70.56. A not-ready (turn running) configure refusal again carries no `_meta["aiterm/configure_error"]`; only Claude picker refusals do, which is how a caller tells them apart.
 - Diagrams: startup screen states S0-S6 of `prepareAgentInput` (launch-identity-input.md / .dot) and the Claude alias rule (model-configuration.md / .dot).
 
@@ -3472,7 +3474,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...HEAD
+[0.70.57]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...v0.70.57
 [0.70.56]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...v0.70.56
 [0.70.55]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...v0.70.55
 [0.70.54]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...v0.70.54

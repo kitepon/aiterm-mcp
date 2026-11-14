@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.61] - 2026-11-14
+
 - `pty_list` no longer fails for every seat when one saved seat's record is unreadable or was removed by a close between the directory read and the record read (BugHub d90f8b67: BellTeam's Bot list answered 500). That seat is left out; the rows of the others are unchanged.
 
 ## [0.70.60] - 2026-11-14
@@ -3492,7 +3494,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.60...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.61...HEAD
+[0.70.61]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.60...v0.70.61
 [0.70.60]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.59...v0.70.60
 [0.70.59]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...v0.70.59
 [0.70.58]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...v0.70.58

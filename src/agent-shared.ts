@@ -105,7 +105,6 @@ export interface AgentMetadata {
   cursor_caller_prompt_file?: string;
   cursor_caller_mcp_dir?: string;
   // Antigravity: the prompt text (prefixes the first prompt) and the per-seat folder (--add-dir) holding .agents/mcp_config.json.
-  antigravity_caller_prompt_file?: string;
   antigravity_caller_mcp_dir?: string;
   claude_home?: string;
   result_file?: string;

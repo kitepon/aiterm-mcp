@@ -52,6 +52,16 @@
     "aiterm-remote-terminal": "dist/remote-terminal-cli.js",
     "aiterm-transcript-read": "dist/transcript-read-cli.js"
   },
+  "exports": {
+    "./package.json": "./package.json",
+    "./state-compat.json": "./state-compat.json",
+    "./setup-node": "./dist/setup-node.js",
+    "./setup-integrations": "./dist/setup-integrations.js",
+    "./execution-parent-worker": "./dist/execution-parent-worker.js",
+    "./execution-native-setup": "./dist/execution-native-setup.js",
+    "./execution-native-server": "./dist/execution-native-server.js",
+    "./child-result": "./dist/parent-delivery-record.js"
+  },
   "files": [
     "dist/*.js",
     "dist/harnesses/*.js",

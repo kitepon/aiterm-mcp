@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Public package entry points (`package.json` `exports`, bd04): `aiterm-mcp/setup-node` (new `mcpRegistration()` = node + this package's `dist/index.js`, no npm call), `setup-integrations`, `execution-parent-worker`, `execution-native-setup`, `execution-native-server`, `child-result` (new `CHILD_RESULT_PREFACE`), `state-compat.json`, `package.json`. Only these are promised; nothing else is importable by name. Absolute-path imports keep working. Contract: docs/architecture/bellteam-boundary.md.
+
 ## [0.70.57] - 2026-11-14
 
 - Withdrawn at the requester's ask (Kiro 2026-11-14): the `refusal` field of `aiterm.agent-configure-request-result.v1` and the `AGENT_CONFIGURE_NOT_READY` code added in 0.70.56. A not-ready (turn running) configure refusal again carries no `_meta["aiterm/configure_error"]`; only Claude picker refusals do, which is how a caller tells them apart.

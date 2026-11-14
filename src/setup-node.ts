@@ -1,4 +1,5 @@
 import { accessSync, constants } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { SetupError } from "./setup-platform.js";
 
 // HomebrewのCellar実体は更新で消える。保存する起動先には同じformulaのoptを使う。
@@ -9,4 +10,9 @@ export function setupNodeExecutable(executable = process.execPath): string {
   try { accessSync(node, constants.X_OK); }
   catch { throw new SetupError("node_runtime_unavailable", "HomebrewのNode起動先を実行できません。Nodeの導入状態を確認してください"); }
   return node;
+}
+
+/** Public (bellteam-boundary.md): how to start this package's MCP server, the shape aiterm-setup writes. No npm call. */
+export function mcpRegistration(): { command: string; args: string[] } {
+  return { command: setupNodeExecutable(), args: [fileURLToPath(new URL("./index.js", import.meta.url))] };
 }

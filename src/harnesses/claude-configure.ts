@@ -108,18 +108,20 @@ export async function configureClaudeForSessionOnly(
     const rows = [...known.values()].sort((a, b) => a.index - b.index);
     let target = claudeModelPickerRow(rows, model);
     let offered = false; // native catalogにある（起こし直せば使える見込み）
-    if (!target || /^[a-z]+$/iu.test(model)) {
+    const alias = /^[a-z]+$/iu.test(model) && model.toLowerCase() !== "default";
+    if (!target || alias) {
       const bin = meta.agent_executable ?? resolveAgentBin("claude");
       if (!bin) return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", "Claude CodeのCLIが見つかりません");
       let catalog: AgentModelCatalog;
       try { catalog = await claudeModelChoices(bin, meta.cwd ?? process.cwd(), catalogEnv); }
       catch (error) { return refuse("CLAUDE_MODEL_CATALOG_UNAVAILABLE", error instanceof Error ? error.message : String(error)); }
       const native = catalog.models.find(item => item.id.toLowerCase() === model.toLowerCase());
-      // The native alias can resolve to an older model; picker order and the picker's alias rows are not alias authority.
       const label = native?.display_name ?? native?.id ?? model;
       const shown = claudeModelDisplayName(model);
       offered = !!native || catalog.models.some(item => item.display_name?.toLowerCase() === shown);
-      target = claudePickerRowByName(rows, label);
+      // An alias the CLI resolves to a named version means that version, even an older one; an alias it names without a
+      // version (`Fable`, both picker layouts; Kiro 2026-11-14) or not at all keeps the family's newest row.
+      if (!target || (alias && /\d/u.test(label))) target = claudePickerRowByName(rows, label);
     }
     if (!target) {
       const names = rows.map((row) => row.resolved && row.resolved !== row.label && !/^default\b/iu.test(row.label)

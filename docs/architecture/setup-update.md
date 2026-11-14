@@ -24,11 +24,11 @@ BellTeamのCLI登録（BellTeam PR #1396 `cli-registration.md`「One writer per 
 
 `aiterm-setup harness-entries --json --home <席のHOME> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]`
 - 入力：`--state-root` `--socket` `--steer-provider` は実行の席のMCP（`execution-native-server`）に渡すのと同じ値（`parseNativeExecutionArguments` が確かめる）。`--clients` の既定は3つ全部。codexを含む時は `--codex-binary`（絶対path）が要る。
-- 出力（標準出力に1つのJSON、終了0）：`{schema:"bellteam.harness-entries.v1", product:"aiterm", version, mcpServers:{}, settings:{}, owns:{commandIncludes:["claude-parent-hook.js","cursor-parent-hook.js","codex-parent-hook.js","execution-native-server.js"]}, hooks:{claude:{<event>:[group]}, cursor:{<event>:[item]}, codex:{<event>:[group]}}}`。hookの中身は、今まで `configureNativeExecutionHooks` が各ファイルへ書いていた物と同じ形（Claudeは `claudeParentHookEntries`、Cursorは `{command, timeout:15}`、Codexは `planCodexParentHooks` の自製品の分）。`execution-native-server.js` は、前の作りの登録が残っていたら外すための印。
+- 出力（標準出力に1つのJSON、終了0）：`{schema:"bellteam.harness-entries.v1", product:"aiterm", version, mcpServers:{}, settings:{}, owns:{commandIncludes:["claude-parent-hook.js","cursor-parent-hook.js","codex-parent-hook.js","execution-native-server.js"]}, hooks:{claude:{<event>:[group]}, cursor:{<event>:[item]}, codex:{<event>:[group]}}}`。hookの中身は、Steerの書き手が空のファイルへ書く物と同じ形（0.70.59まで `configureNativeExecutionHooks` が各ファイルへ書いていた形）（Claudeは `claudeParentHookEntries`、Cursorは `{command, timeout:15}`、Codexは `planCodexParentHooks` の自製品の分）。`execution-native-server.js` は、前の作りの登録が残っていたら外すための印。
 - 書く物：Codexのhookが読むAitermの置き場 `<home>/.config/aiterm-mcp/codex-parent-hooks/config.json` だけ（`enabled`・`codex_home`・`binary`・`command`・`node`・`hook`、`stale_processes` は空）。CLIの設定ファイル、Codexのhookの承認（`hooks.state`）は書かない（承認はBellTeamが同じ回で出す）。
 - 失敗：入力の誤りは終了2と標準エラーに1行。標準出力には何も出さない。
 
-データの流れ：BellTeam（CLI登録）→ `aiterm-setup harness-entries` → JSON → BellTeamが各CLIのファイルへ1人で書く（Aitermの項目は `owns` で見分けて置き換える）→ Codexは `hooks.state` の承認もBellTeam。`configureNativeExecutionHooks` と `--hooks-only` は、BellTeamが切り替えるまで今のまま残す。
+データの流れ：BellTeam（CLI登録）→ `aiterm-setup harness-entries` → JSON → BellTeamが各CLIのファイルへ1人で書く（Aitermの項目は `owns` で見分けて置き換える）→ Codexは `hooks.state` の承認もBellTeam。BellTeamは本体 2c948242（0.70.59、2026-11-14 22:04 JST）で切り替えた。席のHOMEへAitermがhookを書く `configureNativeExecutionHooks` と公開の入口 `aiterm-mcp/execution-native-setup` は 0.70.60 で外した（モリー氏の確かめ：どの分岐も呼ばない。古い本体は自分のimageの古い版を使うので戻しても壊れない）。`setup-integrations` の3つは、BellTeamの予備の分岐（native の登録が作れなかった時）が呼ぶので、モリー氏がその分岐を外すまで残す。利用者が自分で流す `aiterm-setup`（`--hooks-only`・`--codex-steer` を含む）は今のまま。
 
 ## Codex Steerと旧relay
 

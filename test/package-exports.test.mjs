@@ -11,7 +11,6 @@ const PROMISED = {
   "aiterm-mcp/setup-node": ["mcpRegistration", "setupNodeExecutable"],
   "aiterm-mcp/setup-integrations": ["mergeClaudeParentHooks", "mergeCursorParentHooks", "ensureCodexParentSteer"],
   "aiterm-mcp/execution-parent-worker": ["localParentWorkerRuntime"],
-  "aiterm-mcp/execution-native-setup": ["configureNativeExecutionHooks"],
   "aiterm-mcp/execution-native-server": ["parseNativeExecutionArguments"],
   "aiterm-mcp/child-result": ["CHILD_RESULT_PREFACE", "answerMessage"],
 };
@@ -65,4 +64,5 @@ test("the child-result preface is the start of every parent delivery text", asyn
 test("files outside the public entry points are not importable by name", async () => {
   await assert.rejects(import("aiterm-mcp/dist/core.js"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
   await assert.rejects(import("aiterm-mcp/setup"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
+  await assert.rejects(import("aiterm-mcp/execution-native-setup"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" }); // retired 0.70.60 (bd14)
 });

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Removed `configureNativeExecutionHooks` and the `aiterm-mcp/execution-native-setup` entry point (bd14). BellTeam writes the CLI files itself from `aiterm-setup harness-entries --json` since body 2c948242, and no branch calls the old writer (Molly 2026-11-14). An older body keeps working: it uses the Aiterm installed in its own image. `setup-integrations` stays for BellTeam's fallback branch. The standalone `aiterm-setup` is unchanged.
+
 ## [0.70.59] - 2026-11-14
 
 - A fresh launch on a loaded Mac no longer fails with `native_condition_refused` while the seat is fine (Lapi's seat, macbook 19:47). tmux 3.7+ blanks a format that runs past its 100 ms budget, so the identity check took the refusal branch. A refusal is now classified from `has-session` plus one pane read: `native_pane_gone`, `native_identity_changed` (with the field), `native_pane_exited`, `native_creation_marker_changed`, or unevaluated. Only an unevaluated condition re-issues the same command, at most 4 tries, then `native_condition_unevaluated`.

@@ -14,7 +14,6 @@ import { executionStoreDirectory } from '../dist/execution-store.js';
 import { ensureStateRoot } from '../dist/agent-shared.js';
 import { SOCK } from '../dist/tmux-runtime.js';
 import { closeSession } from '../dist/core.js';
-import { configureNativeExecutionHooks } from '../dist/execution-native-setup.js';
 
 const skip = process.platform === 'win32' ? 'isolated POSIX native CLI fixture' : false;
 const entry = fileURLToPath(new URL('../dist/execution-native-server.js', import.meta.url));
@@ -89,18 +88,3 @@ test('all parent hook entry modes call the ordinary provider without graph admis
   unchanged();
 });
 
-test('native hook migration installs standard parent hooks without tracking admission', { skip }, async t => {
-  const root = mkdtempSync(join(tmpdir(), 'standard-hooks-')); t.after(() => rmSync(root, { recursive: true, force: true }));
-  const events = [], scope = { state_root: join(root, 'state'), multiplexer: { kind: 'socket', key: join(root, 'socket') } };
-  const providerFile = join(root, 'provider.mjs'), provider = {
-    removeClaudeParentHooks: profile => { events.push(['remove-claude', profile.hooks.claude]); return 'removed'; },
-    removeCursorParentHooks: profile => { events.push(['remove-cursor', profile.hooks.cursor]); return 'removed'; },
-    mergeClaudeParentHooks: (profile, file, runtime) => { assert.equal(profile.delivery_admission, undefined); events.push(['claude', runtime.script]); return 'configured'; },
-    mergeCursorParentHooks: (profile, file, runtime) => { assert.equal(profile.delivery_admission, undefined); events.push(['cursor', runtime.script]); return 'configured'; },
-    configureCodexSteer: async (profile, action, runtime) => { assert.equal(profile.delivery_admission, undefined); assert.equal(runtime.hookCommand, undefined); events.push(['codex', runtime.hook]); return { status: 'ready' }; },
-  };
-  const result = await configureNativeExecutionHooks(root, { registration: { command: process.execPath, args: [entry, '--execution-interrupt', '--state-root', scope.state_root, '--socket', scope.multiplexer.key, '--steer-provider', providerFile] }, expectedScope: scope, providerFile, provider, codexBinary: process.execPath });
-  assert.equal(result.relation_scope, 'untracked'); assert(result.registration.args[0].endsWith('/index.js'));
-  assert.deepEqual(events.filter(x => x[0].startsWith('remove-')).map(x => x[1]), ['execution-native-server.js', 'execution-native-server.js']);
-  for (const name of ['claude', 'cursor', 'codex']) assert(events.find(x => x[0] === name)[1].endsWith(`/${name}-parent-hook.js`));
-});

@@ -18,6 +18,18 @@ hook-only入口はMCP設定・backend準備・実PTY probe・Codex Steerに触�
 
 provider descriptorは同global登録のnode/parent-delivery-cli絶対pathと版をsetup時だけ保存し、通常MCP startupでは別source版で上書きしない。外部製品はこのdescriptorを読む境界を持つ。
 
+## CLIのhookの項目を返す（`aiterm-setup harness-entries`、0.70.58、bd14）
+
+BellTeamのCLI登録（BellTeam PR #1396 `cli-registration.md`「One writer per CLI file」、E1 v1.1）では、CLIの設定ファイル（`~/.claude/settings.json` のhook、`~/.codex/hooks.json`、`~/.cursor/hooks.json`）を書くのはBellTeamだけ。Aitermは自分が要るhookを返すだけで、それらのファイルを書かない（モリー氏と合意 2026-11-14）。
+
+`aiterm-setup harness-entries --json --home <席のHOME> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]`
+- 入力：`--state-root` `--socket` `--steer-provider` は実行の席のMCP（`execution-native-server`）に渡すのと同じ値（`parseNativeExecutionArguments` が確かめる）。`--clients` の既定は3つ全部。codexを含む時は `--codex-binary`（絶対path）が要る。
+- 出力（標準出力に1つのJSON、終了0）：`{schema:"bellteam.harness-entries.v1", product:"aiterm", version, mcpServers:{}, settings:{}, owns:{commandIncludes:["claude-parent-hook.js","cursor-parent-hook.js","codex-parent-hook.js","execution-native-server.js"]}, hooks:{claude:{<event>:[group]}, cursor:{<event>:[item]}, codex:{<event>:[group]}}}`。hookの中身は、今まで `configureNativeExecutionHooks` が各ファイルへ書いていた物と同じ形（Claudeは `claudeParentHookEntries`、Cursorは `{command, timeout:15}`、Codexは `planCodexParentHooks` の自製品の分）。`execution-native-server.js` は、前の作りの登録が残っていたら外すための印。
+- 書く物：Codexのhookが読むAitermの置き場 `<home>/.config/aiterm-mcp/codex-parent-hooks/config.json` だけ（`enabled`・`codex_home`・`binary`・`command`・`node`・`hook`、`stale_processes` は空）。CLIの設定ファイル、Codexのhookの承認（`hooks.state`）は書かない（承認はBellTeamが同じ回で出す）。
+- 失敗：入力の誤りは終了2と標準エラーに1行。標準出力には何も出さない。
+
+データの流れ：BellTeam（CLI登録）→ `aiterm-setup harness-entries` → JSON → BellTeamが各CLIのファイルへ1人で書く（Aitermの項目は `owns` で見分けて置き換える）→ Codexは `hooks.state` の承認もBellTeam。`configureNativeExecutionHooks` と `--hooks-only` は、BellTeamが切り替えるまで今のまま残す。
+
 ## Codex Steerと旧relay
 
 通常Steer導入はsetup-codex-hooks→Steerのplan/apply/登録readback/承認であり、旧CODEX_CLI_PATH relayとは別。公式hook登録・承認が成立してから旧relayをdisableする。設定完了と既存Codexへの反映は異なり、必要ならrestart_requiredを返す。今のリファクタ指示でrestartはしない。

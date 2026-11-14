@@ -23,6 +23,27 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 2;
   }
+} else if (args[0] === "harness-entries") {
+  // bd14 (setup-update.md): print the hooks Aiterm needs; the caller writes the CLI files. Errors: exit 2, nothing on stdout.
+  try {
+    const flags = new Map<string, string>(); let json = false;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--json" && !json) json = true;
+      else if (["--home", "--state-root", "--socket", "--steer-provider", "--codex-binary", "--clients"].includes(args[i])
+        && !flags.has(args[i]) && args[i + 1] !== undefined) flags.set(args[i], args[++i]);
+      else throw new Error("使い方: aiterm-setup harness-entries --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]");
+    }
+    if (!json || !flags.has("--home") || !flags.has("--state-root") || !flags.has("--socket") || !flags.has("--steer-provider"))
+      throw new Error("--json --home --state-root --socket --steer-provider が要ります");
+    const { nativeExecutionHarnessEntries } = await import("./execution-native-setup.js");
+    const entries = await nativeExecutionHarnessEntries(flags.get("--home")!, { stateRoot: flags.get("--state-root")!, socket: flags.get("--socket")!,
+      providerFile: flags.get("--steer-provider")!, codexBinary: flags.get("--codex-binary"),
+      clients: flags.get("--clients")?.split(",") as ("claude" | "cursor" | "codex")[] | undefined });
+    process.stdout.write(`${JSON.stringify(entries)}\n`);
+  } catch (error) {
+    process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 2;
+  }
 } else if (args.includes("--hooks-only")) {
   // 利用者や他製品がMCP登録を所有する環境向け。hookの登録だけを行い、stdoutへは結果のJSONだけを出す。
   if (args.some(arg => !["--hooks-only", "--json"].includes(arg)) || new Set(args).size !== args.length) {
@@ -34,7 +55,7 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.exitCode = result.status === "ready" ? 0 : 2;
   }
 } else if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
-  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS・Windows対応で、初回はCodexの再起動が必要です。disableは専用hookを解除し、statusは公式hookの登録・承認と再起動の必要性を確認します。旧中継はhook導入後に解除します。--jsonは対話せず、Steerの選択を維持します。\nClaude Code・Cursorの親配送hookだけの登録（MCP登録・依存準備・Codex Steerには触れない）: --hooks-only\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n旧版へ戻す前のCursor専用hook解除: --remove-cursor-parent-hooks\n");
+  process.stdout.write("使い方: aiterm-setup [--json] [--codex-steer enable|disable|status]\n依存準備、AIへの登録、MCPと端末の実動作確認を行います。対話実行ではAiterm単品かCodex Desktop Steer付きかを選べます。SteerはmacOS・Windows対応で、初回はCodexの再起動が必要です。disableは専用hookを解除し、statusは公式hookの登録・承認と再起動の必要性を確認します。旧中継はhook導入後に解除します。--jsonは対話せず、Steerの選択を維持します。\nClaude Code・Cursorの親配送hookだけの登録（MCP登録・依存準備・Codex Steerには触れない）: --hooks-only\n旧版へ戻す前のClaude専用hook解除: --remove-claude-parent-hooks\n旧版へ戻す前のCursor専用hook解除: --remove-cursor-parent-hooks\nCLIの設定ファイルを1人で書く呼び手へ、Aitermのhookの項目だけを返す（CLIのファイルは書かない）: harness-entries --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]\n");
 } else {
   try {
     let action: CodexSteerAction | undefined;

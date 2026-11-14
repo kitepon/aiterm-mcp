@@ -52,6 +52,7 @@ digraph overview {
  mcp -> pending [label="diagnostics / reporting trigger"];
  pending -> sdk [label="hook setup / provider contracts"];
   client -> entries [label="import by name: registration shape, hook merge, native execution args, child-result preface"];
+  client -> pending [label="aiterm-setup harness-entries --json: hook entries (bellteam.harness-entries.v1); BellTeam writes CLI files"];
   entries -> pending [label="setup / hook / native execution functions"];
   entries -> parents [label="CHILD_RESULT_PREFACE (start of answerMessage)"];
   client -> checkpoint [label="offline stream; supply owns stopped source / startup admission"];

@@ -71,3 +71,34 @@ test('Windows native hook registration refuses without creating home configurati
   assert.equal(existsSync(join(f.home,'.claude')),false);assert.equal(existsSync(join(f.home,'.cursor')),false);
   assert.equal(f.codexCalls.length,0);
 });
+
+// bd14 (setup-update.md "CLIのhookの項目を返す"): the printed entries equal what today's setup writes, and printing writes no CLI file.
+test('harness-entries prints the hooks configureNativeExecutionHooks writes, and writes only its own codex config', { skip: process.platform === 'win32' ? 'POSIX native hook entry' : false }, async t => {
+  const { nativeExecutionHarnessEntries } = await import('../dist/execution-native-setup.js');
+  const f = fixture(t), entry = new URL('../dist/execution-native-server.js', import.meta.url).pathname;
+  const entries = await nativeExecutionHarnessEntries(f.home, { stateRoot: f.root, socket: f.socket, providerFile: f.providerFile,
+    provider: f.provider, codexBinary: f.options.codexBinary });
+  for (const dir of ['.claude', '.cursor', '.codex']) assert.equal(existsSync(join(f.home, dir)), false, `${dir} untouched`);
+  const config = steer.codexHookConfigSchema({ codex_hook_schema: 'aiterm.codex-parent-hooks.v1' })
+    .parse(JSON.parse(readFileSync(join(f.home, '.config', 'aiterm-mcp', 'codex-parent-hooks', 'config.json'), 'utf8')));
+  assert.equal(config.enabled, true); assert.equal(config.binary, f.options.codexBinary); assert.deepEqual(config.stale_processes, []);
+  assert.deepEqual([entries.schema, entries.product, entries.mcpServers, entries.settings], ['bellteam.harness-entries.v1', 'aiterm', {}, {}]);
+  assert.deepEqual(entries.owns.commandIncludes, ['claude-parent-hook.js', 'cursor-parent-hook.js', 'codex-parent-hook.js', 'execution-native-server.js']);
+  const result = await configureNativeExecutionHooks(f.home, { ...f.options,
+    registration: { ...f.registration, args: [entry, ...f.registration.args.slice(1)] } });
+  assert.deepEqual(entries.hooks.claude, JSON.parse(readFileSync(join(f.home, '.claude', 'settings.json'), 'utf8')).hooks);
+  assert.deepEqual(entries.hooks.cursor, JSON.parse(readFileSync(join(f.home, '.cursor', 'hooks.json'), 'utf8')).hooks);
+  assert.equal(config.command, result.commands.codex);
+  const scratch = mkdtempSync(join(tmpdir(), 'codex-plan-')); t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  assert.deepEqual(entries.hooks.codex, steer.planCodexParentHooks(join(scratch, 'hooks.json'), f.codexCalls[0].command).next.hooks);
+  for (const owned of Object.values(entries.hooks).flatMap(events => Object.values(events)).flat())
+    assert.ok(JSON.stringify(owned).match(/(claude|cursor|codex)-parent-hook\.js/), JSON.stringify(owned));
+});
+
+test('harness-entries refuses a missing codex binary or an unknown client, writing nothing', { skip: process.platform === 'win32' ? 'POSIX native hook entry' : false }, async t => {
+  const { nativeExecutionHarnessEntries } = await import('../dist/execution-native-setup.js');
+  const f = fixture(t);
+  await assert.rejects(nativeExecutionHarnessEntries(f.home, { stateRoot: f.root, socket: f.socket, providerFile: f.providerFile, provider: f.provider }), /EXECUTION_INVALID/);
+  await assert.rejects(nativeExecutionHarnessEntries(f.home, { stateRoot: f.root, socket: f.socket, providerFile: f.providerFile, provider: f.provider, clients: ['grok'] }), /EXECUTION_INVALID/);
+  assert.equal(existsSync(join(f.home, '.config')), false);
+});

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.60] - 2026-11-14
+
 - Removed `configureNativeExecutionHooks` and the `aiterm-mcp/execution-native-setup` entry point (bd14). BellTeam writes the CLI files itself from `aiterm-setup harness-entries --json` since body 2c948242, and no branch calls the old writer (Molly 2026-11-14). An older body keeps working: it uses the Aiterm installed in its own image. `setup-integrations` stays for BellTeam's fallback branch. The standalone `aiterm-setup` is unchanged.
 
 ## [0.70.59] - 2026-11-14
@@ -3488,7 +3490,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.59...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.60...HEAD
+[0.70.60]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.59...v0.70.60
 [0.70.59]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...v0.70.59
 [0.70.58]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...v0.70.58
 [0.70.57]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...v0.70.57

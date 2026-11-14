@@ -2,7 +2,7 @@ digraph native_runtime {
  graph [rankdir=TB,bgcolor="white",pad=0.3,nodesep=0.45,ranksep=0.5,label="Native runtime: routing, environment, input and observation",labelloc=t,fontname="DejaVu Sans",fontsize=18];
  node [shape=box,style="rounded,filled",fillcolor="#edf4ff",fontname="DejaVu Sans",fontsize=12]; edge [fontname="DejaVu Sans",fontsize=10,color="#536070"];
  core [label="Core caller: validated intent / session / launch\nLogical input and observation contracts\nOrdinary core boundaries mapped in ordinary-pty"];
- gate [label="Execution authorization → pinned native pane/session\nReceiving server birth condition → command\nRouting itself does not grant authorization"];
+ gate [label="Execution authorization → pinned native pane/session\nReceiving server birth condition → command\nRefusal → pane read: gone / identity changed(field) / exited\n/ creation marker / unevaluated (tmux 3.7+ 100 ms format budget → bounded re-issue)\nRouting itself does not grant authorization"];
  env [label="Caller UTF-8 locale and clean session environment\nTemporary update-environment; preserve global values\nCreate receipt before target-specific setup\nGuarded/pinned creation does not recreate"];
  backend [label="POSIX tmux -S / Windows psmux -L\nResolve executable; distinguish dependency / output overflow\nMac GUI bootstrap and psmux access workaround\nSource read only; no host operations performed"];
  worker [label="Windows direct payload worker\nFixed authenticated peer; 256-byte chunks\nAUTH OK differs from command acceptance\nPartial / unknown → fail without resend"];

@@ -83,3 +83,19 @@ Function/data-flow contract: managed creation → `withNativeSessionSetupRollbac
 Rollback proof and refusal reasons (0.70.5): after the conditional close, `withNativeSessionSetupRollback` reads one complete `list-sessions` (`#{session_id}`, `#{session_name}`). Listed without the name, or the no-server diagnostics the ordinary session list already reads as empty (after the short `server exited unexpectedly` settle), is the only proof of absence and sets `nativeSessionAbsent` on the error; the created native still listed or an unavailable listing adds `creation_rollback_unconfirmed`. A non-zero `has-session` is no longer read as absence. `nativeTargetUnavailable(reason)` appends `native_reason=<site>` to every native identity refusal; a failed creation command adds the command name, exit code and first stderr line, an unreadable receipt adds the stdout size and first stderr line. The text no longer says "resumed": the same refusals occur on fresh creation.
 
 Multi-line launch line on a POSIX pane shell (`tmux-runtime.atomicShellMultiline`, bash/sh/zsh/dash): one physical line `eval "$(command printf '%b' '<payload>')"`. The payload carries `\` `LF` `CR` `TAB` as `%b` escapes and every `'` `"` `` ` `` `$` `!` `{` `}` as `%b` octal `\0nnn`, so the word holds no quote or expanding byte. macOS bash 3.2 brace-expanded the whole word when it held a `"` (a Codex `-c mcp_servers.NAME={...}` value, and the old `'"'"'` quote itself), and an interactive shell history-expands `!` (0.70.11).
+
+## Receiving-side refusal classification (0.70.59)
+
+tmux 3.7+ gives every format expansion a 100 ms wall-clock budget; past it the remaining sub-expansions return empty. `if-shell -t` also accepts a missing pane and expands the condition empty. Both send the conditional command to its refusal branch with rc=0, so the refusal marker alone does not mean "a different native". A stalled server (macOS launchd runs a job without `ProcessType` at background priority, and the seats inherit it) turned a matching identity into `native_condition_refused` (macbook 2026-11-14 19:47, fresh launch failed).
+
+Function/data flow: `runTmux` conditional command → marker → `has-session` on the pinned native session (non-zero: gone; `display-message -t` answers a missing pane with blank fields and rc=0 like `if-shell`) → one `display-message` read of the pinned pane outside the frame (`NATIVE_PANE_FORMAT`, plus the creation marker during setup) → `classifyNativeRefusal`:
+
+| Read | Reason | Next |
+| --- | --- | --- |
+| non-zero | `native_pane_gone(rc stderr)` | throw |
+| a field differs | `native_identity_changed(<field>)` | throw |
+| `pane_dead=1` without the exited-pane admission | `native_pane_exited` | throw |
+| creation marker `0` | `native_creation_marker_changed` | throw |
+| all match, or the read itself blank/partial | unevaluated | re-issue the same conditional command, at most 4 tries 50 ms apart; then `native_condition_unevaluated` (not an identity refusal) |
+
+The refusal branch ran, so the effect did not: re-issuing is not a second effect. `allowRefusal` callers (setup rollback close) keep their result after the same bounded re-issue. Blank or partial rows in `list-sessions` reads (`nativeSessionRows`, `parseExecutionNativeSessions`) are an unavailable listing, never absence; `verifyCreatedNative` reads a blank pane row as "identity unreadable", not "replaced". The Mac GUI LaunchAgent sets `ProcessType=Interactive` so a newly started server and its seats run at normal priority; a server already running keeps its priority until it restarts.

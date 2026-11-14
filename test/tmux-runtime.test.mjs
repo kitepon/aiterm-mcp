@@ -6,7 +6,7 @@ import childProcess from "node:child_process";
 import {syncBuiltinESMExports} from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { appendMarkSentinel, atomicShellMultiline, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
+import { appendMarkSentinel, atomicShellMultiline, classifyNativeRefusal, isWin, macGuiTmuxPlist, sessionEnvironmentLaunch, markShellCommand,
   psmuxDesktopAccessWanted, psmuxServerAccessScript, openPsmuxServerToDesktop, resolveTmux, tmuxCommand } from "../dist/tmux-runtime.js";
 import { shq } from "../dist/agent-shared.js";
 import { resolveWinPaneShell } from "../dist/agent-resolver.js";
@@ -197,6 +197,7 @@ test("macOSのGUI側tmux起動jobは引数と環境を逐語でlaunchdへ渡し�
     assert.doesNotMatch(plist, /SKIP/);
     assert.match(plist, /<key>WorkingDirectory<\/key><string>\/work dir<\/string>/);
     assert.match(plist, /<key>AbandonProcessGroup<\/key><true\/>/);
+    assert.match(plist, /<key>ProcessType<\/key><string>Interactive<\/string>/);
     // ProgramArguments の script 部分を取り出し、launchd と同じ argv で実行する。
     const args = [...plist.match(/<key>ProgramArguments<\/key><array>(.*?)<\/array>/)[1].matchAll(/<string>(.*?)<\/string>/g)]
       .map(match => match[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"));
@@ -280,4 +281,19 @@ test("権利を足せない時も端末は使わせる。投げずに、理由�
     "aiterm: PSMUX_SERVER_ACCESS_NOT_GRANTED session=seat OpenProcess 5\n",
     "aiterm: PSMUX_SERVER_ACCESS_NOT_GRANTED session=seat psmuxの本体のpidを問えません\n",
   ]);
+});
+
+test('a refused native condition is classified from a read of the pane before anything is retried', () => {
+  const target = { native_id: '$57', session_id: 'bot-a', server_pid: 12898, pane_id: '%57', pane_pid: 18756 };
+  const ok = (stdout) => ({ code: 0, stdout, stderr: '' });
+  const row = (over = {}) => Object.values({ s: '$57', n: 'bot-a', p: '12898', i: '%57', pp: '18756', d: '0', ...over }).join('\t') + '\n';
+  assert.equal(classifyNativeRefusal(target, { code: 1, stdout: '', stderr: "can't find pane: %57\n" }), "native_pane_gone(rc=1 can't find pane: %57)");
+  assert.equal(classifyNativeRefusal(target, ok(row({ pp: '999' }))), 'native_identity_changed(pane_pid)');
+  assert.equal(classifyNativeRefusal(target, ok(row({ p: '1' }))), 'native_identity_changed(pid)');
+  assert.equal(classifyNativeRefusal(target, ok(row({ d: '1', pp: '' }))), 'native_pane_exited');
+  assert.equal(classifyNativeRefusal(target, ok(row({ d: '1', pp: '' })), true), null);
+  // Every field matches, or tmux cut the read itself at its 100 ms budget: the condition was not evaluated.
+  for (const stdout of [row(), '', '\t\t\t\t\t\n', row({ pp: '' }), row({ d: '' })]) assert.equal(classifyNativeRefusal(target, ok(stdout)), null, stdout);
+  assert.equal(classifyNativeRefusal(target, ok(row().trim() + '\t0\n'), false, '#{x}'), 'native_creation_marker_changed');
+  assert.equal(classifyNativeRefusal(target, ok(row().trim() + '\t1\n'), false, '#{x}'), null);
 });

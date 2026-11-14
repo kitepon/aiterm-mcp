@@ -18,7 +18,10 @@ export interface ExecutionCloseBindings {
 
 export function parseExecutionNativeSessions(text: string): ExecutionNativeSessions {
   const sessions: ExecutionNativeSession[] = [];
-  for (const line of text.split(/\r?\n/).filter(Boolean)) {
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === "") lines.pop();
+  // A blank row is a format tmux 3.7+ cut at its 100 ms budget, not an absent session.
+  for (const line of lines) {
     const parts = line.split("\t");
     if (parts.length !== 2 || !/^\$\d+$/.test(parts[0])
       || !executionLaunchSchema.shape.session_id.safeParse(parts[1]).success

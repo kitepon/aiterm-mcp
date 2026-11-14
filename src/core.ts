@@ -93,6 +93,7 @@ import {
   paneCommandArgs,
   rememberPaneShell,
   sessionPaneAsync,
+  NATIVE_PANE_FORMAT,
 } from "./tmux-runtime.js";
 import {
   AGENT_DEFAULT_PREFACE,
@@ -7240,7 +7241,15 @@ function verifyCreatedNative(native: Omit<AgentResumeNative, "schema" | "launch_
   const unavailable = () => new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative端末が置き換わっています。", 2);
   const sessions = observeExecutionNativeSessions();
   if (sessions.state !== "known" || !sessions.sessions.some(row => row.session_id === native.session_id && row.native_id === native.native_id)) throw unavailable();
-  const pane = tmux("display-message", "-p", "-t", nativePaneTarget(native), "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}");
+  const read = () => tmux("display-message", "-p", "-t", nativePaneTarget(native), NATIVE_PANE_FORMAT);
+  // tmux 3.7+ blanks a format past its 100 ms budget: an incomplete read is unknown, not a replaced native.
+  const incomplete = (r: { code: number; stdout: string }) => {
+    const f = r.stdout.replace(/\r?\n$/, "").split("\t");
+    return r.code === 0 && (f.length !== 6 || f.slice(0, 4).some(field => !field) || !["0", "1"].includes(f[5]) || (f[4] === "" && f[5] === "0"));
+  };
+  let pane = read();
+  for (let attempt = 1; incomplete(pane) && attempt < 4; attempt++) { pauseSync(50); pane = read(); }
+  if (incomplete(pane)) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 作成したnative本人性を取得できません。", 2);
   const fields = pane.stdout.trim().split("\t");
   const exited = allowExitedPane && fields[5] === "1";
   // macOS tmux clears pane_pid after exit; only the explicit dead-pane close admits that absence.

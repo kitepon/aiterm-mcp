@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.56] - 2026-11-14
+
 - Claude `agent_configure` with an alias (`fable`, `opus`) selects the family's newest row on both picker layouts when the seat's catalog names the alias without a version (`Fable`). It refused on versioned rows (`Fable 5.2`) with `CLAUDE_MODEL_NOT_IN_PICKER` (Kiro 2026-11-14). An alias the catalog names with a version still means that version only.
 - `aiterm.agent-configure-request-result.v1` gains `refusal: {code, kind} | null` for `not_applied` (`turn_running` / `not_offered` / `other`), so a caller can retry a turn refusal at the next boundary and surface a picker refusal. The not-ready refusal now has the code `AGENT_CONFIGURE_NOT_READY` (configure_error `_meta` too).
 
@@ -3467,7 +3469,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...HEAD
+[0.70.56]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...v0.70.56
 [0.70.55]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.54...v0.70.55
 [0.70.54]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.53...v0.70.54
 [0.70.53]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.52...v0.70.53

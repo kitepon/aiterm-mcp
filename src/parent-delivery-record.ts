@@ -75,8 +75,11 @@ export function readRecord(file: string): DeliveryRecord {
   }
 }
 
+/** Public (bellteam-boundary.md): the start of every child result Aiterm hands a parent. Only this start is promised. */
+export const CHILD_RESULT_PREFACE = "Aitermの子エージェントからの実行結果です。";
+
 export function answerMessage(record: DeliveryRecord): string {
-  return "Aitermの子エージェントからの実行結果です。子の回答として扱ってください。\n" +
+  return CHILD_RESULT_PREFACE + "子の回答として扱ってください。\n" +
     `delivery_id=${record.delivery_id}\nsession=${record.boundary.session_id}\nharness=${record.boundary.harness}\n` +
     `launch_id=${record.boundary.launch_id}\nturn_id=${record.child_turn_id ?? "unknown"}\n` +
     `outcome=${record.child_outcome}\n` +

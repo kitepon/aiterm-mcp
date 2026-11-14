@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `aiterm-setup harness-entries --json` (bd14, BellTeam E1 v1.1): prints the hooks Aiterm needs for Claude, Cursor and Codex as `bellteam.harness-entries.v1` (native groups as the CLI files hold them, `owns.commandIncludes`), for a caller that is the one writer of those files. It writes no CLI file and no Codex trust; it writes only Aiterm's own `codex-parent-hooks/config.json`. The entries are produced by the same Steer writers on an empty file, so they equal what `configureNativeExecutionHooks` writes today.
+
+- Public package entry points (`package.json` `exports`, bd04): `aiterm-mcp/setup-node` (new `mcpRegistration()` = node + this package's `dist/index.js`, no npm call), `setup-integrations`, `execution-parent-worker`, `execution-native-setup`, `execution-native-server`, `child-result` (new `CHILD_RESULT_PREFACE`), `resume-state-cli` (run with node: `restore` / `checkpoint` argv, stdin, one-line `aiterm.resume-state-result.v1`, exit 0 or 2), `state-compat.json`, `package.json`. The exports map itself is the promise (string targets inside the package root), so a caller that selects its own package root reads the targets from that root. Absolute-path imports keep working. Contract: docs/architecture/bellteam-boundary.md.
+
 ## [0.70.57] - 2026-11-14
 
 - Withdrawn at the requester's ask (Kiro 2026-11-14): the `refusal` field of `aiterm.agent-configure-request-result.v1` and the `AGENT_CONFIGURE_NOT_READY` code added in 0.70.56. A not-ready (turn running) configure refusal again carries no `_meta["aiterm/configure_error"]`; only Claude picker refusals do, which is how a caller tells them apart.

@@ -29,6 +29,40 @@
 
 Steer SDK/CLIとBridgeの保存形式読取依存は[接点表](external-contracts.md)が正本。Bridgeの台帳/予約/receiptはリター、channel/hookの状態と出力はエレグ。emittedをvendor開始へ拡張しない。運用で使うget_self/update_self/sendmessage/予定はBellTeam MCPであり、製品内部のAPIと混同しない。
 
+## 公開の入口（package exports、0.70.58、bd04）
+
+指揮官氏 2026-11-14：製品の間は図にある契約の入口だけで繋ぐ。BellTeamは今、`/usr/local/lib/node_modules/aiterm-mcp/dist/*.js` を絶対パスで読み込んでいる（トロニー氏の洗い出し product-connections-inventory-20261114.md 16-23行目）。Aitermが約束する入口は `package.json` の `exports` に載せた次の物だけで、**`exports` の表そのものが約束**。各入口の値は、packageの根の中のファイルを指す文字列（`./` で始まる。条件の分岐は使わない）。読む側は、自分が選んだ版のpackageの根（BellTeamはruntimeの世代が決める `lib/node_modules/aiterm-mcp`）の `package.json` の `exports` から入口の値を読み、`<根>/<値>` を読み込むか node で走らせる（キロ氏 2026-11-14。素の `import("aiterm-mcp/...")` は読む側の node_modules の写しに当たるので使わない）。載せていない `dist` のファイル、関数、引数は、版の間で予告なく変わる。
+
+| 入口 | 中身（読む物） | データの流れ（誰が何を読み書きするか） | 使う側（BellTeam） |
+| --- | --- | --- | --- |
+| `aiterm-mcp/setup-node` | `mcpRegistration()` → `{command, args}`（nodeの絶対path＋このpackageの`dist/index.js`。`aiterm-setup` が書く形と同じ。npmを呼ばない）、`setupNodeExecutable()` | Aitermが自分の起動の形を返す。各CLIの設定へ書くのはBellTeam（mcp-lazyの中継で包むかもBellTeam） | aiterm-hooks.mjs・harness-config.mjs（16・19行目のMCP登録の形） |
+| `aiterm-mcp/setup-integrations` | `mergeClaudeParentHooks(file, registration)`、`mergeCursorParentHooks(file, registration)`、`ensureCodexParentSteer(home, {binary})` | 渡されたfile（`~/.claude/settings.json`・`~/.cursor/hooks.json`）とCodexのhook設定を、Aitermが書く | aiterm-hooks.mjs |
+| `aiterm-mcp/execution-parent-worker` | `localParentWorkerRuntime.scope()` → `{state_root, multiplexer.key}` | 読むだけ | aiterm-hooks.mjs（実行の席の登録） |
+| `aiterm-mcp/execution-native-setup` | `configureNativeExecutionHooks(home, {registration, expectedScope, providerFile, codexBinary})` | 席のhook設定をAitermが書く | aiterm-hooks.mjs |
+| `aiterm-mcp/execution-native-server` | `parseNativeExecutionArguments(args)`。このファイル自体が実行の席のMCPの入口（`--execution-interrupt --state-root --socket --steer-provider`）。pathは `exports` の値から得る | 読むだけ（読み込んでも起動しない） | aiterm-hooks.mjs |
+| `aiterm-mcp/child-result` | `CHILD_RESULT_PREFACE`（子の結果を親へ渡す文の1行目の頭）、`answerMessage(record)` | Aitermが親の席へ送る文の頭。BellTeamは比べるだけ | self-turns.mjs（23行目） |
+| `aiterm-mcp/resume-state-cli` | node で走らせるCLI（読み込まない）。`restore --session <席名> --launch <32桁hex> --sha256 <64桁hex>`：標準入力にcheckpointのbytes、成功は終了0と標準出力に1行のJSON `aiterm.resume-state-result.v1` `{operation, session_id, launch_id, checkpoint_sha256, outcome: restored｜already_restored}`。`checkpoint --session --launch`：標準出力にbytes、標準エラーに同じ形の1行（outcome saved）。失敗は終了2と標準エラーに1行の誤り（本文を出さない）。同じbinは `aiterm-resume-state` | 本体の起動時に、BellTeamが席の利用者で走らせる。checkpointの中身はAitermが読み書きする | runtime-resume.mjs（28行目）・compose.aiterm-checkpoint.yaml |
+| `aiterm-setup harness-entries --json`（bin、0.70.58、bd14） | CLIの設定ファイルへ入れるAitermのhookを `bellteam.harness-entries.v1`（E1 v1.1）で返す。引数・出力・書く物は setup-update.md「CLIのhookの項目を返す」 | Aitermは自分の置き場（codex-parent-hooks/config.json）だけ書く。CLIのファイルとCodexの承認はBellTeamが1人で書く | BellTeamのCLI登録（モリー氏 bd14。aiterm-hooks.mjs の hook設定の呼び出しを置き換える） |
+| `aiterm-mcp/state-compat.json` | `aiterm.state-compat.v1` | Aitermが宣言し、BellTeamが読んで置き場を移す | aiterm-state-compat.mjs（20行目） |
+| `aiterm-mcp/package.json` | 版 | 読むだけ | 配布の確かめ |
+
+`--steer-provider` に渡すSteer（`aiterm-steer-delivery`）は、aiterm-mcpの依存packageとして、`execution-native-server` の場所から解決してよい（Steerの公開入口。Steerの約束はSteerの製品正本）。
+
+約束しない物：
+- `model-handoff-transport.js`・`model-handoff-control-transport.js`・`model-handoff-control.js`（17・18行目）。公開の版に無い（取り込んでいない私の枝 `feat/handoff-platform-elegg-20261105` などにだけある）。BellTeamは外すか、`ai.aiterm/handoff.*.v1` の能力の確かめの後ろに置く（bd05）。
+- 状態の置き場（`AITERM_STATE_BASE`）の中の並びと、入れたpackageの中のファイル一覧（21・22行目）。約束は環境変数 `AITERM_STATE_BASE` と `state-compat.json` だけ。packageは版とintegrityで丸ごと扱う。
+- 子の結果の文の2行目以降（`delivery_id=` などの並び）。頭だけが約束。
+
+BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
+- `dist/*.js` を絶対パスで決め打ちする事（16行目）→ 選んだ版の根の `exports` から入口の値を読んで、そのファイルを読む（`execution-native-server` と `resume-state-cli` のpathも同じ）。
+- `model-handoff-*` を読む事（17・18行目）→ 外す（公開の版に無い）。
+- Aitermの起動の形を手で組む事（19行目）→ `mcpRegistration()` の `{command, args}` を使う。mcp-lazyの中継で包む事と各CLIの設定へ書く事はBellTeamの受け持ちのまま。
+- 子の結果の文の頭を写して持つ事（23行目）→ `CHILD_RESULT_PREFACE`。
+- 入れた `aiterm-mcp` packageの中で `npm ci` を流す事（22行目）→ 公開のtarballを `npm install` で入れる（依存はpackageの `dependencies` で入る）。packageの中のファイルを並べて照らす事もやめ、版とintegrityで照らす。
+- 状態の置き場（21行目）は今のまま：約束は `AITERM_STATE_BASE` と、`state-compat.json` が古いと宣言した置き場をBellTeamが移してよい事（20行目）。
+
+移り方：0.70.58は `exports` を足すだけで、今の絶対パスの読み込みは壊れない（`exports` は名前での読み込みにだけ効く）。BellTeam（キロ氏 bd05・モリー氏 bd06）が名前での読み込みへ移した後も、絶対パスの読み込みを塞ぐ手立てはAitermに無い。約束の外として扱う。
+
 ## 今回の変更範囲
 
 担当連絡先、正本リンク、着手手順を更新した。公開入力/返却/状態所有/機能接続の構造は不変なので、製品内部図・本体の生成済み全体図の直接編集と動作試験再走は不要。接続登録のリンク追加はトロニーへ成果を渡す。他席checkout編集0。

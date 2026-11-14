@@ -17,6 +17,7 @@ digraph overview {
   resume_diag [label="Resume failure records\nagent-resume-diagnostic.ts\nphase / safe cause / readiness; no body",fillcolor="#eaf8f1"];
   checkpoint [label="Offline resume CLI: resume-state-cli.ts\nStrict codec + readonly checkpoint / startup restore\nresume-checkpoint.ts, resume-checkpoint-files.ts",fillcolor="#eaf8f1"];
   pending [label="Setup / update / diagnostics / private execution\nSee detailed maps; runtime acceptance pending"];
+  entries [label="Public package entry points: package.json exports (bellteam-boundary.md)\nsetup-node (mcpRegistration) / setup-integrations / execution-parent-worker\nexecution-native-setup / execution-native-server / child-result / resume-state-cli\nstate-compat.json / package.json; the exports map is the promise (string targets in the root)",fillcolor="#eaf8f1"];
  }
  subgraph cluster_s {
   label="Steer 0.5.1 candidate · S1";labeljust=l;labelloc=b;margin=22;color="#84bda3";
@@ -50,6 +51,10 @@ digraph overview {
  pending -> lifecycle [label="setup probe / private native adapters"];
  mcp -> pending [label="diagnostics / reporting trigger"];
  pending -> sdk [label="hook setup / provider contracts"];
+  client -> entries [label="import by name: registration shape, hook merge, native execution args, child-result preface"];
+  client -> pending [label="aiterm-setup harness-entries --json: hook entries (bellteam.harness-entries.v1); BellTeam writes CLI files"];
+  entries -> pending [label="setup / hook / native execution functions"];
+  entries -> parents [label="CHILD_RESULT_PREFACE (start of answerMessage)"];
   client -> checkpoint [label="offline stream; supply owns stopped source / startup admission"];
   checkpoint -> state [label="bounded records / exact bytes / current last",dir=both];
   checkpoint -> vendor [label="retained rollout identity read only",style=dashed];

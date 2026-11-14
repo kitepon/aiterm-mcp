@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Public package entry points (`package.json` `exports`, bd04): `aiterm-mcp/setup-node` (new `mcpRegistration()` = node + this package's `dist/index.js`, no npm call), `setup-integrations`, `execution-parent-worker`, `execution-native-setup`, `execution-native-server`, `child-result` (new `CHILD_RESULT_PREFACE`), `state-compat.json`, `package.json`. Only these are promised; nothing else is importable by name. Absolute-path imports keep working. Contract: docs/architecture/bellteam-boundary.md.
+- Public package entry points (`package.json` `exports`, bd04): `aiterm-mcp/setup-node` (new `mcpRegistration()` = node + this package's `dist/index.js`, no npm call), `setup-integrations`, `execution-parent-worker`, `execution-native-setup`, `execution-native-server`, `child-result` (new `CHILD_RESULT_PREFACE`), `resume-state-cli` (run with node: `restore` / `checkpoint` argv, stdin, one-line `aiterm.resume-state-result.v1`, exit 0 or 2), `state-compat.json`, `package.json`. The exports map itself is the promise (string targets inside the package root), so a caller that selects its own package root reads the targets from that root. Absolute-path imports keep working. Contract: docs/architecture/bellteam-boundary.md.
 
 ## [0.70.57] - 2026-11-14
 

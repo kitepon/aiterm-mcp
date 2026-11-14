@@ -4,6 +4,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 // bellteam-boundary.md "公開の入口": what a consumer may import by name, and nothing else (bd04, 2026-11-14).
 const PROMISED = {
@@ -23,6 +24,27 @@ test("each public entry point imports by name and carries its promised functions
   const compat = JSON.parse(fs.readFileSync(fileURLToPath(import.meta.resolve("aiterm-mcp/state-compat.json")), "utf8"));
   assert.equal(compat.schema, "aiterm.state-compat.v1");
   assert.equal((await import("aiterm-mcp/package.json", { with: { type: "json" } })).default.name, "aiterm-mcp");
+});
+
+// Kiro 2026-11-14: BellTeam reads the selected root's package.json exports itself, so the map is the promise.
+test("the exports map: every value is a string target inside the package root, and the file exists", () => {
+  const root = path.resolve(".");
+  const { exports } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  for (const [entry, target] of Object.entries(exports)) {
+    assert.equal(typeof target, "string", entry);
+    assert.match(target, /^\.\//u, entry);
+    const file = path.resolve(root, target);
+    assert.ok(file.startsWith(root + path.sep), `${entry} stays inside the root`);
+    assert.ok(fs.existsSync(file), `${entry} -> ${target}`);
+  }
+  assert.equal(exports["./resume-state-cli"], "./dist/resume-state-cli.js");
+});
+
+test("resume-state-cli runs with node by its exports target; a bad call ends with exit 2 and no stdout", () => {
+  const { exports } = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  const result = spawnSync(process.execPath, [exports["./resume-state-cli"], "restore", "--session", "x"], { encoding: "utf8", input: "" });
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.stdout, "");
 });
 
 test("mcpRegistration is the node + this package's dist/index.js shape, with no npm call", async () => {

@@ -60,7 +60,8 @@
     "./execution-parent-worker": "./dist/execution-parent-worker.js",
     "./execution-native-setup": "./dist/execution-native-setup.js",
     "./execution-native-server": "./dist/execution-native-server.js",
-    "./child-result": "./dist/parent-delivery-record.js"
+    "./child-result": "./dist/parent-delivery-record.js",
+    "./resume-state-cli": "./dist/resume-state-cli.js"
   },
   "files": [
     "dist/*.js",

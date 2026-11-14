@@ -130,6 +130,16 @@ test("選ぶ行: catalogのID・別名・表示名を、画面の行へ対応さ
   assert.equal(pick("claude-opus-9-9"), null);
   assert.equal(pick("opus[1m]"), null);
   assert.equal(pick("gpt-5.6-sol"), null);
+  // Kiro's seat (2026-11-14): versioned rows; the alias picks its family's newest row, never the Default row.
+  const versioned = ["Default (Opus 5.5)", "Opus 5.5", "Fable 5.2", "Sonnet 5.5", "Haiku 5.5", "More models"]
+    .map((label, i) => ({ index: i + 1, label, cursor: false, current: false, resolved: null }));
+  assert.equal(claude.claudeModelPickerRow(versioned, "fable")?.label, "Fable 5.2");
+  assert.equal(claude.claudeModelPickerRow(versioned, "opus")?.label, "Opus 5.5");
+  // Alias rows with a newer versioned row of the same family: the newest version wins; only the alias row: that row.
+  const mixed = [["Opus", "Opus 5.5"], ["Fable", "Fable 5.1"], ["Fable 5.2", null], ["Fable 5", null]]
+    .map(([label, resolved], i) => ({ index: i + 1, label, cursor: false, current: false, resolved }));
+  assert.equal(claude.claudeModelPickerRow(mixed, "fable")?.label, "Fable 5.2");
+  assert.equal(claude.claudeModelPickerRow(mixed.slice(0, 2), "fable")?.label, "Fable");
 });
 
 test("切り替えの確かめと、閉じた後の知らせを読む", () => {
@@ -175,8 +185,8 @@ if (args.includes("--input-format")) {
   require("node:readline").createInterface({ input: process.stdin }).on("line", line => {
     const request = JSON.parse(line);
     const models = [{ value: "default", displayName: "Default (recommended)" },
-      { value: "opus", displayName: ${JSON.stringify(options.aliasOlder ? "Opus 5" : "Opus 5.5")} },
-      { value: "sonnet", displayName: "Sonnet 5.5" }, { value: "fable", displayName: "Fable 5.2" }, { value: "native-choice-42", displayName: "Fable 5.1" }];
+      { value: "opus", displayName: ${JSON.stringify(options.aliasOlder ? "Opus 5" : options.plainAlias ? "Opus" : "Opus 5.5")} },
+      { value: "sonnet", displayName: "Sonnet 5.5" }, { value: "fable", displayName: ${JSON.stringify(options.plainAlias ? "Fable" : "Fable 5.2")} }, { value: "native-choice-42", displayName: "Fable 5.1" }];
     process.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: request.request_id, response: { models } } }) + "\\n");
   });
 } else {
@@ -292,6 +302,18 @@ test("agent_configure: Claude native catalogの任意IDとaliasを表示名へ�
     assert.match(await screen(), /Set model to Fable 5\.1 for this session only/u);
     assert.deepEqual(await core.configureAgent(sid, { model: "opus" }), done(sid, "opus", null));
     assert.match(await screen(), /Set model to Opus 5 for this session only/u);
+    assert.equal(saved(), false);
+  });
+});
+
+// Kiro 2026-11-14: the seat's catalog names the alias without a version (`Fable`) on a versioned picker. It refused; now the
+// family's newest row is selected.
+test("agent_configure: catalogが版なしで名付けた別名は、版つきの画面でその系統の一番新しい行を選ぶ", { skip: ptySkip }, async () => {
+  await withPickerClaude({ plainAlias: true }, async ({ sid, screen, saved }) => {
+    assert.deepEqual(await core.configureAgent(sid, { model: "fable" }), done(sid, "fable", null));
+    assert.match(await screen(), /Set model to Fable 5\.1 for this session only/u);
+    assert.deepEqual(await core.configureAgent(sid, { model: "opus" }), done(sid, "opus", null));
+    assert.match(await screen(), /Set model to Opus 5\.5 for this session only/u);
     assert.equal(saved(), false);
   });
 });

@@ -645,15 +645,21 @@ export function claudeModelPicker(screen: string): ClaudeModelPicker | null {
 
 /**
  * 指定されたmodel（catalogのID・別名・表示名）が、選ぶ画面のどの行かを決める。
- * `claude-opus-5-5` は「Opus 5.5」、別名の `opus` はその系統で番号が一番若い行（catalogの並びで最新）。
+ * `claude-opus-5-5` は「Opus 5.5」の行だけ。別名の `opus` は、その系統の行のうち版が一番新しい行（版は1列目か、別名の行の
+ * 2列目から読む。版つきの画面 `Opus 5.5` でも別名の画面 `Opus` → `Opus 5.5` でも同じ。同じ版なら上の行、版の読めない行は最後）。
  */
 export function claudeModelPickerRow(rows: ClaudeModelPickerRow[], model: string): ClaudeModelPickerRow | null {
   const want = model.trim().toLowerCase();
   const sorted = [...rows].sort((a, b) => a.index - b.index);
-  return claudePickerRowByName(sorted, claudeModelDisplayName(want))
-    ?? (want === "default" ? sorted.find((row) => /^default\b/iu.test(row.label)) : undefined)
-    ?? (/^[a-z]+$/u.test(want) ? sorted.find((row) => row.label.toLowerCase().startsWith(`${want} `) && /^\S+ \d/u.test(row.label)) : undefined)
-    ?? null;
+  if (want === "default") return sorted.find((row) => /^default\b/iu.test(row.label)) ?? null;
+  if (!/^[a-z]+$/u.test(want)) return claudePickerRowByName(sorted, claudeModelDisplayName(want));
+  const names = (row: ClaudeModelPickerRow) => [row.label, row.resolved].map((name) => name?.toLowerCase() ?? "");
+  const version = (row: ClaudeModelPickerRow) => names(row).map((name) => /^\S+ (\d+(?:\.\d+)?)/u.exec(name)?.[1])
+    .find((v) => v !== undefined)?.split(".").map(Number) ?? [-1];
+  const newer = (a: number[], b: number[]) => (a[0] - b[0]) || ((a[1] ?? 0) - (b[1] ?? 0));
+  return sorted.filter((row) => !/^default\b/iu.test(row.label)
+      && names(row).some((name) => name === want || name.startsWith(`${want} `)))
+    .reduce<ClaudeModelPickerRow | null>((best, row) => !best || newer(version(row), version(best)) > 0 ? row : best, null);
 }
 
 /** `claude-fable-5-2` → `fable 5.2`。IDの形でなければ小文字にしただけの物。 */

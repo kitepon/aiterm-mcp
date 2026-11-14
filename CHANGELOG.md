@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Claude `agent_configure` with an alias (`fable`, `opus`) selects the family's newest row on both picker layouts when the seat's catalog names the alias without a version (`Fable`). It refused on versioned rows (`Fable 5.2`) with `CLAUDE_MODEL_NOT_IN_PICKER` (Kiro 2026-11-14). An alias the catalog names with a version still means that version only.
+- `aiterm.agent-configure-request-result.v1` gains `refusal: {code, kind} | null` for `not_applied` (`turn_running` / `not_offered` / `other`), so a caller can retry a turn refusal at the next boundary and surface a picker refusal. The not-ready refusal now has the code `AGENT_CONFIGURE_NOT_READY` (configure_error `_meta` too).
+
 - A launch no longer refuses the moment a startup screen it already answered is still on screen: the frame right after the key can be the old one. It waits that screen out like an unanswered one, and answers Antigravity's `esc to dismiss` notice again (at most once a second) while it stays (Kiro rabbit-linux: agy's notice on its first start after a self-update, one Escape, `AGENT_STARTUP_BLOCKED reason=vendor_notice` 0.84 s later).
 
 - Antigravity seats get `append_system_prompt` as an always-on rule (`.agents/rules/aiterm.md` with `trigger: always_on`) in the seat's own `--add-dir` folder, so it is in every turn from the start. The first prompt, or a promptless seat's first input, is sent as given (lab: agy 1.5.8 loads that rule; without the frontmatter it skips the file).

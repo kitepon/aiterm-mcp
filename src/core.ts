@@ -56,7 +56,7 @@ import { withExecutionInterruptEffectScope, bindExecutionNativeTarget, beforeExe
 import { ExecutionError } from "./execution-wire.js";
 import { readExecutionParentProcess } from "./execution-parent-process.js";
 import { isCursorMcpClient } from "aiterm-steer-delivery";
-import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityPromptWithCaller, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
+import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { pendingChildResultsFor } from "./parent-delivery-owners.js";
 import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
@@ -5425,7 +5425,7 @@ async function sendInitialAgentPromptInLock(
     ), { startupBlocked: startup.reason });
   }
   await o.after_ready?.(name, meta);
-  const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : meta.kind === "antigravity" ? antigravityPromptWithCaller(meta, text) : text;
+  const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
   const startOffset = agentCompletionCursor(meta);
   const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   try {
@@ -7723,13 +7723,12 @@ export async function dispatchAgentTurn(
 
 /**
  * A seat launched without a prompt has no conversation yet at its first dispatch. Cursor gets Aiterm's launch context and the
- * caller text there, Antigravity the caller text (neither has an instruction channel); later dispatches go to the bound
- * conversation as plain text. A new launch (restart) starts unbound again, so its own first dispatch carries them.
+ * caller text there (it has no instruction channel); later dispatches go to the bound conversation as plain text. A new launch
+ * (restart) starts unbound again, so its own first dispatch carries them. Antigravity has its caller text as a rule instead.
  */
 export function firstDispatchText(meta: AgentMetadata, body: string): string {
   if (meta.vendor_session_id) return body;
-  return meta.kind === "cursor" ? `${cursorLineagePreface(meta)}\n\n${body}`
-    : meta.kind === "antigravity" ? antigravityPromptWithCaller(meta, body) : body;
+  return meta.kind === "cursor" ? `${cursorLineagePreface(meta)}\n\n${body}` : body;
 }
 
 function dispatchAgentTurnInLock(name: string, text: string, o: AgentDispatchOpts): Promise<AgentDispatchReceipt>;

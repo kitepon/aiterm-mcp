@@ -147,35 +147,40 @@ test("cursor: the text joins Aiterm's first-prompt block (also a promptless seat
   }
 });
 
-test("antigravity: mcp_config.json holds resolved values (0600) in a seat folder passed as --add-dir; --settings trusts the cwd and that folder; the text prefixes the first prompt", () => {
+test("antigravity: mcp_config.json holds resolved values (0600) in a seat folder passed as --add-dir; --settings trusts the cwd and that folder; the text is an always-on rule there", () => {
   const m = meta("antigravity", { aiterm_session: "caller_agy" });
   agy.writeAntigravityCallerFiles(m, "CALLER_RULE", mcp, valueOf);
-  keep(m.antigravity_caller_prompt_file, m.antigravity_caller_mcp_dir);
+  keep(m.antigravity_caller_mcp_dir);
   assert.equal(path.basename(m.antigravity_caller_mcp_dir), "caller_agy.antigravity-caller");
   const file = path.join(m.antigravity_caller_mcp_dir, ".agents", "mcp_config.json");
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { mcpServers: {
     bellteam: { serverUrl: "http://127.0.0.1:4181/mcp", headers: { Authorization: "Bearer tok-secret", "X-Bellteam-Seat": "caller_fixture",
       "X-Bellteam-Launch-Id": "a".repeat(32), "X-Fixed": "v1" } },
     "call-bridge": { serverUrl: "http://127.0.0.1:4181/call-bridge" } } });
+  // agy 1.5.8 skips a rule without the trigger frontmatter (lab 2026-11-14).
+  const rule = path.join(m.antigravity_caller_mcp_dir, ".agents", "rules", "aiterm.md");
+  assert.equal(fs.readFileSync(rule, "utf8"), "---\ntrigger: always_on\n---\n\nCALLER_RULE");
   if (process.platform !== "win32") {
     assert.equal(mode(file), 0o600);
-    assert.equal(mode(m.antigravity_caller_prompt_file), 0o600);
+    assert.equal(mode(rule), 0o600);
     assert.equal(mode(m.antigravity_caller_mcp_dir), 0o700);
   }
   const argv = agy.antigravityAgentArgv("agy", "mdl", null, "do it", m);
   const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
   assert.deepEqual(settings, { queuedMessages: "send-immediately", trustedWorkspaces: [...new Set([tmp, fs.realpathSync(tmp), m.antigravity_caller_mcp_dir])] });
   assert.equal(argv[argv.indexOf("--add-dir") + 1], m.antigravity_caller_mcp_dir);
-  assert.equal(argv.at(-1), "do it", "the prefix is added where the first prompt is sent, not in argv");
-  assert.equal(agy.antigravityPromptWithCaller(m, "do it"), "CALLER_RULE\n\ndo it");
+  assert.equal(argv.at(-1), "do it", "the prompt is sent as given");
   // without caller fields nothing changes
   assert.deepEqual(agy.antigravityAgentArgv("agy", null, null, null), ["agy", "--dangerously-skip-permissions", "--settings", '{"queuedMessages":"send-immediately"}']);
   assert.deepEqual(agy.antigravityAgentArgv("agy", null, null, "p", meta("antigravity")), ["agy", "--dangerously-skip-permissions", "--settings", '{"queuedMessages":"send-immediately"}', "--prompt-interactive", "p"]);
-  assert.equal(agy.antigravityPromptWithCaller(meta("antigravity"), "do it"), "do it");
-  // A promptless seat: the first input to the unbound conversation carries the text once; the bound conversation gets plain text.
-  assert.equal(core.firstDispatchText(m, "work"), "CALLER_RULE\n\nwork");
-  assert.equal(core.firstDispatchText({ ...m, vendor_session_id: "11111111-1111-4111-8111-111111111111" }, "work"), "work");
-  assert.equal(core.firstDispatchText(meta("antigravity"), "work"), "work");
+  assert.equal(core.firstDispatchText(m, "work"), "work", "a promptless seat's first input is sent as given: the rule is already loaded");
+  // Instructions only: the folder holds the rule and no server file.
+  const only = meta("antigravity", { aiterm_session: "caller_agy3" });
+  agy.writeAntigravityCallerFiles(only, "ONLY_RULE", null, valueOf);
+  keep(only.antigravity_caller_mcp_dir);
+  assert.ok(fs.existsSync(path.join(only.antigravity_caller_mcp_dir, ".agents", "rules", "aiterm.md")));
+  assert.ok(!fs.existsSync(path.join(only.antigravity_caller_mcp_dir, ".agents", "mcp_config.json")));
+  assert.equal(agy.antigravityAgentArgv("agy", null, null, null, only).includes("--add-dir"), true);
   assert.throws(() => agy.writeAntigravityCallerFiles(meta("antigravity", { aiterm_session: "caller_agy2" }), null, mcp, name => name === "X-none" ? "" : undefined), /ANTIGRAVITY_MCP_ENV_UNAVAILABLE/);
 });
 
@@ -196,7 +201,7 @@ test("metadata keeps the caller files across a reload, and closing the seat remo
   };
   const write = { grok: grok.writeGrokCallerFiles, cursor: cursor.writeCursorCallerFiles, antigravity: agy.writeAntigravityCallerFiles };
   const fields = { grok: ["grok_caller_prompt_file", "grok_caller_mcp_file"], cursor: ["cursor_caller_prompt_file", "cursor_caller_mcp_dir"],
-    antigravity: ["antigravity_caller_prompt_file", "antigravity_caller_mcp_dir"] };
+    antigravity: ["antigravity_caller_mcp_dir"] };
   try {
     for (const kind of Object.keys(make)) {
       const name = `callerclean_${kind}`;

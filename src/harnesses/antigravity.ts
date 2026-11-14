@@ -11,7 +11,7 @@ import { spawnAgentControlCommand } from "../agent-resolver.js";
 import { liveNodeExecutable } from "../live-node.js";
 import { powershellInvocation } from "../windows-powershell.js";
 import { agentEventPath, agentLineageFields, agentsDir, assertSessionName, createEmpty0600, writeText0600, readFileRange, safeStatSize, shq, writeAgentMetadata, writeJson0600, type AgentMetadata, type AgentLineageContext, type InitialPromptState, type HarnessPaneObservation, type AgentDoneEvent, type StartupAction } from "../agent-shared.js";
-import { assertCallerEnv, checkCallerInput, readCallerText, resolveCallerHeader, writeCallerJson, type CallerServer } from "./caller-mcp.js";
+import { assertCallerEnv, checkCallerInput, resolveCallerHeader, writeCallerJson, type CallerServer } from "./caller-mcp.js";
 import { authUrl, type AgentAuthPane, type AgentAuthStatus } from "../agent-auth.js";
 
 // agy 1.4.10 exposes effort-specific IDs; overriding an ID's effort is rejected by the CLI.
@@ -189,14 +189,9 @@ export function createAntigravityAgentMetadata(name: string, cwd: string | null,
   return meta;
 }
 
-// ---- Caller launch fields (launch-identity-input.md "Caller launch fields"). agy has no per-run instruction channel Aiterm could
-// prove (the .agents/rules route was not confirmed), so the text prefixes the first prompt; the servers are .agents/mcp_config.json
-// in a per-seat folder passed as --add-dir. Both live in Aiterm state (0600 files), never in ~/.gemini or the project.
-
-export function agentAntigravityCallerPromptPath(name: string): string {
-  assertSessionName(name);
-  return path.join(agentsDir(), `${name}.antigravity-caller-prompt.md`);
-}
+// ---- Caller launch fields (launch-identity-input.md "Caller launch fields"). A per-seat folder passed as --add-dir holds the
+// servers (.agents/mcp_config.json) and the text as an always-on rule (.agents/rules/aiterm.md; agy skips a rule without the
+// trigger frontmatter). Both live in Aiterm state (0600 files), never in ~/.gemini or the project.
 
 export function agentAntigravityCallerDir(name: string): string {
   assertSessionName(name);
@@ -218,16 +213,15 @@ export function checkAntigravityCallerInput(prompt: string | null | undefined, m
 export function writeAntigravityCallerFiles(meta: AgentMetadata, prompt: string | null, mcp: Record<string, unknown> | null, valueOf: (name: string) => string | undefined): void {
   const servers = checkAntigravityCallerInput(prompt, mcp);
   assertCallerEnv("ANTIGRAVITY", servers, valueOf);
+  if (prompt === null && mcp === null) return;
+  const dir = agentAntigravityCallerDir(meta.aiterm_session);
   if (prompt !== null) {
-    const file = agentAntigravityCallerPromptPath(meta.aiterm_session);
-    writeText0600(file, prompt);
-    meta.antigravity_caller_prompt_file = file;
+    const rule = path.join(dir, ".agents", "rules", "aiterm.md");
+    fs.mkdirSync(path.dirname(rule), { recursive: true, mode: 0o700 });
+    writeText0600(rule, `---\ntrigger: always_on\n---\n\n${prompt}`);
   }
-  if (mcp !== null) {
-    const dir = agentAntigravityCallerDir(meta.aiterm_session);
-    writeCallerJson(path.join(dir, ".agents", "mcp_config.json"), antigravityCallerMcpJson(servers, valueOf));
-    meta.antigravity_caller_mcp_dir = dir;
-  }
+  if (mcp !== null) writeCallerJson(path.join(dir, ".agents", "mcp_config.json"), antigravityCallerMcpJson(servers, valueOf));
+  meta.antigravity_caller_mcp_dir = dir;
 }
 
 /**
@@ -237,12 +231,6 @@ export function writeAntigravityCallerFiles(meta: AgentMetadata, prompt: string 
 export function antigravityQuotaLimit(error: string | null | undefined): string | null {
   const m = error ? /\bRESOURCE_EXHAUSTED\b[^:]*:\s*([\s\S]+)|\(code 429\):\s*([\s\S]+)/.exec(error) : null;
   return m ? (m[1] ?? m[2]).trim() : null;
-}
-
-/** The first prompt with the caller's text in front (the seat's only instruction channel here). */
-export function antigravityPromptWithCaller(meta: AgentMetadata, prompt: string): string {
-  const caller = readCallerText(meta.antigravity_caller_prompt_file);
-  return caller === null ? prompt : `${caller}\n\n${prompt}`;
 }
 
 export function antigravityAgentArgv(bin: string, model: string | null, effort: string | null, prompt: string | null, meta?: AgentMetadata | null): string[] {

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A launch no longer refuses the moment a startup screen it already answered is still on screen: the frame right after the key can be the old one. It waits that screen out like an unanswered one, and answers Antigravity's `esc to dismiss` notice again (at most once a second) while it stays (Kiro rabbit-linux: agy's notice on its first start after a self-update, one Escape, `AGENT_STARTUP_BLOCKED reason=vendor_notice` 0.84 s later).
 
+- Antigravity seats get `append_system_prompt` as an always-on rule (`.agents/rules/aiterm.md` with `trigger: always_on`) in the seat's own `--add-dir` folder, so it is in every turn from the start. The first prompt, or a promptless seat's first input, is sent as given (lab: agy 1.5.8 loads that rule; without the frontmatter it skips the file).
+
 - Antigravity's Linux exec shape is captured (1.5.8, container): `bash -c <cmd>` as a session leader on its own pty, counted by the existing session-leader rule since 0.70.47. Fixture and ADR 0141 table only; no runtime change.
 
 ## [0.70.55] - 2026-11-13

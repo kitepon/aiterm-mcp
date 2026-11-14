@@ -7,7 +7,7 @@ import { OPERATION_ID_RE, agentManagedClaudeSettingsPath, agentClaudeResultPath,
 import { agentCodexCallerPromptPath, agentCodexCallerMcpPath } from "./harnesses/codex.js";
 import { resolveAndValidateGrokAuth, agentGrokCallerPromptPath, agentGrokCallerAgentPath } from "./harnesses/grok.js";
 import { agentCursorCallerPromptPath, agentCursorCallerPluginDir } from "./harnesses/cursor.js";
-import { agentAntigravityCallerPromptPath, agentAntigravityCallerDir } from "./harnesses/antigravity.js";
+import { agentAntigravityCallerDir } from "./harnesses/antigravity.js";
 import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
   LAUNCH_ID_RE, AGENT_LINEAGE_RE, type AgentForkOf, type AgentMetadata, type InitialPromptState,
@@ -147,7 +147,6 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       vendor_session_id: m.vendor_session_id ?? null, initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       hook_route: "shared_antigravity_home", antigravity_home: m.antigravity_home, node_platform: process.platform,
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
-      ...(m.antigravity_caller_prompt_file === agentAntigravityCallerPromptPath(name) ? { antigravity_caller_prompt_file: m.antigravity_caller_prompt_file } : {}),
       ...(m.antigravity_caller_mcp_dir === agentAntigravityCallerDir(name) ? { antigravity_caller_mcp_dir: m.antigravity_caller_mcp_dir } : {}),
       ...deliveryFields, ...executableFields, ...fastFields, ...startupFields, ...loadAgentLineageFields(m, true) };
   }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_list` no longer fails for every seat when one saved seat's record is unreadable or was removed by a close between the directory read and the record read (BugHub d90f8b67: BellTeam's Bot list answered 500). That seat is left out; the rows of the others are unchanged.
+
 ## [0.70.60] - 2026-11-14
 
 - Removed `configureNativeExecutionHooks` and the `aiterm-mcp/execution-native-setup` entry point (bd14). BellTeam writes the CLI files itself from `aiterm-setup harness-entries --json` since body 2c948242, and no branch calls the old writer (Molly 2026-11-14). An older body keeps working: it uses the Aiterm installed in its own image. `setup-integrations` stays for BellTeam's fallback branch. The standalone `aiterm-setup` is unchanged.

@@ -1060,3 +1060,15 @@ test("claudeLimitResetAt: the named reset as the next such instant after the lim
   assert.equal(claudeLimitResetAt("You've hit your weekly limit · resets 7pm (Not/AZone)", at), null);
   assert.equal(claudeLimitResetAt("You've hit your weekly limit", at), null);
 });
+
+// BugHub d90f8b67: a close removed one seat's record after the readdir; pty_list failed for every seat and /api/bots answered 500.
+test("pty_list: an unreadable or vanished saved-seat record drops only that seat", async () => {
+  const { agentsDir } = await import("../dist/agent-shared.js");
+  fs.mkdirSync(agentsDir(), { recursive: true });
+  const file = path.join(agentsDir(), `pty-list-broken.${"a".repeat(32)}.agent.json`);
+  fs.writeFileSync(file, "{not json");
+  try {
+    const rows = core.listSessionsResult([], () => ({ code: 0, stdout: "s1\tbash\t0\t80\t24\n", stderr: "" })).sessions;
+    assert.deepEqual(rows.map(row => row.session_id), ["s1"]);
+  } finally { fs.rmSync(file, { force: true }); }
+});

@@ -6824,8 +6824,7 @@ export async function pauseAgentGoalForStop(target: { session_id: string; launch
 }
 
 function agentConfigureNotReady(name: string): AitermError {
-  return Object.assign(new AitermError(`agent session '${name}' は入力待ちではありません。番またはgoalが継続する場合はgoalを停止または完了にしてから agent_configure してください。設定は変えていません。`, 2),
-    { configureRefusal: { code: "AGENT_CONFIGURE_NOT_READY", relaunch: false, selection_excluded: false } });
+  return new AitermError(`agent session '${name}' は入力待ちではありません。番またはgoalが継続する場合はgoalを停止または完了にしてから agent_configure してください。設定は変えていません。`, 2);
 }
 
 export async function configureAgent(

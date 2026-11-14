@@ -14,12 +14,12 @@ digraph configuration {
  reconcile -> receipt [label="exact original binding; never replay"];
  lock [label="core: native + send lock, goal protection\nuser-config: snapshot + action + restore"];
  port [label="agent-model-ui.ts: AgentModelUi (internal type)\nread screen / submit complete command / menu keys\nExisting ready or text wait supplied by core",fillcolor="#deedff"];
- claude [label="harnesses/claude-configure.ts\nOpen picker -> inspect rows / effort\nRow = label or resolved 2nd column (alias picker)\nRequire session-only -> recheck selection",fillcolor="#deedff"];
+ claude [label="harnesses/claude-configure.ts\nOpen picker -> inspect rows / effort\nRow = label or resolved 2nd column (alias picker)\nAlias: catalog names a version -> that version only;\nelse the family's newest row on either layout (0.70.56)\nRequire session-only -> recheck selection",fillcolor="#deedff"];
  codex [label="harnesses/codex-configure.ts\nOpen picker -> preserve current effort if needed\nResolve missing model only on existing fallback",fillcolor="#deedff"];
  sideeffect [label="beforeChange at original position\nClaude: before s\nCodex: before final effort key / Enter",fillcolor="#fff1d5"];
  observe [label="Observe new vendor notice\nClaude session-only result + ready\nCodex increased notice count"];
  result [label="core: preserve metadata / goal / defaults ordering\nReturn same public result or exception"];
- failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend\nClaude picker refusal: _meta aiterm/configure_error {code, relaunch}",fillcolor="#ffe9e4"];
+ failure [label="Failure before or after effect\nPreserve code + unconfirmed state\nExisting bounded Esc cleanup; no resend\nClaude picker refusal: _meta aiterm/configure_error {code, relaunch}\nNot ready / turn running: no configure_error (caller tells them apart)",fillcolor="#ffe9e4"];
  preview [label="idle-settings.ts: shared native preview\ninspectCodexResumeSettings: fresh thread-id + settings\nCancel without save; missing / mismatch => null",fillcolor="#deedff"];
  repair [label="R1-L: completeFailedCodexResume\nOwns native pin / composer gate / admission",style="rounded,filled",fillcolor="#fff1d5"];
  repair -> preview [label="fresh thread + explicit standard speed"];

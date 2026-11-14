@@ -45,7 +45,6 @@ Model, effort and fast are forbidden in reconcile. The reader does not create a 
 | `terminal_at` | Saved handler/finally completion time, otherwise null |
 | `result` | Original successful configure result, otherwise null; its model/effort retain their existing requested-value semantics |
 | `later_effect` | `excluded` for saved terminal requests with no native mutation issued, or refused by the Claude model picker before its selection key with the picker read closed afterwards; otherwise `unconfirmed` |
-| `refusal` | Only for `outcome: not_applied`: `{code, kind}`. `code` is the refusal's own code (`CLAUDE_MODEL_NOT_IN_PICKER`, `AGENT_SEND_BUSY`, ...; `UNCODED` when it had none). `kind`: `turn_running` (the seat was in a turn or another send: `AGENT_CONFIGURE_NOT_READY`, `AGENT_SEND_BUSY`, `GOAL_CONFIGURE_TURN_END_UNCONFIRMED`; apply again at the next boundary), `not_offered` (the harness does not offer it in this session: `CLAUDE_MODEL_NOT_IN_PICKER`, `CLAUDE_MODEL_NOT_SELECTABLE`, `CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE`, `CLAUDE_EFFORT_NOT_SELECTABLE`, `FAST_MODE_NOT_SUPPORTED`, `FAST_MODE_UNAVAILABLE`; tell the requester), `other`. Otherwise null; also null on a `not_applied` receipt saved before 0.70.56 (kind unknown) (Kiro, 2026-11-14) |
 | `current` | `{ "availability": "unsupported" }`; no UI preview is performed |
 | `observed_at` | Time this receipt was read |
 

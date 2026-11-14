@@ -87,33 +87,6 @@ test('a Claude picker refusal read closed before selection excludes later effect
     assert.equal(reconcileConfigurationRequest(b).later_effect, excluded ? 'excluded' : 'unconfirmed');
   }
 });
-// Kiro 2026-11-14: a not_applied receipt says why, so BellTeam retries a turn refusal at the boundary and surfaces a picker one.
-test('a not_applied receipt carries refusal {code, kind}; other outcomes and old records carry null', posix, async () => {
-  const notApplied = (error) => Object.assign(error, { configurationFailure: { schema: 'aiterm.agent-configure-error.v1',
-    session_id: 'configure-fixture', outcome: 'not_applied', effect: 'not_started' } });
-  for (const [error, refusal] of [
-    [notApplied(Object.assign(new Error('CLAUDE_MODEL_NOT_IN_PICKER vendor=claude'), { configureRefusal: { code: 'CLAUDE_MODEL_NOT_IN_PICKER', relaunch: true, selection_excluded: true } })),
-      { code: 'CLAUDE_MODEL_NOT_IN_PICKER', kind: 'not_offered' }],
-    [notApplied(new Error("AGENT_SEND_BUSY: agent session 'x' は先に受け付けた送信の処理中です。")), { code: 'AGENT_SEND_BUSY', kind: 'turn_running' }],
-    [notApplied(Object.assign(new Error("agent session 'x' は入力待ちではありません。"), { configureRefusal: { code: 'AGENT_CONFIGURE_NOT_READY', relaunch: false, selection_excluded: false } })),
-      { code: 'AGENT_CONFIGURE_NOT_READY', kind: 'turn_running' }],
-    [notApplied(new Error('FAST_MODE_NOT_SUPPORTED: no fast')), { code: 'FAST_MODE_NOT_SUPPORTED', kind: 'not_offered' }],
-    [notApplied(new Error('model、reasoning_effort、fast のいずれかを指定してください')), { code: 'UNCODED', kind: 'other' }],
-  ]) {
-    const b = binding();
-    const r = await applyConfigurationRequest(b, settings, async () => { throw error; });
-    assert.equal(r.receipt.outcome, 'not_applied');
-    assert.deepEqual(r.receipt.refusal, refusal);
-    assert.deepEqual(reconcileConfigurationRequest(b).refusal, refusal, 'the reader returns the saved refusal');
-  }
-  const unknown = binding();
-  const u = await applyConfigurationRequest(unknown, settings, async () => { beforeConfigurationEffect(); throw new Error('lost'); });
-  assert.equal(u.receipt.outcome, 'outcome_unknown'); assert.equal(u.receipt.refusal, null);
-  const old = binding();
-  await applyConfigurationRequest(old, settings, async () => { throw notApplied(new Error('AGENT_SEND_BUSY: x')); });
-  const saved = JSON.parse(fs.readFileSync(file(old), 'utf8')); delete saved.refusal; fs.writeFileSync(file(old), JSON.stringify(saved));
-  assert.equal(reconcileConfigurationRequest(old).refusal, null, 'a record saved before 0.70.56 has no refusal: kind unknown');
-});
 test('post-terminal continuation is refused before any native input', posix, async () => {
   const b = binding(); let release, late, effects = 0;
   const trigger = new Promise(resolve => { release = resolve; });

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.59] - 2026-11-14
+
 - A fresh launch on a loaded Mac no longer fails with `native_condition_refused` while the seat is fine (Lapi's seat, macbook 19:47). tmux 3.7+ blanks a format that runs past its 100 ms budget, so the identity check took the refusal branch. A refusal is now classified from `has-session` plus one pane read: `native_pane_gone`, `native_identity_changed` (with the field), `native_pane_exited`, `native_creation_marker_changed`, or unevaluated. Only an unevaluated condition re-issues the same command, at most 4 tries, then `native_condition_unevaluated`.
 - Blank or partial `list-sessions` rows read as an unavailable listing, not an absent session; a blank pane read after creation is unreadable, not a replaced native.
 - The Mac GUI LaunchAgent sets `ProcessType=Interactive`, so a new tmux server and its seats leave launchd's background priority.
@@ -3484,7 +3486,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.59...HEAD
+[0.70.59]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...v0.70.59
 [0.70.58]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.57...v0.70.58
 [0.70.57]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.56...v0.70.57
 [0.70.56]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.55...v0.70.56

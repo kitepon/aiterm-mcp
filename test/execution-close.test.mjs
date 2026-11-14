@@ -17,7 +17,8 @@ function fixture() {
 }
 test('native identity parser rejects missing, malformed and duplicate identities without a name fallback', () => {
   assert.deepEqual(parseExecutionNativeSessions('$7\tbot-a\n'), known([native()]));
-  for (const text of ['bot-a', '7\tbot-a', '$7\tbot-a\textra', '$7\tbot-a\n$8\tbot-a', '$7\tbot-a\n$7\tbot-b'])
+  // tmux 3.7+ blanks rows past its 100 ms format budget: a blank or partial row is unread, never an absent session.
+  for (const text of ['bot-a', '7\tbot-a', '$7\tbot-a\textra', '$7\tbot-a\n$8\tbot-a', '$7\tbot-a\n$7\tbot-b', '$7\tbot-a\n\n', '\n$7\tbot-a\n', '$7\t\n'])
     assert.deepEqual(parseExecutionNativeSessions(text), { state: 'unknown' });
 });
 test('expected close addresses the captured native session exactly once', () => {

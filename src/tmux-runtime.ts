@@ -87,7 +87,13 @@ function nativeSessionRows(): string[][] | null {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     listed = list();
   }
-  if (listed.code === 0) return listed.stdout.split(/\r?\n/).filter(Boolean).map(row => row.split(/[\t ]/));
+  if (listed.code === 0) {
+    const rows = listed.stdout.split(/\r?\n/);
+    if (rows.at(-1) === "") rows.pop();
+    const split = rows.map(row => row.split(/[\t ]/));
+    // tmux 3.7+ blanks the rest of a format that ran past its 100 ms budget: a blank row is unread, never absent.
+    return split.some(row => row.length < 2 || !/^\$\d+$/.test(row[0]) || !row[1]) ? null : split;
+  }
   return /no server running|No such file or directory/i.test(listed.stderr) ? [] : null;
 }
 
@@ -159,6 +165,31 @@ function nativeSessionArgs(input: string[]): string[] {
 }
 
 const NATIVE_REFUSED = "__AITERM_NATIVE_GENERATION_REFUSED__";
+export const NATIVE_PANE_FORMAT = "#{session_id}\t#{session_name}\t#{pid}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}";
+const NATIVE_UNEVALUATED_TRIES = 4, NATIVE_UNEVALUATED_PAUSE_MS = 50;
+/**
+ * Why the receiving server took the refusal branch, read back from the pane. if-shell -t accepts a missing pane and
+ * expands the condition empty; tmux 3.7+ also blanks a format that runs past 100 ms (a stalled server). null: every field
+ * still matches (or the read itself was blanked), so tmux did not evaluate the condition and the effect did not run.
+ */
+export function classifyNativeRefusal(target: NativeSessionReceipt, read: { code: number; stdout: string; stderr: string },
+  allowExitedPane = false, creation?: string): string | null {
+  if (read.code !== 0) return `native_pane_gone(${tmuxFailure(read)})`;
+  const fields = read.stdout.replace(/\r?\n$/, "").split(/\t/);
+  if (fields.length !== (creation === undefined ? 6 : 7) || fields.slice(0, 4).some(field => !field)) return null;
+  const [native, session, server, pane, panePid, dead] = fields;
+  if (dead !== "0" && dead !== "1") return null;
+  if (dead === "1" && !allowExitedPane) return "native_pane_exited";
+  // macOS tmux clears pane_pid after exit; a live pane's blank pid is an unfinished expansion.
+  if (!panePid && dead === "0") return null;
+  const expected: [string, string, string][] = [["session_id", native, target.native_id], ["session_name", session, target.session_id],
+    ["pid", server, String(target.server_pid)], ["pane_id", pane, target.pane_id]];
+  if (panePid) expected.push(["pane_pid", panePid, String(target.pane_pid)]);
+  const changed = expected.find(([, actual, wanted]) => actual !== wanted);
+  if (changed) return `native_identity_changed(${changed[0]})`;
+  if (creation !== undefined && fields[6] === "0") return "native_creation_marker_changed";
+  return null;
+}
 /** Check on the receiving server too: a new server may recycle session and pane IDs. */
 function nativeConditionalArgs(args: string[]): string[] {
   const target = nativeTargets.getStore()?.target;
@@ -474,21 +505,43 @@ function runTmux(
   // maxBuffer は既定 1MiB。capture-pane（大きなスクロールバック）や多セッションの list-sessions で
   // 頭打ちになり stdout が切れる/空になる。Python の subprocess.run は無制限だったので 64MiB へ広げる。
   // Windows は tmux CLI 互換の native psmux を -L namespace 隔離で叩く（WSL 非依存）。
-  let r;
   const spawnOpts = () => ({ encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, input, env: session ?? tmuxSpawnEnv(), ...diagnosticSpawnOptions(deadline) });
-  if (isWin) {
-    ensureWinPsmux(observe, deadline);
-    r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts());
-  } else {
-    // resolveTmux() は tmux を解決できなければ明確な AitermError を投げる（POSIX 版の事前確認）。
-    const bin = resolveTmux(observe, deadline);
-    // -f は tmux 本体の引数で、server を起こす時にだけ読まれる（new-session の -f は別物で、config を指さない）。
-    const argv = session ? ["-f", TMUX_EMPTY_CONFIG, "-S", SOCK, ...args] : ["-S", SOCK, ...args];
-    r = (session && macGuiServerWanted(bin) && startTmuxInMacGui(bin, argv, session))
-      || spawnSync(bin, argv, spawnOpts());
+  const spawnOnce = () => {
+    let r;
+    if (isWin) {
+      ensureWinPsmux(observe, deadline);
+      r = spawnSync(psmuxBin(), ["-L", WIN_NS, ...args], spawnOpts());
+    } else {
+      // resolveTmux() は tmux を解決できなければ明確な AitermError を投げる（POSIX 版の事前確認）。
+      const bin = resolveTmux(observe, deadline);
+      // -f は tmux 本体の引数で、server を起こす時にだけ読まれる（new-session の -f は別物で、config を指さない）。
+      const argv = session ? ["-f", TMUX_EMPTY_CONFIG, "-S", SOCK, ...args] : ["-S", SOCK, ...args];
+      r = (session && macGuiServerWanted(bin) && startTmuxInMacGui(bin, argv, session))
+        || spawnSync(bin, argv, spawnOpts());
+    }
+    diagnosticSpawnFailure(r, deadline);
+    return r;
+  };
+  const frame = nativeTargets.getStore();
+  for (let attempt = 1; ; attempt++) {
+    const r = spawnOnce();
+    if (!frame?.target || args[0] !== "if-shell" || (r.stdout ?? "").trim() !== NATIVE_REFUSED) return finishTmux(r, args, observe);
+    // The refusal branch ran, so the effect did not: issuing the same conditional command again is not a second effect.
+    const target = frame.target;
+    // display-message -t, like if-shell -t, answers a missing pane with blank fields and rc=0; has-session fails instead.
+    const present = nativeTargets.exit(() => runTmux(false, undefined, ["has-session", "-t", nativeSessionTarget(target)]));
+    const read = present.code !== 0 ? present : nativeTargets.exit(() => runTmux(false, undefined, ["display-message", "-p", "-t",
+      nativePaneTarget(target), NATIVE_PANE_FORMAT + (frame.creationCondition ? `\t${frame.creationCondition}` : "")]));
+    const reason = classifyNativeRefusal(target, read, frame.allowExitedPane, frame.creationCondition);
+    if (reason === null && attempt < NATIVE_UNEVALUATED_TRIES) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, NATIVE_UNEVALUATED_PAUSE_MS);
+      continue;
+    }
+    if (frame.allowRefusal) return finishTmux(r, args, observe);
+    throw reason === null ? new AitermError("AGENT_RESUME_UNCONFIRMED: tmuxがnative端末の照合条件を評価しませんでした（server側の書式の時間切れ）。"
+      + "端末の本人性は読み取りで一致しています。操作していません。native_reason=native_condition_unevaluated", 2)
+      : nativeTargetUnavailable(reason);
   }
-  diagnosticSpawnFailure(r, deadline);
-  return finishTmux(r, args, observe);
 }
 
 /** A read-only tmux command (display-message and the like) that does not block the event loop. Same routing, guards and failures as tmux(). */
@@ -529,7 +582,6 @@ function finishTmux(r: SpawnSyncReturns<string>, args: string[], observe: boolea
     ptyDependencyError(tmuxMissingMessage(), observe);
   }
   const native = nativeTargets.getStore();
-  if (native?.target && !native.allowRefusal && args[0] === "if-shell" && (r.stdout ?? "").trim() === NATIVE_REFUSED) throw nativeTargetUnavailable("native_condition_refused");
   if (native?.target && r.status !== 0) verifyNativeTarget(native);
   return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -581,6 +633,9 @@ export function macGuiTmuxPlist(label: string, dir: string, argv: string[], env:
     // 直接起動と同じく、呼んだ側の作業フォルダを最初の pane の開始位置にする。
     `<key>WorkingDirectory</key><string>${xmlText(cwd)}</string>`,
     "<key>RunAtLoad</key><true/>",
+    // launchd's default limits run the job (and the tmux server it starts, with every seat under it) at background priority; a stalled server
+    // overruns tmux's 100 ms format budget and blanks identity checks (macbook 2026-11-14).
+    "<key>ProcessType</key><string>Interactive</string>",
     "<key>AbandonProcessGroup</key><true/>",
     "</dict></plist>",
     "",

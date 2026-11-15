@@ -343,6 +343,29 @@ test("sendKey: 別名→tmux キー名・戻り値", { skip }, () => {
   assert.equal(core.sendKey(SESS, "Up"), `sent key Up to ${SESS}`);
   assert.equal(core.sendKey(SESS, "Zz9"), `sent key Zz9 to ${SESS}`); // 未知は素通し
 });
+// b8: Alt+P opens Claude Code's model picker in a running turn. The key name M-p must reach the pane as the two bytes ESC p
+// in one read on tmux and psmux alike (a lone ESC first would stop the turn).
+test("sendKey: M-p は ESC p の2byteとして届く", { skip }, async () => {
+  const out = path.join(SANDBOX, "keys.hex");
+  const script = path.join(SANDBOX, "dump-keys.cjs");
+  fs.writeFileSync(script, `const fs=require("node:fs");process.stdin.setRawMode(true);process.stdin.resume();fs.writeFileSync(${JSON.stringify(out)},"ready\\n");process.stdin.on("data",d=>fs.appendFileSync(${JSON.stringify(out)},d.toString("hex")+"\\n"));setTimeout(()=>process.exit(0),20000);`);
+  const session = "altp_probe";
+  core.openSession(session);
+  try {
+    core.send(session, `node "${script}"`, { force: true });
+    const t0 = performance.now();
+    while (!(fs.existsSync(out) && fs.readFileSync(out, "utf8").includes("ready"))) {
+      assert.ok(performance.now() - t0 < 15000, "the key dumper did not start");
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    core.sendKey(session, "M-p");
+    while (!fs.readFileSync(out, "utf8").includes("1b70")) {
+      assert.ok(performance.now() - t0 < 15000, fs.readFileSync(out, "utf8"));
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.match(fs.readFileSync(out, "utf8"), /^1b70$/m, "ESC and p in one read");
+  } finally { try { core.closeSession(session); } catch {} }
+});
 test("sendKey: 欠如セッションはエラー(code2)", { skip }, () => {
   assert.throws(() => core.sendKey("no_such_xyz", "C-c"), (e) => e.code === 2);
 });

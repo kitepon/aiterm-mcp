@@ -6976,6 +6976,14 @@ function claudeSeatCatalogEnv(name: string, meta: AgentMetadata): NodeJS.Process
   return env;
 }
 
+/** Whether a Claude goal is running on the seat (inside the send lock). Unreadable counts as no goal: the picker path is harmless either way. */
+async function claudeGoalActive(name: string, meta: AgentMetadata): Promise<boolean> {
+  try {
+    const result = await agentGoalInContext({ session_id: name, launch_id: meta.launch_id, action: "inspect" }, "automatic", undefined, true);
+    return result.availability === "available" && (result.goal as { status?: unknown } | null)?.status === "active";
+  } catch { return false; }
+}
+
 /** 返りの null は、席の画面が番の最中を示していて、何も打っていない時。 */
 async function configureAgentInLock(
   name: string,
@@ -6990,11 +6998,16 @@ async function configureAgentInLock(
   let seatEnv: NodeJS.ProcessEnv | null | undefined;
   const claudeSeatEnv = () => seatEnv === undefined ? (seatEnv = claudeSeatCatalogEnv(name, meta)) : seatEnv;
   // Codexは回答を流している間、動作中の行を出さない（ADR 0101）。送信と同じく記録の番の開始を見て、動いている席へ命令を打たない。
+  // A running Claude turn is changed in place only for model/effort(low-max), with no goal running (model-configuration.md, b8).
+  let inTurn = false;
   if (isAgentTuiBusy(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES))
-    || (meta.kind === "codex" && codexRunningTurn(meta) !== null && observeSession(name).harness_alive === true)) return null;
-  const { ready, codexRateLimitModelSwitch } = await waitAgentTuiReadyAfterCodexRateLimitRecovery(
-    name, meta, AGENT_TUI_READY_TIMEOUT_MS,
-  );
+    || (meta.kind === "codex" && codexRunningTurn(meta) !== null && observeSession(name).harness_alive === true)) {
+    inTurn = meta.kind === "claude" && fast === null && (model !== null || effort !== null) && model?.toLowerCase() !== "opusplan"
+      && (effort === null || CLAUDE_EFFORTS.has(effort)) && !(await claudeGoalActive(name, meta));
+    if (!inTurn) return null;
+  }
+  const { ready, codexRateLimitModelSwitch } = inTurn ? { ready: { ready: true, lastScreen: "" }, codexRateLimitModelSwitch: false }
+    : await waitAgentTuiReadyAfterCodexRateLimitRecovery(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
   if (!ready.ready) {
     if (codexRateLimitModelSwitch) {
       throw new AitermError(
@@ -7084,7 +7097,7 @@ async function configureAgentInLock(
     }
     if (model?.toLowerCase() === "opusplan") await switchClaudeOpusPlan(name, meta, beforeChange);
     if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) },
-      claudeSeatEnv() ?? process.env);
+      claudeSeatEnv() ?? process.env, inTurn);
     if (effort && !level) {
       beforeChange();
       await sendAgentPromptText(name, `/effort ${effort}`);

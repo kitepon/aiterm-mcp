@@ -726,12 +726,7 @@ export function claudeModelSwitchConfirm(screen: string): "yes_selected" | "othe
 //     ⎿  Set model to Opus 5.5 and saved as your default for new sessions
 //     ⎿  Kept model as Sonnet 5.5
 export type ClaudeModelSwitchScope = "session_only" | "saved_as_default" | "kept" | "blocked";
-export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwitchScope; line: string } | null {
-  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
-  const command = lastLineIndex(lines, /^\s*❯\s*\/model(?:\s+\S+)?\s*$/u);
-  if (command < 0) return null;
-  const start = lines.findIndex((line, i) => i > command && /^\s*⎿\s+\S/u.test(line));
-  if (start < 0) return null;
+function switchResultAt(lines: string[], start: number): { scope: ClaudeModelSwitchScope; line: string } | null {
   const parts = [lines[start].replace(/^\s*⎿\s+/u, "").trim()];
   for (const line of lines.slice(start + 1)) {
     if (!/^\s{3,}\S/u.test(line) || /^\s*⎿/u.test(line)) break;
@@ -743,6 +738,23 @@ export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwi
   if (!/^(?:Set model to|Model set to)\b/u.test(line)) return null;
   if (/\bsaved as your default\b/u.test(line)) return { scope: "saved_as_default", line };
   return /\bfor this session only\b/u.test(line) ? { scope: "session_only", line } : null;
+}
+
+export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwitchScope; line: string } | null {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  const command = lastLineIndex(lines, /^\s*❯\s*\/model(?:\s+\S+)?\s*$/u);
+  if (command < 0) return null;
+  const start = lines.findIndex((line, i) => i > command && /^\s*⎿\s+\S/u.test(line));
+  return start < 0 ? null : switchResultAt(lines, start);
+}
+
+/**
+ * Every switch result line on the screen, oldest first. A switch made with Alt+P in a running turn prints its result with no
+ * `❯ /model` line above it (2.1.325), so the caller compares against the lines present before the picker was opened.
+ */
+export function claudeModelSwitchResults(screen: string): { scope: ClaudeModelSwitchScope; line: string }[] {
+  const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
+  return lines.flatMap((text, i) => /^\s*⎿\s+\S/u.test(text) ? [switchResultAt(lines, i)] : []).filter(row => row !== null);
 }
 
 // Claude Code 2.1.282 は選択肢へ「1.」などの番号を付ける。番号の有無のどちらも受ける。

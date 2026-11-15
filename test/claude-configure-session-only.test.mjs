@@ -146,6 +146,8 @@ test("切り替えの確かめと、閉じた後の知らせを読む", () => {
   assert.equal(claude.claudeModelSwitchConfirm(confirm), "yes_selected");
   assert.equal(claude.claudeModelSwitchConfirm(confirm.replace("  ❯ 1. Yes", "    1. Yes").replace("    2. No", "  ❯ 2. No")), "other_selected");
   assert.equal(claude.claudeModelSwitchConfirm(opened), null);
+  // `/model opusplan` asks without a model name (2.1.325, Z27 lab): the same answer.
+  assert.equal(claude.claudeModelSwitchConfirm("Switch model?\nYour next response will be slower\n  ❯ 1. Yes, switch\n    2. No, go back\n"), "yes_selected");
   const result = (line) => claude.claudeModelSwitchResult(`❯ /model\n  ⎿  ${line}\n${composer}`);
   assert.deepEqual(result("Set model to Opus 5.5 for this session only with high effort"),
     { scope: "session_only", line: "Set model to Opus 5.5 for this session only with high effort" });

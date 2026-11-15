@@ -262,6 +262,7 @@ import {
   type ClaudeApiError,
   claudeOwnMcpNames,
   claudeModelSwitchResult,
+  claudeModelSwitchConfirm,
 } from "./harnesses/claude.js";
 import {
   cursorAuthPlan, cursorAuthStatus, cursorAuthPane,
@@ -6308,18 +6309,36 @@ async function switchAgentFast(name: string, meta: AgentMetadata, target: boolea
 async function switchClaudeOpusPlan(name: string, meta: AgentMetadata, beforeChange: () => void): Promise<void> {
   const settings = path.join(meta.claude_home ?? claudeConfigDir(), "settings.json");
   beforeChange();
+  const ui = agentModelUi(name);
   const seen = await keepingUserDefaults(settings, (before) => { restoreJsonSetting(settings, before, "model"); }, async () => {
     await sendAgentPromptText(name, "/model opusplan");
     const deadline = performance.now() + CLAUDE_FAST_RESULT_TIMEOUT_MS;
-    let result = null;
+    let answered = false;
     do {
       await sleep(150);
-      result = claudeModelSwitchResult(captureScreen(name, AGENT_TUI_READY_LINES));
-    } while (!result && performance.now() < deadline);
-    return result;
+      const screen = ui.screen();
+      const confirm = claudeModelSwitchConfirm(screen);
+      // A seat with a cached conversation asks "Switch model?" first: answer Yes once, as the picker path does.
+      if (confirm === "yes_selected" && !answered) { answered = true; ui.key("Enter"); }
+      if (confirm) continue;
+      const result = claudeModelSwitchResult(screen);
+      if (result) return result;
+    } while (performance.now() < deadline);
+    return null;
   });
+  if (!seen) {
+    // Close what is still open (the switch question, or a screen Aiterm cannot read) so the seat takes the next input.
+    for (let i = 0; i < 3; i++) {
+      const screen = ui.screen();
+      if (!claudeModelSwitchConfirm(screen) && !claudeModelPicker(screen) && claudePaneObservation(screen).state !== "unknown") break;
+      ui.key("Escape");
+      await sleep(300);
+    }
+    const error = new AitermError(`CLAUDE_MODEL_SWITCH_UNCONFIRMED vendor=claude session=${name}\nClaude Codeへ /model opusplan を送りましたが、結果の行を確かめられません。modelは変わった可能性があります。再送しないでください。`, 2);
+    error.configureRefusal = { code: "CLAUDE_MODEL_SWITCH_UNCONFIRMED", relaunch: false, selection_excluded: false };
+    throw error;
+  }
   const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
-  if (!seen) throw new AitermError(`CLAUDE_MODEL_SWITCH_UNCONFIRMED vendor=claude session=${name}\nClaude Codeへ /model opusplan を送りましたが、結果の行を確かめられません。modelは変わった可能性があります。再送しないでください。`, 2);
   if (seen.scope !== "saved_as_default" && seen.scope !== "session_only")
     throw new AitermError(`CLAUDE_MODEL_SWITCH_REFUSED vendor=claude session=${name}\nClaude Codeがmodelを切り替えませんでした（${seen.line}）。`, 2);
   if (!ready.ready) throw new AitermError("Claudeのmodel変更完了を確認できません", 2);

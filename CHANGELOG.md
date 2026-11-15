@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.65] - 2026-11-15
+
 - A seat no longer stays unreachable after an idle stop that took effect but whose Aiterm process ended before it wrote `hibernated`. Anchor's seat bot-632c5d04 stayed in `stopping` from 05:11Z on 2026-11-15, so every send, `pty_close {hibernate:true}` and `pty_close` refused it, also across a body restart. Now the next send, dispatch, idle check, hibernate or close checks the stuck record. When the recorded pane process (pid and start identity) is gone and the native session is confirmed absent, Aiterm records it `hibernated`, as the interrupted stop would have, and the operation continues: a send resumes the same conversation, a close closes. A `stopping` record whose pane is still alive is left alone (lifecycle-state-ownership.md).
 
 ## [0.70.64] - 2026-11-15
@@ -3508,7 +3510,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...HEAD
+[0.70.65]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...v0.70.65
 [0.70.64]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.63...v0.70.64
 [0.70.63]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.62...v0.70.63
 [0.70.62]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.61...v0.70.62

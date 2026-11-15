@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.64] - 2026-11-15
+
 - `agent_configure model: "opusplan"` no longer hangs on a seat whose conversation is cached for its current model (Z27 lab). Claude Code asks "Switch model? … ❯ 1. Yes, switch" after `/model opusplan`; Aiterm now reads that question (with or without a model name) and answers Yes once, as the picker path does. If no result line comes within 20 seconds, Aiterm closes what is open with Escape (at most 3 times) and refuses with `CLAUDE_MODEL_SWITCH_UNCONFIRMED` (with `configureRefusal`), without waiting for the composer. The root's `settings.json` still goes back to its exact prior bytes.
 
 ## [0.70.63] - 2026-11-15
@@ -3504,7 +3506,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.63...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...HEAD
+[0.70.64]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.63...v0.70.64
 [0.70.63]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.62...v0.70.63
 [0.70.62]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.61...v0.70.62
 [0.70.61]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.60...v0.70.61

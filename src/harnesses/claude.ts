@@ -11,6 +11,7 @@ import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { claudeCatalogRoot } from "../claude-catalog-root.js";
+import { jsonMcpServerNames, withoutReplaceKeys } from "./caller-mcp.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
 import type { FastModeFailure } from "../fast-mode.js";
 import {
@@ -69,7 +70,7 @@ export function writeClaudeCallerFiles(meta: AgentMetadata, prompt: string | nul
     if (Object.keys(mcp).some(key => key !== "mcpServers") || !servers || typeof servers !== "object" || Array.isArray(servers))
       throw new AitermError("mcp_config must be {mcpServers: {...}}", 2);
     const file = agentClaudeCallerMcpPath(meta.aiterm_session);
-    writeJson0600(file, mcp);
+    writeJson0600(file, withoutReplaceKeys(mcp));
     meta.claude_caller_mcp_file = file;
   }
 }
@@ -802,6 +803,22 @@ export function createClaudeAgentMetadata(
 // `type:"assistant", isApiErrorMessage:true, apiErrorStatus:<code>` の1行を書く（実測 2026-09-03、
 // BellTeamのチャイム席で70分の待機を生んだ529）。完了eventだけを待つと永久に running になるため、
 // dispatch後に増えた記録行からこの印を読み、outcome=error として親へ返す。
+
+/** Names the seat's own Claude config defines (launch-identity-input.md "Caller name precedence"): user scope and local
+ * scope in the global config, project scope in `<cwd>/.mcp.json`. `env` is the seat's environment (its CLAUDE_CONFIG_DIR).
+ * shortcut: `.mcp.json` is read in the cwd only, not in parent folders; upgrade if seats start below a project root. */
+export function claudeOwnMcpNames(env: NodeJS.ProcessEnv, cwd: string): Set<string> {
+  const global = env.CLAUDE_CONFIG_DIR ? path.join(env.CLAUDE_CONFIG_DIR, ".claude.json") : path.join(env.HOME ?? os.homedir(), ".claude.json");
+  let real = cwd;
+  try { real = fs.realpathSync(cwd); } catch { /* the cwd as given */ }
+  // Claude keys local scope by the project path; on Windows with forward slashes.
+  const keys = [...new Set([cwd, real, cwd.replace(/\\/g, "/"), real.replace(/\\/g, "/")])];
+  return new Set([
+    ...jsonMcpServerNames(global),
+    ...keys.flatMap(key => jsonMcpServerNames(global, config => config?.projects?.[key]?.mcpServers)),
+    ...jsonMcpServerNames(path.join(cwd, ".mcp.json")),
+  ]);
+}
 
 export function claudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? path.join(process.env.HOME ?? os.homedir(), ".claude");

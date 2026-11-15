@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A caller MCP server (`mcp_config`) no longer replaces a server the seat's own harness config already defines under the same name. Without a flag the caller entry is dropped and the seat still launches. A server entry may say `"replace": true` (a boolean) to replace that server knowingly. The launch receipt carries `caller_mcp: {dropped, replaced}` whenever `mcp_config` is given. The own config is read on the machine that runs the seat: Claude user, local and project scope; Codex and Grok `config.toml`; Antigravity `~/.gemini/config/mcp_config.json` and `<cwd>/.agents/mcp_config.json`. Cursor already ran caller servers beside its own. A resume keeps its launch's dropped names. A terminal below 0.70.62 gets the config without `replace` keys and keeps its old precedence (launch-identity-input.md "Caller name precedence", a138).
+
 ## [0.70.61] - 2026-11-14
 
 - `pty_list` no longer fails for every seat when one saved seat's record is unreadable or was removed by a close between the directory read and the record read (BugHub d90f8b67: BellTeam's Bot list answered 500). That seat is left out; the rows of the others are unchanged.

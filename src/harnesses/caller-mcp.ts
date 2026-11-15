@@ -9,7 +9,7 @@ import { writeJson0600 } from "../agent-shared.js";
 export type CallerLabel = "GROK" | "CURSOR" | "ANTIGRAVITY";
 /** `bearer`: Authorization 'Bearer ${NAME}'. `env`: a header whose whole value is '${NAME}'. `literal`: the value as written. */
 export interface CallerHeader { name: string; kind: "bearer" | "env" | "literal"; value: string }
-export interface CallerServer { name: string; url: string; headers: CallerHeader[] }
+export interface CallerServer { name: string; url: string; headers: CallerHeader[]; replace: boolean }
 
 // The text travels in one argv element (Linux caps one at 128 KiB) or the typed first prompt.
 export const CALLER_PROMPT_MAX = 64 * 1024;
@@ -29,7 +29,8 @@ export function parseCallerMcp(mcp: unknown, label: CallerLabel): CallerServer[]
     if (!MCP_SERVER_NAME.test(name)) return refuse(`server name '${name}' must be letters, digits, '_' or '-'`);
     const spec = server as { type?: unknown; url?: unknown; headers?: unknown } | null;
     if (!spec || typeof spec !== "object" || Array.isArray(spec)) return refuse(`server '${name}' must be an object`);
-    if (Object.keys(spec).some(key => !["type", "url", "headers"].includes(key))) return refuse(`server '${name}' may only have type, url and headers`);
+    if (Object.keys(spec).some(key => !["type", "url", "headers", "replace"].includes(key))) return refuse(`server '${name}' may only have type, url, headers and replace`);
+    if ((spec as { replace?: unknown }).replace !== undefined && typeof (spec as { replace?: unknown }).replace !== "boolean") return refuse(`server '${name}': replace must be true or false`);
     if (spec.type !== undefined && spec.type !== "http") return refuse(`server '${name}': only type 'http' is supported here (got '${String(spec.type)}')`);
     let url: URL | null = null;
     try { url = typeof spec.url === "string" ? new URL(spec.url) : null; } catch { /* refused below */ }
@@ -50,7 +51,7 @@ export function parseCallerMcp(mcp: unknown, label: CallerLabel): CallerServer[]
       if (value.includes("${")) return refuse(`server '${name}': header '${header}' mixes text with \${NAME}; only the whole value or 'Bearer \${NAME}' can be given`);
       return { name: header, kind: "literal", value };
     });
-    return { name, url: spec.url as string, headers };
+    return { name, url: spec.url as string, headers, replace: (spec as { replace?: unknown }).replace === true };
   });
 }
 
@@ -86,4 +87,55 @@ export function writeCallerJson(file: string, value: unknown): void {
 
 export function readCallerText(file: string | undefined): string | null {
   return file ? fs.readFileSync(file, "utf8") : null;
+}
+
+// ---------------------------------------------------------------- Caller name precedence (launch-identity-input.md)
+export interface CallerMcpPrecedence { dropped: string[]; replaced: string[] }
+
+/**
+ * The caller config the seat gets: an entry whose name the seat's own harness config defines is dropped unless it says
+ * `replace: true`. Not a refusal: the seat launches with the rest. Throws only on a `replace` that is not a boolean.
+ */
+export function applyCallerPrecedence(mcp: Record<string, unknown>, own: ReadonlySet<string>): { config: Record<string, unknown>; precedence: CallerMcpPrecedence } {
+  const servers = (mcp.mcpServers ?? {}) as Record<string, unknown>;
+  const kept: Record<string, unknown> = {};
+  const precedence: CallerMcpPrecedence = { dropped: [], replaced: [] };
+  for (const [name, server] of Object.entries(servers)) {
+    const replace = (server as { replace?: unknown } | null)?.replace;
+    if (replace !== undefined && typeof replace !== "boolean") throw new AitermError(`mcp_config server '${name}': replace must be true or false`, 2);
+    if (own.has(name)) (replace === true ? precedence.replaced : precedence.dropped).push(name);
+    if (!own.has(name) || replace === true) kept[name] = server;
+  }
+  return { config: { ...mcp, mcpServers: kept }, precedence };
+}
+
+/** The same config with every `replace` key removed (for a harness file that takes only its own keys). */
+export function withoutReplaceKeys(mcp: Record<string, unknown>): Record<string, unknown> {
+  const servers = (mcp.mcpServers ?? {}) as Record<string, unknown>;
+  return { ...mcp, mcpServers: Object.fromEntries(Object.entries(servers).map(([name, server]) => {
+    if (!server || typeof server !== "object" || Array.isArray(server)) return [name, server];
+    const { replace: _replace, ...rest } = server as Record<string, unknown>;
+    return [name, rest];
+  })) };
+}
+
+/** Keys of `mcpServers` in a JSON file (Claude, Antigravity); a missing or unreadable file names nothing. */
+export function jsonMcpServerNames(file: string, pick: (config: any) => unknown = config => config?.mcpServers): string[] {
+  let config: unknown;
+  try { config = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
+  const servers = pick(config);
+  return servers && typeof servers === "object" && !Array.isArray(servers) ? Object.keys(servers) : [];
+}
+
+/** `[mcp_servers.NAME]` table names in a config.toml (Codex, Grok); a missing file names nothing.
+ * shortcut: reads section headers only, an inline-table or dotted-key definition is not seen; upgrade with a TOML parser. */
+export function tomlMcpServerNames(file: string): string[] {
+  let body = "";
+  try { body = fs.readFileSync(file, "utf8"); } catch { return []; }
+  const names: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    const header = /^\s*\[\s*mcp_servers\s*\.\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*\]\s*(?:#.*)?$/.exec(line);
+    if (header) names.push(header[1] ?? header[2] ?? header[3]);
+  }
+  return names;
 }

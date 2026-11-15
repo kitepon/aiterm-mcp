@@ -106,6 +106,8 @@ export interface AgentMetadata {
   cursor_caller_mcp_dir?: string;
   // Antigravity: the prompt text (prefixes the first prompt) and the per-seat folder (--add-dir) holding .agents/mcp_config.json.
   antigravity_caller_mcp_dir?: string;
+  // Caller servers this launch dropped (the seat's own config defines the name) or replaced (`replace: true`).
+  caller_mcp?: { dropped: string[]; replaced: string[] };
   claude_home?: string;
   result_file?: string;
   grok_home?: string;

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.68] - 2026-11-15
+
 - `agent_configure` now changes the model or the effort (low to max) of a Claude seat whose turn is running, without ending the turn (b8, Kiro's request, Owner's order). Typing `/model` into a busy Claude seat only queues it as a user message (2.1.325), so the picker is opened with Alt+P (tmux/psmux key `M-p`, ESC and p in one write; a lone ESC would stop the turn) and the usual row match, `s` (this session only, never Enter), "Yes, switch" and refusal logic (`configureRefusal`, `aiterm/configure_error`) follow. The same turn's next request runs on the new model. Differences from an idle seat: no Esc is sent except to close the picker or the switch question while one is on screen, the result line is read without the `❯ /model` line above it, and no composer is waited for. Idle seats still use `/model`. `fast`, `opusplan`, `ultracode`, an effort outside low-max and a running Claude goal keep the refusal "入力待ちではありません" (nothing typed). A seat already in a running turn needs no relaunch; the change is on the seat's own session only (model-configuration.md).
 
 ## [0.70.67] - 2026-11-15
@@ -3520,7 +3522,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.67...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.68...HEAD
+[0.70.68]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.67...v0.70.68
 [0.70.67]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...v0.70.67
 [0.70.66]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...v0.70.66
 [0.70.65]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...v0.70.65

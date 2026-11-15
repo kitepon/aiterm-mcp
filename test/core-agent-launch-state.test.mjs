@@ -104,6 +104,8 @@ test("openAgent claude agent_done: 通常settingsへStop hookとlineageを追加
     assert.equal(settings.model, "claude-sonnet-4-6");
     assert.equal(settings.effortLevel, "high");
     assert.match(settings.hooks.Stop[0].hooks[0].command, /claude-stop-hook\.js/);
+    assert.equal(settings.hooks.PermissionRequest[0].matcher, "ExitPlanMode", "the plan approval hook answers ExitPlanMode only");
+    assert.match(settings.hooks.PermissionRequest[0].hooks[0].command, /claude-plan-approve-hook\.js/);
     const { hookNodeExecutable } = await import("../dist/harnesses/claude.js");
     assert.ok(settings.hooks.Stop[0].hooks[0].command.startsWith(`'${hookNodeExecutable()}' `), "PATHにnodeが無い環境でも動くよう、nodeを絶対pathで呼ぶ");
     assert.doesNotMatch(settings.hooks.Stop[0].hooks[0].command, /\/Cellar\//u, "Homebrewの版付きnode実体を焼き付けない");

@@ -42,6 +42,18 @@ Claudeは起動前にauth statusを見ない（0.70.22。端末自身のloginを
 
 pane parserは現composer/現footer/現dialogを優先し、過去の引用や古いrate-limit表示からbusy/blockedを決めない。ready・busy・承認待ち・認証待ち・不明と、vendorのturn境界は別の証拠。cancel keyはClaude/CodexがEscape、Grok/CursorがC-c。readonly sandbox、trustProject、vendor既定引数とuser-defaultの退避/復元もadapter固有。復元の既存best-effortを全設定復元保証へ広げない。
 
+## ExitPlanModeの承認（Claude、0.70.66、a141の続き）
+
+Claude Codeは、席がプランモードで計画を書き終えてExitPlanModeを呼ぶと、`--dangerously-skip-permissions`の席でも「Ready to code? / Would you like to proceed? / 1. Yes, and switch to BYPASS PERMISSIONS ... / 2. Yes, manually approve edits / 3. Tell Claude what to change」を出し、答えが来るまで番を止める（2.1.325実測）。呼び手は画面を読めない（BellTeam）ので、Aitermが席ごとの設定へ **PermissionRequestフック**を足して答える。
+
+| 部品 | 契約 |
+|---|---|
+| 席ごとの設定（`createClaudeCorrelationSettings`、全Claude席: 通常・分身・端末・再開で同じ関数） | `hooks.PermissionRequest = [{matcher: "ExitPlanMode", hooks: [{type: "command", command: node <dist/claude-plan-approve-hook.js>}]}]`。ほかのtoolの権限の画面ではフックが呼ばれず、画面は今までどおり人（呼び手）の答えを待つ |
+| [claude-plan-approve-hook](../../src/claude-plan-approve-hook.ts) | 入力JSONの`hook_event_name`が`PermissionRequest`、`tool_name`が`ExitPlanMode`ちょうど、`tool_input.plan`が文字列で、環境にAitermの席の印がある時だけ、`{hookSpecificOutput:{hookEventName:"PermissionRequest", decision:{behavior:"allow", updatedInput:<入力そのまま>, updatedPermissions:[{type:"setMode", mode:"bypassPermissions", destination:"session"}]}}}`を出す。`updatedInput`が要る: ExitPlanModeは利用者が自分で答える道具で、2.1.325は入力を添えない単なるallowを無視して画面を出し続ける（rabbit実測）。これは画面の1番（BYPASS PERMISSIONSへ切り替えて進める）と同じ。席は`--dangerously-skip-permissions`で起きるので、席自身のモードへ戻すだけ。2番・3番は選ばない。合わない入力・読めない入力・環境の印なしは、何も出さず終了0（判断しない＝画面が残る）。新しいstore・待ち・再試行を持たない |
+| 答えない画面 | AskUserQuestion（「Send a task to plan / Probe only / Type something」）は、答えの中身が仕事の決定なので答えない。フックも付けない。呼び手は計画の仕事を同じ指示に書く。Aitermはturn中のEscを断る（`claude_approval`・`pty_key`の既存の契約のまま） |
+| 古いAiterm | 端末のAitermが0.70.66より前なら、設定にこのフックが無く、今までどおり画面で止まる（呼び手が`pty_send 1`で答える）。席の起動は変わらない |
+| 起こし済みの席 | フックは起動時に読む設定にだけ入る。起こし済みの席は、休止・再開か起こし直しで新しい設定になる |
+
 ## Stopの公開順序と途中失敗
 
 [Claude Stop](../../src/claude-stop-hook.ts) は結果を一時fileへ書き、短書込確認/fsync/renameの後にdone eventを追記する。event短書込はftruncateで戻す。operation markerは読み取ったdev/inoが一致する場合だけ、event/activity保存後に消費する。失敗はstderr診断となり、偽の完了を作らない。idle clock依頼失敗は取得済みの結果を消さない。v2 markerのcursorは送信前の位置であり、native入力受理や取消完了の証明ではない。利用上限で止まった番（Claude 2.1.322のhold）と中断した番にはStopが来ない。会話記録のAPIエラー・中断の記録がmarkerより後にあれば、markerは保留中に数えない（observation-results「Claude limit end」）。

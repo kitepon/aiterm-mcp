@@ -728,7 +728,8 @@ export function claudeModelSwitchConfirm(screen: string): "yes_selected" | "othe
 export type ClaudeModelSwitchScope = "session_only" | "saved_as_default" | "kept" | "blocked";
 function switchResultAt(lines: string[], start: number): { scope: ClaudeModelSwitchScope; line: string } | null {
   const parts = [lines[start].replace(/^\s*⎿\s+/u, "").trim()];
-  for (const line of lines.slice(start + 1)) {
+  // Only a ⎿ row can continue on the lines below; the plain notification of an in-turn switch is one line.
+  if (/^\s*⎿/u.test(lines[start])) for (const line of lines.slice(start + 1)) {
     if (!/^\s{3,}\S/u.test(line) || /^\s*⎿/u.test(line)) break;
     parts.push(line.trim());
   }
@@ -750,11 +751,12 @@ export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwi
 
 /**
  * Every switch result line on the screen, oldest first. A switch made with Alt+P in a running turn prints its result with no
- * `❯ /model` line above it (2.1.325), so the caller compares against the lines present before the picker was opened.
+ * `❯ /model` line above it and without the ⎿ mark (2.1.325), so the caller compares against the lines present before the picker was opened.
  */
 export function claudeModelSwitchResults(screen: string): { scope: ClaudeModelSwitchScope; line: string }[] {
   const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
-  return lines.flatMap((text, i) => /^\s*⎿\s+\S/u.test(text) ? [switchResultAt(lines, i)] : []).filter(row => row !== null);
+  // A switch made with Alt+P in a running turn shows its result as a plain, indented notification line: no ⎿ (2.1.325 lab).
+  return lines.flatMap((text, i) => /^\s*(?:⎿\s+\S|(?:Model set to|Set model to|Kept model as)\b)/u.test(text) ? [switchResultAt(lines, i)] : []).filter(row => row !== null);
 }
 
 // Claude Code 2.1.282 は選択肢へ「1.」などの番号を付ける。番号の有無のどちらも受ける。

@@ -106,6 +106,8 @@ test("openAgent claude agent_done: 通常settingsへStop hookとlineageを追加
     assert.match(settings.hooks.Stop[0].hooks[0].command, /claude-stop-hook\.js/);
     assert.equal(settings.hooks.PermissionRequest[0].matcher, "ExitPlanMode", "the plan approval hook answers ExitPlanMode only");
     assert.match(settings.hooks.PermissionRequest[0].hooks[0].command, /claude-plan-approve-hook\.js/);
+    assert.equal(settings.hooks.PreToolUse[0].matcher, "EnterPlanMode", "the plan spec hook turns back EnterPlanMode only");
+    assert.match(settings.hooks.PreToolUse[0].hooks[0].command, /claude-plan-spec-hook\.js/);
     const { hookNodeExecutable } = await import("../dist/harnesses/claude.js");
     assert.ok(settings.hooks.Stop[0].hooks[0].command.startsWith(`'${hookNodeExecutable()}' `), "PATHにnodeが無い環境でも動くよう、nodeを絶対pathで呼ぶ");
     assert.doesNotMatch(settings.hooks.Stop[0].hooks[0].command, /\/Cellar\//u, "Homebrewの版付きnode実体を焼き付けない");

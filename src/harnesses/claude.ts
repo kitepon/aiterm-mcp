@@ -104,6 +104,10 @@ function claudePlanApproveScriptPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-approve-hook.js");
 }
 
+function claudePlanSpecScriptPath(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-spec-hook.js");
+}
+
 function claudeHookScriptPath(): string {
   // この module は dist/harnesses/ に置かれるが、stop hook 実体は dist/ 直下に build される。
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-hook.js");
@@ -137,6 +141,10 @@ export function createClaudeCorrelationSettings(
   if (!fs.existsSync(planScript)) {
     throw new AitermError(`Claude plan approve hook が見つかりません。npm run build を実行してください: ${planScript}`, 2);
   }
+  const specScript = claudePlanSpecScriptPath();
+  if (!fs.existsSync(specScript)) {
+    throw new AitermError(`Claude plan spec hook が見つかりません。npm run build を実行してください: ${specScript}`, 2);
+  }
   const settings = agentManagedClaudeSettingsPath(name, launchId);
   writeJson0600(settings, {
     ...(model ? { model } : {}),
@@ -159,6 +167,10 @@ export function createClaudeCorrelationSettings(
       // The ExitPlanMode dialog ("Ready to code?") holds a seat's turn for a person; answer it as option 1 (harness-contracts.md).
       PermissionRequest: [
         { matcher: "ExitPlanMode", hooks: [{ type: "command", command: nodeHookCommand(planScript), timeout: 10 }] },
+      ],
+      // EnterPlanMode without a written spec drops an unattended seat into plan mode's ask-the-user flow; turn it back once (harness-contracts.md).
+      PreToolUse: [
+        { matcher: "EnterPlanMode", hooks: [{ type: "command", command: nodeHookCommand(specScript), timeout: 10 }] },
       ],
     },
   });

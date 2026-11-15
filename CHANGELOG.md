@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_configure model: "opusplan"` no longer hangs on a seat whose conversation is cached for its current model (Z27 lab). Claude Code asks "Switch model? … ❯ 1. Yes, switch" after `/model opusplan`; Aiterm now reads that question (with or without a model name) and answers Yes once, as the picker path does. If no result line comes within 20 seconds, Aiterm closes what is open with Escape (at most 3 times) and refuses with `CLAUDE_MODEL_SWITCH_UNCONFIRMED` (with `configureRefusal`), without waiting for the composer. The root's `settings.json` still goes back to its exact prior bytes.
+
 ## [0.70.63] - 2026-11-15
 
 - Claude seats can use `opusplan` (Opus Plan Mode), a141. `agent_models` for claude-code now lists it on both login paths: the catalog asks `initialize` with `--model opusplan`, and Claude Code 2.1.325 adds that row only while the session runs it. `agent_configure` with `model: "opusplan"` first sends `/model opusplan`, because the picker has no such row until the seat runs it. Claude Code saves that as the user's default; the root's `settings.json` `model` goes back to its value before, the same way as for fast. The picker step then selects the row for this session only, with the requested effort. Launches already passed `--model opusplan` unchanged.

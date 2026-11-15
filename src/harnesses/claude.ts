@@ -686,13 +686,14 @@ export function claudePickerRowByName(rows: ClaudeModelPickerRow[], name: string
 //   Your next response will be slower and use more tokens
 //   ❯ 1. Yes, switch to Opus 5.5
 //     2. No, go back
+// `/model opusplan` (2.1.325) asks the same with "❯ 1. Yes, switch" and no model name (Z27 lab).
 export function claudeModelSwitchConfirm(screen: string): "yes_selected" | "other_selected" | null {
   const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
   const head = lastLineIndex(lines, /^\s*Switch model\?\s*$/u);
   if (head < 0) return null;
   const body = lines.slice(head + 1);
-  if (!body.some((line) => /^\s*(?:❯\s*)?1\.\s*Yes, switch to\b/u.test(line))) return null;
-  return body.some((line) => /^\s*❯\s*1\.\s*Yes, switch to\b/u.test(line)) ? "yes_selected" : "other_selected";
+  if (!body.some((line) => /^\s*(?:❯\s*)?1\.\s*Yes, switch\b/u.test(line))) return null;
+  return body.some((line) => /^\s*❯\s*1\.\s*Yes, switch\b/u.test(line)) ? "yes_selected" : "other_selected";
 }
 
 // 選ぶ画面を閉じた後、最後の `/model` の下に出る1件の知らせ。長い機種名では折り返す。

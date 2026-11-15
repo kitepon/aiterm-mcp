@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.70] - 2026-11-15
+
 - The in-turn model/effort change of a Claude seat (0.70.68) now works on a real running turn (Kiro's Z43 lab, b8 failed with `CLAUDE_MODEL_PICKER_NOT_SHOWN`). Cause, reproduced with Aiterm's own code on a seat running one long Bash call: the running turn's spinner and tool block plus the model picker are taller than the default 24-row pane, so the picker's foot ("Esc to cancel") was cut and unreadable. The in-turn path now makes the pane 50 rows tall for the switch and restores its size afterwards; reads the result of an in-turn switch, which Claude Code prints as a plain indented line (`Model set to sonnet (claude-sonnet-5-5) for this session only`, no `⎿`); and, when the picker is open but unreadable, closes it with Esc only while its heading is on screen (a picker left open would take the owner's next message as keys, which is the likely cause of the Z43 seat that stopped and of `"model": "opus"` appearing in `~/.claude/settings.json` through Enter). Verified on a real 2.1.325 seat: the same turn's next request ran on the new model (transcript).
 - The restore of the user's default after a typed `/model opusplan` (or fast) no longer replaces a symlinked `settings.json` with a copy: BellTeam's account roots link `settings.json` to a shared file, the restore wrote a copy beside the link and the real file kept `"model"`. The lock beside the settings file is taken on the real file, and a dangling lock link no longer makes the wait spin forever (a busy loop that froze the Aiterm process) (model-configuration.md).
 
@@ -3529,7 +3531,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.69...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.70...HEAD
+[0.70.70]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.69...v0.70.70
 [0.70.69]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.68...v0.70.69
 [0.70.68]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.67...v0.70.68
 [0.70.67]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...v0.70.67

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude seat on plan mode no longer waits for a person at the ExitPlanMode dialog "Ready to code?" (a141, Kiro's request). Every Claude seat's own settings now carry a `PermissionRequest` hook for `ExitPlanMode` only. The hook answers as option 1 ("Yes, and switch to BYPASS PERMISSIONS"): it allows the call with the call's own input and sets the session mode to `bypassPermissions`, which the seat already ran in. Claude Code 2.1.325 ignores an allow without the input for this tool, so the input is part of the answer. Any other tool, any other dialog (AskUserQuestion included), an unreadable input and a process outside an Aiterm seat get no decision and keep their screen. A seat already running keeps its old settings until it is resumed or relaunched; an Aiterm below 0.70.66 behaves as before (harness-contracts.md "ExitPlanModeの承認").
+
 ## [0.70.65] - 2026-11-15
 
 - A seat no longer stays unreachable after an idle stop that took effect but whose Aiterm process ended before it wrote `hibernated`. Anchor's seat bot-632c5d04 stayed in `stopping` from 05:11Z on 2026-11-15, so every send, `pty_close {hibernate:true}` and `pty_close` refused it, also across a body restart. Now the next send, dispatch, idle check, hibernate or close checks the stuck record. When the recorded pane process (pid and start identity) is gone and the native session is confirmed absent, Aiterm records it `hibernated`, as the interrupted stop would have, and the operation continues: a send resumes the same conversation, a close closes. A `stopping` record whose pane is still alive is left alone (lifecycle-state-ownership.md).

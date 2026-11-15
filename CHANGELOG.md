@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.62] - 2026-11-15
+
 - A caller MCP server (`mcp_config`) no longer replaces a server the seat's own harness config already defines under the same name. Without a flag the caller entry is dropped and the seat still launches. A server entry may say `"replace": true` (a boolean) to replace that server knowingly. The launch receipt carries `caller_mcp: {dropped, replaced}` whenever `mcp_config` is given. The own config is read on the machine that runs the seat: Claude user, local and project scope; Codex and Grok `config.toml`; Antigravity `~/.gemini/config/mcp_config.json` and `<cwd>/.agents/mcp_config.json`. Cursor already ran caller servers beside its own. A resume keeps its launch's dropped names. A terminal below 0.70.62 gets the config without `replace` keys and keeps its old precedence (launch-identity-input.md "Caller name precedence", a138).
 
 ## [0.70.61] - 2026-11-14
@@ -3496,7 +3498,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.61...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.62...HEAD
+[0.70.62]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.61...v0.70.62
 [0.70.61]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.60...v0.70.61
 [0.70.60]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.59...v0.70.60
 [0.70.59]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.58...v0.70.59

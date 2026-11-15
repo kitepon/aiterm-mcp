@@ -142,6 +142,13 @@ test("選ぶ行: catalogのID・別名・表示名を、画面の行へ対応さ
   assert.equal(claude.claudeModelPickerRow(mixed.slice(0, 2), "fable")?.label, "Fable");
 });
 
+test("番の最中のAlt+Pの切り替えは、/modelの行なしの結果の行を全部読める", () => {
+  const screen = ["● working", "  ⎿  Model set to Opus 5.5 (claude-opus-5-5) for this session only", "● more", "  ⎿  Model set to Fable 5.2 for this session only",
+    "  ⎿  Kept model as Sonnet 5.5", "  ⎿  something else"].join("\n");
+  assert.deepEqual(claude.claudeModelSwitchResults(screen).map(row => row.scope), ["session_only", "session_only", "kept"]);
+  assert.equal(claude.claudeModelSwitchResult(screen), null, "the /model-anchored reader still needs its command line");
+});
+
 test("切り替えの確かめと、閉じた後の知らせを読む", () => {
   assert.equal(claude.claudeModelSwitchConfirm(confirm), "yes_selected");
   assert.equal(claude.claudeModelSwitchConfirm(confirm.replace("  ❯ 1. Yes", "    1. Yes").replace("    2. No", "  ❯ 2. No")), "other_selected");
@@ -207,6 +214,8 @@ const rows = options.aliasPicker ? [["Default (recommended)", ALL, "Opus 5.5"], 
 const label = { low: "Low", medium: "Medium", high: "High", xhigh: "xHigh", max: "Max" };
 const rule = "─".repeat(60);
 let mode = "composer", line = "", log = [], current = 3, cursor = 3, effort = "medium", picked = "medium", dropped = false;
+// busy: a turn is running. "/model" typed then only queues as a user message; Alt+P (ESC p) opens the picker; a bare Esc stops the turn.
+let busyTurn = !!options.busy;
 // 本物と同じく、同じ場所へ描き直す（画面を消して送ると、前の表示が端末の履歴に残る）。
 const render = (lines) => process.stdout.write("\\x1b[H" + lines.map(l => l + "\\x1b[K").join("\\n") + "\\n\\x1b[J");
 const selectable = () => rows[cursor][1] !== null;
@@ -215,7 +224,7 @@ const supported = () => rows[cursor][1] ?? [];
 const shown = () => { const list = supported(); return list.length === 0 ? null : list.includes(picked) ? picked : [...list].reverse().find(l => ALL.indexOf(l) < ALL.indexOf(picked)) ?? list[0]; };
 function draw() {
   const top = ["Claude Code v2.1.296", ...log.slice(-8)];
-  if (mode === "composer") return render([...top, rule, "❯ " + line, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"]);
+  if (mode === "composer") return render([...top, rule, "❯ " + line, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)" + (busyTurn ? " · esc to interrupt" : "")]);
   if (mode === "confirm") return render([...top, rule, "  Switch model?", "  Your next response will be slower and use more tokens",
     "  This conversation is cached for the current model. Switching to " + rows[cursor][0],
     "  means the full history gets re-read on your next message.", "  ❯ 1. Yes, switch to " + rows[cursor][0], "    2. No, go back"]);
@@ -236,7 +245,7 @@ function draw() {
 function apply(scope) {
   current = cursor; effort = shown() ?? effort;
   if (scope === "saved") fs.writeFileSync(${JSON.stringify(saved)}, rows[cursor][0] + " " + effort);
-  log.push("  ⎿  Set model to " + (rows[cursor][2] ?? rows[cursor][0]) + (scope === "saved" ? " and saved as your default for new sessions" : " for this session only" + (shown() ? " with " + effort + " effort" : "")));
+  log.push("  ⎿  " + (busyTurn ? "Model set to " : "Set model to ") + (rows[cursor][2] ?? rows[cursor][0]) + (scope === "saved" ? " and saved as your default for new sessions" : " for this session only" + (shown() ? " with " + effort + " effort" : "")));
   mode = "composer";
 }
 // 全画面の表示（別の画面）へ移る。起動コマンドの折り返しの印が残った行へ重ねて描くと、端末が行をつなげて読む。
@@ -247,12 +256,15 @@ draw();
 process.stdin.on("data", (chunk) => {
   const key = chunk.toString("utf8");
   fs.appendFileSync(${JSON.stringify(inputFile)}, JSON.stringify(key) + "\\n");
+  if (mode === "composer" && busyTurn && key === "\\x1bp") { mode = "picker"; cursor = current; picked = effort; return draw(); }
+  if (mode === "composer" && busyTurn && key === "\\x1b") { busyTurn = false; log.push("  ⎿  Interrupted by user"); return draw(); }
   if (mode === "composer") {
     for (const ch of key.replace(/\\x1b\\[20[01]~/g, "")) {
       if (ch !== "\\r") { if (ch >= " ") line += ch; continue; }
       const text = line; line = "";
       log.push("❯ " + text);
-      if (text === "/model") { mode = "picker"; cursor = current; picked = effort; }
+      if (text === "/model" && busyTurn) log.push("  ⎿  QUEUED:" + text);
+      else if (text === "/model") { mode = "picker"; cursor = current; picked = effort; }
       else if (text.startsWith("/effort ")) log.push("  ⎿  Ultracode on (this session only): workflows");
       else log.push("  ⎿  PROMPT:" + text);
     }
@@ -464,5 +476,39 @@ test("agent_configure: ultracodeはClaude Codeのsession設定なので、今ま
     assert.deepEqual(await core.configureAgent(sid, { reasoning_effort: "ultracode" }), done(sid, null, "ultracode"));
     assert.equal(keys(), "/effort ultracode⏎");
     assert.equal(saved(), false);
+  });
+});
+
+// b8 (Kiro, Owner order 2026-11-15): a running turn is switched in place. `/model` typed into a busy seat only queues (2.1.325), so
+// the picker opens with Alt+P (ESC p, one key); no other Esc is sent, and no composer is waited for.
+test("agent_configure: 番の最中のClaude席は、Alt+Pで選ぶ画面を開いて替える。/modelも余計なEscも打たず、番は続く", { skip: ptySkip }, async () => {
+  await withPickerClaude({ busy: true }, async ({ sid, keys, screen, saved }) => {
+    assert.equal(core.observeSession(sid).state, "busy");
+    assert.deepEqual(await core.configureAgent(sid, { model: "claude-opus-5-5", reasoning_effort: "high" }), done(sid, "claude-opus-5-5", "high"));
+    assert.match(await screen(), /Model set to Opus 5\.5 for this session only with high effort/u);
+    assert.equal(saved(), false, "Enter（既定として保存）を押していない");
+    assert.equal(keys(), `⎋p${"↓".repeat(13)}↑↑→s`, "/model を打たず、Escは開く1つ（ESC pの一部）だけ");
+    assert.doesNotMatch(await screen(), /Interrupted|QUEUED/u);
+    assert.equal(core.observeSession(sid).state, "busy", "番は止まっていない");
+    assert.deepEqual(await core.configureAgent(sid, { reasoning_effort: "low" }), done(sid, null, "low"));
+    assert.match(await screen(), /Model set to Opus 5\.5 for this session only with low effort/u);
+  });
+});
+
+test("agent_configure: 番の最中は、fast・opusplan・ultracode・読めない段の変更を、何も打たずに断る", { skip: ptySkip }, async () => {
+  await withPickerClaude({ busy: true }, async ({ sid, keys }) => {
+    for (const request of [{ model: "opus", fast: true }, { fast: false }, { model: "opusplan" }, { reasoning_effort: "ultracode" }, { model: "opus", reasoning_effort: "nope" }]) {
+      await assert.rejects(core.configureAgent(sid, request), /入力待ちではありません/u, JSON.stringify(request));
+    }
+    assert.equal(keys(), "", "席へ何も打っていない");
+  });
+});
+
+test("agent_configure: 番の最中に選ぶ画面を断った時も、画面を閉じるEsc以外は打たない", { skip: ptySkip }, async () => {
+  await withPickerClaude({ busy: true, noSessionOnly: true }, async ({ sid, keys, screen }) => {
+    await assert.rejects(core.configureAgent(sid, { model: "claude-opus-5-5" }), /CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE/u);
+    assert.equal(keys(), "⎋p⎋", "開く⎋pと、選ぶ画面を閉じる⎋だけ");
+    assert.doesNotMatch(await screen(), /Interrupted/u);
+    assert.equal(core.observeSession(sid).state, "busy");
   });
 });

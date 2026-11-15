@@ -4,7 +4,7 @@ import type { AgentModelUi } from "../agent-model-ui.js";
 import { resolveAgentBin } from "../agent-resolver.js";
 import type { AgentModelCatalog } from "../model-catalog.js";
 import { claudeModelPicker, claudeModelPickerRow, claudePickerRowByName, claudeModelDisplayName, claudeModelSwitchConfirm,
-  claudeModelSwitchResult, claudePaneObservation, claudeModelChoices, type ClaudeModelPicker } from "./claude.js";
+  claudeModelSwitchResult, claudeModelSwitchResults, claudePaneObservation, claudeModelChoices, type ClaudeModelPicker } from "./claude.js";
 
 const CLAUDE_MODEL_PICKER_TIMEOUT_MS = 8_000;
 const CLAUDE_MODEL_PICKER_KEY_TIMEOUT_MS = 1_500;
@@ -19,6 +19,9 @@ export async function configureClaudeForSessionOnly(
   beforeChange: () => void,
   ui: AgentModelUi & { ready(): Promise<{ ready: boolean }> },
   catalogEnv: NodeJS.ProcessEnv = process.env, // the seat's own root and login (model-configuration.md)
+  // The seat's turn is running: `/model` would only queue as a user message, so the picker opens with Alt+P, and no Esc or
+  // ready wait is used outside the picker (an Esc in a running turn stops it; the turn goes on after the switch).
+  inTurn = false,
 ): Promise<void> {
   let selectionIssued = false;
   const screen = () => ui.screen();
@@ -59,12 +62,13 @@ export async function configureClaudeForSessionOnly(
     return null;
   };
 
-  await ui.command("/model");
+  const resultsBefore = inTurn ? claudeModelSwitchResults(screen()) : [];
+  if (inTurn) ui.key("M-p"); else await ui.command("/model");
   let now = await until(picker, CLAUDE_MODEL_PICKER_TIMEOUT_MS);
   if (!now) {
     // 読めない形の画面が開いたままだと、席が次の文を受け取れない。入力待ちでも動作中でもない時だけ、Escを1度打って閉じる。
     let state = claudePaneObservation(screen());
-    if (state.state === "unknown") {
+    if (!inTurn && state.state === "unknown") {
       ui.key("Escape");
       await sleep(500);
       state = claudePaneObservation(screen());
@@ -185,7 +189,11 @@ export async function configureClaudeForSessionOnly(
       return null;
     }
     if (confirm || claudeModelPicker(text)) return null;
-    return claudeModelSwitchResult(text);
+    if (!inTurn) return claudeModelSwitchResult(text);
+    // In a running turn the result has no `❯ /model` line above it: take the newest result line that was not on screen before.
+    const seen = (rows: { line: string }[], line: string) => rows.filter(row => row.line === line).length;
+    const rows = claudeModelSwitchResults(text);
+    return rows.filter(row => seen(rows, row.line) > seen(resultsBefore, row.line)).at(-1) ?? null;
   }, CLAUDE_MODEL_SWITCH_TIMEOUT_MS);
   if (!result) return refuse("CLAUDE_MODEL_SWITCH_UNCONFIRMED", "Claude Codeの切り替えの知らせを確認できません");
   if (result.scope === "saved_as_default") {
@@ -202,6 +210,7 @@ export async function configureClaudeForSessionOnly(
       2,
     );
   }
+  if (inTurn) return; // the turn keeps running on the new model; there is no composer to wait for
   const ready = await ui.ready();
   if (!ready.ready) throw new AitermError("Claudeのmodel変更完了を確認できません", 2);
 }

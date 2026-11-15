@@ -10,14 +10,15 @@ import { currentUid, runtimeStateBase } from "./state-root.js";
 const MAX_STDIN_BYTES = 8 * 1024 * 1024;
 const TAIL_BYTES = 512 * 1024;
 const POLL_MS = 50;
-const WAIT_MS = 1500;
+const WAIT_MS = 600; // rows that are readable at all show up within ~110 ms (measured); waiting longer never helped
 // shortcut: a length floor, because the spec is the AI's own words and a tool cannot judge it; raise it if seats pass one-line stubs.
 const SPEC_MIN_CHARS = 80;
 
 const AITERM_ENV = ["AITERM_AGENT_KIND", "AITERM_SESSION_ID", "AITERM_AGENT_SESSION_ID", "AITERM_AGENT_LAUNCH_ID"];
 
 const GUIDANCE = "プランモードに入る前に、プランを練りたい内容の詳細な仕様を、あなた自身の言葉で書いてください。"
-  + "何を作る・直す・調べるのか、範囲、守る条件、終わりの形を書いたうえで、もう一度 EnterPlanMode を呼んでください。";
+  + "何を作る・直す・調べるのか、範囲、守る条件、終わりの形を書いたうえで、もう一度 EnterPlanMode を呼んでください。"
+  + "（この呼びの直前に書き終えている場合は、書き直さずにもう一度 EnterPlanMode を呼ぶだけで入れます。）";
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -54,28 +55,33 @@ function blocksOf(row: Row): Block[] {
 }
 
 /**
- * Characters of assistant text written right before the tool_use `toolUseId` in the same assistant message
- * (Claude Code writes one transcript line per content block, all with the same message.id); null while the tool_use is not there yet.
+ * What the transcript says about the spec of this EnterPlanMode call: the characters of assistant text written since the last
+ * real user prompt up to the call (earlier messages of the same prompt count; text in the call's own message counts up to the
+ * tool_use), and whether the call's tool_use row is in the file yet. In the interactive CLI (2.1.325) the rows of the message
+ * that holds the call are often not in the file while the hook runs, however long it waits (measured 2026-11-15, up to 2.6 s),
+ * so `visible: false` means "not readable", not "nothing written".
  */
-export function specChars(transcript: string, toolUseId: string): number | null {
-  const rows: Row[] = [];
+export function specEvidence(transcript: string, toolUseId: string): { visible: boolean; chars: number } {
+  const rows: (Row & { type?: unknown })[] = [];
   for (const line of transcript.split("\n")) {
     try { rows.push(JSON.parse(line) as Row); } catch { /* a half-written or foreign line */ }
   }
-  const at = rows.findIndex(row => blocksOf(row).some(block => block?.type === "tool_use" && block.id === toolUseId));
-  if (at < 0) return null;
-  const own = blocksOf(rows[at]);
-  const blocks = own.slice(0, own.findIndex(block => block?.type === "tool_use" && block.id === toolUseId));
-  const messageId = rows[at].message?.id;
-  if (typeof messageId === "string") {
-    for (let j = at - 1; j >= 0; j -= 1) {
-      if (!rows[j].message) continue; // bookkeeping rows (ai-title, attachment...) can sit between the blocks of one message
-      if (rows[j].message!.id !== messageId) break;
-      blocks.push(...blocksOf(rows[j]));
+  const isCall = (block: Block) => block?.type === "tool_use" && block.id === toolUseId;
+  const at = rows.findIndex(row => blocksOf(row).some(isCall));
+  const end = at < 0 ? rows.length : at + 1;
+  // A real prompt is a user row that holds text (a tool_result-only user row is the answer to a tool call).
+  let prompt = end - 1;
+  while (prompt >= 0 && !(rows[prompt].type === "user"
+    && (typeof rows[prompt].message?.content === "string" || blocksOf(rows[prompt]).some(block => block?.type === "text")))) prompt -= 1;
+  let chars = 0;
+  for (let i = prompt + 1; i < end; i += 1) {
+    if (rows[i].type !== "assistant") continue;
+    const blocks = blocksOf(rows[i]);
+    for (const block of i === at ? blocks.slice(0, blocks.findIndex(isCall)) : blocks) {
+      if (block?.type === "text" && typeof block.text === "string") chars += block.text.trim().length;
     }
   }
-  const texts = blocks.filter(block => block?.type === "text" && typeof block.text === "string");
-  return texts.reduce((sum, block) => sum + (block.text as string).trim().length, 0);
+  return { visible: at >= 0, chars };
 }
 
 function stateFile(env: NodeJS.ProcessEnv): string | null {
@@ -101,15 +107,15 @@ export async function planSpecDecision(
     || typeof input.transcript_path !== "string" || !path.isAbsolute(input.transcript_path)) return null;
   const key = `${input.session_id}\n${input.prompt_id}`;
   try { if (fs.readFileSync(file, "utf8") === key) return null; } catch { /* nothing recorded yet */ }
-  let chars: number | null = null;
+  let evidence = { visible: false, chars: 0 };
   for (let waited = 0; ; waited += timing.pollMs) {
     const tail = readTail(input.transcript_path);
     if (tail === null) return null;
-    chars = specChars(tail, input.tool_use_id);
-    if (chars !== null || waited >= timing.waitMs) break;
+    evidence = specEvidence(tail, input.tool_use_id);
+    if (evidence.chars >= SPEC_MIN_CHARS || evidence.visible || waited >= timing.waitMs) break;
     await sleep(timing.pollMs);
   }
-  if (chars !== null && chars >= SPEC_MIN_CHARS) return null;
+  if (evidence.chars >= SPEC_MIN_CHARS) return null;
   // Record the turn-back first: if it cannot be recorded the second call could not be let through, so allow instead.
   try { fs.writeFileSync(file, key, { mode: 0o600 }); } catch { return null; }
   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: GUIDANCE } };

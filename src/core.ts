@@ -261,6 +261,7 @@ import {
   claudeFailureCategory,
   type ClaudeApiError,
   claudeOwnMcpNames,
+  claudeModelSwitchResult,
 } from "./harnesses/claude.js";
 import {
   cursorAuthPlan, cursorAuthStatus, cursorAuthPane,
@@ -6299,6 +6300,31 @@ async function switchAgentFast(name: string, meta: AgentMetadata, target: boolea
   return state;
 }
 
+/**
+ * opusplan is in Claude Code's /model picker only while the seat already runs it (2.1.325), so `/model opusplan` switches
+ * first. Claude Code also saves it as the user's default; the root's `model` goes back to its value before, as for fast
+ * (model-configuration.md). The picker step after this selects the now-shown row for this session only.
+ */
+async function switchClaudeOpusPlan(name: string, meta: AgentMetadata, beforeChange: () => void): Promise<void> {
+  const settings = path.join(meta.claude_home ?? claudeConfigDir(), "settings.json");
+  beforeChange();
+  const seen = await keepingUserDefaults(settings, (before) => { restoreJsonSetting(settings, before, "model"); }, async () => {
+    await sendAgentPromptText(name, "/model opusplan");
+    const deadline = performance.now() + CLAUDE_FAST_RESULT_TIMEOUT_MS;
+    let result = null;
+    do {
+      await sleep(150);
+      result = claudeModelSwitchResult(captureScreen(name, AGENT_TUI_READY_LINES));
+    } while (!result && performance.now() < deadline);
+    return result;
+  });
+  const ready = await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS);
+  if (!seen) throw new AitermError(`CLAUDE_MODEL_SWITCH_UNCONFIRMED vendor=claude session=${name}\nClaude Codeへ /model opusplan を送りましたが、結果の行を確かめられません。modelは変わった可能性があります。再送しないでください。`, 2);
+  if (seen.scope !== "saved_as_default" && seen.scope !== "session_only")
+    throw new AitermError(`CLAUDE_MODEL_SWITCH_REFUSED vendor=claude session=${name}\nClaude Codeがmodelを切り替えませんでした（${seen.line}）。`, 2);
+  if (!ready.ready) throw new AitermError("Claudeのmodel変更完了を確認できません", 2);
+}
+
 async function switchClaudeFast(name: string, meta: AgentMetadata, target: boolean, verified = false): Promise<boolean> {
   // もう通常の速度なら何も打たない（/fast off は、もう off でも利用者の設定を書き直す）。
   if (!target && meta.fast !== true && !claudeFastIndicatorShown(captureScreen(name, AGENT_TUI_READY_LINES))) return false;
@@ -7032,6 +7058,7 @@ async function configureAgentInLock(
     if (effort && !level && effort !== "ultracode") {
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
+    if (model?.toLowerCase() === "opusplan") await switchClaudeOpusPlan(name, meta, beforeChange);
     if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) },
       claudeSeatEnv() ?? process.env);
     if (effort && !level) {

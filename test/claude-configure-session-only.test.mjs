@@ -158,6 +158,8 @@ test("切り替えの確かめと、閉じた後の知らせを読む", () => {
   // 前の `/model` の知らせを、今回の物として読まない（今回の `/model` の下に、まだ知らせが無い）。
   assert.equal(claude.claudeModelSwitchResult(`❯ /model\n  ⎿  Set model to Haiku 5.5 for this session only with low effort\n❯ /model\n${composer}`), null);
   assert.equal(claude.claudeModelSwitchResult(composer), null);
+  // `/model opusplan` (a141): the typed argument is the command line too; Claude Code saves it as the default (2.1.325).
+  assert.equal(claude.claudeModelSwitchResult(`❯ /model opusplan\n  ⎿  Set model to Opus in plan mode, else Sonnet and saved as your default for\n     new sessions\n${composer}`).scope, "saved_as_default");
 });
 
 const hasTmux = process.platform !== "win32" && spawnSync("tmux", ["-V"]).status === 0;

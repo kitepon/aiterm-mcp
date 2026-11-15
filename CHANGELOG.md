@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Claude seats can use `opusplan` (Opus Plan Mode), a141. `agent_models` for claude-code now lists it on both login paths: the catalog asks `initialize` with `--model opusplan`, and Claude Code 2.1.325 adds that row only while the session runs it. `agent_configure` with `model: "opusplan"` first sends `/model opusplan`, because the picker has no such row until the seat runs it. Claude Code saves that as the user's default; the root's `settings.json` `model` goes back to its value before, the same way as for fast. The picker step then selects the row for this session only, with the requested effort. Launches already passed `--model opusplan` unchanged.
+
 ## [0.70.62] - 2026-11-15
 
 - A caller MCP server (`mcp_config`) no longer replaces a server the seat's own harness config already defines under the same name. Without a flag the caller entry is dropped and the seat still launches. A server entry may say `"replace": true` (a boolean) to replace that server knowingly. The launch receipt carries `caller_mcp: {dropped, replaced}` whenever `mcp_config` is given. The own config is read on the machine that runs the seat: Claude user, local and project scope; Codex and Grok `config.toml`; Antigravity `~/.gemini/config/mcp_config.json` and `<cwd>/.agents/mcp_config.json`. Cursor already ran caller servers beside its own. A resume keeps its launch's dropped names. A terminal below 0.70.62 gets the config without `replace` keys and keeps its old precedence (launch-identity-input.md "Caller name precedence", a138).

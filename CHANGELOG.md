@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.67] - 2026-11-15
+
 - A Claude seat can no longer enter plan mode without having written what it will plan (b4, Kiro's request, Owner's order). EnterPlanMode takes no arguments, so a seat that called it blind fell into plan mode's ask-the-user flow and an unattended seat stalled there. Every Claude seat's own settings now carry a `PreToolUse` hook for `EnterPlanMode` only. It waits up to 1.5 s (polling every 50 ms) for the call to appear in the seat's transcript, then counts the assistant text written right before it in the same message. 80 characters or more: the call goes through. Less: the call is turned back once per prompt with an instruction to write the detailed spec in the AI's own words and call again; the second call of the same prompt is never turned back (a small `.claude-plan-spec` state file in the seat's agents folder records the turn-back and is cleaned with the seat). An unreadable transcript, a missing `prompt_id`, an unwritable state file, an unreadable input and a process outside an Aiterm seat all let the call through. A seat already running keeps its old settings until it is resumed or relaunched; an Aiterm below 0.70.67 behaves as before (harness-contracts.md "EnterPlanModeの前に仕様を書かせる").
 
 ## [0.70.66] - 2026-11-15
@@ -3516,7 +3518,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.67...HEAD
+[0.70.67]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...v0.70.67
 [0.70.66]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...v0.70.66
 [0.70.65]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...v0.70.65
 [0.70.64]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.63...v0.70.64

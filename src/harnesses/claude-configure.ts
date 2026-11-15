@@ -68,6 +68,14 @@ export async function configureClaudeForSessionOnly(
   if (!now) {
     // 読めない形の画面が開いたままだと、席が次の文を受け取れない。入力待ちでも動作中でもない時だけ、Escを1度打って閉じる。
     let state = claudePaneObservation(screen());
+    // In a running turn the picker may be open but not readable; Esc closes it only while its heading is on screen
+    // (anywhere else an Esc stops the turn), and a picker left open would take the next typed message as keys (Z43).
+    const headingShown = () => /^\s*(?:Select model|Choose a model)\s*$/mu.test(screen());
+    let closedPicker = false;
+    if (inTurn) {
+      for (let i = 0; i < 3 && headingShown(); i++) { ui.key("Escape"); await sleep(300); }
+      closedPicker = !headingShown();
+    }
     if (!inTurn && state.state === "unknown") {
       ui.key("Escape");
       await sleep(500);
@@ -79,7 +87,8 @@ export async function configureClaudeForSessionOnly(
       2,
     );
     // 読めない画面が何を受けたかは分からないので、選ばれていないとは記録しない。
-    error.configureRefusal = { code: "CLAUDE_MODEL_PICKER_NOT_SHOWN", relaunch: false, selection_excluded: false };
+    // In a running turn only the opening key and the closing Esc were sent, so nothing was selected once the picker is gone.
+    error.configureRefusal = { code: "CLAUDE_MODEL_PICKER_NOT_SHOWN", relaunch: false, selection_excluded: closedPicker };
     throw error;
   }
   if (!now.session_only) {

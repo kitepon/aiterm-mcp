@@ -19,7 +19,7 @@ const LOCK_POLL_MS = 120;
  * 設定fileの置き場が無い・書けない時は、harnessも書けないので鍵なしで通す。
  */
 export async function withUserConfigLock<T>(configPath: string, action: () => Promise<T>): Promise<T> {
-  const lock = `${configPath}.aiterm-lock`;
+  const lock = `${realPathOrSelf(configPath)}.aiterm-lock`;
   if (!fs.existsSync(path.dirname(configPath))) return action();
   const deadline = Date.now() + LOCK_WAIT_MS;
   for (;;) {
@@ -31,7 +31,7 @@ export async function withUserConfigLock<T>(configPath: string, action: () => Pr
       if (code !== "EEXIST") return action();
     }
     let age = 0;
-    try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { continue; }
+    try { age = Date.now() - fs.lstatSync(lock).mtimeMs; } catch { await sleep(LOCK_POLL_MS); continue; }
     if (age > LOCK_STALE_MS) {
       try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* 先に誰かが片付けた */ }
       continue;
@@ -54,7 +54,13 @@ export function readFileOrNull(file: string): Buffer | null {
   try { return fs.readFileSync(file); } catch { return null; }
 }
 
-function writeInPlace(file: string, body: Buffer | string): void {
+/** A root's settings.json can be a symlink to a shared file (BellTeam 2nd-account roots): lock and write the real file, never replace the link. */
+function realPathOrSelf(file: string): string {
+  try { return fs.realpathSync(file); } catch { return file; }
+}
+
+function writeInPlace(link: string, body: Buffer | string): void {
+  const file = realPathOrSelf(link);
   let mode = 0o600;
   try { mode = fs.statSync(file).mode & 0o777; } catch { /* 無ければ0600で作る */ }
   const temp = `${file}.aiterm-restore-${process.pid}`;

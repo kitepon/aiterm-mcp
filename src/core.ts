@@ -6976,6 +6976,22 @@ function claudeSeatCatalogEnv(name: string, meta: AgentMetadata): NodeJS.Process
   return env;
 }
 
+const IN_TURN_PANE_ROWS = 50;
+
+/**
+ * The lines of a running turn (spinner, a tool's block) plus the model picker are taller than the default 24-row pane: the picker's
+ * foot ("Esc to cancel") is cut and the picker cannot be read (Z43 lab, reproduced on 2.1.325). The pane is made taller for the
+ * switch; returns the undo (the original size), or null when nothing was changed.
+ */
+async function tallenPaneForPicker(name: string): Promise<(() => void) | null> {
+  const size = tmux("display-message", "-p", "-t", `=${name}:`, "#{window_width} #{window_height}");
+  const [width, height] = size.stdout.trim().split(/\s+/u).map(Number);
+  if (size.code !== 0 || !(width > 0) || !(height > 0) || height >= IN_TURN_PANE_ROWS) return null;
+  if (tmux("resize-window", "-t", name, "-x", String(width), "-y", String(IN_TURN_PANE_ROWS)).code !== 0) return null;
+  await sleep(400); // Claude Code redraws to the new height
+  return () => { tmux("resize-window", "-t", name, "-x", String(width), "-y", String(height)); };
+}
+
 /** Whether a Claude goal is running on the seat (inside the send lock). Unreadable counts as no goal: the picker path is harmless either way. */
 async function claudeGoalActive(name: string, meta: AgentMetadata): Promise<boolean> {
   try {
@@ -7096,8 +7112,13 @@ async function configureAgentInLock(
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
     if (model?.toLowerCase() === "opusplan") await switchClaudeOpusPlan(name, meta, beforeChange);
-    if (model || level) await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) },
-      claudeSeatEnv() ?? process.env, inTurn);
+    if (model || level) {
+      const restoreSize = inTurn ? await tallenPaneForPicker(name) : null;
+      try {
+        await configureClaudeForSessionOnly(name, meta, model, level, beforeChange, { ...agentModelUi(name), ready: () => waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS) },
+          claudeSeatEnv() ?? process.env, inTurn);
+      } finally { restoreSize?.(); }
+    }
     if (effort && !level) {
       beforeChange();
       await sendAgentPromptText(name, `/effort ${effort}`);

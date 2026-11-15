@@ -146,6 +146,9 @@ test("番の最中のAlt+Pの切り替えは、/modelの行なしの結果の行
   const screen = ["● working", "  ⎿  Model set to Opus 5.5 (claude-opus-5-5) for this session only", "● more", "  ⎿  Model set to Fable 5.2 for this session only",
     "  ⎿  Kept model as Sonnet 5.5", "  ⎿  something else"].join("\n");
   assert.deepEqual(claude.claudeModelSwitchResults(screen).map(row => row.scope), ["session_only", "session_only", "kept"]);
+  // The notification a real 2.1.325 seat prints for an in-turn switch (lab 2026-11-15): indented, no ⎿ mark, one line.
+  const plain = ["✽ Enchanting… (32s)", "                 Model set to sonnet (claude-sonnet-5-5) for this session only", "   Tip: something indented"].join("\n");
+  assert.deepEqual(claude.claudeModelSwitchResults(plain), [{ scope: "session_only", line: "Model set to sonnet (claude-sonnet-5-5) for this session only" }]);
   assert.equal(claude.claudeModelSwitchResult(screen), null, "the /model-anchored reader still needs its command line");
 });
 
@@ -237,10 +240,10 @@ function draw() {
   if (!selectable()) return render([...top, rule, "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
     "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models", "  Esc to cancel"]);
   const level = shown();
-  render([...top, rule, options.newLayout ? "  Choose a model" : "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
+  render((lines => options.clipFoot ? lines.slice(0, -2) : lines)([...top, rule, options.newLayout ? "  Choose a model" : "  Select model", "  Switch between Claude models. Your pick becomes the default for new",
     "  sessions. For other/previous model names, specify with --model.", ...view, "     … +" + (rows.length - 3) + " models",
     level ? "  ◐ " + label[level] + " effort" + (level === "medium" ? " (default)" : "") + " ←/→ to adjust" : "  ○ Effort not supported for " + rows[cursor][0],
-    options.noSessionOnly ? "  Enter to confirm · Esc to cancel" : "  Enter to set as default · s to use this session only · Esc to cancel"]);
+    options.noSessionOnly ? "  Enter to confirm · Esc to cancel" : "  Enter to set as default · s to use this session only · Esc to cancel"]));
 }
 function apply(scope) {
   current = cursor; effort = shown() ?? effort;
@@ -509,6 +512,17 @@ test("agent_configure: 番の最中に選ぶ画面を断った時も、画面を
     await assert.rejects(core.configureAgent(sid, { model: "claude-opus-5-5" }), /CLAUDE_MODEL_SESSION_ONLY_UNAVAILABLE/u);
     assert.equal(keys(), "⎋p⎋", "開く⎋pと、選ぶ画面を閉じる⎋だけ");
     assert.doesNotMatch(await screen(), /Interrupted/u);
+    assert.equal(core.observeSession(sid).state, "busy");
+  });
+});
+
+// Z43: a picker taller than the pane has its foot cut and cannot be read. A picker left open would take the next typed message as keys.
+test("agent_configure: 番の最中に選ぶ画面が読めない形で開いた時は、見出しがある間だけEscで閉じて断る。番は止めない", { skip: ptySkip }, async () => {
+  await withPickerClaude({ busy: true, clipFoot: true }, async ({ sid, keys, screen }) => {
+    await assert.rejects(core.configureAgent(sid, { model: "claude-opus-5-5" }), (error) =>
+      /CLAUDE_MODEL_PICKER_NOT_SHOWN/u.test(error.message) && error.configureRefusal?.selection_excluded === true);
+    assert.equal(keys(), "⎋p⎋", "開く⎋pと、見出しが見えている間に閉じる⎋だけ");
+    assert.doesNotMatch(await screen(), /Select model|Interrupted/u);
     assert.equal(core.observeSession(sid).state, "busy");
   });
 });

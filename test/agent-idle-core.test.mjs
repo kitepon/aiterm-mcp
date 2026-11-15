@@ -12,7 +12,7 @@ import {agentMetadataPath,agentEventPath,writeAgentMetadata,ensureStateRoot,publ
 import {loadAgentMetadata} from '../dist/agent-metadata-reader.js';
 import {readAgentLifecycle,writeAgentLifecycle,writeAgentResumeAttempt,writeAgentResumeRecipe,readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {requireExecutionEffectScope,withExecutionEffectScope} from '../dist/execution-effect.js';
-import {readProcessIdentities} from '../dist/process-runtime.js';
+import {readProcessIdentities,readRuntimeProcesses} from '../dist/process-runtime.js';
 import {readAgentActivity} from '../dist/agent-activity.js';
 import {deliveryOwnerPrefix} from '../dist/parent-delivery-owners.js';
 import {SOCK,resolveTmux,paneCommandArgs} from '../dist/tmux-runtime.js';
@@ -1047,3 +1047,18 @@ test('own_work counts a seat\'s background process, and an exclusion entry for t
  assert.equal(broken.exclusions_digest,null,'a malformed list is not applied');assert.equal(broken.processes,2);
 });
 
+
+// bot-632c5d04 (2026-11-15): the idle stop took effect but its process ended before it wrote hibernated.
+for(const via of ['hibernate','close','send'])test(`an interrupted stop whose pane and native are gone settles as hibernated (${via})`,{skip,timeout:30000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const saved=readAgentLifecycle(f.meta);writeAgentLifecycle(f.meta,{...saved,state:'stopping'});
+ if(via==='hibernate'){assert.equal((await core.hibernateAgentSession(f.name)).outcome,'hibernated');assert.equal(readAgentLifecycle(f.meta).state,'hibernated');}
+ if(via==='close'){assert.equal(core.closeSessionResult(f.name).outcome,'closed');assert.equal(core.observeSession(f.name).exists,false);}
+ if(via==='send'){const receipt=await core.sendAgentMessage(f.name,'after-interrupted-stop',{raw:true});assert.notEqual(receipt.launch_id,f.meta.launch_id);
+  assert.deepEqual(fs.readFileSync(f.keys,'utf8').trim().split('\n'),['after-interrupted-stop']);}
+});
+test('a stopping record whose pane is still alive is left alone',{skip,timeout:15000},async t=>{
+ const f=await fixture(t);assert.equal((await core.checkAgentIdle(f.expected)).outcome,'hibernated');
+ const saved=readAgentLifecycle(f.meta);writeAgentLifecycle(f.meta,{...saved,state:'stopping',pane:{...saved.pane,pid:process.pid,started_identity:readRuntimeProcesses().find(row=>row.pid===process.pid).started_identity}});
+ assert.throws(()=>core.closeSessionResult(f.name),/AGENT_RESUME_UNCONFIRMED/);assert.equal(readAgentLifecycle(f.meta).state,'stopping');
+});

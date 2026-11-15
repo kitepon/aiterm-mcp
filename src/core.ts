@@ -2423,6 +2423,8 @@ const HIBERNATE_BUSY_REASONS = new Set(["turn_running", "turn_end_unconfirmed", 
 export async function hibernateAgentSession(name: string): Promise<{ schema: "aiterm.pty-close-result.v1"; session_id: string; outcome: "hibernated" }> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
+  // An interrupted stop that already took effect: the seat is hibernated, nothing is left to stop.
+  if (settleInterruptedStop(meta)) return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
   const result = await checkAgentIdle({ session_id: name, launch_id: meta.launch_id }, undefined, true);
   if (result.outcome === "hibernated") return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
   // Killing a running turn or its background work loses that work; the caller asks again at the turn end.
@@ -2869,7 +2871,7 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
     agentLaunchLines.delete(name);
     return `closed ${name}`;
   };
-  const meta = tryLoadAgentMetadata(name), lifecycle = meta && readAgentLifecycle(meta);
+  const meta = tryLoadAgentMetadata(name), lifecycle = meta && (settleInterruptedStop(meta) ?? readAgentLifecycle(meta));
   const native = meta && !lifecycle && readAgentResumeNative(meta) ? observeExecutionNativeSessions() : null;
   const absent = native?.state === "known" && !native.sessions.some(row => row.session_id === name);
   if (meta && (lifecycle || absent)) {
@@ -3871,7 +3873,9 @@ async function withAgentSendLock<T>(name: string, run: () => Promise<T>, untouch
         && readAgentResumeAttempt({ aiterm_session: name, launch_id: launchId })?.next_launch_id === current.launch_id;
       if (current?.launch_id !== launchId && !resumed) throw new ExecutionError("EXECUTION_STALE_GENERATION");
       return await agentSendOwner.run(mine, async () => {
-        const meta = pinResume ? tryLoadAgentMetadata(name) : null;
+        const held = tryLoadAgentMetadata(name);
+        if (held) settleInterruptedStop(held);
+        const meta = pinResume ? held : null;
         if (meta && !readAgentLifecycle(meta)) {
           const uncertain = () => new AgentResumeError("AGENT_RESUME_UNCONFIRMED", "復帰対象のnativeを確認できません。本文は送信していません。", name, meta.launch_id);
           let failed: boolean;
@@ -7562,6 +7566,27 @@ function commitWorkingAgentResume(previous: AgentMetadata, lifecycle: AgentLifec
     || !isDeepStrictEqual(loadAgentMetadata(name), previous) || readAgentLifecycle(previous))
     throw new AgentResumeUnavailableError(name);
   withExecutionPreparation(name, () => writeAgentLifecycle(previous, lifecycle));
+}
+
+/**
+ * An idle stop whose effect finished but whose process ended before it wrote hibernated leaves "stopping" behind, and
+ * every send, close and hibernate refused on it (bot-632c5d04, 2026-11-15). When the recorded pane process is gone and
+ * the native is confirmed absent, the stop did take effect: record it as finish() would. A live pane is left alone (a
+ * stop may still be running in another process). Returns the hibernated record when it settled one.
+ */
+function settleInterruptedStop(meta: AgentMetadata): AgentLifecycle | null {
+  const lifecycle = readAgentLifecycle(meta);
+  if (lifecycle?.state !== "stopping" || lifecycle.socket !== SOCK || readAgentResumeAttempt(meta)) return null;
+  const native = observeExecutionNativeSessions();
+  if (native.state !== "known" || native.sessions.some(row => row.session_id === meta.aiterm_session)) return null;
+  const pane = lifecycle.pane;
+  if (readRuntimeProcesses().some(row => row.pid === pane.pid && row.started_identity === pane.started_identity)) return null;
+  const settled: AgentLifecycle = { ...lifecycle, state: "hibernated", at: new Date().toISOString() };
+  withExecutionPreparation(meta.aiterm_session, () => {
+    if (!isDeepStrictEqual(readAgentLifecycle(meta), lifecycle)) throw new AgentResumeUnavailableError(meta.aiterm_session);
+    writeAgentLifecycle(meta, settled);
+  });
+  return settled;
 }
 
 /** A current generation with no lifecycle/attempt state whose native is confirmed absent. */

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat no longer stays unreachable after an idle stop that took effect but whose Aiterm process ended before it wrote `hibernated`. Anchor's seat bot-632c5d04 stayed in `stopping` from 05:11Z on 2026-11-15, so every send, `pty_close {hibernate:true}` and `pty_close` refused it, also across a body restart. Now the next send, dispatch, idle check, hibernate or close checks the stuck record. When the recorded pane process (pid and start identity) is gone and the native session is confirmed absent, Aiterm records it `hibernated`, as the interrupted stop would have, and the operation continues: a send resumes the same conversation, a close closes. A `stopping` record whose pane is still alive is left alone (lifecycle-state-ownership.md).
+
 ## [0.70.64] - 2026-11-15
 
 - `agent_configure model: "opusplan"` no longer hangs on a seat whose conversation is cached for its current model (Z27 lab). Claude Code asks "Switch model? … ❯ 1. Yes, switch" after `/model opusplan`; Aiterm now reads that question (with or without a model name) and answers Yes once, as the picker path does. If no result line comes within 20 seconds, Aiterm closes what is open with Escape (at most 3 times) and refuses with `CLAUDE_MODEL_SWITCH_UNCONFIRMED` (with `configureRefusal`), without waiting for the composer. The root's `settings.json` still goes back to its exact prior bytes.

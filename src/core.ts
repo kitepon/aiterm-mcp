@@ -744,6 +744,7 @@ function cleanupAgentState(name: string): void {
           /\.antigravity-result-\d+-\d+\.json$/.test(f) ||
           f.endsWith(".claude-operation.json") ||
           f.endsWith(".claude-approval.json") ||
+          f.endsWith(".claude-plan-spec") ||
           f.endsWith(".claude-dispatch") ||
           f.endsWith(".interim.json") ||
           f.endsWith(".steers.jsonl") ||

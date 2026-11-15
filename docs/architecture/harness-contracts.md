@@ -54,6 +54,22 @@ Claude Codeは、席がプランモードで計画を書き終えてExitPlanMode
 | 古いAiterm | 端末のAitermが0.70.66より前なら、設定にこのフックが無く、今までどおり画面で止まる（呼び手が`pty_send 1`で答える）。席の起動は変わらない |
 | 起こし済みの席 | フックは起動時に読む設定にだけ入る。起こし済みの席は、休止・再開か起こし直しで新しい設定になる |
 
+## EnterPlanModeの前に仕様を書かせる（Claude、b4、Kiro依頼・オーナー指示 2026-11-15）
+
+EnterPlanModeは引数を持たない。計画の内容を書かずに呼んだ席は、プランモードの「利用者に聞く」道（AskUserQuestion）へ入り、無人の席が止まる（a160）。守るもの: 無人の席がその道で止まらないこと。AIが覚えておく規則でなく、道具側の答えで書かせる。
+
+| 部品 | 契約 |
+|---|---|
+| 席ごとの設定（`createClaudeCorrelationSettings`、全Claude席・全OS: 上の承認フックと同じ関数） | `hooks.PreToolUse = [{matcher: "EnterPlanMode", hooks: [{type: "command", command: node <dist/claude-plan-spec-hook.js>, timeout: 10}]}]`。Stop・PermissionRequestの隣に足す |
+| [claude-plan-spec-hook](../../src/claude-plan-spec-hook.ts) | 入力JSONの`hook_event_name`が`PreToolUse`、`tool_name`が`EnterPlanMode`ちょうど、環境にAitermの席の印がある時だけ判断する。ほかは何も出さず終了0 |
+| 仕様の有無 | 入力にassistantの文は無く、フックの開始時点では、今の呼びの`tool_use`も直前の文も会話記録（`transcript_path`）にまだ無い（2.1.325実測: 56〜104ms後に現れる）。そこで50msごとに最長1500ms、`tool_use_id`を持つ行が現れるまで会話記録の末尾を読む。現れたら、同じassistant message（同じ`message.id`の行と、同じ行の前の部品）でこの`tool_use`より前にある`text`部品の長さの合計が80字以上なら「仕様あり」＝何も出さず通す（shortcut: 長さの下限。中身はAIの言葉で道具は良し悪しを判断できない。一行だけの文で通る席が出たら上げる） |
+| 仕様なし | 1つの`(session_id, prompt_id)`につき1回だけ`{hookSpecificOutput:{hookEventName:"PreToolUse", permissionDecision:"deny", permissionDecisionReason:<案内>}}`を出す。案内は、プランを練りたい内容の詳細な仕様（何を作る・直す・調べるのか、範囲、守る条件、終わりの形）を自分の言葉で書いてからEnterPlanModeをもう一度呼ぶよう伝える。仕様の型は渡さない。1500ms経っても`tool_use`が会話記録に現れない時も「書いたか分からない」ので同じく1回だけ返す |
+| 自力で出られる道（guards.self-exit） | 返した事を`<seat>.<launchId>.claude-plan-spec`（席の`agents`置き場、中身は`session_id`と`prompt_id`）へ書く。同じ`prompt_id`の2回目の呼びは、何も書かれていなくても通る。席は「書いてもう一度呼ぶ」で必ず進める |
+| 失敗 | 会話記録のpathが無い・読めない、`prompt_id`が無い、置き場へ書けない、入力が壊れている、どの失敗も通す（守るのは無人の席が止まる事だけで、不明は危険ではない）。待ちは最長1500msで、新しいstore・再試行・timeoutの調整を持たない |
+| 状態の持ち主 | 状態ファイルはこのフックだけが書き、席のcleanup（`.claude-plan-spec`）で他の席の状態と一緒に消える。会話記録は読むだけ |
+
+データの流れ: Claude Code → フックのstdin（入力JSON）→ 会話記録の読み取り（読むだけ）→ stdoutの判断JSON。書くのは、返した時の小さな状態ファイル1つだけ。古いAiterm（0.70.67より前）の設定にはこのフックが無く、今までどおり。起こし済みの席は、休止・再開か起こし直しで新しい設定になる。
+
 ## Stopの公開順序と途中失敗
 
 [Claude Stop](../../src/claude-stop-hook.ts) は結果を一時fileへ書き、短書込確認/fsync/renameの後にdone eventを追記する。event短書込はftruncateで戻す。operation markerは読み取ったdev/inoが一致する場合だけ、event/activity保存後に消費する。失敗はstderr診断となり、偽の完了を作らない。idle clock依頼失敗は取得済みの結果を消さない。v2 markerのcursorは送信前の位置であり、native入力受理や取消完了の証明ではない。利用上限で止まった番（Claude 2.1.322のhold）と中断した番にはStopが来ない。会話記録のAPIエラー・中断の記録がmarkerより後にあれば、markerは保留中に数えない（observation-results「Claude limit end」）。

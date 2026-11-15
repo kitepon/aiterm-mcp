@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.69] - 2026-11-15
+
 - The EnterPlanMode spec hook (0.70.67) no longer relies on the call's own transcript rows (Kiro's Z41 lab: a seat that wrote a 300-character spec in the same message was turned back at its first call, 3 of 3 runs). In the interactive Claude Code 2.1.325 the rows of the message that holds the call are often not in the transcript while the hook runs, however long the hook waits (measured up to 2.6 s; they appear after the hook returns), so the hook now counts the assistant text since the last real user prompt up to the call: an earlier message of the same prompt with 80+ characters lets the first call through. When the call's own message is not readable and nothing earlier was written, the first call of a prompt is turned back once (the instruction now says that a seat that has just written its spec only needs to call EnterPlanMode again), the second call always enters. The wait for the call's row is 600 ms instead of 1500 ms (harness-contracts.md "EnterPlanModeの前に仕様を書かせる").
 
 ## [0.70.68] - 2026-11-15
@@ -3524,7 +3526,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.68...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.69...HEAD
+[0.70.69]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.68...v0.70.69
 [0.70.68]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.67...v0.70.68
 [0.70.67]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...v0.70.67
 [0.70.66]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...v0.70.66

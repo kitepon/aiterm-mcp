@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.66] - 2026-11-15
+
 - A Claude seat on plan mode no longer waits for a person at the ExitPlanMode dialog "Ready to code?" (a141, Kiro's request). Every Claude seat's own settings now carry a `PermissionRequest` hook for `ExitPlanMode` only. The hook answers as option 1 ("Yes, and switch to BYPASS PERMISSIONS"): it allows the call with the call's own input and sets the session mode to `bypassPermissions`, which the seat already ran in. Claude Code 2.1.325 ignores an allow without the input for this tool, so the input is part of the answer. Any other tool, any other dialog (AskUserQuestion included), an unreadable input and a process outside an Aiterm seat get no decision and keep their screen. A seat already running keeps its old settings until it is resumed or relaunched; an Aiterm below 0.70.66 behaves as before (harness-contracts.md "ExitPlanModeの承認").
 
 ## [0.70.65] - 2026-11-15
@@ -3512,7 +3514,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.66...HEAD
+[0.70.66]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.65...v0.70.66
 [0.70.65]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.64...v0.70.65
 [0.70.64]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.63...v0.70.64
 [0.70.63]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.62...v0.70.63

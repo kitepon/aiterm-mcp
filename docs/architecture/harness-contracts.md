@@ -24,7 +24,7 @@ Codexの**停止本人性**は通常完了待ちより厳しい。候補全列�
 
 ## 認証・model・起動UI
 
-model一覧は5通りのnative窓口に依存する。Claudeは一時settingsでhook/MCP/会話保存を抑えたstream-json初期化、Codexは既Steer receiver経由app-server model/list、GrokはmodelsとACP初期化、Cursorはmodels CLIのeffective ID分解、Antigravityはtab形式のmodel選択肢を使う。model/effort/fastの許可組合せとunsupportedはadapter/catalog側で検証する。認証や一覧を読んだことをpromptの実行成功にしない。
+model一覧は5通りのnative窓口に依存する。Claudeは一時settingsでhook/MCP/会話保存を抑えたstream-json初期化（`--model opusplan`で聞く。Claude Codeは今のmodelがopusplanの時だけ`opusplan`（Opus Plan Mode）の行を足し、ほかの行は変えない。2.1.325実測、0.70.63）、Codexは既Steer receiver経由app-server model/list、GrokはmodelsとACP初期化、Cursorはmodels CLIのeffective ID分解、Antigravityはtab形式のmodel選択肢を使う。model/effort/fastの許可組合せとunsupportedはadapter/catalog側で検証する。認証や一覧を読んだことをpromptの実行成功にしない。
 
 Claudeの一覧の置き場（[claude-catalog-root](../../src/claude-catalog-root.ts)）: Claude Codeは served catalog を使うかの判定（GrowthBookの値）を設定root内のglobal config（既定rootでは `~/.claude.json`）へ本人性を問わず書き戻す。席・認証の別processが同じfileへ書くと、一覧が5行/14行で揺れる。一覧はrootごとの**一覧専用root**（stateRoot/claude-catalog/<rootのsha256先頭16桁>、0700）で走らせる。
 

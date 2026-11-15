@@ -227,6 +227,8 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   const seen = JSON.parse(fs.readFileSync(log, "utf8"));
   for (const flag of ["-p", "--no-session-persistence", "--strict-mcp-config", "--input-format", "--output-format"]) assert.ok(seen.argv.includes(flag), flag);
   assert.equal(seen.argv.includes("--mcp-config"), false);
+  // opusplan is listed only while the session runs it (a141, 2.1.325).
+  assert.equal(seen.argv[seen.argv.indexOf("--model") + 1], "opusplan");
   // fastMode: true は、応答の fast_mode_disabled_reason を「このアカウントで使えない訳」にするための聞き方（promptは送らない。ADR 0114）。
   assert.deepEqual(seen.settings, { disableAllHooks: true, fastMode: true });
   assert.deepEqual(seen.input.map((item) => [item.type, item.request.subtype]), [["control_request", "initialize"]]);

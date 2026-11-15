@@ -260,6 +260,8 @@ async function claudeModelChoicesOnce(bin: string, cwd: string, env: NodeJS.Proc
       const result = await runAgentProtocolCommand(bin, [
         "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
         "--no-session-persistence", "--strict-mcp-config", "--settings", settings,
+        // The list adds opusplan (Opus Plan Mode) only while the session runs it; the other rows stay the same (2.1.325).
+        "--model", "opusplan",
       ], {
         cwd,
         env,
@@ -701,7 +703,7 @@ export function claudeModelSwitchConfirm(screen: string): "yes_selected" | "othe
 export type ClaudeModelSwitchScope = "session_only" | "saved_as_default" | "kept" | "blocked";
 export function claudeModelSwitchResult(screen: string): { scope: ClaudeModelSwitchScope; line: string } | null {
   const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
-  const command = lastLineIndex(lines, /^\s*❯\s*\/model\s*$/u);
+  const command = lastLineIndex(lines, /^\s*❯\s*\/model(?:\s+\S+)?\s*$/u);
   if (command < 0) return null;
   const start = lines.findIndex((line, i) => i > command && /^\s*⎿\s+\S/u.test(line));
   if (start < 0) return null;

@@ -24,6 +24,7 @@ import { readPrivateEnvLine, setPrivateEnv, privateEnvValue } from "./private-en
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
+import { withoutReplaceKeys } from "./harnesses/caller-mcp.js";
 import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { agentModelsResult } from "./model-catalog.js";
@@ -1404,6 +1405,12 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
     if (!versionAtLeast(version, needs.minimum))
       throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; ${needs.what} needs ${needs.minimum} or later`, 2);
   }
+  // An older remote does not know `replace` (Grok, Cursor, Antigravity and Codex refuse the key): it keeps its old
+  // precedence, where every caller server replaces a same-name one, so the key carries nothing there.
+  if (args.mcp_config && JSON.stringify(withoutReplaceKeys(args.mcp_config)) !== JSON.stringify(args.mcp_config)
+    && !versionAtLeast((target.trusted_ref ? terminalVersions.get(target.trusted_ref) : undefined)
+      ?? (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0", CALLER_REPLACE_MINIMUM_VERSION))
+    args = { ...args, mcp_config: withoutReplaceKeys(args.mcp_config) };
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
   // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
   // claude_agent has no fork_from, so a fork always goes through agent_launch.
@@ -1437,6 +1444,10 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
 
 /** First release whose agent_launch knows fork_from (ADR 0140). */
 const FORK_MINIMUM_VERSION = "0.70.6";
+const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced: z.array(z.string()) }).optional()
+  .describe("mcp_config only: caller servers dropped because the seat's own harness config defines the name, and those that replaced it (replace: true). A terminal below 0.70.62 does not return it");
+/** First release that reads `replace` in a caller server (launch-identity-input.md "Caller name precedence"). */
+const CALLER_REPLACE_MINIMUM_VERSION = "0.70.62";
 /** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
 const CODEX_REMOTE_MINIMUM_VERSION = "0.70.7";
 /** The oldest terminal Aiterm per harness: Grok, Cursor and Antigravity seats need 0.70.9 (checked before any private value is sent). */
@@ -1547,6 +1558,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
           }
         : {}),
       ...(forkOf ? { fork_of: { session_id: forkOf.session_id, vendor_session_id: forkOf.vendor_session_id, write_ban: forkOf.write_ban } } : {}),
+      ...(mcp_config != null ? { caller_mcp: loadAgentMetadata(sid).caller_mcp ?? { dropped: [], replaced: [] } } : {}),
     };
     // 開始未確認（submitted_unconfirmed）は誤りにしない。sessionは立ち、promptは入力欄を離れ、配送も登録済み。
     // 誤りで返すとClaude Code親は受け口のhookを走らせず、子の回答が届かない（ADR 0093）。状態はinitial_promptと本文で伝える。
@@ -1629,7 +1641,7 @@ function registerAgentTool(
         session_name: z.string().nullish().describe("セッション名（省略で自動採番）"),
         ...(kind === "claude" ? {
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
-          mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars"),
+          mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars. A same-name server of the seat's own config wins and the entry is dropped (caller_mcp.dropped) unless it has replace: true"),
         } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,
@@ -1655,6 +1667,7 @@ function registerAgentTool(
         fast: z.boolean().optional().describe("起こした後の、席のfastの状態"),
         fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
         ...writeScopeOutputSchema,
+        caller_mcp: callerMcpOutputSchema,
       },
     },
     async ({ terminal, ...args }: any, extra) => terminal ? launchTerminalAgent(core.agentHarness(kind), terminal, args, extra) : launchAgent(kind, args, extra),
@@ -1690,7 +1703,7 @@ server.registerTool(
       remote: remoteInputField,
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; Antigravity: an always-on rule in the seat's own --add-dir folder; at most 64 KiB for these. Cursor has no system-prompt channel: the text goes in front of the first prompt, or of the first input sent to a promptless seat (at most 64 KiB)"),
-      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server; Codex, Grok and Antigravity replace a same-name user server for this seat (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead)"),
+      mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers, replace?: boolean}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. A server the seat's own harness config already defines under the same name is dropped for this seat (listed in caller_mcp.dropped) unless its entry has replace: true; then it replaces that server (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead). Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server, so nothing is dropped there"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1716,6 +1729,7 @@ server.registerTool(
       fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
+      caller_mcp: callerMcpOutputSchema,
       fork_of: z.object({ session_id: z.string(), vendor_session_id: z.string(),
         write_ban: z.object({ path: z.string(), method: z.enum(["landlock", "seatbelt", "restricted-token"]) }) }).optional().describe("The seat this fork copies and the folder it cannot write"),
     },

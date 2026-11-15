@@ -863,6 +863,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const toml = (value: string): string => JSON.stringify(value); // JSON strings are valid TOML basic strings
 
 /** `mcp_config` -> one `-c` value per server. Refuses (CODEX_MCP_CONFIG_UNSUPPORTED) what Codex's http server table cannot say.
+ * A same-name user server reaches here only with `replace: true` (core.ts drops the others, launch-identity-input.md "Caller name precedence").
  * `userStdio`: names the user's config.toml already defines as stdio servers. `-c` merges key by key into that table and
  * Codex refuses `command` + `url`, so such a server is taken over as stdio running Aiterm's relay to the same url and headers
  * (mcp-http-bridge.ts); the user's other keys of that table (env, cwd, timeouts, enabled_tools) still apply. */
@@ -875,7 +876,8 @@ export function codexMcpOverrides(mcp: unknown, userStdio: ReadonlySet<string> =
     if (!MCP_SERVER_NAME.test(name)) return refuse(`server name '${name}' must be letters, digits, '_' or '-'`);
     const spec = server as { type?: unknown; url?: unknown; headers?: unknown } | null;
     if (!spec || typeof spec !== "object" || Array.isArray(spec)) return refuse(`server '${name}' must be an object`);
-    if (Object.keys(spec).some(key => !["type", "url", "headers"].includes(key))) return refuse(`server '${name}' may only have type, url and headers`);
+    if (Object.keys(spec).some(key => !["type", "url", "headers", "replace"].includes(key))) return refuse(`server '${name}' may only have type, url, headers and replace`);
+    if ((spec as { replace?: unknown }).replace !== undefined && typeof (spec as { replace?: unknown }).replace !== "boolean") return refuse(`server '${name}': replace must be true or false`);
     if (spec.type !== undefined && spec.type !== "http") return refuse(`server '${name}': Codex takes only type 'http' here (got '${String(spec.type)}')`);
     let url: URL | null = null;
     try { url = typeof spec.url === "string" ? new URL(spec.url) : null; } catch { /* refused below */ }

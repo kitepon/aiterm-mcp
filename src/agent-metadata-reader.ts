@@ -134,6 +134,10 @@ export function loadAgentMetadata(name: string): AgentMetadata {
     ...(typeof m.fast === "boolean" ? { fast: m.fast as boolean } : {}),
     ...(typeof m.model === "string" || m.model === null ? { model: m.model as string | null } : {}),
   };
+  // Caller name precedence (launch-identity-input.md): what the launch dropped or replaced, kept for the receipt and a resume.
+  const names = (v: unknown) => Array.isArray(v) && v.every(name => typeof name === "string");
+  const callerMcpFields = m.caller_mcp && names(m.caller_mcp.dropped) && names(m.caller_mcp.replaced)
+    ? { caller_mcp: { dropped: m.caller_mcp.dropped as string[], replaced: m.caller_mcp.replaced as string[] } } : {};
   const startupShapes = Array.isArray(m.startup_process_shapes) && m.startup_process_shapes.every((shape: any) =>
     shape && typeof shape.identity === "string" && (shape.parent === null || typeof shape.parent === "string") && typeof shape.argv_digest === "string")
     ? { startup_process_shapes: m.startup_process_shapes as StartupProcessShape[] } : {};
@@ -148,7 +152,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       hook_route: "shared_antigravity_home", antigravity_home: m.antigravity_home, node_platform: process.platform,
       ...(typeof m.write_scope === "string" ? { write_scope: m.write_scope } : {}),
       ...(m.antigravity_caller_mcp_dir === agentAntigravityCallerDir(name) ? { antigravity_caller_mcp_dir: m.antigravity_caller_mcp_dir } : {}),
-      ...deliveryFields, ...executableFields, ...fastFields, ...startupFields, ...loadAgentLineageFields(m, true) };
+      ...deliveryFields, ...executableFields, ...fastFields, ...callerMcpFields, ...startupFields, ...loadAgentLineageFields(m, true) };
   }
   if (m.kind === "claude") {
     const expectedSettings = agentManagedClaudeSettingsPath(name, m.launch_id);
@@ -181,7 +185,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
-      ...fastFields,
+      ...fastFields, ...callerMcpFields,
       ...resumeFields,
       ...startupFields,
       launch_operation_id: launchOperationId,
@@ -219,7 +223,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
-      ...fastFields,
+      ...fastFields, ...callerMcpFields,
       ...resumeFields,
       ...startupFields,
       hook_route: "shared_codex_home",
@@ -253,7 +257,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       initial_prompt: normalizeInitialPromptState(m.initial_prompt),
       ...deliveryFields,
       ...executableFields,
-      ...fastFields,
+      ...fastFields, ...callerMcpFields,
       ...resumeFields,
       ...startupFields,
       hook_route: "shared_cursor_home",
@@ -295,7 +299,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
     initial_prompt: normalizeInitialPromptState(m.initial_prompt),
     ...deliveryFields,
     ...executableFields,
-    ...fastFields,
+    ...fastFields, ...callerMcpFields,
       ...startupFields,
     hook_route: "shared_grok_home",
     completion_route: "grok_transcript",

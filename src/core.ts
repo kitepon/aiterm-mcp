@@ -34,7 +34,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { launchEnvValue } from "./private-env.js";
-import { assertCallerEnv } from "./harnesses/caller-mcp.js";
+import { applyCallerPrecedence, assertCallerEnv, jsonMcpServerNames, tomlMcpServerNames } from "./harnesses/caller-mcp.js";
 import { fileURLToPath } from "node:url";
 import * as rtk from "./rtk.js";
 import { manageClaudeAgentGoal, manageGrokAgentGoal, type AgentGoalWireResult } from "./agent-goal-native-result.js";
@@ -260,6 +260,7 @@ import {
   claudeApiErrorEndingTurn,
   claudeFailureCategory,
   type ClaudeApiError,
+  claudeOwnMcpNames,
 } from "./harnesses/claude.js";
 import {
   cursorAuthPlan, cursorAuthStatus, cursorAuthPane,
@@ -8695,13 +8696,20 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
             // Stamp its exact native creator before binding and any later input.
             if (hasExecutionCreationScope()) meta.execution_native = executionCreatedNativeBinding(sid);
             meta.agent_executable = bin;
-            if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
-            if (meta.kind === "codex") writeCodexCallerFiles(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null);
+            // Caller name precedence: a server the seat's own config defines stays its own unless the entry says replace.
+            let callerMcp = opts.mcp_config ?? null;
+            if (callerMcp !== null) {
+              const applied = applyCallerPrecedence(callerMcp, ownMcpNames(meta, claudeEnv));
+              callerMcp = applied.config;
+              meta.caller_mcp = applied.precedence;
+            }
+            if (meta.kind === "claude") writeClaudeCallerFiles(meta, opts.append_system_prompt ?? null, callerMcp);
+            if (meta.kind === "codex") writeCodexCallerFiles(meta, opts.append_system_prompt ?? null, callerMcp);
             if (meta.kind === "grok" || meta.kind === "cursor" || meta.kind === "antigravity") {
               // The seat's own environment: what ${NAME} in a header resolves to (and what a harness reads at run time).
               const seatEnv = new Map(agentEnvEntries(meta, sid, envVars));
               const write = meta.kind === "grok" ? writeGrokCallerFiles : meta.kind === "cursor" ? writeCursorCallerFiles : writeAntigravityCallerFiles;
-              write(meta, opts.append_system_prompt ?? null, opts.mcp_config ?? null, name => seatEnv.get(name));
+              write(meta, opts.append_system_prompt ?? null, callerMcp, name => seatEnv.get(name));
             }
             if (opts.fork_of) meta.fork_of = opts.fork_of;
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
@@ -8896,10 +8904,28 @@ export function resolveForkSource(kind: AgentKind, from: { session_id: string; f
     write_ban, ...(first_input ? { first_input } : {}) }, cwd: main.cwd, ...(root ? { root } : {}) };
 }
 
+/** Names the seat's own harness config defines (launch-identity-input.md "Caller name precedence"). Cursor runs a caller
+ * server as plugin-aiterm-caller-<name> beside its own, so nothing collides there. */
+function ownMcpNames(meta: AgentMetadata, claudeEnv: NodeJS.ProcessEnv): Set<string> {
+  const cwd = meta.cwd ?? process.cwd();
+  if (meta.kind === "claude") return claudeOwnMcpNames(claudeEnv, cwd);
+  if (meta.kind === "codex") return new Set(tomlMcpServerNames(path.join(meta.codex_home ?? realCodexHome(), "config.toml")));
+  if (meta.kind === "grok") return new Set(tomlMcpServerNames(grokUserConfigPath(meta.grok_home ?? realGrokHome())));
+  if (meta.kind === "antigravity") return new Set([
+    ...jsonMcpServerNames(path.join(process.env.HOME ?? os.homedir(), ".gemini", "config", "mcp_config.json")),
+    ...jsonMcpServerNames(path.join(cwd, ".agents", "mcp_config.json")),
+  ]);
+  return new Set();
+}
+
 /** Caller launch fields refused from the arguments alone, before any session or file exists (phase "input"). */
 function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: string | null; mcp_config?: Record<string, unknown> | null;
   prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[] }): void {
   if (kind === "codex") return refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
+  if (kind === "claude" && opts.mcp_config != null) {
+    try { applyCallerPrecedence(opts.mcp_config, new Set()); }
+    catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+  }
   if (kind !== "grok" && kind !== "cursor" && kind !== "antigravity") return;
   try {
     const servers = (kind === "grok" ? checkGrokCallerInput : kind === "cursor" ? checkCursorCallerInput : checkAntigravityCallerInput)(opts.append_system_prompt, opts.mcp_config);
@@ -9013,9 +9039,13 @@ export async function openAgentWithInitialPrompt(
         if (opts.mcp_config != null && (kind === "claude" ? previous.claude_caller_mcp_file : previous.codex_caller_mcp_file)) {
           const file = (kind === "claude" ? previous.claude_caller_mcp_file : previous.codex_caller_mcp_file)!;
           const serverNames = (config: unknown) => Object.keys(((config ?? {}) as { mcpServers?: object }).mcpServers ?? {}).sort();
-          if (!isDeepStrictEqual(serverNames(JSON.parse(fs.readFileSync(file, "utf8"))), serverNames(opts.mcp_config)))
+          // The names the launch dropped stay dropped (Caller name precedence): saved + dropped = the caller's names.
+          const dropped = new Set(previous.caller_mcp?.dropped ?? []);
+          if (!isDeepStrictEqual([...serverNames(JSON.parse(fs.readFileSync(file, "utf8"))), ...dropped].sort(), serverNames(opts.mcp_config)))
             throw new AitermError("AGENT_RESUME_CONFLICT: 同名の休止席は保存したMCP serverの名前で再開します。", 2);
-          (kind === "claude" ? writeClaudeCallerFiles : writeCodexCallerFiles)({ ...previous }, null, opts.mcp_config);
+          const kept = { ...opts.mcp_config, mcpServers: Object.fromEntries(Object.entries((opts.mcp_config.mcpServers ?? {}) as Record<string, unknown>)
+            .filter(([server]) => !dropped.has(server))) };
+          (kind === "claude" ? writeClaudeCallerFiles : writeCodexCallerFiles)({ ...previous }, null, kept);
         }
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
         const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues);

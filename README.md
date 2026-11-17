@@ -695,6 +695,8 @@ enables collection on that host.
 
 `agent_configure({ session_id, model?, reasoning_effort?, fast? })` changes a running Claude, Codex, Grok, or Cursor TUI through the harness's standard controls, preserving the PTY and conversation context.
 
+A launcher can lock a seat's model/effort: `agent_configure({ session_id, configuration_lock: "lock" | "unlock", configuration_lock_key })` (key: 16-128 printable ASCII characters; Aiterm stores only its SHA-256, per launch). While locked, calls that do not carry the key are refused with `AGENT_CONFIGURATION_LOCKED` and nothing is typed: `agent_configure` with `model`/`reasoning_effort`, `pty_send` text that starts with `/model`, `/models`, `/effort` or `/reasoning`, and `pty_key` Alt+P. `agent_configure` with the matching `configuration_lock_key` still applies, and `fast`, ordinary text and a person typing in the terminal are not affected. Unlock with the key, or close the seat. Keep the key in the launcher; never give it to the seat's AI.
+
 New consumers can opt into an original `request` binding (UUID, expected launch, settings digest) and use `action: "reconcile"` to read the saved outcome without input or replay. Negotiate the exact tool schema before the first call. Handler completion does not prove that previously issued native input cannot act later; current settings inspection remains unsupported. Tracked apply is POSIX-only and uses a local target connection. Existing incidents without the original binding cannot be recovered this way. See the [request/reconcile contract](docs/configure-reconcile.md).
 
 For an active Codex v1 goal, `agent_configure` temporarily pauses the goal, waits for the current native turn to end (up to 30 minutes), applies settings through the same send queue, and resumes that goal. Steering remains available during the wait. A changed goal is preserved; a failed or uncertain restoration is reported with the configuration outcome. Other harnesses retain the normal readiness limit: stop or complete a continuously running goal before configuring them.
@@ -710,6 +712,7 @@ Configuration failures keep `isError: true` and the original error text, with `s
 **ファスト（`fast`）。** 各harnessの、費用や利用量を多く払って応答を速くする切り替え（Claude Codeの`/fast`、Codexの速度の段、GrokとCursorのfast版のmodel）を、席ごとに切り替える（ADR 0114）。
 
 - 席は必ず通常の速度で起きる。`agent_launch`の`fast`を省いた時とfalseは同じで、利用者の設定にファストが残っていても通常で始まる。`fast: true`は通常で起こしてから、その席を切り替える。
+- 席のmodel／effortの固定（0.70.71）: launcherは`agent_configure({ session_id, configuration_lock: "lock"|"unlock", configuration_lock_key })`で固定・解除する。固定中は、鍵の無い`agent_configure`のmodel／effort、`/model`・`/models`・`/effort`・`/reasoning`で始まる`pty_send`、`pty_key`のAlt+Pを`AGENT_CONFIGURATION_LOCKED`で断る。鍵を付けた`agent_configure`、`fast`、通常の本文、人が端末へ打つ文字は通る。
 - `agent_configure({ session_id, fast })`は、動いている席を起こし直さずに切り替える。`fast`だけでも渡せる。省略は、その席の今の状態を変えない。
 - 切り替えは席だけに留める。harnessの切り替えの命令は利用者の既定（`~/.claude/settings.json`の`fastMode`、`~/.codex/config.toml`の`service_tier`、`~/.grok/config.toml`の`[models]`）も書き換えるので、Aitermが切り替えの直前の値へ戻す。Grokは起動の`--model`でも既定を書くので、起動の前後でも戻す。
 - 返りの`fast`は、切り替えた後の実際の状態。`agent_models`のmodelごとの`fast`が、そのmodelで切り替えられるかを示す（GrokとCursorのfast版は別のmodelとして並ばず、元のmodelの`fast: true`になる）。最上位の`fast_unavailable`は、アカウントの都合でどのmodelでも使えない時の訳。

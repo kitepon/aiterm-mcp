@@ -44,13 +44,14 @@ export type ConfigurationReceipt = z.infer<typeof configurationReceiptSchema>;
 const failureSchema = z.object({ schema: z.literal("aiterm.agent-configure-error.v1"), session_id: z.string(),
   outcome: z.enum(["not_applied", "outcome_unknown"]), effect: z.enum(["not_started", "possible"]) }).strict()
   .refine(value => value.outcome === "not_applied" ? value.effect === "not_started" : value.effect === "possible");
-export const configurationToolOutputSchema = z.object({ ...resultSchema.partial().shape, ...configurationReceiptSchema.partial().shape,
+const lockSchema = z.object({ schema: z.literal("aiterm.agent-configure-lock.v1"), session_id: z.string(), configuration_lock: z.enum(["locked", "unlocked"]) }).strict();
+export const configurationToolOutputSchema = z.object({ ...resultSchema.partial().shape, ...configurationReceiptSchema.partial().shape, ...lockSchema.partial().shape,
   ...z.object(failureSchema.shape).partial().shape,
-  schema: z.enum(["aiterm.agent-configure-result.v1", "aiterm.agent-configure-error.v1", "aiterm.agent-configure-request-result.v1"]),
+  schema: z.enum(["aiterm.agent-configure-result.v1", "aiterm.agent-configure-error.v1", "aiterm.agent-configure-request-result.v1", "aiterm.agent-configure-lock.v1"]),
   outcome: configurationReceiptSchema.shape.outcome.optional(),
 }).strict().superRefine((value, context) => {
   const schema = value.schema === "aiterm.agent-configure-result.v1" ? resultSchema
-    : value.schema === "aiterm.agent-configure-error.v1" ? failureSchema : configurationReceiptSchema;
+    : value.schema === "aiterm.agent-configure-error.v1" ? failureSchema : value.schema === "aiterm.agent-configure-lock.v1" ? lockSchema : configurationReceiptSchema;
   if (!schema.safeParse(value).success) context.addIssue({ code: "custom", message: "Invalid configuration result variant" });
 });
 function directory(binding: Binding): string { return path.join(stateRoot(), "configuration-requests", binding.id); }

@@ -748,7 +748,8 @@ function cleanupAgentState(name: string): void {
           f.endsWith(".claude-dispatch") ||
           f.endsWith(".interim.json") ||
           f.endsWith(".steers.jsonl") ||
-          f.endsWith(".auth.json")
+          f.endsWith(".auth.json") ||
+          f.endsWith(".configuration-lock.json")
         ) fs.unlinkSync(p);
         else if (f.endsWith(".seat-span.d") || f.endsWith(".codex-home") || f.endsWith(".grok-home") || f.endsWith(".cursor-plugin") || f.endsWith(".antigravity-caller") || f.endsWith(".home") || f.endsWith(".resume-restore.d")) {
           fs.rmSync(p, { recursive: true, force: true });

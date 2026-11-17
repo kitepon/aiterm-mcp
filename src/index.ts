@@ -7,6 +7,7 @@ import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
+import { assertConfigurationKey, applyConfigurationLock, assertNoModelInput } from "./configuration-lock.js";
 import { AitermError, AgentResumeUnavailableError, AgentResumeError, AgentResumeSecretsError, launchInputRefusal } from "./errors.js";
 /**
  * aiterm-mcp — AI が握るローカル永続端末を stdio MCP サーバとして公開する（Node/TS 版）。
@@ -568,6 +569,7 @@ registerRemoteAwareTool(
       if (require_agent && force) {
         throw new Error("require_agent:true は force:true と併用できません。文字列は送信していません。");
       }
+      assertNoModelInput(session_id, { text: (preface ?? "") + text });
       const agentSession = !force && core.isAgentSession(session_id);
       if (require_agent && !agentSession) {
         throw new Error(`AGENT_SESSION_REQUIRED: session '${session_id}' のagent登録がありません。文字列は送信していません。`);
@@ -817,6 +819,7 @@ registerRemoteAwareTool(
   },
   async ({ session_id, key }) => {
     try {
+      assertNoModelInput(session_id, { key });
       const result = core.sendKeyResult(session_id, key);
       return { ...ok(`sent key ${result.key} to ${result.session_id}`), structuredContent: { ...result } };
     } catch (e) {
@@ -1269,11 +1272,23 @@ registerRemoteAwareTool(
       model: z.string().min(1).nullish().describe("変更後のmodel。省略時はmodelを変更しない"),
       reasoning_effort: z.string().min(1).nullish().describe("変更後のreasoning effort。省略時はeffortを変更しない"),
       fast: z.boolean().nullish().describe("変更後のfast。省略時は、その席の今の状態を変えない"),
+      configuration_lock: z.enum(["lock", "unlock"]).optional().describe("launcher用。席のmodel／effortを固定・解除する。configuration_lock_keyが要り、model・reasoning_effort・fast・request・actionとは併用できない。固定中は、AIのtool呼びとして来るmodel／effortの変更とpty_sendの/model・/effort、pty_keyのAlt+Pを断る（fastは対象外）"),
+      configuration_lock_key: z.string().optional().describe("固定の鍵（記号を含む印字可能なASCII 16〜128文字）。Aitermはそのsha256だけを保存する。固定中の席のmodel／effortを変える呼びにはこの鍵が要る。鍵はlauncherだけが持ち、席のAIへ渡さない"),
     },
     outputSchema: configurationToolOutputSchema,
   },
-  async ({ action, request, session_id, model, reasoning_effort, fast }) => {
+  async ({ action, request, session_id, model, reasoning_effort, fast, configuration_lock, configuration_lock_key }) => {
     try {
+      if (configuration_lock) {
+        if (action || request || model != null || reasoning_effort != null || fast != null) throw new AitermError("CONFIGURATION_LOCK_INVALID: configuration_lockは他の設定・actionと併用できません。", 2);
+        const lock = applyConfigurationLock(session_id, configuration_lock, configuration_lock_key);
+        return { content: [{ type: "text" as const, text: JSON.stringify({ session_id, configuration_lock: lock }) }],
+          structuredContent: { schema: "aiterm.agent-configure-lock.v1" as const, session_id, configuration_lock: lock } };
+      }
+      if (model != null || reasoning_effort != null) {
+        try { assertConfigurationKey(session_id, configuration_lock_key); }
+        catch (e) { (e as AitermError).configurationFailure = { schema: "aiterm.agent-configure-error.v1", session_id, outcome: "not_applied", effect: "not_started" }; throw e; }
+      }
       if (action === "reconcile") {
         if (!request || model != null || reasoning_effort != null || fast != null) throw new Error("CONFIGURATION_RECONCILE_INVALID: request required; settings forbidden");
         const result = reconcileConfigurationRequest({ ...request, session_id });

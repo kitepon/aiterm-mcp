@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.74] - 2026-11-18
+
 - The `pty_send` refusal while a Claude question/select dialog is open is now typed (a415b): its text reads `CLAUDE_SELECT_MENU_OPEN: vendor=claude session=…` (a colon after the code, as `errorCode()` expects) and the result carries `_meta["aiterm/error_code"] = {schema: "aiterm.error-code.v1", code: "CLAUDE_SELECT_MENU_OPEN"}` for local seats as well as terminal seats, so a caller can tell "the seat is waiting for its person" from a dead seat. `CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED` is typed the same way. `pty_observe` reports such a dialog as `state: "blocked", reason: "unknown_dialog"` instead of `unknown / unrecognized_screen`.
 
 ## [0.70.73] - 2026-11-18
@@ -3547,7 +3549,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...HEAD
+[0.70.74]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...v0.70.74
 [0.70.73]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...v0.70.73
 [0.70.72]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.71...v0.70.72
 [0.70.71]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.70...v0.70.71

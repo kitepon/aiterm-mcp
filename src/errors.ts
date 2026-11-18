@@ -21,6 +21,8 @@ export class AitermError extends Error {
   configureRefusal?: { code: string; relaunch: boolean; selection_excluded: boolean };
   /** Native setup failed and a complete listing then showed this session name absent (tmux-runtime). */
   nativeSessionAbsent?: string;
+  /** A refusal whose code the caller reads from `_meta["aiterm/error_code"]` (a local seat's fail() adds it; the text keeps "CODE: ..."). */
+  refusalCode?: string;
   /** remote-terminal.md R18: a fresh launch that left no seat. */
   launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED"; action?: string };
   constructor(message: string, code = 1) {

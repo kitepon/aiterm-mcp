@@ -547,6 +547,8 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
   if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
     return { state: "blocked", reason: "tool_approval" };
+  // A question or select dialog waits for the person (AskUserQuestion, a415b; kind "unknown"). The rate-limit menu is closed by Aiterm itself before a send.
+  if (claudeLiveSelectMenu(screen)?.kind === "unknown") return { state: "blocked", reason: "unknown_dialog" };
   if (claudeTuiBusy(screen)) return { state: "busy", reason: "turn_running" };
   if (claudeTuiReady(screen)) return { state: "idle", reason: "composer_ready" };
   // The account holder's own choice (terms and model-training data); never answered by Aiterm. After ready, so a seat

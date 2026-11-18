@@ -8072,6 +8072,13 @@ async function codexTurnRunningBehindIdleScreen(name: string, meta: AgentMetadat
   } catch { return false; /* 読めない時は、動いていると数えない */ }
 }
 
+/** A refusal before any input: the text starts "CODE: " (so a terminal result's code is read from it) and fail() also types it for a local seat. */
+function refusal(code: string, detail: string): AitermError {
+  const error = new AitermError(`${code}: ${detail}`, 2);
+  error.refusalCode = code;
+  return error;
+}
+
 const CLAUDE_SELECT_MENU_SETTLE_MS = 250;
 const CLAUDE_SELECT_MENU_CLOSE_TIMEOUT_MS = 3000;
 
@@ -8089,22 +8096,20 @@ async function clearClaudeSelectMenuBeforeInput(name: string): Promise<string[]>
   const menu = claudeLiveSelectMenu(captureScreen(name, 0));
   if (!menu) return [];
   if (menu.kind !== "rate_limit_options") {
-    throw new AitermError(
-      `CLAUDE_SELECT_MENU_OPEN vendor=claude session=${name}\n` +
+    throw refusal("CLAUDE_SELECT_MENU_OPEN",
+      `vendor=claude session=${name}\n` +
         `Claude Codeの選ぶ画面が開いています（見出し: ${menu.heading ?? "不明"}）。打った文字は選択の操作として読まれるため、文字列は送信していません。` +
-        "pty_read(screen:true) で画面を確かめてください。", 2,
-    );
+        "pty_read(screen:true) で画面を確かめてください。");
   }
   sendMenuChoice(name, "Escape");
   for (const deadline = performance.now() + CLAUDE_SELECT_MENU_CLOSE_TIMEOUT_MS; performance.now() < deadline;) {
     await sleep(100);
     if (!claudeLiveSelectMenu(captureScreen(name, 0))) return ["claude_rate_limit_menu_closed"];
   }
-  throw new AitermError(
-    `CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED vendor=claude session=${name}\n` +
+  throw refusal("CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED",
+    `vendor=claude session=${name}\n` +
       "利用枠の上限の選ぶ画面（/rate-limit-options）をEscで閉じられませんでした。文字列は送信していません。" +
-      "pty_read(screen:true) で画面を確かめてください。", 2,
-  );
+      "pty_read(screen:true) で画面を確かめてください。");
 }
 
 /**

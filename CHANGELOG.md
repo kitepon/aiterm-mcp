@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The `pty_send` refusal while a Claude question/select dialog is open is now typed (a415b): its text reads `CLAUDE_SELECT_MENU_OPEN: vendor=claude session=…` (a colon after the code, as `errorCode()` expects) and the result carries `_meta["aiterm/error_code"] = {schema: "aiterm.error-code.v1", code: "CLAUDE_SELECT_MENU_OPEN"}` for local seats as well as terminal seats, so a caller can tell "the seat is waiting for its person" from a dead seat. `CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED` is typed the same way. `pty_observe` reports such a dialog as `state: "blocked", reason: "unknown_dialog"` instead of `unknown / unrecognized_screen`.
+
 ## [0.70.73] - 2026-11-18
 
 - `pty_close` with `hibernate:true` on a seat that is already hibernated now answers `hibernated` again (and writes nothing) instead of `AGENT_HIBERNATE_UNAVAILABLE`, so a caller that gave up on a slow first call can safely ask again (a412). If another caller records `hibernated` (`settleInterruptedStop`, from `pty_list`, `pty_close` or a second hibernate) after the first call's stop took effect, the first call now accepts it instead of failing with `AGENT_HIBERNATE_UNCONFIRMED`.

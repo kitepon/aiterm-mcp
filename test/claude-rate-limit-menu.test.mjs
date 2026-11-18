@@ -189,6 +189,9 @@ test("選ぶ画面の読み: AskUserQuestionは、選ぶ行の間に説明があ
     assert.equal(menu?.kind, "unknown");
     assert.equal(menu?.heading, null);
   }
+  // a415b: pty_observe reads it as a dialog that waits for the person, not as an unrecognised screen.
+  assert.deepEqual(claude.claudePaneObservation(ASK_ONE), { state: "blocked", reason: "unknown_dialog" });
+  assert.deepEqual(claude.claudePaneObservation(LIMITED).state === "blocked" ? { state: "blocked" } : { state: "other" }, { state: "other" }, "the rate-limit menu is not reported as an unknown dialog");
   // 質問の下に入力欄と足元の行が描かれた画面（質問が閉じた後）は、開いていると読まない。
   assert.equal(claude.claudeLiveSelectMenu(`${ASK_ONE.split("Enter to select")[0]}\n● 答えを受け取りました\n\n${CLOSED.split("\n").slice(5).join("\n")}`), null);
 });
@@ -218,7 +221,7 @@ test("Escで閉じない時は、文を打たずに断る", { skip }, async () =
   const sid = await seatWithMenu("stuck", LIMITED);
   try {
     await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE", { preface: "通話2の返信です。" }),
-      /CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED vendor=claude session=\S+\n.*文字列は送信していません。/u);
+      /CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED: vendor=claude session=\S+\n.*文字列は送信していません。/u);
     await sleep(300);
     assert.equal(bytes(), "\x1b", "届いたのはEscの1byteだけ");
   } finally { core.closeSession(sid); }
@@ -228,7 +231,7 @@ test("見覚えの無い選ぶ画面が出ている席へは、1byteも打たず
   const sid = await seatWithMenu("stuck", "\n  Pick a theme\n\n  ❯ 1. Dark\n    2. Light\n\n  Enter to confirm · Esc to cancel\n");
   try {
     await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE"),
-      /CLAUDE_SELECT_MENU_OPEN vendor=claude session=\S+\n.*見出し: Pick a theme.*文字列は送信していません。/u);
+      /CLAUDE_SELECT_MENU_OPEN: vendor=claude session=\S+\n.*見出し: Pick a theme.*文字列は送信していません。/u);
     await sleep(300);
     assert.equal(fs.existsSync(received), false, "席には1byteも届いていない");
   } finally { core.closeSession(sid); }
@@ -238,7 +241,12 @@ test("AskUserQuestionの画面が出ている席へは、差し込みも1byteも
   const sid = await seatWithMenu("stuck", ASK_MANY, "Tab/Arrow keys to navigate · Esc to cancel");
   try {
     for (const raw of [false, true]) {
-      await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE", { raw }), /CLAUDE_SELECT_MENU_OPEN vendor=claude session=\S+\n.*文字列は送信していません。/u);
+      await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE", { raw }), (error) => {
+        // a415b: the typed code (read as aiterm/error_code by the MCP layer) and a text that starts "CODE: " for a terminal result.
+        assert.equal(error.refusalCode, "CLAUDE_SELECT_MENU_OPEN");
+        assert.match(error.message, /^CLAUDE_SELECT_MENU_OPEN: vendor=claude session=\S+\n.*文字列は送信していません。/u);
+        return true;
+      });
     }
     await sleep(300);
     assert.equal(fs.existsSync(received), false, "席には1byteも届いていない");

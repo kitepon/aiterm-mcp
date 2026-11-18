@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude Code seat showing Code Mode's first-start confirm (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`: unnumbered `No, start without it` / `Yes, turn on Code Mode`, foot `Enter to confirm · Esc to start without it`) is no longer read as an idle composer (a442c). `pty_observe` and the ready gate report `blocked / unknown_dialog`, `pty_send` refuses `CLAUDE_SELECT_MENU_OPEN` before typing, and a launch that meets it ends `AGENT_STARTUP_BLOCKED` instead of typing the first prompt into it. Aiterm does not answer it; the caller sends Down+Enter (turn on) or Enter/Esc (start without). The answer is saved per machine in `~/.claude.json`, so each machine meets it once. Same code on Linux, macOS and Windows.
+
 ## [0.70.74] - 2026-11-18
 
 - The `pty_send` refusal while a Claude question/select dialog is open is now typed (a415b): its text reads `CLAUDE_SELECT_MENU_OPEN: vendor=claude session=…` (a colon after the code, as `errorCode()` expects) and the result carries `_meta["aiterm/error_code"] = {schema: "aiterm.error-code.v1", code: "CLAUDE_SELECT_MENU_OPEN"}` for local seats as well as terminal seats, so a caller can tell "the seat is waiting for its person" from a dead seat. `CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED` is typed the same way. `pty_observe` reports such a dialog as `state: "blocked", reason: "unknown_dialog"` instead of `unknown / unrecognized_screen`.

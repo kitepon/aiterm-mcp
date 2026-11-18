@@ -126,7 +126,7 @@ agentの席への`pty_send`は、任意の`preface`（本文の前に置く1行�
 呼び手が`preface`を渡さない時も、Claude Codeの席へ送る文が包まれる長さ（改行3つ以上か800字以上。`claudeWrapsPaste`）なら、Aitermが既定の1行
 （`AGENT_DEFAULT_PREFACE`。出所だけを言う）を同じ形で入れる。新しいturn・差し込み・起動時の文で同じ。起動時に席へ渡す文で、この1行の見分け方を教える（ADR 0116）。
 
-Claude Codeの席へ送る前に、今の画面が選ぶ画面（最後の行が`Enter to confirm · …`か`Enter to select · …`で、上に番号の行がある。`claudeLiveSelectMenu`。AskUserQuestionの質問は後者で、選ぶ行の間に説明の行と区切り線が入る。a409）で
+Claude Codeの席へ送る前に、今の画面が選ぶ画面（最後の行が`Enter to confirm · …`か`Enter to select · …`で、上に番号の行がある。`claudeLiveSelectMenu`。AskUserQuestionの質問は後者で、選ぶ行の間に説明の行と区切り線が入る。a409。Code Modeの初回確認は番号の無い2行`No, start without it`・`Yes, turn on Code Mode`で、足元は`Enter to confirm · Esc to start without it`。a442c）で
 ないかを読む。利用枠に当たったClaude Codeが自分で開く`/rate-limit-options`の画面は、Escで閉じてから送る。見覚えの無い選ぶ画面には何も打たずに
 断る（`CLAUDE_SELECT_MENU_OPEN: …`。コードの後ろに`:`があるので、端末の席の結果は本文の先頭から、この席の結果は`AitermError.refusalCode`から、`_meta["aiterm/error_code"]`へ`{schema:"aiterm.error-code.v1", code}`が付く。`CLAUDE_RATE_LIMIT_MENU_NOT_CLOSED`も同じ。a415b）。`pty_observe`は、その画面を`blocked / unknown_dialog`と返す（以前は`unknown / unrecognized_screen`。利用枠の選ぶ画面はAitermが送る前に閉じるので対象外）。選ぶ画面は貼り付けを捨ててEnterだけを読み、打鍵の数字と「j」「k」を選択の操作として読むので、そのまま送ると文が消える（ADR 0117）。
 

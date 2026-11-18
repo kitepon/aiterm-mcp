@@ -599,7 +599,15 @@ export interface ClaudeSelectMenu { kind: "rate_limit_options" | "unknown"; head
 // 足元の案内。利用枠の画面は「Enter to confirm · Esc to cancel」。AskUserQuestion（2.1.327の実行ファイルの画面部品）は
 // 「Enter to select · ↑/↓ to navigate · Esc to cancel」（質問が複数なら「Tab/Arrow keys to navigate」）で、Escの案内は出ない時もある。
 const CLAUDE_SELECT_MENU_FOOT_RE = /^\s*Enter to (?:confirm|select) · \S.*$/u;
+// Code Mode's first-start confirm (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1, 2.1.327 screen part; a442c) draws its choices without an index,
+// the cursor first on "No, start without it", so its lowest ❯ row reads as a composer. Foot: "Enter to confirm · Esc to start without it".
+const CLAUDE_CODE_MODE_YES_RE = /^\s*(?:[❯>]\s*)?Yes, turn on Code Mode\s*$/u;
+const CLAUDE_CODE_MODE_NO_RE = /^\s*(?:[❯>]\s*)?No, start without it\s*$/u;
 const CLAUDE_SELECT_MENU_ROW_RE = /^\s*(?:❯\s*)?\d+\.\s+\S/u;
+const CODE_MODE_CONFIRM_HEADING = "Code Mode first-start confirm";
+export function claudeCodeModeConfirm(screen: string): boolean {
+  return claudeLiveSelectMenu(screen)?.heading === CODE_MODE_CONFIRM_HEADING;
+}
 // AskUserQuestionは選ぶ行の間に説明の行と区切り線が入るので、案内の上のこの行数の中に選ぶ行が在れば、選ぶ画面と数える。
 const CLAUDE_SELECT_MENU_SCAN_LINES = 30;
 export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
@@ -615,7 +623,10 @@ export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
     if (!CLAUDE_SELECT_MENU_ROW_RE.test(lines[head])) break;
     rows++;
   }
-  if (rows === 0) rows = lines.slice(Math.max(0, foot - CLAUDE_SELECT_MENU_SCAN_LINES), foot).filter((line) => CLAUDE_SELECT_MENU_ROW_RE.test(line)).length;
+  const scan = lines.slice(Math.max(0, foot - CLAUDE_SELECT_MENU_SCAN_LINES), foot);
+  if (scan.some((line) => CLAUDE_CODE_MODE_YES_RE.test(line)) && scan.some((line) => CLAUDE_CODE_MODE_NO_RE.test(line)))
+    return { kind: "unknown", heading: CODE_MODE_CONFIRM_HEADING };
+  if (rows === 0) rows = scan.filter((line) => CLAUDE_SELECT_MENU_ROW_RE.test(line)).length;
   if (rows === 0) return null;
   const heading = head >= 0 && !/^\s*[─-]{3,}\s*$/u.test(lines[head]) ? lines[head].trim() : null;
   const rateLimit = heading === "What do you want to do?"

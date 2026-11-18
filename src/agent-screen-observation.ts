@@ -5,7 +5,7 @@ import type { AgentKind, HarnessPaneObservation } from "./agent-shared.js";
 import { AitermError } from "./errors.js";
 import { grokPromptAwaitingAccept, grokTuiReady, grokTuiBusy, grokPaneObservation, grokLaunchBlockingDialog, assertGrokSandboxNotRejected, GROK_COMPOSER_MARKER_RE } from "./harnesses/grok.js";
 import { codexTuiReady, codexTuiBusy, codexPaneObservation, codexRateLimitModelSwitchDialog, CODEX_COMPOSER_MARKER_RE } from "./harnesses/codex.js";
-import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
+import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, claudeCodeModeConfirm, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
 import { cursorPromptHooksRunning, cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
 
 
@@ -103,6 +103,7 @@ function isAgentTuiActionRequired(kind: AgentKind, screen: string): boolean {
   if (kind === "claude") {
     return /new MCP servers? found in this project/iu.test(screen)
       || claudeLoginMethodMenu(screen)
+      || claudeCodeModeConfirm(screen)
       || claudeStartupAction(screen, false)?.kind === "initial_theme_selected"
       || screen.includes("Is this a project you created or one you trust")
       || screen.includes("trust this folder")

@@ -42,6 +42,8 @@ Claudeは起動前にauth statusを見ない（0.70.22。端末自身のloginを
 
 pane parserは現composer/現footer/現dialogを優先し、過去の引用や古いrate-limit表示からbusy/blockedを決めない。ready・busy・承認待ち・認証待ち・不明と、vendorのturn境界は別の証拠。cancel keyはClaude/CodexがEscape、Grok/CursorがC-c。readonly sandbox、trustProject、vendor既定引数とuser-defaultの退避/復元もadapter固有。復元の既存best-effortを全設定復元保証へ広げない。
 
+Claudeの`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`の初回確認（2.1.327、a442c）は、番号の無い2行（カーソルは先に`No, start without it`、次に`Yes, turn on Code Mode`）と足元`Enter to confirm · Esc to start without it`を描く。同じ`❯`行が入力欄に見えるので、`claudeLiveSelectMenu`がこの2行を選ぶ行に数え、`claudePaneObservation`は`blocked / unknown_dialog`を返す（`composer_ready`にしない）。Aitermは答えない。呼び手がDown+Enterで有効に、Enter/Escで無効のまま始める。答えは席のCLAUDE_CONFIG_DIRの`.claude.json`（`codeModeCaveatsAcceptedV1`）へ残り、その端末では以後出ない。Linux・macOS・Windowsは同じ読みを使う（画面の写しはtmux/psmuxから取り、読みはOSで分かれない）。
+
 ## ExitPlanModeの承認（Claude、0.70.66、a141の続き）
 
 Claude Codeは、席がプランモードで計画を書き終えてExitPlanModeを呼ぶと、`--dangerously-skip-permissions`の席でも「Ready to code? / Would you like to proceed? / 1. Yes, and switch to BYPASS PERMISSIONS ... / 2. Yes, manually approve edits / 3. Tell Claude what to change」を出し、答えが来るまで番を止める（2.1.325実測）。呼び手は画面を読めない（BellTeam）ので、Aitermが席ごとの設定へ **PermissionRequestフック**を足して答える。

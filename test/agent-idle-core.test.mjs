@@ -1020,7 +1020,22 @@ test('pty_close hibernate stops an idle seat now, before its idle deadline, and 
  assert.deepEqual(await core.hibernateAgentSession(f.name),{schema:'aiterm.pty-close-result.v1',session_id:f.name,outcome:'hibernated'});
  assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
  assert.equal(fs.existsSync(agentMetadataPath(f.name,f.meta.launch_id)),true);
- await assert.rejects(core.hibernateAgentSession(f.name),/^Error: AGENT_HIBERNATE_UNAVAILABLE: /);
+ // a412: asking again after the stop finished is the same answer, and writes nothing.
+ const lifecycleFile=f.lifecycle,record=fs.readFileSync(lifecycleFile,'utf8');
+ assert.deepEqual(await core.hibernateAgentSession(f.name),{schema:'aiterm.pty-close-result.v1',session_id:f.name,outcome:'hibernated'});
+ assert.equal(fs.readFileSync(lifecycleFile,'utf8'),record);
+});
+// a412: a caller that gives up and asks again while the first stop runs must neither fail nor make the first one fail.
+test('pty_close hibernate asked again while the first call runs: both succeed',{skip,timeout:30000},async t=>{
+ const saved=process.env.AITERM_IDLE_MINUTES;process.env.AITERM_IDLE_MINUTES='100000';
+ t.after(()=>{if(saved===undefined)delete process.env.AITERM_IDLE_MINUTES;else process.env.AITERM_IDLE_MINUTES=saved;});
+ const f=await fixture(t);
+ const first=core.hibernateAgentSession(f.name);let over=false;first.then(()=>{over=true;},()=>{over=true;});
+ const outcomes=[];
+ while(!over){outcomes.push(await core.hibernateAgentSession(f.name).then(r=>r.outcome,e=>String(e.message).slice(0,80)));await sleep(5);}
+ assert.equal((await first).outcome,'hibernated');
+ assert.ok(outcomes.length>0);assert.ok(outcomes.every(x=>x==='hibernated'),JSON.stringify(outcomes));
+ assert.equal(readAgentLifecycle(f.meta).state,'hibernated');
 });
 
 // a41 own_work: the processes a seat started itself, minus what the caller's exclusion list names (observation-results.md).

@@ -146,3 +146,14 @@ test('preparation contains the admission check and final process read before eac
  assert.equal(await f.run(()=>{assert.equal(preparing,true);verified=true;}),true);
  assert.equal(f.effects.length,2);
 });
+test('one verify, one table read and one signal call per pass when the runtime can signal many at once',async()=>{
+ const f=fixture(true);let verifies=0,reads=0;const read=f.runtime.read,calls=[];
+ f.runtime.read=()=>{reads++;return read();};
+ f.runtime.signalMany=(items,signal)=>{calls.push([signal,items.map(i=>i.target.pid)]);for(const i of items)f.runtime.signal(i.target,signal,i.group);};
+ const signalReads=[];const prepare=body=>{const before=reads;body();signalReads.push(reads-before);};
+ f.runtime.prepare=prepare;
+ assert.equal(await f.run(()=>{verifies++;}),true);
+ assert.deepEqual(calls.map(c=>c[0]),['SIGTERM','SIGKILL']);
+ assert.ok(signalReads.every(n=>n===1),'each pass reads the table once');
+ assert.equal(verifies,signalReads.length,'each pass verifies once');
+});

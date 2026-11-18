@@ -59,7 +59,7 @@ import { isCursorMcpClient } from "aiterm-steer-delivery";
 import { antigravityBinding, antigravityAuthChoiceKey, antigravityCurrentModel, antigravityStartupAction, antigravityAgentArgv, writeAntigravityCallerFiles, checkAntigravityCallerInput, antigravityQuotaLimit, antigravityModelChoices, antigravityAuthStatus, antigravityAuthPane, antigravityTranscriptText, bindAntigravitySession, createAntigravityAgentMetadata, mergeAntigravityHooks } from "./harnesses/antigravity.js";
 import { paneTokenHint } from "./harnesses/pane-tokens.js";
 import { pendingChildResultsFor } from "./parent-delivery-owners.js";
-import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, backgroundProcesses, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readLinuxProcessRegistrationIdentity, readClaudeRegistrationIdentity, readProcessEnvironment, readRuntimeProcesses, readRuntimeProcessesShared, readProcessIdentities, processSubtree, parentProcess, processIdentity, signalRuntimeProcess, signalRuntimeProcesses, backgroundProcesses, processElapsedSeconds, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store.js";
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
@@ -2313,7 +2313,8 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     if (recipeDigest && digest !== recipeDigest) throw new Error("resume_recipe_changed");
     const lifecycle = readAgentLifecycle(meta);
     if (lifecycle && !preparation) throw new Error("lifecycle_already_recorded");
-    if (preparation && (!lifecycle || lifecycle.state !== "stopping" || lifecycle.anchor !== preparation.anchor
+    // settleInterruptedStop (pty_list, pty_close, another hibernate call, maybe another process) may record hibernated once our stop's effect left no pane and no native.
+    if (preparation && (!lifecycle || (lifecycle.state !== "stopping" && !(effectIssued && lifecycle.state === "hibernated")) || lifecycle.anchor !== preparation.anchor
       || lifecycle.recipe_digest !== preparation.recipe_digest || lifecycle.resume_proof_digest !== preparation.resume_proof_digest
       || lifecycle.socket !== preparation.socket)) throw new Error("lifecycle_changed");
     if (preparation?.resume_proof_digest && codexResumeProofDigest(readCodexResumeProof(meta)) !== preparation.resume_proof_digest)
@@ -2379,6 +2380,11 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
           didIssue(); effectIssued = true;
           signalRuntimeProcess(target, signal, group);
         },
+        signalMany: (items, signal) => {
+          beforeExecutionEffect(name);
+          didIssue(); effectIssued = true;
+          signalRuntimeProcesses(items, signal);
+        },
       });
       if (!stopped) return false;
       return withExecutionPreparation(name, () => {
@@ -2399,9 +2405,9 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
     },
     finish: (_seat, anchor) => withExecutionPreparation(name, () => {
       const meta = metadata(), current = readAgentLifecycle(meta);
-      if (native() !== null || !current || current.state !== "stopping" || current.anchor !== anchor
+      if (native() !== null || !current || !["stopping", "hibernated"].includes(current.state) || current.anchor !== anchor
         || current.recipe_digest !== recipeDigest || !preparation) throw new Error("idle_finish_unconfirmed");
-      writeAgentLifecycle(meta, { ...preparation, state: "hibernated", at: new Date().toISOString() });
+      if (current.state === "stopping") writeAgentLifecycle(meta, { ...preparation, state: "hibernated", at: new Date().toISOString() });
     }),
     cancel: (_seat, anchor) => withExecutionPreparation(name, () => cancelAgentStopping(metadata(), anchor)),
     record: result => {
@@ -2425,10 +2431,14 @@ const HIBERNATE_BUSY_REASONS = new Set(["turn_running", "turn_end_unconfirmed", 
 export async function hibernateAgentSession(name: string): Promise<{ schema: "aiterm.pty-close-result.v1"; session_id: string; outcome: "hibernated" }> {
   assertSessionName(name);
   const meta = loadAgentMetadata(name);
+  const done = { schema: "aiterm.pty-close-result.v1" as const, session_id: name, outcome: "hibernated" as const };
+  // Hibernated by an earlier call (a caller that gave up on the first one asks again): the same answer, nothing to stop.
+  const hibernated = () => { const seen = observeSession(name); return seen.state === "hibernated" && seen.launch_id === meta.launch_id; };
   // An interrupted stop that already took effect: the seat is hibernated, nothing is left to stop.
-  if (settleInterruptedStop(meta)) return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
+  if (settleInterruptedStop(meta) || hibernated()) return done;
   const result = await checkAgentIdle({ session_id: name, launch_id: meta.launch_id }, undefined, true);
-  if (result.outcome === "hibernated") return { schema: "aiterm.pty-close-result.v1", session_id: name, outcome: "hibernated" };
+  // Another call finished the stop while this one waited for the seat's send lock.
+  if (result.outcome === "hibernated" || hibernated()) return done;
   // Killing a running turn or its background work loses that work; the caller asks again at the turn end.
   if (HIBERNATE_BUSY_REASONS.has(result.reason)) throw new AitermError(`AGENT_BUSY: ${result.reason}: 席は作業中のため休止していません。`, 2);
   if (result.outcome === "unconfirmed") throw new AitermError(`AGENT_HIBERNATE_UNCONFIRMED: ${result.reason}: 停止を始めましたが休止の完了を確認できません。`, 2);

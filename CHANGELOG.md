@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_close` with `hibernate:true` on a seat that is already hibernated now answers `hibernated` again (and writes nothing) instead of `AGENT_HIBERNATE_UNAVAILABLE`, so a caller that gave up on a slow first call can safely ask again (a412). If another caller records `hibernated` (`settleInterruptedStop`, from `pty_list`, `pty_close` or a second hibernate) after the first call's stop took effect, the first call now accepts it instead of failing with `AGENT_HIBERNATE_UNCONFIRMED`.
+- Stopping a seat's process tree (hibernate, idle stop) does one admission check and one process-table read per TERM/HUP/KILL pass, and signals the whole pass at once (Windows: one pwsh run), instead of three pwsh runs per process. A 30-process tree took 68 s on Windows and now takes 9 s, so a remote hibernate no longer outlives a 60 s caller wait (a412).
+
 ## [0.70.72] - 2026-11-18
 
 - A Claude Code seat showing an `AskUserQuestion` dialog (footer `Enter to select · ↑/↓ to navigate · Esc to cancel`, or `Tab/Arrow keys` for several questions) is now recognised as an open select dialog: `pty_send` refuses with `CLAUDE_SELECT_MENU_OPEN` before typing anything, so a steer is no longer typed into the answer fields (a409).

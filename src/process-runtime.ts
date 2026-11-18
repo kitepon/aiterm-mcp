@@ -174,26 +174,41 @@ export const readRuntimeProcessesShared = freshShared(() => {
 
 /** A held Process handle on Windows prevents a PID replacement from becoming the target. */
 export function signalRuntimeProcess(target: NativeProcessIdentity, signal: "SIGTERM" | "SIGHUP" | "SIGKILL", group: boolean): void {
-  if (!Number.isSafeInteger(target.pid) || target.pid <= 1 || !Number.isFinite(Date.parse(target.started_identity))
-    || (group && (!Number.isSafeInteger(target.process_group_id) || target.process_group_id! <= 1)))
-    throw new Error("invalid_process_signal_target");
+  signalRuntimeProcesses([{ target, group }], signal);
+}
+
+/** Signal several processes in one call: on Windows one pwsh run for all of them (a pwsh start per process made a 30-process stop take 68 s). */
+export function signalRuntimeProcesses(items: { target: NativeProcessIdentity; group: boolean }[], signal: "SIGTERM" | "SIGHUP" | "SIGKILL"): void {
+  for (const { target, group } of items) {
+    if (!Number.isSafeInteger(target.pid) || target.pid <= 1 || !Number.isFinite(Date.parse(target.started_identity))
+      || (group && (!Number.isSafeInteger(target.process_group_id) || target.process_group_id! <= 1)))
+      throw new Error("invalid_process_signal_target");
+  }
   if (!isWin) {
-    try { process.kill(group ? -target.process_group_id! : target.pid, signal); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    for (const { target, group } of items) {
+      try { process.kill(group ? -target.process_group_id! : target.pid, signal); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
     return;
   }
+  if (items.length === 0) return;
+  // A process that is gone is fine; a replaced PID or a failed signal is reported after every target was tried.
   const script = [
     "$ErrorActionPreference='Stop'",
-    `try { $target=[Diagnostics.Process]::GetProcessById(${target.pid}) } catch [ArgumentException] { exit 3 }`,
-    "try {",
-    "[void]$target.Handle",
-    `if(([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne ${Date.parse(target.started_identity)}) { exit 4 }`,
-    signal === "SIGKILL" ? "$target.Kill()" : "[void]$target.CloseMainWindow()",
-    "} finally { $target.Dispose() }",
+    "$failed=$false",
+    `foreach ($t in @(${items.map(({ target }) => `@(${target.pid},${Date.parse(target.started_identity)})`).join(",")})) {`,
+    "  try { $target=[Diagnostics.Process]::GetProcessById($t[0]) } catch [ArgumentException] { continue }",
+    "  try {",
+    "    [void]$target.Handle",
+    "    if (([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne $t[1]) { $failed=$true; continue }",
+    signal === "SIGKILL" ? "    $target.Kill()" : "    [void]$target.CloseMainWindow()",
+    "  } catch { $failed=$true } finally { $target.Dispose() }",
+    "}",
+    "if ($failed) { exit 4 }",
   ].join("\n");
   const result = spawnSync(resolveWindowsPowerShell7(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
-    Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 10_000, windowsHide: true });
-  if (result.error || ![0, 3].includes(result.status!)) throw new Error("native_process_signal_unconfirmed");
+    Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 10_000 + 200 * items.length, windowsHide: true });
+  if (result.error || result.status !== 0) throw new Error("native_process_signal_unconfirmed");
 }
 
 /** そのpidのprocessが今あるか。OSへ直接聞き、processを起こさない。権限が無くて触れないprocessも「ある」と読む。 */

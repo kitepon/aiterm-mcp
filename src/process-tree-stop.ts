@@ -1,9 +1,11 @@
-import { readRuntimeProcesses, signalRuntimeProcess, processSubtree, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
+import { readRuntimeProcesses, signalRuntimeProcesses, processSubtree, type NativeProcessIdentity, type RuntimeProcess } from "./process-runtime.js";
 
 type Signal = "SIGTERM" | "SIGHUP" | "SIGKILL";
 export interface ProcessTreeStopRuntime {
   read(): RuntimeProcess[];
   signal(target: NativeProcessIdentity, signal: Signal, group: boolean): void;
+  /** All targets of one pass in a single call (Windows: one pwsh run). Without it, `signal` is called per target. */
+  signalMany?(items: { target: NativeProcessIdentity; group: boolean }[], signal: Signal): void;
   prepare?(body: () => void): void;
   pause(ms: number): Promise<void>;
   now(): number;
@@ -12,7 +14,7 @@ const same = (a: NativeProcessIdentity, b: NativeProcessIdentity) => a.pid === b
   && a.started_identity === b.started_identity && a.argv_digest === b.argv_digest && a.process_group_id === b.process_group_id;
 
 const nativeRuntime: ProcessTreeStopRuntime = {
-  read: () => readRuntimeProcesses(true), signal: signalRuntimeProcess,
+  read: () => readRuntimeProcesses(true), signal: (target, signal, group) => signalRuntimeProcesses([{ target, group }], signal), signalMany: signalRuntimeProcesses,
   pause: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => performance.now(),
 };
 
@@ -56,30 +58,38 @@ export async function stopProcessTree(root: NativeProcessIdentity, verify: () =>
     if (selected.has(process.pid)) throw new Error("process_tree_contains_checker");
     return rows.filter(row => !row.zombie && selected.has(row.pid) && same(selected.get(row.pid)!, row));
   };
-  const signal = (row: RuntimeProcess, wanted: Signal) => (runtime.prepare ?? (body => body()))(() => {
+  // One verify and one process-table read per pass, not per target: on Windows each is a pwsh run, so a 30-process seat took 68 s
+  // (fox, 2026-11-18) and a remote hibernate outlived the caller's 60 s wait. Each target is still compared with that fresh table.
+  const pass = (rows: RuntimeProcess[], wanted: Signal) => (runtime.prepare ?? (body => body()))(() => {
     verify();
     const current = runtime.read();
-    const target = current.find(value => value.pid === row.pid && !value.zombie);
-    if (!target || !same(row, target)) return;
-    const group = target.process_group_id !== null && groups.has(target.process_group_id)
-      && current.filter(value => value.process_group_id === target.process_group_id && !value.zombie)
-        .every(value => selected.has(value.pid) && same(selected.get(value.pid)!, value));
-    runtime.signal(target, wanted, group);
-    if (wanted === "SIGTERM") {
-      for (const member of group ? current.filter(value => value.process_group_id === target.process_group_id) : [target]) terminated.add(key(member));
+    const items: { target: RuntimeProcess; group: boolean }[] = [];
+    for (const row of rows) {
+      if (wanted === "SIGTERM" && terminated.has(key(row))) continue;
+      const target = current.find(value => value.pid === row.pid && !value.zombie);
+      if (!target || !same(row, target)) continue;
+      const group = target.process_group_id !== null && groups.has(target.process_group_id)
+        && current.filter(value => value.process_group_id === target.process_group_id && !value.zombie)
+          .every(value => selected.has(value.pid) && same(selected.get(value.pid)!, value));
+      items.push({ target, group });
+      if (wanted === "SIGTERM") {
+        for (const member of group ? current.filter(value => value.process_group_id === target.process_group_id) : [target]) terminated.add(key(member));
+      }
     }
+    if (runtime.signalMany) { if (items.length) runtime.signalMany(items, wanted); }
+    else for (const { target, group } of items) runtime.signal(target, wanted, group);
   });
   let until: number | null = null, hungUp = false;
   for (;;) {
     const alive = refresh();
     if (alive.length === 0) return true;
     if (until !== null && runtime.now() >= until) break;
-    for (const row of childrenFirst(alive)) if (!terminated.has(key(row))) signal(row, "SIGTERM");
-    if (until !== null && !hungUp && tree.length > 1 && alive.length === 1 && alive[0].pid === root.pid) { signal(alive[0], "SIGHUP"); hungUp = true; }
+    pass(childrenFirst(alive).filter(row => !terminated.has(key(row))), "SIGTERM");
+    if (until !== null && !hungUp && tree.length > 1 && alive.length === 1 && alive[0].pid === root.pid) { pass(alive, "SIGHUP"); hungUp = true; }
     until ??= runtime.now() + 5000;
     await runtime.pause(Math.min(100, Math.max(0, until - runtime.now())));
   }
-  for (const row of childrenFirst(refresh())) signal(row, "SIGKILL");
+  pass(childrenFirst(refresh()), "SIGKILL");
   for (const deadline = runtime.now() + 2000; runtime.now() < deadline;) {
     if (refresh().length === 0) return true;
     await runtime.pause(100);

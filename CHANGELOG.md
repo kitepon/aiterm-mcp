@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.73] - 2026-11-18
+
 - `pty_close` with `hibernate:true` on a seat that is already hibernated now answers `hibernated` again (and writes nothing) instead of `AGENT_HIBERNATE_UNAVAILABLE`, so a caller that gave up on a slow first call can safely ask again (a412). If another caller records `hibernated` (`settleInterruptedStop`, from `pty_list`, `pty_close` or a second hibernate) after the first call's stop took effect, the first call now accepts it instead of failing with `AGENT_HIBERNATE_UNCONFIRMED`.
 - Stopping a seat's process tree (hibernate, idle stop) does one admission check and one process-table read per TERM/HUP/KILL pass, and signals the whole pass at once (Windows: one pwsh run), instead of three pwsh runs per process. A 30-process tree took 68 s on Windows and now takes 9 s, so a remote hibernate no longer outlives a 60 s caller wait (a412).
 
@@ -3543,7 +3545,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...HEAD
+[0.70.73]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...v0.70.73
 [0.70.72]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.71...v0.70.72
 [0.70.71]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.70...v0.70.71
 [0.70.70]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.69...v0.70.70

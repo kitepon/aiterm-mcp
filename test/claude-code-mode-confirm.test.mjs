@@ -1,6 +1,7 @@
 // Code Mode's first-start confirm (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1, Claude Code 2.1.327; a442c) draws its two choices without an index,
 // the cursor first on "No, start without it". Aiterm used to read the lowest ❯ row as an idle composer. Layout rebuilt from the screen
 // part inside the 2.1.327 executable (Select: hideIndexes, cancelFirst, focus cancel; foot "Enter to confirm · Esc to start without it").
+import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agentPaneObservation, isAgentTuiIdleReady, waitAgentTuiReadyImpl } from "../dist/agent-screen-observation.js";

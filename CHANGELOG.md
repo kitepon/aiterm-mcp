@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.72] - 2026-11-18
+
 - A Claude Code seat showing an `AskUserQuestion` dialog (footer `Enter to select · ↑/↓ to navigate · Esc to cancel`, or `Tab/Arrow keys` for several questions) is now recognised as an open select dialog: `pty_send` refuses with `CLAUDE_SELECT_MENU_OPEN` before typing anything, so a steer is no longer typed into the answer fields (a409).
 - Claude steer-follow no longer reports a false `not_taken` (a410): it reads `queued_command` rows (the only record on 2.1.326, written when the text is drained, stamped with the time it was typed) as taken, and says `not_taken` only when the screen shows the turn is no longer running; while a turn runs it keeps waiting for the row.
 
@@ -3538,7 +3540,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.71...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...HEAD
+[0.70.72]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.71...v0.70.72
 [0.70.71]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.70...v0.70.71
 [0.70.70]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.69...v0.70.70
 [0.70.69]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.68...v0.70.69

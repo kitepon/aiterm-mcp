@@ -80,7 +80,7 @@ EnterPlanModeは引数を持たない。計画の内容を書かずに呼んだ�
 
 [steer-follow](../../src/steer-follow.ts) は送信直前の位置・本文識別子をper-launch台帳へ保存する。保存失敗で送信を止めず、追跡の手がかりが欠測になる。256KiBを超えた台帳は妥当な最新100行へ縮約する。これを配送receiptやvendor受理の証明にしない。
 
-Codexはuser行の先頭160非空白文字（4文字未満は識別不能）とturn IDを追い、Claudeはenqueue/remove/userと、その後の回答SHA・Stopを照合する。識別不能時は既存plain待ちへ戻りplacement=unknownを保つ。Grokは新規historyの**本文全体digest**とprompt_index/turn_numberを一意照合し、照合不能を旧turn完了で代用しない。Cursorはqueue操作で確認した現turnのplain待ち。same_turn/next_turn/unknown/not_takenを混同しない。取消signalは観測のみを止め、入力撤回や席停止を意味しない。
+Codexはuser行の先頭160非空白文字（4文字未満は識別不能）とturn IDを追い、Claudeはenqueue/remove/user/queued_command（2.1.323以降、取り込みの時に打った時刻の印で書かれ、待ち行列の行が無い版ではこれだけ。a410）と、その後の回答SHA・Stopを照合する。Claudeのnot_takenは、文の行が無いうえに画面が入力待ちを示す（番が動いていない。選ぶ画面・動作中・読めないは待つ）時だけ返し、動いている間は行を待つ。識別不能時は既存plain待ちへ戻りplacement=unknownを保つ。Grokは新規historyの**本文全体digest**とprompt_index/turn_numberを一意照合し、照合不能を旧turn完了で代用しない。Cursorはqueue操作で確認した現turnのplain待ち。same_turn/next_turn/unknown/not_takenを混同しない。取消signalは観測のみを止め、入力撤回や席停止を意味しない。
 
 Codexのseat turnは記録上の最後のtask_started/complete/abortedを読むだけで、pane/harness livenessを見ない。harnessが落ちて完了印を書かなければrunningが残る。欠測/書込途中はnull。cache512席、会話再探索60秒、未binding再探索5秒という既存観測間隔がある。保存metadata bindingを書き換えない。
 

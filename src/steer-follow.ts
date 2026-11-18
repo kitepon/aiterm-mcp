@@ -167,6 +167,8 @@ export interface SteerWaitDeps {
   parseDone: (line: string) => AgentDoneEvent | null;
   /** 利用上限の知らせ（画面）。見回りの間隔は呼ぶ側が空ける。 */
   rateLimit: () => string | null;
+  /** 画面が、入力欄だけで番が動いていない事を示しているか（Claude）。読めない・動いている・選ぶ画面は偽。 */
+  turnIdle: () => boolean;
   now?: () => number;
 }
 
@@ -482,6 +484,14 @@ async function observeClaudeSteerDone(
   const answers = new Map<string, number>();
   const stops: AgentDoneEvent[] = [];
   let rateLimitAt = 0;
+  // 「入っていない」と言う前に、番がもう動いていない事を画面で確かめる。番が動いている間は、取り込まれた文の行は
+  // 取り込まれた時にしか書かれない（2.1.326: 待ち行列に入った時刻の印のまま、取り込みの時に初めて書く。実被弾 2026-11-17）。
+  let idleCheckAt = 0;
+  const certainlyIdle = (): boolean => {
+    if (performance.now() < idleCheckAt) return false;
+    idleCheckAt = performance.now() + STEER_RUNNING_CHECK_MS;
+    return deps.turnIdle();
+  };
 
   const observed = (outcome: AgentWaitObservation["outcome"], done: AgentDoneEvent | null, steer: AgentSteerFate): AgentWaitObservation => ({
     ...baseObservation(meta), outcome, operation_id: done?.operation_id ?? null,
@@ -510,6 +520,13 @@ async function observeClaudeSteerDone(
         } else if (parsed.operation === "remove" && !taken && queued !== null && content === queued) {
           taken = fate("same_turn", stamp);
         }
+        continue;
+      }
+      // 2.1.323以降は、取り込まれた文をqueued_commandの行で記録する（待ち行列の行が無い版では、これだけ）。印は打った時刻。
+      if (parsed?.type === "attachment" && parsed.attachment?.type === "queued_command") {
+        const text = typeof parsed.attachment.prompt === "string" ? parsed.attachment.prompt : "";
+        if (!taken && entry.needle && squeeze(text).includes(entry.needle)) taken = fate("same_turn", stamp);
+        else if (!text.startsWith("<task-notification>")) otherInput = true;
         continue;
       }
       const prompt = claudePromptText(parsed);
@@ -551,10 +568,12 @@ async function observeClaudeSteerDone(
         // 番は終わったのに、文が取り込まれも次の番にもなっていない。
         const ended = Date.parse(stops[0].at);
         if (now() - (Number.isFinite(ended) ? ended : now()) >= STEER_AFTER_TURN_GRACE_MS) {
-          return queued !== null || otherInput ? observed("done", stops[0], fate("unknown")) : observed("not_taken", null, fate("unknown"));
+          if (queued !== null || otherInput) return observed("done", stops[0], fate("unknown"));
+          // 次の番が動いている間は、その番の最初の行がまだ書かれていないだけかも知れない（行の印は始めた時刻で、書くのは後）。待つ。
+          if (certainlyIdle()) return observed("not_taken", null, fate("unknown"));
         }
-      } else if (queued === null && !otherInput && Number.isFinite(sentAt) && now() - sentAt >= STEER_NOT_TAKEN_GRACE_MS) {
-        // 打った後、待ち行列の行も番を始めた文の行も無い。文は会話へ入っていない（選ぶ画面に消えた、など）。
+      } else if (queued === null && !otherInput && Number.isFinite(sentAt) && now() - sentAt >= STEER_NOT_TAKEN_GRACE_MS && certainlyIdle()) {
+        // 打った後、待ち行列の行も番を始めた文の行も無く、番ももう動いていない。文は会話へ入っていない（選ぶ画面に消えた、など）。
         return observed("not_taken", null, fate("unknown"));
       }
     }

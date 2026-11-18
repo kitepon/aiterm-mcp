@@ -27,7 +27,7 @@ function seat(t) {
   const handed = [];
   const wait = (timeout = 0) => observeSteerDone(meta, entry, timeout, {
     plain: async cursor => { handed.push(cursor); return { outcome: "done", turn_id: "accepted" }; },
-    parseDone: () => null, rateLimit: () => null,
+    parseDone: () => null, rateLimit: () => null, turnIdle: () => true,
   });
   return { meta, events, history, append, entry, handed, wait };
 }

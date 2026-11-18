@@ -61,6 +61,7 @@ function waitSteer(seat, entry, options = {}) {
       } catch { return null; }
     },
     rateLimit: () => options.rateLimit ?? null,
+    turnIdle: () => options.idle ?? true,
     now: options.now,
   });
   return { result, handed };
@@ -299,6 +300,39 @@ test("Claude Code: 打った後、待ち行列の行も番を始めた文の行�
   const other = busy.steer();
   busy.append(queue("enqueue", 1, { content: "別の人が打った文" }));
   assert.equal((await waitSteer(busy, other, { timeout: 1, now: () => Date.parse(other.at) + 31_000 }).result).outcome, "timeout");
+});
+
+test("Claude Code: 取り込みの行（queued_command）だけが取り込みの時に書かれる版は、番が動いている間にnot_takenと言わず、行が出たらsame_turn（a410）", async () => {
+  const seat = claudeSeat(HEAD);
+  const entry = seat.steer();
+  // 番が動いている（画面が入力待ちでない）間は、30秒たっても決めない。
+  assert.equal((await waitSteer(seat, entry, { timeout: 1, idle: false, now: () => Date.parse(entry.at) + 31_000 }).result).outcome, "timeout");
+  // 待ち行列の行は無く、取り込まれた時に、打った時刻の印のqueued_commandの行が書かれる。
+  const waiting = waitSteer(seat, entry, { idle: false, now: () => Date.parse(entry.at) + 31_000 });
+  await stillWaiting(waiting);
+  seat.append(JSON.stringify({ type: "attachment", timestamp: at(0.5), attachment: { type: "queued_command", prompt: TEXT } }), said("答え", "end_turn", 5));
+  await stillWaiting(waiting);
+  seat.stop("答え", 5.06);
+  const result = await waiting.result;
+  assert.equal(result.outcome, "done");
+  assert.deepEqual(result.steer, { placement: "same_turn", taken_at: at(0.5) });
+});
+
+test("Claude Code: 番が終わった後、次の番が動いている間は、行がまだ書かれていないだけなのでnot_takenと言わない。入力待ちなら言う（a410）", async () => {
+  const seat = claudeSeat(HEAD);
+  const entry = seat.steer();
+  seat.append(said("前の答え", "end_turn", 2));
+  seat.stop("前の答え", 2.06);
+  const grace = () => Date.parse(at(2.06)) + 9_000;
+  assert.equal((await waitSteer(seat, entry, { timeout: 1, idle: false, now: grace }).result).outcome, "timeout");
+  assert.equal((await waitSteer(seat, entry, { now: grace }).result).outcome, "not_taken");
+  // 次の番の最初の行が、番の印（始めた時刻）より後に書かれても、見つかればnext_turn。
+  const late = waitSteer(seat, entry, { idle: false, now: grace });
+  await stillWaiting(late);
+  seat.append(prompted(TEXT, 2.5), said("次の答え", "end_turn", 9));
+  await stillWaiting(late);
+  seat.stop("次の答え", 9.06);
+  assert.deepEqual((await late.result).steer, { placement: "next_turn", taken_at: at(2.5) });
 });
 
 test("Claude Code: 番は終わったが文が取り込まれも次の番にもならない時は、最初のStopで返してunknown", async () => {

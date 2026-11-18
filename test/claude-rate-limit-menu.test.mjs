@@ -125,14 +125,14 @@ async function screenOf(sid) {
   try { return await core.readOutput(sid, { screen: true, raw: true }); } catch { return ""; }
 }
 /** 席を起こし、入力受付の画面が出てから選ぶ画面を描かせて、画面に出るまで待つ（枠に当たるのは、動いていた席）。 */
-async function seatWithMenu(kind, screen) {
+async function seatWithMenu(kind, screen, foot = "Enter to confirm · Esc to cancel") {
   fs.rmSync(received, { force: true });
   fs.rmSync(cue, { force: true });
   const [sid] = core.openAgent("claude", { agent_done: true });
   for (let waited = 0; waited < 8000 && !(await screenOf(sid)).includes("❯ ready"); waited += 50) await sleep(50);
   fs.writeFileSync(cue, `${kind}\n${screen}`);
-  for (let waited = 0; waited < 5000 && !(await screenOf(sid)).includes("Enter to confirm"); waited += 50) await sleep(50);
-  assert.match(await screenOf(sid), /Enter to confirm · Esc to cancel/u, "偽の席が選ぶ画面を描いた");
+  for (let waited = 0; waited < 5000 && !(await screenOf(sid)).includes(foot); waited += 50) await sleep(50);
+  assert.ok((await screenOf(sid)).includes(foot), "偽の席が選ぶ画面を描いた");
   return sid;
 }
 
@@ -172,6 +172,27 @@ test("選ぶ画面の読み: 見出しや1番の文が違う物は、見覚え�
   assert.equal(claude.claudeLiveSelectMenu(reworded)?.kind, "unknown");
 });
 
+// AskUserQuestion（a409。実被弾 2026-11-16: 席の質問の答えの欄へ、4通の差し込みが打たれて質問が送信された）。
+// 画面の部品は2.1.327の実行ファイルから取った: 選ぶ行・説明の行・「Type something.」・区切り線・「Chat about this」・足元の案内。
+const ASK_ONE = [
+  "──────────────────────────────────────────────",
+  " ☐ Language", "", "Which language do you prefer?", "",
+  "❯ 1. TypeScript", "     Typed JavaScript", "  2. Python", "     Batteries included", "  3. Type something.",
+  "──────────────────────────────────────────────", "  4. Chat about this", "",
+  "Enter to select · ↑/↓ to navigate · Esc to cancel", "",
+].join("\n");
+const ASK_MANY = ASK_ONE.replace("↑/↓ to navigate", "Tab/Arrow keys to navigate").replace(" ☐ Language", "← ☐ Language  ☐ Editor  ✔ Submit →");
+
+test("選ぶ画面の読み: AskUserQuestionは、選ぶ行の間に説明があっても、見覚えの無い選ぶ画面と読む", () => {
+  for (const screen of [ASK_ONE, ASK_MANY, ASK_ONE.replace(" · Esc to cancel", "")]) {
+    const menu = claude.claudeLiveSelectMenu(screen);
+    assert.equal(menu?.kind, "unknown");
+    assert.equal(menu?.heading, null);
+  }
+  // 質問の下に入力欄と足元の行が描かれた画面（質問が閉じた後）は、開いていると読まない。
+  assert.equal(claude.claudeLiveSelectMenu(`${ASK_ONE.split("Enter to select")[0]}\n● 答えを受け取りました\n\n${CLOSED.split("\n").slice(5).join("\n")}`), null);
+});
+
 // ここから: 送る前の扱い。
 test("利用枠の選ぶ画面が出ている席へは、Escで閉じてから文を入れる（Escの前には何も打たない）", { skip }, async () => {
   const sid = await seatWithMenu("closes", LIMITED);
@@ -208,6 +229,17 @@ test("見覚えの無い選ぶ画面が出ている席へは、1byteも打たず
   try {
     await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE"),
       /CLAUDE_SELECT_MENU_OPEN vendor=claude session=\S+\n.*見出し: Pick a theme.*文字列は送信していません。/u);
+    await sleep(300);
+    assert.equal(fs.existsSync(received), false, "席には1byteも届いていない");
+  } finally { core.closeSession(sid); }
+});
+
+test("AskUserQuestionの画面が出ている席へは、差し込みも1byteも打たずに断る（a409）", { skip }, async () => {
+  const sid = await seatWithMenu("stuck", ASK_MANY, "Tab/Arrow keys to navigate · Esc to cancel");
+  try {
+    for (const raw of [false, true]) {
+      await assert.rejects(core.sendAgentMessage(sid, "MUST_NOT_ARRIVE", { raw }), /CLAUDE_SELECT_MENU_OPEN vendor=claude session=\S+\n.*文字列は送信していません。/u);
+    }
     await sleep(300);
     assert.equal(fs.existsSync(received), false, "席には1byteも届いていない");
   } finally { core.closeSession(sid); }

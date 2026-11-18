@@ -594,8 +594,12 @@ export function claudeUsageLimit(screen: string): { message: string } | null {
 // 開いている間は入力欄も足元の行も描かれないので、画面の最後の行が案内である事を、今開いている印にする。
 // 会話欄に残った同じ文や引用の下には、入力欄と足元の行が描かれる。
 export interface ClaudeSelectMenu { kind: "rate_limit_options" | "unknown"; heading: string | null }
-const CLAUDE_SELECT_MENU_FOOT_RE = /^\s*Enter to confirm · Esc to cancel\s*$/u;
+// 足元の案内。利用枠の画面は「Enter to confirm · Esc to cancel」。AskUserQuestion（2.1.327の実行ファイルの画面部品）は
+// 「Enter to select · ↑/↓ to navigate · Esc to cancel」（質問が複数なら「Tab/Arrow keys to navigate」）で、Escの案内は出ない時もある。
+const CLAUDE_SELECT_MENU_FOOT_RE = /^\s*Enter to (?:confirm|select) · \S.*$/u;
 const CLAUDE_SELECT_MENU_ROW_RE = /^\s*(?:❯\s*)?\d+\.\s+\S/u;
+// AskUserQuestionは選ぶ行の間に説明の行と区切り線が入るので、案内の上のこの行数の中に選ぶ行が在れば、選ぶ画面と数える。
+const CLAUDE_SELECT_MENU_SCAN_LINES = 30;
 export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
   const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/u);
   let foot = lines.length - 1;
@@ -609,8 +613,9 @@ export function claudeLiveSelectMenu(screen: string): ClaudeSelectMenu | null {
     if (!CLAUDE_SELECT_MENU_ROW_RE.test(lines[head])) break;
     rows++;
   }
+  if (rows === 0) rows = lines.slice(Math.max(0, foot - CLAUDE_SELECT_MENU_SCAN_LINES), foot).filter((line) => CLAUDE_SELECT_MENU_ROW_RE.test(line)).length;
   if (rows === 0) return null;
-  const heading = head >= 0 ? lines[head].trim() : null;
+  const heading = head >= 0 && !/^\s*[─-]{3,}\s*$/u.test(lines[head]) ? lines[head].trim() : null;
   const rateLimit = heading === "What do you want to do?"
     && lines.slice(head + 1, foot).some((line) => /\bStop and wait for limit to reset\b/u.test(line));
   return { kind: rateLimit ? "rate_limit_options" : "unknown", heading };

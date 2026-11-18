@@ -4782,6 +4782,7 @@ async function observeAgentDoneInternal(
       signal: o.signal, plain,
       parseDone: line => parseAgentDoneEvent(line, meta).event,
       rateLimit: () => detectAgentRateLimit(meta.kind, name),
+      turnIdle: () => { try { return isAgentTuiIdleReady(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES)); } catch { return false; } },
     });
   }
   if (meta.kind === "codex" && meta.completion_route === "codex_transcript") {

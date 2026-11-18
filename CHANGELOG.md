@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude Code seat showing an `AskUserQuestion` dialog (footer `Enter to select · ↑/↓ to navigate · Esc to cancel`, or `Tab/Arrow keys` for several questions) is now recognised as an open select dialog: `pty_send` refuses with `CLAUDE_SELECT_MENU_OPEN` before typing anything, so a steer is no longer typed into the answer fields (a409).
+- Claude steer-follow no longer reports a false `not_taken` (a410): it reads `queued_command` rows (the only record on 2.1.326, written when the text is drained, stamped with the time it was typed) as taken, and says `not_taken` only when the screen shows the turn is no longer running; while a turn runs it keeps waiting for the row.
+
 ## [0.70.71] - 2026-11-17
 
 - A launcher can lock a seat's model and effort so that the AI inside cannot change them (a313, the Owner's "AI settings lock"). `agent_configure({ session_id, configuration_lock: "lock" | "unlock", configuration_lock_key })` stores only the SHA-256 of the key beside the seat's launch record (`<session>.<launch_id>.configuration-lock.json`, removed when the seat is closed). While locked, calls without the matching key are refused with `AGENT_CONFIGURATION_LOCKED` before anything is typed: `agent_configure` with `model`/`reasoning_effort`, `pty_send` text starting with `/model`, `/models`, `/effort` or `/reasoning` (also with `force`), and `pty_key` Alt+P. `agent_configure` with the key (BellTeam applying the Owner's change), `fast`, ordinary text, a person typing in the terminal and Aiterm's own typing during a configure are not affected. An unlocked seat can be locked by any caller; the launcher is expected to lock a seat right after starting it (model-configuration.md "席の設定の固定").

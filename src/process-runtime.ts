@@ -196,11 +196,14 @@ export function signalRuntimeProcesses(items: { target: NativeProcessIdentity; g
   const script = [
     "$ErrorActionPreference='Stop'",
     "$failed=$false",
-    `foreach ($t in @(${items.map(({ target }) => `@(${target.pid},${Date.parse(target.started_identity)})`).join(",")})) {`,
-    "  try { $target=[Diagnostics.Process]::GetProcessById($t[0]) } catch [ArgumentException] { continue }",
+    // Two flat arrays: a one-element @(@(pid,ms)) is flattened by PowerShell.
+    `$ids=@(${items.map(({ target }) => target.pid).join(",")})`,
+    `$starts=@(${items.map(({ target }) => Date.parse(target.started_identity)).join(",")})`,
+    "for ($i=0; $i -lt $ids.Count; $i++) {",
+    "  try { $target=[Diagnostics.Process]::GetProcessById($ids[$i]) } catch [ArgumentException] { continue }",
     "  try {",
     "    [void]$target.Handle",
-    "    if (([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne $t[1]) { $failed=$true; continue }",
+    "    if (([DateTimeOffset]$target.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() -ne $starts[$i]) { $failed=$true; continue }",
     signal === "SIGKILL" ? "    $target.Kill()" : "    [void]$target.CloseMainWindow()",
     "  } catch { $failed=$true } finally { $target.Dispose() }",
     "}",

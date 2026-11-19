@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.77] - 2026-11-19
+
 - A launch whose caller passed `settings_env` `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` now has Code Mode's first-start confirm answered by Aiterm (a442h): on exactly that screen (both unnumbered rows and the `Enter to confirm` foot) it moves the cursor to `Yes, turn on Code Mode`, waits until the cursor is there, presses Enter, waits for Claude Code's restart and goes on to the first prompt; a cursor already on Yes needs Enter only. A launch without that setting, and every other dialog, behave as before (`AGENT_STARTUP_BLOCKED reason=unknown_dialog`, nothing typed). Only the startup path that waits for ready answers it (a launch with a prompt or `trust_project`).
 
 ## [0.70.76] - 2026-11-19
@@ -3561,7 +3563,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.76...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.77...HEAD
+[0.70.77]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.76...v0.70.77
 [0.70.76]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...v0.70.76
 [0.70.75]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...v0.70.75
 [0.70.74]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...v0.70.74

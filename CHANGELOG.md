@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.81] - 2026-11-19
+
 - A seat resumed with fast mode that is already working is now accepted like any other (a469f, follow-up to 0.70.80 / BugHub d23c7c27). Fast is restored by typing `/fast` into an idle composer, which would steer a running turn, so a resume accepted with a turn running skips the restore: the seat resumes at standard speed, no input is sent, the turn is not interrupted, and the `agent_launch` result carries `fast: false` with `fast_error` `FAST_MODE_UNCONFIRMED` and `startup.reason: "turn_running"`. The saved recipe keeps `fast: true`; the caller sets fast again with `agent_configure` when the seat is idle. A resume that reaches an idle composer restores fast as before. Before, such a resume waited for the idle composer and failed with `AGENT_RESUME_FAILED`.
 
 ## [0.70.80] - 2026-11-19
@@ -3577,7 +3579,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.80...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...HEAD
+[0.70.81]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.80...v0.70.81
 [0.70.80]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.79...v0.70.80
 [0.70.79]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.78...v0.70.79
 [0.70.78]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.77...v0.70.78

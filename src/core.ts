@@ -4454,10 +4454,33 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null | type
   return performance.now() - started < 15_000 ? result : null;
 }
 
+/**
+ * pty_read steer_id: the Stop of the turn that a Claude steer started (aiterm-wait --steer, placement next_turn).
+ * Same follower as the wait, one look; a steer the running turn took has no answer of its own.
+ */
+async function steeredTurnDone(name: string, meta: AgentMetadata, steerId: string, pending: () => never): Promise<AgentDoneEvent | null> {
+  const entry = readSteerEntry(meta, steerId);
+  if (!entry) throw new AitermError("STEER_NOT_FOUND: この席に、その差し込みの控えがありません。", 2);
+  const out: { done: AgentDoneEvent | null } = { done: null };
+  const seen = await observeSteerDone(meta, entry, 0, {
+    plain: async () => { throw new AitermError("AITERM_TRANSCRIPT_STEER_UNREADABLE: 差し込みの位置から会話の記録を読めません。", 2); },
+    parseDone: line => parseAgentDoneEvent(line, meta).event,
+    rateLimit: () => null,
+    turnIdle: () => { try { return isAgentTuiIdleReady(meta.kind, captureScreen(name, AGENT_TUI_READY_LINES)); } catch { return false; } },
+  }, out);
+  if (seen.steer?.placement === "same_turn") {
+    throw new AitermError(`AITERM_TRANSCRIPT_STEER_SAME_TURN: steer ${steerId} は動いていた番が取りました。この差し込み自身の回答はありません。`, 2);
+  }
+  if (seen.outcome === "not_taken") throw new AitermError(`AITERM_TRANSCRIPT_STEER_NOT_TAKEN: steer ${steerId} は会話へ入っていません。`, 2);
+  if (seen.outcome === "error") throw new AitermError(`AITERM_TRANSCRIPT_STEER_TURN_FAILED: steer ${steerId} の番は誤りで終わりました: ${seen.error ?? "unknown"}`, 2);
+  if (seen.outcome === "closed") throw new AitermError(`TRANSCRIPT_UNAVAILABLE: steer ${steerId} の席は閉じています。`, 2);
+  return seen.outcome === "done" ? out.done : pending();
+}
+
 /** agent harness の構造化 transcript から直近完了ターンの最終回答と相関情報を読む。 */
 export async function readAgentTranscriptResult(
   name: string,
-  o: { lines?: number | null; operation_id?: string | null; input_id?: string | null; completion?: AgentWaitObservation; raw?: boolean } = {},
+  o: { lines?: number | null; operation_id?: string | null; input_id?: string | null; steer_id?: string | null; completion?: AgentWaitObservation; raw?: boolean } = {},
 ): Promise<AgentTranscriptResult> {
   const meta = loadAgentMetadata(name);
   if (o.completion && (o.completion.outcome !== "done" || o.completion.launch_id !== meta.launch_id || o.completion.session_id !== name)) {
@@ -4471,11 +4494,16 @@ export async function readAgentTranscriptResult(
   if (inputId !== null && (!/^[a-f0-9]{32}$/.test(inputId) || meta.kind !== "claude" || operationId || o.completion)) {
     throw new AitermError("input_id付き回収はClaude agent sessionだけで、operation_idと併用せず32桁の小文字16進で指定してください", 2);
   }
+  const steerId = o.steer_id ?? null;
+  if (steerId !== null && (!/^[0-9a-f]{16}$/.test(steerId) || meta.kind !== "claude" || operationId || inputId !== null || o.completion)) {
+    throw new AitermError("steer_id付き回収はClaude agent sessionだけで、operation_id・input_idと併用せず16桁の小文字16進で指定してください", 2);
+  }
+  const bound = inputId !== null ? `input ${inputId}` : steerId !== null ? `steer ${steerId}` : null;
   const inputPending = (): never => {
-    throw new AitermError(`AITERM_TRANSCRIPT_INPUT_PENDING: input ${inputId} の番はまだ完了していません。同じinput_idで後から再取得してください。${agentWaitGuide(name)}`, 2);
+    throw new AitermError(`AITERM_TRANSCRIPT_INPUT_PENDING: ${bound} の番はまだ完了していません。同じ${inputId !== null ? "input_id" : "steer_id"}で後から再取得してください。${agentWaitGuide(name)}`, 2);
   };
   // 入力に束縛した回収は、その入力の完了だけを読む。後の番のmarkerはこの回収と無関係。
-  if (meta.kind === "claude" && !o.completion && inputId === null) {
+  if (meta.kind === "claude" && !o.completion && bound === null) {
     let active = readClaudeOperationMarker(meta);
     if (active) active = await settlePublishedClaudeCompletionMarker(meta, active);
     if (active) {
@@ -4487,15 +4515,15 @@ export async function readAgentTranscriptResult(
   // harness session をbindし、promptを再送せず結果だけ回収できるようにする。
   recoverAgentHarnessSession(meta);
   if (!meta.vendor_session_id) {
-    if (inputId) inputPending();
+    if (bound) inputPending();
     throw new AitermError(
       `agent session '${name}' はまだターンが完了していません。agent_done 完了後に再取得してください。${agentWaitGuide(name)}`,
       2,
     );
   }
 
-  const done = latestAgentDoneEvent(meta, operationId, inputId);
-  if (inputId && !done) inputPending();
+  const done = steerId !== null ? await steeredTurnDone(name, meta, steerId, inputPending) : latestAgentDoneEvent(meta, operationId, inputId);
+  if (bound && !done) inputPending();
   if (o.completion && meta.kind !== "codex" && meta.kind !== "grok"
     && (!done || done.turn_id !== o.completion.turn_id || done.operation_id !== o.completion.operation_id)) {
     throw new AitermError("回収対象の完了情報が置換されました。別の回答は配送しません", 2);
@@ -4509,8 +4537,8 @@ export async function readAgentTranscriptResult(
 
   if (meta.kind === "claude") {
     if (!done) transcriptUnavailable();
-    text = readClaudeResultText(meta, done, operationId, transcriptUnavailable, inputId ? () => {
-      throw new AitermError(`AITERM_TRANSCRIPT_INPUT_REPLACED: input ${inputId} の回答は後の番の結果で置き換わりました。この入力の本文はもう読めません。`, 2);
+    text = readClaudeResultText(meta, done, operationId, transcriptUnavailable, bound ? () => {
+      throw new AitermError(`AITERM_TRANSCRIPT_INPUT_REPLACED: ${bound} の回答は後の番の結果で置き換わりました。この入力の本文はもう読めません。`, 2);
     } : undefined);
   } else if (meta.kind === "antigravity") {
     if (!done || done.done_status !== "turn_done") transcriptUnavailable();

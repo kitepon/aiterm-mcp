@@ -63,7 +63,7 @@ function waitSteer(seat, entry, options = {}) {
     rateLimit: () => options.rateLimit ?? null,
     turnIdle: () => options.idle ?? true,
     now: options.now,
-  });
+  }, options.out);
   return { result, handed };
 }
 /** 待ちがまだ返っていない事を確かめる。 */
@@ -556,4 +556,33 @@ test("席の今の番: Codexでない席と、記録が無い席は、分から�
   const seat = codexSeat([started("turn-a", 0)]);
   assert.equal(follow.codexSeatTurn({ ...seat.meta, kind: "claude" }), null);
   assert.equal(follow.codexSeatTurn({ ...seat.meta, vendor_session_id: "01a13576-0000-7000-8000-000000000000" }), null, "記録が無い");
+});
+
+test("Claude Code: one look (timeout 0) returns the Stop of the turn the steer started, while a later turn is already running (a445a)", async () => {
+  const seat = claudeSeat(HEAD);
+  const entry = seat.steer();
+  const look = async () => { const out = { done: null }; const result = await waitSteer(seat, entry, { timeout: 0, out }).result; return { result, out }; };
+  seat.append(queue("enqueue", 1, { content: TEXT }), said("了解", "end_turn", 2));
+  seat.stop("了解", 2.06);
+  seat.append(queue("dequeue", 2.1), prompted(TEXT, 2.15), said("調べる", "tool_use", 3), toolResult(4));
+  // The steered turn is still running: pending, no Stop event handed over.
+  let seen = await look();
+  assert.equal(seen.result.outcome, "running");
+  assert.equal(seen.out.done, null);
+  seat.append(said("答え", "end_turn", 8));
+  seat.stop("答え", 8.06);
+  // The next steered message has already started another turn; the read still finds this steer's own Stop.
+  seat.append(queue("enqueue", 9, { content: "次の文" }), prompted("次の文", 9.1), said("調べる", "tool_use", 10));
+  seen = await look();
+  assert.equal(seen.result.outcome, "done");
+  assert.equal(seen.result.steer.placement, "next_turn");
+  assert.equal(seen.out.done.result_digest, sha256("答え"));
+  assert.equal(seen.out.done.at, at(8.06));
+  // A steer the running turn took has no answer turn of its own: the caller sees same_turn.
+  const taken = claudeSeat(HEAD);
+  const takenEntry = taken.steer();
+  taken.append(queue("enqueue", 1, { content: TEXT }), queue("remove", 2, { content: TEXT, reason: "absorbed_mid_turn" }), said("答え", "end_turn", 3));
+  taken.stop("答え", 3.06);
+  const same = await waitSteer(taken, takenEntry, { timeout: 0 }).result;
+  assert.equal(same.steer.placement, "same_turn");
 });

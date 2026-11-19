@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_read(agent_transcript:true, steer_id)` reads the answer of the Claude turn that a steer started (`aiterm-wait --steer` ended with placement `next_turn`; a445a), also when a later steered message has already started another turn (the unbound read answered `TRANSCRIPT_TURN_ACTIVE`; Z111: 61 of 293 deliveries). Same follower as the wait, one look: not finished → `AITERM_TRANSCRIPT_INPUT_PENDING`; replaced by a later turn's result → `AITERM_TRANSCRIPT_INPUT_REPLACED`; taken by the running turn (`same_turn`) → `AITERM_TRANSCRIPT_STEER_SAME_TURN`; never entered the conversation → `AITERM_TRANSCRIPT_STEER_NOT_TAKEN`; turn ended in an error → `AITERM_TRANSCRIPT_STEER_TURN_FAILED`; unknown ID → `STEER_NOT_FOUND`; with `operation_id` / `input_id` or on a non-Claude session → argument error. The terminals route forwards it unchanged. Old callers are unchanged. A look (`timeout` 0) now reads the whole unread backlog before it says `running`.
+
 ## [0.70.77] - 2026-11-19
 
 - A launch whose caller passed `settings_env` `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` now has Code Mode's first-start confirm answered by Aiterm (a442h): on exactly that screen (both unnumbered rows and the `Enter to confirm` foot) it moves the cursor to `Yes, turn on Code Mode`, waits until the cursor is there, presses Enter, waits for Claude Code's restart and goes on to the first prompt; a cursor already on Yes needs Enter only. A launch without that setting, and every other dialog, behave as before (`AGENT_STARTUP_BLOCKED reason=unknown_dialog`, nothing typed). Only the startup path that waits for ready answers it (a launch with a prompt or `trust_project`).

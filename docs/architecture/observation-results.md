@@ -53,6 +53,21 @@ wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自
 | Read | harnesses/claude.readClaudeResultText | result file must match that event's digest/bytes; a later turn already written → `AITERM_TRANSCRIPT_INPUT_REPLACED` (terminal for this input, no older copy kept) |
 | Return | unchanged `aiterm.pty-read-result.v1` structuredContent | same text / answer_empty / correlation fields as the unbound read |
 
+### Claude answer bound to one steer (Kiro request, 2026-11-19)
+
+`pty_read(agent_transcript:true, steer_id)` reads the answer of the turn that a `pty_send` steer (_meta `aiterm/steer`) started, when `aiterm-wait --steer` ended with placement `next_turn`. Under a flood the next steered message has already started another turn, so the unbound read answered `TRANSCRIPT_TURN_ACTIVE` and the seat's answer never reached the chat (Z111: 61 of 293).
+
+| Step | Owner | Result |
+| --- | --- | --- |
+| Validate | index pty_read schema → readAgentTranscriptResult | `steer_id` is 16 lowercase hex, Claude session only, not with `operation_id` / `input_id`; otherwise argument error |
+| Find | steer-follow.readSteerEntry | no ledger entry → `STEER_NOT_FOUND` |
+| Follow | steer-follow.observeSteerDone (timeout 0, reads the whole backlog) | same words and rules as `aiterm-wait --steer`; the active operation marker is not consulted |
+| Not an answer | readAgentTranscriptResult | `same_turn` → `AITERM_TRANSCRIPT_STEER_SAME_TURN`; `not_taken` → `AITERM_TRANSCRIPT_STEER_NOT_TAKEN`; turn error → `AITERM_TRANSCRIPT_STEER_TURN_FAILED` |
+| None yet | readAgentTranscriptResult | running / rate limit hold → `AITERM_TRANSCRIPT_INPUT_PENDING` |
+| Read | harnesses/claude.readClaudeResultText | the Stop event that ended the steered turn; result file must still hold its digest, else `AITERM_TRANSCRIPT_INPUT_REPLACED` |
+
+The remote and terminals routes forward `pty_read` unchanged, so the field reaches the seat's own Aiterm. A remote Aiterm older than this version drops the unknown field and answers as an unbound read.
+
 Existing transcript read errors carry a code token first, rendered by the MCP error path as `aiterm: <CODE>: <text>`: `TRANSCRIPT_TURN_ACTIVE` (active Claude marker on an unbound read), `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_NOT_FOUND`, `TRANSCRIPT_RESULT_MISMATCH`. Callers match the token, not the text. Per-input result retention is not added: one result file per launch stays the storage contract, and INPUT_REPLACED is the named exit when it has moved on.
 
 回答回収はtimeout後も本文を再送せず行える。Claudeのactive operation markerがあればStop公開とmarker消去の短い待ちを経てもactiveなら拒否する。harness sessionの後着bindingを回収側が保存する一方、完了waiterはbindingを書かない。`completion`付き内部回収はdone/session/launch、必要なturn/operationとの一致を確認し、置換は拒否する。raw=trueで親配送は縮約を避ける。人向けdisplayの空回答通知やメタと、機械向けtextを混同しない。

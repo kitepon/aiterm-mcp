@@ -237,9 +237,11 @@ export async function observeSteerDone(
   entry: SteerEntry,
   timeoutSeconds: number,
   deps: SteerWaitDeps,
+  /** Claude: receives the Stop event that ended the steered turn (pty_read steer_id needs its digest). */
+  out?: { done: AgentDoneEvent | null },
 ): Promise<AgentWaitObservation> {
   if (meta.kind === "codex") return observeCodexSteerDone(meta, entry, timeoutSeconds, deps);
-  if (meta.kind === "claude") return observeClaudeSteerDone(meta, entry, timeoutSeconds, deps);
+  if (meta.kind === "claude") return observeClaudeSteerDone(meta, entry, timeoutSeconds, deps, out);
   if (meta.kind === "grok") {
     const deadline = performance.now() + timeoutSeconds * 1000;
     for (;;) {
@@ -464,6 +466,7 @@ async function observeClaudeSteerDone(
   entry: SteerEntry,
   timeoutSeconds: number,
   deps: SteerWaitDeps,
+  out?: { done: AgentDoneEvent | null },
 ): Promise<AgentWaitObservation> {
   const now = deps.now ?? (() => Date.now());
   const from = parseInterimFrom(entry.interim_from);
@@ -493,10 +496,13 @@ async function observeClaudeSteerDone(
     return deps.turnIdle();
   };
 
-  const observed = (outcome: AgentWaitObservation["outcome"], done: AgentDoneEvent | null, steer: AgentSteerFate): AgentWaitObservation => ({
-    ...baseObservation(meta), outcome, operation_id: done?.operation_id ?? null,
-    vendor_session_id: done?.vendor_session_id ?? meta.vendor_session_id ?? null, malformed_events: malformedEvents, at: done?.at ?? null, steer,
-  });
+  const observed = (outcome: AgentWaitObservation["outcome"], done: AgentDoneEvent | null, steer: AgentSteerFate): AgentWaitObservation => {
+    if (out) out.done = done;
+    return {
+      ...baseObservation(meta), outcome, operation_id: done?.operation_id ?? null,
+      vendor_session_id: done?.vendor_session_id ?? meta.vendor_session_id ?? null, malformed_events: malformedEvents, at: done?.at ?? null, steer,
+    };
+  };
 
   for (;;) {
     deps.signal?.throwIfAborted();
@@ -582,7 +588,11 @@ async function observeClaudeSteerDone(
       const limited = deps.rateLimit();
       if (limited) return { ...observed("rate_limited", null, taken ?? fate("unknown")), rate_limit: limited };
     }
-    if (performance.now() >= deadline) return observed(timeoutSeconds === 0 ? "running" : "timeout", null, taken ?? fate("unknown"));
+    if (performance.now() >= deadline) {
+      // A look (timeout 0) must not call the turn running while the backlog is unread: a steered turn's Stop can lie past one chunk.
+      if (timeoutSeconds === 0 && (record.behind || events.behind)) continue;
+      return observed(timeoutSeconds === 0 ? "running" : "timeout", null, taken ?? fate("unknown"));
+    }
     await sleep(AGENT_DONE_POLL_MS);
   }
 }

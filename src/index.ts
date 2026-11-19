@@ -709,6 +709,11 @@ registerRemoteAwareTool(
         .regex(/^sha256:[0-9a-f]{64}$/)
         .nullish()
         .describe("Claude operationの期待ID。agent_transcript:true時だけ指定し、古い別operationの結果を拒否する"),
+      steer_id: z
+        .string()
+        .regex(/^[0-9a-f]{16}$/)
+        .nullish()
+        .describe("Claudeのpty_send差し込みの返り（_meta aiterm/steer）のsteer_id。agent_transcript:true時だけ指定し、aiterm-wait --steerがnext_turnで終わった番の回答を読む。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED、動いていた番が取った差し込みはAITERM_TRANSCRIPT_STEER_SAME_TURN、控え無しはSTEER_NOT_FOUND。operation_id・input_idと併用不可"),
       input_id: z
         .string()
         .regex(/^[a-f0-9]{32}$/)
@@ -732,7 +737,7 @@ registerRemoteAwareTool(
         .describe("agent_transcriptで、完了したturnの回答が空だった時だけtrue（textは空文字列）。回答を読めなかった時は誤りを返す。terminalではnull"),
     },
   },
-  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id }) => {
+  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id, steer_id }) => {
     try {
       if (agent_transcript) {
         if (screen || full || rtk || wait || line_range != null) {
@@ -743,6 +748,7 @@ registerRemoteAwareTool(
           lines: lines ?? null,
           operation_id: operation_id ?? null,
           input_id: input_id ?? null,
+          steer_id: steer_id ?? null,
           raw,
         });
         return {
@@ -762,6 +768,7 @@ registerRemoteAwareTool(
       }
       if (operation_id != null) throw new Error("operation_idはagent_transcript:true時だけ指定できます");
       if (input_id != null) throw new Error("input_idはagent_transcript:true時だけ指定できます");
+      if (steer_id != null) throw new Error("steer_idはagent_transcript:true時だけ指定できます");
       let range: [number, number | null] | null = null;
       if (line_range) {
         const idx = line_range.indexOf(":");

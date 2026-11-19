@@ -863,6 +863,61 @@ test("readAgentTranscript: Claudeのinput_id付き回収は、後の番が動い
   }
 });
 
+test("readAgentTranscript: Claudeのsteer_id付き回収は、後の番が動いていても差し込みが始めた番の回答を返し、未完了・置換・取り込み済みを符号で分ける（a445a）", { skip: skipAgentDone }, async () => {
+  const { claudeSessionTranscriptPath } = await import("../dist/harnesses/claude.js");
+  const { recordSteer } = await import("../dist/steer-follow.js");
+  const { interimFromNow } = await import("../dist/interim-words.js");
+  const [sid] = core.openAgent("claude", { agent_done: true });
+  try {
+    const meta = readAgentMeta(sid), transcript = claudeSessionTranscriptPath(meta);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(transcript, "");
+    const TEXT = "steered question for the answer read";
+    const steer = text => recordSteer(meta, interimFromNow(meta, fs.statSync(meta.event_file).size), text);
+    const stamp = ms => new Date(Date.now() + ms).toISOString();
+    const append = value => fs.appendFileSync(transcript, JSON.stringify(value) + "\n");
+    const said = (text, ms) => append({ type: "assistant", timestamp: stamp(ms), message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text }] } });
+    const writeStop = (text, ms) => {
+      const digest = createHash("sha256").update(text, "utf8").digest("hex");
+      fs.writeFileSync(meta.result_file, JSON.stringify({ schema: "aiterm.claude-turn-result.v2", operation_id: null, vendor_session_id: meta.vendor_session_id,
+        result_digest: digest, result_bytes: Buffer.byteLength(text, "utf8"), text }) + "\n", { mode: 0o600 });
+      fs.appendFileSync(meta.event_file, JSON.stringify({ type: "agent_done", vendor: "claude", aiterm_session: sid, launch_id: meta.launch_id,
+        vendor_session_id: meta.vendor_session_id, turn_id: null, operation_id: null, reason: "Stop", done_status: "turn_done",
+        result_digest: digest, result_bytes: Buffer.byteLength(text, "utf8"), at: stamp(ms) }) + "\n");
+    };
+    const code = prefix => e => e.message.startsWith(prefix);
+    const first = steer(TEXT);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: "f".repeat(16) }), code("STEER_NOT_FOUND: "));
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: first.steer_id, input_id: "a".repeat(32) }), /steer_id付き回収/);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: first.steer_id, operation_id: `sha256:${"c".repeat(64)}` }), /steer_id付き回収/);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: "XYZ" }), /steer_id付き回収/);
+    // Not started yet.
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: first.steer_id }), code("AITERM_TRANSCRIPT_INPUT_PENDING: "));
+    // The steer started its own turn (next_turn); it is running, then it ends.
+    append({ type: "user", timestamp: stamp(10), promptId: "p", origin: { kind: "human" }, message: { role: "user", content: TEXT } });
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: first.steer_id }), code("AITERM_TRANSCRIPT_INPUT_PENDING: "));
+    said("answer of the steered turn", 20);
+    writeStop("answer of the steered turn", 80);
+    // The next steered message already started another turn: the unbound read is refused, the steer read is not.
+    fs.writeFileSync(path.join(path.dirname(meta.event_file), `${sid}.${meta.launch_id}.claude-operation.json`), JSON.stringify({
+      schema: "aiterm.claude-operation-marker.v3", operation_id: null, event_cursor: fs.statSync(meta.event_file).size, input_id: "b".repeat(32), transcript: null }));
+    await assert.rejects(core.readAgentTranscriptResult(sid), code("TRANSCRIPT_TURN_ACTIVE: "));
+    const read = await core.readAgentTranscriptResult(sid, { steer_id: first.steer_id, raw: true });
+    assert.equal(read.text, "answer of the steered turn");
+    // A later turn wrote its result: this steer's answer is gone.
+    writeStop("answer of a later turn", 200);
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: first.steer_id }), code("AITERM_TRANSCRIPT_INPUT_REPLACED: "));
+    // A steer the running turn took has no answer of its own.
+    const second = steer("steer taken mid turn");
+    append({ type: "queue-operation", operation: "enqueue", timestamp: stamp(300), content: "steer taken mid turn" });
+    append({ type: "queue-operation", operation: "remove", timestamp: stamp(310), content: "steer taken mid turn", reason: "absorbed_mid_turn" });
+    await assert.rejects(core.readAgentTranscriptResult(sid, { steer_id: second.steer_id }), code("AITERM_TRANSCRIPT_STEER_SAME_TURN: "));
+    await assert.rejects(core.readAgentTranscriptResult(sid, { input_id: "a".repeat(32), steer_id: second.steer_id }), /steer_id付き回収/);
+  } finally {
+    core.closeSession(sid);
+  }
+});
+
 test("readAgentTranscript: Codex の複数 assistant block を join し lines は末尾へ絞る", { skip: skipAgentDone }, async () => {
   await withFakeCodexHome(async () => {
     const [sid] = core.openAgent("codex", { agent_done: true });

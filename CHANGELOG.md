@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.76] - 2026-11-19
+
 - `agent_launch` / `claude_agent` take `settings_env` (claude-code only, a442f): `{ NAME: "value" }` is written into the seat's per-launch Claude settings `env` block (`claude-settings.json`, passed with `--settings`) on every machine, local or terminal, macOS, Linux and Windows. It is kept in the resume template and recipe, so a resume, a hibernate wake and a failed-resume recovery write the same block (a Code Mode session resumes with Code Mode on). Nothing is written when the caller passes none, so other callers are unchanged. Values are plain: names ending `TOKEN`/`KEY`/`SECRET`/`PASSWORD`/`CREDENTIAL`/`AUTH`, `AITERM_*` and `CLAUDE_CONFIG_DIR` are refused (secrets keep using `env_vars` by name). Another harness refuses it; a terminal below 0.70.76 answers `REMOTE_AITERM_TOO_OLD`.
 
 - A Claude Code or Codex seat launched with no model and no effort (the caller's `''` = CLI default) now records what it actually started with, so it can hibernate and resume (a442e). At the first ready, Aiterm reads the Claude start banner (`Opus 5.5 with high effort` → `claude-opus-5-5`, `high`) or, for Codex, the model and effort of its first turn from its own rollout (`turn_context`; read again just before a hibernate check), and writes `meta.model` and the resume template. Before this a seat without a recipe answered `AGENT_HIBERNATE_UNAVAILABLE resume_unavailable` and started fresh after a body update. Nothing is written when the settings cannot be read. Callers keep sending `''`. Grok, Cursor and Antigravity have no resume recipe in Aiterm, so there is nothing to record for them.
@@ -3557,7 +3559,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.76...HEAD
+[0.70.76]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...v0.70.76
 [0.70.75]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...v0.70.75
 [0.70.74]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...v0.70.74
 [0.70.73]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...v0.70.73

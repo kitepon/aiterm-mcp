@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.78] - 2026-11-19
+
 - `pty_read(agent_transcript:true, steer_id)` reads the answer of the Claude turn that a steer started (`aiterm-wait --steer` ended with placement `next_turn`; a445a), also when a later steered message has already started another turn (the unbound read answered `TRANSCRIPT_TURN_ACTIVE`; Z111: 61 of 293 deliveries). Same follower as the wait, one look: not finished → `AITERM_TRANSCRIPT_INPUT_PENDING`; replaced by a later turn's result → `AITERM_TRANSCRIPT_INPUT_REPLACED`; taken by the running turn (`same_turn`) → `AITERM_TRANSCRIPT_STEER_SAME_TURN`; never entered the conversation → `AITERM_TRANSCRIPT_STEER_NOT_TAKEN`; turn ended in an error → `AITERM_TRANSCRIPT_STEER_TURN_FAILED`; unknown ID → `STEER_NOT_FOUND`; with `operation_id` / `input_id` or on a non-Claude session → argument error. The terminals route forwards it unchanged. Old callers are unchanged. A look (`timeout` 0) now reads the whole unread backlog before it says `running`.
 
 ## [0.70.77] - 2026-11-19
@@ -3565,7 +3567,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.77...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.78...HEAD
+[0.70.78]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.77...v0.70.78
 [0.70.77]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.76...v0.70.77
 [0.70.76]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...v0.70.76
 [0.70.75]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...v0.70.75

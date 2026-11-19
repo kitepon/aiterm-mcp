@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A resumed Claude seat that is already working no longer makes the resume fail (a469e, BugHub d23c7c27). A resumed Claude whose SessionStart hook answered a pending decision starts a turn at once and never shows an idle composer, so `agent_launch` (`require_existing_resume`) waited 30 s and returned `AGENT_RESUME_FAILED` although the conversation had resumed; the next send was then refused and the caller closed the working seat. The resume now accepts a busy Claude pane while the native process is alive and busy (as Codex already did with a running turn): the attempt is `ready`, no input is sent, the turn is not interrupted. The result is the ordinary `aiterm.agent-launch-result.v1` with `startup: {status:"ready", reason:"turn_running"}` instead of `composer_ready` (Claude and Codex). A seat resumed with fast mode still waits for the idle composer.
+
 ## [0.70.79] - 2026-11-19
 
 - A relayed terminal seat row's `turn.wait_process` in `pty_list`'s `aiterm/seat_turns` now runs on the caller's host (a464). The terminal built it with its own Node path (`/home/…/node …/aiterm-wait-cli.js`), which does not exist where BellTeam runs it (ENOENT, BugHub 7681ba25). A running turn with an `event_cursor` now carries the same ssh waiter that `pty_send` and `agent_launch` return for a terminal; a row that cannot get one carries `wait_process: null`.

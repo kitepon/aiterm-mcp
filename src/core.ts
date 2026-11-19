@@ -5410,11 +5410,14 @@ async function waitStartupSelection(name: string, selected: RegExp): Promise<boo
 }
 
 async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts,
-  acceptRunningCodex = false): Promise<AgentStartupResult> {
+  acceptRunning = false): Promise<AgentStartupResult> {
   await ensureAgentOwnsPaneInput(name, meta.kind);
-  // A resumed Codex can consume its native queue before the composer becomes idle.
-  const running = (screen: string) => acceptRunningCodex && meta.kind === "codex" && !!meta.resumed_from
-    && codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null;
+  // A resumed Codex can consume its native queue before the composer becomes idle. A resumed Claude can start a turn
+  // from its own SessionStart hook (a469e); the process is checked below, so a pane that is busy is the turn.
+  const runningScreen = (screen: string) => meta.kind === "codex"
+    ? codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null
+    : meta.kind === "claude" && claudePaneObservation(screen).state === "busy";
+  const running = (screen: string) => acceptRunning && !!meta.resumed_from && runningScreen(screen);
   const budget = options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, deadline = performance.now() + budget;
   const wait = (ms = budget) => waitAgentTuiReady(name, meta, ms, { selectSteer: running });
   // a442h: a caller that asked for Code Mode (settings_env, kept in the resume template) lets Aiterm answer its first-start confirm.
@@ -5468,9 +5471,9 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   if (!ready.ready && !ready.steer) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
   const live = observeNativeSession(name);
   if (live.harness_alive !== true || live.harness_process === null
-    || (live.state !== "idle" && !(ready.steer && live.state === "busy" && codexRunningTurn(meta) !== null)))
+    || (live.state !== "idle" && !(ready.steer && live.state === "busy" && (meta.kind === "claude" || codexRunningTurn(meta) !== null))))
     return { status: "blocked", reason: live.reason };
-  return { status: "ready", reason: "composer_ready" };
+  return { status: "ready", reason: ready.steer ? "turn_running" : "composer_ready" };
 }
 
 export async function sendInitialAgentPrompt(
@@ -9250,9 +9253,11 @@ export async function openAgentWithInitialPrompt(
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };
+          // A resumed seat that is already working (Claude's SessionStart hook, Codex's native queue) is a resume that
+          // worked: input stays unsent, the turn runs on, and startup says so (a469e).
           if (!prompt) return [name, hint, null, null,
             { status: "not_requested", reason: "not_requested", turn_started: false },
-            { status: "ready", reason: "composer_ready" }, fastState];
+            { status: "ready", reason: (resumed.kind === "claude" || resumed.kind === "codex") && observeNativeSession(name).state === "busy" ? "turn_running" : "composer_ready" }, fastState];
           try {
             const initial = await sendInitialAgentPromptInLock(name, prompt, {
               ready_timeout: opts.ready_timeout ?? undefined, before_send: opts.before_send,

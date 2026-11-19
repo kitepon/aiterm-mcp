@@ -132,6 +132,7 @@ export function createClaudeCorrelationSettings(
   launchId: string,
   model: string | null,
   effort: string | null,
+  settingsEnv: Record<string, string> | null = null,
 ): string {
   const hookScript = claudeHookScriptPath();
   if (!fs.existsSync(hookScript)) {
@@ -149,6 +150,8 @@ export function createClaudeCorrelationSettings(
   writeJson0600(settings, {
     ...(model ? { model } : {}),
     ...(effort ? { effortLevel: effort } : {}),
+    // a442f: values the launch caller handed over (Code Mode and the like). Nothing is written when the caller passed none.
+    ...(settingsEnv && Object.keys(settingsEnv).length ? { env: settingsEnv } : {}),
     // 席は必ず通常の速度で始める（ADR 0114）。--settingsは利用者の設定より強いので、共有の設定にfastModeが残っていても効かない。
     // ここへtrueは入れない: 後で/fast offにしても、機種を替えた時にClaude Codeがこの値を見てfastへ戻す。
     fastMode: false,
@@ -825,6 +828,7 @@ export function createClaudeAgentMetadata(
   model: string | null,
   effort: string | null,
   claudeHome: string = claudeConfigDir(),
+  settingsEnv: Record<string, string> | null = null,
 ): AgentMetadata {
   // Claude Codeはリンクを解決したcwdでproject slugを作る。起動時に固定し、記録の監視時に再解決しない。
   const transcriptCwd = cwd === null ? null : fs.realpathSync(cwd);
@@ -833,7 +837,7 @@ export function createClaudeAgentMetadata(
   const resultFile = agentClaudeResultPath(name, launchId);
   createEmpty0600(eventFile);
   createEmpty0600(resultFile);
-  const claudeSettings = createClaudeCorrelationSettings(name, launchId, model, effort);
+  const claudeSettings = createClaudeCorrelationSettings(name, launchId, model, effort, settingsEnv);
   const meta: AgentMetadata = {
     kind: "claude",
     aiterm_session: name,

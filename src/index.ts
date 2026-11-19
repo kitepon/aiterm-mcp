@@ -5,6 +5,7 @@ import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSea
   checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
+import { checkSettingsEnv } from "./settings-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
 import { assertConfigurationKey, applyConfigurationLock, assertNoModelInput } from "./configuration-lock.js";
@@ -1412,9 +1413,15 @@ const agentStartupSchema = z.object({ status: z.enum(["ready", "not_checked", "b
 
 async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarness, args: any, extra: { _meta?: unknown }, privateEnv?: Record<string, string>): Promise<any> {
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  // Refuse a settings_env the seat could not take here, not on the remote after the private line went out (a442f).
+  if (args.settings_env !== undefined) {
+    if (harness !== "claude-code") throw launchInputRefusal(harness, "settings_envはclaude-code harnessだけで使えます。指定を外してください");
+    try { checkSettingsEnv(args.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(harness, e.message) : e; }
+  }
   // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140), and one without Codex caller fields
   // would drop or refuse them: check the version first.
   const needs = args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
+    : args.settings_env !== undefined ? { minimum: SETTINGS_ENV_MINIMUM_VERSION, what: "settings_env" }
     : harness === "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined)
       ? { minimum: CODEX_REMOTE_MINIMUM_VERSION, what: "append_system_prompt / mcp_config for codex-cli" } : null;
   if (needs) {
@@ -1465,6 +1472,8 @@ const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced:
   .describe("mcp_config only: caller servers dropped because the seat's own harness config defines the name, and those that replaced it (replace: true). A terminal below 0.70.62 does not return it");
 /** First release that reads `replace` in a caller server (launch-identity-input.md "Caller name precedence"). */
 const CALLER_REPLACE_MINIMUM_VERSION = "0.70.62";
+/** First release whose claude_agent / agent_launch takes settings_env (a442f); an older one would drop it and start the seat without it. */
+const SETTINGS_ENV_MINIMUM_VERSION = "0.70.76";
 /** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
 const CODEX_REMOTE_MINIMUM_VERSION = "0.70.7";
 /** The oldest terminal Aiterm per harness: Grok, Cursor and Antigravity seats need 0.70.9 (checked before any private value is sent). */
@@ -1516,7 +1525,7 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, fork_from } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, settings_env, fork_from } = args;
   const supportsWriteScope = kind !== "claude";
   let delivery: DeliveryRequest | null = null;
   try {
@@ -1545,6 +1554,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       configuration_root,
       append_system_prompt,
       mcp_config,
+      settings_env,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
       ...(fork_from ? { fork_from } : {}),
@@ -1659,6 +1669,7 @@ function registerAgentTool(
         ...(kind === "claude" ? {
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
           mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars. A same-name server of the seat's own config wins and the entry is dropped (caller_mcp.dropped) unless it has replace: true"),
+          settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
         } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,
@@ -1721,6 +1732,7 @@ server.registerTool(
       terminal: terminalArgumentSchema.optional().describe(terminalArgumentDescription),
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; Antigravity: an always-on rule in the seat's own --add-dir folder; at most 64 KiB for these. Cursor has no system-prompt channel: the text goes in front of the first prompt, or of the first input sent to a promptless seat (at most 64 KiB)"),
       mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers, replace?: boolean}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. A server the seat's own harness config already defines under the same name is dropped for this seat (listed in caller_mcp.dropped) unless its entry has replace: true; then it replaces that server (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead). Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server, so nothing is dropped there"),
+      settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),

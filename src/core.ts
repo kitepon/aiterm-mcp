@@ -50,6 +50,7 @@ import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDead
 import { stopProcessTree } from "./process-tree-stop.js";
 import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { claudeBannerSettings } from "./started-settings.js";
+import { checkSettingsEnv } from "./settings-env.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -7786,7 +7787,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       if (previous.kind === "codex" && codexResumeProofDigest(readCodexResumeProof(previous)) !== lifecycle.resume_proof_digest) throw uncertain();
       publishAgentGeneration(previous);
       next = previous.kind === "claude"
-        ? createClaudeAgentMetadata(name, recipe.cwd, "none", null, null, lineage, recipe.model, recipe.reasoning_effort)
+        ? createClaudeAgentMetadata(name, recipe.cwd, "none", null, null, lineage, recipe.model, recipe.reasoning_effort, undefined, recipe.settings_env ?? null)
         : createCodexAgentMetadata(name, recipe.cwd, "none", { model: recipe.model, effort: recipe.reasoning_effort }, previous.write_scope, lineage);
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
       next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
@@ -7854,6 +7855,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       kind: recipe.kind, executable: recipe.executable, cwd: recipe.cwd, configuration_root: recipe.configuration_root,
       model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: saved.environment,
       ...(saved.secret_environment ? { secret_environment: saved.secret_environment } : {}),
+      ...(recipe.settings_env ? { settings_env: recipe.settings_env } : {}),
       ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
     writeAgentResumeRecipe(resumed, { ...saved, launch_id: resumed.launch_id });
     writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
@@ -8652,6 +8654,7 @@ export function openAgent(
     claude_root?: ClaudeConfigRoot;
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
+    settings_env?: Record<string, string> | null;
     fork_of?: AgentForkOf;
   } = {},
 ): [string, string] {
@@ -8843,6 +8846,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
                   model,
                   effort,
                   claudeRoot?.root,
+                  opts.settings_env ?? null,
                 )
               : kind === "codex"
               ? createCodexAgentMetadata(sid, cwd, opts.prompt ? "pending" : "none", { model, effort }, writeScope, lineageContext)
@@ -8888,7 +8892,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
               writeAgentResumeNative(meta, proof);
               initialLaunch = meta; initialProof = proof;
             }
-            try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!, claudeEnv); }
+            try { captureAgentResumeTemplate(meta, effort, envVars, kind === "claude" ? meta.claude_home! : meta.codex_home!, claudeEnv, opts.settings_env ?? null); }
             catch { process.stderr.write("aiterm: resume_template_unconfirmed\n"); }
             agentMetadataNegativeCache.delete(sid);
           }
@@ -9081,7 +9085,11 @@ function ownMcpNames(meta: AgentMetadata, claudeEnv: NodeJS.ProcessEnv): Set<str
 
 /** Caller launch fields refused from the arguments alone, before any session or file exists (phase "input"). */
 function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: string | null; mcp_config?: Record<string, unknown> | null;
-  prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[] }): void {
+  prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[]; settings_env?: Record<string, string> | null }): void {
+  if (opts.settings_env != null) {
+    if (kind !== "claude") throw launchInputRefusal(agentHarness(kind), "settings_envはclaude-code harnessだけで使えます。指定を外してください");
+    try { checkSettingsEnv(opts.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+  }
   if (kind === "codex") return refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
   if (kind === "claude" && opts.mcp_config != null) {
     try { applyCallerPrecedence(opts.mcp_config, new Set()); }
@@ -9116,6 +9124,7 @@ export async function openAgentWithInitialPrompt(
     configuration_root?: string | null;
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
+    settings_env?: Record<string, string> | null;
     fork_from?: { session_id: string; fork_id?: string } | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
@@ -9256,6 +9265,7 @@ export async function openAgentWithInitialPrompt(
     claude_root: claudeRoot,
     append_system_prompt: opts.append_system_prompt ?? null,
     mcp_config: opts.mcp_config ?? null,
+    settings_env: opts.settings_env ?? null,
     ...(fork ? { fork_of: fork.fork_of } : {}),
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。

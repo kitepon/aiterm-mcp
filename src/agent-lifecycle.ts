@@ -20,6 +20,8 @@ export const agentResumeRecipeSchema = z.object({
   environment: z.record(envName, z.string().refine(value => !value.includes("\0")).nullable()),
   // E8: names whose values a resume takes from its own launch; the values are never stored.
   secret_environment: z.array(envName).optional(),
+  // a442f: values the launch caller put in the Claude settings env block; a resume writes the same block.
+  settings_env: z.record(envName, z.string().refine(value => !value.includes("\0"))).optional(),
 }).strict();
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
 const identity = z.object({ pid: z.number().int().positive(), process_group_id: z.number().int().positive().nullable(),
@@ -153,7 +155,8 @@ export function writeAgentResumeTemplate(meta: AgentMetadata, input: AgentResume
   if (value.launch_id !== meta.launch_id || value.kind !== meta.kind) throw unavailable();
   writeJson0600(file(meta, ".resume-template.json"), value);
 }
-export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string | null, envNames: string[], configurationRoot: string, env = process.env): void {
+export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string | null, envNames: string[], configurationRoot: string, env = process.env,
+  settingsEnv: Record<string, string> | null = null): void {
   if (meta.kind !== "claude" && meta.kind !== "codex") return;
   // Secret names are kept without values (E8): a resume takes them from its own launch.
   const names = [...new Set([...envNames, ...(meta.kind === "claude" ? ["CLAUDE_CONFIG_DIR"] : [])])];
@@ -161,7 +164,7 @@ export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string |
   writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
     executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
     environment: Object.fromEntries(names.filter(name => !isSecretEnvName(name)).map(name => [name, launchEnvValue(name, env) ?? null])),
-    ...(secrets.length ? { secret_environment: secrets } : {}), state: "confirmed" });
+    ...(secrets.length ? { secret_environment: secrets } : {}), ...(settingsEnv && meta.kind === "claude" ? { settings_env: settingsEnv } : {}), state: "confirmed" });
 }
 export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
   const complete = !!model && !!effort;

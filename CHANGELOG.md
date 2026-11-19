@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A Claude Code or Codex seat launched with no model and no effort (the caller's `''` = CLI default) now records what it actually started with, so it can hibernate and resume (a442e). At the first ready, Aiterm reads the Claude start banner (`Opus 5.5 with high effort` → `claude-opus-5-5`, `high`) or, for Codex, the user's config / the catalog default model with the vendor-default effort, and writes `meta.model` and the resume template. Before this a seat without a recipe answered `AGENT_HIBERNATE_UNAVAILABLE resume_unavailable` and started fresh after a body update. Nothing is written when the settings cannot be read. Callers keep sending `''`. Grok, Cursor and Antigravity have no resume recipe in Aiterm, so there is nothing to record for them.
+
 ## [0.70.75] - 2026-11-19
 
 - A Claude Code seat showing Code Mode's first-start confirm (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`: unnumbered `No, start without it` / `Yes, turn on Code Mode`, foot `Enter to confirm · Esc to start without it`) is no longer read as an idle composer (a442c). `pty_observe` and the ready gate report `blocked / unknown_dialog`, `pty_send` refuses `CLAUDE_SELECT_MENU_OPEN` before typing, and a launch that meets it ends `AGENT_STARTUP_BLOCKED` instead of typing the first prompt into it. Aiterm does not answer it; the caller sends Down+Enter (turn on) or Enter/Esc (start without). The answer is saved per machine in `~/.claude.json`, so each machine meets it once. Same code on Linux, macOS and Windows.

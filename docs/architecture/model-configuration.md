@@ -4,6 +4,17 @@
 
 launcherが席のmodel／effortを固定でき、固定中は席の中のAIのtool呼びでは変えられない（指揮官氏の「AI設定の固定」、`configuration-lock.ts`、入口は`index.ts`の3 tool）。launcherは`agent_configure({ session_id, configuration_lock: "lock"|"unlock", configuration_lock_key })`で固定・解除する（他の設定・`action`・`request`とは併用不可。鍵は記号を含む印字可能なASCII 16〜128文字）。Aitermは鍵のSHA-256だけを`<session>.<launch_id>.configuration-lock.json`へ保存する（席の起動世代に結び付き、`pty_close`の片付けが消す）。固定中は、鍵を示さない次の呼びが`AGENT_CONFIGURATION_LOCKED`で断られ、何も打たれない: `agent_configure`のmodel／reasoning_effort（`configurationFailure`は`not_applied`／`not_started`、`aiterm/configure_error`は`relaunch: false`）、`pty_send`の本文（前置き込み）が先頭で始める`/model`・`/models`・`/effort`・`/reasoning`（`force`でも）、`pty_key`のAlt+P。鍵を付けた`agent_configure`（BellTeamが指揮官氏の変更を適用する道）は通る。fastだけの変更、通常の本文、人が端末へ打つ文字、Aitermが自分の設定替えで打つ命令（core内部の送信）は対象外。鍵が合う`unlock`か席を閉じる事が固定を抜ける道。鍵を持つのはlauncherだけで、席のAIへ渡さない。固定していない席は、誰でも固定できる（BellTeamは席を起こしたらすぐ固定する）。別端末の席は、現地のAitermが同じ検査を行う（古い現地は未知の引数を落とし、固定・解除は「model、reasoning_effort、fast…を指定」で失敗するだけで固定にならない）。
 
+## modelもeffortも指定せずに起動した席の、起動時の設定（a442e）
+
+呼び手が`model`と`reasoning_effort`を省いた（`''`＝CLIの既定）Claude Code・Codexの席は、起動の引数に設定を持たない。再開の手順（`.resume-template.json`）の`model`が`null`のままだと、`refreshAgentResumeRecipe`が手順を作らず、休止（`resume_unavailable`）も本体更新後の再開もできない。Aitermは席が実際に始まった設定を、最初に入力欄が空いた時（`core.waitAgentTuiReady`の`ready`）に一度だけ読み、`meta.model`と再開の手順へ記録する。呼び手の`''`はそのまま（Aitermが呼び手の値を書き換えない）。
+
+| 実ファイル・関数 | 読み先と記録 |
+| --- | --- |
+| `src/started-settings.ts`: `claudeBannerSettings` | Claude Codeの起動画面の見出し（`Opus 5.5 with high effort`）から、modelのID（`claude-opus-5-5`、1M文脈は`[1m]`付き）とeffortを読む。読めない（見出しが流れた・effortの無いmodel）ときはnull |
+| `src/core.ts`: `recordStartedSettings` | Claudeは見出し、Codexは利用者のconfig（`model`／`model_reasoning_effort`）を先に、無ければ`codexModelChoices`の既定model、effortは`vendor_default`（Codexが自分で選ぶ）。`meta.model`・再開の手順を`confirmed`で書く。読めなければ何も書かず、休止できない現状のまま（推測しない） |
+
+対象はClaude CodeとCodexだけ。Grok・Cursor・Antigravityは再開の手順そのものを持たず（`agentResumeRecipeSchema.kind`）、休止も再開もAitermの契約に無いので、記録の読み手がいない。席の中で`/model`で替えた値は、今までどおり休止・再開では持ち越さない。
+
 ## 原要求に固定した設定receipt
 
 既`agent_configure`へopt-inの`request`と`action=reconcile`を追加する。[公開入出力と保証限界](../configure-reconcile.md)が契約正本。`configure-request.ts`は原要求UUID/期待launch/要求digest、排他的claim、専用receiptの保存とbounded読取を所有する。`configuration-effect.ts`はその要求のnative作用前checkpointと、保存失敗/終端後の局所継続拒否を所有する。`execution-effect.ts`の既native入口から呼ぶがexecution graphや参加登録は有効にしない。

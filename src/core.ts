@@ -49,6 +49,7 @@ import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
 import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { claudeBannerSettings } from "./started-settings.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -5012,8 +5013,45 @@ async function waitAgentTuiReady(
     { timeoutMs, codexRateLimitRecovery: o.codexRateLimitRecovery, selectSteer: o.selectSteer,
       launchLine: agentLaunchLines.get(name), ...(o.settledTurn ? { turnSettled: () => agentTurnSettled(meta) } : {}) },
   );
-  if (result.ready) agentLaunchLines.delete(name);
+  if (result.ready) {
+    agentLaunchLines.delete(name);
+    try { await recordStartedSettings(name, meta, result.lastScreen); } catch { /* the seat stays as it was: no resume template, not a failed ready */ }
+  }
   return result;
+}
+
+/**
+ * A seat launched with no model/effort (the caller's '' = CLI default) has no resume recipe, so it can neither hibernate nor resume (a442e).
+ * Aiterm owns what the seat started with: at the first ready, read it (Claude: the start banner; Codex: the user's config, else the catalog default)
+ * and write it to meta.model and the resume template. Nothing is guessed: unreadable leaves everything untouched.
+ */
+async function recordStartedSettings(name: string, meta: AgentMetadata, screen: string): Promise<void> {
+  if ((meta.kind !== "claude" && meta.kind !== "codex") || meta.model !== null) return;
+  const current = tryLoadAgentMetadata(name);
+  if (!current || current.launch_id !== meta.launch_id || current.model !== null) return;
+  const template = readAgentResumeTemplate(current);
+  if (!template || template.model !== null) return;
+  let model: string, effort: string | null;
+  if (current.kind === "claude") {
+    const banner = claudeBannerSettings(screen);
+    if (!banner) return;
+    ({ model, effort } = banner);
+  } else {
+    const codexHome = current.codex_home!;
+    const pins = readCodexConfigPins(path.join(codexHome, "config.toml"));
+    const picked = pins.model.value ?? (await codexModelChoices(current.agent_executable!, true, codexHome)).default_model;
+    if (!picked) return;
+    model = picked;
+    effort = pins.effort.value;
+  }
+  withExecutionPreparation(name, () => {
+    const latest = loadAgentMetadata(name);
+    if (latest.launch_id !== current.launch_id || latest.model !== null) return;
+    latest.model = model;
+    writeAgentMetadata(latest);
+    writeAgentResumeTemplate(latest, { ...template, model, reasoning_effort: effort, state: "confirmed",
+      ...(effort === null ? { reasoning_effort_source: "vendor_default" as const } : {}) });
+  });
 }
 
 async function waitAgentTuiReadyByKind(

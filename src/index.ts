@@ -427,6 +427,15 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   return { ...relayed, content: [...relayed.content, { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }] };
 }
 
+/** 別端末の席の行のwait_processは現地のNodeのpathを持ち、呼び手の端末では走らない（ENOENT）。実行中の番にはssh越しの待ちを、作れなければnullを返す（a464）。 */
+async function relayedTurnWaiter(target: RemoteTarget, seat: any): Promise<{ turn?: unknown }> {
+  const turn = seat?.turn;
+  if (!turn || typeof turn !== "object" || !("wait_process" in turn)) return {};
+  const waiter = turn.state === "running" && typeof turn.event_cursor === "number"
+    ? await remoteWaitProcess(target, seat.session_id, turn.event_cursor).catch(() => null) : null;
+  return { turn: { ...turn, wait_process: waiter } };
+}
+
 /** 現地の差し込みの返りのwait_processは現地のNodeとpathなので、ここで走らない。同じ差し込みの番の終わりをssh越しに待つものへ替える。 */
 async function relaySteerWait(target: RemoteTarget, result: RemoteCallResult): Promise<any> {
   const structured = result.structuredContent as any;
@@ -952,8 +961,9 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
         remoteSeatTurnsInFlight.set(key, call);
         void call.then(answered => { if (Array.isArray(answered.answer?.seats)) remoteSeatTurnsLate.set(key, answered); });
       }
-      const rows = ({ answer, at }: { answer: any; at: number }) => Array.isArray(answer?.seats)
-        ? { seats: answer.seats.filter((seat: any) => bound.includes(seat?.session_id)).map((seat: any) => ({ ...seat, route_since, observed_at: new Date(at).toISOString() })),
+      const rows = async ({ answer, at }: { answer: any; at: number }) => Array.isArray(answer?.seats)
+        ? { seats: await Promise.all(answer.seats.filter((seat: any) => bound.includes(seat?.session_id))
+              .map(async (seat: any) => ({ ...seat, ...await relayedTurnWaiter(target, seat), route_since, observed_at: new Date(at).toISOString() }))),
             unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
         : { seats: [] as any[], unread: bound };
       // Only the side that decides this poll touches the late answer: the losing side still runs afterwards.

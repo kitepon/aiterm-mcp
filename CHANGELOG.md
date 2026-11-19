@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A relayed terminal seat row's `turn.wait_process` in `pty_list`'s `aiterm/seat_turns` now runs on the caller's host (a464). The terminal built it with its own Node path (`/home/…/node …/aiterm-wait-cli.js`), which does not exist where BellTeam runs it (ENOENT, BugHub 7681ba25). A running turn with an `event_cursor` now carries the same ssh waiter that `pty_send` and `agent_launch` return for a terminal; a row that cannot get one carries `wait_process: null`.
+
 ## [0.70.78] - 2026-11-19
 
 - `pty_read(agent_transcript:true, steer_id)` reads the answer of the Claude turn that a steer started (`aiterm-wait --steer` ended with placement `next_turn`; a445a), also when a later steered message has already started another turn (the unbound read answered `TRANSCRIPT_TURN_ACTIVE`; Z111: 61 of 293 deliveries). Same follower as the wait, one look: not finished → `AITERM_TRANSCRIPT_INPUT_PENDING`; replaced by a later turn's result → `AITERM_TRANSCRIPT_INPUT_REPLACED`; taken by the running turn (`same_turn`) → `AITERM_TRANSCRIPT_STEER_SAME_TURN`; never entered the conversation → `AITERM_TRANSCRIPT_STEER_NOT_TAKEN`; turn ended in an error → `AITERM_TRANSCRIPT_STEER_TURN_FAILED`; unknown ID → `STEER_NOT_FOUND`; with `operation_id` / `input_id` or on a non-Claude session → argument error. The terminals route forwards it unchanged. Old callers are unchanged. A look (`timeout` 0) now reads the whole unread backlog before it says `running`.

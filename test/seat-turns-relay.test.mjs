@@ -28,7 +28,8 @@ s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }));
 s.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: "text", text: "ok" }], structuredContent: { sessions: [] },
   _meta: { "aiterm/seat_turns": { schema: "aiterm.seat-turns.v1", seats: [
     { session_id: "relay_a", launch_id: "a".repeat(32), harness: "claude-code", turn: { state: "idle" } },
-    { session_id: "relay_b", launch_id: "b".repeat(32), harness: "codex-cli", turn: null },
+    { session_id: "relay_b", launch_id: "b".repeat(32), harness: "codex-cli", turn: { state: "running", turn_id: "t1", event_cursor: 7,
+      wait_process: { executable: "/home/kite/.local/lib/node-v24/bin/node", args: ["aiterm-wait-cli.js", "--session", "relay_b", "--cursor", "7"], windows_start_process_argument_list: null } } },
     { session_id: "not_bound_here", launch_id: "c".repeat(32), harness: "claude-code", turn: { state: "idle" } }],
     unread: ["relay_held", "held_not_bound_here"] } } }));
 await s.connect(new StdioServerTransport());
@@ -71,7 +72,12 @@ test("seat turns relay: an unreachable terminal's sessions are unread, an answer
   try {
     const listed = await client.callTool({ name: "pty_list", arguments: {}, _meta: { "aiterm/caller": "BellTeam" } });
     const turns = listed._meta["aiterm/seat_turns"];
-    assert.deepEqual(turns.seats.map(seat => [seat.session_id, seat.turn]), [["relay_a", { state: "idle" }], ["relay_b", null]]);
+    assert.deepEqual(turns.seats.map(seat => [seat.session_id, seat.turn?.state]), [["relay_a", "idle"], ["relay_b", "running"]]);
+    // a464: a wait_process handed to the caller runs on the caller's host: the terminal's own node path is replaced by the ssh waiter.
+    const waiter = turns.seats[1].turn.wait_process;
+    assert.equal(waiter.executable, "ssh");
+    assert.ok(!JSON.stringify(waiter).includes("node-v24"), "the terminal's own node path is not relayed");
+    assert.ok(waiter.args.join(" ").includes("aiterm-wait") && waiter.args.join(" ").includes("relay_b") && waiter.args.join(" ").includes("7"), waiter.args.join(" "));
     assert.deepEqual(turns.unread, ["relay_held", "relay_x", "relay_y"]);
     // Overlapping callers share the one in-flight relay to a terminal instead of starting a reader each.
     const log = path.join(tmp, "relays.log");

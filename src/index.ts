@@ -713,7 +713,7 @@ registerRemoteAwareTool(
         .string()
         .regex(/^[0-9a-f]{16}$/)
         .nullish()
-        .describe("Claudeのpty_send差し込みの返り（_meta aiterm/steer）のsteer_id。agent_transcript:true時だけ指定し、aiterm-wait --steerがnext_turnで終わった番の回答を読む。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED、動いていた番が取った差し込みはAITERM_TRANSCRIPT_STEER_SAME_TURN、控え無しはSTEER_NOT_FOUND。operation_id・input_idと併用不可"),
+        .describe("Claudeの差し込みが始めた番の回答を読むID。agent_transcript:true時だけ指定する。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED、動いていた番が取った差し込みはAITERM_TRANSCRIPT_STEER_SAME_TURN、控え無しはSTEER_NOT_FOUND。operation_id・input_idと併用不可"),
       input_id: z
         .string()
         .regex(/^[a-f0-9]{32}$/)

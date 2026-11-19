@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat resumed with fast mode that is already working is now accepted like any other (a469f, follow-up to 0.70.80 / BugHub d23c7c27). Fast is restored by typing `/fast` into an idle composer, which would steer a running turn, so a resume accepted with a turn running skips the restore: the seat resumes at standard speed, no input is sent, the turn is not interrupted, and the `agent_launch` result carries `fast: false` with `fast_error` `FAST_MODE_UNCONFIRMED` and `startup.reason: "turn_running"`. The saved recipe keeps `fast: true`; the caller sets fast again with `agent_configure` when the seat is idle. A resume that reaches an idle composer restores fast as before. Before, such a resume waited for the idle composer and failed with `AGENT_RESUME_FAILED`.
+
 ## [0.70.80] - 2026-11-19
 
 - A resumed Claude seat that is already working no longer makes the resume fail (a469e, BugHub d23c7c27). A resumed Claude whose SessionStart hook answered a pending decision starts a turn at once and never shows an idle composer, so `agent_launch` (`require_existing_resume`) waited 30 s and returned `AGENT_RESUME_FAILED` although the conversation had resumed; the next send was then refused and the caller closed the working seat. The resume now accepts a busy Claude pane while the native process is alive and busy (as Codex already did with a running turn): the attempt is `ready`, no input is sent, the turn is not interrupted. The result is the ordinary `aiterm.agent-launch-result.v1` with `startup: {status:"ready", reason:"turn_running"}` instead of `composer_ready` (Claude and Codex). A seat resumed with fast mode still waits for the idle composer.

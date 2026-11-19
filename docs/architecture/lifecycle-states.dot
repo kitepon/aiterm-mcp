@@ -14,7 +14,7 @@ digraph lifecycle {
  staged [label="Persist next metadata + recipe\nold attempt = resuming\nold pointer still selected"];
  created [label="Create native → birth proof → resume CLI line\nsame vendor conversation, new native/launch"];
  published [label="publishAgentGeneration(old,next)\nnext pointer visible before ready"];
- ready [label="prepareAgentInput / restore fast if needed\nthen old attempt = ready"];
+ ready [label="prepareAgentInput / restore fast if needed\n(skipped when a running turn was accepted: fast_error)\nthen old attempt = ready"];
  failed [label="Catch: attempt = failed if writable\nresuming also blocks replay\nreturn typed input:not_sent",fillcolor="#ffe9e9"];
  allocated [label="New managed native: atomic creation witness\nReceipt/token retained before birth callback"];
  setup_failed [label="Synchronous setup throw\nConditional tuple + marker close, preserve original error\nReplacement untouched / unavailable close is unconfirmed",fillcolor="#ffe9e9"];

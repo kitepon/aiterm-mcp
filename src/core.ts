@@ -7871,11 +7871,13 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
     });
     const resumed: AgentMetadata = next!;
     phase = "readiness";
-    const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout }, !recipe.fast);
+    const ready = await prepareAgentInput(name, resumed, { ready_timeout: readyTimeout }, true);
     readiness = safeResumeReadiness(ready);
     if (ready.status !== "ready") throw uncertain();
-    // Launch argv pins standard speed; restore fast only after the native composer is ready.
-    if (recipe.fast) {
+    // Launch argv pins standard speed; restore fast only after the native composer is ready. A turn that was running when
+    // the resume was accepted has no composer to type /fast into (it would steer the turn): fast stays off and the launch
+    // result says so (a469f).
+    if (recipe.fast && ready.reason !== "turn_running") {
       phase = "configuration_restore";
       const failed = await applyLaunchFast(name, resumed);
       if (failed || resumed.fast !== true) throw uncertain();
@@ -9252,7 +9254,8 @@ export async function openAgentWithInitialPrompt(
         const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
-          const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: null };
+          const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: recipe.fast && resumed.fast !== true
+            ? { code: "FAST_MODE_UNCONFIRMED", message: "FAST_MODE_UNCONFIRMED: 再開した時に番が動いていたため、fastを戻していません。席が入力待ちになってからagent_configureでfastを切り替えてください。" } : null };
           // A resumed seat that is already working (Claude's SessionStart hook, Codex's native queue) is a resume that
           // worked: input stays unsent, the turn runs on, and startup says so (a469e).
           if (!prompt) return [name, hint, null, null,

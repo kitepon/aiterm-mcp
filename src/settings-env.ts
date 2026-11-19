@@ -4,6 +4,9 @@ import { isSecretEnvName } from "./agent-lifecycle.js";
 // Environment values a launch caller hands to a Claude Code seat: written into the per-launch settings `env` block (a442f).
 // Values live in plain files (settings, resume template), so a secret goes through env_vars by name, never here.
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export const CODE_MODE_ENV = "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE";
+/** The caller asked for Code Mode (a442h): Aiterm may then answer its first-start confirm. */
+export const wantsCodeMode = (env: Record<string, string> | null | undefined): boolean => env?.[CODE_MODE_ENV] === "1";
 export const SETTINGS_ENV_MAX_ENTRIES = 32;
 export const SETTINGS_ENV_MAX_VALUE = 4096;
 

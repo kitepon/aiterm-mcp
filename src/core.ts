@@ -50,7 +50,7 @@ import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDead
 import { stopProcessTree } from "./process-tree-stop.js";
 import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { claudeBannerSettings } from "./started-settings.js";
-import { checkSettingsEnv } from "./settings-env.js";
+import { checkSettingsEnv, wantsCodeMode } from "./settings-env.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
 import { closeExpectedExecution, parseExecutionNativeSessions, executionNativeBindingSchema, type ExecutionNativeSessions } from "./execution-close.js";
 import { executionLaunchSchema, executionPointSchema, type ExecutionLaunch, type ExecutionPoint } from "./execution-contract.js";
@@ -5389,11 +5389,14 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     && codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null;
   const budget = options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, deadline = performance.now() + budget;
   const wait = (ms = budget) => waitAgentTuiReady(name, meta, ms, { selectSteer: running });
+  // a442h: a caller that asked for Code Mode (settings_env, kept in the resume template) lets Aiterm answer its first-start confirm.
+  let answerCodeMode = false;
+  try { answerCodeMode = meta.kind === "claude" && wantsCodeMode(readAgentResumeTemplate(meta)?.settings_env); } catch { /* unreadable: do not answer */ }
   let ready = await wait();
   const answeredAt = new Map<string, number>();
   while (!ready.ready && !ready.steer) {
     const found = meta.kind === "codex" ? codexStartupAction(ready.lastScreen, options.trust_project === true)
-      : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true)
+      : meta.kind === "claude" ? claudeStartupAction(ready.lastScreen, options.trust_project === true, answerCodeMode)
       : meta.kind === "grok" ? grokStartupAction(ready.lastScreen, options.trust_project === true)
       : meta.kind === "antigravity" ? antigravityStartupAction(ready.lastScreen, options.trust_project === true, meta.cwd) : null;
     // A screen already answered is waited out like an unanswered one: the sample right after the key can still be the old

@@ -791,7 +791,7 @@ export function claudeLoginMethodMenu(screen: string): boolean {
 // First-run theme choices. 2.1.282 numbered them ("❯ 2. Dark mode ✔"); 2.1.322 does not ("❯ ✔ Dark mode").
 const CLAUDE_THEME_CHOICE_RE = /^❯\s*(?:[1-7]\.\s*)?(?:✔\s*)?(?:Auto \(match terminal\)|(?:Dark|Light) mode(?: \((?:colorblind-friendly|ANSI colors only)\))?)(?:\s*✔)?\s*$/u;
 
-export function claudeStartupAction(screen: string, trustProject: boolean): import("../agent-shared.js").StartupAction | null {
+export function claudeStartupAction(screen: string, trustProject: boolean, answerCodeMode = false): import("../agent-shared.js").StartupAction | null {
   const tail = screen.split("\n").slice(-32).join("\n");
   const lastMarker = tail.split(/\r?\n/u).filter(line => /^\s*❯/u.test(line)).at(-1)?.trim();
   if (tail.includes("Choose the text style that looks best with your terminal")
@@ -804,6 +804,12 @@ export function claudeStartupAction(screen: string, trustProject: boolean): impo
   if (screen.includes("Claude Code running in Bypass Permissions mode")
     && screen.includes("No, exit") && screen.includes("Yes, I accept"))
     return { kind: "configured_permission_mode_confirmed", keys: ["Down", "Enter"], selected: /^❯\s*(?:\d+\.\s*)?Yes, I accept\b/u };
+  // a442h: only for a launch whose caller asked for Code Mode, and only on exactly its confirm (both rows and the foot). The cursor starts on
+  // "No, start without it": move to Yes first (the launcher waits for the cursor to land there before Enter); a cursor already on Yes needs Enter only.
+  if (answerCodeMode && claudeCodeModeConfirm(screen)) {
+    const onYes = tail.split(/\r?\n/u).some(line => /^\s*[❯>]\s*Yes, turn on Code Mode\s*$/u.test(line));
+    return { kind: "code_mode_enabled", keys: onYes ? ["Enter"] : ["Down", "Enter"], selected: /^[❯>]\s*Yes, turn on Code Mode\b/u };
+  }
   if (!trustProject) return null;
   if (/New MCP server found in this project:/.test(screen))
     return { kind: "project_mcp_enabled", keys: ["Down", "Enter"] };

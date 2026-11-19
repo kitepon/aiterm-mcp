@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A launch whose caller passed `settings_env` `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` now has Code Mode's first-start confirm answered by Aiterm (a442h): on exactly that screen (both unnumbered rows and the `Enter to confirm` foot) it moves the cursor to `Yes, turn on Code Mode`, waits until the cursor is there, presses Enter, waits for Claude Code's restart and goes on to the first prompt; a cursor already on Yes needs Enter only. A launch without that setting, and every other dialog, behave as before (`AGENT_STARTUP_BLOCKED reason=unknown_dialog`, nothing typed). Only the startup path that waits for ready answers it (a launch with a prompt or `trust_project`).
+
 ## [0.70.76] - 2026-11-19
 
 - `agent_launch` / `claude_agent` take `settings_env` (claude-code only, a442f): `{ NAME: "value" }` is written into the seat's per-launch Claude settings `env` block (`claude-settings.json`, passed with `--settings`) on every machine, local or terminal, macOS, Linux and Windows. It is kept in the resume template and recipe, so a resume, a hibernate wake and a failed-resume recovery write the same block (a Code Mode session resumes with Code Mode on). Nothing is written when the caller passes none, so other callers are unchanged. Values are plain: names ending `TOKEN`/`KEY`/`SECRET`/`PASSWORD`/`CREDENTIAL`/`AUTH`, `AITERM_*` and `CLAUDE_CONFIG_DIR` are refused (secrets keep using `env_vars` by name). Another harness refuses it; a terminal below 0.70.76 answers `REMOTE_AITERM_TOO_OLD`.

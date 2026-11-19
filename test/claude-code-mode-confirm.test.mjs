@@ -5,7 +5,8 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agentPaneObservation, isAgentTuiIdleReady, waitAgentTuiReadyImpl } from "../dist/agent-screen-observation.js";
-import { claudeCodeModeConfirm, claudeLiveSelectMenu, claudePaneObservation } from "../dist/harnesses/claude.js";
+import { claudeCodeModeConfirm, claudeLiveSelectMenu, claudePaneObservation, claudeStartupAction } from "../dist/harnesses/claude.js";
+import { wantsCodeMode } from "../dist/settings-env.js";
 
 const RULE = "────────────────";
 const dialog = (cursor = "No") => [
@@ -50,4 +51,26 @@ test("a launch that meets the confirm stops waiting at once instead of reaching 
   assert.equal(result.ready, false);
   assert.equal(result.samples, 1);
   assert.equal(clock, 0);
+});
+
+test("a442h: only a launch that asked for Code Mode is answered, only on exactly this confirm, by moving to Yes first", () => {
+  const no = claudeStartupAction(dialog("No"), false, true);
+  assert.equal(no.kind, "code_mode_enabled");
+  assert.deepEqual(no.keys, ["Down", "Enter"]);
+  assert.match("❯ Yes, turn on Code Mode", no.selected);
+  assert.doesNotMatch("❯ No, start without it", no.selected);
+  assert.deepEqual(claudeStartupAction(dialog("Yes"), false, true).keys, ["Enter"], "a cursor already on Yes needs Enter only");
+  assert.deepEqual(claudeStartupAction(dialog("Yes").replaceAll("❯", ">"), false, true).keys, ["Enter"]);
+  // without the caller's request, or on any other screen, nothing is answered
+  assert.equal(claudeStartupAction(dialog("No"), false), null);
+  assert.equal(claudeStartupAction(dialog("No"), true), null);
+  assert.equal(claudeStartupAction(dialog("No").replace("  Yes, turn on Code Mode\n", ""), false, true), null);
+  assert.equal(claudeStartupAction(composer, true, true), null);
+  assert.equal(claudeStartupAction(["● quoting", "    No, start without it", "    Yes, turn on Code Mode", RULE, "❯ ", RULE].join("\n"), true, true), null);
+});
+
+test("wantsCodeMode is true only for CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1", () => {
+  assert.equal(wantsCodeMode({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" }), true);
+  for (const other of [undefined, null, {}, { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "0" }, { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "true" }, { OTHER: "1" }])
+    assert.equal(wantsCodeMode(other), false, JSON.stringify(other));
 });

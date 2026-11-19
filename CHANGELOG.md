@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.79] - 2026-11-19
+
 - A relayed terminal seat row's `turn.wait_process` in `pty_list`'s `aiterm/seat_turns` now runs on the caller's host (a464). The terminal built it with its own Node path (`/home/…/node …/aiterm-wait-cli.js`), which does not exist where BellTeam runs it (ENOENT, BugHub 7681ba25). A running turn with an `event_cursor` now carries the same ssh waiter that `pty_send` and `agent_launch` return for a terminal; a row that cannot get one carries `wait_process: null`.
 
 ## [0.70.78] - 2026-11-19
@@ -3569,7 +3571,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.78...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.79...HEAD
+[0.70.79]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.78...v0.70.79
 [0.70.78]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.77...v0.70.78
 [0.70.77]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.76...v0.70.77
 [0.70.76]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...v0.70.76

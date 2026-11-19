@@ -11,7 +11,7 @@ launcherが席のmodel／effortを固定でき、固定中は席の中のAIのto
 | 実ファイル・関数 | 読み先と記録 |
 | --- | --- |
 | `src/started-settings.ts`: `claudeBannerSettings` | Claude Codeの起動画面の見出し（`Opus 5.5 with high effort`）から、modelのID（`claude-opus-5-5`、1M文脈は`[1m]`付き）とeffortを読む。読めない（見出しが流れた・effortの無いmodel）ときはnull |
-| `src/core.ts`: `recordStartedSettings` | Claudeは見出し、Codexは利用者のconfig（`model`／`model_reasoning_effort`）を先に、無ければ`codexModelChoices`の既定model、effortは`vendor_default`（Codexが自分で選ぶ）。`meta.model`・再開の手順を`confirmed`で書く。読めなければ何も書かず、休止できない現状のまま（推測しない） |
+| `src/core.ts`: `recordStartedSettings` | Claudeは最初のready（`waitAgentTuiReady`）で見出しから、Codexは最初の番の`turn_context`（Codexの記録に残る、実際に走ったmodelとeffort。`codexWorkingResumeConfiguration`）から読む。Codexはready時と休止の確かめの直前（idle snapshot）に試み、effortが記録に無ければ`vendor_default`。ファイルだけを読み、入力待ちの答えは待たない（catalogやprocessは使わない）。`meta.model`・再開の手順を`confirmed`で書く。読めなければ何も書かず、休止できない現状のまま（推測しない） |
 
 対象はClaude CodeとCodexだけ。Grok・Cursor・Antigravityは再開の手順そのものを持たず（`agentResumeRecipeSchema.kind`）、休止も再開もAitermの契約に無いので、記録の読み手がいない。席の中で`/model`で替えた値は、今までどおり休止・再開では持ち越さない。
 

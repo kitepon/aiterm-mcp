@@ -2303,6 +2303,7 @@ export async function checkAgentIdle(expectedInput: ExecutionLaunch, expectedAnc
       last_attached_at: /^\d+$/.test(fields[3]) ? Number(fields[3]) * 1000 : null };
   };
   const snapshot = (): IdleSeatSnapshot => {
+    try { recordStartedSettings(name, metadata(), ""); } catch { /* unreadable: the seat stays unable to hibernate */ }
     const meta = metadata();
     captured ??= meta;
     const receipt = readAgentResumeNative(meta);
@@ -5016,35 +5017,31 @@ async function waitAgentTuiReady(
   );
   if (result.ready) {
     agentLaunchLines.delete(name);
-    try { await recordStartedSettings(name, meta, result.lastScreen); } catch { /* the seat stays as it was: no resume template, not a failed ready */ }
+    try { recordStartedSettings(name, meta, result.lastScreen); } catch { /* the seat stays as it was: no resume template, not a failed ready */ }
   }
   return result;
 }
 
 /**
  * A seat launched with no model/effort (the caller's '' = CLI default) has no resume recipe, so it can neither hibernate nor resume (a442e).
- * Aiterm owns what the seat started with: at the first ready, read it (Claude: the start banner; Codex: the user's config, else the catalog default)
- * and write it to meta.model and the resume template. Nothing is guessed: unreadable leaves everything untouched.
+ * Aiterm owns what the seat started with, so it records it in meta.model and the resume template:
+ * Claude from the start banner (first ready), Codex from the first turn's turn_context in its own rollout (the model and effort it really ran).
+ * Synchronous and file-only on purpose: the ready answer must never wait on a catalog or a process. Unreadable -> nothing written, no guess.
  */
-async function recordStartedSettings(name: string, meta: AgentMetadata, screen: string): Promise<void> {
+function recordStartedSettings(name: string, meta: AgentMetadata, screen: string): void {
   if ((meta.kind !== "claude" && meta.kind !== "codex") || meta.model !== null) return;
   const current = tryLoadAgentMetadata(name);
   if (!current || current.launch_id !== meta.launch_id || current.model !== null) return;
   const template = readAgentResumeTemplate(current);
   if (!template || template.model !== null) return;
-  let model: string, effort: string | null;
-  if (current.kind === "claude") {
-    const banner = claudeBannerSettings(screen);
-    if (!banner) return;
-    ({ model, effort } = banner);
-  } else {
-    const codexHome = current.codex_home!;
-    const pins = readCodexConfigPins(path.join(codexHome, "config.toml"));
-    const picked = pins.model.value ?? (await codexModelChoices(current.agent_executable!, true, codexHome)).default_model;
-    if (!picked) return;
-    model = picked;
-    effort = pins.effort.value;
+  let started: { model: string; effort: string | null } | null;
+  if (current.kind === "claude") started = claudeBannerSettings(screen);
+  else {
+    const working = current.vendor_session_id ? codexWorkingResumeConfiguration(current) : null;
+    started = working && working.session_id === current.vendor_session_id ? { model: working.model, effort: working.effort } : null;
   }
+  if (!started) return;
+  const { model, effort } = started;
   withExecutionPreparation(name, () => {
     const latest = loadAgentMetadata(name);
     if (latest.launch_id !== current.launch_id || latest.model !== null) return;

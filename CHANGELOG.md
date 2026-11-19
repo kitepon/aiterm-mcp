@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.75] - 2026-11-19
+
 - A Claude Code seat showing Code Mode's first-start confirm (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`: unnumbered `No, start without it` / `Yes, turn on Code Mode`, foot `Enter to confirm · Esc to start without it`) is no longer read as an idle composer (a442c). `pty_observe` and the ready gate report `blocked / unknown_dialog`, `pty_send` refuses `CLAUDE_SELECT_MENU_OPEN` before typing, and a launch that meets it ends `AGENT_STARTUP_BLOCKED` instead of typing the first prompt into it. Aiterm does not answer it; the caller sends Down+Enter (turn on) or Enter/Esc (start without). The answer is saved per machine in `~/.claude.json`, so each machine meets it once. Same code on Linux, macOS and Windows.
 
 ## [0.70.74] - 2026-11-18
@@ -3551,7 +3553,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.75...HEAD
+[0.70.75]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.74...v0.70.75
 [0.70.74]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.73...v0.70.74
 [0.70.73]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.72...v0.70.73
 [0.70.72]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.71...v0.70.72

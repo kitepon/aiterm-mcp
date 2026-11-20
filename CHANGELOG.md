@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.82] - 2026-11-20
+
 - Claude machine launch mode (a471, ADR 0142). `agent_launch` takes `interface: "terminal" | "machine"` (claude-code only). A machine seat runs `claude-machine-host` in the seat's native session (tmux/psmux, the same owner on every OS) instead of the Claude TUI; the host owns one resident `claude -p --input-format stream-json --output-format stream-json` process, reads the pane's keys (paste + Enter = a user message, Escape / C-c = interrupt, digits + Enter answer a dialog) and prints the stream as plain text with a state line `[aiterm-machine] state=idle|busy|blocked` that `pty_observe` and the wait paths read where they read the TUI. Public tools and receipts are unchanged; completion is still the Stop hook, and the seat's Throughline-visible order is kept (idle only after the turn's Stop hooks answered). `agent_configure` model, effort and fast go by control requests (also inside a running turn); `claude_approval` inspect answers `status: "none"` for a machine seat with nothing pending; the interface is saved in the resume recipe, a wake may name it, and the same conversation resumes in either mode. A machine seat has no Code Mode (`-p` has none on Claude Code 2.1.328/2.1.329; `settings_env` is still accepted and ignored). New refusals, both leaving no seat: `REMOTE_AITERM_TOO_OLD` for a remote below 0.70.82, and `AGENT_MACHINE_UNAVAILABLE` when the CLI does not come up in machine mode. The launch result carries `interface: "machine"` for such a seat. Verified live on Linux (Claude Code 2.1.328), macOS and Windows (2.1.329): launch, dispatch, steer, configure, interrupt, hibernate and wake, auto-resume, fork.
 
 ## [0.70.81] - 2026-11-19
@@ -3581,7 +3583,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...HEAD
+[0.70.82]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...v0.70.82
 [0.70.81]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.80...v0.70.81
 [0.70.80]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.79...v0.70.80
 [0.70.79]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.78...v0.70.79

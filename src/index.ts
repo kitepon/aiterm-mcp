@@ -1151,10 +1151,10 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.claude-approval-result.v1"),
       action: z.enum(["inspect", "respond"]),
-      status: z.enum(["approval_required", "submitted"]),
+      status: z.enum(["none", "approval_required", "submitted"]).describe("none: a machine-mode seat has no request pending"),
       session_id: z.string(),
       operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
-      prompt_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+      prompt_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
       choices: z.array(z.object({
         decision: z.enum(["approve_once", "deny"]),
         index: z.number().int().positive(),
@@ -1437,7 +1437,9 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   }
   // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140), and one without Codex caller fields
   // would drop or refuse them: check the version first.
-  const needs = args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
+  if (args.interface !== undefined && harness !== "claude-code") throw launchInputRefusal(harness, "interfaceはclaude-code harnessだけで使えます。指定を外してください");
+  const needs = args.interface === "machine" ? { minimum: MACHINE_INTERFACE_MINIMUM_VERSION, what: "interface: machine" }
+    : args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
     : args.settings_env !== undefined ? { minimum: SETTINGS_ENV_MINIMUM_VERSION, what: "settings_env" }
     : harness === "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined)
       ? { minimum: CODEX_REMOTE_MINIMUM_VERSION, what: "append_system_prompt / mcp_config for codex-cli" } : null;
@@ -1489,6 +1491,8 @@ const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced:
   .describe("mcp_config only: caller servers dropped because the seat's own harness config defines the name, and those that replaced it (replace: true). A terminal below 0.70.62 does not return it");
 /** First release that reads `replace` in a caller server (launch-identity-input.md "Caller name precedence"). */
 const CALLER_REPLACE_MINIMUM_VERSION = "0.70.62";
+/** First release whose agent_launch takes interface: "machine" (a471); an older one strips the unknown key and starts a TUI seat. */
+const MACHINE_INTERFACE_MINIMUM_VERSION = "0.70.82";
 /** First release whose claude_agent / agent_launch takes settings_env (a442f); an older one would drop it and start the seat without it. */
 const SETTINGS_ENV_MINIMUM_VERSION = "0.70.76";
 /** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
@@ -1572,6 +1576,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       append_system_prompt,
       mcp_config,
       settings_env,
+      interface: args.interface,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
       ...(fork_from ? { fork_from } : {}),
@@ -1592,6 +1597,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       startup,
       fast: fastState.fast,
       fast_error: fastState.fast_error,
+      ...(loadAgentMetadata(sid).claude_interface === "machine" ? { interface: "machine" as const } : {}),
       ...(supportsWriteScope && write_scope !== undefined
         ? {
             write_scope,
@@ -1687,6 +1693,7 @@ function registerAgentTool(
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
           mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars. A same-name server of the seat's own config wins and the entry is dropped (caller_mcp.dropped) unless it has replace: true"),
           settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
+          interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.82 refuses with REMOTE_AITERM_TOO_OLD; a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
         } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,
@@ -1711,6 +1718,7 @@ function registerAgentTool(
         submit_residue: z.boolean().nullable(),
         fast: z.boolean().optional().describe("起こした後の、席のfastの状態"),
         fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
+        interface: z.literal("machine").optional().describe("Returned only for a seat that runs in machine mode"),
         ...writeScopeOutputSchema,
         caller_mcp: callerMcpOutputSchema,
       },
@@ -1750,6 +1758,7 @@ server.registerTool(
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; Antigravity: an always-on rule in the seat's own --add-dir folder; at most 64 KiB for these. Cursor has no system-prompt channel: the text goes in front of the first prompt, or of the first input sent to a promptless seat (at most 64 KiB)"),
       mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers, replace?: boolean}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. A server the seat's own harness config already defines under the same name is dropped for this seat (listed in caller_mcp.dropped) unless its entry has replace: true; then it replaces that server (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead). Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server, so nothing is dropped there"),
       settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
+      interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.82 refuses with REMOTE_AITERM_TOO_OLD; a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1773,6 +1782,7 @@ server.registerTool(
       submit_residue: z.boolean().nullable(),
       fast: z.boolean().optional().describe("起こした後の、席のfastの状態（この項目を返さない版の別端末では無い）"),
       fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
+      interface: z.literal("machine").optional().describe("Returned only for a seat that runs in machine mode"),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
       caller_mcp: callerMcpOutputSchema,

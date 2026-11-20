@@ -18,6 +18,10 @@ Aitermのmetadataはsession・launch・保存home・vendor bindingを所有し�
 
 Codexの**停止本人性**は通常完了待ちより厳しい。候補全列挙、symlink/読取失敗拒否、完全headerの印、一意endpoint、前後statと再列挙を照合する。通常読取の新会話追跡へこの一意性を機械的に当てはめたり、停止経路へ通常fallbackを流用したりしない。復帰proofは旧file出生、prefix digest、cursor下限、旧完了turnを保持し、新launchの開始位置と区別する。
 
+## Claude machine launch mode（0.70.82、a471）
+
+Claudeの完了・本人性・回答は `interface: "machine"` の席でも上の表のまま（Stop hook・transcript・operation印）。違いは入力と観測の面だけ: 画面は [claude-machine-host](claude-machine-host.md) の状態の行を `claudePaneObservation` が読み、承認は host が `can_use_tool` を「Do you want to proceed?」で描いて `claude_approval` が読み、中断は `claude-machine-end.json` が `claudeInterruptedAfter` に渡す。
+
 ## 呼び手の起動指示とMCP（agent_launch append_system_prompt / mcp_config）
 
 全5 harnessが受ける（詳細は[launch-identity-input](launch-identity-input.md)）。席ごとの状態は Aiterm の launch state だけ（project・各 home に書かない）。Claude は `--append-system-prompt-file` / `--mcp-config`。Codex は `-c developer_instructions=`（Aiterm 印の後ろ）と `-c mcp_servers.NAME=`。Grok は `--rules`（Aiterm の lineage の後ろ）と、席ごとの agent 定義 `--agent <seat>.grok-caller-agent.md`（frontmatter `mcpServers:` の**配列**。本文は空で既定 agent の prompt と tool は保つ。header の `${VAR}` は展開されないため `Bearer ${NAME}` は `bearer_token_env_var`、他の `${NAME}` は席の env から Aiterm が解決して 0600 の定義へ書く）。Cursor は system 指示の口が無く、Aiterm の最初の prompt ブロックへ呼び手の文を足し、MCP は `--plugin-dir <seat>.cursor-plugin/aiterm-caller`（`mcp.json` の `${env:NAME}`）。Antigravity は MCP を `--add-dir <seat>.antigravity-caller`（`.agents/mcp_config.json`、header は解決済みの literal）と `--settings` の `trustedWorkspaces`、指示は同じ folder の `.agents/rules/aiterm.md`（`trigger: always_on`、0.70.56）。呼び手のserverは、席の端末自身の設定にある同名serverを置き換えない（そのentryを落とす）。entryに`replace: true`がある時だけ置き換える。落とした名前と置き換えた名前は起動の受け取り`caller_mcp`に載る（0.70.62、[Caller name precedence](launch-identity-input.md)）。

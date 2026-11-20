@@ -29,6 +29,10 @@
 
 Steer SDK/CLIとBridgeの保存形式読取依存は[接点表](external-contracts.md)が正本。Bridgeの台帳/予約/receiptはリター、channel/hookの状態と出力はエレグ。emittedをvendor開始へ拡張しない。運用で使うget_self/update_self/sendmessage/予定はBellTeam MCPであり、製品内部のAPIと混同しない。
 
+## Claude machine launch mode（0.70.82、a471）
+
+`agent_launch` の追加引数 `interface: "terminal" | "machine"`（claude-codeだけ、省略は新規席でterminal、休止席のwakeでは保存した値）。machineで立った席の起動結果の `structuredContent.interface` に `"machine"`（その席だけ。省略可）。断りは `REMOTE_AITERM_TOO_OLD`（別端末が0.70.82未満）と `AGENT_MACHINE_UNAVAILABLE`（席を残さない）。`claude_approval inspect` は待ちが無い時 `status: "none"`（`prompt_digest: null`）。他の公開tool・receiptは変えない。BellTeam側の切替（キロ氏）は呼び手の引数だけで、Aitermの内部形式を読まない。
+
 ## 公開の入口（package exports、0.70.58、bd04）
 
 指揮官氏 2026-11-14：製品の間は図にある契約の入口だけで繋ぐ。BellTeamは今、`/usr/local/lib/node_modules/aiterm-mcp/dist/*.js` を絶対パスで読み込んでいる（トロニー氏の洗い出し product-connections-inventory-20261114.md 16-23行目）。Aitermが約束する入口は `package.json` の `exports` に載せた次の物だけで、**`exports` の表そのものが約束**。各入口の値は、packageの根の中のファイルを指す文字列（`./` で始まる。条件の分岐は使わない）。読む側は、自分が選んだ版のpackageの根（BellTeamはruntimeの世代が決める `lib/node_modules/aiterm-mcp`）の `package.json` の `exports` から入口の値を読み、`<根>/<値>` を読み込むか node で走らせる（キロ氏 2026-11-14。素の `import("aiterm-mcp/...")` は読む側の node_modules の写しに当たるので使わない）。載せていない `dist` のファイル、関数、引数は、版の間で予告なく変わる。

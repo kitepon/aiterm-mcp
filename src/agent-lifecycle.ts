@@ -22,6 +22,8 @@ export const agentResumeRecipeSchema = z.object({
   secret_environment: z.array(envName).optional(),
   // a442f: values the launch caller put in the Claude settings env block; a resume writes the same block.
   settings_env: z.record(envName, z.string().refine(value => !value.includes("\0"))).optional(),
+  // a471: the seat's launch interface; absent = the TUI. A wake takes it from here unless the launch names another.
+  interface: z.literal("machine").optional(),
 }).strict();
 export type AgentResumeRecipe = z.infer<typeof agentResumeRecipeSchema>;
 const identity = z.object({ pid: z.number().int().positive(), process_group_id: z.number().int().positive().nullable(),
@@ -164,7 +166,8 @@ export function captureAgentResumeTemplate(meta: AgentMetadata, effort: string |
   writeAgentResumeTemplate(meta, { schema: "aiterm.agent-resume-template.v1", launch_id: meta.launch_id, kind: meta.kind,
     executable: meta.agent_executable!, cwd: meta.cwd!, configuration_root: configurationRoot, model: meta.model ?? null, reasoning_effort: effort,
     environment: Object.fromEntries(names.filter(name => !isSecretEnvName(name)).map(name => [name, launchEnvValue(name, env) ?? null])),
-    ...(secrets.length ? { secret_environment: secrets } : {}), ...(settingsEnv && meta.kind === "claude" ? { settings_env: settingsEnv } : {}), state: "confirmed" });
+    ...(secrets.length ? { secret_environment: secrets } : {}), ...(settingsEnv && meta.kind === "claude" ? { settings_env: settingsEnv } : {}),
+    ...(meta.kind === "claude" && meta.claude_interface === "machine" ? { interface: "machine" as const } : {}), state: "confirmed" });
 }
 export function finishAgentResumeConfiguration(meta: AgentMetadata, before: AgentResumeTemplate, model: string | null, effort: string | null): void {
   const complete = !!model && !!effort;

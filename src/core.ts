@@ -16,6 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
+import { claudeMachineMarker } from "./claude-machine.js";
 import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
 import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
@@ -3234,10 +3235,10 @@ export interface ClaudeApprovalChoice {
 export interface ClaudeApprovalResult {
   schema: "aiterm.claude-approval-result.v1";
   action: "inspect" | "respond";
-  status: "approval_required" | "submitted";
+  status: "none" | "approval_required" | "submitted";
   session_id: string;
   operation_id: string | null;
-  prompt_digest: string;
+  prompt_digest: string | null;
   choices: ClaudeApprovalChoice[];
   selected_choice: ClaudeApprovalDecision | null;
   at: string;
@@ -3470,6 +3471,45 @@ function assertExpectedClaudeOperation(
   return active;
 }
 
+/**
+ * a471: a fresh machine seat is refused, and closed, unless its host reaches a state line. Protects: a seat that never came up in
+ * machine mode must not stay as a half-made seat; the caller can launch the TUI instead. Self-exit: the host's own failure line
+ * or the first state line; the wait is the ordinary TUI ready timeout, not a new one.
+ */
+async function assertClaudeMachineCameUp(sid: string): Promise<void> {
+  const deadline = performance.now() + AGENT_TUI_READY_TIMEOUT_MS;
+  let reason = "no state line from the host";
+  do {
+    const screen = captureScreen(sid, 200);
+    const marker = claudeMachineMarker(screen);
+    if (marker && marker.state !== "starting") return;
+    const failed = screen.split(/\r?\n/u).find(line => /^! (?:claude did not start|claude exited|initialize failed)/.test(line));
+    if (failed) { reason = failed; break; }
+    await sleep(200);
+  } while (performance.now() < deadline);
+  try { closeSessionInternal(sid, false); } catch { /* the refusal below is the answer */ }
+  throw new AitermError(`AGENT_MACHINE_UNAVAILABLE: Claude Codeが機械の口（claude -p stream-json）で起動しませんでした（${reason}）。席は残していません。`, 2);
+}
+
+/** a471: one host-handled line (`/aiterm-config {json}`); the host answers with a `[aiterm-machine] config=ok|error` line. */
+async function configureClaudeMachineSeat(name: string, want: { model: string | null; effort: string | null; fast: boolean | null }): Promise<void> {
+  const body = { ...(want.model ? { model: want.model } : {}), ...(want.effort ? { effort: want.effort } : {}), ...(want.fast !== null ? { fast: want.fast } : {}) };
+  const lines = () => captureScreen(name, 200).split(/\r?\n/u).filter(line => line.startsWith("[aiterm-machine] config="));
+  const before = lines().length;
+  await sendAgentPromptText(name, `/aiterm-config ${JSON.stringify(body)}`);
+  const deadline = performance.now() + 15_000;
+  do {
+    const seen = lines();
+    if (seen.length > before) {
+      const line = seen[seen.length - 1];
+      if (line.startsWith("[aiterm-machine] config=ok")) return;
+      throw new AitermError(`CLAUDE_MODEL_SWITCH_REFUSED vendor=claude session=${name}\nClaude Codeが設定を受け付けませんでした（${line}）。設定は変えていません。`, 2);
+    }
+    await sleep(100);
+  } while (performance.now() < deadline);
+  throw new AitermError(`CLAUDE_MODEL_SWITCH_UNCONFIRMED vendor=claude session=${name}\nmachine席の設定の知らせを確認できません。再送しないでください。`, 2);
+}
+
 export function runClaudeApproval(options: Parameters<typeof runClaudeApprovalInNative>[0]): ClaudeApprovalResult {
   if (options.action === "respond") assertExecutionContext(options.session_id);
   return withAgentNativeOperation(options.session_id, options.action === "respond", () => runClaudeApprovalInNative(options));
@@ -3497,6 +3537,13 @@ function runClaudeApprovalInNative({
   if (action === "inspect") {
     if (approvalChoice != null || observedPromptDigest != null) {
       throw new AitermError("claude_approval inspectにapproval_choice／observed_prompt_digestは指定できません", 2);
+    }
+    // a471: a machine seat has a request only while its host says so; nothing pending is an answer, not an error.
+    if (meta.claude_interface === "machine") {
+      const pending = claudeMachineMarker(captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES));
+      if (pending?.state !== "blocked" || pending.reason !== "tool_approval")
+        return { schema: "aiterm.claude-approval-result.v1", action, status: "none", session_id: name, operation_id: operationId,
+          prompt_digest: null, choices: [], selected_choice: null, at: new Date().toISOString() };
     }
     assertExpectedClaudeOperation(meta, operationId);
     const observed = parseClaudeApprovalScreen(captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES));
@@ -7193,6 +7240,20 @@ async function configureAgentInLock(
     if (effort && !level && effort !== "ultracode") {
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
+    if (meta.claude_interface === "machine") {
+      // a471: the host turns these into set_model / apply_flag_settings control requests; no picker, no screen keys.
+      if (model?.toLowerCase() === "opusplan")
+        throw new AitermError(`CLAUDE_MODEL_NOT_SELECTABLE vendor=claude session=${name}\nmachine席では opusplan を席の中で選べません（起動のmodelで指定してください）。設定は変えていません。`, 2);
+      if (model || level || fast !== null) { beforeChange(); await configureClaudeMachineSeat(name, { model, effort: level, fast }); }
+      if (effort && !level) {
+        beforeChange();
+        await sendAgentPromptText(name, `/effort ${effort}`);
+        if (!(await waitAgentTuiReady(name, meta, AGENT_TUI_READY_TIMEOUT_MS)).ready) throw new AitermError(`Claudeのeffort変更完了を確認できません`, 2);
+      }
+      rememberModel();
+      if (fast !== null) recordAgentFast(meta, fast);
+      return configured();
+    }
     if (model?.toLowerCase() === "opusplan") await switchClaudeOpusPlan(name, meta, beforeChange);
     if (model || level) {
       const restoreSize = inTurn ? await tallenPaneForPicker(name) : null;
@@ -7729,8 +7790,15 @@ const CLAUDE_LOGIN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
  * `secretValues` (E8, lifecycle-state-ownership 4c): the values agent_launch brought for the recipe's secret names (null = unset,
  * only the Claude login). Without them (pty_send, dispatch, vanished adopt) a recipe naming a secret is refused before any effect.
  */
+/** a471: the recipe with the launch's interface applied (a wake may name one; none named keeps the saved). */
+function recipeWithInterface<T extends { kind: string; interface?: "machine" }>(recipe: T, want?: "terminal" | "machine"): T {
+  if (want === undefined || recipe.kind !== "claude") return recipe;
+  const { interface: _saved, ...rest } = recipe;
+  return (want === "machine" ? { ...rest, interface: "machine" } : rest) as T;
+}
+
 async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot,
-  secretValues?: Record<string, string | null>): Promise<AgentMetadata> {
+  secretValues?: Record<string, string | null>, claudeInterface?: "terminal" | "machine"): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -7779,8 +7847,10 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
   // Same vendor session under another Claude root; the caller proved the transcript is there.
   const rooted = claudeRoot && stored.kind === "claude" ? { ...stored, configuration_root: claudeRoot.root,
     environment: { ...stored.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : stored;
+  // a471: a wake that names an interface takes it (the same conversation resumes in either); none named = the saved one.
+  const interfaced = recipeWithInterface(rooted, claudeInterface);
   // Values of this launch only; null = unset in the seat (the Claude login: it resumes on the root's own login).
-  const recipe = { ...rooted, environment: { ...rooted.environment, ...Object.fromEntries(secretNames.map(key => [key, secretValues![key] ?? null])) } };
+  const recipe = { ...interfaced, environment: { ...interfaced.environment, ...Object.fromEntries(secretNames.map(key => [key, secretValues![key] ?? null])) } };
   // What goes to disk: the names still set, never their values.
   const saved = withoutSecretValues(recipe, secretNames.filter(key => recipe.environment[key] != null));
   if (sessionExists(name)) throw uncertain();
@@ -7823,6 +7893,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
       next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
+      if (recipe.interface === "machine") next.claude_interface = "machine";
       if (previous.claude_caller_prompt_file) next.claude_caller_prompt_file = previous.claude_caller_prompt_file;
       if (previous.claude_caller_mcp_file) next.claude_caller_mcp_file = previous.claude_caller_mcp_file;
       if (previous.codex_caller_prompt_file) next.codex_caller_prompt_file = previous.codex_caller_prompt_file;
@@ -7889,6 +7960,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: saved.environment,
       ...(saved.secret_environment ? { secret_environment: saved.secret_environment } : {}),
       ...(recipe.settings_env ? { settings_env: recipe.settings_env } : {}),
+      ...(recipe.interface ? { interface: recipe.interface } : {}),
       ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
     writeAgentResumeRecipe(resumed, { ...saved, launch_id: resumed.launch_id });
     writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
@@ -8688,6 +8760,7 @@ export function openAgent(
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
     settings_env?: Record<string, string> | null;
+    interface?: "terminal" | "machine" | null;
     fork_of?: AgentForkOf;
   } = {},
 ): [string, string] {
@@ -8910,6 +8983,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
               write(meta, opts.append_system_prompt ?? null, callerMcp, name => seatEnv.get(name));
             }
             if (opts.fork_of) meta.fork_of = opts.fork_of;
+            if (opts.interface === "machine" && meta.kind === "claude") meta.claude_interface = "machine";
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
             // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
@@ -8986,7 +9060,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       if (launched) requestAgentIdleClock(sid, launched.launch_id);
       const driveHint =
         agentDone
-          ? `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
+          ? (launched?.claude_interface === "machine" ? "機械の口（claude -p stream-json）の席。pty_read(" + sid + ", screen:true) は流れの平文（席の発言と道具の実行）を返す。" : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、`) +
             `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
             `Stopが来ない場合の解除はpty_close(${sid})を使う。`
           : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
@@ -9118,7 +9192,12 @@ function ownMcpNames(meta: AgentMetadata, claudeEnv: NodeJS.ProcessEnv): Set<str
 
 /** Caller launch fields refused from the arguments alone, before any session or file exists (phase "input"). */
 function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: string | null; mcp_config?: Record<string, unknown> | null;
-  prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[]; settings_env?: Record<string, string> | null }): void {
+  prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[]; settings_env?: Record<string, string> | null;
+  interface?: "terminal" | "machine" | null }): void {
+  if (opts.interface != null) {
+    if (kind !== "claude") throw launchInputRefusal(agentHarness(kind), "interfaceはclaude-code harnessだけで使えます。指定を外してください");
+    if (opts.interface !== "terminal" && opts.interface !== "machine") throw launchInputRefusal(agentHarness(kind), "interfaceはterminalかmachineです");
+  }
   if (opts.settings_env != null) {
     if (kind !== "claude") throw launchInputRefusal(agentHarness(kind), "settings_envはclaude-code harnessだけで使えます。指定を外してください");
     try { checkSettingsEnv(opts.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
@@ -9158,6 +9237,7 @@ export async function openAgentWithInitialPrompt(
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
     settings_env?: Record<string, string> | null;
+    interface?: "terminal" | "machine" | null;
     fork_from?: { session_id: string; fork_id?: string } | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
@@ -9251,7 +9331,7 @@ export async function openAgentWithInitialPrompt(
           (kind === "claude" ? writeClaudeCallerFiles : writeCodexCallerFiles)({ ...previous }, null, kept);
         }
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
-        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues);
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues, opts.interface ?? undefined);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: recipe.fast && resumed.fast !== true
@@ -9302,13 +9382,16 @@ export async function openAgentWithInitialPrompt(
     append_system_prompt: opts.append_system_prompt ?? null,
     mcp_config: opts.mcp_config ?? null,
     settings_env: opts.settings_env ?? null,
+    interface: opts.interface ?? null,
     ...(fork ? { fork_of: fork.fork_of } : {}),
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
   const launch = (): Promise<[string, string]> => {
     const admitted = async (): Promise<[string, string]> => {
       const create = prepareAgentLaunch(kind, openOptions);
-      return opts.session_name ? withExecutionNativeAdmission(opts.session_name, create) : create();
+      const created = await (opts.session_name ? withExecutionNativeAdmission(opts.session_name, create) : create());
+      if (openOptions.interface === "machine") await assertClaudeMachineCameUp(created[0]);
+      return created;
     };
     if (kind === "grok") {
       const configPath = grokUserConfigPath(realGrokHome());

@@ -202,7 +202,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む19
   assert.deepEqual(claudeApproval.inputSchema.properties.approval_choice.enum, ["approve_once", "deny"]);
   assert.equal(claudeApproval.inputSchema.properties.observed_prompt_digest.pattern, "^sha256:[0-9a-f]{64}$");
   assert.equal(claudeApproval.outputSchema.properties.schema.const, "aiterm.claude-approval-result.v1");
-  assert.deepEqual(claudeApproval.outputSchema.properties.status.enum, ["approval_required", "submitted"]);
+  assert.deepEqual(claudeApproval.outputSchema.properties.status.enum, ["none", "approval_required", "submitted"]); // a471: "none" only for a machine seat with no request pending
   assert.deepEqual(claudeApproval.outputSchema.properties.selected_choice.anyOf.flatMap((entry) => entry.enum ?? []), ["approve_once", "deny"]);
   const agentAuth = toolsResp.result.tools.find((t) => t.name === "agent_auth");
   assert.deepEqual(agentAuth.inputSchema.properties.action.enum, ["start", "status", "cancel", "respond"]);

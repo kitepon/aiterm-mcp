@@ -28,6 +28,7 @@ const ACTIONS: Record<string, string> = {
   SEAT_FORWARD_UNAVAILABLE: "端末からBellTeamへ戻る通り道がまだ用意できていません。少し待ってから起こし直してください。",
   CWD_UNAVAILABLE: "端末に作業フォルダがありません。メンバーの作業フォルダを選び直すか、そのフォルダを作ってください。",
   AGENT_STARTUP_BLOCKED: "AIの起動の途中の画面（初回の案内や確認）で止まったため、席を閉じました。端末でそのAIを一度起動して画面を最後まで進めてから、起こし直してください。",
+  AGENT_MACHINE_UNAVAILABLE: "ClaudeをAitermの機械の口で起動できませんでした。席は残っていません。画面の起動で起こし直します。",
   AGENT_LAUNCH_NOT_STARTED: "席を作る途中で失敗しました。席は残っていません。もう一度起こし直します。",
   CLAUDE_AUTH_STATUS_UNCONFIRMED: "端末のClaude Codeのログイン状態を確かめられませんでした。少し待ってから起こし直してください。",
   CLAUDE_AUTH_STATUS_TIMEOUT: "端末のClaude Codeのログイン状態を時間内に確かめられませんでした。少し待ってから起こし直してください。",

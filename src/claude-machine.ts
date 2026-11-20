@@ -28,3 +28,15 @@ export const CLAUDE_MACHINE_FLAGS = [
   "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-hook-events",
   "--permission-prompt-tool", "stdio",
 ] as const;
+
+const SGR = String.raw`(?:\x1b\[[0-9;?]*[ -/]*[@-~])*`;
+/**
+ * The text of a machine seat a person reads: without the host's state lines and without what the shell showed before the host started
+ * (its prompt and the launch line). Aiterm's own observers read the raw pane instead.
+ */
+export function claudeMachineVisibleText(text: string): string {
+  // A line may start with an escape sequence: the host's first line follows its bracketed-paste request.
+  const start = text.search(new RegExp(`^${SGR}\\[aiterm-machine\\] state=starting`, "m"));
+  if (start > 0) text = text.slice(start);
+  return text.replace(new RegExp(`^${SGR}\\[aiterm-machine\\] [^\\r\\n]*(?:\\r?\\n|$)`, "gm"), "");
+}

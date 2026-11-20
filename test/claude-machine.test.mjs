@@ -3,7 +3,7 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
+import { claudeMachineMarker, claudeMachineMarkerLine, claudeMachineVisibleText } from "../dist/claude-machine.js";
 import { parseMachineQuestion } from "../dist/core.js";
 import { ClaudeMachineHost, parseHostArgs } from "../dist/claude-machine-host.js";
 import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, buildClaudeAgentCmd, claudeResumeArgv } from "../dist/harnesses/claude.js";
@@ -201,4 +201,14 @@ test("a pending AskUserQuestion is read back from the host's screen: question, n
   paste(tool.host, "run");
   tool.child({ type: "control_request", request_id: "t1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
   assert.equal(parseMachineQuestion(tool.out(), "a".repeat(32)), null);
+});
+
+test("the text a person reads has no state lines and nothing from before the host started", () => {
+  const screen = ["bell@host:~$ eval launch-line", "[aiterm-machine] state=starting", "[aiterm-machine] state=idle", "» hi", "[aiterm-machine] state=busy", "hello", "[aiterm-machine] config=ok model=sonnet", "[aiterm-machine] state=idle", ""].join("\n");
+  assert.equal(claudeMachineVisibleText(screen), "» hi\nhello\n");
+  // The raw log: CRLF and an escape sequence before the first line.
+  const log = "$ launch\r\n\x1b[?2004h[aiterm-machine] state=starting\r\n[aiterm-machine] state=idle\r\n» a\r\nb\r\n[aiterm-machine] state=busy\r\n";
+  assert.equal(claudeMachineVisibleText(log), "» a\r\nb\r\n");
+  // A scrolled screen has no starting line: only the state lines go; quoted text and indented lines stay.
+  assert.equal(claudeMachineVisibleText("old\n  [aiterm-machine] state=idle\n[aiterm-machine] state=idle\nnew"), "old\n  [aiterm-machine] state=idle\nnew");
 });

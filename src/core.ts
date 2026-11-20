@@ -16,7 +16,7 @@ import { AGENT_TUI_READY_TIMEOUT_MS, AGENT_TUI_FIRST_DRAW_TIMEOUT_MS, AGENT_TUI_
 export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from "./agent-screen-observation.js";
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
-import { claudeMachineMarker } from "./claude-machine.js";
+import { claudeMachineMarker, claudeMachineVisibleText } from "./claude-machine.js";
 import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
 import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
 /**
@@ -1728,6 +1728,15 @@ export function utf8SafeSliceStart(buf: Buffer): Buffer {
   return buf.subarray(start);
 }
 
+/**
+ * a471: the host's `[aiterm-machine] ...` lines are Aiterm's own observation contract, not part of what the seat said: the screen
+ * and log a person reads (pty_read, the Bot screen view) never carry them. Internal observers read the raw pane (captureScreen).
+ */
+function withoutMachineStateLines(name: string, text: string): string {
+  if (!text.includes("[aiterm-machine] ") || tryLoadAgentMetadata(name)?.claude_interface !== "machine") return text;
+  return claudeMachineVisibleText(text);
+}
+
 export async function readOutput(name: string, o: ReadOpts = {}): Promise<string> {
   return withAgentNativeOperation(name, false, () => readOutputInNative(name, o));
 }
@@ -1745,7 +1754,7 @@ async function readOutputInNative(name: string, o: ReadOpts): Promise<string> {
   }
 
   if (o.screen) {
-    const rawTxt = captureScreen(name, o.lines || 0);
+    const rawTxt = withoutMachineStateLines(name, captureScreen(name, o.lines || 0));
     if (o.raw) return rawTxt;
     const [body, meta] = reduceOutput(rawTxt, name, true);
     return body + "\n" + meta + agentReadMetadataSuffix(name, rawTxt) + (status ? completionSuffix(status) : "");
@@ -1810,6 +1819,7 @@ async function readOutputInNative(name: string, o: ReadOpts): Promise<string> {
   }
 
   if (!o.range) writeOffset(name, nextOffset);
+  text = withoutMachineStateLines(name, text);
 
   if (o.raw) return text.endsWith("\n") ? text : text + "\n";
 

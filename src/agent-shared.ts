@@ -8,7 +8,7 @@ import { AitermError } from "./errors.js";
 
 /** 既存launcher／stateとの互換に残す内部profile名。新規公開APIの選択軸は AgentHarness。 */
 export type AgentKind = "claude" | "codex" | "grok" | "cursor" | "antigravity";
-export type AgentHarness = "claude-code" | "codex-cli" | "grok-cli" | "cursor-cli" | "antigravity-cli";
+export type AgentHarness = "claude-code" | "claude-machine" | "codex-cli" | "grok-cli" | "cursor-cli" | "antigravity-cli";
 export type InitialPromptState = "none" | "not_sent" | "sent" | "pending" | "done" | "failed";
 
 export interface HarnessPaneObservation {
@@ -92,8 +92,8 @@ export interface AgentMetadata {
   node_platform: NodeJS.Platform;
   codex_home?: string;
   claude_settings?: string;
-  // a471: the seat runs claude-machine-host (claude -p stream-json) in its pane instead of the Claude TUI. Absent = TUI.
-  claude_interface?: "machine";
+  // a471 (ruling 14): the seat is of the claude-machine harness (claude -p stream-json under claude-machine-host). Absent = the claude TUI harness.
+  claude_harness?: "claude-machine";
   // Caller launch instructions / MCP servers kept in Aiterm's own state (remote-terminal.md R7), never in the project or home config.
   claude_caller_prompt_file?: string;
   claude_caller_mcp_file?: string;
@@ -523,7 +523,10 @@ export function agentLabel(kind: AgentKind): string {
         : "Codex";
 }
 
-export function agentHarness(kind: AgentKind): AgentHarness {
+/** The public harness id of a seat: a Claude seat of the machine driver is claude-machine; `kind` stays the vendor (claude). */
+export function agentHarness(of: AgentKind | Pick<AgentMetadata, "kind" | "claude_harness">): AgentHarness {
+  const kind = typeof of === "string" ? of : of.kind;
+  if (typeof of !== "string" && of.kind === "claude" && of.claude_harness === "claude-machine") return "claude-machine";
   if (kind === "antigravity") return "antigravity-cli";
   return kind === "claude"
     ? "claude-code"

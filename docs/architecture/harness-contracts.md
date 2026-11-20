@@ -18,9 +18,9 @@ Aitermのmetadataはsession・launch・保存home・vendor bindingを所有し�
 
 Codexの**停止本人性**は通常完了待ちより厳しい。候補全列挙、symlink/読取失敗拒否、完全headerの印、一意endpoint、前後statと再列挙を照合する。通常読取の新会話追跡へこの一意性を機械的に当てはめたり、停止経路へ通常fallbackを流用したりしない。復帰proofは旧file出生、prefix digest、cursor下限、旧完了turnを保持し、新launchの開始位置と区別する。
 
-## Claude machine launch mode（0.70.82、a471）
+## Claude machine harness（0.70.85、a471）
 
-Claudeの完了・本人性・回答は `interface: "machine"` の席でも上の表のまま（Stop hook・transcript・operation印）。違いは入力と観測の面だけ: 出力はデータ（[claude-machine-stream](claude-machine-stream.md)）で、状態はhostが事象から決めたstate file、承認は `pending` のcontrol_response（`claude_approval`）、中断はstate fileの `last_result` が `claudeInterruptedAfter` に渡す。画面は読まない。
+Claudeの完了・本人性・回答は `claude-machine` harnessの席でも上の表のまま（Stop hook・transcript・operation印）。違いは入力と観測の面だけ: 出力はデータ（[claude-machine-stream](claude-machine-stream.md)）で、状態はhostが事象から決めたstate file、承認は `pending` のcontrol_response（`claude_approval`）、中断はstate fileの `last_result` が `claudeInterruptedAfter` に渡す。画面は読まない。
 
 ## 呼び手の起動指示とMCP（agent_launch append_system_prompt / mcp_config）
 

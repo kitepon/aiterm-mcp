@@ -86,7 +86,8 @@ export async function manageClaudeAgentGoal(input: AgentGoalInput, runtime: {
   let issued=false;
   try{
     const target=await runtime.resolve();
-    if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||target.harness!=="claude-code"||!target.vendor_session_id)return result;
+    if(!target||target.session_id!==input.session_id||target.launch_id!==input.launch_id||(target.harness!=="claude-code"&&target.harness!=="claude-machine")||!target.vendor_session_id)return result;
+    result.harness=target.harness as "claude-code"|"claude-machine";
     if(input.expected_thread_id!==undefined&&input.expected_thread_id!==target.vendor_session_id)return {...result,reason:"thread_binding_mismatch"};
     if(input.action!=="inspect" && !(input.action==="clear"&&runtime.clear) && !(["create","edit"].includes(input.action)&&runtime.setObjective))return {...result,availability:"unsupported",outcome:"unsupported",reason:"native_goal_operation_unsupported"};
     if(input.action!=="inspect"&&origin!=="user")return {...result,outcome:"rejected",reason:"user_authorization_required"};

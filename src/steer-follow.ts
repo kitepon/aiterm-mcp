@@ -214,7 +214,7 @@ function baseObservation(meta: AgentMetadata): Omit<AgentWaitObservation, "outco
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     operation_id: null,
     vendor_session_id: meta.vendor_session_id ?? null,
     turn_id: null,

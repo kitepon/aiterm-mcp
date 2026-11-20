@@ -29,9 +29,9 @@
 
 Steer SDK/CLIとBridgeの保存形式読取依存は[接点表](external-contracts.md)が正本。Bridgeの台帳/予約/receiptはリター、channel/hookの状態と出力はエレグ。emittedをvendor開始へ拡張しない。運用で使うget_self/update_self/sendmessage/予定はBellTeam MCPであり、製品内部のAPIと混同しない。
 
-## Claude machine launch mode（0.70.84、a471、ruling 13）
+## Claude machine harness（0.70.85、a471、ruling 13・14）
 
-`agent_launch` の追加引数 `interface: "terminal" | "machine"`（claude-codeだけ、省略は新規席でterminal、休止席のwakeでは保存した値）。machineで立った席の起動結果の `structuredContent.interface` に `"machine"`（その席だけ）。断りは `REMOTE_AITERM_TOO_OLD`（別端末が0.70.84未満）と `AGENT_MACHINE_UNAVAILABLE`（席を残さない）。
+`agent_launch` の `harness` に `claude-machine`（機械Claude。[ADR 0144](../adr/0144-claude-machine-is-its-own-harness.md)）。この席の公開の `harness` は全て `claude-machine`、`vendor`・`provider` は `claude`（Goalの `kind` はvendorの `claude-code`）。休止席のwakeは名指しのharness（または保存した値）で同じ会話を再開（両方向）。断りは `REMOTE_AITERM_TOO_OLD`（別端末が0.70.85未満）と `AGENT_MACHINE_UNAVAILABLE`（席を残さない）。古いlocal Aitermは `agent_launch` の `harness` の列挙に無いので、tools/listの `inputSchema.properties.harness.enum` で見分ける。
 
 machine席の出力は**データ**で渡す（[ADR 0143](../adr/0143-machine-seat-stream-is-data.md)、[契約](claude-machine-stream.md)）。新しい公開tool `stream_read`（claudeのstream-jsonの行をそのまま、cursor・long poll）と `stream_send`（user・control_request・control_response。型の許可表だけ）。AskUserQuestionはstream上の `can_use_tool` のcontrol_requestで、答えは呼び手が作るcontrol_response（Aiterm側に形は無い）。既存のtool（pty_send・pty_observe・claude_approval・agent_stop・agent_configure・agent_goal）はmachine席でも同じ形で答える。BellTeam側（execution＝キロ氏が運び、conversation＝N102が表示・答えを作る）は、Aitermの内部形式（file）を読まない。
 

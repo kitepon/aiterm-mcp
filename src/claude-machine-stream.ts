@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { AitermError } from "./errors.js";
 import { claudeMachineMarkerLine, type ClaudeMachinePending, type ClaudeMachineReason, type ClaudeMachineState } from "./claude-machine.js";
-import { agentClaudeMachineFilePath, readClaudeMachineState } from "./harnesses/claude.js";
+import { agentClaudeMachineFilePath, readClaudeMachineState } from "./harnesses/claude-machine.js";
 import type { AgentMetadata } from "./agent-shared.js";
 
 type Seat = Pick<AgentMetadata, "aiterm_session" | "launch_id">;

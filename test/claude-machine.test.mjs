@@ -7,24 +7,34 @@ import fs from "node:fs";
 import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
 import { ClaudeMachineHost, parseHostArgs } from "../dist/claude-machine-host.js";
 import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine } from "../dist/claude-machine-stream.js";
-import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, buildClaudeAgentCmd, claudeResumeArgv, agentClaudeMachineFilePath } from "../dist/harnesses/claude.js";
+import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, claudeResumeArgv } from "../dist/harnesses/claude.js";
+import { agentClaudeMachineFilePath, claudeMachineAgentArgv, claudeMachineResumeArgv, buildClaudeMachineAgentCmd, claudeMachinePaneObservation, isClaudeMachine } from "../dist/harnesses/claude-machine.js";
+import { agentPaneObservation, isAgentTuiReady, isAgentTuiBusy } from "../dist/agent-screen-observation.js";
+import { agentHarness } from "../dist/agent-shared.js";
 import { agentsDir } from "../dist/agent-shared.js";
 import { agentResumeRecipeSchema } from "../dist/agent-lifecycle.js";
 
 const RULE = "────────────────";
 const tuiComposer = ["Claude Code v2.1.327", "● 直前の回答", RULE, "❯ ", RULE, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"].join("\n");
 
-test("the observer line carries the host's state to the screen-based observers; a TUI screen is never mistaken for it", () => {
+test("the observer line carries the host's state to the screen-based observers; the claude readers never see it and a TUI screen is never mistaken for it", () => {
   assert.deepEqual(claudeMachineMarker(claudeMachineMarkerLine("blocked", "tool_approval")), { state: "blocked", reason: "tool_approval" });
   assert.equal(claudeMachineMarker("● [aiterm-machine] state=idle\n  [aiterm-machine] state=idle"), null);
   assert.equal(claudeMachineMarker(tuiComposer), null);
-  assert.deepEqual(claudePaneObservation("[aiterm-machine] state=idle"), { state: "idle", reason: "composer_ready" });
-  assert.deepEqual(claudePaneObservation("[aiterm-machine] state=busy"), { state: "busy", reason: "turn_running" });
-  assert.deepEqual(claudePaneObservation("[aiterm-machine] state=blocked reason=unknown_dialog"), { state: "blocked", reason: "unknown_dialog" });
-  assert.equal(claudePaneObservation("[aiterm-machine] state=exited").reason, "harness_exited");
-  assert.equal(claudeTuiReady("[aiterm-machine] state=idle"), true);
-  assert.equal(claudeTuiBusy("[aiterm-machine] state=busy"), true);
-  assert.deepEqual(claudePaneObservation(tuiComposer), { state: "idle", reason: "composer_ready" });
+  assert.deepEqual(claudeMachinePaneObservation("[aiterm-machine] state=idle"), { state: "idle", reason: "composer_ready" });
+  assert.deepEqual(claudeMachinePaneObservation("[aiterm-machine] state=busy"), { state: "busy", reason: "turn_running" });
+  assert.deepEqual(claudeMachinePaneObservation("[aiterm-machine] state=blocked reason=unknown_dialog"), { state: "blocked", reason: "unknown_dialog" });
+  assert.equal(claudeMachinePaneObservation("[aiterm-machine] state=exited").reason, "harness_exited");
+  assert.equal(claudeMachinePaneObservation(tuiComposer), null);
+  // The dispatcher: a machine line goes to the machine reader, everything else to the claude TUI reader, unchanged.
+  assert.deepEqual(agentPaneObservation("claude", "[aiterm-machine] state=idle"), { state: "idle", reason: "composer_ready" });
+  assert.equal(isAgentTuiReady("claude", "[aiterm-machine] state=idle"), true);
+  assert.equal(isAgentTuiBusy("claude", "[aiterm-machine] state=busy"), true);
+  assert.deepEqual(agentPaneObservation("claude", tuiComposer), { state: "idle", reason: "composer_ready" });
+  // The claude TUI readers have no machine branch at all.
+  assert.equal(claudePaneObservation("[aiterm-machine] state=idle").state, "unknown");
+  assert.equal(claudeTuiReady("[aiterm-machine] state=idle"), false);
+  assert.equal(claudeTuiBusy("[aiterm-machine] state=busy"), false);
 });
 
 const makeHost = (options) => {
@@ -200,27 +210,36 @@ const meta = (extra = {}) => ({ kind: "claude", aiterm_session: "seat1", launch_
   vendor_session_id: "12345678-1234-1234-1234-123456789abc", agent_executable: "/bin/claude",
   agent_role: "subagent", parent_session_id: "host-root", delegation_depth: 1, lineage: "host-root>claude:seat1", delegation_allowed: true, ...extra });
 
-test("machine argv: host files and flags first, then claude's own argv; a fork adds --deny-questions; the TUI argv is unchanged", () => {
+test("machine argv: host files and flags first, then claude's own argv; a fork adds --deny-questions; the claude argv is unchanged", () => {
   const tui = claudeAgentArgv("/bin/claude", "opus", "high", null, meta());
   assert.equal(tui[0], "/bin/claude");
-  const machine = claudeAgentArgv("/bin/claude", "opus", "high", null, meta({ claude_interface: "machine" }));
+  assert.ok(!tui.includes("--stream-file"));
+  const m = meta({ claude_harness: "claude-machine" });
+  const machine = claudeMachineAgentArgv("/bin/claude", "opus", "high", null, m);
   assert.match(machine[1], /claude-machine-host\.js$/);
   const dash = machine.indexOf("--");
   for (const flag of ["--stream-file", "--input-file", "--state-file", "--replay-user-messages"]) assert.ok(machine.slice(0, dash).includes(flag), flag);
   assert.ok(!machine.slice(0, dash).includes("--deny-questions"));
   assert.deepEqual(machine.slice(machine.length - (tui.length - 1)), tui.slice(1));
-  const fork = claudeAgentArgv("/bin/claude", "opus", "high", null, meta({ claude_interface: "machine", fork_of: { session_id: "m", vendor_session_id: "12345678-1234-1234-1234-123456789abc", write_ban: { path: "/w", method: "landlock" } } }));
+  const fork = claudeMachineAgentArgv("/bin/claude", "opus", "high", null, meta({ claude_harness: "claude-machine", fork_of: { session_id: "m", vendor_session_id: "12345678-1234-1234-1234-123456789abc", write_ban: { path: "/w", method: "landlock" } } }));
   assert.ok(fork.slice(0, fork.indexOf("--")).includes("--deny-questions"));
-  const resumed = claudeResumeArgv("/bin/claude", "opus", "high", meta({ claude_interface: "machine" }));
+  const resumed = claudeMachineResumeArgv("/bin/claude", "opus", "high", m);
   assert.ok(resumed.includes("--resume") && !resumed.includes("--session-id"));
-  const cmd = buildClaudeAgentCmd("/bin/claude", "opus", "high", null, meta({ claude_interface: "machine" }));
+  const cmd = buildClaudeMachineAgentCmd("/bin/claude", "opus", "high", null, m);
   assert.match(cmd, /^'[^']*node[^']*' '[^']*claude-machine-host\.js' --stream-file '/);
+  assert.equal(isClaudeMachine(m), true);
+  assert.equal(isClaudeMachine(meta()), false);
+  assert.equal(agentHarness(m), "claude-machine");
+  assert.equal(agentHarness(meta()), "claude-code");
+  assert.equal(agentHarness("claude"), "claude-code");
+  assert.ok(claudeResumeArgv("/bin/claude", "opus", "high", meta()).includes("--resume"));
 });
 
-test("the resume recipe keeps the interface and rejects other values", () => {
+test("the resume recipe keeps the Claude harness and rejects other values", () => {
   const base = { schema: "aiterm.agent-resume.v1", launch_id: "b".repeat(32), kind: "claude", vendor_session_id: "12345678-1234-1234-1234-123456789abc",
     executable: "/bin/claude", cwd: "/w", configuration_root: "/c", model: "opus", reasoning_effort: "high", fast: false, environment: {} };
-  assert.equal(agentResumeRecipeSchema.parse({ ...base, interface: "machine" }).interface, "machine");
-  assert.equal(agentResumeRecipeSchema.parse(base).interface, undefined);
-  assert.throws(() => agentResumeRecipeSchema.parse({ ...base, interface: "tui" }));
+  assert.equal(agentResumeRecipeSchema.parse({ ...base, harness: "claude-machine" }).harness, "claude-machine");
+  assert.equal(agentResumeRecipeSchema.parse(base).harness, undefined);
+  assert.throws(() => agentResumeRecipeSchema.parse({ ...base, harness: "claude-code" }));
+  assert.throws(() => agentResumeRecipeSchema.parse({ ...base, interface: "machine" }));
 });

@@ -24,7 +24,7 @@ export const configurationBindingSchema = configurationRequestSchema.extend({ se
 type Binding = z.infer<typeof configurationBindingSchema>;
 const resultSchema = z.object({ schema: z.literal("aiterm.agent-configure-result.v1"), session_id: z.string(),
   provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]),
-  harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+  harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
   model: z.string().nullable(), reasoning_effort: z.string().nullable(), fast: z.boolean().nullable() }).strict();
 const recordSchema = z.object({ schema: z.literal("aiterm.configuration-request.v1"), binding: configurationBindingSchema,
   requested: settingsSchema, terminal_at: z.iso.datetime().nullable(), native_effect: z.enum(["not_issued", "possible", "selection_excluded"]),

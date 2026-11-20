@@ -87,7 +87,7 @@
 - 行の運び: long pollで足りる（push無し）。利用者の発話は `--replay-user-messages` で、streamに入れる（steerもすべての入力も、順に、uuidつきで並ぶ）。token単位の途中経過（`--include-partial-messages`）は無し。`ack_cursor` は無し（conversationがcursorを保存する）。
 - 前の起動のstream: wake・restartの後も、席をcloseするまで前の起動のfileは残り、前の起動のcursorで読める（返りの `launch_id` はその行の起動、`current_launch_id` が今の起動）。無ければ `STREAM_CURSOR_STALE`。
 - `state.pending` の各要求に、streamの中の行の位置（`stream_offset`＝行の先頭、`stream_end`＝行の次。cursorは `<launch_id>:<stream_end>`）。答え済みの要求を、行を読み直さず外せる。
-- 0.70.84未満の別端末は `REMOTE_AITERM_TOO_OLD`（`interface: machine` も `stream_read` / `stream_send` も）。
+- 0.70.84未満の別端末は `REMOTE_AITERM_TOO_OLD`（`stream_read` / `stream_send`。harness `claude-machine` は0.70.85）。
 - thinking: 既定は空文（Opus・Sonnet・Fableで測定）。hostがinitializeの直後に `set_max_thinking_tokens`（`max_thinking_tokens: null`、`thinking_display: "summarized"`）を送るので、streamのthinking blockに要約の文が入る。`stream_send` でも同じ要求を送れる。
 - forkの席は答える人がいないので、hostがAskUserQuestionを即denyする（forkは止まらない）。
 - AskUserQuestionの答え: `updatedInput` は元のinput（`questions`）に `answers` を足した物。単一選択は選んだlabel、複数選択はlabelを `, ` で繋ぐ、Otherは自由文そのもの（3つとも実測）。

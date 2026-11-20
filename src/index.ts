@@ -574,7 +574,7 @@ registerRemoteAwareTool(
       parent_delivery: parentDeliveryOutputSchema.optional(),
       launch_id: z.string().nullable(),
       vendor: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).nullable(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       // dispatch後のsubmit座礁観測（additive）。true=composerに送信textの残存を確認（submit未成立の疑い）/
       // false=残存を観測せず（成立の保証ではない）/ null=通常送信・判定不能。
       submit_residue: z.boolean().nullable(),
@@ -743,7 +743,7 @@ registerRemoteAwareTool(
       text: z.string(),
       vendor: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).nullable(),
       turn_id: z.string().nullable(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       raw_chars: z.number().int().nonnegative().nullable(),
       // remote付きは現地の結果をそのまま返す。この項目が無い旧版（0.53.2以前）の結果も通すのでoptional。
       answer_empty: z
@@ -907,7 +907,7 @@ registerRemoteAwareTool(
           "前面コマンド。休止などの席は状態名（hibernated等）、端末が消えたClaudeの席（コンテナ再起動等）は\"vanished\"。次の送信で再開する"),
         attached: z.boolean(),
         width: z.number(), height: z.number(),
-        harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
+        harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
         launch_id: z.string().nullable().optional().describe(
           "一覧取得時のmanaged起動ID。通常PTYやmetadata不明時はnull、旧remote版は省略。操作時のfresh binding検証の代わりにはしない"),
         // 0.58.3より前の現地（remote）は返さないので、無い事も受ける。
@@ -1023,7 +1023,7 @@ registerRemoteAwareTool(
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-observe-result.v1"), session_id: z.string(), observed_at: z.string(),
-      exists: z.boolean(), harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
+      exists: z.boolean(), harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).nullable(),
       launch_id: z.string().nullable(), state: z.enum(["busy", "idle", "blocked", "dead", "missing", "unknown", "hibernated"]),
       reason: z.string(), pane_alive: z.boolean().nullable(), harness_alive: z.boolean().nullable(),
       pane_process: nativeProcessIdentitySchema.nullable(), harness_process: nativeProcessIdentitySchema.nullable(),
@@ -1072,7 +1072,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-approval-result.v1"), action: z.enum(["inspect", "respond"]),
       status: z.enum(["none", "approval_required", "submitted", "blocked"]), session_id: z.string(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]), launch_id: z.string(),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]), launch_id: z.string(),
       reason: z.string(), kind: z.string().nullable(), prompt: z.string().nullable(), prompt_digest: z.string().nullable(),
       choices: z.array(z.object({ decision: z.enum(["approve_once", "deny"]), label: z.string() })),
       selected_choice: z.enum(["approve_once", "deny"]).nullable(), at: z.string(),
@@ -1200,7 +1200,7 @@ registerRemoteAwareTool(
   "stream_read",
   {
     description:
-      "machine席（agent_launch interface:machine のClaude席）の出力をデータで読む。claude -p stream-json のstdoutの行を、解釈も整形もせず、そのまま返す" +
+      "machine席（agent_launch harness:claude-machine のClaude席）の出力をデータで読む。claude -p stream-json のstdoutの行を、解釈も整形もせず、そのまま返す" +
       "（assistant・user・system・result・rate_limit_event・control_request（can_use_tool、AskUserQuestionを含む）など）。" +
       "cursorは前回の返りのcursor（省略はこの起動のstreamの先頭）。wait_msを付けると、新しい行か状態の変化まで待つ。" +
       "state.pendingは答えを待つ要求で、stream_offset/stream_endはその行のstream内の位置（cursorは`<launch_id>:<stream_end>`）。" +
@@ -1267,7 +1267,7 @@ registerRemoteAwareTool(
       "（別のアカウントへ入り直す時、ログインの期限切れを状態から見抜けない時）。Aitermは資格情報を消さず、置き換えは公式CLIが行う。" +
       "Codexの公式ログインは、始めた時点で元のログインを消す（途中でcancelしても戻らない）。Antigravityのreloginは未対応を返す。",
     inputSchema: {
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       action: z.enum(["start", "status", "cancel", "respond"]),
       expected_binding: authBindingSchema.optional(),
       expected_prompt_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -1284,7 +1284,7 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),
       auth_ui: authUiSchema.optional(),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       status: z.enum(["waiting", "authenticated", "blocked", "failed"]),
       session_id: z.string().nullable(),
       url: z.string().nullable(),
@@ -1426,7 +1426,7 @@ registerRemoteAwareTool(
       "取得不能はMODEL_CATALOG_UNAVAILABLE、形式異常はMODEL_CATALOG_INVALIDのエラーで返し、別の一覧へfallbackしない。" +
       "remoteを付けると別端末のharnessの候補を返す。",
     inputSchema: {
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("候補を取得するharness"),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("候補を取得するharness"),
       cwd: z.string().nullish().describe("CLIを実行する作業ディレクトリ（絶対パス・任意）。project設定で候補が変わるharness向け"),
       include_hidden: z.boolean().optional().describe("Codexが一覧で隠すmodelも返す（既定false）。他のharnessには隠すmodelが無い"),
       configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。一覧を読むアカウントの設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ（既定のroot、またはAITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下）。他はAGENT_CONFIGURATION_ROOT_REJECTED。省略は既定のroot"),
@@ -1434,7 +1434,7 @@ registerRemoteAwareTool(
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-models.v1"),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       source: z.string().describe("取得に使ったharnessの公式の入口"),
       harness_version: z.string().nullable(),
       default_model: z.string().nullable().describe("model省略時にharnessが使うmodel。一覧のIDで表せなければnull"),
@@ -1461,7 +1461,7 @@ registerRemoteAwareTool(
 
 // 新規APIの選択軸はharness。旧4 launcher名は移行期間中の薄いaliasとして同じ実装へ流す。
 const kindForHarness = (harness: core.AgentHarness): core.AgentKind =>
-  harness === "claude-code" ? "claude" : harness === "codex-cli" ? "codex" : harness === "cursor-cli" ? "cursor" : harness === "antigravity-cli" ? "antigravity" : "grok";
+  harness === "claude-code" || harness === "claude-machine" ? "claude" : harness === "codex-cli" ? "codex" : harness === "cursor-cli" ? "cursor" : harness === "antigravity-cli" ? "antigravity" : "grok";
 const fastModeLaunchDesc =
   "ファスト（harnessの高速の応答。費用や利用量が増える）。省略とfalseは通常の速度で起こす（利用者の設定にfastが残っていても通常）。" +
   "trueは通常で起こしてから、その席をfastへ切り替える。modelがfastに対応していない時（FAST_MODE_NOT_SUPPORTED）と、" +
@@ -1506,13 +1506,13 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
   // Refuse a settings_env the seat could not take here, not on the remote after the private line went out (a442f).
   if (args.settings_env !== undefined) {
-    if (harness !== "claude-code") throw launchInputRefusal(harness, "settings_envはclaude-code harnessだけで使えます。指定を外してください");
+    if (harness !== "claude-code" && harness !== "claude-machine") throw launchInputRefusal(harness, "settings_envはclaude-code・claude-machine harnessだけで使えます。指定を外してください");
     try { checkSettingsEnv(args.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(harness, e.message) : e; }
   }
   // An Aiterm without fork_from would drop it and start a writable seat (ADR 0140), and one without Codex caller fields
   // would drop or refuse them: check the version first.
-  if (args.interface !== undefined && harness !== "claude-code") throw launchInputRefusal(harness, "interfaceはclaude-code harnessだけで使えます。指定を外してください");
-  const needs = args.interface === "machine" ? { minimum: MACHINE_INTERFACE_MINIMUM_VERSION, what: "interface: machine" }
+  // A remote that does not know the harness cannot name the refusal itself (its schema rejects the value): say it here, before anything is sent.
+  const needs = harness === "claude-machine" ? { minimum: CLAUDE_MACHINE_HARNESS_MINIMUM_VERSION, what: "harness claude-machine" }
     : args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
     : args.settings_env !== undefined ? { minimum: SETTINGS_ENV_MINIMUM_VERSION, what: "settings_env" }
     : harness === "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined)
@@ -1565,7 +1565,9 @@ const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced:
   .describe("mcp_config only: caller servers dropped because the seat's own harness config defines the name, and those that replaced it (replace: true). A terminal below 0.70.62 does not return it");
 /** First release that reads `replace` in a caller server (launch-identity-input.md "Caller name precedence"). */
 const CALLER_REPLACE_MINIMUM_VERSION = "0.70.62";
-/** First release whose agent_launch takes interface: "machine" (a471); an older one strips the unknown key and starts a TUI seat. */
+/** First release with the claude-machine harness (a471, ruling 14). An older Aiterm's agent_launch schema rejects the harness value. */
+const CLAUDE_MACHINE_HARNESS_MINIMUM_VERSION = "0.70.85";
+/** First release with stream_read / stream_send (a471, ruling 13). */
 const MACHINE_INTERFACE_MINIMUM_VERSION = "0.70.84";
 /** First release whose claude_agent / agent_launch takes settings_env (a442f); an older one would drop it and start the seat without it. */
 const SETTINGS_ENV_MINIMUM_VERSION = "0.70.76";
@@ -1573,7 +1575,7 @@ const SETTINGS_ENV_MINIMUM_VERSION = "0.70.76";
 const CODEX_REMOTE_MINIMUM_VERSION = "0.70.7";
 /** The oldest terminal Aiterm per harness: Grok, Cursor and Antigravity seats need 0.70.9 (checked before any private value is sent). */
 const TERMINAL_MINIMUM_VERSION: Record<string, string> = {
-  "claude-code": REMOTE_MINIMUM_VERSION, "codex-cli": CODEX_REMOTE_MINIMUM_VERSION,
+  "claude-code": REMOTE_MINIMUM_VERSION, "claude-machine": CLAUDE_MACHINE_HARNESS_MINIMUM_VERSION, "codex-cli": CODEX_REMOTE_MINIMUM_VERSION,
   "grok-cli": REMOTE_CLI_OPS_VERSION, "cursor-cli": REMOTE_CLI_OPS_VERSION, "antigravity-cli": REMOTE_CLI_OPS_VERSION,
 };
 const terminalVersions = new Map<string, string>();
@@ -1619,7 +1621,7 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
   } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e), harness)); }
 }
 
-async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }): Promise<any> {
+async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }, claudeHarness?: "claude-code" | "claude-machine"): Promise<any> {
   const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, settings_env, fork_from } = args;
   const supportsWriteScope = kind !== "claude";
   let delivery: DeliveryRequest | null = null;
@@ -1650,7 +1652,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       append_system_prompt,
       mcp_config,
       settings_env,
-      interface: args.interface,
+      claude_harness: kind === "claude" ? claudeHarness : undefined,
       launch_operation_id: launch_operation_id ?? undefined,
       ...(supportsWriteScope ? { write_scope } : {}),
       ...(fork_from ? { fork_from } : {}),
@@ -1659,7 +1661,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     const structured = {
       schema: "aiterm.agent-launch-result.v1" as const,
       provider: kind,
-      harness: core.agentHarness(kind),
+      harness: core.agentHarness(loadAgentMetadata(sid)),
       session_id: sid,
       managed_completion: true,
       event_cursor: eventCursor,
@@ -1671,7 +1673,6 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       startup,
       fast: fastState.fast,
       fast_error: fastState.fast_error,
-      ...(loadAgentMetadata(sid).claude_interface === "machine" ? { interface: "machine" as const } : {}),
       ...(supportsWriteScope && write_scope !== undefined
         ? {
             write_scope,
@@ -1767,7 +1768,6 @@ function registerAgentTool(
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
           mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars. A same-name server of the seat's own config wins and the entry is dropped (caller_mcp.dropped) unless it has replace: true"),
           settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
-          interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.84 refuses with REMOTE_AITERM_TOO_OLD (0.70.82 and 0.70.83 are the earlier screen-based form); a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
         } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,
@@ -1792,7 +1792,6 @@ function registerAgentTool(
         submit_residue: z.boolean().nullable(),
         fast: z.boolean().optional().describe("起こした後の、席のfastの状態"),
         fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
-        interface: z.literal("machine").optional().describe("Returned only for a seat that runs in machine mode"),
         ...writeScopeOutputSchema,
         caller_mcp: callerMcpOutputSchema,
       },
@@ -1813,7 +1812,7 @@ server.registerTool(
     inputSchema: {
       require_existing_resume: z.boolean().optional().describe("Resume an existing saved conversation only; missing or unsupported target never creates a new session. Requires session_name and no prompt; local-only."),
       configuration_root: z.string().min(1).optional().describe("Claude Codeの設定root（CLAUDE_CONFIG_DIR）の絶対パス。既定のroot（~/.claude、CLAUDE_CONFIG_DIRなし）か、AITERM_CLAUDE_CONFIG_ROOTSに並べた親の直下だけ。他はAGENT_CONFIGURATION_ROOT_REJECTED。休止席の再開では、新しいrootに同じ会話の記録がある時だけ替えられる" + "。claude-code harnessだけ"),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]).describe("agent loop・session・hook・transcript・認証を所有する実行基盤"),
       prompt: z.string().nullish().describe("起動時に渡す初手プロンプト（任意）。送信後は待たずに即返る"),
       image: z.array(z.string()).optional().describe("初手プロンプトへ添付する画像ファイルの絶対パス（png/jpg/jpeg/gif/webp）"),
       throughline_source_session: z.string().min(1).optional().describe("同一端末のThroughline sessionから読み取り専用contextを初手へ注入する"),
@@ -1832,7 +1831,6 @@ server.registerTool(
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; Antigravity: an always-on rule in the seat's own --add-dir folder; at most 64 KiB for these. Cursor has no system-prompt channel: the text goes in front of the first prompt, or of the first input sent to a promptless seat (at most 64 KiB)"),
       mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers, replace?: boolean}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. A server the seat's own harness config already defines under the same name is dropped for this seat (listed in caller_mcp.dropped) unless its entry has replace: true; then it replaces that server (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead). Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server, so nothing is dropped there"),
       settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
-      interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.82 refuses with REMOTE_AITERM_TOO_OLD; a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1844,7 +1842,7 @@ server.registerTool(
       startup: agentStartupSchema,
       remote_host: z.string().optional().describe("別端末で起動した時の接続先"),
       remote_version: z.string().nullable().optional().describe("別端末のAiterm版"),
-      harness: z.enum(["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
+      harness: z.enum(["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]),
       provider: z.enum(["claude", "codex", "grok", "cursor", "antigravity"]).describe("旧互換field。新規連携はharnessを使う"),
       session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       managed_completion: z.boolean(),
@@ -1856,7 +1854,6 @@ server.registerTool(
       submit_residue: z.boolean().nullable(),
       fast: z.boolean().optional().describe("起こした後の、席のfastの状態（この項目を返さない版の別端末では無い）"),
       fast_error: fastModeFailureSchema.nullable().optional().describe("fastを頼まれたが、通常の速度で起こした時の訳"),
-      interface: z.literal("machine").optional().describe("Returned only for a seat that runs in machine mode"),
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
       caller_mcp: callerMcpOutputSchema,
@@ -1869,7 +1866,7 @@ server.registerTool(
     if (remote && args.require_existing_resume) return fail(typeof args.session_name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(args.session_name)
       ? new AgentResumeUnavailableError(args.session_name)
       : launchInputRefusal(harness, "require_existing_resume requires session_name"));
-    if (!remote) return launchAgent(kindForHarness(harness), args, extra);
+    if (!remote) return launchAgent(kindForHarness(harness), args, extra, harness === "claude-code" || harness === "claude-machine" ? harness : undefined);
     try { return withErrorCode(await launchRemoteAgent(acceptRemote(remote), harness, args, extra)); }
     catch (e) { return withErrorCode(fail(e)); }
   },

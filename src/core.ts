@@ -17,7 +17,7 @@ export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from ".
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
 import { claudeMachineMarker } from "./claude-machine.js";
-import { agentClaudeMachineFilePath } from "./harnesses/claude.js";
+import { agentClaudeMachineFilePath, claudeMachineAgentArgv, buildClaudeMachineAgentCmd, claudeMachineResumeArgv, isClaudeMachine, claudeMachineInterruptedAfter } from "./harnesses/claude-machine.js";
 import { appendClaudeInput, readClaudeStream, claudeControlRequest, claudeMachineObserverScreen, claudeMachineView, readClaudeStreamLine, waitClaudeInputConsumed } from "./claude-machine-stream.js";
 import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
 import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
@@ -856,7 +856,7 @@ function nonceName(): string {
 /** a471: a machine seat has no screen; its observers read the state the host derived from the events, in the one-line form they know. */
 function machineSeatObserverScreen(name: string): string | null {
   const meta = tryLoadAgentMetadata(name);
-  return meta?.kind === "claude" && meta.claude_interface === "machine" ? claudeMachineObserverScreen(meta) : null;
+  return meta && isClaudeMachine(meta) ? claudeMachineObserverScreen(meta) : null;
 }
 function captureScreen(name: string, lines: number): string {
   const machine = machineSeatObserverScreen(name);
@@ -1391,7 +1391,7 @@ function interruptClaudeMachine(name: string): void {
   appendClaudeInput(loadAgentMetadata(name), [{ type: "control_request", request: { subtype: "interrupt" } }]);
 }
 function claudeMachineSeat(name: string): boolean {
-  return tryLoadAgentMetadata(name)?.claude_interface === "machine";
+  return isClaudeMachine(tryLoadAgentMetadata(name));
 }
 export function sendKeyResult(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): PtyKeyResult {
   assertExecutionContext(name);
@@ -1416,7 +1416,7 @@ function sendKeyResultInNative(name: string, key: string, o: { preserveAgentOper
   const receipt = (): PtyKeyResult => ({ schema: "aiterm.pty-key-result.v1", session_id: name, key: k,
     outcome: "accepted", interruption: "unconfirmed", session_preserved: "unconfirmed" });
   const meta = tryLoadAgentMetadata(name);
-  if (meta?.kind === "claude" && meta.claude_interface === "machine") {
+  if (meta && isClaudeMachine(meta)) {
     // a471: a machine seat takes data, not keys: C-c / Escape stop the turn; everything else goes through stream_send.
     if (k !== "C-c" && k !== "Escape") throw new AitermError("STREAM_KEY_UNSUPPORTED: a machine seat takes data (stream_send), not keys; only C-c and Escape (interrupt) are accepted", 2);
     interruptClaudeMachine(name);
@@ -2159,7 +2159,7 @@ export function observeSession(name: string, cursor?: string): SessionObservatio
   if (!state) return observeNativeSession(name, cursor);
   if (cursor !== undefined) decodeActivityCursor(cursor, name);
   const result = emptySessionObservation(name, true);
-  result.harness = agentHarness(meta.kind); result.launch_id = meta.launch_id;
+  result.harness = agentHarness(meta); result.launch_id = meta.launch_id;
   result.state = "unknown"; result.reason = `agent_${state}`; result.pane_alive = null;
   const native = nativeSessionExists(name);
   if (state !== "hibernated" || native) {
@@ -2210,7 +2210,7 @@ function observeSessionNative(name: string) {
   if (!Number.isSafeInteger(panePid) || panePid < 1 || !["0", "1"].includes(dead))
     throw new AitermError("paneの生存情報の形式を認識できません", 2);
   const meta = tryLoadAgentMetadata(name);
-  result.harness = meta ? agentHarness(meta.kind) : null;
+  result.harness = meta ? agentHarness(meta) : null;
   result.launch_id = meta?.launch_id ?? null;
   if (dead === "1") {
     result.state = "dead"; result.reason = "pane_dead"; result.harness_alive = meta ? false : null;
@@ -2250,7 +2250,7 @@ function observeNativeSession(name: string, cursor?: string): SessionObservation
   const { rows, root, subtree, meta, agent } = native;
   const captured = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200");
   if (captured.code !== 0) throw new AitermError("paneの活動観測を取得できません", 2);
-  const screen = meta?.kind === "claude" && meta.claude_interface === "machine" ? claudeMachineObserverScreen(meta) : captured.stdout;
+  const screen = meta && isClaudeMachine(meta) ? claudeMachineObserverScreen(meta) : captured.stdout;
   result.token_hint = meta ? paneTokenHint(screen) : null;
   if (meta && agent) {
     const observation = agentPaneObservation(meta.kind, screen);
@@ -2684,7 +2684,7 @@ function listNativeSessionsResult(envKeys: string[] = [], runTmux: typeof tmux =
     }
     const meta = tryLoadAgentMetadata(name);
     sessions.push({ session_id: name, current_command: normalizePaneCommand(command), attached: Number(attached) > 0,
-      width: Number(width), height: Number(height), harness: meta ? agentHarness(meta.kind) : null,
+      width: Number(width), height: Number(height), harness: meta ? agentHarness(meta) : null,
       launch_id: meta?.launch_id ?? null,
       vendor_session_id: meta?.vendor_session_id ?? null, environment, ...claudeListedFields(meta) });
   }
@@ -2717,7 +2717,7 @@ export function listSessionsResult(envKeys: string[] = [], runTmux: typeof tmux 
       continue;
     }
     result.sessions.push({ session_id: name, launch_id: meta.launch_id, current_command: command, attached: false, width: 0, height: 0,
-      harness: agentHarness(meta.kind), vendor_session_id: meta.vendor_session_id ?? null, environment, ...claudeListedFields(meta) });
+      harness: agentHarness(meta), vendor_session_id: meta.vendor_session_id ?? null, environment, ...claudeListedFields(meta) });
   }
   return result;
 }
@@ -2732,7 +2732,7 @@ export function listSessions(result = listSessionsResult()): string {
         if (!meta) return line;
         const agent = [
           `agent=${meta.kind}`,
-          `harness=${agentHarness(meta.kind)}`,
+          `harness=${agentHarness(meta)}`,
           "agent_done=true",
           meta.write_scope === undefined ? null : `write_scope=${JSON.stringify(meta.write_scope)}`,
           meta.vendor_session_id ? `vendor_session_id=${meta.vendor_session_id}` : null,
@@ -2879,7 +2879,7 @@ function letClaudeExitBeforeClose(name: string): void {
     const harness = seen.harness_process;
     const pause = new Int32Array(new SharedArrayBuffer(4));
     requestClaudeExit({
-      idle: () => claudePaneObservation(captureScreen(name, AGENT_TUI_READY_LINES)).state === "idle",
+      idle: () => agentPaneObservation("claude", captureScreen(name, AGENT_TUI_READY_LINES)).state === "idle",
       interrupt: () => { tmux("send-keys", "-t", name, "C-c"); },
       // processが1つに決まらない席は、席の観測で見る（Windowsではprocessの一覧を引くので遅い）。
       alive: () => harness ? isPidAlive(harness.pid) : observeSession(name).harness_alive === true,
@@ -3220,7 +3220,7 @@ function runAgentApprovalInNative(options: {
     const meta = loadAgentMetadata(name);
     const result: AgentApprovalResult = {
       schema: "aiterm.agent-approval-result.v1", action, status: "blocked", session_id: name,
-      harness: agentHarness(meta.kind), launch_id: meta.launch_id, reason: "harness_unsupported",
+      harness: agentHarness(meta), launch_id: meta.launch_id, reason: "harness_unsupported",
       kind: null, prompt: null, prompt_digest: null, choices: [], selected_choice: null, at: new Date().toISOString(),
     };
     if (meta.kind !== "codex") return result;
@@ -3418,7 +3418,7 @@ function pendingClaudeOperation(meta: AgentMetadata): ClaudeOperationMarker | nu
   let at: number;
   try { at = fs.statSync(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id)).mtimeMs; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
-  return claudeApiErrorAfter(meta, at) || claudeInterruptedAfter(meta, at) ? null : marker;
+  return claudeApiErrorAfter(meta, at) || claudeInterruptedAfter(meta, at) || (isClaudeMachine(meta) && claudeMachineInterruptedAfter(meta, at)) ? null : marker;
 }
 
 function clearClaudeApiErrorOperation(meta: AgentMetadata): void {
@@ -3597,7 +3597,7 @@ function runClaudeApprovalInNative({
     if (approvalChoice != null || observedPromptDigest != null) {
       throw new AitermError("claude_approval inspectにapproval_choice／observed_prompt_digestは指定できません", 2);
     }
-    if (meta.claude_interface === "machine") return claudeMachineApproval(meta, action, operationId);
+    if (isClaudeMachine(meta)) return claudeMachineApproval(meta, action, operationId);
     assertExpectedClaudeOperation(meta, operationId);
     const observed = parseClaudeApprovalScreen(captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES));
     return {
@@ -3620,7 +3620,7 @@ function runClaudeApprovalInNative({
   if (!OPERATION_ID_RE.test(observedPromptDigest)) {
     throw new AitermError("observed_prompt_digestはsha256:<64 lowercase hex>で指定してください", 2);
   }
-  if (meta.claude_interface === "machine") return claudeMachineApproval(meta, action, operationId, approvalChoice, observedPromptDigest);
+  if (isClaudeMachine(meta)) return claudeMachineApproval(meta, action, operationId, approvalChoice, observedPromptDigest);
 
   const releaseSendLock = acquireSessionSendFileLock(name);
   try {
@@ -4448,7 +4448,7 @@ export function readSeatTurns(sessionIds: string[]): SeatTurnsResult {
     } catch { /* 読めない席は、分からないまま返す */ }
     if (turn === SPAN_HELD) { unread.push(name); continue; }
     if (meta.kind !== "codex") observedAt.set(name, performance.now());
-    seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
+    seats.push({ session_id: name, launch_id: meta.launch_id, harness: agentHarness(meta),
       turn: turn?.state === "running" && turn.event_cursor !== null
         ? { ...turn, wait_process: agentWaitProcess(name, turn.event_cursor) } : turn });
   }
@@ -4528,7 +4528,7 @@ function readManagedSeatTurn(meta: AgentMetadata): ManagedSeatTurn | null | type
     const look = (): ManagedSeatTurn | null => {
       const captured = tmux("capture-pane", "-p", "-J", "-t", proof ? nativePaneTarget(proof) : meta.aiterm_session);
       if (captured.code !== 0) return null;
-      const evidence = parentPaneEvidence(meta.kind, meta.kind === "claude" && meta.claude_interface === "machine" ? claudeMachineObserverScreen(meta) : captured.stdout);
+      const evidence = parentPaneEvidence(meta.kind, isClaudeMachine(meta) ? claudeMachineObserverScreen(meta) : captured.stdout);
       const terminal = managedSeatTerminal(meta);
       const observedAfter = observeSessionNative(meta.aiterm_session), after = observedAfter.result;
       if (proof) verifyAgentResumeNative(meta, proof);
@@ -4664,7 +4664,7 @@ export async function readAgentTranscriptResult(
     "agent_transcript",
     `vendor=${meta.kind}`,
     `turn_id=${turnId ?? "unknown"}`,
-    `harness=${agentHarness(meta.kind)}`,
+    `harness=${agentHarness(meta)}`,
     done?.operation_id ? `operation_id=${done.operation_id}` : null,
     `raw_chars=${rawChars}`,
     answerEmpty ? "answer_empty=true" : null,
@@ -4674,7 +4674,7 @@ export async function readAgentTranscriptResult(
     display: `${answerEmpty ? AGENT_ANSWER_EMPTY_NOTICE : body}\n${outputMeta} [${transcriptMeta}]`,
     vendor: meta.kind,
     turn_id: turnId,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     raw_chars: rawChars,
     answer_empty: answerEmpty,
   };
@@ -4717,7 +4717,7 @@ function agentReadMetadataSuffix(name: string, screen?: string): string {
   const bits = [
     "agent",
     `vendor=${meta.kind}`,
-    `harness=${agentHarness(meta.kind)}`,
+    `harness=${agentHarness(meta)}`,
     `initial_prompt=${meta.initial_prompt}`,
     `agent_event_seen=${ev ? "true" : "false"}`,
     "completion_attribution=none",
@@ -4978,7 +4978,7 @@ async function observeAgentDoneInternal(
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     outcome,
     operation_id: ev?.operation_id ?? operationId,
     ...(o.input_id ? { input_id: o.input_id } : {}),
@@ -5420,7 +5420,7 @@ async function submitAgentComposerText(name: string, kind: AgentKind | undefined
     o.admission === "native" ? withExecutionNativeAdmission(name, effect) : effect();
   // a471: a machine seat takes the text as one user message in its input file, not as typed keys.
   const machine = kind === "claude" ? tryLoadAgentMetadata(name) : null;
-  if (machine?.claude_interface === "machine") {
+  if (machine && isClaudeMachine(machine)) {
     const end = await admit(() => {
       o.checkInput?.(false);
       o.beforePaste?.();
@@ -5497,8 +5497,10 @@ function startupBlockedHint(reason: string): string {
 /** A fresh launch blocked before any prompt byte closes the seat it created and refuses (launch-identity-input.md).
  * If the close fails, null: the caller keeps its refusal that leaves the seat. */
 function startupBlockedRefusal(name: string, kind: AgentKind, reason: string): AitermError | null {
+  const seat = tryLoadAgentMetadata(name);
+  const harness = seat ? agentHarness(seat) : agentHarness(kind);
   try { closeSessionInternal(name, true); } catch { return null; }
-  return launchStartupBlocked(agentHarness(kind), reason, startupBlockedHint(reason).trim()
+  return launchStartupBlocked(harness, reason, startupBlockedHint(reason).trim()
     || `起動の途中の画面（${reason}）で止まりました。端末でそのAIを一度起動して画面を進めてから、起こし直してください。`);
 }
 
@@ -5531,7 +5533,7 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
   // from its own SessionStart hook (a469e); the process is checked below, so a pane that is busy is the turn.
   const runningScreen = (screen: string) => meta.kind === "codex"
     ? codexPaneObservation(screen).state === "busy" && codexRunningTurn(meta) !== null
-    : meta.kind === "claude" && claudePaneObservation(screen).state === "busy";
+    : meta.kind === "claude" && agentPaneObservation("claude", screen).state === "busy";
   const running = (screen: string) => acceptRunning && !!meta.resumed_from && runningScreen(screen);
   const budget = options.ready_timeout ?? AGENT_TUI_READY_TIMEOUT_MS, deadline = performance.now() + budget;
   const wait = (ms = budget) => waitAgentTuiReady(name, meta, ms, { selectSteer: running });
@@ -5624,7 +5626,7 @@ async function sendInitialAgentPromptInLock(
   if (startup.status !== "ready") {
     setInitialDelivery(meta, { status: "not_sent", reason: startup.reason, turn_started: false }, null);
     throw Object.assign(new AitermError(
-      `initial_prompt=not_sent vendor=${meta.kind} ready=false harness=${agentHarness(meta.kind)}\n` +
+      `initial_prompt=not_sent vendor=${meta.kind} ready=false harness=${agentHarness(meta)}\n` +
         `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}` +
         startupBlockedHint(startup.reason),
       2,
@@ -5637,7 +5639,7 @@ async function sendInitialAgentPromptInLock(
   try {
     prepareSendText(promptText, { raw: false });
     await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-      harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: null, ...(inputId ? { input_id: inputId } : {}) });
+      harness: agentHarness(meta), event_cursor: startOffset, operation_id: null, ...(inputId ? { input_id: inputId } : {}) });
     captureExecutionSendBoundary({ launch: { session_id: name, launch_id: meta.launch_id }, boundary: {
       event_cursor: startOffset, operation_id: null, turn_id: null, steer_id: null } });
     if (meta.kind === "claude") {
@@ -5658,7 +5660,7 @@ async function sendInitialAgentPromptInLock(
   if (meta.kind === "cursor" && residue.residue === true) {
     setInitialPromptState(meta, "failed");
     throw new AitermError(
-      `initial_prompt=failed vendor=cursor harness=${agentHarness(meta.kind)}\n` +
+      `initial_prompt=failed vendor=cursor harness=${agentHarness(meta)}\n` +
         `起動時promptがCursorのcomposerへ残り、Enter再送後もturnを開始できませんでした。`,
       2,
     );
@@ -5679,7 +5681,7 @@ async function sendInitialAgentPromptInLock(
     if (state.state === "blocked" && state.reason === "user_hook_blocked") {
       setInitialDelivery(meta, { status: "submitted_unconfirmed", reason: "user_hook_blocked", turn_started: false }, startOffset);
       setInitialPromptState(meta, "failed");
-      throw new AitermError(userHookBlockedMessage(`initial_prompt=failed vendor=${meta.kind} harness=${agentHarness(meta.kind)}`, "起動時prompt", state.detail), 2);
+      throw new AitermError(userHookBlockedMessage(`initial_prompt=failed vendor=${meta.kind} harness=${agentHarness(meta)}`, "起動時prompt", state.detail), 2);
     }
     const completed = await observeAgentDone(name, { cursor: startOffset, timeout: 0, input_id: inputId });
     if (completed.outcome === "done") {
@@ -5693,7 +5695,7 @@ async function sendInitialAgentPromptInLock(
   setInitialDelivery(meta, delivery, startOffset);
   return {
     text:
-      `initial_prompt=pending vendor=${meta.kind} event_cursor=${startOffset} harness=${agentHarness(meta.kind)}\n` +
+      `initial_prompt=pending vendor=${meta.kind} event_cursor=${startOffset} harness=${agentHarness(meta)}\n` +
       `起動時 prompt を送信した。${agentDispatchGuide(name, startOffset)}` +
       (delivery.status === "submitted_unconfirmed" ? `\n${initialPromptUnconfirmedNote(name, delivery.reason)}` : "") +
       agentSubmitResidueWarning(name, residue.residue),
@@ -6872,7 +6874,7 @@ async function submitClaudeMachineGoal(name: string, command: string): Promise<v
 function claudeStreamSeat(name: string, cursor?: string): { meta: AgentMetadata; seat: { aiterm_session: string; launch_id: string } } {
   assertSessionName(name);
   const meta = tryLoadAgentMetadata(name);
-  if (meta?.kind !== "claude" || meta.claude_interface !== "machine") throw new AitermError("STREAM_UNSUPPORTED: the stream tools are for a Claude seat launched with interface machine", 2);
+  if (!meta || !isClaudeMachine(meta)) throw new AitermError("STREAM_UNSUPPORTED: the stream tools are for a seat of the claude-machine harness", 2);
   const old = cursor ? /^([a-f0-9]{32}):\d+$/.exec(cursor)?.[1] : undefined;
   if (old && old !== meta.launch_id) {
     if (!fs.existsSync(agentClaudeMachineFilePath(name, old, "stream"))) throw new AitermError(`STREAM_CURSOR_STALE: that launch's stream is gone; read again from the start. launch_id=${meta.launch_id}`, 2);
@@ -6929,7 +6931,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     if (!rows.some(row => row.pid === pid)) return null;
     const candidates = selectHarnessProcesses(meta, rows, processSubtree(rows, pid));
     if (candidates.length !== 1 || tryLoadAgentMetadata(input.session_id)?.launch_id !== input.launch_id) return null;
-    return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta.kind),
+    return { session_id: input.session_id, launch_id: meta.launch_id, harness: agentHarness(meta),
       vendor_session_id: meta.vendor_session_id, codex_home: meta.codex_home, claude_home: meta.claude_home, grok_home:meta.grok_home, cwd:meta.cwd??process.cwd(), executable: meta.agent_executable,
       native_process: processIdentity(candidates[0]) };
   };
@@ -7057,7 +7059,7 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
     },origin);
     return input.action==='inspect'?run():withAgentSendLock(input.session_id,run);
   }
-  if (harness === "claude-code") {
+  if (harness === "claude-code" || harness === "claude-machine") {
     // Reading is the session transcript only: it writes nothing to the seat, so it needs no send lock,
     // composer, turn state, TTY owner or version check. Only a mutation types into the composer.
     const run = () => manageClaudeAgentGoal(input, {resolve: resolveShared,
@@ -7275,7 +7277,7 @@ async function configureAgentInLock(
     schema: "aiterm.agent-configure-result.v1",
     session_id: name,
     provider: meta.kind,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     model,
     reasoning_effort: effort,
     fast: typeof meta.fast === "boolean" ? meta.fast : null,
@@ -7350,7 +7352,7 @@ async function configureAgentInLock(
     if (effort && !level && effort !== "ultracode") {
       throw new AitermError("Claude Code の reasoning_effort は low/medium/high/xhigh/max/ultracode のいずれかです。設定は変えていません。", 2);
     }
-    if (meta.claude_interface === "machine") {
+    if (isClaudeMachine(meta)) {
       // a471: the host turns these into set_model / apply_flag_settings control requests; no picker, no screen keys.
       if (model?.toLowerCase() === "opusplan")
         throw new AitermError(`CLAUDE_MODEL_NOT_SELECTABLE vendor=claude session=${name}\nmachine席では opusplan を席の中で選べません（起動のmodelで指定してください）。設定は変えていません。`, 2);
@@ -7900,15 +7902,15 @@ const CLAUDE_LOGIN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
  * `secretValues` (E8, lifecycle-state-ownership 4c): the values agent_launch brought for the recipe's secret names (null = unset,
  * only the Claude login). Without them (pty_send, dispatch, vanished adopt) a recipe naming a secret is refused before any effect.
  */
-/** a471: the recipe with the launch's interface applied (a wake may name one; none named keeps the saved). */
-function recipeWithInterface<T extends { kind: string; interface?: "machine" }>(recipe: T, want?: "terminal" | "machine"): T {
+/** a471: the recipe with the Claude harness of this wake applied (the same conversation resumes in either; none named keeps the saved). */
+function recipeWithHarness<T extends { kind: string; harness?: "claude-machine" }>(recipe: T, want?: "claude-code" | "claude-machine"): T {
   if (want === undefined || recipe.kind !== "claude") return recipe;
-  const { interface: _saved, ...rest } = recipe;
-  return (want === "machine" ? { ...rest, interface: "machine" } : rest) as T;
+  const { harness: _saved, ...rest } = recipe;
+  return (want === "claude-machine" ? { ...rest, harness: "claude-machine" } : rest) as T;
 }
 
 async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot?: ClaudeConfigRoot,
-  secretValues?: Record<string, string | null>, claudeInterface?: "terminal" | "machine"): Promise<AgentMetadata> {
+  secretValues?: Record<string, string | null>, claudeHarness?: "claude-code" | "claude-machine"): Promise<AgentMetadata> {
   const previous = loadAgentMetadata(name);
   readyTimeout ??= previous.kind === "codex" ? AGENT_TUI_FIRST_DRAW_TIMEOUT_MS : AGENT_TUI_READY_TIMEOUT_MS;
   let lifecycle: AgentLifecycle | AgentResumeRecoveryOrigin | null = readAgentLifecycle(previous);
@@ -7957,8 +7959,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
   // Same vendor session under another Claude root; the caller proved the transcript is there.
   const rooted = claudeRoot && stored.kind === "claude" ? { ...stored, configuration_root: claudeRoot.root,
     environment: { ...stored.environment, CLAUDE_CONFIG_DIR: claudeRoot.selector } } : stored;
-  // a471: a wake that names an interface takes it (the same conversation resumes in either); none named = the saved one.
-  const interfaced = recipeWithInterface(rooted, claudeInterface);
+  // a471: a wake that names the Claude harness takes it (the same conversation resumes in either); none named = the saved one.
+  const interfaced = recipeWithHarness(rooted, claudeHarness);
   // Values of this launch only; null = unset in the seat (the Claude login: it resumes on the root's own login).
   const recipe = { ...interfaced, environment: { ...interfaced.environment, ...Object.fromEntries(secretNames.map(key => [key, secretValues![key] ?? null])) } };
   // What goes to disk: the names still set, never their values.
@@ -8003,7 +8005,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       next.vendor_session_id = previous.vendor_session_id; next.resumed_from = previous.launch_id;
       next.launch_operation_id = previous.launch_operation_id; next.launch_request_digest = previous.launch_request_digest;
       next.model = recipe.model; next.fast = false; next.agent_executable = recipe.executable;
-      if (recipe.interface === "machine") next.claude_interface = "machine";
+      if (recipe.harness === "claude-machine") next.claude_harness = "claude-machine";
       if (previous.claude_caller_prompt_file) next.claude_caller_prompt_file = previous.claude_caller_prompt_file;
       if (previous.claude_caller_mcp_file) next.claude_caller_mcp_file = previous.claude_caller_mcp_file;
       if (previous.codex_caller_prompt_file) next.codex_caller_prompt_file = previous.codex_caller_prompt_file;
@@ -8034,7 +8036,8 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       }
       if (registerSessionEnvironment(true, name, [...(registeredSessionEnvironment(name) ?? []), ...Object.keys(recipe.environment)]).code !== 0) throw uncertain();
       phase = "vendor_start";
-      const cliArgv = next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
+      const cliArgv = isClaudeMachine(next) ? claudeMachineResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
+        : next.kind === "claude" ? claudeResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next)
         : codexResumeArgv(recipe.executable, recipe.model, recipe.reasoning_effort, next, recipe.cwd);
       const argv = [...(next.fork_of && !isWin ? writeBanPrefix(next.fork_of.write_ban) : []), ...cliArgv];
       const forkBan = next.fork_of?.write_ban;
@@ -8070,7 +8073,7 @@ async function resumeAgentInLock(name: string, readyTimeout?: number, claudeRoot
       model: recipe.model, reasoning_effort: recipe.reasoning_effort, environment: saved.environment,
       ...(saved.secret_environment ? { secret_environment: saved.secret_environment } : {}),
       ...(recipe.settings_env ? { settings_env: recipe.settings_env } : {}),
-      ...(recipe.interface ? { interface: recipe.interface } : {}),
+      ...(recipe.harness ? { harness: recipe.harness } : {}),
       ...(recipe.reasoning_effort_source ? { reasoning_effort_source: recipe.reasoning_effort_source } : {}) });
     writeAgentResumeRecipe(resumed, { ...saved, launch_id: resumed.launch_id });
     writeAgentResumeAttempt(previous, { ...attempt!, state: "ready", at: new Date().toISOString() });
@@ -8216,7 +8219,7 @@ async function dispatchAgentTurnInLock(
   prepareSendText(dispatchText, { raw: o.raw });
   const inputId = meta.kind === "claude" ? randomBytes(16).toString("hex") : undefined;
   await o.before_send?.({ session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-    harness: agentHarness(meta.kind), event_cursor: startOffset, operation_id: operationId, ...(inputId ? { input_id: inputId } : {}) });
+    harness: agentHarness(meta), event_cursor: startOffset, operation_id: operationId, ...(inputId ? { input_id: inputId } : {}) });
   await submitAgentComposerText(name, meta.kind, dispatchText, {
     inputMeta: meta,
     force: o.force, raw: o.raw, typedPreface: prefaced.typedPreface, preserveAgentOperation: meta.kind === "claude",
@@ -8247,7 +8250,7 @@ async function dispatchAgentTurnInLock(
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     event_cursor: startOffset,
     operation_id: operationId,
     ...(inputId ? { input_id: inputId } : {}),
@@ -8482,7 +8485,7 @@ async function steerRunningTurn(
     session_id: meta.aiterm_session,
     launch_id: meta.launch_id,
     vendor: meta.kind,
-    harness: agentHarness(meta.kind),
+    harness: agentHarness(meta),
     pane_input_recovery: o.pane_input_recovery,
     ...(o.follow || meta.kind === "grok" ? { follow: recordSteerPosition(meta, text) } : {}),
   };
@@ -8512,7 +8515,7 @@ async function steerRunningTurn(
     if (accepted.current) {
       if (accepted.current.placement === "same_turn") return receipt;
       const boundary = { session_id: name, launch_id: meta.launch_id, vendor: meta.kind,
-        harness: agentHarness(meta.kind), event_cursor: accepted.current.event_cursor, operation_id: null };
+        harness: agentHarness(meta), event_cursor: accepted.current.event_cursor, operation_id: null };
       try {
         // The native input already started a new turn; bind its delivery without submitting again.
         assertAgentSendHarness(name, meta, true);
@@ -8568,7 +8571,7 @@ function steerUnknownFailure(meta: AgentMetadata, code: "STEER_NOT_QUEUED" | "ST
   // Cursor has no proven acceptance reader yet; never expose an old-turn waiter for unknown input.
   const tracked = meta.kind === "grok" ? follow : null;
   return { schema: "aiterm.agent-send-error.v1", code, outcome: "outcome_unknown", effect: "possible",
-    session_id: meta.aiterm_session, launch_id: meta.launch_id, vendor: meta.kind, harness: agentHarness(meta.kind),
+    session_id: meta.aiterm_session, launch_id: meta.launch_id, vendor: meta.kind, harness: agentHarness(meta),
     event_cursor: tracked?.event_cursor ?? null, steer_id: tracked?.steer_id ?? null, interim_from: tracked?.interim_from ?? null };
 }
 
@@ -8716,6 +8719,7 @@ function buildAgentCmd(
   meta: AgentMetadata | null = null,
   cursorFast = false,
 ): string {
+  if (meta && isClaudeMachine(meta)) return buildClaudeMachineAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "claude") return buildClaudeAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "codex") return buildCodexAgentCmd(bin, model, effort, prompt, meta);
   if (kind === "cursor") return buildCursorAgentCmd(bin, model, effort, prompt, meta, cursorFast);
@@ -8870,7 +8874,7 @@ export function openAgent(
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
     settings_env?: Record<string, string> | null;
-    interface?: "terminal" | "machine" | null;
+    claude_harness?: "claude-code" | "claude-machine" | null;
     fork_of?: AgentForkOf;
   } = {},
 ): [string, string] {
@@ -9093,7 +9097,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
               write(meta, opts.append_system_prompt ?? null, callerMcp, name => seatEnv.get(name));
             }
             if (opts.fork_of) meta.fork_of = opts.fork_of;
-            if (opts.interface === "machine" && meta.kind === "claude") meta.claude_interface = "machine";
+            if (opts.claude_harness === "claude-machine" && meta.kind === "claude") meta.claude_harness = "claude-machine";
             if (isWin && ["claude", "codex", "grok", "antigravity"].includes(kind)) meta.windows_launch_exit_tracked = true;
             if (kind === "claude" || kind === "codex") meta.cwd = kind === "claude" ? fs.realpathSync(cwd ?? process.cwd()) : path.resolve(cwd ?? process.cwd());
             // 席は通常の速度で始まる（Claude Code・Codexは起動の引数で明示する）。fast版のmodel IDで起こした時だけtrue。
@@ -9120,7 +9124,8 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         let full: string;
         if (paneShell === "pwsh") {
           const prompt = opts.prompt ?? null;
-          const argv = kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
+          const argv = meta && isClaudeMachine(meta) ? claudeMachineAgentArgv(bin, model, effort, prompt, meta)
+            : kind === "claude" ? claudeAgentArgv(bin, model, effort, prompt, meta)
             : kind === "codex" ? codexAgentArgv(bin, model, effort, prompt, meta)
             : kind === "cursor" ? cursorAgentArgv(bin, model, effort, prompt, meta, cursorFast)
             : kind === "antigravity" ? antigravityAgentArgv(bin, model, effort, prompt, meta)
@@ -9170,7 +9175,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
       if (launched) requestAgentIdleClock(sid, launched.launch_id);
       const driveHint =
         agentDone
-          ? (launched?.claude_interface === "machine" ? "機械の口（claude -p stream-json）の席。出力はデータで、stream_read(" + sid + ") で読み、stream_send で答える（画面は無い）。" : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、`) +
+          ? (launched && isClaudeMachine(launched) ? "機械の口（claude -p stream-json）の席。出力はデータで、stream_read(" + sid + ") で読み、stream_send で答える（画面は無い）。" : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、`) +
             `turnはpty_send(${sid}, "...")で送る（自動で非ブロックdispatch。${autoDeliveryParent() ? `回答本文は${autoDeliveryParent()}親へ自動配送する` : "完了通知はaiterm-wait"}）。中断はpty_key(${sid}, "C-c")、` +
             `Stopが来ない場合の解除はpty_close(${sid})を使う。`
           : `TUI の描画には数秒かかる。少し置いてから pty_read(${sid}, screen:true) で画面を読み、` +
@@ -9204,7 +9209,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         else verifyCreatedNative(initialNative);
       }, create);
     } catch (error) {
-      throw freshLaunchFailure(error, agentHarness(kind));
+      throw freshLaunchFailure(error, opts.claude_harness === "claude-machine" ? "claude-machine" : agentHarness(kind));
     } finally {
       if (initialAdmission) {
         const { name } = initialAdmission;
@@ -9303,26 +9308,24 @@ function ownMcpNames(meta: AgentMetadata, claudeEnv: NodeJS.ProcessEnv): Set<str
 /** Caller launch fields refused from the arguments alone, before any session or file exists (phase "input"). */
 function refuseCallerInput(kind: AgentKind, opts: { append_system_prompt?: string | null; mcp_config?: Record<string, unknown> | null;
   prompt?: string | null; throughline_source_session?: string | null; env_vars?: string[]; settings_env?: Record<string, string> | null;
-  interface?: "terminal" | "machine" | null }): void {
-  if (opts.interface != null) {
-    if (kind !== "claude") throw launchInputRefusal(agentHarness(kind), "interfaceはclaude-code harnessだけで使えます。指定を外してください");
-    if (opts.interface !== "terminal" && opts.interface !== "machine") throw launchInputRefusal(agentHarness(kind), "interfaceはterminalかmachineです");
-  }
+  claude_harness?: "claude-code" | "claude-machine" | null }): void {
+  const harness = opts.claude_harness === "claude-machine" ? "claude-machine" as const : agentHarness(kind);
+  if (opts.claude_harness != null && kind !== "claude") throw launchInputRefusal(harness, "claude-machine harnessはClaude Codeだけです");
   if (opts.settings_env != null) {
-    if (kind !== "claude") throw launchInputRefusal(agentHarness(kind), "settings_envはclaude-code harnessだけで使えます。指定を外してください");
-    try { checkSettingsEnv(opts.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+    if (kind !== "claude") throw launchInputRefusal(harness, "settings_envはClaude（claude-code・claude-machine）harnessだけで使えます。指定を外してください");
+    try { checkSettingsEnv(opts.settings_env); } catch (e) { throw e instanceof AitermError ? launchInputRefusal(harness, e.message) : e; }
   }
   if (kind === "codex") return refuseCodexCallerInput(opts.append_system_prompt, opts.mcp_config);
   if (kind === "claude" && opts.mcp_config != null) {
     try { applyCallerPrecedence(opts.mcp_config, new Set()); }
-    catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+    catch (e) { throw e instanceof AitermError ? launchInputRefusal(harness, e.message) : e; }
   }
   if (kind !== "grok" && kind !== "cursor" && kind !== "antigravity") return;
   try {
     const servers = (kind === "grok" ? checkGrokCallerInput : kind === "cursor" ? checkCursorCallerInput : checkAntigravityCallerInput)(opts.append_system_prompt, opts.mcp_config);
     const envVars = opts.env_vars ?? [];
     assertCallerEnv(kind.toUpperCase() as "GROK" | "CURSOR" | "ANTIGRAVITY", servers, name => envVars.includes(name) ? launchEnvValue(name) : undefined, true);
-  } catch (e) { throw e instanceof AitermError ? launchInputRefusal(agentHarness(kind), e.message) : e; }
+  } catch (e) { throw e instanceof AitermError ? launchInputRefusal(harness, e.message) : e; }
 }
 
 export async function openAgentWithInitialPrompt(
@@ -9347,7 +9350,7 @@ export async function openAgentWithInitialPrompt(
     append_system_prompt?: string | null;
     mcp_config?: Record<string, unknown> | null;
     settings_env?: Record<string, string> | null;
-    interface?: "terminal" | "machine" | null;
+    claude_harness?: "claude-code" | "claude-machine" | null;
     fork_from?: { session_id: string; fork_id?: string } | null;
   } = {},
 ): Promise<[string, string, number | null, boolean | null, InitialPromptDelivery, AgentStartupResult, AgentFastLaunchResult]> {
@@ -9441,7 +9444,7 @@ export async function openAgentWithInitialPrompt(
           (kind === "claude" ? writeClaudeCallerFiles : writeCodexCallerFiles)({ ...previous }, null, kept);
         }
         if (preparedLifecycle) commitWorkingAgentResume(previous, preparedLifecycle);
-        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues, opts.interface ?? undefined);
+        const resumed = await resumeAgentInLock(name, opts.ready_timeout ?? undefined, rootChange, secretValues, opts.claude_harness ?? undefined);
         return withAgentResumeTarget(resumed, async () => {
           const hint = `${agentLabel(kind)} を保存した同じ会話へ再開した。\n${attachHint(name)}`;
           const fastState: AgentFastLaunchResult = { fast: resumed.fast === true, fast_error: recipe.fast && resumed.fast !== true
@@ -9492,7 +9495,7 @@ export async function openAgentWithInitialPrompt(
     append_system_prompt: opts.append_system_prompt ?? null,
     mcp_config: opts.mcp_config ?? null,
     settings_env: opts.settings_env ?? null,
-    interface: opts.interface ?? null,
+    claude_harness: opts.claude_harness ?? null,
     ...(fork ? { fork_of: fork.fork_of } : {}),
   };
   // GrokとCursorは、起動の --model の値を利用者の既定へ書く（Cursorは版による）。起動の前後で、直前の値へ戻す。
@@ -9500,7 +9503,7 @@ export async function openAgentWithInitialPrompt(
     const admitted = async (): Promise<[string, string]> => {
       const create = prepareAgentLaunch(kind, openOptions);
       const created = await (opts.session_name ? withExecutionNativeAdmission(opts.session_name, create) : create());
-      if (openOptions.interface === "machine") await assertClaudeMachineCameUp(created[0]);
+      if (openOptions.claude_harness === "claude-machine") await assertClaudeMachineCameUp(created[0]);
       return created;
     };
     if (kind === "grok") {

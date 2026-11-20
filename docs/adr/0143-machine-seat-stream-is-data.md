@@ -2,7 +2,7 @@
 
 Status: adopted (0.70.84, a471, Owner ruling 13, 2026-11-20 20:0x JST). Replaces the screen-based part of [ADR 0142](0142-claude-machine-launch-mode.md)
 (host-drawn text, the state line read back from the pane, the approval and question text parsed from the screen); the machine launch mode itself,
-the opt-in `interface` argument, the native session as the one holder on every OS and the recipe stay.
+the opt-in launch (now the `claude-machine` harness, ADR 0144), the native session as the one holder on every OS and the recipe stay.
 
 ## Cause
 
@@ -31,4 +31,4 @@ cannot carry what the chat needs (multi-select, free text, thinking, tool result
   initialize, so the stream carries the vendor's thinking summaries (measured on Opus, Sonnet, Fable).
 - The stream file lives until the seat is closed; an earlier launch's cursor stays readable while its file exists (a reader cut by a restart can
   drain the tail).
-- A remote terminal needs 0.70.84 for `interface: "machine"` and the stream tools (0.70.82 / 0.70.83 are the screen-based form).
+- A remote terminal needs 0.70.84 for the stream tools (0.70.82 / 0.70.83 are the screen-based form).

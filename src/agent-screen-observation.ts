@@ -6,6 +6,7 @@ import { AitermError } from "./errors.js";
 import { grokPromptAwaitingAccept, grokTuiReady, grokTuiBusy, grokPaneObservation, grokLaunchBlockingDialog, assertGrokSandboxNotRejected, GROK_COMPOSER_MARKER_RE } from "./harnesses/grok.js";
 import { codexTuiReady, codexTuiBusy, codexPaneObservation, codexRateLimitModelSwitchDialog, CODEX_COMPOSER_MARKER_RE } from "./harnesses/codex.js";
 import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, claudeCodeModeConfirm, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
+import { claudeMachinePaneObservation } from "./harnesses/claude-machine.js";
 import { cursorPromptHooksRunning, cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
 
 
@@ -61,7 +62,8 @@ let agentTuiReadyStableSamplesTestOverride: number | null = null;
  */
 export function agentPaneObservation(kind: AgentKind, screen: string): HarnessPaneObservation {
   if (kind === "antigravity") return antigravityPaneObservation(screen);
-  if (kind === "claude") return claudePaneObservation(screen);
+  // A claude-machine seat hands its observers the one-line form of its state (harnesses/claude-machine.ts); the claude readers never see it.
+  if (kind === "claude") return claudeMachinePaneObservation(screen) ?? claudePaneObservation(screen);
   if (kind === "codex") return codexPaneObservation(screen);
   if (kind === "cursor") return cursorPaneObservation(screen);
   return grokPaneObservation(screen);
@@ -69,7 +71,7 @@ export function agentPaneObservation(kind: AgentKind, screen: string): HarnessPa
 
 export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
   if (kind === "antigravity") return ["idle", "busy"].includes(antigravityPaneObservation(screen).state);
-  if (kind === "claude") return claudeTuiReady(screen);
+  if (kind === "claude") { const machine = claudeMachinePaneObservation(screen); return machine ? machine.state === "idle" : claudeTuiReady(screen); }
   if (kind === "codex") return codexTuiReady(screen);
   if (kind === "cursor") return cursorTuiReady(screen);
   return grokTuiReady(screen);
@@ -80,7 +82,7 @@ export function isAgentTuiReady(kind: AgentKind, screen: string): boolean {
 // が入力待ちを待ち続けていた。同じ画面を2つの読みで判断しない。
 export function isAgentTuiBusy(kind: AgentKind, screen: string): boolean {
   if (kind === "antigravity") return antigravityPaneObservation(screen).state === "busy";
-  if (kind === "claude") return claudeTuiBusy(screen);
+  if (kind === "claude") { const machine = claudeMachinePaneObservation(screen); return machine ? machine.state === "busy" : claudeTuiBusy(screen); }
   if (kind === "codex") return codexTuiBusy(screen);
   if (kind === "cursor") return cursorTuiBusy(screen);
   return grokTuiBusy(screen);

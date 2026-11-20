@@ -126,7 +126,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む19
   assert.equal(ptySend.inputSchema.properties.require_agent.default, false);
   assert.equal(ptySend.outputSchema.properties.schema.const, "aiterm.pty-send-result.v1", "pty_send result schema");
   assert.deepEqual(ptySend.outputSchema.properties.mode.enum, ["sent", "agent_dispatch", "agent_steer"], "pty_send mode schema");
-  assert.deepEqual(ptySend.outputSchema.properties.harness.anyOf[0].enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"], "pty_send harness schema");
+  assert.deepEqual(ptySend.outputSchema.properties.harness.anyOf[0].enum, ["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"], "pty_send harness schema");
   assert.ok(
     ptySend.outputSchema.properties.event_cursor.anyOf?.some((v) => v.type === "integer"),
     "pty_send event_cursor schema",
@@ -223,10 +223,10 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む19
   assert.deepEqual(agentConfigure.outputSchema.properties.schema.enum, ["aiterm.agent-configure-result.v1", "aiterm.agent-configure-error.v1", "aiterm.agent-configure-request-result.v1", "aiterm.agent-configure-lock.v1"]);
   assert.equal(agentConfigure.inputSchema.properties.configuration_lock.enum.join(), "lock,unlock");
   assert.deepEqual(agentConfigure.outputSchema.properties.provider.enum, ["claude", "codex", "grok", "cursor", "antigravity"]);
-  assert.deepEqual(agentConfigure.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
+  assert.deepEqual(agentConfigure.outputSchema.properties.harness.enum, ["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
   const agentLaunch = toolsResp.result.tools.find((t) => t.name === "agent_launch");
-  assert.deepEqual(agentLaunch.inputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
-  assert.deepEqual(agentLaunch.outputSchema.properties.harness.enum, ["claude-code", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
+  assert.deepEqual(agentLaunch.inputSchema.properties.harness.enum, ["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
+  assert.deepEqual(agentLaunch.outputSchema.properties.harness.enum, ["claude-code", "claude-machine", "codex-cli", "grok-cli", "cursor-cli", "antigravity-cli"]);
   assert.match(agentLaunch.description, /harnessはagent loop・認証・hook・transcriptを所有/);
   assert.match(agentLaunch.description, /Cursor harnessからGPT／Claude／Grok等を選んでも/);
   assert.match(agentLaunch.description, /ComposerはCursorのmodelの一つ.*harness=cursor-cli と model=composer-2.5-fast/);

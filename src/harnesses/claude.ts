@@ -1,4 +1,3 @@
-import { claudeMachineMarker, type ClaudeMachineStateFile } from "../claude-machine.js";
 import { authUrl, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Claude Code 固有の制御。完了正本は launch 固有 Stop hook が書く event/result（ADR 0025）。
 // core 所有のサービス（transcript 不在エラー）は引数で注入し、
@@ -10,7 +9,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AitermError } from "../errors.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
-import { runAgentProtocolCommand, spawnAgentControlCommand, windowsAgentArgv, resolveWinPaneShell } from "../agent-resolver.js";
+import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { claudeCatalogRoot } from "../claude-catalog-root.js";
 import { jsonMcpServerNames, withoutReplaceKeys } from "./caller-mcp.js";
 import { catalogInvalid, catalogUnavailable, checkedCatalog, findJsonLine, processSummary, type AgentModelCatalog } from "../model-catalog.js";
@@ -86,22 +85,6 @@ export function agentClaudeOperationPath(name: string, launchId: string): string
   assertSessionName(name);
   if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);
   return path.join(agentsDir(), `${name}.${launchId}.claude-operation.json`);
-}
-
-/** The host's state file, or null before it exists or when it cannot be read whole (the host replaces it atomically). */
-export function readClaudeMachineState(meta: { aiterm_session: string; launch_id: string }): ClaudeMachineStateFile | null {
-  try {
-    const value = JSON.parse(fs.readFileSync(agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, "state"), "utf8"));
-    return value?.schema === "aiterm.claude-machine-state.v1" ? value as ClaudeMachineStateFile : null;
-  } catch { return null; }
-}
-
-/** a471 (ruling 13): the machine seat's data files, one set per launch. The stream file holds claude's stdout lines unchanged, the input
- * file the lines Aiterm forwards to its stdin, the state file what the host derived from the events. */
-export function agentClaudeMachineFilePath(name: string, launchId: string, kind: "stream" | "input" | "state"): string {
-  assertSessionName(name);
-  if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);
-  return path.join(agentsDir(), `${name}.${launchId}.claude-${kind === "state" ? "machine-state.json" : `${kind}.jsonl`}`);
 }
 
 export function agentClaudeApprovalReceiptPath(name: string, launchId: string): string {
@@ -441,29 +424,8 @@ export function claudeAgentArgv(
   }
   if (model) parts.push("--model", model);
   if (effort) parts.push("--effort", effort);
-  if (meta?.kind === "claude" && meta.claude_interface === "machine") return claudeMachineArgv(parts, prompt, meta);
   if (prompt) parts.push(prompt); // 初手プロンプト（任意）
   return parts;
-}
-
-/** a471: the pane runs claude-machine-host, which starts `claude` with the machine flags. The first prompt is a first message, not
- * a positional argument: it goes by a 0600 file the host reads once and deletes (argv stays free of it either way). */
-function claudeMachineArgv(claudeParts: string[], prompt: string | null, meta: AgentMetadata): string[] {
-  const host = fileURLToPath(new URL("../claude-machine-host.js", import.meta.url));
-  if (!fs.existsSync(host)) throw new AitermError(`AGENT_MACHINE_UNAVAILABLE: claude-machine-host が見つかりません。npm run build を実行してください: ${host}`, 2);
-  let promptFile: string[] = [];
-  if (prompt) {
-    const file = `${meta.claude_settings}.first-prompt`;
-    fs.writeFileSync(file, prompt, { mode: 0o600 });
-    promptFile = ["--first-prompt-file", file];
-  }
-  // Windows: the host spawns claude without a shell, so an npm shim or a script wrapper is resolved here exactly as the TUI launch line does.
-  const claude = process.platform === "win32" ? windowsAgentArgv(claudeParts, () => resolveWinPaneShell("bash")) : claudeParts;
-  const files = (["stream", "input"] as const).map(kind => agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, kind));
-  for (const file of files) fs.closeSync(fs.openSync(file, "a", 0o600)); // exist before the host and the first send
-  return [hookNodeExecutable(), host, "--stream-file", files[0], "--input-file", files[1],
-    "--state-file", agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, "state"),
-    "--replay-user-messages", ...(meta.fork_of ? ["--deny-questions"] : []), ...promptFile, "--", ...claude];
 }
 
 /** Resume exactly the saved conversation; the caller submits its body only after readiness. */
@@ -482,9 +444,6 @@ export function buildClaudeAgentCmd(
   prompt: string | null, meta: AgentMetadata | null,
 ): string {
   const argv = claudeAgentArgv(bin, model, effort, prompt, meta);
-  // The machine argv starts with node + host + (first-prompt file) and every claude token after "--" may be a path or text: quote all non-flags.
-  if (meta?.kind === "claude" && meta.claude_interface === "machine")
-    return argv.map(arg => (/^--?(?:[a-z][a-z-]*)?$/.test(arg) ? arg : shq(arg))).join(" ");
   const values = new Set(["--setting-sources", "--settings", "--session-id", "--resume", "--append-system-prompt", "--append-system-prompt-file", "--mcp-config", "--model", "--effort"]);
   return argv.map((arg, index) => index === 0 || values.has(argv[index - 1]) || (prompt && index === argv.length - 1)
     ? shq(arg) : arg).join(" ");
@@ -523,8 +482,6 @@ export function claudeConsumerTermsUpdate(screen: string): boolean {
 }
 
 export function claudeTuiReady(screen: string): boolean {
-  const machine = claudeMachineMarker(screen);
-  if (machine) return machine.state === "idle";
   if (!screen.includes("Claude Code") && !claudeComposerBox(screen)) return false;
   if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return false;
   const lastMarker = screen.split(/\r?\n/u).filter((line) => /^\s*❯/u.test(line)).at(-1)?.trim();
@@ -563,8 +520,6 @@ function claudeTurnProgress(screen: string): boolean {
 // 足元の「esc to interrupt」は、貼り付けの知らせ（paste again to expand）へ置き換わる間は出ない。複数行のpromptを
 // 送った後の約8秒がそうで、その間は動いているのに入力待ちと読んでいた（2.1.291、2026-10-06）。進行行も動作中の印にする。
 export function claudeTuiBusy(screen: string): boolean {
-  const machine = claudeMachineMarker(screen);
-  if (machine) return machine.state === "busy";
   return claudeInterruptHint(screen) || claudeTurnProgress(screen);
 }
 
@@ -591,14 +546,6 @@ function claudeInterruptHint(screen: string): boolean {
 }
 
 export function claudePaneObservation(screen: string): import("../agent-shared.js").HarnessPaneObservation {
-  // A machine seat (claude-machine-host) states its own condition; the TUI readers below never apply to it.
-  const machine = claudeMachineMarker(screen);
-  if (machine) {
-    if (machine.state === "idle") return { state: "idle", reason: "composer_ready" };
-    if (machine.state === "busy") return { state: "busy", reason: "turn_running" };
-    if (machine.state === "blocked") return { state: "blocked", reason: machine.reason ?? "unknown_dialog" };
-    return { state: "unknown", reason: machine.state === "exited" ? "harness_exited" : "machine_starting" };
-  }
   const tail = screen.split("\n").slice(-32).join("\n");
   if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
   if (/Do you want to proceed\?/.test(tail) && /(?:^|\n)\s*[❯>]?\s*\d+\.\s+(?:Yes|No)\s*$/m.test(tail))
@@ -1060,11 +1007,6 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
 
 /** Claude wrote its interrupt record ("[Request interrupted by user…]") at or after `sinceMs`: the turn was interrupted. */
 export function claudeInterruptedAfter(meta: AgentMetadata, sinceMs: number): boolean {
-  if (meta.claude_interface === "machine") {
-    // -p writes its interrupt row into the transcript only at the next input; the host's last result is the earlier evidence.
-    const end = readClaudeMachineState(meta)?.last_result;
-    if (typeof end?.terminal_reason === "string" && end.terminal_reason.startsWith("aborted") && Date.parse(end.at) >= sinceMs) return true;
-  }
   const file = claudeSessionTranscriptPath(meta);
   if (!file) return false;
   let size: number;

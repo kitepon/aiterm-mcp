@@ -197,7 +197,7 @@ export function loadAgentMetadata(name: string): AgentMetadata {
       ...(m.claude_caller_prompt_file === agentClaudeCallerPromptPath(name) ? { claude_caller_prompt_file: m.claude_caller_prompt_file } : {}),
       ...(m.claude_caller_mcp_file === agentClaudeCallerMcpPath(name) ? { claude_caller_mcp_file: m.claude_caller_mcp_file } : {}),
       ...(m.claude_home === undefined ? {} : { claude_home: m.claude_home }),
-      ...(m.claude_interface === "machine" ? { claude_interface: "machine" as const } : {}),
+      ...(m.claude_harness === "claude-machine" ? { claude_harness: "claude-machine" as const } : {}),
       result_file: expectedResult,
     };
   }

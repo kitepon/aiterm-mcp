@@ -1,14 +1,18 @@
 # Claude machine launch mode（a471、0.70.84）
 
-> 現在図。`agent_launch` の `interface: "machine"` で起こしたClaude席の構造。0.70.82・0.70.83は、hostがstreamを画面へ描き、Aitermがpaneから読み戻す形だったが、オーナーの裁き（2026-11-20 20:0x JST、ruling 13）で**データの素通し**へ替えた（[ADR 0143](../adr/0143-machine-seat-stream-is-data.md)）。データの契約は [claude-machine-stream](claude-machine-stream.md)。採用理由の元は [ADR 0142](../adr/0142-claude-machine-launch-mode.md)。実装は `src/claude-machine.ts`、`src/claude-machine-host.ts`、`src/claude-machine-stream.ts`、`src/harnesses/claude.ts`、`src/core.ts`、`src/index.ts`。
+> 現在図。Aitermの harness `claude-machine`（機械Claude、`agent_launch(harness: "claude-machine")`）で起こしたClaude席の構造。0.70.82・0.70.83は、hostがstreamを画面へ描き、Aitermがpaneから読み戻す形だったが、オーナーの裁き（2026-11-20 20:0x JST、ruling 13）で**データの素通し**へ替えた（[ADR 0143](../adr/0143-machine-seat-stream-is-data.md)）。データの契約は [claude-machine-stream](claude-machine-stream.md)。採用理由の元は [ADR 0142](../adr/0142-claude-machine-launch-mode.md)。実装は `src/claude-machine.ts`、`src/claude-machine-host.ts`、`src/claude-machine-stream.ts`、`src/harnesses/claude.ts`、`src/core.ts`、`src/index.ts`。
+
+## 分けた物（ruling 14、[ADR 0144](../adr/0144-claude-machine-is-its-own-harness.md)）
+
+`claude`（TUI）harnessのコード（`harnesses/claude.ts` ほか）は a471 より前の形で、machineを知らない。machineの起動・観測・入力・承認・設定・Goal・中断・終了は `harnesses/claude-machine.ts`（と host・stream・coreの継ぎ手）にある。共有するのは、binary・login・session file・hook・transcriptの読み手（file）だけ。観測の振り分け（`agent-screen-observation.ts`）が、machineの1行の状態を先に `claude-machine` の読み手へ渡す。
 
 ## 機能図（誰が何をするか）
 
 | 部品 | 実コード | 責務 | 変えないもの |
 | --- | --- | --- | --- |
-| 呼び手の入口 | `index.ts` `launchAgent` / `launchRemoteAgent` | `interface`（`terminal`｜`machine`、claude-codeだけ）を受ける。別端末が0.70.84未満なら `REMOTE_AITERM_TOO_OLD`。machineで立った席だけ起動結果に `interface: "machine"` | 他の公開tool・receipt・エラーの形 |
-| 起動の判断 | `core.ts` `refuseCallerInput` / `prepareAgentLaunch` / `resumeAgentInLock` | 新規はmetadata `claude_interface: "machine"`。wakeは名指しの `interface` か保存したrecipeの `interface`（同じ会話IDで両方向に再開） | 席の本人性・世代・native作成の順 |
-| 起動行 | `harnesses/claude.ts` `claudeMachineArgv` | paneで `node claude-machine-host.js --stream-file … --input-file … --state-file … --replay-user-messages [--deny-questions] -- <claudeのargv>`。claudeのargvはTUIの時と同じ。forkは `--deny-questions` | hook・caller files・lineage |
+| 呼び手の入口 | `index.ts` `launchAgent` / `launchRemoteAgent` | `agent_launch` の `harness` に `claude-machine`（`interface` 引数は0.70.85で廃止）。別端末が0.70.85未満なら `REMOTE_AITERM_TOO_OLD`（呼び手側で、何も送る前に）。この席の公開の `harness` は全て `claude-machine`、`vendor`・`provider` は `claude` | 他のharnessの公開tool・receipt・エラーの形 |
+| 起動の判断 | `core.ts` `refuseCallerInput` / `prepareAgentLaunch` / `resumeAgentInLock` | 新規はmetadata `claude_harness: "claude-machine"`（vendorの `kind` は `claude` のまま: hook・transcript・完了・親配送の記録はvendor共通のfile）。wakeは名指しのharnessか保存したrecipeの `harness`（同じ会話IDで `claude-code` ⇄ `claude-machine` の両方向に再開） | 席の本人性・世代・native作成の順 |
+| 起動行 | `harnesses/claude-machine.ts` `claudeMachineAgentArgv` | paneで `node claude-machine-host.js --stream-file … --input-file … --state-file … --replay-user-messages [--deny-questions] -- <claudeのargv>`。claudeのargvはTUIの時と同じ。forkは `--deny-questions` | hook・caller files・lineage |
 | 持ち手 | tmux（Linux・Mac）/ psmux（Windows）の席 | **全OSで同じ**: hostとclaudeのprocessだけを持つ。入出力の道ではない（pane入力も画面読みも無い） | native session作成・rollback・本人性 |
 | host | `claude-machine-host.ts` | claudeをpipeで持つ。stdoutの行を**そのまま**stream fileへ追記、input fileの行を**そのまま**stdinへ、事象から状態をstate fileへ。initializeの後、thinkingの要約を有効にする（`set_max_thinking_tokens`）。ExitPlanModeは許可、forkのAskUserQuestionは即deny | claude本体（無改造） |
 | データ路 | `claude-machine-stream.ts`、公開tool `stream_read`・`stream_send` | 行を読む（cursor）、型の許可表を通った行だけ送る | terminal席の既存tool |
@@ -18,7 +22,7 @@
 ## データの流れ
 
 ```
-caller ─ agent_launch(interface) ─> core.prepareAgentLaunch ─> metadata.claude_interface, recipe.interface
+caller ─ agent_launch(harness) ─> core.prepareAgentLaunch ─> metadata.claude_harness, recipe.harness
 core ─ typed launch line ─> native shell ─> node claude-machine-host.js ─ spawn ─> claude -p (stdin/stdout pipes)
 claude stdout ─ line, unchanged ─> host ─> <launch>.claude-stream.jsonl ─> stream_read (cursor) ─> caller
 caller ─ stream_send / pty_send / agent_stop … ─> <launch>.claude-input.jsonl ─ line, unchanged ─> host ─> claude stdin

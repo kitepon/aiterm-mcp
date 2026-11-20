@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.85] - 2026-11-20
+
 - Machine mode is now its own harness, `claude-machine` (機械Claude; Owner ruling 14, ADR 0144). `agent_launch(harness: "claude-machine")` replaces the `interface` argument, which is removed (0.70.82 to 0.70.84 had it). The claude (TUI) harness is back to its earlier shape and knows nothing of the machine; the machine's launch, observation, input, approval, configure, goal and interrupt live in `harnesses/claude-machine.ts`, the host and the stream module. Every public `harness` field of such a seat (launch result, `pty_list`, `pty_observe`, dispatch and steer receipts, `agent_configure`, `agent_goal`, seat turns, launch errors) says `claude-machine`; `vendor` / `provider` stay `claude`; the native Goal object's `kind` stays `claude-code`. A hibernated seat wakes in the harness the launch names (the same conversation resumes either way); a wake naming none and a `pty_send` auto-resume keep the saved one. A remote terminal below 0.70.85 refuses the harness by name (`REMOTE_AITERM_TOO_OLD`).
 ## [0.70.84] - 2026-11-20
 
@@ -3592,7 +3594,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...HEAD
+[0.70.85]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...v0.70.85
 [0.70.84]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...v0.70.84
 [0.70.83]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...v0.70.83
 [0.70.82]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...v0.70.82

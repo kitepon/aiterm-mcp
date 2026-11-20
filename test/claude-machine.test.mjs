@@ -161,13 +161,15 @@ test("machine argv: host first, then --end-file, then claude's own argv; the TUI
   const machine = claudeAgentArgv("/bin/claude", "opus", "high", null, meta({ claude_interface: "machine" }));
   assert.match(machine[1], /claude-machine-host\.js$/);
   const dash = machine.indexOf("--");
-  assert.deepEqual(machine.slice(dash + 1), tui);
+  // On Windows the claude command itself is resolved like the TUI launch line (shim or script wrapper); its arguments are the same.
+  assert.deepEqual(machine.slice(machine.length - (tui.length - 1)), tui.slice(1));
+  if (process.platform !== "win32") assert.deepEqual(machine.slice(dash + 1), tui);
   assert.equal(machine[2], "--end-file");
   const resumed = claudeResumeArgv("/bin/claude", "opus", "high", meta({ claude_interface: "machine" }));
   assert.ok(resumed.includes("--resume") && !resumed.includes("--session-id"));
   const cmd = buildClaudeAgentCmd("/bin/claude", "opus", "high", null, meta({ claude_interface: "machine" }));
   assert.match(cmd, /^'[^']*node[^']*' '[^']*claude-machine-host\.js' --end-file '/);
-  assert.ok(cmd.includes(" -- '/bin/claude' --dangerously-skip-permissions"));
+  if (process.platform !== "win32") assert.ok(cmd.includes(" -- '/bin/claude' --dangerously-skip-permissions"));
 });
 
 test("the resume recipe keeps the interface and rejects other values", () => {

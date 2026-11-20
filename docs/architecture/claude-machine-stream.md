@@ -1,6 +1,6 @@
 # Claude machine seat: the stream as data (a471, ruling 13)
 
-> 契約（0.70.84の予定）。オーナー 2026-11-20 20:0x JST の裁き: machine席の出力は**データ**で渡し、画面に描いて読み戻さない。`claude -p` のstream-json行は、そのまま公開toolで呼び手へ届き、入力もデータで入る。busy／idle／blockedはstreamの事象から決める。native session（tmux／psmux）は全OSで、processとそのpipeを持つだけ。実装前に BellTeam execution（キロ氏）・conversation（N102）と合意する。
+> 契約（0.70.84、実装済み）。オーナー 2026-11-20 20:0x JST の裁き: machine席の出力は**データ**で渡し、画面に描いて読み戻さない。`claude -p` のstream-json行は、そのまま公開toolで呼び手へ届き、入力もデータで入る。busy／idle／blockedはstreamの事象から決める。native session（tmux／psmux）は全OSで、processとそのpipeを持つだけ。実装前に BellTeam execution（キロ氏）・conversation（N102）と合意する。
 
 ## 機能図（誰が何をするか）
 
@@ -34,6 +34,7 @@
 ```
 { session_id, launch_id,
   lines: string[],          // claudeのstdoutの行そのまま（JSON文字列。Aitermは解釈・再整形しない）
+  current_launch_id: string, // 今の起動（`launch_id` はこの行の起動。前の起動のcursorなら違う）
   cursor: string,           // 次に渡す値（`<launch_id>:<byte offset>`、不透明）
   at_end: boolean,
   state: { state: "starting"|"idle"|"busy"|"blocked"|"exited", reason: string|null,
@@ -49,7 +50,7 @@
 | `type` | 許す中身 | 用途 |
 | --- | --- | --- |
 | `user` | `message`（role user、content）、`parent_tool_use_id`（null）、`uuid`・`priority`（任意） | 発話・steer（実行中なら同じturnへ入る）。`/goal …` もここ |
-| `control_request` | `request.subtype` が `interrupt`・`set_model`・`apply_flag_settings`・`set_permission_mode` | 中断、model／effort／fastの変更 |
+| `control_request` | `request.subtype` が `interrupt`・`set_model`・`apply_flag_settings`・`set_permission_mode`・`set_max_thinking_tokens` | 中断、model／effort／fastの変更 |
 | `control_response` | `response: {subtype:"success"|"error", request_id, response}`。`request_id` が `state.pending` にある時だけ | can_use_tool（Bash許可、AskUserQuestionの選択＝`updatedInput.answers`、ExitPlanMode）への答え |
 
 出力: `{ accepted, items:[{ type, uuid|request_id, input_cursor }] }`。hostがstdinへ書き終えるまでの受付は、state fileの `input_bytes_consumed` で分かる（`stream_read` の `state` には出さない。`wait_ms` つきの読みで足りる）。待っていない `request_id` の答えは `STREAM_REQUEST_NOT_PENDING`。
@@ -61,7 +62,7 @@
 - `claude_approval`: 待っているtool許可（Bash等）を `pending` から出し、`approve_once`／`deny` を `control_response` で返す。AskUserQuestionはここでは答えない（`stream_send` の `control_response`）。
 - `agent_stop`・`pty_key C-c`: `interrupt` のcontrol_request。`agent_configure`: `set_model`／`apply_flag_settings` のcontrol_request。
 - `pty_read(screen)`: 画面は契約でない。`stream_read` を案内する短い文だけを返す。
-- 0.70.83の、paneから読み戻す質問（`question_pending`・`answer`・pty_keyの数字）とpaneの状態行は、0.70.84で外す（置き換え）。
+- 0.70.83の、paneから読み戻す質問（`question_pending`・`answer`・pty_keyの数字）とpaneの状態行は、0.70.84で外した（置き換え）。`pty_key` は machine席では C-c／Escape（interrupt）だけで、他は `STREAM_KEY_UNSUPPORTED`。
 
 ## 状態遷移（hostが事象から決める）
 
@@ -81,7 +82,17 @@
 - file書込失敗: その行は受け付けず `STREAM_SEND_FAILED`（再送の判断は呼び手）。
 - 3OS: fileの追記・読みと、native sessionの持ち手だけ。socket・named pipeは使わない。
 
-## 合意したい点（キロ氏・N102）
+## 合意した点（キロ氏・N102、2026-11-20）
+
+- 行の運び: long pollで足りる（push無し）。利用者の発話は `--replay-user-messages` で、streamに入れる（steerもすべての入力も、順に、uuidつきで並ぶ）。token単位の途中経過（`--include-partial-messages`）は無し。`ack_cursor` は無し（conversationがcursorを保存する）。
+- 前の起動のstream: wake・restartの後も、席をcloseするまで前の起動のfileは残り、前の起動のcursorで読める（返りの `launch_id` はその行の起動、`current_launch_id` が今の起動）。無ければ `STREAM_CURSOR_STALE`。
+- `state.pending` の各要求に、streamの中の行の位置（`stream_offset`＝行の先頭、`stream_end`＝行の次。cursorは `<launch_id>:<stream_end>`）。答え済みの要求を、行を読み直さず外せる。
+- 0.70.84未満の別端末は `REMOTE_AITERM_TOO_OLD`（`interface: machine` も `stream_read` / `stream_send` も）。
+- thinking: 既定は空文（Opus・Sonnet・Fableで測定）。hostがinitializeの直後に `set_max_thinking_tokens`（`max_thinking_tokens: null`、`thinking_display: "summarized"`）を送るので、streamのthinking blockに要約の文が入る。`stream_send` でも同じ要求を送れる。
+- forkの席は答える人がいないので、hostがAskUserQuestionを即denyする（forkは止まらない）。
+- AskUserQuestionの答え: `updatedInput` は元のinput（`questions`）に `answers` を足した物。単一選択は選んだlabel、複数選択はlabelを `, ` で繋ぐ、Otherは自由文そのもの（3つとも実測）。
+
+## （参考）合意前の論点
 
 1. 行の運び: `stream_read` の`wait_ms`つきlong pollでよいか（pushは別途）。
 2. 利用者の発話をstreamに入れるか（`--replay-user-messages`）。入れれば、steerや別の席の入力も同じ順で並ぶ。

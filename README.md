@@ -155,7 +155,7 @@ Aiterm and is not a runtime dependency.
 
 **Measured, not claimed:** in the recorded 203-test benchmark, a `pty_read` puts **~7.1× fewer tokens** in your context than the raw log — and the pass/fail verdict survives the fold. → [When to reach for it vs. the built-in shell](#when-to-reach-for-it-vs-the-built-in-shell)
 
-19 tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; three deprecated launcher aliases kept for migration; `agent_models`; `agent_configure`; `agent_goal`; `agent_auth`; `agent_approval`; `claude_turn`; `claude_approval`; and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
+21 tools: seven **PTY tools** — `pty_open` / `pty_send` / `pty_read` / `pty_key` / `pty_close` / `pty_list` / `pty_observe` — to open, drive, read, and observe one persistent terminal; one canonical **agent launcher**, `agent_launch`, which selects `claude-code`, `codex-cli`, `grok-cli`, or `cursor-cli` as the execution harness; three deprecated launcher aliases kept for migration; `agent_models`; `agent_configure`; `agent_goal`; `agent_auth`; `agent_approval`; `claude_turn`; `claude_approval`; `stream_read` / `stream_send` (the data path of a Claude seat launched with `interface: "machine"`: claude's stream-json lines read unchanged, and data sent back); and `diagnostics`. The backend is **tmux on POSIX and psmux on native Windows**, so sessions survive even if the MCP server or the AI client restarts.
 
 **v0.28.0 separates the execution harness from the model.** The harness owns the agent loop, authentication, hooks, session, and transcript; `model` is what that harness runs. Cursor Agent CLI can therefore select GPT, Claude, or Grok without changing the completion contract from Cursor hooks to another harness's. Composer is one of Cursor's models, not a harness and not a Grok model: use `harness: "cursor-cli", model: "composer-2.5-fast"` (or `composer-2.5`). The old launcher tools are thin compatibility aliases over the same implementation.
 
@@ -445,7 +445,7 @@ The only edits to the captures above are the two `⋮` lines (a long head/tail r
 `aiterm-setup --json`が`ready`になったら、利用するMCP clientを再起動して接続を確認する。Claude Codeの場合:
 
 ```bash
-/mcp        # aiterm should show as connected, exposing 19 tools
+/mcp        # aiterm should show as connected, exposing 21 tools
 ```
 
 Your first session — four calls, one persistent terminal:

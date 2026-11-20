@@ -20,7 +20,7 @@ Codexの**停止本人性**は通常完了待ちより厳しい。候補全列�
 
 ## Claude machine launch mode（0.70.82、a471）
 
-Claudeの完了・本人性・回答は `interface: "machine"` の席でも上の表のまま（Stop hook・transcript・operation印）。違いは入力と観測の面だけ: 画面は [claude-machine-host](claude-machine-host.md) の状態の行を `claudePaneObservation` が読み、承認は host が `can_use_tool` を「Do you want to proceed?」で描いて `claude_approval` が読み、中断は `claude-machine-end.json` が `claudeInterruptedAfter` に渡す。
+Claudeの完了・本人性・回答は `interface: "machine"` の席でも上の表のまま（Stop hook・transcript・operation印）。違いは入力と観測の面だけ: 出力はデータ（[claude-machine-stream](claude-machine-stream.md)）で、状態はhostが事象から決めたstate file、承認は `pending` のcontrol_response（`claude_approval`）、中断はstate fileの `last_result` が `claudeInterruptedAfter` に渡す。画面は読まない。
 
 ## 呼び手の起動指示とMCP（agent_launch append_system_prompt / mcp_config）
 

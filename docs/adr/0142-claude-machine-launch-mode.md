@@ -1,6 +1,6 @@
 # ADR 0142: Claude machine launch mode (claude -p stream-json under an Aiterm host)
 
-Status: adopted (0.70.82, a471). Owner 2026-11-20 「Claudeを機械の口に切り替えてみたい」; ruling by Tronie after the spike (plan_claude-machine-interface-20261120.md).
+Status: adopted (0.70.82, a471); its screen-based host and observation are replaced by [ADR 0143](0143-machine-seat-stream-is-data.md) (0.70.84). Owner 2026-11-20 「Claudeを機械の口に切り替えてみたい」; ruling by Tronie after the spike (plan_claude-machine-interface-20261120.md).
 
 ## Cause
 

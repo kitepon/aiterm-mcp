@@ -44,7 +44,7 @@ export const executionRequestSchema = z.discriminatedUnion("kind", [
     request_id: z.union([referenceId, z.number().int().safe()]),
     tool: z.enum(["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_open", "pty_send", "pty_key", "pty_close",
       "agent_configure", "agent_goal", "agent_auth.start", "agent_auth.status", "agent_auth.cancel", "agent_approval.respond",
-      "claude_approval.respond", "claude_turn.issue"]), target_session_id: sessionId }).strict(),
+      "claude_approval.respond", "claude_turn.issue", "stream_send"]), target_session_id: sessionId }).strict(),
 ]);
 export type ExecutionRequest = z.infer<typeof executionRequestSchema>;
 
@@ -87,7 +87,7 @@ export const cascadeInterruptResultSchema = cascadeInterruptResultObjectSchema.s
 // become an AI invocation edge merely because they touched another seat.
 export function executionRequestStartsWork(request: ExecutionRequest): boolean {
   return request.kind !== "mcp" || ["agent_launch", "claude_agent", "codex_agent", "grok_agent", "pty_send", "pty_key",
-    "agent_approval.respond", "claude_approval.respond", "claude_turn.issue"].includes(request.tool);
+    "agent_approval.respond", "claude_approval.respond", "claude_turn.issue", "stream_send"].includes(request.tool);
 }
 
 export const executionSourceClaimSchema = z.object({

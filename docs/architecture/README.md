@@ -5,7 +5,7 @@
 [全体図](current-overview.svg) / [全体説明](current-overview.md) → 各機能詳細 → [全137sourceの責務・関数・位置](source-index.md)。編集原本は各SVGと同名のDOT。図のsourceとコードを同じ差分で保守する。
 
 - [起動・本人性・入力](launch-identity-input.md) / [状態所有・停止・取消・cleanup](lifecycle-state-ownership.md)
-- [観測・回答](observation-results.md) / [5vendor・完了・差込](harness-contracts.md) / [Claude machine launch mode](claude-machine-host.md)
+- [観測・回答](observation-results.md) / [5vendor・完了・差込](harness-contracts.md) / [Claude machine launch mode](claude-machine-host.md) / [machine席のstream（データ）](claude-machine-stream.md)
 - [goal・設定・認証・remote](goal-configuration-auth-remote.md) / [設定の分離後](model-configuration.md)
 - [起動記録reader](metadata-reader.md) / [通常PTY入出力・表示](ordinary-pty.md)
 - [親配送と記録](parent-delivery.md) / [承認・耐久operation・環境](approval-operation-environment.md)

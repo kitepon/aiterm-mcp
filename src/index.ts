@@ -384,6 +384,13 @@ function remoteToolHandler(name: string): RemoteToolHandler {
       if (args.request || args.action === "reconcile") throw new Error("REMOTE_UNSUPPORTED: tracked configuration requires the exact local connection; not issued");
       return inRemoteSeatOrder(target, args.session_id, () => forwardRemote(target, name, args, extra));
     };
+    case "stream_read": case "stream_send": return async (target, args, extra) => {
+      // An older terminal does not have the tool: say so by name (a471).
+      const version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
+      if (!versionAtLeast(version, MACHINE_INTERFACE_MINIMUM_VERSION))
+        throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; ${name} needs ${MACHINE_INTERFACE_MINIMUM_VERSION} or later`, 2);
+      return forwardRemote(target, name, args, extra);
+    };
     case "pty_send": return sendRemote;
     case "pty_close": return async (target, args, extra) => {
       await remoteParentDelivery?.beforeChange(deliveryKey(args.session_id, target));
@@ -1141,8 +1148,7 @@ registerRemoteAwareTool(
         .regex(/^sha256:[0-9a-f]{64}$/)
         .nullish()
         .describe("durable operationのID。通常pty_send由来の匿名turnでは省略する"),
-      approval_choice: z.enum(["approve_once", "deny", "answer"]).optional().describe("respondだけに指定する。answerはmachine席のAskUserQuestionに答える時で、answer_indexを付ける"),
-      answer_index: z.number().int().positive().optional().describe("approval_choice=answerの時の選択肢の番号（inspectのquestion.optionsのindex）"),
+      approval_choice: z.enum(["approve_once", "deny"]).optional().describe("respondだけに指定する"),
       observed_prompt_digest: z
         .string()
         .regex(/^sha256:[0-9a-f]{64}$/)
@@ -1152,22 +1158,20 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.claude-approval-result.v1"),
       action: z.enum(["inspect", "respond"]),
-      status: z.enum(["none", "approval_required", "question_pending", "submitted"]).describe("none: a machine-mode seat has no request pending; question_pending: a machine seat waits at an AskUserQuestion (question, choices decision answer)"),
+      status: z.enum(["none", "approval_required", "submitted"]).describe("none: a machine-mode seat has no tool permission pending (an AskUserQuestion is answered with stream_send)"),
       session_id: z.string(),
       operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
       prompt_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
       choices: z.array(z.object({
-        decision: z.enum(["approve_once", "deny", "answer"]),
+        decision: z.enum(["approve_once", "deny"]),
         index: z.number().int().positive(),
         label: z.string(),
       })),
-      selected_choice: z.enum(["approve_once", "deny", "answer"]).nullable(),
-      question: z.object({ prompt: z.string(), options: z.array(z.object({ index: z.number().int().positive(), label: z.string() })) }).optional(),
-      answer_index: z.number().int().positive().optional(),
+      selected_choice: z.enum(["approve_once", "deny"]).nullable(),
       at: z.string(),
     },
   },
-  async ({ action, session_id, operation_id, approval_choice, observed_prompt_digest, answer_index }) => {
+  async ({ action, session_id, operation_id, approval_choice, observed_prompt_digest }) => {
     try {
       const result = core.runClaudeApproval({
         action,
@@ -1175,7 +1179,6 @@ registerRemoteAwareTool(
         operation_id: operation_id ?? null,
         approval_choice,
         observed_prompt_digest,
-        answer_index,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -1184,6 +1187,73 @@ registerRemoteAwareTool(
     } catch (e) {
       return fail(e);
     }
+  },
+);
+
+const streamStateSchema = z.object({
+  state: z.enum(["starting", "idle", "busy", "blocked", "exited"]),
+  reason: z.enum(["tool_approval", "unknown_dialog"]).nullable(),
+  pending: z.array(z.object({ request_id: z.string(), subtype: z.string(), tool_name: z.string().nullable(), stream_offset: z.number().int().nonnegative(), stream_end: z.number().int().nonnegative() })),
+});
+
+registerRemoteAwareTool(
+  "stream_read",
+  {
+    description:
+      "machine席（agent_launch interface:machine のClaude席）の出力をデータで読む。claude -p stream-json のstdoutの行を、解釈も整形もせず、そのまま返す" +
+      "（assistant・user・system・result・rate_limit_event・control_request（can_use_tool、AskUserQuestionを含む）など）。" +
+      "cursorは前回の返りのcursor（省略はこの起動のstreamの先頭）。wait_msを付けると、新しい行か状態の変化まで待つ。" +
+      "state.pendingは答えを待つ要求で、stream_offset/stream_endはその行のstream内の位置（cursorは`<launch_id>:<stream_end>`）。" +
+      "resume・wakeは新しい起動（launch_id）で、前の起動のcursorも、その起動のfileが残る間（席をcloseするまで）は読める。無ければSTREAM_CURSOR_STALE。",
+    inputSchema: {
+      session_id: z.string(),
+      cursor: z.string().optional().describe("前回の返りのcursor。省略は先頭"),
+      max_lines: z.number().int().min(1).max(1000).optional().describe("既定200"),
+      wait_ms: z.number().int().min(0).max(30000).optional().describe("新しい行か状態の変化まで待つ（既定0）"),
+    },
+    outputSchema: {
+      schema: z.literal("aiterm.stream-read.v1"),
+      session_id: z.string(),
+      launch_id: z.string(),
+      current_launch_id: z.string(),
+      lines: z.array(z.string()).describe("claudeのstdoutの行そのまま（JSON文字列）"),
+      cursor: z.string(),
+      at_end: z.boolean(),
+      state: streamStateSchema,
+    },
+  },
+  async ({ session_id, cursor, max_lines, wait_ms }) => {
+    try {
+      const result = await core.streamRead(session_id, { cursor, max_lines, wait_ms });
+      return { content: [{ type: "text" as const, text: JSON.stringify({ ...result, lines: `${result.lines.length} lines` }) }], structuredContent: { ...result } };
+    } catch (e) { return fail(e); }
+  },
+);
+
+registerRemoteAwareTool(
+  "stream_send",
+  {
+    description:
+      "machine席のclaudeへデータを送る。許す形は3つだけで、中身は書き換えない（無いuuid／request_idだけ補う）: " +
+      "user（message {role:user, content}。実行中なら同じturnへ入る。/goal もここ）、" +
+      "control_request（request.subtype は interrupt・set_model・apply_flag_settings・set_permission_mode・set_max_thinking_tokens）、" +
+      "control_response（response {subtype:success|error, request_id, response}。state.pendingにあるrequest_idの時だけ。" +
+      "can_use_toolへの答え: AskUserQuestionの選択は response.response.updatedInput.answers）。1回に1〜20行。",
+    inputSchema: { session_id: z.string(), lines: z.array(z.record(z.string(), z.unknown())).min(1).max(20) },
+    outputSchema: {
+      schema: z.literal("aiterm.stream-send.v1"),
+      session_id: z.string(),
+      launch_id: z.string(),
+      accepted: z.number().int(),
+      consumed: z.boolean().describe("hostがclaudeのstdinへ渡し終えたか"),
+      items: z.array(z.object({ type: z.string(), uuid: z.string().optional(), request_id: z.string().optional(), input_cursor: z.number().int() })),
+    },
+  },
+  async ({ session_id, lines }) => {
+    try {
+      const result = await core.streamSend(session_id, lines);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { ...result } };
+    } catch (e) { return fail(e); }
   },
 );
 
@@ -1496,7 +1566,7 @@ const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced:
 /** First release that reads `replace` in a caller server (launch-identity-input.md "Caller name precedence"). */
 const CALLER_REPLACE_MINIMUM_VERSION = "0.70.62";
 /** First release whose agent_launch takes interface: "machine" (a471); an older one strips the unknown key and starts a TUI seat. */
-const MACHINE_INTERFACE_MINIMUM_VERSION = "0.70.82";
+const MACHINE_INTERFACE_MINIMUM_VERSION = "0.70.84";
 /** First release whose claude_agent / agent_launch takes settings_env (a442f); an older one would drop it and start the seat without it. */
 const SETTINGS_ENV_MINIMUM_VERSION = "0.70.76";
 /** First release whose agent_launch takes append_system_prompt / mcp_config for codex-cli, and the first a terminal may run a Codex seat on. */
@@ -1697,7 +1767,7 @@ function registerAgentTool(
           append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home"),
           mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat; write secrets as ${ENV} names given in env_vars. A same-name server of the seat's own config wins and the entry is dropped (caller_mcp.dropped) unless it has replace: true"),
           settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
-          interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.82 refuses with REMOTE_AITERM_TOO_OLD; a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
+          interface: z.enum(["terminal", "machine"]).optional().describe("claude-code only. \"machine\" runs the seat as claude -p stream-json under Aiterm's host in its pane (no Claude TUI; no Code Mode); \"terminal\" (default for a new seat) is the Claude TUI. A wake or resume of a hibernated seat that names it takes it, and the saved mode is kept when omitted. A remote below 0.70.84 refuses with REMOTE_AITERM_TOO_OLD (0.70.82 and 0.70.83 are the earlier screen-based form); a CLI that does not come up in machine mode answers AGENT_MACHINE_UNAVAILABLE with no seat left"),
         } : {}),
         ...writeScopeInputSchema,
         ...correlatedLaunchSchema,

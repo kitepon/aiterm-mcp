@@ -1,4 +1,4 @@
-import { claudeMachineMarker } from "../claude-machine.js";
+import { claudeMachineMarker, type ClaudeMachineStateFile } from "../claude-machine.js";
 import { authUrl, type AgentAuthPlan, type AgentAuthStatus, type AgentAuthPane } from "../agent-auth.js";
 // Claude Code 固有の制御。完了正本は launch 固有 Stop hook が書く event/result（ADR 0025）。
 // core 所有のサービス（transcript 不在エラー）は引数で注入し、
@@ -88,12 +88,20 @@ export function agentClaudeOperationPath(name: string, launchId: string): string
   return path.join(agentsDir(), `${name}.${launchId}.claude-operation.json`);
 }
 
-/** a471: the machine host's record of the newest turn end (result event). Claude Code writes an -p interrupt into the transcript only
- * when the next input arrives, so this file is where an interrupted machine turn becomes visible. */
-export function agentClaudeMachineEndPath(name: string, launchId: string): string {
+/** The host's state file, or null before it exists or when it cannot be read whole (the host replaces it atomically). */
+export function readClaudeMachineState(meta: { aiterm_session: string; launch_id: string }): ClaudeMachineStateFile | null {
+  try {
+    const value = JSON.parse(fs.readFileSync(agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, "state"), "utf8"));
+    return value?.schema === "aiterm.claude-machine-state.v1" ? value as ClaudeMachineStateFile : null;
+  } catch { return null; }
+}
+
+/** a471 (ruling 13): the machine seat's data files, one set per launch. The stream file holds claude's stdout lines unchanged, the input
+ * file the lines Aiterm forwards to its stdin, the state file what the host derived from the events. */
+export function agentClaudeMachineFilePath(name: string, launchId: string, kind: "stream" | "input" | "state"): string {
   assertSessionName(name);
   if (!LAUNCH_ID_RE.test(launchId)) throw new AitermError(`launch_id が不正です: ${launchId}`, 2);
-  return path.join(agentsDir(), `${name}.${launchId}.claude-machine-end.json`);
+  return path.join(agentsDir(), `${name}.${launchId}.claude-${kind === "state" ? "machine-state.json" : `${kind}.jsonl`}`);
 }
 
 export function agentClaudeApprovalReceiptPath(name: string, launchId: string): string {
@@ -451,7 +459,11 @@ function claudeMachineArgv(claudeParts: string[], prompt: string | null, meta: A
   }
   // Windows: the host spawns claude without a shell, so an npm shim or a script wrapper is resolved here exactly as the TUI launch line does.
   const claude = process.platform === "win32" ? windowsAgentArgv(claudeParts, () => resolveWinPaneShell("bash")) : claudeParts;
-  return [hookNodeExecutable(), host, "--end-file", agentClaudeMachineEndPath(meta.aiterm_session, meta.launch_id), ...promptFile, "--", ...claude];
+  const files = (["stream", "input"] as const).map(kind => agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, kind));
+  for (const file of files) fs.closeSync(fs.openSync(file, "a", 0o600)); // exist before the host and the first send
+  return [hookNodeExecutable(), host, "--stream-file", files[0], "--input-file", files[1],
+    "--state-file", agentClaudeMachineFilePath(meta.aiterm_session, meta.launch_id, "state"),
+    "--replay-user-messages", ...(meta.fork_of ? ["--deny-questions"] : []), ...promptFile, "--", ...claude];
 }
 
 /** Resume exactly the saved conversation; the caller submits its body only after readiness. */
@@ -585,7 +597,7 @@ export function claudePaneObservation(screen: string): import("../agent-shared.j
     if (machine.state === "idle") return { state: "idle", reason: "composer_ready" };
     if (machine.state === "busy") return { state: "busy", reason: "turn_running" };
     if (machine.state === "blocked") return { state: "blocked", reason: machine.reason ?? "unknown_dialog" };
-    return { state: "unknown", reason: "machine_starting" };
+    return { state: "unknown", reason: machine.state === "exited" ? "harness_exited" : "machine_starting" };
   }
   const tail = screen.split("\n").slice(-32).join("\n");
   if (claudeLoginMethodMenu(screen) || claudeSecurityNotes(screen)) return { state: "blocked", reason: "vendor_onboarding_required" };
@@ -1049,10 +1061,9 @@ export function claudeApiErrorAfter(meta: AgentMetadata, startedAtMs: number): C
 /** Claude wrote its interrupt record ("[Request interrupted by user…]") at or after `sinceMs`: the turn was interrupted. */
 export function claudeInterruptedAfter(meta: AgentMetadata, sinceMs: number): boolean {
   if (meta.claude_interface === "machine") {
-    try {
-      const end = JSON.parse(fs.readFileSync(agentClaudeMachineEndPath(meta.aiterm_session, meta.launch_id), "utf8"));
-      if (typeof end?.terminal_reason === "string" && end.terminal_reason.startsWith("aborted") && Date.parse(end.at) >= sinceMs) return true;
-    } catch { /* no end recorded yet: the transcript rule below */ }
+    // -p writes its interrupt row into the transcript only at the next input; the host's last result is the earlier evidence.
+    const end = readClaudeMachineState(meta)?.last_result;
+    if (typeof end?.terminal_reason === "string" && end.terminal_reason.startsWith("aborted") && Date.parse(end.at) >= sinceMs) return true;
   }
   const file = claudeSessionTranscriptPath(meta);
   if (!file) return false;

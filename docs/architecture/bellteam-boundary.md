@@ -29,9 +29,11 @@
 
 Steer SDK/CLIとBridgeの保存形式読取依存は[接点表](external-contracts.md)が正本。Bridgeの台帳/予約/receiptはリター、channel/hookの状態と出力はエレグ。emittedをvendor開始へ拡張しない。運用で使うget_self/update_self/sendmessage/予定はBellTeam MCPであり、製品内部のAPIと混同しない。
 
-## Claude machine launch mode（0.70.82、a471）
+## Claude machine launch mode（0.70.84、a471、ruling 13）
 
-`agent_launch` の追加引数 `interface: "terminal" | "machine"`（claude-codeだけ、省略は新規席でterminal、休止席のwakeでは保存した値）。machineで立った席の起動結果の `structuredContent.interface` に `"machine"`（その席だけ。省略可）。断りは `REMOTE_AITERM_TOO_OLD`（別端末が0.70.82未満）と `AGENT_MACHINE_UNAVAILABLE`（席を残さない）。`claude_approval inspect` は待ちが無い時 `status: "none"`（`prompt_digest: null`）。0.70.83から、machine席のAskUserQuestionは `inspect` が `status: "question_pending"`（`question`、`choices` の `decision: "answer"`）、`respond` が `approval_choice: "answer"` ＋ `answer_index` で答え、`pty_key` の数字・Enter・Up・Downも待ちの間は通る。`agent_goal` の作成・消去もmachine席で動く（利用者起源だけ）。他の公開tool・receiptは変えない。BellTeam側の切替（キロ氏）は呼び手の引数だけで、Aitermの内部形式を読まない。
+`agent_launch` の追加引数 `interface: "terminal" | "machine"`（claude-codeだけ、省略は新規席でterminal、休止席のwakeでは保存した値）。machineで立った席の起動結果の `structuredContent.interface` に `"machine"`（その席だけ）。断りは `REMOTE_AITERM_TOO_OLD`（別端末が0.70.84未満）と `AGENT_MACHINE_UNAVAILABLE`（席を残さない）。
+
+machine席の出力は**データ**で渡す（[ADR 0143](../adr/0143-machine-seat-stream-is-data.md)、[契約](claude-machine-stream.md)）。新しい公開tool `stream_read`（claudeのstream-jsonの行をそのまま、cursor・long poll）と `stream_send`（user・control_request・control_response。型の許可表だけ）。AskUserQuestionはstream上の `can_use_tool` のcontrol_requestで、答えは呼び手が作るcontrol_response（Aiterm側に形は無い）。既存のtool（pty_send・pty_observe・claude_approval・agent_stop・agent_configure・agent_goal）はmachine席でも同じ形で答える。BellTeam側（execution＝キロ氏が運び、conversation＝N102が表示・答えを作る）は、Aitermの内部形式（file）を読まない。
 
 ## 公開の入口（package exports、0.70.58、bd04）
 

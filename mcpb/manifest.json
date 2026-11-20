@@ -98,6 +98,14 @@
       "description": "Inspect and answer a correlated managed Claude approval prompt."
     },
     {
+      "name": "stream_read",
+      "description": "Read a machine-mode Claude seat's claude -p stream-json output as data, unchanged."
+    },
+    {
+      "name": "stream_send",
+      "description": "Send data (user message, control request, control response) to a machine-mode Claude seat."
+    },
+    {
       "name": "diagnostics",
       "description": "Return a read-only, privacy-bounded factory readiness snapshot."
     }

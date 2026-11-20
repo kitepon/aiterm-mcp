@@ -155,7 +155,7 @@ diagnostics、recovery、update、releaseを所有します。このREADMEと[�
 
 **言葉でなく実測で:** 記録済み203テストのベンチマークでは、`pty_read` はコンテキストに載るトークンを生ログの **約 7.1 分の 1** に減らす。しかも pass/fail の判定は畳んでも残る。→ [組み込みシェルツールとの使い分け](#組み込みシェルツールとの使い分け)
 
-19ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_goal`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
+21ツール: 7つのPTYツール、正規のagent起動入口`agent_launch`、移行用の旧3alias、`agent_models`、`agent_configure`、`agent_goal`、`agent_auth`、`agent_approval`、`claude_turn`、`claude_approval`、`stream_read`／`stream_send`（`interface: "machine"` のClaude席のデータ路。claudeのstream-jsonの行をそのまま読み、データを送る）、`diagnostics`。backendはPOSIXのtmux／Windows nativeのpsmuxなので、MCPサーバやAIクライアントが再起動してもsessionは生き残る。
 
 **v0.28.0では実行基盤harnessとmodelを分離した。** harnessはagent loop・認証・hook・session・transcriptを所有し、modelはその上で選ぶ。Cursor Agent CLIでGPT／Claude／Grokを選んでも完了契約はCursor方式のまま。ComposerはCursorのmodelの一つで、harnessでもGrokのmodelでもない。`harness:"cursor-cli", model:"composer-2.5-fast"`（または`composer-2.5`）で表す。旧起動ツールは同じ実装へ流れる互換alias。
 

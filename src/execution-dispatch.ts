@@ -22,7 +22,7 @@ type Extra = { requestId?: unknown; _meta?: unknown; [key: string]: unknown };
 type NativeRequest = Extract<ReturnType<typeof executionRequestSchema.parse>, { kind: "mcp" }>;
 type Route = { tool: NativeRequest["tool"]; target: string; stage: "launch" | "send" };
 const launches = new Set(["agent_launch", "claude_agent", "codex_agent", "grok_agent"]);
-const reads = new Set(["diagnostics", "pty_list", "pty_read", "pty_observe", "agent_models"]);
+const reads = new Set(["diagnostics", "pty_list", "pty_read", "pty_observe", "agent_models", "stream_read"]);
 const controls = new Set(["agent_execution", "agent_execution_roots", "agent_stop"]);
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 

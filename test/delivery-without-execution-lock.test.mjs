@@ -31,7 +31,7 @@ async function connection(t, dependencies) {
 
 test('delivery server exposes ordinary tools and direct stop without execution registration', { skip }, async t => {
   const unchanged = heldGraph(), client = await connection(t);
-  const list = await client.listTools(); assert.equal(list.tools.length, 20);
+  const list = await client.listTools(); assert.equal(list.tools.length, 22);
   assert(list.tools.some(tool => tool.name === 'pty_send')); assert(list.tools.some(tool => tool.name === 'agent_stop'));
   assert(!list.tools.some(tool => ['agent_execution', 'agent_execution_roots'].includes(tool.name))); unchanged();
 });
@@ -74,7 +74,7 @@ test('legacy native MCP entry no longer loads a tracking provider or enrolls an 
   const unchanged = heldGraph(), client = new Client({ name: 'delivery-entry', version: '1' });
   const transport = new StdioClientTransport({ command: process.execPath, args: [entry, '--execution-interrupt', '--state-root', ensureStateRoot(), '--socket', SOCK, '--steer-provider', '/synthetic/missing-provider.mjs'] });
   await client.connect(transport); t.after(() => client.close());
-  assert.equal((await client.listTools()).tools.length, 20); unchanged();
+  assert.equal((await client.listTools()).tools.length, 22); unchanged();
 });
 
 test('all parent hook entry modes call the ordinary provider without graph admission', { skip }, t => {

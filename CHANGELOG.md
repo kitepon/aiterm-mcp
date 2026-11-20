@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.83] - 2026-11-20
+
 - `pty_read` of a machine seat (screen, raw, full and incremental) no longer shows the host's `[aiterm-machine] ...` state lines or what the shell printed before the host started; the Owner's screen view is the plain stream (what the seat said, which tools ran, `» <sent text>`). Aiterm's own observers still read the raw pane (a471-screen-state-lines).
 - A machine seat's pending AskUserQuestion can be answered (a471-askuser-answer). `claude_approval` inspect answers `status: "question_pending"` with `question` (prompt and numbered options) and `choices` of `decision: "answer"`; respond takes `approval_choice: "answer"`, `answer_index` and the inspected digest (a changed question is refused). While a machine seat waits at a dialog, `pty_key` also passes 1-9, Enter, Up and Down. `agent_goal` create, edit and clear now work on a machine seat for a user-origin caller (before: `goal_native_session_unavailable`): the `/goal` command is pasted into the host; an unmet goal continues over several turns as in the TUI (checked live, three turns).
 
@@ -3586,7 +3588,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...HEAD
+[0.70.83]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...v0.70.83
 [0.70.82]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...v0.70.82
 [0.70.81]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.80...v0.70.81
 [0.70.80]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.79...v0.70.80

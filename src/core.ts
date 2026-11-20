@@ -1373,13 +1373,21 @@ export function sendKey(name: string, key: string, o: { preserveAgentOperation?:
 /** Native transport acknowledgement only. This does not observe a turn stop,
  * a launch/conversation identity, or permission to retry a failed delivery.
  */
+/** a471: a machine seat that is waiting at a dialog takes the keys that answer it (option digit, Enter, Up, Down), as a person would. */
+function machineDialogKey(name: string, key: string): boolean {
+  if (!/^(?:[1-9]|Enter|Up|Down)$/.test(key)) return false;
+  try {
+    const meta = tryLoadAgentMetadata(name);
+    return meta?.kind === "claude" && meta.claude_interface === "machine" && claudeMachineMarker(captureScreen(name, 200))?.state === "blocked";
+  } catch { return false; }
+}
 export function sendKeyResult(name: string, key: string, o: { preserveAgentOperation?: boolean } = {}): PtyKeyResult {
   assertExecutionContext(name);
   assertSessionName(name);
   const k = KEYMAP[key.toLowerCase()] ?? key;
   // Protects a pending operation: another key (Enter, history, a menu choice) could submit other input whose Stop the hook would
   // file under that operation. Exits on its own at the turn's Stop, its API-error/limit record, or its interrupt record; close too.
-  if (!o.preserveAgentOperation && k !== "C-c" && isAgentSession(name) && managedClaudeOperation(name)) {
+  if (!o.preserveAgentOperation && k !== "C-c" && isAgentSession(name) && managedClaudeOperation(name) && !machineDialogKey(name, k)) {
     throw new AitermError(
       "aiterm相関付きClaude agent sessionのturnが終わるまでは、turn相関を壊さないC-cだけをpty_keyで送れます。" +
         "他の対話操作はpty_send（自動dispatch）、終了はpty_closeを使ってください。",
@@ -3227,7 +3235,7 @@ function runAgentApprovalInNative(options: {
 }
 
 export interface ClaudeApprovalChoice {
-  decision: ClaudeApprovalDecision;
+  decision: ClaudeApprovalDecision | "answer";
   index: number;
   label: string;
 }
@@ -3235,12 +3243,16 @@ export interface ClaudeApprovalChoice {
 export interface ClaudeApprovalResult {
   schema: "aiterm.claude-approval-result.v1";
   action: "inspect" | "respond";
-  status: "none" | "approval_required" | "submitted";
+  status: "none" | "approval_required" | "question_pending" | "submitted";
   session_id: string;
   operation_id: string | null;
   prompt_digest: string | null;
   choices: ClaudeApprovalChoice[];
-  selected_choice: ClaudeApprovalDecision | null;
+  selected_choice: ClaudeApprovalDecision | "answer" | null;
+  /** a471: a pending AskUserQuestion of a machine seat: its question and numbered options (choices carry decision "answer"). */
+  question?: { prompt: string; options: { index: number; label: string }[] };
+  /** respond with approval_choice "answer": the option number that was sent. */
+  answer_index?: number;
   at: string;
 }
 
@@ -3491,6 +3503,28 @@ async function assertClaudeMachineCameUp(sid: string): Promise<void> {
   throw new AitermError(`AGENT_MACHINE_UNAVAILABLE: Claude Codeが機械の口（claude -p stream-json）で起動しませんでした（${reason}）。席は残していません。`, 2);
 }
 
+/**
+ * a471: the AskUserQuestion a machine host drew just above its newest `blocked unknown_dialog` state line: the question text and its
+ * numbered options (`❯ 1. Red` / `  2. Blue`). The digest binds an answer to this very question.
+ */
+export function parseMachineQuestion(screen: string, launchId: string): { prompt: string; options: { index: number; label: string }[]; digest: string } | null {
+  const lines = screen.split(/\r?\n/u);
+  let marker = lines.length - 1;
+  while (marker >= 0 && !/^\[aiterm-machine\] state=blocked reason=unknown_dialog\s*$/.test(lines[marker])) marker--;
+  if (marker < 0) return null;
+  const options: { index: number; label: string }[] = [];
+  let i = marker - 1;
+  for (; i >= 0; i--) {
+    const match = /^(?:❯ |  )(\d+)\. (.+?)\s*$/u.exec(lines[i]);
+    if (!match) break;
+    options.unshift({ index: Number(match[1]), label: match[2] });
+  }
+  const prompt = (lines[i] ?? "").trim();
+  if (!options.length || !prompt) return null;
+  const canonical = `${prompt}\n${options.map(o => `${o.index}. ${o.label}`).join("\n")}`;
+  return { prompt, options, digest: `sha256:${createHash("sha256").update(`${launchId}\n${canonical}`, "utf8").digest("hex")}` };
+}
+
 /** a471: one host-handled line (`/aiterm-config {json}`); the host answers with a `[aiterm-machine] config=ok|error` line. */
 async function configureClaudeMachineSeat(name: string, want: { model: string | null; effort: string | null; fast: boolean | null }): Promise<void> {
   const body = { ...(want.model ? { model: want.model } : {}), ...(want.effort ? { effort: want.effort } : {}), ...(want.fast !== null ? { fast: want.fast } : {}) };
@@ -3520,12 +3554,14 @@ function runClaudeApprovalInNative({
   operation_id: operationIdInput,
   approval_choice: approvalChoice,
   observed_prompt_digest: observedPromptDigest,
+  answer_index: answerIndex,
 }: {
   action: "inspect" | "respond";
   session_id: string;
   operation_id?: string | null;
-  approval_choice?: ClaudeApprovalDecision;
+  approval_choice?: ClaudeApprovalDecision | "answer";
   observed_prompt_digest?: string;
+  answer_index?: number;
 }): ClaudeApprovalResult {
   if (action === "respond") assertExecutionContext(name);
   assertSessionName(name);
@@ -3540,7 +3576,13 @@ function runClaudeApprovalInNative({
     }
     // a471: a machine seat has a request only while its host says so; nothing pending is an answer, not an error.
     if (meta.claude_interface === "machine") {
-      const pending = claudeMachineMarker(captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES));
+      const screen = captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES);
+      const pending = claudeMachineMarker(screen);
+      const question = pending?.state === "blocked" && pending.reason === "unknown_dialog" ? parseMachineQuestion(screen, meta.launch_id) : null;
+      if (question)
+        return { schema: "aiterm.claude-approval-result.v1", action, status: "question_pending", session_id: name, operation_id: operationId,
+          prompt_digest: question.digest, choices: question.options.map(o => ({ decision: "answer" as const, index: o.index, label: o.label })),
+          selected_choice: null, question: { prompt: question.prompt, options: question.options }, at: new Date().toISOString() };
       if (pending?.state !== "blocked" || pending.reason !== "tool_approval")
         return { schema: "aiterm.claude-approval-result.v1", action, status: "none", session_id: name, operation_id: operationId,
           prompt_digest: null, choices: [], selected_choice: null, at: new Date().toISOString() };
@@ -3566,6 +3608,27 @@ function runClaudeApprovalInNative({
   }
   if (!OPERATION_ID_RE.test(observedPromptDigest)) {
     throw new AitermError("observed_prompt_digestはsha256:<64 lowercase hex>で指定してください", 2);
+  }
+  if (approvalChoice === "answer" || answerIndex !== undefined) {
+    // a471: answer a machine seat's pending AskUserQuestion by option number (the host takes the digit, then Enter).
+    if (approvalChoice !== "answer" || answerIndex === undefined || meta.claude_interface !== "machine")
+      throw new AitermError("answerはmachine席の質問に answer_index を付けた時だけ使えます", 2);
+    const release = acquireSessionSendFileLock(name);
+    try {
+      const screen = captureScreen(name, CLAUDE_APPROVAL_SCREEN_LINES);
+      const pending = claudeMachineMarker(screen);
+      const question = pending?.state === "blocked" && pending.reason === "unknown_dialog" ? parseMachineQuestion(screen, meta.launch_id) : null;
+      if (!question) throw new AitermError("答える質問が現在表示されていません。inspectし直してください", 2);
+      if (question.digest !== observedPromptDigest) throw new AitermError("質問がinspect後に変化しました。再度inspectしてから答えてください", 2);
+      if (!question.options.some(o => o.index === answerIndex)) throw new AitermError(`質問に ${answerIndex} 番の選択肢がありません`, 2);
+      const sent = tmux("send-keys", "-t", name, String(answerIndex), "Enter");
+      if (sent.code !== 0) throw new AitermError(`質問への答えを送れませんでした: ${sent.stderr.trim() || `code=${sent.code}`}`, 2);
+      const result: ClaudeApprovalResult = { schema: "aiterm.claude-approval-result.v1", action, status: "submitted", session_id: name,
+        operation_id: operationId, prompt_digest: question.digest, choices: question.options.map(o => ({ decision: "answer" as const, index: o.index, label: o.label })),
+        selected_choice: "answer", answer_index: answerIndex, at: new Date().toISOString() };
+      writeJson0600(agentClaudeApprovalReceiptPath(name, meta.launch_id), result);
+      return result;
+    } finally { release(); }
   }
 
   const releaseSendLock = acquireSessionSendFileLock(name);
@@ -6786,6 +6849,21 @@ async function applyLaunchFast(name: string, meta: AgentMetadata): Promise<FastM
 }
 
 /** Goal operations share the existing seat admission and original launch ID. */
+function claudeMachineSeat(name: string): boolean {
+  return tryLoadAgentMetadata(name)?.claude_interface === "machine";
+}
+/** Same limits as the TUI path where they still apply: one plain line, not the reserved word clear. */
+function validateClaudeMachineGoalObjective(objective: string): void {
+  if (objective.trim().toLowerCase() === "clear") throw new AgentGoalNotIssuedError("native_goal_objective_reserved", "unsupported");
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(objective) || objective !== objective.trim())
+    throw new AgentGoalNotIssuedError("native_goal_objective_not_representable", "unsupported");
+}
+/** Paste the command into an idle machine host and press Enter (the host sends it to claude as a user message). */
+async function submitClaudeMachineGoal(name: string, command: string): Promise<void> {
+  if (claudeMachineMarker(captureScreen(name, 200))?.state !== "idle") throw new AgentGoalNotIssuedError("goal_input_not_empty_or_ready");
+  await submitAgentComposerText(name, "claude", command, { force: true, raw: true, preserveAgentOperation: true, admission: "native", subject: "goal" });
+}
+
 export async function agentGoal(input: AgentGoalInput, origin: "user" | "automatic" = "automatic",
   expectedGoal?: import("./agent-goal.js").NativeGoal): Promise<AgentGoalWireResult> {
   return agentGoalInContext(input, origin, expectedGoal);
@@ -6963,8 +7041,11 @@ async function agentGoalInContext(input: AgentGoalInput, origin: "user" | "autom
           .flatMap(line=>{try{return [JSON.parse(line) as unknown];}catch{return [];}});
         return observeClaudeGoalRows(rows,target.vendor_session_id!);
       },
-      clear: target => clearClaudeGoal(goalUi(target)),
-      setObjective: (target,objective) => setClaudeGoalObjective(goalUi(target),objective),
+      // a471: a machine seat has no composer to read; its goal command is the same `/goal ...` line pasted into the host.
+      clear: target => claudeMachineSeat(input.session_id) ? submitClaudeMachineGoal(input.session_id, "/goal clear") : clearClaudeGoal(goalUi(target)),
+      setObjective: (target,objective) => claudeMachineSeat(input.session_id)
+        ? (validateClaudeMachineGoalObjective(objective), submitClaudeMachineGoal(input.session_id, `/goal ${objective}`))
+        : setClaudeGoalObjective(goalUi(target),objective),
     }, origin);
     return input.action === "inspect" ? run() : withAgentSendLock(input.session_id, run);
   }

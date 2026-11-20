@@ -1141,7 +1141,8 @@ registerRemoteAwareTool(
         .regex(/^sha256:[0-9a-f]{64}$/)
         .nullish()
         .describe("durable operationのID。通常pty_send由来の匿名turnでは省略する"),
-      approval_choice: z.enum(["approve_once", "deny"]).optional().describe("respondだけに指定する"),
+      approval_choice: z.enum(["approve_once", "deny", "answer"]).optional().describe("respondだけに指定する。answerはmachine席のAskUserQuestionに答える時で、answer_indexを付ける"),
+      answer_index: z.number().int().positive().optional().describe("approval_choice=answerの時の選択肢の番号（inspectのquestion.optionsのindex）"),
       observed_prompt_digest: z
         .string()
         .regex(/^sha256:[0-9a-f]{64}$/)
@@ -1151,20 +1152,22 @@ registerRemoteAwareTool(
     outputSchema: {
       schema: z.literal("aiterm.claude-approval-result.v1"),
       action: z.enum(["inspect", "respond"]),
-      status: z.enum(["none", "approval_required", "submitted"]).describe("none: a machine-mode seat has no request pending"),
+      status: z.enum(["none", "approval_required", "question_pending", "submitted"]).describe("none: a machine-mode seat has no request pending; question_pending: a machine seat waits at an AskUserQuestion (question, choices decision answer)"),
       session_id: z.string(),
       operation_id: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
       prompt_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable(),
       choices: z.array(z.object({
-        decision: z.enum(["approve_once", "deny"]),
+        decision: z.enum(["approve_once", "deny", "answer"]),
         index: z.number().int().positive(),
         label: z.string(),
       })),
-      selected_choice: z.enum(["approve_once", "deny"]).nullable(),
+      selected_choice: z.enum(["approve_once", "deny", "answer"]).nullable(),
+      question: z.object({ prompt: z.string(), options: z.array(z.object({ index: z.number().int().positive(), label: z.string() })) }).optional(),
+      answer_index: z.number().int().positive().optional(),
       at: z.string(),
     },
   },
-  async ({ action, session_id, operation_id, approval_choice, observed_prompt_digest }) => {
+  async ({ action, session_id, operation_id, approval_choice, observed_prompt_digest, answer_index }) => {
     try {
       const result = core.runClaudeApproval({
         action,
@@ -1172,6 +1175,7 @@ registerRemoteAwareTool(
         operation_id: operation_id ?? null,
         approval_choice,
         observed_prompt_digest,
+        answer_index,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],

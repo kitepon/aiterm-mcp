@@ -4,6 +4,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
+import { parseMachineQuestion } from "../dist/core.js";
 import { ClaudeMachineHost, parseHostArgs } from "../dist/claude-machine-host.js";
 import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, buildClaudeAgentCmd, claudeResumeArgv } from "../dist/harnesses/claude.js";
 import { agentResumeRecipeSchema } from "../dist/agent-lifecycle.js";
@@ -178,4 +179,26 @@ test("the resume recipe keeps the interface and rejects other values", () => {
   assert.equal(agentResumeRecipeSchema.parse({ ...base, interface: "machine" }).interface, "machine");
   assert.equal(agentResumeRecipeSchema.parse(base).interface, undefined);
   assert.throws(() => agentResumeRecipeSchema.parse({ ...base, interface: "tui" }));
+});
+
+test("a pending AskUserQuestion is read back from the host's screen: question, numbered options, a digest bound to this question", () => {
+  const { host, child, out, ready } = makeHost();
+  ready();
+  paste(host, "ask");
+  child({ type: "control_request", request_id: "a1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion",
+    input: { questions: [{ question: "Red or blue?", options: [{ label: "Red" }, { label: "Blue" }] }] } } });
+  const screen = out();
+  const q = parseMachineQuestion(screen, "a".repeat(32));
+  assert.equal(q.prompt, "Red or blue?");
+  assert.deepEqual(q.options, [{ index: 1, label: "Red" }, { index: 2, label: "Blue" }]);
+  assert.match(q.digest, /^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(parseMachineQuestion(screen.replace("Blue", "Green"), "a".repeat(32)).digest, q.digest);
+  assert.notEqual(parseMachineQuestion(screen, "b".repeat(32)).digest, q.digest);
+  assert.equal(parseMachineQuestion("[aiterm-machine] state=idle", "a".repeat(32)), null);
+  // A tool approval is not a question.
+  const tool = makeHost();
+  tool.ready();
+  paste(tool.host, "run");
+  tool.child({ type: "control_request", request_id: "t1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
+  assert.equal(parseMachineQuestion(tool.out(), "a".repeat(32)), null);
 });

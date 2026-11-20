@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.84] - 2026-11-20
+
 - A machine seat's output is now data, passed through (Owner ruling 13, ADR 0143). Replaces the screen-based form of 0.70.82 / 0.70.83. The host no longer renders or interprets anything: every stdout line of `claude -p` is appended unchanged to a per-launch stream file, every line Aiterm appends to the input file is written unchanged to claude's stdin, and the state (idle / busy / blocked / exited, with the pending requests and their place in the stream) is derived from the events. New tools `stream_read` (cursor, `wait_ms` long poll, an earlier launch's cursor readable until the seat is closed) and `stream_send` (`user`, `control_request` incl. `interrupt` / `set_model` / `apply_flag_settings` / `set_permission_mode` / `set_max_thinking_tokens`, `control_response` for a pending request; no rewriting). AskUserQuestion is the `can_use_tool` line in the stream and the caller's `control_response` (single label, labels joined by `, `, or free text); a fork's question is denied at once. The thinking text is empty by default, so the host asks for summarized thinking after initialize. User messages are replayed into the stream (`--replay-user-messages`). `pty_send`, steer, `agent_stop`, `agent_configure`, `agent_goal` and `claude_approval` keep their receipts and use the same files inside; `pty_read` and `pty_key` of a machine seat are no interface. Removed again: the host's text rendering, the pane state line, `question_pending` / the `answer` decision / `answer_index` of `claude_approval`, the digit keys of `pty_key`, the state-line filter of `pty_read`. `interface: "machine"` and the stream tools need 0.70.84 on a remote terminal (`REMOTE_AITERM_TOO_OLD`).
 ## [0.70.83] - 2026-11-20
 
@@ -3589,7 +3591,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...HEAD
+[0.70.84]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...v0.70.84
 [0.70.83]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...v0.70.83
 [0.70.82]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.81...v0.70.82
 [0.70.81]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.80...v0.70.81

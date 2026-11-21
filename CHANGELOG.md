@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.88] - 2026-11-21
+
 - A claude-machine seat's turn is now read (a474-machine-turn-read, Kiro). `turns.read` / `pty_observe` gave `turn: null` for every machine seat, busy or idle, because the seat-turn reader looked for a TUI composer in the host's one-line state; BellTeam then saw the seat as `unknown` and sent its "you are not running" nudge about once a minute inside a running turn. The reader now maps the machine state: `busy` is running, `idle` settles to idle once the turn's Stop is in the event file (as for a TUI seat), `blocked`, `starting` and `exited` stay unknown.
 
 ## [0.70.87] - 2026-11-21
@@ -3604,7 +3606,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...HEAD
+[0.70.88]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...v0.70.88
 [0.70.87]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...v0.70.87
 [0.70.86]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...v0.70.86
 [0.70.85]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...v0.70.85

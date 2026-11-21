@@ -91,6 +91,7 @@
 - thinking: 既定は空文（Opus・Sonnet・Fableで測定）。hostがinitializeの直後に `set_max_thinking_tokens`（`max_thinking_tokens: null`、`thinking_display: "summarized"`）を送るので、streamのthinking blockに要約の文が入る。`stream_send` でも同じ要求を送れる。
 - forkの席は答える人がいないので、hostがAskUserQuestionを即denyする（forkは止まらない）。
 - AskUserQuestionの答え: `updatedInput` は元のinput（`questions`）に `answers` を足した物。単一選択は選んだlabel、複数選択はlabelを `, ` で繋ぐ、Otherは自由文そのもの（3つとも実測）。
+- プランモード（a471-planmode-auto、2026-11-21、オーナー指示）: claudeは席を `--dangerously-skip-permissions` で起こすが、モデルが `EnterPlanMode` を呼ぶと `system/status`（`permissionMode:"plan"`）の後、道具ごと（Bash、作業ディレクトリ外のRead）に `can_use_tool` を出す（本番のMint席で実測。`bypassPermissions` の間は1件も出ない）。無人の席では誰も答えないので、hostは `permissionMode` が `plan` の間の `can_use_tool` を、AskUserQuestion以外すべて `allow`（`updatedInput` は元のinput）で答える。`bypassPermissions` の席と同じ動き（新しい制限ではない）。`ExitPlanMode` は今まで通り許可し、`updatedPermissions` で `bypassPermissions` へ戻す。AskUserQuestionは人の答えが要るので、これまで通り `state.pending` に載せる。`permissionMode` は `system/status` の行から読む（無ければ変えない）。
 
 ## 促しへの返事の印（a471-reminder-marker、2026-11-21）
 

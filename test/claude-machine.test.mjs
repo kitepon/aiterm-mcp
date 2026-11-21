@@ -129,6 +129,31 @@ test("host: ExitPlanMode is allowed as the hook does; a fork's AskUserQuestion i
   assert.deepEqual(fork.last().pending, []);
 });
 
+test("host: in plan mode tool permission cards are answered allow by the host (none reach the owner); AskUserQuestion still waits; bypassPermissions is as before", () => {
+  const { host, toClaude, last, child, ready } = makeHost();
+  ready();
+  input(host, { type: "user", message: { role: "user", content: "plan it" } });
+  child({ type: "system", subtype: "status", status: null, permissionMode: "plan" });
+  const before = toClaude.length;
+  child({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Read", input: { file_path: "/x/y.md" }, decision_reason: "Path is outside allowed working directories" } });
+  child({ type: "control_request", request_id: "b1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
+  assert.equal(toClaude.length, before + 2);
+  assert.deepEqual(toClaude.at(-2).response, { subtype: "success", request_id: "r1", response: { behavior: "allow", updatedInput: { file_path: "/x/y.md" } } });
+  assert.deepEqual(toClaude.at(-1).response.response, { behavior: "allow", updatedInput: { command: "ls" } });
+  assert.notEqual(last().state, "blocked");
+  assert.deepEqual(last().pending, []);
+  child({ type: "control_request", request_id: "q1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [] } } });
+  assert.equal(last().state, "blocked");
+  assert.deepEqual(last().pending.map(p => p.request_id), ["q1"]);
+  input(host, { type: "control_response", response: { subtype: "success", request_id: "q1", response: { behavior: "allow", updatedInput: {} } } });
+  child({ type: "control_request", request_id: "e1", request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: { plan: "x" } } });
+  assert.deepEqual(toClaude.at(-1).response.response.updatedPermissions, [{ type: "setMode", mode: "bypassPermissions", destination: "session" }]);
+  child({ type: "system", subtype: "status", status: null, permissionMode: "bypassPermissions" });
+  child({ type: "control_request", request_id: "b2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
+  assert.equal(last().reason, "tool_approval"); // outside plan mode a request is still handed to a person, as before
+  assert.deepEqual(last().pending.map(p => p.request_id), ["b2"]);
+});
+
 test("host: a first prompt is sent once after initialize; the claude exit is reported", () => {
   const { host, toClaude, last } = makeHost();
   host.firstPrompt = "first";

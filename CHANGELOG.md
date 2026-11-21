@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A claude-machine seat that enters plan mode no longer waits for a person on every tool (a471-planmode-auto, Owner request). In plan mode Claude Code asks permission for each Bash and each Read outside the working directory (none in bypassPermissions); nobody answers an unattended seat, so the seat stopped at `blocked` / `tool_approval` and a card went to the Owner. The host now reads `permissionMode` from `system/status` and answers those requests `allow` (the call's own input unchanged) while it is `plan`, as bypassPermissions would. AskUserQuestion still waits for a person; ExitPlanMode is allowed as before and returns the seat to bypassPermissions. Measured on a Mac seat: before the change the plan-mode run ended `blocked`, after it `idle` with the answer given.
+
 ## [0.70.86] - 2026-11-21
 
 - A claude-machine seat's stream now carries the Claude Code reminder prompt (a471-reminder-marker). When Claude Code's transcript records a `silent_turn_reminder` attachment (the "say in a few words what you're doing" prompt, which `claude -p` does not stream), the host appends one `{"type":"system","subtype":"silent_turn_reminder"}` line to the stream file before the first `assistant` or `message_start` line of the answer it prompts, so a consumer can mark that answer. Only new transcript lines are read (a resume does not re-mark old reminders); an unreadable or missing transcript adds no marker and changes nothing else. Claude's own lines stay unchanged.

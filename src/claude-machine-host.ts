@@ -83,6 +83,7 @@ export class ClaudeMachineHost {
   private turnOpen = false; // a result is still owed for something claude accepted or started
   private awaiting = 0; // user messages sent that no result has covered yet
   private stopHooks = new Set<string>();
+  private permissionMode: string | null = null; // from system/status; the seat starts in bypassPermissions, EnterPlanMode makes it "plan"
   private transcript: ClaudeTranscriptTail | null = null;
   private readonly id: () => string;
   private readonly now: () => string;
@@ -174,6 +175,12 @@ export class ClaudeMachineHost {
           this.reply(String(event.request_id), { behavior: "deny", message: "This seat is a disposable fork with nobody to answer a question; decide yourself or say what you could not decide." });
           return;
         }
+        // In plan mode claude asks for every Bash and out-of-directory Read (measured on a production seat; none in bypassPermissions). Nobody
+        // answers an unattended seat, so allow them as bypassPermissions would. Only AskUserQuestion needs a person.
+        if (this.permissionMode === "plan" && tool !== "AskUserQuestion") {
+          this.reply(String(event.request_id), { behavior: "allow", updatedInput: request.input ?? {} });
+          return;
+        }
         this.pending = [...this.pending, { request_id: String(event.request_id), subtype: "can_use_tool", tool_name: tool || null,
           stream_offset: lineStart, stream_end: this.streamBytes }];
         this.set("blocked", tool === "AskUserQuestion" ? "unknown_dialog" : "tool_approval");
@@ -187,6 +194,7 @@ export class ClaudeMachineHost {
         return;
       }
       case "system": {
+        if (event.subtype === "status" && typeof event.permissionMode === "string") this.permissionMode = event.permissionMode;
         if (event.hook_event === "Stop" && event.subtype === "hook_started") this.stopHooks.add(String(event.hook_id));
         if (event.hook_event === "Stop" && event.subtype === "hook_response") { this.stopHooks.delete(String(event.hook_id)); this.settle(); }
         return;

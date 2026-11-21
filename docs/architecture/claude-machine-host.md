@@ -14,7 +14,7 @@
 | 起動の判断 | `core.ts` `refuseCallerInput` / `prepareAgentLaunch` / `resumeAgentInLock` | 新規はmetadata `claude_harness: "claude-machine"`（vendorの `kind` は `claude` のまま: hook・transcript・完了・親配送の記録はvendor共通のfile）。wakeは名指しのharnessか保存したrecipeの `harness`（同じ会話IDで `claude-code` ⇄ `claude-machine` の両方向に再開） | 席の本人性・世代・native作成の順 |
 | 起動行 | `harnesses/claude-machine.ts` `claudeMachineAgentArgv` | paneで `node claude-machine-host.js --stream-file … --input-file … --state-file … --replay-user-messages [--deny-questions] -- <claudeのargv>`。claudeのargvはTUIの時と同じ。forkは `--deny-questions` | hook・caller files・lineage |
 | 持ち手 | tmux（Linux・Mac）/ psmux（Windows）の席 | **全OSで同じ**: hostとclaudeのprocessだけを持つ。入出力の道ではない（pane入力も画面読みも無い） | native session作成・rollback・本人性 |
-| host | `claude-machine-host.ts` | claudeをpipeで持つ。stdoutの行を**そのまま**stream fileへ追記、input fileの行を**そのまま**stdinへ、事象から状態をstate fileへ。initializeの後、thinkingの要約を有効にする（`set_max_thinking_tokens`）。ExitPlanModeは許可、forkのAskUserQuestionは即deny。claudeの会話記録の `silent_turn_reminder` を見つけたら、答えの行の前に印の1行を足す（[claude-machine-stream](claude-machine-stream.md) の「促しへの返事の印」） | claude本体（無改造） |
+| host | `claude-machine-host.ts` | claudeをpipeで持つ。stdoutの行を**そのまま**stream fileへ追記、input fileの行を**そのまま**stdinへ、事象から状態をstate fileへ。initializeの後、thinkingの要約を有効にする（`set_max_thinking_tokens`）。ExitPlanModeは許可、forkのAskUserQuestionは即deny。`system/status` の `permissionMode` を覚え、`plan` の間のtool許可確認（AskUserQuestion以外）は人へ回さず `allow` で答える（[claude-machine-stream](claude-machine-stream.md) の「プランモード」）。claudeの会話記録の `silent_turn_reminder` を見つけたら、答えの行の前に印の1行を足す（[claude-machine-stream](claude-machine-stream.md) の「促しへの返事の印」） | claude本体（無改造） |
 | データ路 | `claude-machine-stream.ts`、公開tool `stream_read`・`stream_send` | 行を読む（cursor）、型の許可表を通った行だけ送る | terminal席の既存tool |
 | 内側の観測 | `core.ts` `captureScreen` / `observeNativeSession`（machine席だけ） | Aitermの内部の観測（`pty_observe`・送信の門・休止判定）は全harness共通で画面文を読むため、machine席にはstate fileの状態を1行の形（`[aiterm-machine] state=…`）で渡す。**どこにも描かれず、paneは読まない** | 観測・休止判定の分岐 |
 | 既存toolの内側 | `submitAgentComposerText`、interrupt、`agent_configure`、`agent_goal`、`claude_approval` | machine席では、user messageをinput fileへ、interruptをcontrol_requestへ、model/effort/fastをcontrol_requestへ（答えはstreamから読む）、`/goal …` をuser messageへ、tool許可を `pending` のcontrol_responseへ。receiptの形は同じ | pty_send・steer・wait・親配送の契約 |
@@ -25,6 +25,7 @@
 caller ─ agent_launch(harness) ─> core.prepareAgentLaunch ─> metadata.claude_harness, recipe.harness
 core ─ typed launch line ─> native shell ─> node claude-machine-host.js ─ spawn ─> claude -p (stdin/stdout pipes)
 claude stdout ─ line, unchanged ─> host ─> <launch>.claude-stream.jsonl ─> stream_read (cursor) ─> caller
+claude stdout ─ system/status permissionMode ─> host (remembers) ; can_use_tool while permissionMode=plan (not AskUserQuestion) ─> host ─ control_response allow, input unchanged ─> claude stdin (nothing reaches state.pending)
 claude transcript (<config>/projects/<slug>/<session_id>.jsonl) ─ new attachment silent_turn_reminder ─> host ─ one marker line, before the answer's first assistant/message_start line ─> <launch>.claude-stream.jsonl
 caller ─ stream_send / pty_send / agent_stop … ─> <launch>.claude-input.jsonl ─ line, unchanged ─> host ─> claude stdin
 host ─ state derived from events ─> <launch>.claude-machine-state.json ─> stream_read.state, pty_observe, send gates

@@ -4,6 +4,7 @@ import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
 import { ClaudeMachineHost, ReminderTail, SILENT_TURN_REMINDER_LINE, claudeTranscriptFile, parseHostArgs } from "../dist/claude-machine-host.js";
 import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine } from "../dist/claude-machine-stream.js";
@@ -267,7 +268,7 @@ test("host: a silent_turn_reminder in the transcript puts one marker line before
   assert.ok(at > 0, "marker is in the stream");
   assert.equal(JSON.parse(stream[at + 1]).event.type, "message_start", "the marker is right before the answer's first line");
   assert.equal(stream.filter(l => l === SILENT_TURN_REMINDER_LINE).length, 1, "one marker for the one reminder");
-  assert.equal(claudeTranscriptFile("sid", "/a/b.c", { HOME: "/h" }), "/h/.claude/projects/-a-b-c/sid.jsonl");
-  assert.equal(claudeTranscriptFile("sid", "/a", { HOME: "/h", CLAUDE_CONFIG_DIR: "/c" }), "/c/projects/-a/sid.jsonl");
+  assert.equal(claudeTranscriptFile("sid", "/a/b.c", { HOME: "/h" }), path.join("/h", ".claude", "projects", "-a-b-c", "sid.jsonl"));
+  assert.equal(claudeTranscriptFile("sid", "/a", { HOME: "/h", CLAUDE_CONFIG_DIR: "/c" }), path.join("/c", "projects", "-a", "sid.jsonl"));
   fs.rmSync(dir, { recursive: true });
 });

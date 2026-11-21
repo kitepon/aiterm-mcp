@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.89] - 2026-11-21
+
 - A claude-machine seat's waiting tool request is now listed in the state file before its line reaches the stream (N102, a471-auto-approval-noise). The host used to append the `can_use_tool` line and then write `state.pending`, so a reader that read the stream and then the state could see a real request line with a state that did not list it (a seat that looked idle while a request waited). The host now publishes `pending` (with the offsets where the line will sit) first, then appends the line. Requests the host answers itself (ExitPlanMode, a fork's question, plan mode) are never listed, as before.
 
 ## [0.70.88] - 2026-11-21
@@ -3608,7 +3610,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...HEAD
+[0.70.89]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...v0.70.89
 [0.70.88]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...v0.70.88
 [0.70.87]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...v0.70.87
 [0.70.86]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...v0.70.86

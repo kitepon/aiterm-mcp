@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.86] - 2026-11-21
+
 - A claude-machine seat's stream now carries the Claude Code reminder prompt (a471-reminder-marker). When Claude Code's transcript records a `silent_turn_reminder` attachment (the "say in a few words what you're doing" prompt, which `claude -p` does not stream), the host appends one `{"type":"system","subtype":"silent_turn_reminder"}` line to the stream file before the first `assistant` or `message_start` line of the answer it prompts, so a consumer can mark that answer. Only new transcript lines are read (a resume does not re-mark old reminders); an unreadable or missing transcript adds no marker and changes nothing else. Claude's own lines stay unchanged.
 
 ## [0.70.85] - 2026-11-20
@@ -3596,7 +3598,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...HEAD
+[0.70.86]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...v0.70.86
 [0.70.85]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...v0.70.85
 [0.70.84]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...v0.70.84
 [0.70.83]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.82...v0.70.83

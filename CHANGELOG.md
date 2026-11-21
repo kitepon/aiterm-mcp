@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.87] - 2026-11-21
+
 - A claude-machine seat that enters plan mode no longer waits for a person on every tool (a471-planmode-auto, Owner request). In plan mode Claude Code asks permission for each Bash and each Read outside the working directory (none in bypassPermissions); nobody answers an unattended seat, so the seat stopped at `blocked` / `tool_approval` and a card went to the Owner. The host now reads `permissionMode` from `system/status` and answers those requests `allow` (the call's own input unchanged) while it is `plan`, as bypassPermissions would. AskUserQuestion still waits for a person; ExitPlanMode is allowed as before and returns the seat to bypassPermissions. Measured on a Mac seat: before the change the plan-mode run ended `blocked`, after it `idle` with the answer given.
 
 ## [0.70.86] - 2026-11-21
@@ -3600,7 +3602,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...HEAD
+[0.70.87]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...v0.70.87
 [0.70.86]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.85...v0.70.86
 [0.70.85]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.84...v0.70.85
 [0.70.84]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.83...v0.70.84

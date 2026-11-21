@@ -7,6 +7,7 @@ import { grokPromptAwaitingAccept, grokTuiReady, grokTuiBusy, grokPaneObservatio
 import { codexTuiReady, codexTuiBusy, codexPaneObservation, codexRateLimitModelSwitchDialog, CODEX_COMPOSER_MARKER_RE } from "./harnesses/codex.js";
 import { claudeTuiReady, claudeTuiBusy, claudePaneObservation, claudeLoginMethodMenu, claudeStartupAction, claudeCodeModeConfirm, CLAUDE_COMPOSER_MARKER_RE } from "./harnesses/claude.js";
 import { claudeMachinePaneObservation } from "./harnesses/claude-machine.js";
+import { claudeMachineMarker } from "./claude-machine.js";
 import { cursorPromptHooksRunning, cursorTuiReady, cursorTuiBusy, cursorPaneObservation, CURSOR_COMPOSER_CONTENT_MARKER_RE } from "./harnesses/cursor.js";
 
 
@@ -377,6 +378,9 @@ export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "rea
 export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneEvidence {
   const lines = screen.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trimEnd().split(/\r?\n/);
   if (kind === "codex") return "unknown";
+  // A claude-machine seat's observer screen is the one marker line, no composer: its state is the evidence (idle settles like a TUI ready).
+  const machine = kind === "claude" ? claudeMachineMarker(screen) : null;
+  if (machine) return machine.state === "busy" ? "busy" : machine.state === "idle" ? "ready" : "unknown";
   if (agentPaneObservation(kind, lines.slice(-32).join("\n")).state === "blocked") return "unknown";
   let marker = -1;
   const composer = kind === "claude" ? /^\s*❯(?:\s|$)/u

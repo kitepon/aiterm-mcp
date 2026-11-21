@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {observeManagedSpan,managedSpanSettling,MANAGED_SPAN_SETTLE_MS} from '../dist/managed-seat-turn.js';
 import {parentPaneEvidence} from '../dist/agent-screen-observation.js';
+import {claudeMachineMarkerLine} from '../dist/claude-machine.js';
 
 const rule='────────────────', uuid='11111111-2222-4333-8444-555555555555';
 const frames={
@@ -47,6 +48,20 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
  assert.equal(parentPaneEvidence('grok','Connection failed\n'+frames.grok.ready),'unknown');
  for(const typed of ['/model','/effort ultracode','/fast on'])assert.equal(parentPaneEvidence('claude',['⏺ prior result','','✻ Worked for 9s','',`❯ ${typed}`,'  ⎿  Set model to Opus 5.5 for this session only with high effort','',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready',typed+': a configure result line ends that local command');
  assert.equal(parentPaneEvidence('claude',['❯ /review','',rule,'❯ ',rule,'  bypass permissions'].join('\n')),'ready_no_completion','Any other command without its result stays a quiet wait');
+});
+
+test('a claude-machine seat reads busy then idle from its one-line state, not from a composer (a474)',()=>{
+ const line=(state,reason)=>claudeMachineMarkerLine(state,reason);
+ assert.equal(parentPaneEvidence('claude',line('busy')),'busy');
+ assert.equal(parentPaneEvidence('claude',line('idle')),'ready');
+ for(const [state,reason] of [['blocked','tool_approval'],['starting'],['exited']])assert.equal(parentPaneEvidence('claude',line(state,reason)),'unknown',state);
+ const file=path.join(directory(),'span.json');
+ const running=observeManagedSpan(file,'machine',parentPaneEvidence('claude',line('busy')),null,at(0));
+ assert.equal(running.state,'running');
+ // The turn's Stop lands in the event file: the terminal changes, the first idle sighting starts the settle clock, then it is idle.
+ const ready=parentPaneEvidence('claude',line('idle'));
+ assert.equal(observeManagedSpan(file,'machine',ready,'stop-1',at(1000)),null);
+ assert.deepEqual(observeManagedSpan(file,'machine',ready,'stop-1',at(1000+MANAGED_SPAN_SETTLE_MS)),{state:'idle'});
 });
 
 test('fresh unchanged 12min parent wait retains first observed ID/start without heartbeat; busy wins over completion',()=>{

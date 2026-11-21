@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A claude-machine seat's turn is now read (a474-machine-turn-read, Kiro). `turns.read` / `pty_observe` gave `turn: null` for every machine seat, busy or idle, because the seat-turn reader looked for a TUI composer in the host's one-line state; BellTeam then saw the seat as `unknown` and sent its "you are not running" nudge about once a minute inside a running turn. The reader now maps the machine state: `busy` is running, `idle` settles to idle once the turn's Stop is in the event file (as for a TUI seat), `blocked`, `starting` and `exited` stay unknown.
+
 ## [0.70.87] - 2026-11-21
 
 - A claude-machine seat that enters plan mode no longer waits for a person on every tool (a471-planmode-auto, Owner request). In plan mode Claude Code asks permission for each Bash and each Read outside the working directory (none in bypassPermissions); nobody answers an unattended seat, so the seat stopped at `blocked` / `tool_approval` and a card went to the Owner. The host now reads `permissionMode` from `system/status` and answers those requests `allow` (the call's own input unchanged) while it is `plan`, as bypassPermissions would. AskUserQuestion still waits for a person; ExitPlanMode is allowed as before and returns the seat to bypassPermissions. Measured on a Mac seat: before the change the plan-mode run ended `blocked`, after it `idle` with the answer given.

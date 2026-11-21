@@ -17,7 +17,7 @@ export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from ".
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
 import { claudeMachineMarker } from "./claude-machine.js";
-import { agentClaudeMachineFilePath, claudeMachineAgentArgv, buildClaudeMachineAgentCmd, claudeMachineResumeArgv, isClaudeMachine, claudeMachineInterruptedAfter } from "./harnesses/claude-machine.js";
+import { agentClaudeMachineFilePath, claudeMachineAgentArgv, buildClaudeMachineAgentCmd, claudeMachineResumeArgv, isClaudeMachine, claudeMachineInterruptedAfter, claudeMachineStartedSettings } from "./harnesses/claude-machine.js";
 import { appendClaudeInput, readClaudeStream, claudeControlRequest, claudeMachineObserverScreen, claudeMachineView, readClaudeStreamLine, waitClaudeInputConsumed } from "./claude-machine-stream.js";
 import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
 import { withManagedSpan, observeManagedSpan, closeManagedSpan, managedSpanSettling, MANAGED_SPAN_SETTLE_MS, SPAN_HELD, type ManagedSeatTurn } from "./managed-seat-turn.js";
@@ -5164,7 +5164,7 @@ function recordStartedSettings(name: string, meta: AgentMetadata, screen: string
   const template = readAgentResumeTemplate(current);
   if (!template || template.model !== null) return;
   let started: { model: string; effort: string | null } | null;
-  if (current.kind === "claude") started = claudeBannerSettings(screen);
+  if (current.kind === "claude") started = isClaudeMachine(current) ? claudeMachineStartedSettings(current) : claudeBannerSettings(screen);
   else {
     const working = current.vendor_session_id ? codexWorkingResumeConfiguration(current) : null;
     started = working && working.session_id === current.vendor_session_id ? { model: working.model, effort: working.effort } : null;

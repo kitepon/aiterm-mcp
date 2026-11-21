@@ -9,7 +9,7 @@ import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-mac
 import { ClaudeMachineHost, ReminderTail, SILENT_TURN_REMINDER_LINE, claudeTranscriptFile, parseHostArgs } from "../dist/claude-machine-host.js";
 import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine } from "../dist/claude-machine-stream.js";
 import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, claudeResumeArgv } from "../dist/harnesses/claude.js";
-import { agentClaudeMachineFilePath, claudeMachineAgentArgv, claudeMachineResumeArgv, buildClaudeMachineAgentCmd, claudeMachinePaneObservation, isClaudeMachine } from "../dist/harnesses/claude-machine.js";
+import { agentClaudeMachineFilePath, claudeMachineAgentArgv, claudeMachineResumeArgv, buildClaudeMachineAgentCmd, claudeMachinePaneObservation, isClaudeMachine, claudeMachineStartedSettings } from "../dist/harnesses/claude-machine.js";
 import { agentPaneObservation, isAgentTuiReady, isAgentTuiBusy } from "../dist/agent-screen-observation.js";
 import { agentHarness } from "../dist/agent-shared.js";
 import { agentsDir } from "../dist/agent-shared.js";
@@ -70,6 +70,30 @@ test("host: a waiting request is listed in the state before its line reaches the
   child(exit);
   assert.deepEqual(seen.find(x => x.line === JSON.stringify(exit)).pending, ["b1"]);
   assert.ok(!states.some(s => s.pending.some(p => p.request_id === "e1")));
+});
+
+test("host: it asks claude for the applied model and effort once, and records the answer in the state (a477)", () => {
+  const { host, toClaude, last, child } = makeHost();
+  host.start();
+  child({ type: "control_response", response: { subtype: "success", request_id: toClaude[0].request_id } });
+  const ask = toClaude.find(l => l.request?.subtype === "get_settings");
+  assert.match(ask.request_id, /^host-settings-/);
+  assert.equal(last().started, undefined, "nothing is recorded before the answer");
+  child({ type: "control_response", response: { subtype: "success", request_id: ask.request_id, response: { effective: {}, applied: { model: "claude-opus-5-5", effort: "high" } } } });
+  assert.deepEqual(last().started, { model: "claude-opus-5-5", effort: "high" });
+  assert.equal(last().state, "idle");
+  assert.equal(toClaude.filter(l => l.request?.subtype === "get_settings").length, 1);
+});
+
+test("claudeMachineStartedSettings gives the recorded model and effort, null while either is unknown (no guess)", () => {
+  const s = seat();
+  assert.equal(claudeMachineStartedSettings(s), null);
+  place(s, "state", stateOf());
+  assert.equal(claudeMachineStartedSettings(s), null);
+  place(s, "state", stateOf({ started: { model: "claude-opus-5-5", effort: null } }));
+  assert.equal(claudeMachineStartedSettings(s), null);
+  place(s, "state", stateOf({ started: { model: "claude-opus-5-5", effort: "high" } }));
+  assert.deepEqual(claudeMachineStartedSettings(s), { model: "claude-opus-5-5", effort: "high" });
 });
 
 test("host: initialize, then the thinking request; the initialize reply is the ready signal", () => {

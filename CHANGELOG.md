@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A claude-machine seat launched with no model or effort can now hibernate and wake (a477, Kiro). Such a seat had no resume recipe, so `pty_close` with `hibernate: true` and the idle clock answered `AGENT_HIBERNATE_UNAVAILABLE` / `resume_unavailable`: Aiterm fills the started model and effort of a default launch from the Claude start banner, and a machine seat has no banner. The host now asks claude for its applied settings (`get_settings`) once after initialize and records `started: {model, effort}` in its state file; the seat's started-settings step (also run by the idle check) reads it into the resume template. Nothing is guessed: until both are known the seat stays unable to hibernate. A seat launched with an explicit model and effort was never affected. A seat started before this version has no `started` and still needs an explicit model/effort or a restart.
+
 ## [0.70.89] - 2026-11-21
 
 - A claude-machine seat's waiting tool request is now listed in the state file before its line reaches the stream (N102, a471-auto-approval-noise). The host used to append the `can_use_tool` line and then write `state.pending`, so a reader that read the stream and then the state could see a real request line with a state that did not list it (a seat that looked idle while a request waited). The host now publishes `pending` (with the offsets where the line will sit) first, then appends the line. Requests the host answers itself (ExitPlanMode, a fork's question, plan mode) are never listed, as before.

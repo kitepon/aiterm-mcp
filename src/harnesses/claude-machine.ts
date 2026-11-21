@@ -32,6 +32,12 @@ export function readClaudeMachineState(meta: { aiterm_session: string; launch_id
   } catch { return null; }
 }
 
+/** What a seat launched with no model/effort really started with, as the host recorded it from claude's get_settings; null until known (no guess). */
+export function claudeMachineStartedSettings(meta: { aiterm_session: string; launch_id: string }): { model: string; effort: string } | null {
+  const started = readClaudeMachineState(meta)?.started;
+  return started?.model && started.effort ? { model: started.model, effort: started.effort } : null;
+}
+
 /** The pane runs claude-machine-host, which starts `claude` with the machine flags. The first prompt is a first message, not a positional
  * argument: it goes by a 0600 file the host reads once and deletes. */
 export function claudeMachineAgentArgv(bin: string, model: string | null, effort: string | null, prompt: string | null, meta: AgentMetadata): string[] {

@@ -13,6 +13,8 @@ export interface ClaudeMachineStateFile {
   pending: ClaudeMachinePending[];
   input_bytes_consumed: number;
   last_result: { at: string; subtype: unknown; terminal_reason: unknown; is_error: boolean } | null;
+  /** The model and effort claude reports as applied (control_request get_settings, asked once at start); absent until answered. A default-launched seat's resume recipe is made from it (a477). */
+  started?: { model: string; effort: string | null };
   exited: boolean;
   at: string;
 }

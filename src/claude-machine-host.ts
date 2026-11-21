@@ -83,6 +83,7 @@ export class ClaudeMachineHost {
   private turnOpen = false; // a result is still owed for something claude accepted or started
   private awaiting = 0; // user messages sent that no result has covered yet
   private stopHooks = new Set<string>();
+  private started: { model: string; effort: string | null } | null = null; // from the get_settings answer
   private permissionMode: string | null = null; // from system/status; the seat starts in bypassPermissions, EnterPlanMode makes it "plan"
   private transcript: ClaudeTranscriptTail | null = null;
   private readonly id: () => string;
@@ -96,7 +97,8 @@ export class ClaudeMachineHost {
 
   private publish(): void {
     this.ports.writeState({ schema: "aiterm.claude-machine-state.v1", state: this.state, reason: this.reason, pending: this.pending,
-      input_bytes_consumed: this.inputBytes, last_result: this.lastResult, exited: this.exited, at: this.now() });
+      input_bytes_consumed: this.inputBytes, last_result: this.lastResult, exited: this.exited, at: this.now(),
+      ...(this.started ? { started: this.started } : {}) });
   }
 
   private set(state: ClaudeMachineState, reason: ClaudeMachineReason | null = null): void {
@@ -173,12 +175,20 @@ export class ClaudeMachineHost {
     if (!event) return;
     switch (event.type) {
       case "control_response": {
+        // The answer to the host's own get_settings: the model and effort claude really runs (a default-launched seat never named them).
+        const applied = String(event.response?.request_id ?? "").startsWith("host-settings-") && event.response.subtype === "success" ? event.response.response?.applied : null;
+        if (applied && typeof applied.model === "string" && applied.model) {
+          this.started = { model: applied.model, effort: typeof applied.effort === "string" && applied.effort ? applied.effort : null };
+          this.publish();
+          return;
+        }
         // The initialize reply is the ready signal; it is for the host's own request.
         if (String(event.response?.request_id ?? "").startsWith("host-") && this.state === "starting") {
           if (event.response.subtype === "success") {
             // The thinking text is empty unless asked for: summarized, with no cap on the thinking itself (measured on Opus, Sonnet, Fable).
             this.ports.toClaude(JSON.stringify({ type: "control_request", request_id: `host-${this.id()}`,
               request: { subtype: "set_max_thinking_tokens", max_thinking_tokens: null, thinking_display: "summarized" } }));
+            this.ports.toClaude(JSON.stringify({ type: "control_request", request_id: `host-settings-${this.id()}`, request: { subtype: "get_settings" } }));
             this.set("idle");
             if (this.firstPrompt !== null) { const text = this.firstPrompt; this.firstPrompt = null; this.sendUser(text); }
           } else { this.exited = true; this.set("exited"); }

@@ -53,7 +53,7 @@
 | `control_request` | `request.subtype` が `interrupt`・`set_model`・`apply_flag_settings`・`set_permission_mode`・`set_max_thinking_tokens` | 中断、model／effort／fastの変更 |
 | `control_response` | `response: {subtype:"success"|"error", request_id, response}`。`request_id` が `state.pending` にある時だけ | can_use_tool（Bash許可、AskUserQuestionの選択＝`updatedInput.answers`、ExitPlanMode）への答え |
 
-出力: `{ accepted, items:[{ type, uuid|request_id, input_cursor }] }`。hostがstdinへ書き終えるまでの受付は、state fileの `input_bytes_consumed` で分かる（`stream_read` の `state` には出さない。`wait_ms` つきの読みで足りる）。待っていない `request_id` の答えは `STREAM_REQUEST_NOT_PENDING`。
+出力: `{ accepted, items:[{ type, uuid|request_id, input_cursor }] }`。hostがstdinへ書き終えるまでの受付は、state fileの `input_bytes_consumed` で分かる（Aitermの待ち `waitClaudeInputConsumed` は5秒の期限の後にもう1度だけ読む。serverのevent loopが期限を越えて止まっても、hostが受け取った入力を「受け取らなかった」と返さない）（`stream_read` の `state` には出さない。`wait_ms` つきの読みで足りる）。待っていない `request_id` の答えは `STREAM_REQUEST_NOT_PENDING`。
 
 ### 既存toolの対応（machine席）
 

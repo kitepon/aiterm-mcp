@@ -122,6 +122,7 @@ import {
   stateRoot,
   ensureStateRoot,
   agentsDir,
+  agentFilesOf,
   readAgentGeneration, selectAgentMetadataFile, publishAgentGeneration,
   agentEventPath,
   agentMetadataPath,
@@ -1440,7 +1441,7 @@ function sendKeyResultInNative(name: string, key: string, o: { preserveAgentOper
 // transcript/operation proof. An expired login must not block the cancel key.
 function readInterruptionTarget(name: string): { kind: AgentKind; launch_id: string } | null {
   try {
-    const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
+    const files = agentFilesOf(agentsDir(), name).filter(file => file.endsWith(".agent.json"));
     if (files.length === 0) return null;
     const meta = JSON.parse(fs.readFileSync(path.join(agentsDir(), selectAgentMetadataFile(name, files)), "utf8"));
     return meta.aiterm_session === name && ["codex", "claude", "cursor", "grok", "antigravity"].includes(meta.kind)
@@ -2508,8 +2509,14 @@ export async function serviceAgentIdleClock(expectedInput: ExecutionLaunch, toke
 }
 
 /** Only public list/launch entries sweep; internal observation must never recurse into an idle check. */
+const IDLE_SWEEP_MIN_INTERVAL_MS = 5000;
+let lastIdleSweepAt = 0;
 export async function maintainAgentIdleClocks(): Promise<void> {
   if (!AGENT_IDLE_ENABLED) return;
+  // Every pty_list swept (tmux, a process read, a spawn per seat without a clock) on the one main thread: a clock owner is gone for
+  // minutes at a time, so one sweep per few seconds loses nothing (a496e).
+  if (Date.now() - lastIdleSweepAt < IDLE_SWEEP_MIN_INTERVAL_MS) return;
+  lastIdleSweepAt = Date.now();
   // Only seats with a live terminal session: a hibernated, closed or dead seat retires its clock at once, so requesting
   // one on every list started a checker process per such seat per call (2026-11-11: ~30 per pty_list on the BellTeam host).
   let live: Set<string>;
@@ -4409,7 +4416,7 @@ export interface AgentTranscriptResult {
 export function readSessionInterimWords(name: string, after: number, from: InterimFrom | null = null): InterimWordsResult | null {
   assertSessionName(name);
   const dir = existingAgentsDir();
-  if (!dir || !fs.readdirSync(dir).some((f) => f.startsWith(`${name}.`) && f.endsWith(".agent.json"))) return null;
+  if (!dir || !agentFilesOf(dir, name).some((f) => f.endsWith(".agent.json"))) return null;
   return readInterimWords(loadAgentMetadata(name), after, from);
 }
 
@@ -5708,7 +5715,7 @@ async function sendInitialAgentPromptInLock(
 export function isAgentSession(name: string): boolean {
   assertSessionName(name);
   const dir = existingAgentsDir();
-  const files = dir ? fs.readdirSync(dir).filter(file => file.startsWith(`${name}.`)) : [];
+  const files = dir ? agentFilesOf(dir, name) : [];
   const lifecycle = files.some(file => /\.(?:lifecycle|resume-attempt)\.json$/.test(file))
     || files.some(file => file.endsWith(".resume-native.json")) && files.some(file => file.endsWith(".agent.json"));
   if (readAgentGeneration(name) || lifecycle) {

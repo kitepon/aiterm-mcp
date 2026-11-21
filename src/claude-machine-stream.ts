@@ -68,8 +68,9 @@ export async function readClaudeStream(seat: Seat, o: { cursor?: string; max_lin
         more = size - start > buffer.length || (lines.length >= maxLines && buffer.subarray(at, n).includes(10));
       } finally { fs.closeSync(fd); }
     }
-    const state = claudeMachineView(seat);
-    const changed = readClaudeMachineState(seat)?.at !== before;
+    const current = readClaudeMachineState(seat);
+    const state = current ? { state: current.state, reason: current.reason, pending: current.pending } : claudeMachineView(seat);
+    const changed = current?.at !== before;
     if (lines.length > 0 || changed || performance.now() >= deadline)
       return { lines, cursor: `${seat.launch_id}:${offset}`, at_end: !more, state };
     await sleep(100);
@@ -138,11 +139,13 @@ export function appendClaudeInput(seat: Seat, lines: unknown[]): ClaudeStreamSen
 /** Wait until the host has taken the input up to `bytes` (its state file says so), so what was sent is in claude's hands. */
 export async function waitClaudeInputConsumed(seat: Seat, bytes: number, timeoutMs = 5000): Promise<boolean> {
   const deadline = performance.now() + timeoutMs;
+  const consumed = () => (readClaudeMachineState(seat)?.input_bytes_consumed ?? 0) >= bytes;
   do {
-    if ((readClaudeMachineState(seat)?.input_bytes_consumed ?? 0) >= bytes) return true;
+    if (consumed()) return true;
     await sleep(50);
   } while (performance.now() < deadline);
-  return false;
+  // A busy event loop can carry the sleep past the deadline; the host may have taken the input meanwhile, so look once more (a496e).
+  return consumed();
 }
 
 /** One control request and claude's answer to it, read from the stream (the answer line is the one with the same request_id). */

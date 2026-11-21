@@ -8,7 +8,7 @@ import { agentCodexCallerPromptPath, agentCodexCallerMcpPath } from "./harnesses
 import { resolveAndValidateGrokAuth, agentGrokCallerPromptPath, agentGrokCallerAgentPath } from "./harnesses/grok.js";
 import { agentCursorCallerPromptPath, agentCursorCallerPluginDir } from "./harnesses/cursor.js";
 import { agentAntigravityCallerDir } from "./harnesses/antigravity.js";
-import { assertSessionName, agentsDir, readAgentGeneration, selectAgentMetadataFile,
+import { assertSessionName, agentFilesOf, agentsDir, readAgentGeneration, selectAgentMetadataFile,
   agentEventPath, agentLineageFields,
   LAUNCH_ID_RE, AGENT_LINEAGE_RE, type AgentForkOf, type AgentMetadata, type InitialPromptState,
   type StartupProcessShape } from "./agent-shared.js";
@@ -76,9 +76,7 @@ function forkOfField(v: any): { fork_of?: AgentForkOf } {
 export function loadAgentMetadata(name: string): AgentMetadata {
   assertSessionName(name);
   const dir = agentsDir();
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.startsWith(`${name}.`) && f.endsWith(".agent.json"));
+  const files = agentFilesOf(dir, name).filter((f) => f.endsWith(".agent.json"));
   if (files.length === 0) {
     if (readAgentGeneration(name)) throw new AitermError("AGENT_RESUME_UNCONFIRMED: 現在の起動記録がありません。", 2);
     throw new AitermError(

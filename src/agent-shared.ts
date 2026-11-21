@@ -330,6 +330,24 @@ export function agentsDir(): string {
   return path.join(ensureStateRoot(), "agents");
 }
 
+// pty_list asks for every seat's files; one readdir of a directory with thousands of launch files per seat made the execution server's
+// main thread run at ~80% (a496e). One listing, indexed by session name, is reused while the directory is unchanged.
+const FILE_INDEX_QUIET_MS = 50; // a directory changed less than this ago may still change within the same timestamp tick: not cached
+let fileIndex: { dir: string; stamp: string; names: Map<string, string[]> } | null = null;
+/** Every file in `dir` named `<name>.*`, as readdirSync(dir).filter(startsWith(name + ".")) would return it (session names hold no dot). */
+export function agentFilesOf(dir: string, name: string): string[] {
+  const stat = () => { const s = fs.statSync(dir, { bigint: true }); return `${s.mtimeNs}:${s.ctimeNs}:${s.mtimeMs}`; };
+  const before = stat();
+  if (fileIndex?.dir === dir && fileIndex.stamp === before) return fileIndex.names.get(name) ?? [];
+  const names = new Map<string, string[]>();
+  for (const file of fs.readdirSync(dir)) {
+    const dot = file.indexOf(".");
+    if (dot > 0) { const key = file.slice(0, dot), list = names.get(key); if (list) list.push(file); else names.set(key, [file]); }
+  }
+  fileIndex = Date.now() - Number(before.split(":")[2]) > FILE_INDEX_QUIET_MS && stat() === before ? { dir, stamp: before, names } : null;
+  return names.get(name) ?? [];
+}
+
 /** directory内の状態変化を待つ。inspectが値を返した時点でresolveする。timeoutMsを省くと期限なし。 */
 export function waitForFileState<T>(dir: string, inspect: () => T | undefined, timeoutMs?: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -396,7 +414,7 @@ export function publishAgentGeneration(previous: AgentMetadata, next = previous)
   if (current && current.launch_id !== previous.launch_id)
     throw new AitermError("AGENT_RESUME_UNCONFIRMED: 起動世代が置き換わっています。", 2);
   if (!current) {
-    const files = fs.readdirSync(agentsDir()).filter(file => file.startsWith(name + ".") && file.endsWith(".agent.json"));
+    const files = agentFilesOf(agentsDir(), name).filter(file => file.endsWith(".agent.json"));
     if (files.length !== 1 || files[0] !== path.basename(agentMetadataPath(name, previous.launch_id)))
       throw new AitermError("AGENT_RESUME_UNCONFIRMED: 元の起動世代を特定できません。", 2);
   }

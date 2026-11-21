@@ -7,12 +7,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
 import { ClaudeMachineHost, ReminderTail, SILENT_TURN_REMINDER_LINE, claudeTranscriptFile, parseHostArgs } from "../dist/claude-machine-host.js";
-import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine } from "../dist/claude-machine-stream.js";
+import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine, waitClaudeInputConsumed } from "../dist/claude-machine-stream.js";
 import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, claudeResumeArgv } from "../dist/harnesses/claude.js";
 import { agentClaudeMachineFilePath, claudeMachineAgentArgv, claudeMachineResumeArgv, buildClaudeMachineAgentCmd, claudeMachinePaneObservation, isClaudeMachine, claudeMachineStartedSettings } from "../dist/harnesses/claude-machine.js";
 import { agentPaneObservation, isAgentTuiReady, isAgentTuiBusy } from "../dist/agent-screen-observation.js";
 import { agentHarness } from "../dist/agent-shared.js";
-import { agentsDir } from "../dist/agent-shared.js";
+import { agentsDir, agentFilesOf } from "../dist/agent-shared.js";
 import { agentResumeRecipeSchema } from "../dist/agent-lifecycle.js";
 
 const RULE = "────────────────";
@@ -242,6 +242,33 @@ test("stream_read returns whole lines unchanged with an opaque cursor, resumes f
   const waited = Date.now();
   await readClaudeStream(s, { cursor: second.cursor, wait_ms: 300 });
   assert.ok(Date.now() - waited >= 250, "wait_ms waits for news");
+});
+
+test("the input wait looks once more after its deadline: a stalled event loop does not turn a consumed input into 'not received' (a496e)", async () => {
+  const s = { aiterm_session: "twait", launch_id: "e".repeat(32) };
+  place(s, "state", stateOf({ input_bytes_consumed: 0 }));
+  setImmediate(() => { // the host takes the input, then this process's loop stalls past the 20 ms deadline
+    place(s, "state", stateOf({ input_bytes_consumed: 100 }));
+    for (const end = Date.now() + 120; Date.now() < end;);
+  });
+  assert.equal(await waitClaudeInputConsumed(s, 100, 20), true);
+  assert.equal(await waitClaudeInputConsumed(s, 200, 20), false, "input the host has not taken is still reported as not taken");
+});
+
+test("agentFilesOf lists a session's files like a prefix filter, and sees files created or removed after a cached listing", async () => {
+  fs.mkdirSync(agentsDir(), { recursive: true });
+  const dir = agentsDir(), put = name => fs.writeFileSync(path.join(dir, name), "");
+  put("idxa.1.agent.json"); put("idxa.1.event.jsonl"); put("idxab.2.agent.json");
+  const names = name => agentFilesOf(dir, name).sort();
+  assert.deepEqual(names("idxa"), ["idxa.1.agent.json", "idxa.1.event.jsonl"], "idxab is another session");
+  await new Promise(done => setTimeout(done, 120)); // the directory is now quiet: this listing is kept
+  assert.deepEqual(names("idxa"), ["idxa.1.agent.json", "idxa.1.event.jsonl"]);
+  put("idxa.3.agent.json");
+  assert.deepEqual(names("idxa"), ["idxa.1.agent.json", "idxa.1.event.jsonl", "idxa.3.agent.json"], "a new file shows at once");
+  await new Promise(done => setTimeout(done, 120));
+  names("idxa"); fs.rmSync(path.join(dir, "idxa.1.agent.json"));
+  assert.deepEqual(names("idxa"), ["idxa.1.event.jsonl", "idxa.3.agent.json"], "a removed file is gone at once");
+  assert.deepEqual(names("idxnone"), []);
 });
 
 test("stream_send accepts only the three shapes, fills ids, and answers only a request that is pending", () => {

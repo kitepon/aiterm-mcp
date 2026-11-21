@@ -47,8 +47,10 @@ try {
       const setup = r.setup_status ? ` setup=${r.setup_status}${r.setup_reason_code ? `(${r.setup_reason_code})` : ""}` : "";
       // 入れ替えた時だけ、動いているaiterm-mcpは旧版のcodeで動いている。
       const servers = r.running_servers ? ` ${r.status === "updated" ? "旧版で" : ""}動いているaiterm-mcp=${r.running_servers}` : "";
+      const kept = r.retire?.seats.filter((seat) => seat.outcome !== "hibernated" && seat.outcome !== "ended") ?? [];
+      const retire = r.retire ? ` 休止した席=${r.retire.seats.filter((seat) => seat.outcome === "hibernated").length}${kept.length ? ` 旧版のまま残った席=${kept.map((seat) => `${seat.session_id}(${seat.reason ?? seat.outcome})`).join(",")}` : ""}` : "";
       const reason = r.reason_code ? ` reason=${r.reason_code}` : "";
-      process.stdout.write(`${r.target}: ${r.status} ${versions}${setup}${servers}${reason}${r.message ? `\n  ${r.message}` : ""}\n`);
+      process.stdout.write(`${r.target}: ${r.status} ${versions}${setup}${servers}${retire}${reason}${r.message ? `\n  ${r.message}` : ""}\n`);
     }
   }
   process.exitCode = results.every(ok) ? (restart ? 3 : 0) : 2;

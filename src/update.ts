@@ -1,4 +1,5 @@
 import type { RemoteTarget } from "./remote-contract.js";
+import type { RetireResult } from "./runtime-retire.js";
 // Aitermの更新。npmのglobal導入を新しい版へ入れ替え、新しい版のaiterm-setupで登録と実動作を確かめ直す。
 // 別端末はSSHで同じ手順を現地に実行させる。接続先は呼び出しごとに受け取り、保存しない。
 import { spawn, spawnSync } from "node:child_process";
@@ -24,6 +25,8 @@ export interface UpdateResult {
   setup_reason_code?: string;
   // 更新前から動いているaiterm-mcp。MCP clientが起動し直すまで旧版のcodeで動く。tmux／psmuxのsessionは残る。
   running_servers: number | null;
+  // 入れ替えた時だけ。旧版の席の整理の結果（a482r）。失敗してもstatusは変わらず、nullになる。
+  retire?: RetireResult | null;
   reason_code?: string;
   message?: string;
 }
@@ -138,6 +141,7 @@ export function updateLocal(options: { version: string; check?: boolean; run?: U
     base.running_servers = countRunningServers(prefix, run);
     if (options.check) return { ...base, status: "checked" };
     let status: UpdateStatus = "already_current";
+    const since = Math.floor(Date.now() / 1000);
     if (target !== base.from_version) {
       // 導入先は動いているAitermの場所から決める。環境変数やnpmrcのprefixが別を指していても、同じ場所を入れ替える。
       const install = run(npm(), ["install", "-g", "--prefix", prefix, `aiterm-mcp@${target}`, "--no-audit", "--no-fund"]);
@@ -161,6 +165,12 @@ export function updateLocal(options: { version: string; check?: boolean; run?: U
     if (typeof setupResult?.reason_code === "string") base.setup_reason_code = setupResult.reason_code;
     // setupの失敗理由はstderrにしか出ない。残さないと読むために現地でsetupを流し直すことになる。
     if (base.setup_status && base.setup_status !== "ready" && tail(setup.stderr)) base.message = `aiterm-setup: ${tail(setup.stderr)}`;
+    // 新しい版のcodeで、導入前から動いている席を休止する。席のprocessは入れ替えでは新版にならない。
+    if (status === "updated") {
+      const retired = run(process.execPath, [join(installed, "dist", "remote-terminal-cli.js"), "retire-stale", "--since", String(since)], 600_000);
+      const value = parseLastJson(retired.stdout);
+      base.retire = value?.schema === "aiterm.retire-stale.v1" ? value as unknown as RetireResult : null;
+    }
     if (!base.setup_status) {
       return { ...base, status, reason_code: "setup_failed", message: `aiterm-setup --json が結果を返しません: ${tail(setup.stderr) || setup.error || `exit ${setup.status}`}` };
     }

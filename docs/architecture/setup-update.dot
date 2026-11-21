@@ -10,7 +10,8 @@ digraph setup_update {
  update [label="Update entry: resolve concrete version once\nLocal first; remote targets in parallel\nCheck mode does not install"];
  install [label="Same global prefix npm install → verify package version\nRun NEW setup code in separate process\nPackage status and setup_status remain separate"];
  remote [label="SSH existing remote shell / updater\nExtract remote JSON, not SSH exit alone\nNo automatic replay after uncertain outcome"];
- adoption [label="Result is package / setup evidence\nOld running MCP code remains until client reload\nPTY survival ≠ all consumers adopted new runtime",fillcolor="#eeeeee"];
+ retire [label="retire-stale (a482r), run by the NEW code right after the swap\nSeats whose aiterm-mcp / claude-machine-host started before the swap:\nidle + resume recipe → hibernate (next delivery wakes with new code)\nbusy / no recipe → kept, listed; --force ends the stale processes\nStale orphan aiterm-mcp (15 min+) → SIGTERM",fillcolor="#fff4d6"];
+ adoption [label="Result is package / setup / retire evidence\nA kept seat still runs old code until it hibernates or is forced\nPTY survival ≠ all consumers adopted new runtime",fillcolor="#eeeeee"];
  setup -> dependency;dependency -> global;global -> probe;probe -> client;client -> steer;setup -> client [style=dashed,label="hooks-only: no dependency/probe/MCP changes"];
- update -> install;update -> remote;install -> setup;remote -> adoption;steer -> adoption;
+ update -> install;update -> remote;install -> setup;setup -> retire [label="status=updated"];provision [label="aiterm-remote-terminal provision (runtime swap)\nwrites ACTIVATED, then runs the new retire-stale"];provision -> retire;retire -> adoption;remote -> adoption;steer -> adoption;
 }

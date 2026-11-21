@@ -9,6 +9,7 @@ import { RemoteTerminalError, binding, bindingStatus, classifySshFailure, sshEnv
 import { WINDOWS_STDIN_SCRIPT_COMMAND, remotePlatform } from "./remote.js";
 import { verifySetupRuntime } from "./setup.js";
 import { psmuxBin, psmuxVersionSupported } from "./tmux-runtime.js";
+import type { RetireResult } from "./runtime-retire.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -48,8 +49,15 @@ fi
 echo $$ > "$LOCK/pid"
 STAGE="$ROOT/.stage-$$"
 trap 'rm -rf "$STAGE" "$LOCK"' EXIT
+# Seats that still run older Aiterm code are hibernated by the new runtime (retire-stale); a failure never undoes the result above it.
+retire() {
+  S=$(cut -d' ' -f1 "$ROOT/ACTIVATED" 2>/dev/null)
+  [ -n "$S" ] && set -- --since "$S" || set --
+  o=$("$ROOT/current/bin/aiterm-remote-terminal" retire-stale "$@" </dev/null 2>/dev/null | tail -n 1)
+  case "$o" in '{"schema":"aiterm.retire-stale.v1"'*) echo "AITERM_PROVISION_RETIRE $o" ;; *) echo "AITERM_PROVISION_RETIRE_ERROR" ;; esac
+}
 if [ "$(cat "$ROOT/current/RUNTIME" 2>/dev/null)" = "$NAME" ] && smoke "$ROOT/current"; then
-  echo "AITERM_PROVISION ALREADY_CURRENT $V $A"; exit 0
+  echo "AITERM_PROVISION ALREADY_CURRENT $V $A"; retire; exit 0
 fi
 rm -rf "$ROOT"/.stage-*
 mkdir -p "$STAGE/x" || fail RUNTIME_DIR_UNAVAILABLE
@@ -63,14 +71,17 @@ tar -xzf "$STAGE/$NAME.tar.gz" -C "$STAGE/x" 2>/dev/null || fail RUNTIME_EXTRACT
 N="$STAGE/x/$NAME"
 [ "$(cat "$N/RUNTIME" 2>/dev/null)" = "$NAME" ] || fail RUNTIME_VERIFY_FAILED
 smoke "$N" || fail RUNTIME_SMOKE_FAILED
-# Running seats and tmux servers are not touched; the previous runtime stays until the next provision.
+# Running seats and tmux servers are not touched here; the previous runtime stays until the next provision.
+T=$(date +%s)
 rm -rf "$ROOT/previous"
 if [ -d "$ROOT/current" ]; then mv "$ROOT/current" "$ROOT/previous" || fail RUNTIME_ACTIVATE_FAILED; fi
 if ! mv "$N" "$ROOT/current"; then
   [ -d "$ROOT/previous" ] && mv "$ROOT/previous" "$ROOT/current"
   fail RUNTIME_ACTIVATE_FAILED
 fi
+echo "$T $NAME" > "$ROOT/ACTIVATED"
 echo "AITERM_PROVISION PROVISIONED $V $A"
+retire
 `;
 
 /** The Windows bootstrap (PowerShell 5.1 and 7, ASCII only), run from stdin with V and BASE written in (both are validated before). Same result lines as PROVISION_SCRIPT.
@@ -86,6 +97,12 @@ export function windowsProvisionScript(version: string, base: string): string {
     "try { New-Item -ItemType Directory -Force -Path $ROOT | Out-Null } catch { Fail 'RUNTIME_DIR_UNAVAILABLE' }",
     // Windows PowerShell 5.1 turns native stderr into a terminating error under 'Stop'. The runtime carries its own psmux.
     "function Native($exe, $arguments) { $ErrorActionPreference = 'Continue'; $o = & $exe @arguments 2>&1 | Out-String; return @{ ok = ($LASTEXITCODE -eq 0); out = $o } }",
+    // Seats that still run older Aiterm code are hibernated by the new runtime; a failure never undoes the result above it.
+    "function Retire { $s = ''; try { $s = ((Get-Content -LiteralPath (Join-Path $ROOT 'ACTIVATED') -Raw -ErrorAction Stop).Trim() -split '\\s+')[0] } catch { }",
+    "  $a = @('retire-stale'); if ($s) { $a += @('--since', $s) }",
+    "  $r = Native (Join-Path $ROOT 'current\\bin\\aiterm-remote-terminal.cmd') $a",
+    "  $line = ($r.out -split '\\r?\\n' | Where-Object { $_.Trim() } | Select-Object -Last 1)",
+    "  if ($r.ok -and $line -and $line.StartsWith('{\"schema\":\"aiterm.retire-stale.v1\"')) { Write-Output ('AITERM_PROVISION_RETIRE ' + $line) } else { Write-Output 'AITERM_PROVISION_RETIRE_ERROR' } }",
     "function Smoke($dir) { $r = Native (Join-Path $dir 'bin\\aiterm-remote-terminal.cmd') @('runtime-smoke', '--expect-version', $V); return $r.ok }",
     "function Target($link) { $i = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue; if ($i -and $i.LinkType -eq 'Junction') { return [string]$i.Target }; return $null }",
     "function Unlink($link) { if (Test-Path -LiteralPath $link) { [IO.Directory]::Delete($link) } }",
@@ -101,7 +118,7 @@ export function windowsProvisionScript(version: string, base: string): string {
     "try {",
     "  $current = Join-Path $ROOT 'current'",
     "  $runtimeFile = Join-Path $current 'RUNTIME'",
-    "  if ((Test-Path -LiteralPath $runtimeFile) -and ((Get-Content -LiteralPath $runtimeFile -Raw).Trim() -eq $NAME) -and (Smoke $current)) { Write-Output ('AITERM_PROVISION ALREADY_CURRENT ' + $V + ' x64'); exit 0 }",
+    "  if ((Test-Path -LiteralPath $runtimeFile) -and ((Get-Content -LiteralPath $runtimeFile -Raw).Trim() -eq $NAME) -and (Smoke $current)) { Write-Output ('AITERM_PROVISION ALREADY_CURRENT ' + $V + ' x64'); Retire; exit 0 }",
     "  Get-ChildItem -LiteralPath $ROOT -Filter '.stage-*' -Force | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
     "  New-Item -ItemType Directory -Force -Path (Join-Path $stage 'x') | Out-Null",
     "  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12",
@@ -121,6 +138,7 @@ export function windowsProvisionScript(version: string, base: string): string {
     "  if (-not (Test-Path -LiteralPath (Join-Path $N 'RUNTIME')) -or (Get-Content -LiteralPath (Join-Path $N 'RUNTIME') -Raw).Trim() -ne $NAME) { Fail 'RUNTIME_VERIFY_FAILED' }",
     "  if (-not (Smoke $N)) { Fail 'RUNTIME_SMOKE_FAILED' }",
     // Running seats and psmux servers are not touched: the new directory is added beside the old one and only the junction moves.
+    "  $T = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()",
     "  $dest = Join-Path $ROOT $NAME",
     "  $old = Target $current",
     "  if ($old -and ($old.TrimEnd('\\') -ieq $dest.TrimEnd('\\'))) { Unlink $current; $old = $null }",
@@ -136,13 +154,21 @@ export function windowsProvisionScript(version: string, base: string): string {
     // Older runtime folders go when nothing uses them; a folder a running aiterm-mcp holds stays (the delete fails and is ignored).
     "  $keep = @($dest, (Target $previous))",
     "  Get-ChildItem -LiteralPath $ROOT -Directory -Filter 'aiterm-runtime-*' -ErrorAction SilentlyContinue | Where-Object { $keep -notcontains $_.FullName } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
+    "  [IO.File]::WriteAllText((Join-Path $ROOT 'ACTIVATED'), ([string]$T + ' ' + $NAME))",
     "  Write-Output ('AITERM_PROVISION PROVISIONED ' + $V + ' x64')",
+    "  Retire",
     "} finally {",
     "  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue",
     "  Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue",
     "}",
     "",
   ].join("\n");
+}
+
+/** The retire-stale result line the bootstrap prints after its result line; null when absent or it failed. */
+export function parseRetireOutput(stdout: string): RetireResult | null {
+  const line = /^AITERM_PROVISION_RETIRE (\{.*\})\s*$/m.exec(stdout)?.[1];
+  try { const value = line ? JSON.parse(line) : null; return value?.schema === "aiterm.retire-stale.v1" ? value : null; } catch { return null; }
 }
 
 export function parseProvisionOutput(stdout: string): { result: "PROVISIONED" | "ALREADY_CURRENT"; version: string } | { code: string } | null {
@@ -152,7 +178,7 @@ export function parseProvisionOutput(stdout: string): { result: "PROVISIONED" | 
   return error ? { code: error[1] } : null;
 }
 
-export async function provision(ref: string, version = pkg.version): Promise<{ schema: string; ref: string; result: "PROVISIONED" | "ALREADY_CURRENT"; version: string }> {
+export async function provision(ref: string, version = pkg.version): Promise<{ schema: string; ref: string; result: "PROVISIONED" | "ALREADY_CURRENT"; version: string; retire: RetireResult | null }> {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new RemoteTerminalError("VERSION_INVALID", "the runtime version must be x.y.z");
   const status = bindingStatus(ref);
   if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted", "confirm the new host key");
@@ -173,7 +199,7 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
     child.stdin.end(windows ? windowsProvisionScript(version, RUNTIME_RELEASE_BASE) : PROVISION_SCRIPT);
   });
   const parsed = parseProvisionOutput(run.stdout);
-  if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version };
+  if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version, retire: parseRetireOutput(run.stdout) };
   if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`);
   if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
   throw new RemoteTerminalError("PROVISION_FAILED", "the terminal returned no provisioning result");

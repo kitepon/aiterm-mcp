@@ -220,7 +220,7 @@ function runtimeAssets(version, smokeExit = 0, platform = "darwin-arm64") {
   const root = path.join(dir, "build", name);
   fs.mkdirSync(path.join(root, "bin"), { recursive: true });
   fs.writeFileSync(path.join(root, "RUNTIME"), `${name}\n`);
-  fs.writeFileSync(path.join(root, "bin", "aiterm-remote-terminal"), `#!/bin/sh\n[ "$1" = runtime-smoke ] && [ "$3" = ${version} ] && exit ${smokeExit}\nexit 9\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "bin", "aiterm-remote-terminal"), `#!/bin/sh\n[ "$1" = runtime-smoke ] && [ "$3" = ${version} ] && exit ${smokeExit}\n[ "$1" = retire-stale ] && { echo '{"schema":"aiterm.retire-stale.v1","since":"'"$3"'","seats":[],"ended_servers":0}'; exit 0; }\nexit 9\n`, { mode: 0o755 });
   fs.mkdirSync(path.join(dir, `v${version}`));
   const tarball = path.join(dir, `v${version}`, `${name}.tar.gz`);
   assert.equal(spawnSync("tar", ["-czf", tarball, "-C", path.join(dir, "build"), name]).status, 0);
@@ -242,7 +242,12 @@ test("provision bootstrap: stage, checksum, smoke, then current/previous; failur
   assert.deepEqual(run("1.0.0", a.base), { code: 0, out: { result: "PROVISIONED", version: "1.0.0" } });
   assert.equal(fs.readFileSync(path.join(current, "RUNTIME"), "utf8").trim(), "aiterm-runtime-1.0.0-darwin-arm64");
   assert.equal(fs.statSync(path.join(home, ".aiterm", "runtime")).mode & 0o777, 0o700);
-  assert.deepEqual(run("1.0.0", a.base).out, { result: "ALREADY_CURRENT", version: "1.0.0" });
+  // a482r: the swap time is written, and the new runtime's retire-stale gets it as --since (also on ALREADY_CURRENT).
+  const activated = fs.readFileSync(path.join(home, ".aiterm", "runtime", "ACTIVATED"), "utf8").trim().split(" ");
+  assert.match(activated[0], /^\d+$/); assert.equal(activated[1], "aiterm-runtime-1.0.0-darwin-arm64");
+  const again = spawnSync("/bin/sh", ["-s", "--", "1.0.0", a.base], { input: prov.PROVISION_SCRIPT, encoding: "utf8", env: { PATH: `${darwin}:${process.env.PATH}`, HOME: home } });
+  assert.equal(prov.parseRetireOutput(again.stdout).since, activated[0]);
+  assert.deepEqual(run("1.0.0", a.base), { code: 0, out: { result: "ALREADY_CURRENT", version: "1.0.0" } });
 
   const broken = runtimeAssets("2.0.0", 1);
   assert.deepEqual(run("2.0.0", broken.base).out, { code: "RUNTIME_SMOKE_FAILED" });
@@ -251,7 +256,7 @@ test("provision bootstrap: stage, checksum, smoke, then current/previous; failur
   assert.deepEqual(run("2.0.0", tampered.base).out, { code: "RUNTIME_VERIFY_FAILED" });
   assert.deepEqual(run("2.0.0", `file://${tmp}/nowhere`).out, { code: "RUNTIME_DOWNLOAD_FAILED" });
   assert.equal(fs.readFileSync(path.join(current, "RUNTIME"), "utf8").trim(), "aiterm-runtime-1.0.0-darwin-arm64", "failures keep current");
-  assert.deepEqual(fs.readdirSync(path.join(home, ".aiterm", "runtime")).sort(), ["current"], "no stage or lock left");
+  assert.deepEqual(fs.readdirSync(path.join(home, ".aiterm", "runtime")).sort(), ["ACTIVATED", "current"], "no stage or lock left");
 
   const b = runtimeAssets("2.0.0");
   assert.deepEqual(run("2.0.0", b.base).out, { result: "PROVISIONED", version: "2.0.0" });
@@ -271,7 +276,7 @@ test("provision bootstrap: stage, checksum, smoke, then current/previous; failur
 // Linux: only the tools the bootstrap runs are on PATH, so the terminal has no tmux (the runtime must not need one).
 function linuxTools(machine) {
   const bin = fs.mkdtempSync(path.join(tmp, "linux-tools-"));
-  for (const tool of ["sed", "tail", "curl", "tar", "awk", "sha256sum", "cat", "cut", "mkdir", "chmod", "rm", "mv", "kill", "env", "gzip"]) {
+  for (const tool of ["sed", "tail", "curl", "tar", "awk", "sha256sum", "cat", "cut", "mkdir", "chmod", "rm", "mv", "kill", "env", "gzip", "date"]) {
     const found = spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim();
     if (found) fs.symlinkSync(found, path.join(bin, tool));
   }

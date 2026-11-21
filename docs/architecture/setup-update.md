@@ -46,11 +46,28 @@ updateLocalはpackage実体とbinからglobal prefixを決め、その**同prefi
 
 旧MCP processのコードは自動で入れ替わらず、running_serversは観測できなければnull。tmux/psmux席の保持と、新MCP登録の反映は別である。更新成功を稼働全consumerの新版利用へ直結させない。
 
+0.70.91（a482r）から、入れ替えの直後に新版の`retire-stale`が旧版の席を整理する（次節）。`updated`の時だけ走り、`retire`フィールドに結果を載せる。
+
 remoteは既SSH shell判定を使い、現地の通常aiterm-updateまたは同packageのupdate-cliへ委譲する。旧版で命令がなければ具体版を導入してから同入口を使う。check時は導入しない。最後のJSON resultを現地結果として抽出し、SSH exitだけを受入へ代用しない。未知JSON/無結果はfailed、接続/結果不明後に入替や送信を自動再走しない。
 
 ## 端末の同梱runtime（provision）
 
 BellTeamの端末（macOS arm64/x86_64、Linux x64/arm64）には、利用者のHomebrew・npm・Nodeを使わない製品所有のruntime（macOSもLinuxもtmuxを同梱し、端末のtmuxは要らない）を`aiterm-remote-terminal provision --ref R`で入れる（[remote terminal](remote-terminal.md) R16/R17）。`aiterm-setup`と`aiterm-update`の経路は変えない。runtimeは公開release assetを端末自身がcurlで取り、sha256を照合し、`~/.aiterm/runtime/.stage-<pid>`で展開・smokeしてから`current`へ入れ替える。直前の`current`は`previous`として次のprovisionまで残す。tmux serverと稼働中の席は止めない。POSIXの遠隔コマンドは`current/bin`をPATHの先頭に置く。assetはrelease公開後に`runtime.yml`がGitHub-hostedのmacOSとLinuxのrunnerで作り、公開用jobが4つのtarballと1つのSHA256SUMSを付ける。
+
+## 入れ替え後の旧process整理（`aiterm-remote-terminal retire-stale`、0.70.91、a482r）
+
+原因: runtimeの入れ替え（provision）も`aiterm-update`も、動いている席のaiterm-mcpとclaude-machine-hostを止めない。席は旧版のcodeで数日動き続け、旧hostが新しい状態の形を読めず席が`unknown`と見え、Latticeが毎分促した（2026-11-21、Macで再起動まで直らなかった）。
+
+`retire-stale [--since <epoch秒>] [--force] [--json]`（端末側、新版のcodeで走る）:
+- 入力: `since`（そのcodeが有効になった時刻）。省略時はruntimeの`ACTIVATED`（provisionが入れ替えの瞬間に書く）、無ければ`current`のctime。
+- 対象の席: native sessionのpane以下に、`aiterm-mcp`（`dist/index.js`・binのリンク）か`claude-machine-host.js`のprocessで、`since`より前に始まった物がある席。呼び出し元自身を含む席は触らない。
+- 席ごとの結果: `hibernated`（`hibernateAgentSession`。idleで復帰記録があり、次の配送が新版のcodeで起こす）／`busy`（作業中。触らない。idle時計かもう一度の呼び出しで休止する）／`unavailable`（理由つき: 復帰記録が無い、状態が`unknown`など。触らない。BellTeamが`restart_session`で起こし直す）／`ended`（`--force`の時だけ。旧processを終わらせ、席は`exited`になって次の配送のwakeを待つ。作業中のturnは失われる）。
+- 席に属さない旧aiterm-mcp（15分以上前から動き、`since`より前に始まった物）はSIGTERM。warm sessionは10分で入れ替わるので、実作業を切らない。
+- 席の状態・会話・復帰記録は書き換えない。休止は既存の休止の手順そのもの。
+
+データの流れ: provision（入れ替え）→ `ACTIVATED`書込 → 新`current`の`aiterm-remote-terminal retire-stale --since T` → 標準出力の1行JSON → provisionの結果行`AITERM_PROVISION_RETIRE <json>`（失敗は`AITERM_PROVISION_RETIRE_ERROR`で、PROVISIONEDは取り消さない）→ `aiterm.remote-provision.v1.retire`。`ALREADY_CURRENT`でも走る（busyだった席を、provisionをもう一度流して整理できる）。`aiterm-update`（`updated`の時）は導入前の時刻を`since`にして同じ入口を呼ぶ。
+
+失敗の出口: retireの失敗は入れ替え・更新の成否を変えない。残った席は結果に名前と理由が載り、席が休止するか`--force`で整理される。
 
 ## 配送CLI・先行起床の境界
 

@@ -92,6 +92,14 @@
 - forkの席は答える人がいないので、hostがAskUserQuestionを即denyする（forkは止まらない）。
 - AskUserQuestionの答え: `updatedInput` は元のinput（`questions`）に `answers` を足した物。単一選択は選んだlabel、複数選択はlabelを `, ` で繋ぐ、Otherは自由文そのもの（3つとも実測）。
 
+## 促しへの返事の印（a471-reminder-marker、2026-11-21）
+
+Claude Codeは静かな間が続くと `silent_turn_reminder`（「しばらく利用者に何も話していない。今やっていることを一言で」）を差し込み、席の次の言葉はオーナー宛ての一言になる。`-p` のstreamにはこの促しが無く、会話記録（`<config root>/projects/<cwd slug>/<session_id>.jsonl`）に `attachment.type: "silent_turn_reminder"` の行として残るだけ。hostはその記録の**新しい行だけ**を読み、促しを見つけたら、その答えの行より**前**に1行 `{"type":"system","subtype":"silent_turn_reminder"}` をstream fileへ足す（claudeの行を書き換える唯一の例外ではなく、行の追加。claudeの行はそのまま）。BellTeam conversation（N102）は、この印の次の言葉を吹き出しにする（PR #2080）。
+
+- 読む時点: claudeの `assistant` 行、または `stream_event` の `message_start` をstreamへ書く直前。促しの記録は答えのAPI要求より先に書かれるので、この時点で読めば印は必ず言葉の前に並ぶ。
+- 記録の場所: 最初に `session_id` を持つ行を受けた時に決める（cwdはその行の `cwd`、無ければhostの cwd。root は `CLAUDE_CONFIG_DIR` か `~/.claude`）。読み始めはその時点のfileの終わり: 以前の促しは印にしない（resume）。fileが無ければ先頭から。
+- 1つの答えに印は1行（読んだ間に促しが何件あっても）。記録が読めない・無い時は印を足さないだけで、streamとstateは変わらない。
+
 ## （参考）合意前の論点
 
 1. 行の運び: `stream_read` の`wait_ms`つきlong pollでよいか（pushは別途）。

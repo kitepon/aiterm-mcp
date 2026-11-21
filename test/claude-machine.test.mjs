@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { claudeMachineMarker, claudeMachineMarkerLine } from "../dist/claude-machine.js";
-import { ClaudeMachineHost, parseHostArgs } from "../dist/claude-machine-host.js";
+import { ClaudeMachineHost, ReminderTail, SILENT_TURN_REMINDER_LINE, claudeTranscriptFile, parseHostArgs } from "../dist/claude-machine-host.js";
 import { appendClaudeInput, readClaudeStream, claudeMachineView, claudeMachineObserverScreen, readClaudeStreamLine } from "../dist/claude-machine-stream.js";
 import { claudePaneObservation, claudeTuiBusy, claudeTuiReady, claudeAgentArgv, claudeResumeArgv } from "../dist/harnesses/claude.js";
 import { agentClaudeMachineFilePath, claudeMachineAgentArgv, claudeMachineResumeArgv, buildClaudeMachineAgentCmd, claudeMachinePaneObservation, isClaudeMachine } from "../dist/harnesses/claude-machine.js";
@@ -242,4 +242,32 @@ test("the resume recipe keeps the Claude harness and rejects other values", () =
   assert.equal(agentResumeRecipeSchema.parse(base).harness, undefined);
   assert.throws(() => agentResumeRecipeSchema.parse({ ...base, harness: "claude-code" }));
   assert.throws(() => agentResumeRecipeSchema.parse({ ...base, interface: "machine" }));
+});
+
+test("host: a silent_turn_reminder in the transcript puts one marker line before the answer's first line, never after, never for an old one", () => {
+  const dir = fs.mkdtempSync("/tmp/aiterm-reminder-");
+  const file = `${dir}/s.jsonl`;
+  const reminder = JSON.stringify({ type: "attachment", attachment: { type: "silent_turn_reminder", text: "say what you are doing" } }) + "\n";
+  fs.writeFileSync(file, reminder); // an earlier reminder (resume): not marked
+  const stream = [], toClaude = [];
+  const host = new ClaudeMachineHost({ toClaude: l => toClaude.push(l), appendStream: l => stream.push(l), writeState: () => {},
+    openTranscript: () => new ReminderTail(file), id: () => "i", now: () => "t" });
+  const child = o => host.onChildLine(JSON.stringify(o));
+  host.start();
+  child({ type: "system", subtype: "init", session_id: "s", cwd: "/w" });
+  child({ type: "assistant", session_id: "s", message: { content: [{ type: "text", text: "plain" }] } });
+  assert.equal(stream.filter(l => l === SILENT_TURN_REMINDER_LINE).length, 0);
+  fs.appendFileSync(file, '{"type":"user"}\n' + reminder.slice(0, 40)); // half a line is not read yet
+  child({ type: "stream_event", event: { type: "content_block_delta" } });
+  assert.equal(stream.filter(l => l === SILENT_TURN_REMINDER_LINE).length, 0);
+  fs.appendFileSync(file, reminder.slice(40));
+  child({ type: "stream_event", event: { type: "message_start" } });
+  child({ type: "assistant", session_id: "s", message: { content: [{ type: "text", text: "doing X" }] } });
+  const at = stream.indexOf(SILENT_TURN_REMINDER_LINE);
+  assert.ok(at > 0, "marker is in the stream");
+  assert.equal(JSON.parse(stream[at + 1]).event.type, "message_start", "the marker is right before the answer's first line");
+  assert.equal(stream.filter(l => l === SILENT_TURN_REMINDER_LINE).length, 1, "one marker for the one reminder");
+  assert.equal(claudeTranscriptFile("sid", "/a/b.c", { HOME: "/h" }), "/h/.claude/projects/-a-b-c/sid.jsonl");
+  assert.equal(claudeTranscriptFile("sid", "/a", { HOME: "/h", CLAUDE_CONFIG_DIR: "/c" }), "/c/projects/-a/sid.jsonl");
+  fs.rmSync(dir, { recursive: true });
 });

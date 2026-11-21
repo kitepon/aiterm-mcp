@@ -8,6 +8,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { CLAUDE_MACHINE_FLAGS, type ClaudeMachineState, type ClaudeMachineReason, type ClaudeMachineStateFile, type ClaudeMachinePending } from "./claude-machine.js";
 
@@ -20,8 +22,49 @@ export interface ClaudeMachineHostPorts {
   appendStream(line: string): void;
   /** The state file, replaced atomically. */
   writeState(state: ClaudeMachineStateFile): void;
+  /** Opens the session's transcript for reminder lookup (called once, at the first line that names the session). */
+  openTranscript?(sessionId: string, cwd: string): ClaudeTranscriptTail | null;
   now?: () => string;
   id?: () => string;
+}
+
+/** Claude's own transcript of the session: only its new lines are read, and only to see a silent_turn_reminder attachment. */
+export interface ClaudeTranscriptTail { /** True when a reminder was recorded since the last call. */ poll(): boolean }
+
+export const SILENT_TURN_REMINDER_LINE = JSON.stringify({ type: "system", subtype: "silent_turn_reminder" });
+
+export class ReminderTail implements ClaudeTranscriptTail {
+  private offset = 0;
+  private carry = "";
+  /** Starts at the file's current end, so a reminder from before this launch (resume) is not marked. A missing file starts at 0. */
+  constructor(private readonly file: string) { try { this.offset = fs.statSync(file).size; } catch { /* not created yet */ } }
+  poll(): boolean {
+    let size: number;
+    try { size = fs.statSync(this.file).size; } catch { return false; }
+    if (size < this.offset) { this.offset = 0; this.carry = ""; }
+    if (size === this.offset) return false;
+    const fd = fs.openSync(this.file, "r");
+    let chunk: string;
+    try {
+      const buffer = Buffer.alloc(size - this.offset);
+      const n = fs.readSync(fd, buffer, 0, buffer.length, this.offset);
+      this.offset += n;
+      chunk = buffer.subarray(0, n).toString("utf8");
+    } finally { fs.closeSync(fd); }
+    const lines = (this.carry + chunk).split("\n");
+    this.carry = lines.pop() ?? "";
+    let found = false;
+    for (const line of lines) {
+      if (!line.includes("silent_turn_reminder")) continue;
+      try { const record = JSON.parse(line); if (record?.type === "attachment" && record.attachment?.type === "silent_turn_reminder") found = true; } catch { /* a half-written or other line */ }
+    }
+    return found;
+  }
+}
+
+/** Claude's transcript path: <config root>/projects/<cwd with every non-alphanumeric as "-">/<session id>.jsonl (same rule as harnesses/claude.ts claudeProjectSlug). */
+export function claudeTranscriptFile(sessionId: string, cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(env.CLAUDE_CONFIG_DIR || path.join(env.HOME ?? os.homedir(), ".claude"), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
 export interface ClaudeMachineHostOptions {
@@ -40,6 +83,7 @@ export class ClaudeMachineHost {
   private turnOpen = false; // a result is still owed for something claude accepted or started
   private awaiting = 0; // user messages sent that no result has covered yet
   private stopHooks = new Set<string>();
+  private transcript: ClaudeTranscriptTail | null = null;
   private readonly id: () => string;
   private readonly now: () => string;
   firstPrompt: string | null = null;
@@ -85,12 +129,24 @@ export class ClaudeMachineHost {
     if (this.pending.length === 0) this.set(this.turnOpen ? "busy" : "idle");
   }
 
+  private append(line: string): void {
+    this.ports.appendStream(line);
+    this.streamBytes += Buffer.byteLength(line) + 1;
+  }
+
   onChildLine(raw: string): void {
+    let event: Json | null = null;
+    try { event = JSON.parse(raw); } catch { /* appended below, unchanged */ }
+    if (event) {
+      if (!this.transcript && typeof event.session_id === "string" && this.ports.openTranscript)
+        this.transcript = this.ports.openTranscript(event.session_id, typeof event.cwd === "string" ? event.cwd : process.cwd());
+      // The reminder is only in the transcript, written before the request it prompts: read it just before an answer's first lines, so the marker precedes the words.
+      const answerStart = event.type === "assistant" || (event.type === "stream_event" && event.event?.type === "message_start");
+      if (answerStart && this.transcript?.poll()) this.append(SILENT_TURN_REMINDER_LINE);
+    }
     const lineStart = this.streamBytes;
-    this.ports.appendStream(raw);
-    this.streamBytes += Buffer.byteLength(raw) + 1;
-    let event: Json;
-    try { event = JSON.parse(raw); } catch { return; }
+    this.append(raw);
+    if (!event) return;
     switch (event.type) {
       case "control_response": {
         // The initialize reply is the ready signal; it is for the host's own request.
@@ -195,6 +251,7 @@ async function main(): Promise<void> {
   const host = new ClaudeMachineHost({
     toClaude: line => { child.stdin!.write(`${line}\n`); },
     appendStream: line => { fs.writeSync(streamFd, `${line}\n`); },
+    openTranscript: (sessionId, cwd) => new ReminderTail(claudeTranscriptFile(sessionId, cwd)),
     writeState: state => { fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(state), { mode: 0o600 }); fs.renameSync(`${stateFile}.tmp`, stateFile); },
   }, { denyQuestions: args.has("--deny-questions") });
   const firstPrompt = args.flag("--first-prompt-file");

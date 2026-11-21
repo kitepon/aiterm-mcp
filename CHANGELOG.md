@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.91] - 2026-11-21
+
 - A runtime swap or an `aiterm-update` now retires the seats that still run the old code (a482r, Tronie). The swap left the running aiterm-mcp servers and claude-machine hosts on the old code for days, so a seat read `unknown` and Lattice nudged it every minute until the terminal was rebooted. New `aiterm-remote-terminal retire-stale [--since <epoch>] [--force]`, run by the NEW code right after the swap (`provision` writes `ACTIVATED`, runs it on PROVISIONED and on ALREADY_CURRENT; `aiterm-update` runs it when it installed a new version): a seat whose aiterm-mcp or claude-machine-host started before the swap is hibernated through the normal hibernate path when it is idle with a resume recipe (the next delivery wakes it on the new code). A busy seat, a seat with no resume recipe and the caller's own seat are kept and listed with the reason (`retire` in the provision result, a line in `aiterm-update`); `--force` ends their stale processes. A stale aiterm-mcp outside every seat that is 15+ minutes old is ended. A failure of this step never undoes the swap or the update. A seat started before 0.70.90 that has no resume recipe still needs a restart by its owner.
 
 ## [0.70.90] - 2026-11-21
@@ -3616,7 +3618,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.90...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.91...HEAD
+[0.70.91]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.90...v0.70.91
 [0.70.90]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...v0.70.90
 [0.70.89]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...v0.70.89
 [0.70.88]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...v0.70.88

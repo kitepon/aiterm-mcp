@@ -135,6 +135,19 @@ export class ClaudeMachineHost {
     this.streamBytes += Buffer.byteLength(line) + 1;
   }
 
+  /** The answer for a request the host gives itself (an unattended seat has nobody to ask), or null when it waits for the caller. */
+  private autoAnswer(request: Json): Json | null {
+    const tool = String(request.tool_name ?? "");
+    if (tool === "ExitPlanMode") // the PermissionRequest hook answers it as option 1 for an unattended seat; same policy here
+      return { behavior: "allow", updatedInput: request.input ?? {}, updatedPermissions: [{ type: "setMode", mode: "bypassPermissions", destination: "session" }] };
+    if (tool === "AskUserQuestion" && this.options.denyQuestions)
+      return { behavior: "deny", message: "This seat is a disposable fork with nobody to answer a question; decide yourself or say what you could not decide." };
+    // In plan mode claude asks for every Bash and out-of-directory Read (measured on a production seat; none in bypassPermissions). Nobody
+    // answers an unattended seat, so allow them as bypassPermissions would. Only AskUserQuestion needs a person.
+    if (this.permissionMode === "plan" && tool !== "AskUserQuestion") return { behavior: "allow", updatedInput: request.input ?? {} };
+    return null;
+  }
+
   onChildLine(raw: string): void {
     let event: Json | null = null;
     try { event = JSON.parse(raw); } catch { /* appended below, unchanged */ }
@@ -146,6 +159,16 @@ export class ClaudeMachineHost {
       if (answerStart && this.transcript?.poll()) this.append(SILENT_TURN_REMINDER_LINE);
     }
     const lineStart = this.streamBytes;
+    // A request that waits is listed in the state before its line reaches the stream: a reader that sees the line (stream first, then
+    // state) always finds it pending (N102). The offsets are where the line will sit.
+    const request = event?.type === "control_request" && event.request?.subtype === "can_use_tool" ? event.request as Json : null;
+    if (request && !this.autoAnswer(request)) {
+      const tool = String(request.tool_name ?? "");
+      this.pending = [...this.pending, { request_id: String(event!.request_id), subtype: "can_use_tool", tool_name: tool || null,
+        stream_offset: lineStart, stream_end: lineStart + Buffer.byteLength(raw) + 1 }];
+      this.set("blocked", tool === "AskUserQuestion" ? "unknown_dialog" : "tool_approval");
+      this.publish();
+    }
     this.append(raw);
     if (!event) return;
     switch (event.type) {
@@ -165,27 +188,9 @@ export class ClaudeMachineHost {
       case "control_request": {
         const request = (event.request ?? {}) as Json;
         if (request.subtype !== "can_use_tool") return;
-        const tool = String(request.tool_name ?? "");
-        if (tool === "ExitPlanMode") { // the PermissionRequest hook answers it as option 1 for an unattended seat; same policy here
-          this.reply(String(event.request_id), { behavior: "allow", updatedInput: request.input ?? {},
-            updatedPermissions: [{ type: "setMode", mode: "bypassPermissions", destination: "session" }] });
-          return;
-        }
-        if (tool === "AskUserQuestion" && this.options.denyQuestions) {
-          this.reply(String(event.request_id), { behavior: "deny", message: "This seat is a disposable fork with nobody to answer a question; decide yourself or say what you could not decide." });
-          return;
-        }
-        // In plan mode claude asks for every Bash and out-of-directory Read (measured on a production seat; none in bypassPermissions). Nobody
-        // answers an unattended seat, so allow them as bypassPermissions would. Only AskUserQuestion needs a person.
-        if (this.permissionMode === "plan" && tool !== "AskUserQuestion") {
-          this.reply(String(event.request_id), { behavior: "allow", updatedInput: request.input ?? {} });
-          return;
-        }
-        this.pending = [...this.pending, { request_id: String(event.request_id), subtype: "can_use_tool", tool_name: tool || null,
-          stream_offset: lineStart, stream_end: this.streamBytes }];
-        this.set("blocked", tool === "AskUserQuestion" ? "unknown_dialog" : "tool_approval");
-        this.publish();
-        return;
+        const answer = this.autoAnswer(request);
+        if (answer) this.reply(String(event.request_id), answer);
+        return; // a request that waits was already listed, before its line was appended
       }
       case "control_cancel_request": {
         const before = this.pending.length;

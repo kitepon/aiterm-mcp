@@ -26,6 +26,7 @@ caller ─ agent_launch(harness) ─> core.prepareAgentLaunch ─> metadata.clau
 core ─ typed launch line ─> native shell ─> node claude-machine-host.js ─ spawn ─> claude -p (stdin/stdout pipes)
 claude stdout ─ line, unchanged ─> host ─> <launch>.claude-stream.jsonl ─> stream_read (cursor) ─> caller
 claude stdout ─ system/status permissionMode ─> host (remembers) ; can_use_tool while permissionMode=plan (not AskUserQuestion) ─> host ─ control_response allow, input unchanged ─> claude stdin (nothing reaches state.pending)
+claude stdout ─ can_use_tool that waits (not auto-answered) ─> host ─ state.pending (offset/end = where the line will sit) published first ─> <launch>.claude-state.json ; then the line ─> <launch>.claude-stream.jsonl  (a reader that sees the line in the stream, then reads the state, always finds it pending; N102)
 claude transcript (<config>/projects/<slug>/<session_id>.jsonl) ─ new attachment silent_turn_reminder ─> host ─ one marker line, before the answer's first assistant/message_start line ─> <launch>.claude-stream.jsonl
 caller ─ stream_send / pty_send / agent_stop … ─> <launch>.claude-input.jsonl ─ line, unchanged ─> host ─> claude stdin
 host ─ state derived from events ─> <launch>.claude-machine-state.json ─> stream_read.state, pty_observe, send gates

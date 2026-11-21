@@ -50,6 +50,28 @@ const makeHost = (options) => {
 };
 const input = (host, o) => { const line = JSON.stringify(o); host.onInputLine(line, Buffer.byteLength(line) + 1); };
 
+test("host: a waiting request is listed in the state before its line reaches the stream; an auto-answered one never is (N102)", () => {
+  const toClaude = [], states = [], seen = [];
+  let streamBytes = 0;
+  const host = new ClaudeMachineHost({ toClaude: l => toClaude.push(JSON.parse(l)), writeState: s => states.push(s),
+    appendStream: l => { seen.push({ line: l, offset: streamBytes, pending: states.at(-1).pending.map(p => p.request_id) }); streamBytes += Buffer.byteLength(l) + 1; },
+    id: () => "id", now: () => "2026-11-20T00:00:00.000Z" });
+  const child = o => host.onChildLine(JSON.stringify(o));
+  host.start();
+  child({ type: "control_response", response: { subtype: "success", request_id: toClaude[0].request_id } });
+  const bash = { type: "control_request", request_id: "b1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } };
+  child(bash);
+  const line = seen.find(x => x.line === JSON.stringify(bash));
+  assert.deepEqual(line.pending, ["b1"], "the state already listed it when its line was appended");
+  assert.deepEqual(states.at(-1).pending, [{ request_id: "b1", subtype: "can_use_tool", tool_name: "Bash", stream_offset: line.offset, stream_end: line.offset + Buffer.byteLength(line.line) + 1 }]);
+  assert.equal(states.at(-1).reason, "tool_approval");
+  // The host answers ExitPlanMode itself: its line is never listed.
+  const exit = { type: "control_request", request_id: "e1", request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: {} } };
+  child(exit);
+  assert.deepEqual(seen.find(x => x.line === JSON.stringify(exit)).pending, ["b1"]);
+  assert.ok(!states.some(s => s.pending.some(p => p.request_id === "e1")));
+});
+
 test("host: initialize, then the thinking request; the initialize reply is the ready signal", () => {
   const { host, toClaude, last, ready } = makeHost();
   host.start();

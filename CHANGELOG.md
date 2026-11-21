@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A claude-machine seat's waiting tool request is now listed in the state file before its line reaches the stream (N102, a471-auto-approval-noise). The host used to append the `can_use_tool` line and then write `state.pending`, so a reader that read the stream and then the state could see a real request line with a state that did not list it (a seat that looked idle while a request waited). The host now publishes `pending` (with the offsets where the line will sit) first, then appends the line. Requests the host answers itself (ExitPlanMode, a fork's question, plan mode) are never listed, as before.
+
 ## [0.70.88] - 2026-11-21
 
 - A claude-machine seat's turn is now read (a474-machine-turn-read, Kiro). `turns.read` / `pty_observe` gave `turn: null` for every machine seat, busy or idle, because the seat-turn reader looked for a TUI composer in the host's one-line state; BellTeam then saw the seat as `unknown` and sent its "you are not running" nudge about once a minute inside a running turn. The reader now maps the machine state: `busy` is running, `idle` settles to idle once the turn's Stop is in the event file (as for a TUI seat), `blocked`, `starting` and `exited` stay unknown.

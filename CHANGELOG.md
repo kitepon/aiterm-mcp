@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.90] - 2026-11-21
+
 - A claude-machine seat launched with no model or effort can now hibernate and wake (a477, Kiro). Such a seat had no resume recipe, so `pty_close` with `hibernate: true` and the idle clock answered `AGENT_HIBERNATE_UNAVAILABLE` / `resume_unavailable`: Aiterm fills the started model and effort of a default launch from the Claude start banner, and a machine seat has no banner. The host now asks claude for its applied settings (`get_settings`) once after initialize and records `started: {model, effort}` in its state file; the seat's started-settings step (also run by the idle check) reads it into the resume template. Nothing is guessed: until both are known the seat stays unable to hibernate. A seat launched with an explicit model and effort was never affected. A seat started before this version has no `started` and still needs an explicit model/effort or a restart.
 
 ## [0.70.89] - 2026-11-21
@@ -3612,7 +3614,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.90...HEAD
+[0.70.90]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...v0.70.90
 [0.70.89]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...v0.70.89
 [0.70.88]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.87...v0.70.88
 [0.70.87]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.86...v0.70.87

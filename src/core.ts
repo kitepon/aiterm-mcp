@@ -8618,7 +8618,7 @@ function steerUnknownFailure(meta: AgentMetadata, code: "STEER_NOT_QUEUED" | "ST
   const tracked = meta.kind === "grok" ? follow : null;
   return { schema: "aiterm.agent-send-error.v1", code, outcome: "outcome_unknown", effect: "possible",
     session_id: meta.aiterm_session, launch_id: meta.launch_id, vendor: meta.kind, harness: agentHarness(meta),
-    event_cursor: tracked?.event_cursor ?? null, steer_id: tracked?.steer_id ?? null, interim_from: tracked?.interim_from ?? null };
+    event_cursor: tracked?.event_cursor ?? null, steer_id: tracked?.steer_id ?? null, input_ref: tracked?.steer_id ?? null, interim_from: tracked?.interim_from ?? null };
 }
 
 export async function runClaudeOperation({

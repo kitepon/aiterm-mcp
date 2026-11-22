@@ -3,7 +3,7 @@
 // 完了/timeout/close を1行のJSON receiptで返してexitする。lock・PTY・dispatch状態には一切触れない。
 // 親AIホストのバックグラウンドタスクとして起動し、exitを「観測終了の通知」として使う。
 // exit≠完了: exit code は outcome を映す（0=done / 5=running=未完了 / 3=timeout=未完了 / 4=closed / 6=rate_limited=harness利用上限 / 7=error=turnがエラー終了 / 8=not_taken=差し込んだ文が会話に入っていない / 1=waiter自身のエラー）。
-// --steer は、差し込みの返り（BellTeamだけに返す。ADR 0122）のwait_processが付ける。その差し込みを取った番の終わりを待つ。
+// --steer（中立な名前は --input-ref）は、差し込みの返り（ADR 0122）のwait_processが付ける。その差し込みを取った番の終わりを待つ。
 // --timeout 0 は待たずに一度だけ観測する照会で、未完了は running（timeout と混同させない）。
 // receipt の outcome が正で、done 以外は未完了。timeout の既定は core の DEFAULT_AGENT_DONE_TIMEOUT（600秒）。
 import { fileURLToPath } from "node:url";
@@ -37,7 +37,7 @@ export function parseArgs(argv: string[]): WaitCommand {
   let inputId: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer" || a === "--launch" || a === "--input") {
+    if (a === "--session" || a === "--operation" || a === "--timeout" || a === "--cursor" || a === "--steer" || a === "--input-ref" || a === "--launch" || a === "--input") {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} に値がありません。${USAGE}`);
       i++;
@@ -59,9 +59,10 @@ export function parseArgs(argv: string[]): WaitCommand {
         if (cursor !== null) throw new Error(`--cursor が重複しています。${USAGE}`);
         if (!/^\d+$/.test(v)) throw new Error(`--cursor は0以上の整数完了境界だけを受理します。${USAGE}`);
         cursor = Number(v);
-      } else if (a === "--steer") {
-        if (steer !== null) throw new Error(`--steer が重複しています。${USAGE}`);
-        if (!STEER_RE.test(v)) throw new Error(`--steer が不正です。${USAGE}`);
+      } else if (a === "--steer" || a === "--input-ref") {
+        // --input-ref is the neutral name of --steer (0.70.105): the same value, the same rules, one of them at most.
+        if (steer !== null) throw new Error(`${a} が重複しています（--steer と --input-ref は同じ意味で、どちらか1つです）。${USAGE}`);
+        if (!STEER_RE.test(v)) throw new Error(`${a} が不正です。${USAGE}`);
         steer = v;
       } else {
         if (timeout !== null) throw new Error(`--timeout が重複しています。${USAGE}`);

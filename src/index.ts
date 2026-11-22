@@ -438,7 +438,8 @@ async function relayedTurnWaiter(target: RemoteTarget, seat: any): Promise<{ tur
 /** 現地の差し込みの返りのwait_processは現地のNodeとpathなので、ここで走らない。同じ差し込みの番の終わりをssh越しに待つものへ替える。 */
 async function relaySteerWait(target: RemoteTarget, result: RemoteCallResult): Promise<any> {
   const structured = result.structuredContent as any;
-  const steerId = structured.steer_id ?? (result._meta?.[STEER_RESULT_META_KEY] as any)?.steer_id;
+  const steerRef = (result._meta?.[STEER_RESULT_META_KEY] as any) ?? {};
+  const steerId = structured.steer_id ?? structured.input_ref ?? steerRef.steer_id ?? steerRef.input_ref;
   // 番を特定できない待ちは返さない。呼び手は追えない差し込みとして扱う（steer-refも外す）。
   if (structured.event_cursor === null || typeof steerId !== "string") {
     const { [STEER_RESULT_META_KEY]: _dropped, ...meta } = (result._meta ?? {}) as Record<string, unknown>;
@@ -685,11 +686,11 @@ registerRemoteAwareTool(
         if (mark) throw new Error("agent session への dispatch は mark:true と併用できません");
         if (rtk) throw new Error("agent session への dispatch は rtk:true と併用できません");
         delivery = await deliveryForRequest(extra);
-        // BellTeamのため（ADR 0122）: 差し込みになった時、その文を取った番の終わりを待つ手がかりを返す。印の無い呼び手には何も足さない。
+        // 差し込みになった時、その文を取った番の終わりを待つ手がかりを返す（ADR 0122）。どの呼び手にも返す（0.70.105: 呼び手の印による出し分けは外した）。
         const receipt = await core.sendAgentMessage(session_id, core.attachImages(text, image), { raw, before_send: delivery?.before_send, preface,
-          follow: interimCallerFromMeta(extra._meta, server.server.getClientVersion()?.name, server.server.getClientCapabilities()) });
+          follow: true });
         if (receipt.schema === "aiterm.agent-steer.v1") {
-          const follow = interimCallerFromMeta(extra._meta, server.server.getClientVersion()?.name, server.server.getClientCapabilities()) ? receipt.follow ?? null : null;
+          const follow = receipt.follow ?? null;
           return {
             content: [
               {
@@ -711,7 +712,7 @@ registerRemoteAwareTool(
               submit_residue: null,
               pane_input_recovery: receipt.pane_input_recovery,
             },
-            ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, interim_from: follow.interim_from } } } : {}),
+            ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, input_ref: follow.steer_id, interim_from: follow.interim_from } } } : {}),
           };
         }
         const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor, receipt.launch_id, receipt.input_id);
@@ -811,6 +812,11 @@ registerRemoteAwareTool(
         .regex(/^[0-9a-f]{16}$/)
         .nullish()
         .describe("Claudeの差し込みが始めた番の回答を読むID。agent_transcript:true時だけ指定する。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED、動いていた番が取った差し込みはAITERM_TRANSCRIPT_STEER_SAME_TURN、控え無しはSTEER_NOT_FOUND。operation_id・input_idと併用不可"),
+      input_ref: z
+        .string()
+        .regex(/^[0-9a-f]{16}$/)
+        .nullish()
+        .describe("差し込みが始めた番の回答を読むID。もう1つの同じ意味の引数と同じ値で、両方を渡す時は同じ値にする。agent_transcript:true時だけ指定する"),
       input_id: z
         .string()
         .regex(/^[a-f0-9]{32}$/)
@@ -834,8 +840,11 @@ registerRemoteAwareTool(
         .describe("agent_transcriptで、完了したturnの回答が空だった時だけtrue（textは空文字列）。回答を読めなかった時は誤りを返す。terminalではnull"),
     },
   },
-  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id, steer_id }) => {
+  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id, steer_id: oldSteerId, input_ref }) => {
     try {
+      // input_ref is the neutral name of steer_id (0.70.105): the same value; two different values are a caller mistake.
+      if (oldSteerId != null && input_ref != null && oldSteerId !== input_ref) throw new Error("steer_idとinput_refは同じ意味です。両方を渡す時は同じ値にしてください");
+      const steer_id = input_ref ?? oldSteerId;
       if (agent_transcript) {
         if (screen || full || rtk || wait || line_range != null) {
           throw new Error("agent_transcript:true は screen / full / rtk / line_range / wait と併用できません。lines のみ指定できます。");
@@ -865,7 +874,7 @@ registerRemoteAwareTool(
       }
       if (operation_id != null) throw new Error("operation_idはagent_transcript:true時だけ指定できます");
       if (input_id != null) throw new Error("input_idはagent_transcript:true時だけ指定できます");
-      if (steer_id != null) throw new Error("steer_idはagent_transcript:true時だけ指定できます");
+      if (steer_id != null) throw new Error("steer_id（input_ref）はagent_transcript:true時だけ指定できます");
       let range: [number, number | null] | null = null;
       if (line_range) {
         const idx = line_range.indexOf(":");

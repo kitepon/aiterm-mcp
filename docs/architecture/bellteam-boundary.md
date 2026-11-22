@@ -96,7 +96,7 @@ BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]`
 | なし（`src` に呼び手なし。他製品の呼び手も確認できず） | `throughline_source_session` / `throughline_supplement_file` | 1 | 外さない。BellTeamの名前を持たない汎用のforkとして残す（トロニー氏の裁定） |
 | `remote-seats.mjs`（キロ・クラスト） | `mcp_config` の席への道の書き換え（`rewriteSeatMcpConfig`、`ensureSeatForward`） | 2 | BellTeamが最終のconfigを作り、Aitermは書き換えずに渡す形が本番で動いた後（端末の席の仕組みはb4でクラスト氏へ） |
 | `#seatTurns`・route resume（キロ） | `pty_list` の `seat_turns` / `route_since` / `unread` | 3 | BellTeamが汎用の事実（`pty_list`、`pty_observe`、席のeventと`aiterm-transcript-read`）から同じ値を出し、影の比較で差が0になった後 |
-| `waitProcess`・`steerFollow`・`waitUntilDone`（キロ） | steer-follow（`wait_process`、`steer_id`、`input_id`、`aiterm-wait --steer`） | 4 | **Aitermに残す（裁定A）**。外さず、名前だけ中立にする（下の「steer-followの裁定A」）。BellTeamは自分の消費側だけを持つ |
+| `waitProcess`・`steerFollow`・`waitUntilDone`（キロ） | steer-follow（`wait_process`、`steer_id`、`input_id`、`aiterm-wait --steer`） | 4 | **Aitermに残す（裁定A）**。外さず、名前だけ中立にする（下の「steer-followの裁定A」）。0.70.105で `input_ref` / `--input-ref` を足した（古い名前も同じ値で併存、出し分けは外した）。BellTeamは自分の消費側だけを持つ |
 | `sendSessionStop`（キロ） | `agent_stop` | 5 | BellTeamが `pty_key` と席の子の系譜で止める形を、labで比べて本番に出した後 |
 | `aiterm-hooks.mjs`・`harness-entries.mjs`（モリー） | `execution-native-server`、`execution-parent-worker`、`execution-native-setup`、`bellteam.harness-entries.v1` | 5 | ランタイムが汎用のAitermの入口で動く形（モリー氏）が本番に出た後 |
 | クラスト（a532b1） | 決裁箱のドア（`approval-door.ts`、`registerDoor`） | b1 | 済み: BellTeamのドアが3台で動き、Aiterm側は0.70.103で削除（`post_launch` は0.70.100） |

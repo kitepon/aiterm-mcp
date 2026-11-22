@@ -32,6 +32,9 @@ s.setRequestHandler(CallToolRequestSchema, async (r) => {
     launch_id: "a".repeat(32), vendor: "claude", harness: "claude-code", submit_residue: null, pane_input_recovery: [] };
   const ref = { "aiterm/steer": { schema: "aiterm.steer-ref.v1", steer_id: ${JSON.stringify(steerId)}, interim_from: null } };
   if (r.params.arguments.text === "followed") return { content: [{ type: "text", text: "steered" }], structuredContent: steer, _meta: ref };
+  // A terminal on a later version that names it input_ref only (the steer_id name dropped): the relay must still follow it.
+  if (r.params.arguments.text === "new-name") return { content: [{ type: "text", text: "steered" }], structuredContent: steer,
+    _meta: { "aiterm/steer": { schema: "aiterm.steer-ref.v1", input_ref: ${JSON.stringify(steerId)}, interim_from: null } } };
   if (r.params.arguments.text === "no-ref") return { content: [{ type: "text", text: "steered" }], structuredContent: steer, _meta: { other: 1 } };
   return { content: [{ type: "text", text: "aiterm: steer unconfirmed" }], isError: true,
     structuredContent: { session_id: r.params.arguments.session_id, event_cursor: 7, steer_id: ${JSON.stringify(steerId)}, interim_from: null, wait_process: wait } };
@@ -69,6 +72,10 @@ test("relayed steer: wait_process waits for the steer's turn over ssh, or is dro
     assert.equal(followed.structuredContent.event_cursor, 7);
     sshWait(followed.structuredContent.wait_process);
     assert.equal(followed._meta["aiterm/steer"].steer_id, steerId);
+
+    const renamed = await send("new-name");
+    assert.equal(renamed.structuredContent.event_cursor, 7);
+    sshWait(renamed.structuredContent.wait_process);
 
     const noRef = await send("no-ref");
     assert.equal(noRef.structuredContent.event_cursor, null);

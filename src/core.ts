@@ -7511,7 +7511,7 @@ export function __testCodexConfigureChoices(screen: string, model: string, effor
 // v0.16.0: 親をブロックする wait 経路は廃止した。send は ready gate と submit 分離を内蔵した
 // dispatch として即返り、event_cursor（送信直前のharness完了正本境界）を receipt で返す。
 // 完了通知は aiterm-wait（--cursor で境界を渡す）、回収は pty_read / claude_turn recover が担う。
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 
 /**
  * 画像添付。Claude Code／Codex／Grok／Cursorの4 harnessは、本文に書かれた画像ファイルの絶対パスを

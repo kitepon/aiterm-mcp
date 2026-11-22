@@ -106,6 +106,14 @@
       "description": "Send data (user message, control request, control response) to a machine-mode Claude seat."
     },
     {
+      "name": "image_read",
+      "description": "Read one image file (png, jpeg, gif, webp; up to 25 MiB) from a seat's terminal; a terminal-bound seat is read over the relay."
+    },
+    {
+      "name": "image_put",
+      "description": "Aiterm-to-Aiterm relay of an uploaded image into the terminal's temp folder; callers use pty_send image."
+    },
+    {
       "name": "diagnostics",
       "description": "Return a read-only, privacy-bounded factory readiness snapshot."
     }

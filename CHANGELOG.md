@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Images to and from a terminal seat (a521, N102). `pty_send` with `image` to a seat on a terminal no longer answers `REMOTE_IMAGE_UNSUPPORTED`: the caller's Aiterm checks the files as for a local attachment, uploads each one to the terminal's `image_put` (stored as `<temp>/aiterm-images/<uuid>.<ext>`, 0600, type from the first bytes, 25 MiB each, 8 per message), and the relayed `pty_send` carries the terminal's own paths. A terminal older than 0.70.96 still answers `REMOTE_IMAGE_UNSUPPORTED`, before anything is typed. New public tool `image_read({session_id, path})` returns one png/jpeg/gif/webp (<= 25 MiB) from the seat's terminal as an MCP `image` plus `aiterm.image-read.v1`; it reads only inside the seat's working folder and the temp folders, and refuses with `IMAGE_PATH_INVALID` / `IMAGE_NOT_FOUND` / `IMAGE_PATH_NOT_ALLOWED` / `IMAGE_NOT_AN_IMAGE` / `IMAGE_TOO_LARGE`. Not covered: non-image attachments and `agent_launch image` to a terminal. Contract: `docs/architecture/remote-terminal.md` R23/R24.
+
 ## [0.70.95] - 2026-11-22
 
 - The Approval Box door closes a connection that has not completed its request line within 30 s (a516e, Nayuta). On Windows the named pipe keeps Node's default DACL (SYSTEM and Administrators full, Everyone read only), documented in `remote-terminal.md` R22; the idle close keeps a read-only stranger from holding a connection.

@@ -20,7 +20,7 @@ const SWEEP_MS = 30_000;
 const CONTROL_PREFIX = '{"aiterm_door":';
 
 export function doorAddress(platform: NodeJS.Platform = process.platform, home = os.homedir(), user = os.userInfo().username): string {
-  return platform === "win32" ? `\\\\.\\pipe\\aiterm-approval-box-door-${user.replace(/[^A-Za-z0-9_.-]/g, "_")}` : path.join(home, ".aiterm", "approval-box-door.sock");
+  return platform === "win32" ? `\\\\.\\pipe\\aiterm-approval-box-door-${user.replace(/[^A-Za-z0-9_.-]/g, "_")}` : path.posix.join(home, ".aiterm", "approval-box-door.sock");
 }
 
 export interface SeatRegistration { port: number; bearer: string }

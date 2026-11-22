@@ -76,9 +76,9 @@ BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
 
 モデルの現在値と希望値を区別し、運用の設定適用記録は本体側で保持する。本体の適用時機/待機契約はキロ、Aitermのnative設定契約はエレグ。双方の修理を今回の製品refactor commitへ混ぜない。
 
-## Approval Box door on remote hosts（a516e、0.70.94）
+## Approval Box door on remote hosts（a516e、0.70.94 に追加、0.70.103 で削除）
 
-遠隔ホストの席から本体の決裁箱へ届く道。ホスト利用者ごとに固定の場所（POSIX `~/.aiterm/approval-box-door.sock` 0600、Windowsは固定のnamed pipe）で、Aitermの `aiterm-approval-door` がconnectorの行を受け、既存のseat route（R12、`127.0.0.1:P`）へ `POST /api/seat-mcp/approval-box/local`（モリー氏のa516m。1行1 POST、返りはdaemonの行そのまま）で渡す。bearerは席の起動・復帰の度にAitermのhostが登録し、ドアのmemoryだけに置く（diskに置かない、新しい秘密を作らない）。ドアは登録した席のnative sessionが1つでも生きている間だけ開く。connector側（`approval-box use-hosted --socket`）はナユタ氏、本体の窓口はモリー氏が持つ。正本: [remote-terminal.md](remote-terminal.md) R22・T5。
+Aitermの `aiterm-approval-door`、`approval-door.ts`、`registerDoor` は0.70.103で消した。同じ役目のドアはBellTeam側（`~/.bellteam/approval-box-door.sock`、Windowsは `\\.\pipe\bellteam-approval-box-door-<user>`）が持ち、`post_launch`（0.70.100）で起動・復帰の度に席を登録する。アドレスが違うので、ホストでの作業は要らない。Aitermは決裁箱の名も本体の `/api/seat-mcp/approval-box/local` も持たない。
 
 ## 端末の席との画像（a521、0.70.96）
 
@@ -99,7 +99,7 @@ BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]`
 | `waitProcess`・`steerFollow`・`waitUntilDone`（キロ） | steer-follow（`wait_process`、`steer_id`、`input_id`、`aiterm-wait --steer`） | 4 | **Aitermに残す（裁定A）**。外さず、名前だけ中立にする（下の「steer-followの裁定A」）。BellTeamは自分の消費側だけを持つ |
 | `sendSessionStop`（キロ） | `agent_stop` | 5 | BellTeamが `pty_key` と席の子の系譜で止める形を、labで比べて本番に出した後 |
 | `aiterm-hooks.mjs`・`harness-entries.mjs`（モリー） | `execution-native-server`、`execution-parent-worker`、`execution-native-setup`、`bellteam.harness-entries.v1` | 5 | ランタイムが汎用のAitermの入口で動く形（モリー氏）が本番に出た後 |
-| クラスト（a532b1） | 決裁箱のドア（`approval-door.ts`、`registerDoor`） | b1 | BellTeamのドアが3台で動いた後（`post_launch` の口は0.70.100で先に足す） |
+| クラスト（a532b1） | 決裁箱のドア（`approval-door.ts`、`registerDoor`） | b1 | 済み: BellTeamのドアが3台で動き、Aiterm側は0.70.103で削除（`post_launch` は0.70.100） |
 | クラスト（a532b4、最後） | 端末の席の仕組み一式（`remote-terminal*.ts`、`aiterm-remote-terminal`） | b4 | クラストの計画（最後に決める）が本番に出た後 |
 
 ### データの流れ

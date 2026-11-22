@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.100] - 2026-11-22
+
 - A generic command after a seat is launched or resumed (a532b1, Tronie's boundary ruling, Krust). `agent_launch` takes `post_launch: {command: string[]}` (1-16 args, <= 24 KiB, no shell, `node` = this Aiterm's Node): the Aiterm that created the native seat runs it once after every launch and resume, as the seat's user in its cwd, 10 s limit, and it never fails the launch (`post_launch {status, exit_code}` in the result). Environment: `AITERM_SESSION_ID`, `AITERM_HOOK_EVENT`, `AITERM_SEAT_FORWARD_PORT` (terminal-bound, from the container's private line, never in the seat's own environment), `AITERM_SESSION_ALIVE` (JSON argv) and the private values the launch consumed; never argv. New bin `aiterm-session-alive <session>` (exit 0 alive / 1 confirmed absent / 2 cannot tell). A terminal older than 0.70.100 is refused with `REMOTE_AITERM_TOO_OLD`. Lets BellTeam own the Approval Box door; the Aiterm door is removed after BellTeam's runs on three hosts. Contract: `launch-identity-input.md`, `remote-terminal.md` R25.
 
 ## [0.70.99] - 2026-11-22
@@ -3654,7 +3656,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...HEAD
+[0.70.100]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...v0.70.100
 [0.70.99]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...v0.70.99
 [0.70.98]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...v0.70.98
 [0.70.97]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...v0.70.97

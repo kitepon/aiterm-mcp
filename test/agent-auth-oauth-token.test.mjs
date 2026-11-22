@@ -103,3 +103,23 @@ test("oauth_token: an exit without a token fails and the older token_file stays"
   assert.equal(failed.login, "oauth_token");
   assert.equal(fs.readFileSync(file, "utf8"), "older");
 });
+
+test("oauth_token roots (a532b3): the neutral default and the former BellTeam path while the variable is unset; the variable replaces both", async () => {
+  const { claudeOauthTokenFile, claudeTokenRoots } = await import("../dist/harnesses/claude.js");
+  const saved = process.env.AITERM_CLAUDE_TOKEN_ROOTS;
+  try {
+    delete process.env.AITERM_CLAUDE_TOKEN_ROOTS;
+    const neutral = path.join(root, ".aiterm", "claude-accounts", "2nd", "oauth-token");
+    assert.deepEqual(claudeTokenRoots().length, 2);
+    assert.equal(claudeOauthTokenFile(neutral), neutral);
+    assert.equal(claudeOauthTokenFile(tokenFile("2nd")), tokenFile("2nd")); // the former fixed path still works for BellTeam's existing callers
+    const mine = path.join(root, "operator-chosen");
+    process.env.AITERM_CLAUDE_TOKEN_ROOTS = [mine, "relative-is-ignored"].join(path.delimiter);
+    assert.deepEqual(claudeTokenRoots(), [mine]);
+    assert.equal(claudeOauthTokenFile(path.join(mine, "slotA", "oauth-token")), path.join(mine, "slotA", "oauth-token"));
+    assert.throws(() => claudeOauthTokenFile(tokenFile("2nd")), /AGENT_AUTH_TOKEN_FILE_REJECTED.*operator-chosen/s);
+    assert.throws(() => claudeOauthTokenFile(neutral), /AGENT_AUTH_TOKEN_FILE_REJECTED/);
+    assert.throws(() => claudeOauthTokenFile(path.join(mine, "a", "b", "oauth-token")), /AGENT_AUTH_TOKEN_FILE_REJECTED/);
+    assert.throws(() => claudeOauthTokenFile(path.join(mine, "..", "x", "oauth-token")), /AGENT_AUTH_TOKEN_FILE_REJECTED/);
+  } finally { if (saved === undefined) delete process.env.AITERM_CLAUDE_TOKEN_ROOTS; else process.env.AITERM_CLAUDE_TOKEN_ROOTS = saved; }
+});

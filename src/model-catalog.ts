@@ -3,7 +3,7 @@
 import { AitermError } from "./errors.js";
 import type { FastModeFailure } from "./fast-mode.js";
 
-// 並びはBellTeamの候補表示と同じ。未知のeffortは既知のものの後ろへ、出てきた順で置く。
+// effortの並びは、弱い方から強い方への固定の順。未知のeffortは既知のものの後ろへ、出てきた順で置く。
 const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "extra-high", "max", "ultra", "ultracode"];
 
 export interface AgentModelChoice {

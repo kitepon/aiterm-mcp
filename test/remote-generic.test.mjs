@@ -1,6 +1,7 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
@@ -10,7 +11,7 @@ const remote = await import("../dist/remote.js");
 const contract = await import("../dist/remote-contract.js");
 const authorize = await import("../dist/remote-authorize.js");
 
-const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR, "remote-generic-"));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "remote-generic-"));
 const sshOk = process.platform !== "win32" && spawnSync("ssh-keygen", ["-?"]).error === undefined;
 const pin = { known_hosts_file: "/k/known_hosts", host_key_alias: "alias.example", identity_agent: "/run/agent.sock" };
 

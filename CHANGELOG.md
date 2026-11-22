@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.98] - 2026-11-22
+
 - A resume that died half-way no longer blocks a seat for good (a527, Kiro). A `resuming` attempt stayed forever when its process was killed (the container's execution restart, 2026-11-21 21:26Z): the seat could not be woken or closed (`AGENT_RESUME_UNCONFIRMED`, BellTeam `BOT_LAUNCH_FAILED`) for 18 h. The resume entry and the close of a hibernated seat now abandon such an attempt, and only it, when the files and the process table prove nothing is resuming (hibernated old launch, next never published, attempt older than 120 s, no native session of that name, the next launch's pinned pane not running): the attempt and its evidence move to `<old launch>.resume-abandoned.json` and the seat is a plain hibernated seat again. `failed` attempts and the Codex recovery are unchanged. Contract: `docs/architecture/lifecycle-state-ownership.md`.
 
 ## [0.70.97] - 2026-11-22
@@ -3644,7 +3646,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...HEAD
+[0.70.98]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...v0.70.98
 [0.70.97]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...v0.70.97
 [0.70.96]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...v0.70.96
 [0.70.95]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.94...v0.70.95

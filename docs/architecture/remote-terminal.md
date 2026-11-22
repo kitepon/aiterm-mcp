@@ -93,6 +93,44 @@ A terminal seat is launched by the same agent tool as a local seat. There is no 
 
 Instructions and the MCP config are not secrets. They live in Aiterm's own 0700 launch state on the terminal (needed for exact resume) and are removed with the launch; nothing is written to the user's home config or the project. Secret values reach the remote only through R5, are held in the remote MCP process memory, enter the seat through the existing tmux session environment and the 0600 launch env file (deleted after sourcing). The resume recipe keeps only their names (`secret_environment`, 0.70.41); a resume takes the values from its own private line again.
 
+## Generic remote surface (stage 1 of a532b4, 0.70.101; Crust's plan, Tronie's ruling)
+
+Aiterm keeps what a standalone user of a machine's mouth would use, under neutral names; the terminal binding registry, trust confirm, credential agent, seat route and Japanese wording move to BellTeam `terminals` in later stages. Stage 1 only adds; `terminal`, the bindings, `aiterm-remote-terminal` and every result above are unchanged, and a remote seat is never touched. BellTeam sends the new input only when the container's Aiterm and the terminal's Aiterm both carry 0.70.101 (an older Aiterm drops an unknown field silently).
+
+| Function | Owner / file | Input -> result |
+| --- | --- | --- |
+| pinned ssh options (`remote.ssh`) | `remote-contract.ts` `pinnedSshSchema`, `remote.ts` `sshInvocation`, `remote-terminal.ts` `pinnedSshArguments` | `remote: {host, user?, port?, ssh: {known_hosts_file, host_key_alias?, identity_agent \| identity_file, strict_host_key?: true}}`, every path absolute. The ssh argv is the same one a trusted binding gets (`-F /dev/null`, `StrictHostKeyChecking=yes`, `UserKnownHostsFile`, `GlobalKnownHostsFile=/dev/null`, `HostKeyAlias`, `IdentitiesOnly=yes` with the agent socket or the key file, `BatchMode=yes`); `trustedSshArguments` now builds its identity and calls the same builder. `ssh` cannot be combined with `identity_file`, `ssh_options`, `passphrase` or `passphrase_env` (`REMOTE_SSH_OPTIONS_CONFLICT`); a missing known_hosts file is not created. Same tools, same results as any `remote`; the ControlMaster path and the warm session are keyed by the whole pinned value. |
+| `ensure_forward({id, remote?, to?: {host: "127.0.0.1", port}, remote_port?})` | `index.ts` tool, `remote-terminal.ts` `ensureForward` | -> `{id, port: P, ready_at}`. `id` is one opaque caller string (`[A-Za-z0-9._-]`, 1-64). **An `id` that is a registered binding's ref joins today's keeper for that binding** (`remote` and `remote_port` are ignored, the binding is the source; `to.port` is D exactly as the launch's seat URLs give it today): same lock, same P, no second keeper, no seat touched. Otherwise `remote` (with `ssh`) and `to` are required and a per-id record T6 is written. Always writes the grace file (now + 120 s) and starts the detached keeper when no live owner holds the lock, then waits for `ready` (30 s, else `SEAT_FORWARD_UNAVAILABLE`). A changed `to.port` clears P (as a changed D does today). Two callers may share one id; the last record wins. |
+| `release_forward({id})` | same | -> `{id, released: true}`. Removes the grace file only: the keeper stops itself when no bound session of that id and no grace remain (as today), and a seat bound to the id keeps it. |
+| `forward_status({id})` | same | -> `{id, port: P \| null, ready, ready_at}`; `ready_at` is the lock's (the `route_since` source). Reads only. |
+| forward record T6 | `remote-terminal.ts` | `<state root>/terminal-forward-<id>.json` (0600) `aiterm.forward-record.v1` `{id, target {host,user,port}, ssh (paths only), to {host, port}, remote_port?, seat_forward_port?}`: non-secret; paths, because the detached keeper restarts ssh on its own, so the caller's agent socket must stay stable across keeper restarts. A bound ref has no record: the binding's `seat_ingress_port` / `seat_forward_port` are D and P. |
+| forward keeper (generic) | `remote-terminal.ts` `keep` / `runForwardKeeper`, CLI `forward-keeper --id I` (`--ref` still accepted) | Unchanged logic, keyed by the id: it reads D, the requested P, the ssh argv and the shell-probe target through one source (`forwardSource`: binding or record) and writes P back to the same place. A pinned `remote_port` is requested every time and never re-allocated. |
+| `aiterm-remote export --ref R` | `remote-terminal-cli.ts` `exportBinding` | Read-only. -> `aiterm.remote-binding-export.v1` `{ref, target, host_key_alias, known_hosts_lines (public), fingerprints, trust_revision, seat_forward_port, seat_ingress_port, credential_provider}`; no key bytes, no key path, no handle. For BellTeam terminals to copy a live binding's trust without a second Owner confirmation; a changed key still stops (trust is never silently re-first-used). |
+| `aiterm-remote install-key` | `remote-authorize.ts` | R14 over pinned ssh options: `--host --user --port --known-hosts F [--host-key-alias A] --public-key-file F [--os windows]`, password on stdin, one password-only login. -> `aiterm.remote-key-authorization.v1` `{host, user, port, result}`. `authorize-key --ref R` is the same code with the binding's values. |
+| `aiterm-remote install-aiterm` | `remote-provision.ts` | R16 over pinned ssh options (`--host --user --port --known-hosts F [--host-key-alias A] (--identity-agent S \| --identity-file F)`). -> `aiterm.remote-provision.v1` `{host, user, port, result, version, retire}`. `provision --ref R` is the same code with the binding's values. |
+| bin `aiterm-remote` | `package.json` | The same entry as `aiterm-remote-terminal`; accepts every command of it plus `export`, `install-key`, `install-aiterm`, `forward-keeper --id`. The old bin stays. |
+
+Data flow added:
+
+| ID | From -> to | Payload | Never carried |
+| --- | --- | --- | --- |
+| R26 | caller -> `ensure_forward` / `release_forward` / `forward_status` -> T6 record, T3 lock, grace file, detached keeper | id, ssh option paths, D; answer P, `ready`, `ready_at` | key bytes, passwords, a non-loopback `to.host`, argv secrets |
+| R27 | caller -> any tool with `remote.ssh` -> `sshInvocation` -> `ssh` | the R4 argv built from the pinned paths | user ssh_config, other agent keys, a key created by Aiterm |
+| R28 | caller -> `aiterm-remote export --ref R` -> stdout | public binding facts | key, handle, key file path |
+| R29 | caller -> `install-key` / `install-aiterm` -> ssh (R14 / R16 flows) | public key file contents, password on stdin (R14), pinned ssh paths | password in argv/env/files/logs |
+
+Forward keeper states (per id; the lock `terminal-forward-<id>.lock` holds the owner, `ready`, `ready_at`):
+
+| State | Enters when | Leaves to |
+| --- | --- | --- |
+| no forward | no lock, or its owner is gone | starting: a process takes the lock while the forward is needed (grace live or a bound session) and D is known |
+| starting | lock taken, shell probe running or ssh spawned | ready: the remote command printed `AITERM_FORWARD_READY` and P is known (`ready: P`, `ready_at` written). restarting: ssh refused the arguments or exited. no forward: the forward is no longer needed |
+| ready | the listener on the terminal's P exists | restarting: ssh ends (`ready` cleared). released: not needed any more or D changed |
+| restarting | ssh ended while needed | starting after 15 s. P re-allocated (P := 0, new P recorded) after 4 refusals in a row, except a pinned `remote_port` |
+| released | grace passed with no bound session, or `release_forward` and the grace passed | no forward (the lock is removed at once, so the next launch takes over without the 15 s delay) |
+
+Self-exit of every guard: none is added. `ensure_forward` refuses only a malformed id, a non-loopback `to.host`, a missing `remote` or `to` for an unbound id, and a pinned ssh that is incomplete (named protection: LAN exposure of the route, connecting with the wrong or a default identity). An unreachable terminal is the existing `SEAT_FORWARD_UNAVAILABLE` after 30 s and the keeper keeps retrying.
+
 ## Errors and exits (guards)
 
 Each code is returned to terminals, which owns the retry. Every guard has an automatic exit through an authoritative revision.

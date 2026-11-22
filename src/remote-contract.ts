@@ -5,6 +5,19 @@ const hostPattern = /^(?!-)[A-Za-z0-9._%:\[\]-]{1,255}$/;
 const sshOptionPattern = /^[A-Za-z][A-Za-z0-9]*=[^\r\n]*$/;
 const envNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const pinnedPath = z.string().regex(/^(\/|[A-Za-z]:[\\/])[^\s"'`]*$/, "must be an absolute path without spaces or quotes");
+
+/** Caller-given pinned ssh options (remote-terminal.md "Generic remote surface"): strict host checking against one known_hosts file and one dedicated identity. */
+export const pinnedSshSchema = z.object({
+  known_hosts_file: pinnedPath,
+  host_key_alias: z.string().regex(hostPattern).optional(),
+  identity_agent: pinnedPath.optional(),
+  identity_file: pinnedPath.optional(),
+  strict_host_key: z.literal(true).optional(),
+}).strict().refine(value => (value.identity_agent === undefined) !== (value.identity_file === undefined),
+  { message: "give exactly one of identity_agent and identity_file" });
+export type PinnedSsh = z.infer<typeof pinnedSshSchema>;
+
 /** 記録に残してよい接続情報。パスフレーズ本文は含めない。 */
 export const remoteTargetSchema = z.object({
   host: z.string().regex(hostPattern),
@@ -13,6 +26,7 @@ export const remoteTargetSchema = z.object({
   identity_file: z.string().min(1).optional(),
   passphrase_env: z.string().regex(envNamePattern).optional(),
   ssh_options: z.array(z.string().regex(sshOptionPattern)).max(32).optional(),
+  ssh: pinnedSshSchema.optional().describe("Pinned ssh: {known_hosts_file, host_key_alias?, identity_agent | identity_file, strict_host_key?: true} (absolute paths). Strict host checking against that file with that one identity, no user ssh config. Not combinable with identity_file, ssh_options, passphrase or passphrase_env. Needs Aiterm 0.70.101 on the other computer."),
   // Set only by Aiterm from a terminal binding (remote-terminal.md); never accepted from tool input.
   trusted_ref: z.string().uuid().optional(),
 }).strict();
@@ -24,6 +38,23 @@ export const remoteInputSchema = remoteTargetSchema.omit({ trusted_ref: true }).
   message: "passphraseとpassphrase_envは同時に指定できません",
 });
 export type RemoteInput = z.infer<typeof remoteInputSchema>;
+
+/** The target a forward keeper holds a reverse forward to: always pinned, never interactive (the keeper is a detached process). */
+export const forwardRemoteSchema = z.object({
+  host: z.string().regex(hostPattern),
+  user: z.string().regex(/^(?!-)[A-Za-z0-9._@\\-]{1,128}$/),
+  port: z.number().int().min(1).max(65535).optional(),
+  ssh: pinnedSshSchema,
+}).strict();
+/** `aiterm-remote install-key`: where to log in and which host key file to check; no identity (a password login). */
+export const keyInstallPeerSchema = z.object({
+  host: z.string().regex(hostPattern),
+  user: z.string().regex(/^(?!-)[A-Za-z0-9._@\\-]{1,128}$/),
+  port: z.number().int().min(1).max(65535).optional(),
+  known_hosts_file: pinnedPath,
+  host_key_alias: z.string().regex(hostPattern).optional(),
+}).strict();
+export const FORWARD_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export const remoteInputDescription =
   "別端末のAitermで実行する時のSSH接続情報。hostだけならssh_configの接続名として使う。" +

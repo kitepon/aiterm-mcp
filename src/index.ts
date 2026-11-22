@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
-import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
+import { FORWARD_ID, forwardRemoteSchema, remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
+import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureForward, ensureSeatForward, extractMcpHeaders, forwardStatus, releaseForward, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
   checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
@@ -534,6 +534,40 @@ server.registerTool(
     { type: "text" as const, text: JSON.stringify(parentDeliveryDiagnostic(deliveryParentKind(server.server.getClientVersion()?.name))) },
   ] }),
 );
+
+// remote-terminal.md R26 (a532b4, 0.70.101). A reverse forward kept alive by a detached process: "keep this computer's 127.0.0.1:D reachable at 127.0.0.1:P on that machine".
+const forwardOutput = { schema: z.literal("aiterm.forward.v1"), id: z.string(), port: z.number().int().nullable(), ready: z.boolean().optional(), ready_at: z.string().nullable() };
+const forwardId = z.string().regex(FORWARD_ID).describe("Opaque id of this forward (A-Z a-z 0-9 . _ -, 1-64). The id of a registered terminal binding joins that binding's own forward.");
+const forwardReply = (value: { id: string; port?: number | null; ready?: boolean; ready_at: string | null; released?: boolean }) =>
+  ({ content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: { schema: "aiterm.forward.v1" as const, port: null, ...value } });
+server.registerTool("ensure_forward", {
+  description: "Keep a reverse SSH forward alive for as long as it is needed, and return the port P on that machine that reaches this computer's 127.0.0.1:D. " +
+    "A detached process holds it (it survives this process), re-establishes it when it drops, and keeps the same P while it can. Returns when the forward is ready (30 s, else SEAT_FORWARD_UNAVAILABLE). " +
+    "Call again before the next use: every call keeps it needed for 120 s more, and a session bound to the id keeps it needed. remote.ssh pins the host key file and one identity (paths only; the detached process restarts ssh by itself, so the agent socket must stay stable).",
+  inputSchema: {
+    id: forwardId,
+    remote: forwardRemoteSchema.optional().describe("The machine to forward on: {host, user, port?, ssh: {known_hosts_file, host_key_alias?, identity_agent | identity_file}}. Required for an id that is not a terminal binding; ignored for one"),
+    to: z.object({ host: z.literal("127.0.0.1"), port: z.number().int().min(1).max(65535) }).strict().describe("Where the forward leads on this computer: 127.0.0.1 and the port D"),
+    remote_port: z.number().int().min(1).max(65535).optional().describe("Ask for this port on that machine and never move to another (default: the machine's sshd picks one and it is kept)"),
+  },
+  outputSchema: forwardOutput,
+}, async args => {
+  try { return forwardReply({ ...(await ensureForward(args)), ready: true }); } catch (e) { return withErrorCode(fail(e)); }
+});
+server.registerTool("release_forward", {
+  description: "Say this forward is not needed by you any more. It only drops the 120 s keep-alive; the holder ends itself once no session bound to the id and no keep-alive remain.",
+  inputSchema: { id: forwardId },
+  outputSchema: { ...forwardOutput, released: z.boolean().optional() },
+}, async ({ id }) => {
+  try { return forwardReply({ ...releaseForward(id), ready_at: null }); } catch (e) { return withErrorCode(fail(e)); }
+});
+server.registerTool("forward_status", {
+  description: "Read-only: the port P of this forward, whether it is ready now, and when it became ready (ready_at changes when the route was rebuilt).",
+  inputSchema: { id: forwardId },
+  outputSchema: forwardOutput,
+}, async ({ id }) => {
+  try { return forwardReply(forwardStatus(id)); } catch (e) { return withErrorCode(fail(e)); }
+});
 
 // remote-terminal.md R23/R24 (a521). image_put is the relay's own call between two Aiterms; callers send images with pty_send image.
 server.registerTool(

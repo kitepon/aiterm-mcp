@@ -83,3 +83,30 @@ BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
 ## 端末の席との画像（a521、0.70.96）
 
 BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]` を付けて送る。端末の席へはAitermが画像のバイト列を現地の一時フォルダへ運び、現地のpathで添付する（画像だけ。画像以外の添付ファイルと、端末の席への `agent_launch` の `image` は運ばない）。席が作った画像は公開tool `image_read({session_id, path})` で1枚ずつ読む（png/jpeg/gif/webp、25 MiBまで、席の作業フォルダと一時フォルダの中だけ。結果はMCPの `image` と `aiterm.image-read.v1`）。誤りのcodeと正本: [remote-terminal.md](remote-terminal.md) R23・R24。コンテナのAitermはimageの版で、0.70.96を載せた本体から使える。
+
+## BellTeam固有の部品の移行表（a532b2、キロ氏の表の写し。トロニー氏の裁定 a532）
+
+正本はBellTeam main `45af2be3` の `docs/architecture/modules/execution/aiterm-boundary-move.md`。ここは、Aitermの側から見た写し（図とAiterm側の外す条件）で、本文は複製しない。原則はOwnerの裁定: Aitermは機械の口にある機能を素直に届け、BellTeam固有の機能はBellTeam側へ。段階ごとに、BellTeamの置き換えが本番で動いてから、Aitermが外す。外す間もAitermは単独で使える。
+
+### 機能図（BellTeamのどの部分がAitermのどの部品を呼ぶか）
+
+| BellTeam側（担当） | 呼ぶAitermの部品 | 段階 | Aitermが外す条件 |
+| --- | --- | --- | --- |
+| `execution-bridge.mjs`（キロ。本番では `executionBridge: null`、試験だけ） | `agent_execution`、`agent_execution_roots`、execution store（`execution-*.ts` の大半） | 1b | キロ氏がBellTeamの橋の道を消した版を本番に出し（1a）、その印を受けた後 |
+| なし（`src` に呼び手なし。他製品の呼び手も確認できず） | `throughline_source_session` / `throughline_supplement_file` | 1 | 外さない。BellTeamの名前を持たない汎用のforkとして残す（トロニー氏の裁定） |
+| `remote-seats.mjs`（キロ・クラスト） | `mcp_config` の席への道の書き換え（`rewriteSeatMcpConfig`、`ensureSeatForward`） | 2 | BellTeamが最終のconfigを作り、Aitermは書き換えずに渡す形が本番で動いた後（端末の席の仕組みはb4でクラスト氏へ） |
+| `#seatTurns`・route resume（キロ） | `pty_list` の `seat_turns` / `route_since` / `unread` | 3 | BellTeamが汎用の事実（`pty_list`、`pty_observe`、席のeventと`aiterm-transcript-read`）から同じ値を出し、影の比較で差が0になった後 |
+| `waitProcess`・`steerFollow`・`waitUntilDone`（キロ） | steer-follow（`wait_process`、`steer_id`、`input_id`、`aiterm-wait --steer`） | 4 | **Aitermに残す（裁定A）**。外さず、名前だけ中立にする（下の「steer-followの裁定A」）。BellTeamは自分の消費側だけを持つ |
+| `sendSessionStop`（キロ） | `agent_stop` | 5 | BellTeamが `pty_key` と席の子の系譜で止める形を、labで比べて本番に出した後 |
+| `aiterm-hooks.mjs`・`harness-entries.mjs`（モリー） | `execution-native-server`、`execution-parent-worker`、`execution-native-setup`、`bellteam.harness-entries.v1` | 5 | ランタイムが汎用のAitermの入口で動く形（モリー氏）が本番に出た後 |
+| クラスト（a532b1） | 決裁箱のドア（`approval-door.ts`、`registerDoor`） | b1 | BellTeamのドアが3台で動いた後（`post_launch` の口は0.70.100で先に足す） |
+| クラスト（a532b4、最後） | 端末の席の仕組み一式（`remote-terminal*.ts`、`aiterm-remote-terminal`） | b4 | クラストの計画（最後に決める）が本番に出た後 |
+
+### データの流れ
+
+新しいデータの道は作らない。各段階は、Aitermの形をした事実を、BellTeamが汎用のAitermの事実（`pty_list`・`pty_observe`・席のeventと会話記録）から導いた値で置き換え、両方を影で比べ、切り替え、その後でAitermが形をした方を外す。状態ファイルはAitermの物（state root）のままで、BellTeamは道具とCLIを通してだけ読む。
+
+### steer-followの裁定A（トロニー氏、キロ氏経由）
+
+steer-followは機械の口の機能（動いているCLIの番へ文を差し込んだ後、その文がどうなったかを、各vendorの会話記録から読む）なので、Aitermに残す。動かすのではなく名前を直す: `steer_id` → `input_ref`、`aiterm-wait --steer` → `--input-ref`、BellTeamの語と `aiterm/caller` による出し分けを外す。BellTeamは自分の消費側だけを持つ。併存: 最初の版で新しい名前を足し（古い名前も同じ値で受け、返す）、BellTeamが新しい名前へ切り替えて本番で動いたら、次の版で古い名前を外す。外す版は、キロ氏の切り替えを受けてから決める。
+

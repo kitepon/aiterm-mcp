@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Aiterm's own Approval Box door is gone (a532b1, Krust, Tronie's boundary ruling). `approval-door.ts`, `registerDoor` in `agent_launch`, the detached `aiterm-approval-door` process and its address `~/.aiterm/approval-box-door.sock` (Windows: the `aiterm-approval-box-door-<user>` pipe) are removed; remote-terminal.md R22/T5 and the door text in bellteam-boundary.md go with them. BellTeam's own door (proven on rabbit, Mac and fox; different address `~/.bellteam/approval-box-door.sock`, Windows `\\.\pipe\bellteam-approval-box-door-<user>`) is started by the `post_launch` hook (0.70.100), so no host action is needed. A door process left over from an older Aiterm exits by itself when its last registered seat ends.
+
 ## [0.70.102] - 2026-11-22
 
 - `aiterm-session-alive` no longer depends on the caller's own TEMP/TMPDIR (a532b1, fox 2026-11-23). The multiplexer's socket (POSIX) / psmux namespace (Windows) is derived from the temp base of the Aiterm that created the seat; a caller whose environment had no TEMP/TMP asked another namespace and got exit 1 ("confirmed absent") for a live seat (reproduced on fox). `AITERM_SESSION_ALIVE` now carries `--tmpdir <that base>` and the bin takes `aiterm-session-alive <session> [--tmpdir DIR]` (a relative DIR is exit 2). Without the option the caller's environment decides, as before. Not the cause of the fox door failure, which was a process started inside an ssh session being killed when the session ended (a Windows OpenSSH fact: start such a process through WMI `Win32_Process.Create`).

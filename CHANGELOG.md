@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.92] - 2026-11-22
+
 - A machine seat's delivery no longer reads "not received" when it was received, and `pty_list` no longer holds the execution server's main thread (a496e, Kiro). (1) `waitClaudeInputConsumed` checked the host's state, slept 50 ms and returned false once the 5 s deadline had passed without looking again; when the server's event loop stalled past the deadline during the sleep, `pty_send` threw "the host did not take the prompt" although `input_bytes_consumed` already equalled the input file (BellTeam recorded BOT_LAUNCH_FAILED for seats that answered). It now looks once more after the deadline. (2) Every seat's metadata load read the whole `agents/` directory (about 9,000 files on the BellTeam host) and `pty_list` loads it for every seat, so one list scanned millions of names (3.0 s for 193 seats, now 0.2 s on the same state), which also timed out BellTeam's seat-turns read. The directory is now listed once and indexed by session name while it is unchanged (a file created or removed shows at once). The idle-clock sweep that every `pty_list` and launch ran (tmux, a process read, a spawn per seat without a clock) now runs at most once every 5 seconds, and `stream_read` reads the state file once per poll instead of twice.
 
 ## [0.70.91] - 2026-11-21
@@ -3620,7 +3622,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.91...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.92...HEAD
+[0.70.92]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.91...v0.70.92
 [0.70.91]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.90...v0.70.91
 [0.70.90]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...v0.70.90
 [0.70.89]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.88...v0.70.89

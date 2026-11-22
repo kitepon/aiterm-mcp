@@ -22,7 +22,8 @@ import { AitermError, AgentResumeUnavailableError, AgentResumeError, AgentResume
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readPrivateEnvLine, setPrivateEnv, privateEnvValue } from "./private-env.js";
+import { readPrivateEnvLine, setPrivateEnv, privateEnvValue, privateEnvLoaded } from "./private-env.js";
+import { registerApprovalDoor, seatRegistration } from "./approval-door.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
@@ -1621,6 +1622,13 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
   } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e), harness)); }
 }
 
+/** A bound terminal's launch or resume: the seat's route and bearer go to the Approval Box door (remote-terminal.md R22). Never fails the launch. */
+async function registerDoor(session: string, mcpConfig: Record<string, unknown> | null | undefined): Promise<void> {
+  if (!privateEnvLoaded()) return;
+  const registration = seatRegistration(mcpConfig, name => launchEnvValue(name));
+  if (registration) await registerApprovalDoor(session, registration);
+}
+
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }, claudeHarness?: "claude-code" | "claude-machine"): Promise<any> {
   const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, settings_env, fork_from } = args;
   const supportsWriteScope = kind !== "claude";
@@ -1657,6 +1665,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       ...(supportsWriteScope ? { write_scope } : {}),
       ...(fork_from ? { fork_from } : {}),
     });
+    await registerDoor(sid, mcp_config);
     const forkOf = fork_from ? loadAgentMetadata(sid).fork_of : undefined;
     const structured = {
       schema: "aiterm.agent-launch-result.v1" as const,
@@ -1697,6 +1706,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
   } catch (e) {
     delivery?.failed(e);
     if (e instanceof core.AgentLaunchPromptError) {
+      await registerDoor(e.session_id, mcp_config);
       return {
         ...fail(e),
         structuredContent: {

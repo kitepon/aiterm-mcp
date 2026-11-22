@@ -8,6 +8,7 @@ export const PRIVATE_ENV_SCHEMA = "aiterm.private-env.v1";
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MAX_LINE = 256 * 1024;
 const values = new Map<string, string>();
+let loaded = false;
 
 export function parsePrivateEnvLine(line: string): Record<string, string> {
   let parsed: unknown;
@@ -25,7 +26,13 @@ export function parsePrivateEnvLine(line: string): Record<string, string> {
 }
 
 export function setPrivateEnv(env: Record<string, string>): void {
+  loaded = true;
   for (const [name, value] of Object.entries(env)) values.set(name, value);
+}
+
+/** Whether this process was started with the private env line (a bound terminal's Aiterm), even when the line was empty. */
+export function privateEnvLoaded(): boolean {
+  return loaded;
 }
 
 /** A value that came only on the private stdin line, never this process's env. */

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Approval Box door on terminals (a516e, Tronie/Molly/Nayuta). A terminal's Aiterm now serves one stable address per host user (POSIX `~/.aiterm/approval-box-door.sock` 0600, Windows a fixed named pipe) while a seat launched through BellTeam is live, and forwards each Approval Box connector line to the body's `POST /api/seat-mcp/approval-box/local` over the seat route with that seat's bearer. The bearer is registered at every launch and resume and kept in the door's memory only; nothing is written to disk. The door closes when no registered seat's native session is left. Inert until a connector uses it (`approval-box use-hosted --socket`). Contract: `docs/architecture/remote-terminal.md` R22/T5.
+
 ## [0.70.93] - 2026-11-22
 
 - The idle-clock sweep no longer starts a checker for the same dead pane every few seconds (a496e, Kiro). A pane whose harness died but whose bash stays (`state: dead, reason: harness_exited`) gets a checker that ends without arming a clock, so every `pty_list` found no owner and started it again: about 57 `agent-idle-cli` processes (~107 MB each) per sweep, doubled when two sweeps overlapped, ~12 GB at peak on the BellTeam host. A sweep now waits 1 min, then 2, 4 … up to 10 min before checking the same seat again (reset when its clock owner is alive), and starts at most four checkers per sweep; a request from an event (turn end, launch) is never held back.

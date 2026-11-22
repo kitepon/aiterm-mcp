@@ -110,3 +110,7 @@ BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]`
 
 steer-followは機械の口の機能（動いているCLIの番へ文を差し込んだ後、その文がどうなったかを、各vendorの会話記録から読む）なので、Aitermに残す。動かすのではなく名前を直す: `steer_id` → `input_ref`、`aiterm-wait --steer` → `--input-ref`、BellTeamの語と `aiterm/caller` による出し分けを外す。BellTeamは自分の消費側だけを持つ。併存: 最初の版で新しい名前を足し（古い名前も同じ値で受け、返す）、BellTeamが新しい名前へ切り替えて本番で動いたら、次の版で古い名前を外す。外す版は、キロ氏の切り替えを受けてから決める。
 
+
+## 起動後の汎用hook（a532b1、0.70.100）
+
+決裁箱のドアをBellTeamへ移すため（トロニー氏の裁定 a532）、`agent_launch` に任意の `post_launch {command: string[]}` を足す。席が起きた後（起動・復帰のどちらも）に、席を作ったAitermがその端末の上で1つだけ走らせる汎用の口で、BellTeamの語も決裁箱の語も持たない。環境の事実（席の名前、席への道の番号、生存確認の命令、起動が使った秘密の値）は[launch-identity-input.md](launch-identity-input.md)と[remote-terminal.md](remote-terminal.md) R25。移行後に `approval-door.ts` と `registerDoor` を外す（BellTeamの新しいドアが3台で動いた後の版）。

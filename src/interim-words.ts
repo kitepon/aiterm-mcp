@@ -140,12 +140,14 @@ function claudeText(content: unknown): string {
   return content.map((part: any) => (part?.type === "text" && typeof part.text === "string" ? part.text : "")).join("");
 }
 
-export function claudeInterimWords(lines: readonly string[]): Found[] {
+export function claudeInterimWords(lines: readonly string[], notBeforeMs: number | null = null): Found[] {
   const words: Found[] = [];
   for (const line of lines) {
     const record = parse(line);
     if (record?.type !== "assistant" || record.isSidechain === true) continue;
     const at = typeof record.timestamp === "string" ? record.timestamp : null;
+    // Copied history of a fork (its file starts with the main's conversation) is stamped before this turn began (a533).
+    if (notBeforeMs !== null && at !== null && Date.parse(at) < notBeforeMs) continue;
     if (record.isApiErrorMessage === true) {
       const text = claudeText(record.message?.content).trim();
       if (text) words.push({ text, kind: "error", at, turn_id: null });
@@ -338,10 +340,17 @@ function codexLinesFrom(meta: AgentMetadata, boundary: number): string[] {
   });
 }
 
+/** From the start of a Claude file (boundary 0) nothing older than this turn's dispatch (or, for a launch turn, the seat's creation) belongs to it. */
+function claudeHistoryCutoff(meta: AgentMetadata, boundary: number, dispatchedAt: string | null | undefined): number | null {
+  if (boundary > 0) return null;
+  const ms = Date.parse(dispatchedAt ?? meta.created_at ?? "");
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function interimWordsFrom(meta: AgentMetadata, from: InterimFrom): Found[] {
   if (meta.kind === "grok") return from.unit === "user" ? grokInterimWords(readLines(grokChatHistory(meta)), from.boundary) : [];
   if (from.unit !== "byte") return [];
-  if (meta.kind === "claude") return claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), from.boundary));
+  if (meta.kind === "claude") return claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), from.boundary), claudeHistoryCutoff(meta, from.boundary, readInterimBoundary(meta)?.dispatched_at));
   if (meta.kind === "codex") return codexInterimWords(codexLinesFrom(meta, from.boundary));
   // 位置より後の行だけを渡すので、user発話の数では絞らない。
   return meta.kind === "cursor" ? cursorInterimWords(readLines(cursorTranscript(meta), from.boundary), -1) : [];
@@ -371,7 +380,7 @@ export function readInterimWords(meta: AgentMetadata, after: number, from: Inter
   let found: Found[] = [];
   if (recorded || launchTurn) {
     const boundary = recorded?.boundary ?? 0;
-    if (meta.kind === "claude") found = claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), boundary));
+    if (meta.kind === "claude") found = claudeInterimWords(readLines(claudeSessionTranscriptPath(meta), boundary), claudeHistoryCutoff(meta, boundary, recorded?.dispatched_at));
     // 境界は、送った時に結び付いていた会話のrolloutの位置。会話の切り替えは追わない（ADR 0105）。
     else if (meta.kind === "codex") found = codexInterimWords(codexLinesFrom(meta, boundary));
     else if (meta.kind === "grok") found = grokInterimWords(readLines(grokChatHistory(meta)), boundary);

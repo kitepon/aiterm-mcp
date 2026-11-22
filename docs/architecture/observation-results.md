@@ -37,6 +37,8 @@ hibernatedはlifecycle/recipe、native不在、metadata不変を再確認した�
 
 cursorはdispatch receiptの境界を優先し、Claudeのoperationがあれば0、両方なければwait開始時EOFを使う。Codex/Cursor/Grokは既定routeのvendor transcript、Claude/Antigravity等のevent routeは改行完結イベントを増分走査する。イベントのvendor/session/launch/operationと必要digestを検査し、曖昧vendor IDや容量超過を拒否する。rate limitは過去logでなく現画面またはvendor turn記録で読む。
 
+forkの最初のturn（a533、0.70.99）: Claudeのforkはdispatchの時にfileが無く（transcript cursor 0）、`claude --fork-session` がmainの会話を全部、forkのsessionIdでそのfileの先頭へ写す。そのため、cursor 0から読む時は、dispatchより前の時刻の記録を、このturnの物として読まない（待ちのAPIエラー判定と、合間の言葉の読み取りの両方。時刻はoperation markerの更新時刻、合間の言葉では記録したdispatch時刻（起動時のpromptではseatの作成時刻））。cursorが0でない通常の席は今までどおりbyte位置だけで切る。
+
 timeout=0の一回観測で未完ならrunning、それ以外はtimeout。取消signalはobserverを止め、PTY/子turnを止めない。外部waiterはmetadata binding/送信lockを所有しないが、done/errorを得るとactivityのturn_end追記とidle clock要求を行う。この記録に失敗しても本物の完了resultは保持し、診断だけstderrへ出す。CLI冒頭の「純リーダー」はこの限定付きで読む。
 
 wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自身の失敗1。rate limitをauth欠測から補う旧Grok互換は期待launchなしの場合だけで、現在viewportの陽性証拠を必要とする。exitだけを回答本文や正常終了の証明にはしない。

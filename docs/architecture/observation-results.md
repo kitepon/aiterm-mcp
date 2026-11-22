@@ -57,7 +57,7 @@ wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自
 
 ### Claude answer bound to one steer (Kiro request, 2026-11-19)
 
-`pty_read(agent_transcript:true, steer_id)` reads the answer of the turn that a `pty_send` steer (_meta `aiterm/steer`) started, when `aiterm-wait --steer` ended with placement `next_turn`. Under a flood the next steered message has already started another turn, so the unbound read answered `TRANSCRIPT_TURN_ACTIVE` and the seat's answer never reached the chat (Z111: 61 of 293).
+`pty_read(agent_transcript:true, steer_id)` (0.70.105: `input_ref` is the same argument under a neutral name; both together must be equal) reads the answer of the turn that a `pty_send` steer (_meta `aiterm/steer`) started, when `aiterm-wait --steer` ended with placement `next_turn`. Under a flood the next steered message has already started another turn, so the unbound read answered `TRANSCRIPT_TURN_ACTIVE` and the seat's answer never reached the chat (Z111: 61 of 293).
 
 | Step | Owner | Result |
 | --- | --- | --- |

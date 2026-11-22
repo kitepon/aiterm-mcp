@@ -99,6 +99,16 @@ Codexの完了待ちは、読み始めの位置から16MiBを超えて書いた�
   `wait_process`・`aiterm/steer`が入り、`aiterm-wait --steer`は`same_turn`で、dispatchの待ち・席の今の番からの待ちと同じ番の終わりで返った。
   印の無い`pty_list`と`pty_observe`の結果には`_meta`が無い。席を閉じると控えは消えた。
 
+## 追記（a532b2、0.70.105）: 中立な名前を足す
+
+トロニー氏の裁定A（キロ氏経由）: steer-followはAitermに残し、名前を直す。この版は**足すだけ**で、古い名前は同じ値で受け、返す。
+
+- 返り: `_meta["aiterm/steer"]` と `aiterm/send_error` に、`steer_id` と並べて `input_ref`（同じ値）を返す。
+- `pty_read` の引数: `input_ref` を足す（`steer_id` と同じ意味。両方を渡して値が違えば断る）。
+- `aiterm-wait`: `--input-ref <16hex>` を足す（`--steer` と同じ意味。重複・`--operation` との併用は同じ規則で断る）。
+- `wait_process` が付ける引数は、今のまま `--steer`。端末や席のruntimeが1つ前の版でも動かすため。BellTeamが `input_ref` へ切り替えて本番で動いたら、次の版で古い名前を外し、`--input-ref` へ替える。
+- 差し込みの追い方の出し分け（呼び手が `aiterm/caller` の印を付けた時だけ返す）を外した。印の無い呼び手にも `event_cursor`・`wait_process`・`aiterm/steer` が付く（付いていなかった所はnullだった。足すだけ）。合間の言葉（ADR 0071）の出し分けは別の機能なので、そのまま。
+
 ## 根拠
 
 - BellTeam側の経緯と使い方: トロニー（bot-7b140b27）の`docs/owner-turns-lost-20261013.md`

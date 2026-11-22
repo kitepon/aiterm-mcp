@@ -9,7 +9,7 @@ export class AitermError extends Error {
     outcome: "outcome_unknown";
     effect: "possible";
     session_id: string; launch_id: string; vendor: string; harness: string;
-    event_cursor: number | null; steer_id: string | null; interim_from: string | null;
+    event_cursor: number | null; steer_id: string | null; input_ref: string | null; interim_from: string | null;
   };
   configurationFailure?: {
     schema: "aiterm.agent-configure-error.v1";

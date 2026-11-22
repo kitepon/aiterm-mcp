@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.102] - 2026-11-22
+
 - `aiterm-session-alive` no longer depends on the caller's own TEMP/TMPDIR (a532b1, fox 2026-11-23). The multiplexer's socket (POSIX) / psmux namespace (Windows) is derived from the temp base of the Aiterm that created the seat; a caller whose environment had no TEMP/TMP asked another namespace and got exit 1 ("confirmed absent") for a live seat (reproduced on fox). `AITERM_SESSION_ALIVE` now carries `--tmpdir <that base>` and the bin takes `aiterm-session-alive <session> [--tmpdir DIR]` (a relative DIR is exit 2). Without the option the caller's environment decides, as before. Not the cause of the fox door failure, which was a process started inside an ssh session being killed when the session ended (a Windows OpenSSH fact: start such a process through WMI `Win32_Process.Create`).
 
 ## [0.70.101] - 2026-11-22
@@ -3662,7 +3664,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...HEAD
+[0.70.102]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...v0.70.102
 [0.70.101]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...v0.70.101
 [0.70.100]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...v0.70.100
 [0.70.99]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...v0.70.99

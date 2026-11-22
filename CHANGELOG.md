@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.97] - 2026-11-22
+
 - Images of 12 MiB and more now cross a terminal (a521). 0.70.96 sent and read a whole image as one MCP message; a terminal whose MCP SDK is 1.32 (rabbit, fox) refuses a message over 10 MiB and closed the connection, so only images up to about 7 MiB worked there. `pty_send image` now uploads an image over 5 MiB in pieces (`image_put` with `upload_id`/`offset`/`final`, in order, whole image still 25 MiB) and `image_read` on a terminal seat reads it in pieces (`offset`/`length`) and joins them (size and sha256 checked), still answering one MCP image. A terminal on 0.70.96 stops an over-5 MiB upload with `REMOTE_IMAGE_UNSUPPORTED` instead of storing a cut image.
 
 ## [0.70.96] - 2026-11-22
@@ -3640,7 +3642,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...HEAD
+[0.70.97]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...v0.70.97
 [0.70.96]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...v0.70.96
 [0.70.95]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.94...v0.70.95
 [0.70.94]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.93...v0.70.94

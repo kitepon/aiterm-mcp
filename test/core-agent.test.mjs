@@ -537,7 +537,7 @@ test("openAgent: Codexのパス説明write_scopeはunsupportedを明示してsan
     try {
       assert.equal(readAgentMeta(sid).write_scope, "/repo/src と /repo/test のみ書込み可");
       assert.match(hint, /パス単位のsandbox allowlistに対応するCLI引数がないため宣言の記録のみ（構造的unsupported）/);
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: ARGV_FIXTURE_DONE });
       assert.doesNotMatch(out, /--sandbox read-only/);
     } finally {
       core.closeSession(sid);
@@ -553,7 +553,7 @@ test("target contract: Grok read-onlyはsandboxで実効化し、パス説明は
         assert.equal(readAgentMeta(sid).write_scope, "read-only");
         assert.match(hint, /--sandbox read-only を付与し、書込みを実効禁止/);
         assert.match(hint, /--always-approve で自動承認/);
-        const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+        const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: ARGV_FIXTURE_DONE });
         assert.match(out, /<arg>--sandbox<\/arg>\s*<arg>read-only<\/arg>\s*<arg>--always-approve<\/arg>/, `${kind} read-only sandbox: ${out}`);
       } finally {
         core.closeSession(sid);
@@ -585,7 +585,7 @@ test("target contract: Grok read-onlyはsandboxで実効化し、パス説明は
 test("openAgent codex: -c model_reasoning_effort=<effort> を組み立てる", { skip }, async () => {
   const [sid] = core.openAgent("codex", { reasoning_effort: "high" });
   try {
-    const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+    const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: ARGV_FIXTURE_DONE });
     assert.match(out, /<arg>-c<\/arg>\s*<arg>model_reasoning_effort=high<\/arg>/, `codex 組立: ${out}`);
   } finally {
     core.closeSession(sid);
@@ -595,7 +595,7 @@ test("openAgent codex: -c model_reasoning_effort=<effort> を組み立てる", {
 test("openAgent codex: model 引数を -m で組み立てる", { skip }, async () => {
   const [sid] = core.openAgent("codex", { model: "gpt-5.6-terra" });
   try {
-    const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+    const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: ARGV_FIXTURE_DONE });
     assert.match(out, /<arg>-m<\/arg>\s*<arg>gpt-5\.6-terra<\/arg>/, `codex model: ${out}`);
   } finally {
     core.closeSession(sid);
@@ -616,7 +616,7 @@ test("openAgent codex: 指定した現在値だけを既存tmux server越しにa
   try {
     const [sid] = core.openAgent("codex", { env_vars: ["AITERM_FORWARD_FIXTURE"] });
     try {
-      const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+      const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: "^AITERM_FORWARD_FIXTURE=seat-value$" });
       assert.match(out, /^AITERM_FORWARD_FIXTURE=seat-value$/mu);
     } finally {
       core.closeSession(sid);
@@ -746,7 +746,7 @@ test("target contract: Grokは通常HOMEとGROK_HOMEを共有し既知session tr
         assert.equal(meta.hook_route, "shared_grok_home");
         assert.match(meta.vendor_session_id, /^[0-9a-f-]{36}$/);
         assert.equal(meta.agent_role, "subagent");
-        const out = await core.readOutput(sid, { wait: true, timeout: 5, raw: true });
+        const out = await core.readOutput(sid, { wait: true, timeout: 15, raw: true, until: ARGV_FIXTURE_DONE });
         assert.doesNotMatch(out, /(?:^|\s)HOME=/, "通常HOMEを置換しない");
         assert.doesNotMatch(out, /(?:^|\s)GROK_HOME=/, "通常GROK_HOMEを置換しない");
         assert.match(out, /--session-id/);

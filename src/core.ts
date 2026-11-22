@@ -4974,6 +4974,10 @@ async function observeAgentDoneInternal(
   let sawExecution = false;
   let transcriptBound = matchesBoundary && (operationId !== null || (o.input_id !== undefined && marker?.inputId === o.input_id));
   let transcriptIdentity = capturedTranscript?.device === null ? null : capturedTranscript;
+  // A fork's file did not exist at dispatch (cursor 0), and `claude --fork-session` copies the main's whole conversation into it under the fork's own
+  // sessionId: a record stamped before this input was dispatched is copied history, not this turn (a533: a copied API error row ended a working fork).
+  const dispatchedAtMs = (): number | null => { try { return fs.statSync(agentClaudeOperationPath(meta.aiterm_session, meta.launch_id)).mtimeMs; } catch { return null; } };
+  let notBeforeMs: number | null = transcriptCursor === 0 && marker ? dispatchedAtMs() : null;
   // 利用上限の知らせは画面でしか分からない。画面を読むとtmuxを起動するので、完了の見回りより間隔を空ける。
   // 実被弾: 完了の見回り（100ms）のたびに読んでいて、待ち1本が1秒に約10回tmuxを起動していた（4本でコンテナのCPUが148%）。
   const rateLimitDue = pollGate(AGENT_RATE_LIMIT_POLL_MS);
@@ -5016,6 +5020,7 @@ async function observeAgentDoneInternal(
       if (matchesBoundary) {
         transcriptCursor = capturedTranscript!.cursor; transcriptBound = true;
         transcriptIdentity = capturedTranscript!.device === null ? null : capturedTranscript;
+        if (transcriptCursor === 0 && notBeforeMs === null) notBeforeMs = dispatchedAtMs();
       }
     }
     const size = safeStatSize(meta.event_file);
@@ -5084,6 +5089,11 @@ async function observeAgentDoneInternal(
         const lines = transcriptCarry.split("\n");
         transcriptCarry = lines.pop() ?? "";
         for (const line of lines) {
+          if (notBeforeMs !== null) {
+            let stamp = NaN;
+            try { stamp = Date.parse(JSON.parse(line)?.timestamp); } catch { /* not a record: the checks below ignore it too */ }
+            if (Number.isFinite(stamp) && stamp < notBeforeMs) continue;
+          }
           const apiError = claudeApiErrorFromLine(line);
           if (apiError && (apiError.session_id === null || apiError.session_id === meta.vendor_session_id))
             return observation(claudeFailureCategory(apiError) === "rate_limited" ? "rate_limited" : "error", null, null, apiError);

@@ -105,6 +105,21 @@ export function writeAgentResumeAttempt(meta: Launch, value: AgentResumeAttempt)
   writeJson0600(file(meta, ".resume-attempt.json"), resumeAttemptSchema.parse(value));
 }
 
+/**
+ * a527: a `resuming` attempt whose process died. The attempt and the evidence move to `.resume-abandoned.json` (read by no one, for audit), read back,
+ * and only then the attempt file is removed, so the seat is again a hibernated seat that never tried. A different attempt than the one given is left alone.
+ */
+export const resumeAbandonedSchema = z.object({ schema: z.literal("aiterm.agent-resume-abandoned.v1"), attempt: resumeAttemptSchema, abandoned_at: z.iso.datetime(),
+  evidence: z.object({ generation: z.string().nullable(), native_sessions_known: z.literal(true), next_pane: z.string() }).strict() }).strict();
+export function abandonAgentResumeAttempt(meta: Launch, attempt: AgentResumeAttempt, evidence: z.infer<typeof resumeAbandonedSchema>["evidence"]): void {
+  const current = readAgentResumeAttempt(meta);
+  if (!current || current.state !== "resuming" || current.next_launch_id !== attempt.next_launch_id || current.at !== attempt.at) throw unavailable();
+  const record = resumeAbandonedSchema.parse({ schema: "aiterm.agent-resume-abandoned.v1", attempt: current, abandoned_at: new Date().toISOString(), evidence });
+  writeJson0600(file(meta, ".resume-abandoned.json"), record);
+  if (JSON.stringify(read(meta, ".resume-abandoned.json", resumeAbandonedSchema)) !== JSON.stringify(record)) throw unavailable();
+  fs.unlinkSync(file(meta, ".resume-attempt.json"));
+}
+
 export const resumeNativeSchema = z.object({ schema: z.literal("aiterm.agent-resume-native.v1"), launch_id: launchId,
   native_id: z.string().regex(/^\$\d+$/), session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   server_pid: z.number().int().positive(), server_started_identity: z.string().min(1),

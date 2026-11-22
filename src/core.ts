@@ -51,7 +51,7 @@ import { initializeAgentActivity, recordAgentInput, recordAgentTurnEnd, readAgen
 import { checkIdleSeat, decideIdleSeat, idleMinutes, type IdleSeatSnapshot, type IdleCheckResult } from "./agent-idle.js";
 import { AGENT_IDLE_ENABLED, armAgentIdleClock, endAgentIdleClock, idleClockDeadline, isAgentIdleClockOwner, requestAgentIdleClock, requestAgentIdleClocks } from "./agent-idle-clock.js";
 import { stopProcessTree } from "./process-tree-stop.js";
-import { readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
+import { abandonAgentResumeAttempt, readAgentResumeRecoveryOrigin, writeAgentResumeRecoveryOrigin, confirmedAgentResumeRecoveryOrigin, type AgentResumeRecoveryOrigin, readAgentResumeResolution, writeAgentResumeResolution, agentResumeRecordDigest, captureAgentResumeTemplate, readAgentResumeTemplate, writeAgentResumeTemplate, finishAgentResumeConfiguration, refreshAgentResumeRecipe, readAgentIdleClock, retireAgentIdleClock, readAgentResumeRecipe, writeAgentResumeRecipe, agentResumeRecipeDigest, isSecretEnvName, recipeSecretNames, withoutSecretValues, readAgentLifecycle, writeAgentLifecycle, cancelAgentStopping, readAgentResumeAttempt, writeAgentResumeAttempt, readAgentResumeNative, writeAgentResumeNative, type AgentResumeRecipe, type AgentLifecycle, type AgentResumeAttempt, type AgentResumeNative } from "./agent-lifecycle.js";
 import { claudeBannerSettings } from "./started-settings.js";
 import { checkSettingsEnv, wantsCodeMode } from "./settings-env.js";
 import { createCodexGoalObjective, editCodexGoalObjective, submitCodexGoalCommand, type CodexGoalUi } from "./harnesses/codex-goal-editor.js";
@@ -2928,7 +2928,9 @@ function closeSessionInternal(name: string, observeDependency = true, o: { letHa
     agentLaunchLines.delete(name);
     return `closed ${name}`;
   };
-  const meta = tryLoadAgentMetadata(name), lifecycle = meta && (settleInterruptedStop(meta) ?? readAgentLifecycle(meta));
+  const meta = tryLoadAgentMetadata(name);
+  if (meta) settleInterruptedResume(meta);
+  const lifecycle = meta && (settleInterruptedStop(meta) ?? readAgentLifecycle(meta));
   const native = meta && !lifecycle && readAgentResumeNative(meta) ? observeExecutionNativeSessions() : null;
   const absent = native?.state === "known" && !native.sessions.some(row => row.session_id === name);
   if (meta && (lifecycle || absent)) {
@@ -7886,6 +7888,33 @@ function settleInterruptedStop(meta: AgentMetadata): AgentLifecycle | null {
   return settled;
 }
 
+// A live resume is still before its native creation or in its own failed-save path for a few seconds at most; this is far beyond that.
+const RESUME_STALE_MS = 120_000;
+
+/**
+ * a527 (lifecycle-state-ownership.md "中断したresumingの放棄"): a `resuming` attempt whose process died blocked the seat for good. Abandon it, and only it, when the
+ * files and the process table prove nothing is resuming: hibernated old launch, next never published, attempt old enough, no native session of this name,
+ * and the next launch's pinned pane not running. Anything less changes nothing. Returns whether it abandoned.
+ */
+export function settleInterruptedResume(meta: AgentMetadata): boolean {
+  try {
+    const attempt = readAgentResumeAttempt(meta);
+    if (attempt?.state !== "resuming") return false;
+    const lifecycle = readAgentLifecycle(meta);
+    if (lifecycle?.state !== "hibernated" || lifecycle.socket !== SOCK) return false;
+    const generation = readAgentGeneration(meta.aiterm_session);
+    if (generation && generation.launch_id !== meta.launch_id) return false;
+    if (Date.now() - Date.parse(attempt.at) < RESUME_STALE_MS) return false;
+    const native = observeExecutionNativeSessions();
+    if (native.state !== "known" || native.sessions.some(row => row.session_id === meta.aiterm_session)) return false;
+    const pinned = readAgentResumeNative({ aiterm_session: meta.aiterm_session, launch_id: attempt.next_launch_id });
+    if (pinned && processStartIdentity(pinned.pane_pid, process.platform) === pinned.pane_started_identity) return false;
+    withExecutionPreparation(meta.aiterm_session, () => abandonAgentResumeAttempt(meta, attempt,
+      { generation: generation?.launch_id ?? null, native_sessions_known: true, next_pane: pinned ? `pid ${pinned.pane_pid} not running` : "never created" }));
+    return true;
+  } catch { return false; } // a record that cannot be read or proven stays as it is: the seat stays refused, never guessed
+}
+
 /** A current generation with no lifecycle/attempt state whose native is confirmed absent. */
 function vanishedAgentNative(meta: AgentMetadata): boolean {
   if (agentDormantState(meta) !== null) return false;
@@ -9404,6 +9433,7 @@ export async function openAgentWithInitialPrompt(
         let previous: AgentMetadata, recipe: AgentResumeRecipe, preparedLifecycle: AgentLifecycle | null = null;
         try {
           previous = loadAgentMetadata(name);
+          settleInterruptedResume(previous);
           let lifecycle = readAgentLifecycle(previous);
           if (opts.require_existing_resume && !lifecycle && kind === previous.kind && !readAgentResumeAttempt(previous)
             && !failedCodexResumeRecipe(previous)) lifecycle = preparedLifecycle = prepareWorkingAgentResume(previous);

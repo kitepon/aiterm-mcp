@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A resume that died half-way no longer blocks a seat for good (a527, Kiro). A `resuming` attempt stayed forever when its process was killed (the container's execution restart, 2026-11-21 21:26Z): the seat could not be woken or closed (`AGENT_RESUME_UNCONFIRMED`, BellTeam `BOT_LAUNCH_FAILED`) for 18 h. The resume entry and the close of a hibernated seat now abandon such an attempt, and only it, when the files and the process table prove nothing is resuming (hibernated old launch, next never published, attempt older than 120 s, no native session of that name, the next launch's pinned pane not running): the attempt and its evidence move to `<old launch>.resume-abandoned.json` and the seat is a plain hibernated seat again. `failed` attempts and the Codex recovery are unchanged. Contract: `docs/architecture/lifecycle-state-ownership.md`.
+
 ## [0.70.97] - 2026-11-22
 
 - Images of 12 MiB and more now cross a terminal (a521). 0.70.96 sent and read a whole image as one MCP message; a terminal whose MCP SDK is 1.32 (rabbit, fox) refuses a message over 10 MiB and closed the connection, so only images up to about 7 MiB worked there. `pty_send image` now uploads an image over 5 MiB in pieces (`image_put` with `upload_id`/`offset`/`final`, in order, whole image still 25 MiB) and `image_read` on a terminal seat reads it in pieces (`offset`/`length`) and joins them (size and sha256 checked), still answering one MCP image. A terminal on 0.70.96 stops an over-5 MiB upload with `REMOTE_IMAGE_UNSUPPORTED` instead of storing a cut image.

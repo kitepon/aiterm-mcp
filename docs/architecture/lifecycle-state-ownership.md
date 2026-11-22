@@ -13,7 +13,8 @@
 | `.resume-native.json` | `agent-lifecycle.ts` / `prepareAgentLaunch`のcreated callback / `resumeAgentInLock` | native ID/session/server PID/pane ID/PIDと出生本人性。`verifyCreatedNative`は現在の全項目を照合し、dead-pane closeだけpane終了を許容 |
 | `.resume-template.json` / `.resume.json` | `captureAgentResumeTemplate` / `finishAgentResumeConfiguration` / `refreshAgentResumeRecipe` | model/effort/fast/cwd/executable/config rootと明示env。秘密名のenvをrecipeへ永続化しない。confirmed以外から復帰可能と補完しない |
 | `.lifecycle.json` | `core.checkAgentIdle`のbegin/finish/cancel、`core.commitWorkingAgentResume`（require_existing_resumeと、native消失を確認した通常入力）、`agent-lifecycle.ts`のschema/read/write | stopping→hibernated。停止作用前だけcancelでstoppingを消せる。作用後不明なら停止中の記録を保持。記録した画面のprocess（pid＋開始の本人性）が消え、同名のnativeも無いと分かったstoppingは、停止作用が済んだのにhibernatedを書く前に持ち主のprocessが切れた物（本番 bot-632c5d04 2026-11-15）。次に席へ触る操作（`withAgentSendLock`を通る送信・dispatch・idle・休止、`closeSessionInternal`、`hibernateAgentSession`）の入口で`settleInterruptedStop`が、finishと同じ形でhibernatedを書く（抜け道、0.70.65）。画面のprocessが生きているstoppingは、別のprocessが休止の途中の見込みがあるので触らない。native消失はorigin:restartのhibernatedで表し、復帰できない席は`AGENT_SESSION_REQUIRED`で未送信（[restart-resume-only](restart-resume-only.md)） |
-| `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。resuming/未公開nextは再試行しない。公開failedは下記の明示された正常要求と再検証で回復する |
+| `.resume-attempt.json` | `resumeAgentInLock`が旧launchのfileへ書く | old→nextのresuming/ready/failed。nextのpointer公開とready確認は別時点。resuming/未公開nextは再試行しない（ただし持ち主が死んだresumingだけは、下の「中断したresumingの放棄」の条件がそろった時に放棄する）。公開failedは下記の明示された正常要求と再検証で回復する |
+| `.resume-abandoned.json` | `core.settleInterruptedResume`が旧launchのfileへ書く（0.70.97、a527） | 放棄した`resuming` attemptの全文と、放棄の証拠。読み手はいない（監査用）。書いた後に`.resume-attempt.json`を消し、席は試みなかった休止席と同じになる |
 | `.activity.jsonl` | `agent-activity.ts` | created/input/turn_endをappend。完成eventのdigestで重複を数えない。metadata snapshotをhookとsenderが上書きし合わない |
 | `.idle-clock.json`とsleep worker | `agent-idle-clock.ts` / `core.serviceAgentIdleClock` | token・owner PID/出生本人性・anchor/wake時刻。既send lock下でarm/retire。clock自体を独立した入力受付にしない。sweep（`core.maintainAgentIdleClocks` → `requestAgentIdleClocks`）はtmuxの`list-sessions`に居る席だけを対象にし、owner確認は1回の`ps`。休止・閉じた・死んだ席はclockをすぐretireするので、sweepの対象にすると一覧のたびにcheckerを起こし続ける（0.70.16で除外）。tmuxに居るがharnessだけ死んだpane（bashが残る）はcheckerがclockを張らずに終わるので、sweepは同じ席へ1分・2分…最大10分と間を倍にして起こし、owner（armed）が生きた席は待ちを消す。1回のsweepで起こすcheckerは最大4つ、sweep自体も5秒に1回まで（0.70.92）。事象（turn終了・launch）からの`requestAgentIdleClock`はこの待ちを受けない。close（`closeSessionInternal`・killAll・同名の新規起動）の`cleanupAgentState`は記録を消す前に`endAgentIdleClock`でそのsleep workerを終わらせる：owner PIDと出生本人性が一致した時だけ、POSIXはdetachedで作った自分のprocess group（sh・sleep・起床中のchecker）へSIGTERM、WindowsはPowerShellの本人をKill。呼んだprocess自身の時計（checker本人・その親）は止めない。止められなかった時は従来どおり有限sleepが起床後のtoken検査で終わる（0.70.24。前は閉じた席の時計が起床時刻まで残った） |
 | 同processの送信行列 | `core.ts agentSendQueues` / `withAgentSendLock` | 到着順に前の処理を待つ。timeoutした待機者の後ろも前の所有者を追い越さない |
@@ -50,7 +51,7 @@ State/data flow: `allocation + witness → captured receipt → marker transfer 
 4b. Claudeのログイン（BellTeamの枠ごとの1つのlogin、0.70.23）：同じ再開入口で`env_vars`を渡した時、`CLAUDE_CODE_OAUTH_TOKEN`は設定でなくloginとして名前の比較から外す（Aitermがrootから足す`CLAUDE_CONFIG_DIR`も外す。これが全Claude recipeに在るので、`env_vars`を渡す再開はいつも衝突していた）。名指せば値は起こす側のlaunch値（私的env行、無ければprocess env）を席へ、名指さないか値が無ければ外す（席はrootのloginで再開）。`env_vars`を省けば起こす側のlaunch値。0.70.41から値はrecipeへ書かない（4c）：送信時の自動再開（pty_send・dispatch）はloginを名指すrecipeを断る。再開の起動行は値を打たない：POSIXも新規起動と同じ0600のlaunch-env fileを読んで消す（Windowsは従来から0600の.launch.ps1）。
 4c. 秘密の名前のenv（E8、0.70.41）：秘密の名前＝`(TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$`か、端末の席で本体がheaderから移した`AITERM_MCP_HEADER_n`（`isSecretEnvName`）。0.70.40までは名指すだけでtemplateを書かず、休止も再開もできなかった。今はtemplate/recipeが`secret_environment`（名前だけ、整列）を持ち、`environment`は秘密の値を持たない（値はdiskへ書かない。0.70.40までのrecipeの`environment`に秘密の名前が在れば、値は使わず秘密の名前として読む）。休止は従来と同じ判定で許す。agent_launchの再開（session_name）は、秘密の名前ごとに起こす側のlaunch値（私的env行、無ければprocess env）を取る。Claudeのloginだけは4bのまま（`env_vars`で名指さなければ外してrootのlogin）。値の無い名前が1つでもあれば`AGENT_RESUME_SECRET_MISSING`で作用前に断り（not_started、席はhibernatedのまま）。値は0600のlaunch-env fileだけで渡し、tmuxのenvにもnext recipeにも入れない。送信時の自動再開（pty_send・dispatch・消えた席の採用）は値を持たないので`AGENT_RESUME_SECRETS_REQUIRED`で断り本文を送らない（呼び手がagent_launchで再開する）。断りは`_meta["aiterm/resume_secrets"]`（`aiterm.agent-resume-secrets.v1`）と`_meta["aiterm/error_code"]`で返す（0.70.43。それまでのstructuredContentは、tool一覧を読んだSDKの呼び手では出力schemaの検査で-32602になり、codeが消えた）。idle時計（immediateでない）はこういう席を休止しない（`resume_needs_launch_values`で見送り）。再開で`mcp_config`を渡すと、席に呼び手MCP fileが在ってserver名が同じ時はそのfileを書き直す（端末の転送のPが替わった時のため）。名前が違えば`AGENT_RESUME_CONFLICT`、fileの無い席では従来どおり使わない。4bのloginも値はdiskへ書かず名前だけ残す（名指さないか値が無ければ名前も外す）。
 5. 起動行を出した後にold→next pointerを公開し、その後にTUI/native readyを確認する。0.63.14のCodex復帰は既定50秒、他harnessは30秒。明示timeoutは0を含めて優先する。50秒は描画と連続安定確認を含む準備段階の予算で、RPC全体の保証ではない。標準速Codexだけnative running turnがあればbusyも受ける。fastの復帰はidleを経てfastへ戻す。最後にtemplate/recipeとold attempt=readyを保存する。
-6. attempt作成後の失敗はfailed保存を試み、失敗してもresumingが再送を止める。`AgentResumeError`は今回の本文をnot_sentと返す。nativeが作成・起動されたか、保留通知をvendorが別に処理したかまで取り消す意味ではない。
+6. attempt作成後の失敗はfailed保存を試み、失敗してもresumingが再送を止める。`AgentResumeError`は今回の本文をnot_sentと返す。nativeが作成・起動されたか、保留通知をvendorが別に処理したかまで取り消す意味ではない。 持ち主のprocessが再開の途中で死んだresumingは、再送を止め続けず下の条件で放棄する。
 
 ## dispatch・差し込み・取消・close
 
@@ -109,3 +110,19 @@ Resume-only0.63.10 retained working preparation may bind a Codex UUID/model only
 
 
 Managed-input update: process-local owner/order remains, but agent-send file locks are no longer an input or fresh-agent-launch prerequisite. Caller serialization is required across independent MCP/SSH clients. Native generation/birth, saved resume recipe and effect admission still own target safety; a missing legacy socket/log directory is not readiness. See native-runtime.md for the current input function map/DFD. Logical close and historical cleanup are unchanged.
+
+## 中断したresumingの放棄（a527、0.70.97）
+
+起動は`resuming`を保存してからnativeを作る。その間にprocessが死ぬ（コンテナの実行serverの再起動、2026-11-21 21:26Z、Maxwell席）と、`resuming`は18時間残り、再開もcloseも
+`AGENT_RESUME_UNCONFIRMED`で止まった（attemptに持ち主の印は無く、同じvendor会話へ2つの端末を立てない守りとして`resuming`自体が止めていた）。出口は`core.settleInterruptedResume`。
+再開の入口（`openAgentWithInitialPrompt`）と休止席のclose（`closeSessionInternal`）が、attemptを読む前に呼ぶ。次の**全部**がそろう時だけ放棄し、1つでも欠ければ何も変えない:
+
+1. attemptが`resuming`で、旧launchのlifecycleが`hibernated`かつこのsocket。
+2. nextは公開されていない（`active-launch`が無いか旧launchを指す）。
+3. attemptの`at`から120秒（`RESUME_STALE_MS`）以上たつ。生きた再開のnative作成前とfailed保存の途中を邪魔しない。
+4. native一覧が`known`で、この名前の端末が無い。
+5. nextの`.resume-native.json`が控えたpane（pid＋出生identity）が走っていない（控えが無ければnative未作成）。
+
+放棄は`.resume-abandoned.json`へattemptと証拠（上の5つの観測）を書き、読み戻してから`.resume-attempt.json`を消す。以後は新しいnext launchで普通に再開する。死んだnextのfile群は残る（launch idごとで、世代の指しだけが現在を決めるので選ばれない。席をcloseすれば片付く）。
+`failed`のattemptとCodexの回復（R1-L・R1-C）は変えない。
+

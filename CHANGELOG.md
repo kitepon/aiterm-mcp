@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.105] - 2026-11-22
+
 - Neutral names for following a steered turn, added beside the old ones (a532b2 stage 4, Tronie's ruling A via Kiro; ADR 0122 addendum). `_meta["aiterm/steer"]` of a steered `pty_send` and `aiterm/send_error` carry `input_ref` with the same value as `steer_id`; `pty_read` takes `input_ref` as `steer_id` (both given must be equal); `aiterm-wait` takes `--input-ref` as `--steer` (one of them, same rules); the relay for a terminal follows a result that names only `input_ref`. `wait_process` still carries `--steer`, so a runtime one version behind keeps working; the old names go in a later release, after BellTeam has switched. The follow of a steered send is no longer given only to callers that mark themselves (`aiterm/caller`): every caller gets `event_cursor`, `wait_process` and `aiterm/steer` where they were null (additive). The interim words (ADR 0071) keep their caller mark.
 
 ## [0.70.104] - 2026-11-22
@@ -3674,7 +3676,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...HEAD
+[0.70.105]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...v0.70.105
 [0.70.104]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...v0.70.104
 [0.70.103]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...v0.70.103
 [0.70.102]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...v0.70.102

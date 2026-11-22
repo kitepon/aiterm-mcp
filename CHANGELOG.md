@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.95] - 2026-11-22
+
 - The Approval Box door closes a connection that has not completed its request line within 30 s (a516e, Nayuta). On Windows the named pipe keeps Node's default DACL (SYSTEM and Administrators full, Everyone read only), documented in `remote-terminal.md` R22; the idle close keeps a read-only stranger from holding a connection.
 
 ## [0.70.94] - 2026-11-22
@@ -3632,7 +3634,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.94...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...HEAD
+[0.70.95]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.94...v0.70.95
 [0.70.94]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.93...v0.70.94
 [0.70.93]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.92...v0.70.93
 [0.70.92]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.91...v0.70.92

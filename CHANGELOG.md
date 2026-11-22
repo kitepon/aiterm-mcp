@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.99] - 2026-11-22
+
 - Aiterm's BellTeam-named defaults become neutral or caller-given (a532b3, Owner's boundary ruling via Tronie). `agent_auth` `login:"oauth_token"` `token_file` is accepted under the folders named by the environment variable `AITERM_CLAUDE_TOKEN_ROOTS` (path-delimited, set by whoever starts the server); unset, it accepts the neutral `<HOME>/.aiterm/claude-accounts` and, for BellTeam's existing callers until they set the variable, the former fixed `<HOME>/.bellteam-accounts/claude` (that one is dropped in a later release). The `agent_models` effort-order comment and the `diagnostics` description no longer name BellTeam or Factory; the published tool list contains no BellTeam word.
 
 - A Claude fork's first turn no longer ends on its copied history (a533, Kiro). `claude --fork-session` writes the main's whole conversation into the fork's transcript under the fork's own sessionId, and the wait read the file from the dispatch cursor 0 (the file did not exist yet), so a copied API error row (the main's old usage-limit message) ended a working fork as `rate_limited` within a second and BellTeam closed it (`FORK_FAILED`). From cursor 0 the wait and the interim words now ignore records stamped before the turn's dispatch (the seat's creation for a launch turn); a limit the fork itself hits still ends its turn. Test `test/fork-copied-history.test.mjs` fails before and passes after.
@@ -3650,7 +3652,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...HEAD
+[0.70.99]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...v0.70.99
 [0.70.98]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...v0.70.98
 [0.70.97]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...v0.70.97
 [0.70.96]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...v0.70.96

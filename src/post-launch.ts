@@ -1,10 +1,12 @@
 // The caller's command after a seat was launched or resumed (launch-identity-input.md "Post-launch command", remote-terminal.md R25, a532b1).
 // A generic hook: it names no product. Run by the Aiterm that created the native seat, as the seat's user, never through a shell.
 import { spawn, spawnSync } from "node:child_process";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { liveNodeExecutable } from "./live-node.js";
 import { privateEnvValue } from "./private-env.js";
+import { SOCKDIR } from "./tmux-runtime.js";
 
 export const POST_LAUNCH_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 24 * 1024;
@@ -22,9 +24,9 @@ export function consumedPrivateNames(args: { env_vars?: string[]; mcp_config?: {
   return [...names];
 }
 
-/** `aiterm-session-alive <session>` as an absolute argv, so a caller with no node on PATH can run it. */
+/** `aiterm-session-alive <session> --tmpdir BASE` as an absolute argv, so a caller with no node on PATH, and no TEMP/TMPDIR, still asks this Aiterm's multiplexer. */
 export function aliveArgv(session: string): string[] {
-  return [liveNodeExecutable(), fileURLToPath(new URL("./session-alive-cli.js", import.meta.url)), session];
+  return [liveNodeExecutable(), fileURLToPath(new URL("./session-alive-cli.js", import.meta.url)), session, "--tmpdir", path.dirname(SOCKDIR)];
 }
 
 export async function runPostLaunch(spec: PostLaunch, context: { session: string; event: "launch" | "resume"; cwd?: string | null; names: string[]; timeoutMs?: number }): Promise<PostLaunchResult> {

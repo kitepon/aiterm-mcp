@@ -1,6 +1,7 @@
 import "./seat-env.mjs"; // 最初のimportに置く（ADR 0121）
 // launch-identity-input.md "Post-launch command" and remote-terminal.md R25 (a532b1).
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 const { aliveArgv, consumedPrivateNames, postLaunchSchema, runPostLaunch } = await import("../dist/post-launch.js");
-const { sessionAliveExit } = await import("../dist/session-alive-cli.js");
+const { parseAliveArgs, sessionAliveExit } = await import("../dist/session-alive-cli.js");
 const { setPrivateEnv } = await import("../dist/private-env.js");
 const { createAitermServer } = await import("../dist/index.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "post-launch-"));
@@ -45,7 +46,8 @@ test("the hook gets plain facts and exactly the consumed private values, never a
   assert.equal(env.AITERM_AGENT_ROLE, undefined);
   assert.ok("PATH" in env || "Path" in env, "the process environment is inherited");
   const alive = JSON.parse(env.AITERM_SESSION_ALIVE);
-  assert.deepEqual(alive.slice(2), ["seat-1"]);
+  assert.deepEqual(alive.slice(2, 4), ["seat-1", "--tmpdir"]);
+  assert.ok(path.isAbsolute(alive[4]) && !alive[4].endsWith("claude-tmux-sockets"), "the base the socket directory is made under");
   assert.match(alive[1], /session-alive-cli\.js$/);
   assert.deepEqual(aliveArgv("seat-1"), alive);
 });
@@ -70,6 +72,30 @@ test("aiterm-session-alive: 0 exists, 1 confirmed absent, 2 cannot tell or bad n
   assert.equal(sessionAliveExit("seat-1", () => null), 2);
   assert.equal(sessionAliveExit("seat-1", () => 127), 2);
   for (const bad of [undefined, "", "a b", "a;b", "x".repeat(200)]) assert.equal(sessionAliveExit(bad, () => 0), 2);
+});
+
+test("aiterm-session-alive arguments: --tmpdir must be absolute or the answer is 'cannot tell'", () => {
+  assert.deepEqual(parseAliveArgs(["seat-1"]), { session: "seat-1", tmpdir: undefined });
+  const abs = path.resolve(tmp, "base");
+  assert.deepEqual(parseAliveArgs(["seat-1", "--tmpdir", abs]), { session: "seat-1", tmpdir: abs });
+  for (const bad of [["seat-1", "--tmpdir"], ["seat-1", "--tmpdir", "relative/dir"], ["seat-1", "--tmpdir", ""]]) assert.equal(parseAliveArgs(bad), null, JSON.stringify(bad));
+});
+
+// The 0.70.100 failure (fox, 2026-11-23): a caller without the launching Aiterm's TMPDIR asked another socket / namespace and got "absent" for a live seat.
+test("aiterm-session-alive: --tmpdir reaches the launching Aiterm's multiplexer whatever the caller's own TMPDIR", { skip: process.platform === "win32" || spawnSync("tmux", ["-V"]).error !== undefined }, () => {
+  const base = fs.mkdtempSync(path.join(tmp, "alive-base-")), other = fs.mkdtempSync(path.join(tmp, "alive-other-"));
+  const sockDir = path.join(base, "claude-tmux-sockets");
+  fs.mkdirSync(sockDir, { recursive: true });
+  const sock = path.join(sockDir, "claude.sock");
+  assert.equal(spawnSync("tmux", ["-S", sock, "new-session", "-d", "-s", "alive-fixture", "sleep 60"]).status, 0);
+  try {
+    const cli = new URL("../dist/session-alive-cli.js", import.meta.url).pathname;
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, TMPDIR: other }, encoding: "utf8" }).status;
+    assert.equal(run("alive-fixture", "--tmpdir", base), 0, "the launching Aiterm's base finds the live session");
+    assert.equal(run("alive-fixture"), 1, "the caller's own base has no such server: absent there (the 0.70.100 answer for a live seat)");
+    assert.equal(run("no-such-session", "--tmpdir", base), 1);
+    assert.equal(run("alive-fixture", "--tmpdir", "relative"), 2);
+  } finally { spawnSync("tmux", ["-S", sock, "kill-server"]); }
 });
 
 // A fake terminal for the gate: its Aiterm version is `version`; it records the launch it receives.

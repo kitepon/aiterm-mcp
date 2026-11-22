@@ -1,3 +1,4 @@
+import "./seat-env.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -72,16 +73,17 @@ test("errors come back as one typed line, never a drop", async () => {
   const body = await ingress(() => [413, '{"error":"APPROVAL_BOX_DOOR_TOO_LARGE"}']);
   try {
     const door = new Door(() => true);
-    assert.deepEqual(JSON.parse(await door.forward("{}")), { ok: false, status: 503, code: "APPROVAL_DOOR_NO_SEAT", message: "no live seat on this computer can reach the body" });
+    assert.deepEqual(JSON.parse(await door.forward("{}")), { ok: false, status: 503, code: "door_unavailable", message: "no live seat on this computer can reach the body", body: {} });
     door.register("s", body.port, A);
-    assert.deepEqual(JSON.parse(await door.forward("{}")), { ok: false, status: 413, code: "APPROVAL_BOX_DOOR_TOO_LARGE", message: "the body answered HTTP 413" });
+    assert.deepEqual(JSON.parse(await door.forward("{}")), { ok: false, status: 413, code: "APPROVAL_BOX_DOOR_TOO_LARGE", message: "the body answered HTTP 413", body: {} });
   } finally { body.close(); }
   const closed = await ingress(() => [200, "{}"]);
   const { port } = closed; closed.close();
   await new Promise(resolve => setTimeout(resolve, 50));
   const door = new Door(() => true);
   door.register("s", port, A);
-  assert.equal(JSON.parse(await door.forward("{}")).code, "APPROVAL_DOOR_ROUTE_UNAVAILABLE");
+  const lost = JSON.parse(await door.forward("{}"));
+  assert.deepEqual([lost.code, lost.message], ["door_unavailable", "the seat route to the body is not reachable"]);
 });
 
 test("a seat leaves only after two failed liveness checks in a row", () => {
@@ -113,19 +115,24 @@ test("the served address answers registration and a large line, is 0600, and goe
   try {
     assert.ok(server);
     if (process.platform !== "win32") assert.equal(fs.statSync(address).mode & 0o777, 0o600);
-    const talk = lines => new Promise((resolve, reject) => {
+    // The connector's wire: one connection per request, one line in, the reply line, then the door ends the connection.
+    const talk = line => new Promise((resolve, reject) => {
       const socket = net.connect(address);
       let got = "";
       socket.setEncoding("utf8");
       socket.on("error", reject);
-      socket.on("connect", () => socket.write(lines.join("\n") + "\n"));
-      socket.on("data", chunk => { got += chunk; if (got.split("\n").length > lines.length) { socket.destroy(); resolve(got.trimEnd().split("\n")); } });
+      socket.on("connect", () => { socket.write(line + "\n"); socket.end(); }); // the client may half-close at once
+      socket.on("data", chunk => { got += chunk; });
+      socket.on("end", () => resolve(got));
     });
     const big = JSON.stringify({ method: "POST", path: "/p", body: "y".repeat(5 * 1024 * 1024) });
-    const replies = await talk([JSON.stringify({ aiterm_door: "register", session: "s1", port: body.port, authorization: A }), big, '{"aiterm_door":"register","session":"s2","port":0,"authorization":"x"}']);
-    assert.equal(replies[0], '{"ok":true}');
-    assert.equal(JSON.parse(replies[1]).length, big.length); // the whole line reached the ingress
-    assert.equal(JSON.parse(replies[2]).code, "APPROVAL_DOOR_REGISTER_INVALID");
+    const registered = await talk(JSON.stringify({ aiterm_door: "register", session: "s1", port: body.port, authorization: A }));
+    const forwarded = await talk(big);
+    const refused = await talk('{"aiterm_door":"register","session":"s2","port":0,"authorization":"x"}');
+    assert.equal(registered, '{"ok":true}\n');
+    assert.equal(JSON.parse(forwarded).length, big.length); // the whole line reached the ingress
+    assert.ok(forwarded.endsWith("\n"));
+    assert.equal(JSON.parse(refused).code, "APPROVAL_DOOR_REGISTER_INVALID");
     assert.equal(body.seen[0].auth, A);
     // a second door finds the address answered and leaves it alone
     assert.equal(await serveDoor(new Door(() => true), address), null);

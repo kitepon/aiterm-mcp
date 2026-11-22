@@ -41,7 +41,7 @@ export function seatRegistration(config: Record<string, unknown> | null | undefi
   return null;
 }
 
-const errorLine = (status: number, code: string, message: string): string => JSON.stringify({ ok: false, status, code, message });
+const errorLine = (status: number, code: string, message: string): string => JSON.stringify({ ok: false, status, code, message, body: {} });
 const bodyCode = (text: string): string | null => { try { const code = (JSON.parse(text) as { error?: unknown }).error; return typeof code === "string" ? code : null; } catch { return null; } };
 
 export class Door {
@@ -79,9 +79,8 @@ export class Door {
       if (response.status === 403 && code === "APPROVAL_BOX_DOOR_NOT_ALLOWED") continue; // a fork seat's bearer
       return errorLine(response.status, code ?? "APPROVAL_DOOR_HTTP_ERROR", `the body answered HTTP ${response.status}`);
     }
-    return unreachable
-      ? errorLine(503, "APPROVAL_DOOR_ROUTE_UNAVAILABLE", "the seat route to the body is not reachable")
-      : errorLine(503, "APPROVAL_DOOR_NO_SEAT", "no live seat on this computer can reach the body");
+    // The connector's own code for a door that cannot reach the body (peer-channel-adoption.md section 7).
+    return errorLine(503, "door_unavailable", unreachable ? "the seat route to the body is not reachable" : "no live seat on this computer can reach the body");
   }
 
   /** The first-line control message of a launch or resume; any other line is the connector's. */
@@ -98,20 +97,21 @@ export class Door {
   }
 }
 
-/** Newline-framed lines on one connection, answered in order. */
+/** One request per connection (the connector's wire): read the first line, answer it, end. The client may half-close after writing. */
 function serveConnection(door: Door, socket: net.Socket): void {
-  let buffer = "";
-  let chain: Promise<void> = Promise.resolve();
+  let buffer = "", taken = false;
   socket.setEncoding("utf8");
   socket.on("error", () => socket.destroy());
   socket.on("data", (chunk: string) => {
+    if (taken) return;
     buffer += chunk;
-    for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
-      const line = buffer.slice(0, at).replace(/\r$/, "");
-      buffer = buffer.slice(at + 1);
-      if (line) chain = chain.then(async () => { const reply = await door.handle(line); if (!socket.destroyed) socket.write(`${reply}\n`); });
+    const at = buffer.indexOf("\n");
+    if (at < 0) {
+      if (buffer.length > LINE_MAX) { taken = true; socket.end(`${errorLine(413, "APPROVAL_DOOR_TOO_LARGE", "the line is larger than the door accepts")}\n`); }
+      return;
     }
-    if (buffer.length > LINE_MAX) { socket.write(`${errorLine(413, "APPROVAL_DOOR_TOO_LARGE", "the line is larger than the door accepts")}\n`); socket.destroy(); }
+    taken = true;
+    void door.handle(buffer.slice(0, at).replace(/\r$/, "")).then(reply => { if (!socket.destroyed) socket.end(`${reply}\n`); });
   });
 }
 
@@ -136,7 +136,7 @@ function answers(address: string): Promise<boolean> {
 /** Starts serving; resolves to null when another door already holds the address. */
 export async function serveDoor(door: Door, address = doorAddress(), onEmpty: () => void = () => {}, sweepMs = SWEEP_MS): Promise<net.Server | null> {
   if (process.platform !== "win32") fs.mkdirSync(path.dirname(address), { recursive: true, mode: 0o700 });
-  const server = net.createServer(socket => serveConnection(door, socket));
+  const server = net.createServer({ allowHalfOpen: true }, socket => serveConnection(door, socket));
   try { await listen(server, address); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;

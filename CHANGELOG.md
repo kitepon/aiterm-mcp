@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.103] - 2026-11-22
+
 - Aiterm's own Approval Box door is gone (a532b1, Krust, Tronie's boundary ruling). `approval-door.ts`, `registerDoor` in `agent_launch`, the detached `aiterm-approval-door` process and its address `~/.aiterm/approval-box-door.sock` (Windows: the `aiterm-approval-box-door-<user>` pipe) are removed; remote-terminal.md R22/T5 and the door text in bellteam-boundary.md go with them. BellTeam's own door (proven on rabbit, Mac and fox; different address `~/.bellteam/approval-box-door.sock`, Windows `\\.\pipe\bellteam-approval-box-door-<user>`) is started by the `post_launch` hook (0.70.100), so no host action is needed. A door process left over from an older Aiterm exits by itself when its last registered seat ends.
 
 ## [0.70.102] - 2026-11-22
@@ -3666,7 +3668,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...HEAD
+[0.70.103]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...v0.70.103
 [0.70.102]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...v0.70.102
 [0.70.101]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...v0.70.101
 [0.70.100]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...v0.70.100

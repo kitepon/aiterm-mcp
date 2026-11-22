@@ -1,3 +1,5 @@
+> **0.70.104（a532b2 1b）で削除**: 本番で使われていなかったprivate executionの上の層を消した。消した物: `execution-tools`、`-service`、`-store`、`-lock`、`-participant`、`-participant-store`、`-dispatch`、`-invocation`、`-runtime`、`-interruption`、`-launch-recovery`、`-steer`、`-parent`、`-parent-manager`、`-parent-producer`、`-parent-queue`、`-parent-endpoint`、`-parent-native`、`-parent-alias`、`-parent-claude-records`（`execution-*.ts`）と、`execution-parent-worker.ts` の worker 本体。残した物: `execution-wire`、`-contract`、`-context`、`-effect`、`-close`、`-checkpoint`、`-inventory`、`-parent-source`、`-parent-process`（core・tmux-runtime・親配送が今も読む休眠の枝。別の整理で扱う）、`execution-immediate-stop`（`agent_stop`）、`execution-native-server`（`createNativeDeliveryServer`、`parseNativeExecutionArguments`）、`execution-native-setup`、`execution-parent-worker` の `localParentWorkerRuntime.scope()`。`agent_execution`・`agent_execution_roots` の2つのtoolと、実行の記録（execution store、state rootの `execution/`）はもう無い（本番のstate rootに `execution/` は無かった）。以下の記述のうち、消した物に当たる部分は履歴として読む。
+
 > 候補の機能説明。基準初読の記述に、A1–S1の所有者変更を反映した。全fixture/実OSの網羅確認を意味しない。
 
 # Private親配送の固定参照・出力・受理の境界

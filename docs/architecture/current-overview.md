@@ -24,7 +24,7 @@
 
 通常5harnessのbinding・完了・回答と、差込/途中表示は [vendor契約詳細](harness-contracts.md) / [関数対応](source-index.md) へ続く。
 
-Private executionの契約・保存・観測は [private基盤](private-execution.md) / [関数対応](source-index.md) に明記した。通常mainの有効経路と区別する。
+Private executionの契約・保存・観測は [private基盤](private-execution.md) / [関数対応](source-index.md) に明記した。通常mainの有効経路と区別する。0.70.104で、本番で使われていなかった上の層（`agent_execution`・`agent_execution_roots`・実行の記録）は削除した（消した物と残した物は private-execution.md の頭）。
 
 Private全33moduleの受付・完了・親配送・停止の詳細は [private受付](private-admission.md) → [private親配送](private-parent-delivery.md) → [停止/管理close](private-stop.md)。通常main・通常配送entryと、明示注入されたtrackingを区別する。
 

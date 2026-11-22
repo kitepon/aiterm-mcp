@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { AitermError } from "./errors.js";
 import { isWin } from "./tmux-runtime.js";
 import { resolveWindowsPowerShell7 } from "./windows-powershell.js";
-import type { ExecutionActorObservation } from "./execution-lock.js";
+import type { ExecutionActorObservation } from "./execution-inventory.js";
 
 export interface NativeProcessIdentity {
   pid: number;

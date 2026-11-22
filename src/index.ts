@@ -41,10 +41,6 @@ import { triggerRuntimeErrorReport } from "./runtime-error-report.js";
 import { createRequire } from "node:module";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ExecutionError, executionErrorResult } from "./execution-wire.js";
-import type { createExecutionDispatcher } from "./execution-dispatch.js";
-import { attachExecutionControlRegistrar } from "./execution-tools.js";
-import type { ParentManagerExecution } from "./execution-parent-manager.js";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { failureObservationSchema } from "./parent-delivery-record.js";
 import { acceptRemote, callRemoteTool, REMOTE_CLIENT_NAME, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
@@ -91,21 +87,8 @@ function registerRuntimeAdoptionTool(server: McpServer, adoption: RuntimeAdoptio
   });
 }
 
-export interface AitermServerExecution {
-  dispatcher: ReturnType<typeof createExecutionDispatcher>;
-  parentExecution: ParentManagerExecution;
-  parentDependencies?: ConstructorParameters<typeof ParentDeliveryManager>[0] extends infer T
-    ? T extends { dependencies?: infer D } ? D : never : never;
-  parentRoot?: string;
-  parentStateRoot?: string;
-}
-
-/** Constructor for isolated transport acceptance. main never supplies the
- * private execution factory until runtime/participant coverage is complete.
- * Importing this module neither connects stdio nor runs diagnostics/reporters.
- */
+/** Constructor for isolated transport acceptance. Importing this module neither connects stdio nor runs diagnostics/reporters. */
 export function createAitermServer(options: {
-  execution?: (server: McpServer) => AitermServerExecution;
   // Authenticated host ingress supplies provenance. No tool argument can set it.
   goalOrigin?: (extra: { _meta?: unknown; requestId?: unknown }) => "user" | "automatic";
   // Trusted host composition only (never a tool argument). Absent = unchanged default server.
@@ -116,14 +99,6 @@ const server = new McpServer({ name: "aiterm", version: pkg.version });
 let adoption: RuntimeAdoption | null = null;
 const goalOrigin = options.goalOrigin;
 if (goalOrigin !== undefined && typeof goalOrigin !== "function") throw new Error("Invalid trusted goal provenance adapter");
-const supplied = options.execution?.(server);
-if (options.execution && (!supplied || typeof supplied.dispatcher?.dispatch !== "function"
-  || typeof supplied.parentExecution?.bind !== "function" || typeof supplied.parentExecution?.submit !== "function"
-  || typeof supplied.parentExecution?.captureEndpointEvidence !== "function")) throw new ExecutionError("EXECUTION_UNSUPPORTED");
-const execution = supplied ? { ...supplied, parentExecution: { ...supplied.parentExecution },
-  dispatcher: { dispatch: supplied.dispatcher.dispatch.bind(supplied.dispatcher) } } : null;
-if (supplied && typeof supplied.dispatcher.prepareControlRegistration === "function")
-  attachExecutionControlRegistrar(server, supplied.dispatcher.prepareControlRegistration.bind(supplied.dispatcher));
 // 誤りの返りでは、Claude Code親は受け口のPostToolUse hookを走らせず、配送を結ばなかった呼び出しの置き場が残る。
 // 返す前にここで消す（ADR 0096）。McpServerは入力の検査の失敗やhandlerの例外も誤りの返りへ変えるので、
 // toolごとのhandlerではなくtools/callの返りを見る。McpServerがそのhandlerを置くのは最初のtool登録の時で、その前に包む。
@@ -138,28 +113,9 @@ server.server.setRequestHandler = ((schema: unknown, handler: (request: unknown,
     return await handleTool(handler, request, extra);
   })) as typeof server.server.setRequestHandler;
 async function handleTool(handler: (request: unknown, extra: { _meta?: unknown }) => unknown, request: unknown, extra: { _meta?: unknown }) {
-    let result: { isError?: boolean } | undefined;
-    let cleanupExtra = extra;
-    if (execution) {
-      const fixed = structuredClone(request) as { params?: { name?: unknown; arguments?: unknown; task?: unknown; _meta?: unknown } };
-      const fixedExtra = { ...extra, _meta: extra._meta === undefined ? undefined : structuredClone(extra._meta) };
-      cleanupExtra = fixedExtra;
-      if (!fixed.params || typeof fixed.params.name !== "string") result = await handler(fixed, fixedExtra) as typeof result;
-      else if (fixed.params.task !== undefined) result = executionErrorResult(new ExecutionError("EXECUTION_UNSUPPORTED"));
-      else result = await execution.dispatcher.dispatch(fixed.params.name,
-        (fixed.params.arguments ?? {}) as Record<string, unknown>, fixedExtra, async (args, context) => {
-          cleanupExtra = context;
-          return await handler({ ...fixed, params: { ...fixed.params, arguments: args, _meta: context._meta } }, context) as {
-            content: { type: "text"; text: string }[]; isError?: boolean;
-            structuredContent?: Record<string, unknown>; _meta?: Record<string, unknown>;
-          };
-        });
-    } else result = await handler(request, extra) as typeof result;
+    const result = await handler(request, extra) as { isError?: boolean } | undefined;
     // 片付けの失敗で返りを変えない。残った置き場は、後の依頼のhookが見回って消す。
-    // Private execution owns frozen provenance and may already have a graph
-    // binding. A static-profile cleanup cannot prove that the current hook
-    // file is still this request; retain it for verified owner cleanup.
-    if (!execution && result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, cleanupExtra._meta); } catch { /* 見回りへ回す */ }
+    if (result?.isError) try { await discardClaudeHookRequest(server.server.getClientVersion()?.name, extra._meta); } catch { /* 見回りへ回す */ }
     return result;
 }
 let parentDelivery: ParentDeliveryManager | null = null;
@@ -174,26 +130,12 @@ function deliveryParentKind(clientName: string | undefined): "claude" | "cursor"
 }
 
 async function deliveryForRequest(extra: { _meta?: unknown }, remote = false): Promise<DeliveryRequest | null> {
-  if (execution && remote) throw new ExecutionError("EXECUTION_UNSUPPORTED");
   const clientName = server.server.getClientVersion()?.name;
-  let parent: CodexParent | ClaudeParent | CursorParent | null;
-  if (execution) {
-    const select = execution.parentExecution.parentFromIngress;
-    if (typeof select !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    const fixed = select();
-    if (fixed && typeof (fixed as { then?: unknown }).then === "function") {
-      void Promise.resolve(fixed).catch(() => undefined); throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    }
-    if (fixed !== null && (!fixed || typeof fixed !== "object" || Array.isArray(fixed)))
-      throw new ExecutionError("EXECUTION_UNSUPPORTED");
-    parent = fixed === null ? null : structuredClone(fixed);
-  } else parent = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
+  const parent: CodexParent | ClaudeParent | CursorParent | null = codexParentFromRequest(clientName, extra._meta) ?? claudeParentFromRequest(clientName, extra._meta) ?? cursorParentFromRequest(clientName);
   if (!parent) return null;
   const manager = remote
     ? (remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName), remote: true }))
-    : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName),
-      ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies,
-        root: execution.parentRoot, state_root: execution.parentStateRoot } : {}) }));
+    : (parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(clientName) }));
   await manager.prepare(parent);
   return manager.request(parent);
 }
@@ -2069,10 +2011,8 @@ registerAgentTool(
   const startParentManagers = () => {
     const name = server.server.getClientVersion()?.name;
     if (name === "codex-mcp-client" || name === "claude-code" || isCursorMcpClient(name)) {
-      parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name),
-        ...(execution ? { execution: execution.parentExecution, dependencies: execution.parentDependencies,
-          root: execution.parentRoot, state_root: execution.parentStateRoot } : {}) });
-      if (!execution) remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
+      parentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name) });
+      remoteParentDelivery ??= new ParentDeliveryManager({ parent_kind: deliveryParentKind(name), remote: true });
     }
   };
   server.server.oninitialized = () => {

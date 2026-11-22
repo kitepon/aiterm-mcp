@@ -79,3 +79,7 @@ BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
 ## Approval Box door on remote hosts（a516e、0.70.94）
 
 遠隔ホストの席から本体の決裁箱へ届く道。ホスト利用者ごとに固定の場所（POSIX `~/.aiterm/approval-box-door.sock` 0600、Windowsは固定のnamed pipe）で、Aitermの `aiterm-approval-door` がconnectorの行を受け、既存のseat route（R12、`127.0.0.1:P`）へ `POST /api/seat-mcp/approval-box/local`（モリー氏のa516m。1行1 POST、返りはdaemonの行そのまま）で渡す。bearerは席の起動・復帰の度にAitermのhostが登録し、ドアのmemoryだけに置く（diskに置かない、新しい秘密を作らない）。ドアは登録した席のnative sessionが1つでも生きている間だけ開く。connector側（`approval-box use-hosted --socket`）はナユタ氏、本体の窓口はモリー氏が持つ。正本: [remote-terminal.md](remote-terminal.md) R22・T5。
+
+## 端末の席との画像（a521、0.70.96）
+
+BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]` を付けて送る。端末の席へはAitermが画像のバイト列を現地の一時フォルダへ運び、現地のpathで添付する（画像だけ。画像以外の添付ファイルと、端末の席への `agent_launch` の `image` は運ばない）。席が作った画像は公開tool `image_read({session_id, path})` で1枚ずつ読む（png/jpeg/gif/webp、25 MiBまで、席の作業フォルダと一時フォルダの中だけ。結果はMCPの `image` と `aiterm.image-read.v1`）。誤りのcodeと正本: [remote-terminal.md](remote-terminal.md) R23・R24。コンテナのAitermはimageの版で、0.70.96を載せた本体から使える。

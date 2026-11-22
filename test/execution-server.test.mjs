@@ -33,7 +33,7 @@ test.afterEach(() => { runner = null; });
 const A = { session_id: 'bot-server-source', launch_id: 'a'.repeat(32) }, B = { session_id: 'bot-server-target', launch_id: 'b'.repeat(32) };
 const TOOL_NAMES = ['diagnostics', 'pty_open', 'pty_send', 'pty_read', 'pty_key', 'pty_list', 'pty_observe', 'pty_close',
   'agent_launch', 'claude_agent', 'codex_agent', 'grok_agent', 'agent_models', 'agent_configure', 'agent_goal', 'agent_auth',
-  'agent_approval', 'claude_approval', 'claude_turn', 'stream_read', 'stream_send'].sort();
+  'agent_approval', 'claude_approval', 'claude_turn', 'stream_read', 'stream_send', 'image_put', 'image_read'].sort();
 const pause = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const native = { pid: 12345, started_identity: 'synthetic-server-native-process' };
 const posix = { skip: process.platform === 'win32' ? 'POSIX tmux command fixture' : false };
@@ -90,7 +90,7 @@ async function fixture(t, environment = { AITERM_SESSION_ID: A.session_id, AITER
   return { client, server, service, store, live, effects, parentProbes: () => parentProbes,
     holdTarget() { hold = { entered: pause(), release: pause() }; return hold; } };
 }
-test('default and injected constructors expose the same 21 real tools without registering cascade controls or starting stdio', { skip: posixCheckpoint }, async t => {
+test('default and injected constructors expose the same 23 real tools without registering cascade controls or starting stdio', { skip: posixCheckpoint }, async t => {
   const client = await connect(t, createAitermServer());
   assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), TOOL_NAMES);
   const f = await fixture(t);
@@ -104,7 +104,7 @@ test('an incomplete private execution factory cannot fall back to a legacy paren
 test('same real constructor/SDK reaches exactly the registered service controls; stop v2 reports missing interruption adapter without closing', { skip: posixCheckpoint }, async t => {
   const f = await fixture(t, {}, { controls: true, clientName: 'bellteam' }), calls = { execute: 0, roots: 0, stop: 0 };
   for (const name of Object.keys(calls)) { const action = f.service[name].bind(f.service); f.service[name] = (...args) => { calls[name]++; return action(...args); }; }
-  assert.equal((await f.client.listTools()).tools.length, 24);
+  assert.equal((await f.client.listTools()).tools.length, 26);
   const request = { kind: 'delivery', delivery_id: 'constructor-control', target_session_id: B.session_id };
   const registered = await f.client.callTool({ name: 'agent_execution', arguments: { action: 'register', source_session_id: A.session_id,
     reservation: { schema: 'aiterm.execution-reservation.v1', request, source: { launch: A, boundary: null },
@@ -126,7 +126,7 @@ test('unregistered controls, a foreign service and arbitrary registered tool nam
   const blocked = await f.client.callTool({ name: 'agent_stop', arguments: { schema: 'aiterm.cascade-stop-request.v2', mode: 'interrupt', roots: [A] } });
   assert.equal(blocked._meta[ERROR].code, 'EXECUTION_UNSUPPORTED');
   assert.throws(() => registerExecutionTools(f.server, {}), error => error.code === 'EXECUTION_UNSUPPORTED');
-  assert.equal((await f.client.listTools()).tools.length, 21);
+  assert.equal((await f.client.listTools()).tools.length, 23);
   f.server.registerTool('unrelated_control', { inputSchema: {} }, async () => { arbitrary++; return { content: [] }; });
   const other = await f.client.callTool({ name: 'unrelated_control', arguments: {} });
   assert.equal(other._meta[ERROR].code, 'EXECUTION_UNSUPPORTED'); assert.equal(arbitrary, 0); assert.deepEqual(f.effects, []);

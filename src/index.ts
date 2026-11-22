@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
 import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
@@ -24,6 +25,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv, privateEnvValue, privateEnvLoaded } from "./private-env.js";
 import { registerApprovalDoor, seatRegistration } from "./approval-door.js";
+import { imageReadRoots, putImage, readImage, uploadImages } from "./remote-image.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
@@ -410,8 +412,29 @@ function remoteToolHandler(name: string): RemoteToolHandler {
   }
 }
 
+/** The terminal's `image_put` for each image; the paths there replace the caller's (remote-terminal.md R23). */
+async function uploadRemoteImages(target: RemoteTarget, images: string[]): Promise<string[]> {
+  return uploadImages(images, async data => {
+    let result: RemoteCallResult;
+    try { result = await callRemoteTool(target, "image_put", { data_base64: data }, 600_000); }
+    catch (error) {
+      // A terminal older than 0.70.96 has no such tool.
+      if (/image_put/.test(String(error instanceof Error ? error.message : error)) && /not found|unknown tool|method not found/i.test(String(error instanceof Error ? error.message : error)))
+        throw new AitermError("REMOTE_IMAGE_UNSUPPORTED: the terminal's Aiterm has no image_put (needs 0.70.96 or later). Nothing was typed.", 2);
+      throw error;
+    }
+    const text = result.content.find(item => item.type === "text")?.text ?? "";
+    const stored = (result.structuredContent as { path?: unknown } | undefined)?.path;
+    if (result.isError || typeof stored !== "string") {
+      if (/image_put/i.test(text) && /not found|unknown tool/i.test(text)) throw new AitermError("REMOTE_IMAGE_UNSUPPORTED: the terminal's Aiterm has no image_put (needs 0.70.96 or later). Nothing was typed.", 2);
+      throw new AitermError(text.replace(/^aiterm: /, "") || "IMAGE_UPLOAD_FAILED: the terminal did not store the image", 2);
+    }
+    return stored;
+  });
+}
+
 async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<any> {
-  if (args.image && args.image.length > 0) throw new core.AitermError("REMOTE_IMAGE_UNSUPPORTED: 別端末への画像添付には未対応です", 2);
+  if (args.image && args.image.length > 0) args = { ...args, image: await uploadRemoteImages(target, args.image) };
   // 現地が古い版だと、知らない引数として前置きだけが黙って落ちる。届く形を確かめられるまで通さない。
   if (args.preface !== undefined) throw new core.AitermError("REMOTE_PREFACE_UNSUPPORTED: 別端末へのprefaceには未対応です。文字列は送信していません。", 2);
   const key = deliveryKey(args.session_id, target);
@@ -483,6 +506,44 @@ server.registerTool(
     { type: "text" as const, text: await factoryDiagnostics(format) },
     { type: "text" as const, text: JSON.stringify(parentDeliveryDiagnostic(deliveryParentKind(server.server.getClientVersion()?.name))) },
   ] }),
+);
+
+// remote-terminal.md R23/R24 (a521). image_put is the relay's own call between two Aiterms; callers send images with pty_send image.
+server.registerTool(
+  "image_put",
+  {
+    description: "Aiterm同士の中継用。画像のバイト列（base64、png/jpeg/gif/webp、25 MiBまで）をこの端末の一時フォルダへ保存し、その絶対パスを返す。呼び手は pty_send の image を使い、直接は呼ばない。",
+    inputSchema: { data_base64: z.string().describe("画像のバイト列（base64）") },
+    outputSchema: { schema: z.literal("aiterm.image-put.v1"), path: z.string(), mime_type: z.string(), bytes: z.number().int() },
+  },
+  async ({ data_base64 }) => {
+    try {
+      const stored = putImage(data_base64);
+      return { content: [{ type: "text" as const, text: `${stored.path} ${stored.mime_type} ${stored.bytes} bytes` }], structuredContent: { schema: "aiterm.image-put.v1" as const, ...stored } };
+    } catch (e) { return withErrorCode(fail(e)); }
+  },
+);
+
+registerRemoteAwareTool(
+  "image_read",
+  {
+    description:
+      "席の端末にある画像ファイル1枚（絶対path、png/jpeg/gif/webp、25 MiBまで）のバイト列を返す。別端末の席はsession_idだけで現地のファイルを読む。" +
+      "読める場所は、席の作業フォルダと一時フォルダの中だけ（symlinkは解いてから見る）。誤りのcode: IMAGE_PATH_INVALID / IMAGE_NOT_FOUND / IMAGE_PATH_NOT_ALLOWED / IMAGE_NOT_AN_IMAGE / IMAGE_TOO_LARGE。",
+    inputSchema: { session_id: z.string(), path: z.string().describe("画像ファイルの絶対path（席の端末の上のpath）") },
+    outputSchema: { schema: z.literal("aiterm.image-read.v1"), session_id: z.string(), path: z.string(), mime_type: z.string(), bytes: z.number().int(), sha256: z.string() },
+  },
+  async ({ session_id, path: file }) => {
+    try {
+      let cwd: string | null = null;
+      try { cwd = loadAgentMetadata(session_id).cwd; } catch { /* a plain session has no working folder of its own */ }
+      const image = readImage(file, imageReadRoots(cwd));
+      return {
+        content: [{ type: "image" as const, data: image.bytes.toString("base64"), mimeType: image.mime_type }, { type: "text" as const, text: `${image.path} ${image.mime_type} ${image.bytes.length} bytes` }],
+        structuredContent: { schema: "aiterm.image-read.v1" as const, session_id, path: image.path, mime_type: image.mime_type, bytes: image.bytes.length, sha256: createHash("sha256").update(image.bytes).digest("hex") },
+      };
+    } catch (e) { return withErrorCode(fail(e)); }
+  },
 );
 
 const DEFAULT_PTY_SHELL = process.platform === "win32" ? "pwsh" : "bash";

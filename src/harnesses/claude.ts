@@ -1106,17 +1106,27 @@ export function claudeLimitEnd(meta: AgentMetadata, sinceMs: number): ClaudeLimi
   return end;
 }
 
-// ---- login "oauth_token" (BellTeam Claude 2nd slot, Owner ruling 2026-11-09): `claude setup-token` prints a 1-year token once;
+// ---- login "oauth_token" (a second Claude account slot, Owner ruling 2026-11-09): `claude setup-token` prints a 1-year token once;
 // Aiterm, as the PTY owner, writes it to the slot's token file. The CLI keeps no copy, so the file is the credential.
 const OAUTH_TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/g;
 
-/** The only accepted token file: `<HOME>/.bellteam-accounts/claude/<slot>/oauth-token`. Anything else is refused before any start. */
+/**
+ * The folders a token slot may sit in (a532b3): `AITERM_CLAUDE_TOKEN_ROOTS` (path-delimited absolute folders, set by whoever starts this server), else the neutral
+ * `<HOME>/.aiterm/claude-accounts` and, until BellTeam sets the variable, its former fixed `<HOME>/.bellteam-accounts/claude` (shortcut: drop that one in the release after BellTeam sets it).
+ */
+export function claudeTokenRoots(env: NodeJS.ProcessEnv = process.env): string[] {
+  const home = env.HOME ?? os.homedir();
+  const set = (env.AITERM_CLAUDE_TOKEN_ROOTS ?? "").split(path.delimiter).filter(root => root && path.isAbsolute(root));
+  return set.length ? set : [path.join(home, ".aiterm", "claude-accounts"), path.join(home, ".bellteam-accounts", "claude")];
+}
+
+/** The only accepted token file: `<allowed folder>/<slot>/oauth-token`. Anything else is refused before any start. */
 export function claudeOauthTokenFile(file: unknown): string {
-  const home = process.env.HOME ?? os.homedir();
   const slot = typeof file === "string" && path.isAbsolute(file) && path.basename(file) === "oauth-token" ? path.basename(path.dirname(file)) : "";
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(slot) || file !== path.join(home, ".bellteam-accounts", "claude", slot, "oauth-token"))
-    throw new AitermError("AGENT_AUTH_TOKEN_FILE_REJECTED: token_fileは<HOME>/.bellteam-accounts/claude/<slot>/oauth-tokenだけを受けます。開始していません。", 2);
-  return file;
+  const roots = claudeTokenRoots();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(slot) || !roots.some(root => file === path.join(root, slot, "oauth-token")))
+    throw new AitermError(`AGENT_AUTH_TOKEN_FILE_REJECTED: token_fileは<許可したfolder>/<slot>/oauth-tokenだけを受けます（許可: ${roots.join(", ")}）。開始していません。`, 2);
+  return file as string;
 }
 
 export function claudeSetupTokenPlan(): AgentAuthPlan { return { args: ["setup-token"], env: [] }; }

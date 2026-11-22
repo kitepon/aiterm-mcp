@@ -277,7 +277,7 @@ function fail(e: unknown): ToolResult {
 }
 
 /**
- * Factory 向けの read-only 診断。JSON の field は意図的に allowlist 制で、絶対 path、環境変数、
+ * 監視・自動化向けの read-only 診断。JSON の field は意図的に allowlist 制で、絶対 path、環境変数、
  * token、コマンド本文、PTY 出力、raw log、認証状態を公開しない。
  */
 async function factoryDiagnostics(format: "v1" | "v2" = "v1"): Promise<string> {
@@ -523,7 +523,7 @@ server.registerTool(
   "diagnostics",
   {
     description:
-      "Factory 向け read-only 診断。安全な状態語彙だけを機械可読 JSON で返す（PTY 内容・認証情報・path・環境値は返さない）。" +
+      "監視・自動化向けの read-only 診断。安全な状態語彙だけを機械可読 JSON で返す（PTY 内容・認証情報・path・環境値は返さない）。" +
       "2つ目のtextは親配送hook（Claude Code・Cursor）の登録状態で、caller_status が setup_required なら呼出元からのagent送信は拒否される。aiterm-setup を実行する。",
     inputSchema: { format: z.enum(["v1", "v2"]).optional().describe("既定v1は既存の固定fieldを維持。v2はPTY診断の安全なreason_codeを含む。") },
   },
@@ -1384,7 +1384,7 @@ registerRemoteAwareTool(
       configuration_root: z.string().min(1).optional().describe("claude-code harnessだけ。認証する設定root（CLAUDE_CONFIG_DIR）。受ける範囲はagent_launchと同じ。startで決めたrootと違う指定はAGENT_CONFIGURATION_ROOT_REJECTED"),
       login: z.enum(["oauth_token"]).optional().describe("claude-code harnessだけ、token_fileと組。startは状態を聞かずに必ず `claude setup-token` を起こし、出たtokenをAitermがtoken_fileへ書く（本人・0600・置き換え）。" +
         "statusはtoken_fileが本人の0600の空でない通常fileの時だけauthenticated（.credentials.jsonは見ない）。失敗・取消では書かない。receiptはloginを返す"),
-      token_file: z.string().min(1).optional().describe("login:\"oauth_token\"の書き先。HOME配下の決まった形のslotのoauth-tokenだけを受け、他はAGENT_AUTH_TOKEN_FILE_REJECTED（開始しない）"),
+      token_file: z.string().min(1).optional().describe("login:\"oauth_token\"の書き先。許可したfolder（環境変数AITERM_CLAUDE_TOKEN_ROOTS。未設定なら<HOME>/.aiterm/claude-accounts。0.70.99までは従来の固定の置き場も受ける）の<slot>/oauth-tokenだけを受け、他はAGENT_AUTH_TOKEN_FILE_REJECTED（開始しない）"),
     },
     outputSchema: {
       schema: z.literal("aiterm.agent-auth-result.v1"),

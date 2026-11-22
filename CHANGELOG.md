@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Aiterm's BellTeam-named defaults become neutral or caller-given (a532b3, Owner's boundary ruling via Tronie). `agent_auth` `login:"oauth_token"` `token_file` is accepted under the folders named by the environment variable `AITERM_CLAUDE_TOKEN_ROOTS` (path-delimited, set by whoever starts the server); unset, it accepts the neutral `<HOME>/.aiterm/claude-accounts` and, for BellTeam's existing callers until they set the variable, the former fixed `<HOME>/.bellteam-accounts/claude` (that one is dropped in a later release). The `agent_models` effort-order comment and the `diagnostics` description no longer name BellTeam or Factory; the published tool list contains no BellTeam word.
+
 ## [0.70.98] - 2026-11-22
 
 - A resume that died half-way no longer blocks a seat for good (a527, Kiro). A `resuming` attempt stayed forever when its process was killed (the container's execution restart, 2026-11-21 21:26Z): the seat could not be woken or closed (`AGENT_RESUME_UNCONFIRMED`, BellTeam `BOT_LAUNCH_FAILED`) for 18 h. The resume entry and the close of a hibernated seat now abandon such an attempt, and only it, when the files and the process table prove nothing is resuming (hibernated old launch, next never published, attempt older than 120 s, no native session of that name, the next launch's pinned pane not running): the attempt and its evidence move to `<old launch>.resume-abandoned.json` and the seat is a plain hibernated seat again. `failed` attempts and the Codex recovery are unchanged. Contract: `docs/architecture/lifecycle-state-ownership.md`.

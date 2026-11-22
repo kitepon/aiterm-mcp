@@ -75,3 +75,7 @@ BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
 各コード変更前は本体と製品の全体・担当・呼出元/使用先の図を読み、共通手順に沿って変更要否と範囲を記録する。必要な図とコードは同じ差分に含める。対象図は製品repoの`docs/architecture/`へ正本を移し、旧場所はリンクに置換する。自席外の進行資料だけで代用せず、現行/未実装設計/完成候補を区別する。
 
 モデルの現在値と希望値を区別し、運用の設定適用記録は本体側で保持する。本体の適用時機/待機契約はキロ、Aitermのnative設定契約はエレグ。双方の修理を今回の製品refactor commitへ混ぜない。
+
+## Approval Box door on remote hosts（a516e、0.70.94）
+
+遠隔ホストの席から本体の決裁箱へ届く道。ホスト利用者ごとに固定の場所（POSIX `~/.aiterm/approval-box-door.sock` 0600、Windowsは固定のnamed pipe）で、Aitermの `aiterm-approval-door` がconnectorの行を受け、既存のseat route（R12、`127.0.0.1:P`）へ `POST /api/seat-mcp/approval-box/local`（モリー氏のa516m。1行1 POST、返りはdaemonの行そのまま）で渡す。bearerは席の起動・復帰の度にAitermのhostが登録し、ドアのmemoryだけに置く（diskに置かない、新しい秘密を作らない）。ドアは登録した席のnative sessionが1つでも生きている間だけ開く。connector側（`approval-box use-hosted --socket`）はナユタ氏、本体の窓口はモリー氏が持つ。正本: [remote-terminal.md](remote-terminal.md) R22・T5。

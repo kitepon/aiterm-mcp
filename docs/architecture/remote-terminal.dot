@@ -26,6 +26,8 @@ digraph remote_terminal {
  runtime [label="terminal ~/.aiterm/runtime/current\nnode + aiterm-mcp + its own multiplexer\ntmux (static on linux), psmux.exe on Windows\nbin first on PATH (terminalCommand)",fillcolor="#fff7e6"];
  assets [label="GitHub Release assets (R17)\naiterm-runtime-V-darwin|linux-arm64|x64.tar.gz + win32-x64.zip + one SHA256SUMS\nruntime.yml: macOS, ubuntu and windows build jobs, one publish job",fillcolor="#f0f0f0"];
  pathops [label="terminal: path-status / make-dir / list-dirs (R15)\n{exists, directory, writable}\nnative path form (POSIX or X:\\...)\nlist-dirs: {home, path, exists, directory, entries, truncated}, read only\nFOLDER_NOT_PERMITTED"];
+ door [label="terminal: aiterm-approval-door (R22), one per host user, detached\nstable address: POSIX ~/.aiterm/approval-box-door.sock (dir 0700, socket 0600)\nWindows: fixed named pipe, same user only\nregistered seats {session, P, bearer} in memory only, never on disk\nlistens while >=1 registered seat's native session exists; else closes",fillcolor="#fff7e6"];
+ relay [label="terminal: Approval Box connector daemon (Nayuta)\napproval-box use-hosted --socket <door address>\nlogs and retries while the door is closed",fillcolor="#f0f0f0"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
  trust -> terminals [label="revisions (public)"];
@@ -63,4 +65,8 @@ digraph remote_terminal {
  assets -> runtime [label="curl + sha256",style=dashed];
  runtime -> rmcp [label="open / calls use it"];
  conn -> pathops [label="R15 path base64"];
+ launch -> door [label="R22 register {session, P, bearer}\n(launch and resume; private env line value, in memory)",style=dashed];
+ relay -> door [label="R22 connector lines (newline JSON)"];
+ door -> fwd [label="R22 POST http://127.0.0.1:P/api/seat-mcp/approval-box/local\nAuthorization of a live registered seat"];
+ door -> pane [label="liveness: native session exists (has-session)",style=dashed];
 }

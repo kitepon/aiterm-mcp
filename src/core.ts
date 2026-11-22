@@ -2533,7 +2533,7 @@ export async function maintainAgentIdleClocks(): Promise<void> {
       if (["claude", "codex"].includes(meta.kind)) seats.push({ session: name, launchId: meta.launch_id });
     } catch { process.stderr.write("aiterm: idle_clock_sweep_unconfirmed\n"); }
   }
-  requestAgentIdleClocks(seats);
+  requestAgentIdleClocks(seats, { sweep: true });
 }
 
 /** Private guarded-runtime read. Legacy metadata without an original native

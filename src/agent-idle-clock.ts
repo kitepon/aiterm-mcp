@@ -81,8 +81,15 @@ export async function armAgentIdleClock(meta: AgentMetadata, anchor: string | nu
 export function requestAgentIdleClock(session: string, launchId: string): void {
   requestAgentIdleClocks([{ session, launchId }]);
 }
+/**
+ * A sweep must not start a checker per sweep for a seat whose check ends unarmed (a pane left at bash after its harness died: the
+ * checker retires the clock, so the next sweep finds no owner again, a496e). Each seat waits twice as long as last time (1 min up to
+ * 10 min) until an owner is alive again, and one sweep starts at most a few checkers so a restart does not spawn them all at once.
+ */
+const SWEEP_RETRY_MIN_MS = 60_000, SWEEP_RETRY_MAX_MS = 600_000, SWEEP_STARTS_PER_CALL = 4;
+const sweepRetry = new Map<string, { until: number; wait: number }>();
 /** Starts a checker for each seat whose clock owner is gone; every owner is confirmed with one process read. */
-export function requestAgentIdleClocks(seats: { session: string; launchId: string }[]): void {
+export function requestAgentIdleClocks(seats: { session: string; launchId: string }[], o: { sweep?: boolean } = {}): void {
   if (!AGENT_IDLE_ENABLED) return;
   const wanted: { session: string; launchId: string; clock: AgentIdleClock | null }[] = [];
   for (const { session, launchId } of seats) {
@@ -95,9 +102,21 @@ export function requestAgentIdleClocks(seats: { session: string; launchId: strin
   let alive: Set<string>;
   try { alive = new Set(owners.length ? readProcessIdentities(owners).map(row => `${row.pid}:${row.started_identity}`) : []); }
   catch { process.stderr.write("aiterm: idle_clock_state_unconfirmed\n"); return; }
+  const now = Date.now(), seen = new Set<string>();
+  let started = 0;
   for (const { session, launchId, clock } of wanted) {
-    if (clock && alive.has(`${clock.owner.pid}:${clock.owner.started_identity}`)) continue;
+    const key = `${session}:${launchId}`;
+    seen.add(key);
+    if (clock && alive.has(`${clock.owner.pid}:${clock.owner.started_identity}`)) { sweepRetry.delete(key); continue; }
+    if (o.sweep) {
+      const previous = sweepRetry.get(key);
+      if (previous && now < previous.until || started >= SWEEP_STARTS_PER_CALL) continue;
+      const wait = previous ? Math.min(previous.wait * 2, SWEEP_RETRY_MAX_MS) : SWEEP_RETRY_MIN_MS;
+      sweepRetry.set(key, { until: now + wait, wait });
+      started++;
+    }
     void detached(idleClockCommand(0, liveNodeExecutable(), [CLI, "--session", session, "--launch", launchId]))
       .catch(() => { process.stderr.write("aiterm: idle_clock_start_failed\n"); });
   }
+  if (o.sweep) for (const key of sweepRetry.keys()) if (!seen.has(key)) sweepRetry.delete(key);
 }

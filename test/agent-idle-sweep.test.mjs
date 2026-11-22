@@ -13,6 +13,7 @@ process.env.AITERM_TMUX = tmux; process.env.AITERM_PSMUX = tmux;
 const { agentEventPath, writeAgentMetadata } = await import('../dist/agent-shared.js');
 const { writeAgentIdleClock, writeAgentResumeNative } = await import('../dist/agent-lifecycle.js');
 const { maintainAgentIdleClocks } = await import('../dist/core.js');
+const { requestAgentIdleClocks } = await import('../dist/agent-idle-clock.js');
 const { agentManagedClaudeSettingsPath, agentClaudeResultPath } = await import('../dist/harnesses/claude.js');
 
 test('idle sweep: only live seats, one process read for all clocks, a checker only where the owner is gone', { skip: process.platform === 'win32' }, async t => {
@@ -55,4 +56,26 @@ test('idle sweep: only live seats, one process read for all clocks, a checker on
   childProcess.spawnSync = (command, args, options) => command === tmux ? { status: 1, stdout: '', stderr: 'no', output: [], error: new Error('ENOENT') } : oldSync(command, args, options);
   syncBuiltinESMExports();
   await assert.doesNotReject(maintainAgentIdleClocks());
+});
+
+test('idle sweep: a seat whose check ends unarmed is not checked again every sweep, and one sweep starts only a few checkers (a496e)', { skip: process.platform === 'win32' }, async t => {
+  const seats = Array.from({ length: 6 }, (_, i) => {
+    const name = `herd_${i}`, launch = String(i).repeat(32);
+    const meta = { kind: 'claude', aiterm_session: name, launch_id: launch };
+    writeAgentResumeNative(meta, { schema: 'aiterm.agent-resume-native.v1', launch_id: launch, native_id: '$1', session_id: name,
+      server_pid: 1, server_started_identity: 'x', pane_id: '%1', pane_pid: 1, pane_started_identity: 'x' });
+    return { session: name, launchId: launch };
+  });
+  const oldSpawn = childProcess.spawn, started = [];
+  childProcess.spawn = (command, args) => {
+    started.push(args.at(-3)); const child = new EventEmitter(); child.pid = undefined; child.exitCode = 0; child.unref = () => {};
+    setImmediate(() => child.emit('spawn')); return child;
+  };
+  syncBuiltinESMExports();
+  t.after(() => { childProcess.spawn = oldSpawn; syncBuiltinESMExports(); });
+  const sweep = async options => { started.length = 0; requestAgentIdleClocks(seats, options); await new Promise(resolve => setImmediate(resolve)); return started.length; };
+  assert.equal(await sweep({ sweep: true }), 4, 'one sweep starts at most four checkers');
+  assert.equal(await sweep({ sweep: true }), 2, 'the seats already checked wait; the rest are started');
+  assert.equal(await sweep({ sweep: true }), 0, 'every seat is in its wait: no checker per sweep');
+  assert.equal(await sweep(), 6, 'an event-driven request (not a sweep) is never held back');
 });

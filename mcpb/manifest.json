@@ -114,6 +114,18 @@
       "description": "Aiterm-to-Aiterm relay of an uploaded image into the terminal's temp folder; callers use pty_send image."
     },
     {
+      "name": "ensure_forward",
+      "description": "Keep a reverse SSH forward up from a pinned remote.ssh target to a port on this computer; returns its port."
+    },
+    {
+      "name": "forward_status",
+      "description": "Port, readiness and need of a pinned target's forward."
+    },
+    {
+      "name": "release_forward",
+      "description": "Drop the launch hold of a pinned target's forward."
+    },
+    {
       "name": "diagnostics",
       "description": "Return a read-only, privacy-bounded factory readiness snapshot."
     }

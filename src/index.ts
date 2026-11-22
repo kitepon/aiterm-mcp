@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
-import { remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
+import { remoteIdPattern, remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
+import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureSeatForward, forwardStatus, releaseForward, extractMcpHeaders, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
   checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
@@ -557,6 +557,35 @@ server.registerTool(
     } catch (e) { return withErrorCode(fail(e)); }
   },
 );
+
+// remote-terminal.md "Generic remote surface" (a532b4): the reverse forward of a pinned (`remote.ssh`) target, kept by the same keeper a terminal seat has.
+const forwardOutput = { schema: z.literal("aiterm.forward.v1"), id: z.string(), port: z.number().int().nullable(), ready: z.boolean(), ready_at: z.string().nullable(), needed: z.boolean() };
+const forwardId = z.string().regex(remoteIdPattern).describe("The id of the pinned target (the `id` given with remote.ssh, or the one an earlier call returned)");
+const forwardResult = (state: ReturnType<typeof forwardStatus>) => ({ content: [{ type: "text" as const, text: `forward ${state.id} port=${state.port ?? "none"} ready=${state.ready}` }],
+  structuredContent: { schema: "aiterm.forward.v1" as const, ...state } });
+server.registerTool("ensure_forward", {
+  description: "A pinned `remote.ssh` target's reverse forward: 127.0.0.1:<port> on that machine reaches 127.0.0.1:<to_port> here. Keeps it up (restarts it, re-allocates the port after refusals) while a session is bound to the id or for 120 s after this call, and returns when it is ready. " +
+    "The port stays the same for the same id; remote_port asks for one.",
+  inputSchema: { remote: remoteInputSchema.describe("The pinned target: host, user, port and ssh {known_hosts_file, host_key_alias?, identity_agent? | identity_file?, strict_host_key: true}; id names it"),
+    to_port: z.number().int().min(1).max(65535).describe("The port on this computer's 127.0.0.1 the forward leads to"),
+    remote_port: z.number().int().min(1024).max(65535).optional().describe("The port on the machine; omitted: one is allocated and kept") },
+  outputSchema: forwardOutput,
+}, async ({ remote, to_port, remote_port }) => {
+  try {
+    const target = acceptRemote(remote);
+    if (!remote.ssh || !target.trusted_ref) throw new AitermError("REMOTE_INVALID: ensure_forward needs a pinned target (remote.ssh)", 2);
+    await ensureSeatForward(target.trusted_ref, to_port, undefined, remote_port);
+    return forwardResult(forwardStatus(target.trusted_ref));
+  } catch (e) { return withErrorCode(fail(e)); }
+});
+server.registerTool("forward_status", {
+  description: "The forward of a pinned target id as the keeper reports it: port, ready, ready_at (when it last became usable) and needed (a session or the 120 s grace holds it).",
+  inputSchema: { id: forwardId }, outputSchema: forwardOutput,
+}, async ({ id }) => { try { return forwardResult(forwardStatus(id)); } catch (e) { return withErrorCode(fail(e)); } });
+server.registerTool("release_forward", {
+  description: "Drops the 120 s hold of a pinned target's forward. The keeper stops by itself once no session is bound to the id.",
+  inputSchema: { id: forwardId }, outputSchema: forwardOutput,
+}, async ({ id }) => { try { return forwardResult(releaseForward(id)); } catch (e) { return withErrorCode(fail(e)); } });
 
 registerRemoteAwareTool(
   "image_read",
@@ -1981,8 +2010,14 @@ server.registerTool(
       ? new AgentResumeUnavailableError(args.session_name)
       : launchInputRefusal(harness, "require_existing_resume requires session_name"));
     if (!remote) return launchAgent(kindForHarness(harness), args, extra, harness === "claude-code" || harness === "claude-machine" ? harness : undefined);
-    try { return withErrorCode(await launchRemoteAgent(acceptRemote(remote), harness, args, extra)); }
-    catch (e) { return withErrorCode(fail(e)); }
+    try {
+      const target = acceptRemote(remote);
+      const result = await launchRemoteAgent(target, harness, args, extra);
+      // a532b4: a pinned (`remote.ssh`) seat is addressed by session_id alone afterwards, like a terminal seat (T2 by id).
+      const session = remote.ssh ? result?.structuredContent?.session_id : undefined;
+      if (typeof session === "string" && target.trusted_ref) bindTerminalSession(session, target.trusted_ref);
+      return withErrorCode(result);
+    } catch (e) { return withErrorCode(fail(e)); }
   },
 );
 

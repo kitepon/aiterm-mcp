@@ -13,14 +13,33 @@ export const remoteTargetSchema = z.object({
   identity_file: z.string().min(1).optional(),
   passphrase_env: z.string().regex(envNamePattern).optional(),
   ssh_options: z.array(z.string().regex(sshOptionPattern)).max(32).optional(),
-  // Set only by Aiterm from a terminal binding (remote-terminal.md); never accepted from tool input.
-  trusted_ref: z.string().uuid().optional(),
+  // Set only by Aiterm from a terminal binding or a pinned `ssh` target (remote-terminal.md); never accepted from tool input.
+  trusted_ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/).optional(),
 }).strict();
 export type RemoteTarget = z.infer<typeof remoteTargetSchema>;
 
+/**
+ * Pinned-host ssh (a532b4, remote-terminal.md "Generic remote surface"): a strict known_hosts file, a host-key alias and a dedicated identity, given by the caller.
+ * A typed subset, never a free `-o`: absolute paths without a newline, strict host checking always on.
+ */
+const sshPath = z.string().min(1).max(4096).refine(value => !/[\r\n\0]/.test(value) && (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)), "an absolute path without a line break");
+export const remoteSshSchema = z.object({
+  known_hosts_file: sshPath,
+  host_key_alias: z.string().regex(hostPattern).optional(),
+  identity_agent: sshPath.optional(),
+  identity_file: sshPath.optional(),
+  strict_host_key: z.literal(true),
+}).strict();
+export type RemoteSsh = z.infer<typeof remoteSshSchema>;
+export const remoteIdPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
 export const remoteInputSchema = remoteTargetSchema.omit({ trusted_ref: true }).extend({
   passphrase: z.string().min(1).optional(),
-}).strict().refine((value) => !(value.passphrase && value.passphrase_env), {
+  ssh: remoteSshSchema.optional(),
+  id: z.string().regex(remoteIdPattern).optional(),
+}).strict().refine(value => !value.ssh || (!value.identity_file && !value.passphrase && !value.passphrase_env && !value.ssh_options),
+  { message: "ssh gives the identity itself: not together with identity_file, passphrase, passphrase_env or ssh_options" })
+  .refine(value => !value.id || !!value.ssh, { message: "id names a pinned (ssh) target" }).refine((value) => !(value.passphrase && value.passphrase_env), {
   message: "passphraseとpassphrase_envは同時に指定できません",
 });
 export type RemoteInput = z.infer<typeof remoteInputSchema>;

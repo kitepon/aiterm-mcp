@@ -24,10 +24,14 @@ export class RemoteTerminalError extends Error {
   constructor(readonly code: string, message: string, readonly action?: string) { super(`${code}: ${message}`); }
 }
 
+import type { RemoteSsh } from "./remote-contract.js";
 export interface RemoteTarget { host: string; user: string; port: number }
-export interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number; seat_ingress_port?: number }
+export interface Binding { ref: string; target: RemoteTarget; key_file: string | null; known_hosts_file: string; host_key_alias: string | null; created_at: string; seat_forward_port?: number; seat_ingress_port?: number;
+  /** a532b4: a pinned `remote.ssh` target's agent socket (the caller's, stable across keeper restarts). */
+  identity_agent?: string | null }
 
-const REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// A terminal binding ref (UUID) or a caller-given id of a pinned `remote.ssh` target (a532b4): both key the same store, lock, session map and keeper.
+const REF = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const HOST = /^(?!-)[A-Za-z0-9._:\[\]-]{1,255}$/;
 const USER = /^(?!-)[A-Za-z0-9._-]{1,64}$/;
 const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
@@ -64,7 +68,7 @@ function readStore(): Binding[] {
 }
 
 export function binding(ref: string): Binding {
-  if (!REF.test(ref)) throw new RemoteTerminalError("REF_INVALID", "ref must be a UUID");
+  if (!REF.test(ref)) throw new RemoteTerminalError("REF_INVALID", "ref must be a binding ref or an id ([A-Za-z0-9_.-], at most 64)");
   const found = readStore().find(item => item.ref === ref);
   if (!found) throw new RemoteTerminalError("BINDING_UNKNOWN", "no binding has this ref");
   return found;
@@ -90,6 +94,33 @@ export function registerBinding(input: { target: RemoteTarget; keyFile?: string 
     host_key_alias: input.hostKeyAlias ?? null, created_at: new Date().toISOString() };
   writeJson0600(storePath(), { schema: "aiterm.remote-bindings.v1", bindings: [...bindings, next] });
   return bindingStatus(next.ref);
+}
+
+/**
+ * a532b4 (remote-terminal.md "Generic remote surface"): a pinned `remote.ssh` target becomes a binding keyed by its caller-given id: the same store, lock,
+ * session map and keeper as a terminal binding. Idempotent. An id that already names a binding must name the same machine (host, user, port); its ssh options
+ * may change (a registry migrating to another owner's files); its forward ports and creation time stay.
+ */
+export function upsertRemoteBinding(id: string, target: { host: string; user?: string; port?: number }, ssh: RemoteSsh): Binding {
+  if (!REF.test(id)) throw new RemoteTerminalError("REF_INVALID", "id must be [A-Za-z0-9_.-], at most 64");
+  const machine = { host: target.host, user: target.user ?? os.userInfo().username, port: target.port ?? 22 };
+  const bindings = readStore();
+  const existing = bindings.find(item => item.ref === id);
+  if (existing && (existing.target.host !== machine.host || existing.target.user !== machine.user || existing.target.port !== machine.port))
+    throw new RemoteTerminalError("REMOTE_ID_CONFLICT", `id ${id} already names another machine (${existing.target.user}@${existing.target.host}:${existing.target.port})`);
+  const next: Binding = { ...(existing ?? { created_at: new Date().toISOString() }), ref: id, target: machine, key_file: ssh.identity_file ?? null,
+    known_hosts_file: ssh.known_hosts_file, host_key_alias: ssh.host_key_alias ?? null, identity_agent: ssh.identity_agent ?? null };
+  if (existing && JSON.stringify(existing) === JSON.stringify(next)) return existing;
+  writeJson0600(storePath(), { schema: "aiterm.remote-bindings.v1", bindings: existing ? bindings.map(item => item.ref === id ? next : item) : [...bindings, next] });
+  return next;
+}
+
+/** The id of a pinned target: the caller's, or one derived from the machine and its known_hosts file; the binding is upserted. */
+export function pinnedBindingId(target: { host: string; user?: string; port?: number }, ssh: RemoteSsh, id?: string): string {
+  const user = target.user ?? os.userInfo().username, port = target.port ?? 22;
+  const key = id ?? `ssh-${createHash("sha256").update(JSON.stringify([target.host, user, port, ssh.known_hosts_file])).digest("hex").slice(0, 16)}`;
+  upsertRemoteBinding(key, { host: target.host, user, port }, ssh);
+  return key;
 }
 
 // ---- status: public metadata only ----
@@ -155,6 +186,19 @@ export function bindingStatus(ref: string): RemoteBindingStatus {
         fingerprints: trust.map(entry => keyFingerprint(Buffer.from(entry.split(" ").at(-1)!, "base64"))) }
       : { provider: "aiterm.known-hosts.v1", revision: null, fingerprints: [], available: false, reason: trust.reason },
   };
+}
+
+/**
+ * `aiterm-remote-terminal export --ref R` (a532b4): the public facts of a binding, so another owner's registry can take it over without a second trust decision.
+ * Read-only; the host's known_hosts lines are public; no key file contents, no credential handle. A changed key still stops (the lines are copied, never re-scanned).
+ */
+export function exportBinding(ref: string): Record<string, unknown> {
+  const b = binding(ref), status = bindingStatus(ref);
+  const matches = fs.existsSync(b.known_hosts_file) ? spawnSync("ssh-keygen", ["-F", knownHostName(b), "-f", b.known_hosts_file], { encoding: "utf8", timeout: 10_000 }) : null;
+  const lines = matches?.status === 0 ? matches.stdout.split("\n").filter(line => line && !line.startsWith("#")).map(line => line.trim()) : [];
+  return { schema: "aiterm.remote-export.v1", ref, target: b.target, host_key_alias: b.host_key_alias, known_hosts_lines: lines,
+    fingerprints: status.trust.fingerprints, trust_revision: status.trust.revision,
+    seat_forward_port: b.seat_forward_port ?? null, seat_ingress_port: b.seat_ingress_port ?? null };
 }
 
 /** Scan once; write the key only when it equals the fingerprint the Owner confirmed. A scan alone is never trust. */
@@ -649,7 +693,10 @@ export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarg
 export function trustedSshArguments(ref: string, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
   const b = binding(ref);
   let identity: string[];
-  if (b.key_file) identity = ["-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`];
+  if (b.identity_agent) {
+    // a532b4: the caller's own agent; with a key (or the public half of one) it selects among the agent's keys, without one every agent key is offered.
+    identity = ["-o", `IdentityAgent=${b.identity_agent}`, ...(b.key_file ? ["-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`] : [])];
+  } else if (b.key_file) identity = ["-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${b.key_file}`];
   else {
     // R13: only the key credential-load put into this terminal's private agent (its public half selects it).
     const loaded = readCredential(ref);
@@ -948,9 +995,11 @@ export function maintainSeatForwards(): void {
 }
 
 /** The terminal-local port for seat URLs reaching container port `ingress`; starts the keeper if no process holds it yet. */
-export async function ensureSeatForward(ref: string, ingress: number, timeoutMs = 30_000): Promise<number> {
-  // A new D makes the old P (forwarding to the old D) useless: clear it so the wait below sees only a forward to D.
-  if (binding(ref).seat_ingress_port !== ingress) writeBinding(ref, { seat_ingress_port: ingress, seat_forward_port: undefined });
+export async function ensureSeatForward(ref: string, ingress: number, timeoutMs = 30_000, remotePort?: number): Promise<number> {
+  // A new D makes the old P (forwarding to the old D) useless: clear it so the wait below sees only a forward to D. A caller's fixed P (a532b4) is the one asked for instead.
+  const stored = binding(ref);
+  if (stored.seat_ingress_port !== ingress || (remotePort !== undefined && stored.seat_forward_port !== remotePort))
+    writeBinding(ref, { seat_ingress_port: ingress, seat_forward_port: remotePort });
   fs.writeFileSync(launchFile(ref), String(Date.now() + LAUNCH_GRACE_MS), { mode: 0o600 });
   maintainSeatForwards();
   const deadline = Date.now() + timeoutMs;
@@ -962,6 +1011,19 @@ export async function ensureSeatForward(ref: string, ingress: number, timeoutMs 
     if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+}
+
+/** a532b4 `forward_status`: the forward of an id or ref as the keeper's lock reports it. */
+export function forwardStatus(ref: string): { id: string; port: number | null; ready: boolean; ready_at: string | null; needed: boolean } {
+  const port = binding(ref).seat_forward_port ?? null;
+  return { id: ref, port, ready: port !== null && forwardReady(ref, port), ready_at: forwardRouteSince(ref), needed: forwardNeeded(ref) };
+}
+
+/** a532b4 `release_forward`: drop the launch grace; the keeper exits itself once no session is mapped to the id (T3, unchanged). */
+export function releaseForward(ref: string): ReturnType<typeof forwardStatus> {
+  binding(ref);
+  fs.rmSync(launchFile(ref), { force: true });
+  return forwardStatus(ref);
 }
 
 // ---- R13 credential agent: a keyless terminal's key, loaded by execution over stdin, held only in a private ssh-agent ----

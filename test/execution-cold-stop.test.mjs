@@ -34,7 +34,7 @@ test('native SDK stop is idle before any tmux server or socket has ever existed'
   const names = (await client.listTools()).tools.map(tool => tool.name).sort();
   assert.deepEqual(names, ["pty_open", "pty_send", "pty_read", "pty_key", "pty_close", "pty_list", "pty_observe",
     "agent_launch", "claude_agent", "codex_agent", "grok_agent", "agent_models", "agent_configure", "agent_goal", "agent_auth",
-    "agent_approval", "claude_turn", "claude_approval", "diagnostics", "agent_stop", "stream_read", "stream_send", "image_put", "image_read"].sort());
+    "agent_approval", "claude_turn", "claude_approval", "diagnostics", "agent_stop", "stream_read", "stream_send", "image_put", "image_read", "ensure_forward", "forward_status", "release_forward"].sort());
   const result = await client.callTool({ name: 'agent_stop', arguments: { session_id: 'cold-never-started' } });
   assert.equal(result.isError, undefined);
   assert.deepEqual(result.structuredContent, { session_id: 'cold-never-started', status: 'idle',

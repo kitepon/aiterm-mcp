@@ -29,6 +29,9 @@ digraph remote_terminal {
  door [label="terminal: aiterm-approval-door (R22), one per host user, detached\nstable address: POSIX ~/.aiterm/approval-box-door.sock (dir 0700, socket 0600)\nWindows: fixed named pipe, same user only\nregistered seats {session, P, bearer} in memory only, never on disk\nlistens while >=1 registered seat's native session exists; else closes",fillcolor="#fff7e6"];
  relay [label="terminal: Approval Box connector daemon (Nayuta)\napproval-box use-hosted --socket <door address>\nlogs and retries while the door is closed",fillcolor="#f0f0f0"];
  imgs [label="terminal: image_put / image_read (R23, R24)\nuploaded image -> <temp>/aiterm-images/<uuid>.<ext> 0600\nread one image by absolute path inside the seat's cwd or temp folders\npng/jpeg/gif/webp by first bytes, <= 25 MiB",fillcolor="#fff7e6"];
+ pinned [label="generic remote (a532b4): remote.ssh + id on any remote call\nupsertRemoteBinding(id) = binding keyed by id (same store, lock, T2, keeper)\nensure_forward / forward_status / release_forward (local tools)\nbin aiterm-remote: install-key / install-aiterm / forward-keeper / export",fillcolor="#fff7e6"];
+ pinned -> trusted [label="trusted_ref = id"];
+ pinned -> keeper [label="ensure_forward: D, P?, grace"];
  terminals -> server [label="stdio via seat runner"];
  server -> trust [label="R1 ref"];
  trust -> terminals [label="revisions (public)"];

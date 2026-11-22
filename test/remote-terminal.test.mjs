@@ -347,7 +347,7 @@ test("binding status: revisions follow the key and the matching known_hosts entr
   spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "pass-phrase", "-f", locked]);
   const lockedRef = rt.registerBinding({ target: { host: "10.0.0.2", user: "kite", port: 2222 }, keyFile: locked, knownHostsFile: known }).ref;
   assert.equal(rt.bindingStatus(lockedRef).credential.reason, "KEY_PASSPHRASE_REQUIRED");
-  assert.throws(() => rt.bindingStatus("not-a-uuid"), error => error.code === "REF_INVALID");
+  assert.throws(() => rt.bindingStatus("not a ref!"), error => error.code === "REF_INVALID");
   assert.throws(() => rt.bindingStatus("00000000-0000-4000-8000-000000000000"), error => error.code === "BINDING_UNKNOWN");
 });
 

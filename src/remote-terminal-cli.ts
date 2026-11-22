@@ -12,9 +12,9 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, runForwardKeeper, type RemoteCommandOp } from "./remote-terminal.js";
+import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, runForwardKeeper, exportBinding, pinnedBindingId, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
-import { credentialHandleSchema, terminalOsSchema } from "./remote-contract.js";
+import { credentialHandleSchema, remoteInputSchema, terminalOsSchema } from "./remote-contract.js";
 import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
 import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization } from "./remote-authorize.js";
 import { provision, runtimeSmoke } from "./remote-provision.js";
@@ -47,6 +47,16 @@ function readStdin(): Promise<Buffer> {
     process.stdin.on("data", (chunk: Buffer) => chunks.push(chunk));
     process.stdin.on("end", () => { const all = Buffer.concat(chunks); for (const chunk of chunks) chunk.fill(0); resolve(all); });
   });
+}
+
+/** The binding a command works on: `--ref`/`--id`, or a pinned target given as `--remote '<json>'` (host, user, port, ssh, id; no secret) which is upserted first. */
+function bindingRef(rest: string[]): string {
+  const remote = option(rest, "--remote");
+  if (remote === undefined) return option(rest, "--ref") ?? option(rest, "--id") ?? "";
+  let parsed: ReturnType<typeof remoteInputSchema.safeParse>;
+  try { parsed = remoteInputSchema.safeParse(JSON.parse(remote)); } catch { throw new RemoteTerminalError("REMOTE_INVALID", "--remote must be JSON"); }
+  if (!parsed.success || !parsed.data.ssh) throw new RemoteTerminalError("REMOTE_INVALID", "--remote must be a pinned target: host, ssh and optional user, port, id");
+  return pinnedBindingId(parsed.data, parsed.data.ssh, parsed.data.id);
 }
 
 function pathArgument(rest: string[]): string {
@@ -108,7 +118,9 @@ export function main(args: string[]): void {
   const [command, ...rest] = args;
   if (command === "serve") return serve();
   // Started detached by Aiterm itself (remote-terminal.md forward keeper); not an operator command.
-  if (command === "forward-keeper") return runForwardKeeper(option(rest, "--ref") ?? "");
+  if (command === "forward-keeper") return runForwardKeeper(bindingRef(rest));
+  // Read-only: the public facts of a binding, for taking it over (a532b4).
+  if (command === "export") return oneShot(() => exportBinding(option(rest, "--ref") ?? option(rest, "--id") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "status") return oneShot(() => bindingStatus(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "register") return oneShot(() => registerBinding({
     target: { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", port: Number(option(rest, "--port") ?? "22") },
@@ -130,13 +142,13 @@ export function main(args: string[]): void {
   }
   if (command === "authorize-key") return oneShot(() => {
     // Trust and the held key are checked before stdin is read (R14).
-    const prepared = prepareAuthorization(option(rest, "--ref") ?? "");
+    const prepared = prepareAuthorization(bindingRef(rest));
     const system = option(rest, "--os");
     if (system !== undefined && !terminalOsSchema.safeParse(system).success) throw new RemoteTerminalError("OS_INVALID", "--os must be macos, linux or windows");
     return readStdin().then(password => authorizeKey(prepared, password, system === "windows" ? "windows" : "posix"));
   }, "aiterm.remote-binding-error.v1");
   if (command === "askpass") return askpass(rest.join(" "), process.env[ASKPASS_SOCKET_ENV]);
-  if (command === "provision") return oneShot(() => provision(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
+  if (command === "provision") return oneShot(() => provision(bindingRef(rest)), "aiterm.remote-binding-error.v1");
   if (command === "retire-stale") return oneShot(() => {
     const since = option(rest, "--since");
     if (since !== undefined && !/^\d+$/u.test(since)) throw new RemoteTerminalError("SINCE_INVALID", "--since is the epoch seconds the new code became active");
@@ -151,7 +163,7 @@ export function main(args: string[]): void {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|export|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale\n");
   process.exit(64);
 }
 

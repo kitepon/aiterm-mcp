@@ -102,6 +102,8 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む23
     "claude_turn",
     "codex_agent",
     "diagnostics",
+    "ensure_forward",
+    "forward_status",
     "grok_agent",
     "image_put",
     "image_read",
@@ -112,6 +114,7 @@ test("smoke: stdout は JSON-RPC のみ / diagnostics と agent_goal を含む23
     "pty_open",
     "pty_read",
     "pty_send",
+    "release_forward",
     "stream_read",
     "stream_send",
   ]);

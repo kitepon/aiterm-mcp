@@ -2,6 +2,7 @@
 // 現地のAitermが起動・hook・transcriptを所有し、ここはMCPとaiterm-waitをSSHのstdioへ中継するだけにする。
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -11,7 +12,7 @@ import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartP
 import { ensureStateRoot, stateRoot } from "./agent-shared.js";
 import { currentUid } from "./state-root.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
-import { RemoteTerminalError, SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
+import { RemoteTerminalError, SshStdioTransport, classifySshFailure, trustedSshArguments, pinnedBindingId } from "./remote-terminal.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string; bin: Record<string, string> };
 
@@ -31,7 +32,13 @@ export function remoteLabel(target: RemoteTarget): string {
 
 /** 入力から記録用の接続情報を取り出し、平文パスフレーズはメモリへ退避する。 */
 export function acceptRemote(input: RemoteInput): RemoteTarget {
-  const { passphrase, ...target } = input;
+  const { passphrase, ssh, id, ...target } = input;
+  if (ssh) {
+    // a532b4: a pinned target is a binding keyed by its id (the caller's, or derived from the machine and its known_hosts file), so the strict ssh, the
+    // warm session, the keeper and later session-only calls are the ones a terminal seat already has.
+    const key = pinnedBindingId(target, ssh, id);
+    return { host: target.host, user: target.user ?? os.userInfo().username, port: target.port ?? 22, trusted_ref: key };
+  }
   if (passphrase) passphrases.set(remoteKey(target), passphrase);
   return target;
 }

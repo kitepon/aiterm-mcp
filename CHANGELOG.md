@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.93] - 2026-11-22
+
 - The idle-clock sweep no longer starts a checker for the same dead pane every few seconds (a496e, Kiro). A pane whose harness died but whose bash stays (`state: dead, reason: harness_exited`) gets a checker that ends without arming a clock, so every `pty_list` found no owner and started it again: about 57 `agent-idle-cli` processes (~107 MB each) per sweep, doubled when two sweeps overlapped, ~12 GB at peak on the BellTeam host. A sweep now waits 1 min, then 2, 4 … up to 10 min before checking the same seat again (reset when its clock owner is alive), and starts at most four checkers per sweep; a request from an event (turn end, launch) is never held back.
 
 ## [0.70.92] - 2026-11-22
@@ -3624,7 +3626,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.92...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.93...HEAD
+[0.70.93]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.92...v0.70.93
 [0.70.92]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.91...v0.70.92
 [0.70.91]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.90...v0.70.91
 [0.70.90]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.89...v0.70.90

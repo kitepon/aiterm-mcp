@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.104] - 2026-11-22
+
 - The unused execution-tracking layer is gone (a532b2 stage 1b, Kiro's 1a is live: BellTeam PR #2368; Tronie's boundary ruling). Removed: the tools `agent_execution` and `agent_execution_roots` (they existed only on the private composition `createNativeExecutionServer`, never on the default server or on BellTeam's delivery server), the execution store and service and everything that only they reached (`execution-tools`, `-service`, `-store`, `-lock`, `-participant`, `-participant-store`, `-dispatch`, `-invocation`, `-runtime`, `-interruption`, `-launch-recovery`, `-steer`, `-parent`, `-parent-manager`, `-parent-producer`, `-parent-queue`, `-parent-endpoint`, `-parent-native`, `-parent-alias`, `-parent-claude-records`: about 4,100 lines and their tests), `createNativeExecutionServer` / `createNativeExecutionWorker`, and the `execution` option of `createAitermServer`. Unchanged for BellTeam: `./execution-native-server` (`createNativeDeliveryServer` with `agent_stop`, `parseNativeExecutionArguments`, the CLI entry), `./execution-parent-worker` (`localParentWorkerRuntime.scope()` is now the only export of that file), `execution-native-setup`. The default tool list and the delivery server's tool list are unchanged; no execution directory was ever written in production. Nine small modules that `core.ts`, `tmux-runtime.ts` and parent delivery still import stay (dormant branches; a separate refactor).
 
 ## [0.70.103] - 2026-11-22
@@ -3670,7 +3672,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...HEAD
+[0.70.104]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...v0.70.104
 [0.70.103]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...v0.70.103
 [0.70.102]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...v0.70.102
 [0.70.101]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...v0.70.101

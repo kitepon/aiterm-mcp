@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The Approval Box door closes a connection that has not completed its request line within 30 s (a516e, Nayuta). On Windows the named pipe keeps Node's default DACL (SYSTEM and Administrators full, Everyone read only), documented in `remote-terminal.md` R22; the idle close keeps a read-only stranger from holding a connection.
+
 ## [0.70.94] - 2026-11-22
 
 - Approval Box door on terminals (a516e, Tronie/Molly/Nayuta). A terminal's Aiterm now serves one stable address per host user (POSIX `~/.aiterm/approval-box-door.sock` 0600, Windows a fixed named pipe) while a seat launched through BellTeam is live, and forwards each Approval Box connector line to the body's `POST /api/seat-mcp/approval-box/local` over the seat route with that seat's bearer. The bearer is registered at every launch and resume and kept in the door's memory only; nothing is written to disk. The door closes when no registered seat's native session is left. Inert until a connector uses it (`approval-box use-hosted --socket`). Contract: `docs/architecture/remote-terminal.md` R22/T5.

@@ -143,3 +143,24 @@ test("the served address answers registration and a large line, is 0600, and goe
     for (const file of fs.readdirSync(dir, { recursive: true })) assert.equal(fs.statSync(path.join(dir, file)).isFile() && fs.readFileSync(path.join(dir, file), "utf8").includes(A), false);
   } finally { server?.close(); body.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("a connection that never finishes its line is closed after the idle limit, one that is answered is not cut", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "door-"));
+  const address = process.platform === "win32" ? `\\\\.\\pipe\\aiterm-door-idle-${process.pid}` : path.join(dir, "idle.sock");
+  const door = new Door(() => true);
+  const server = await serveDoor(door, address, () => {}, 30_000, 150);
+  try {
+    const closedAt = await new Promise((resolve, reject) => {
+      const started = Date.now(), socket = net.connect(address);
+      socket.on("error", reject);
+      socket.on("close", () => resolve(Date.now() - started));
+      socket.on("connect", () => socket.write('{"method":"GET"')); // no newline: the line never completes
+    });
+    assert.ok(closedAt >= 100 && closedAt < 2000, `closed after ${closedAt} ms`);
+    const slow = await ingress(() => [200, '{"ok":true}']);
+    door.register("s", slow.port, A);
+    const reply = await new Promise((resolve, reject) => { const socket = net.connect(address); let got = ""; socket.setEncoding("utf8"); socket.on("error", reject); socket.on("connect", () => socket.write("{}\n")); socket.on("data", chunk => { got += chunk; }); socket.on("end", () => resolve(got)); });
+    assert.equal(reply, '{"ok":true}\n');
+    slow.close();
+  } finally { server?.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

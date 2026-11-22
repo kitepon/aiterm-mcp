@@ -25,6 +25,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv, privateEnvValue, privateEnvLoaded } from "./private-env.js";
 import { registerApprovalDoor, seatRegistration } from "./approval-door.js";
+import { consumedPrivateNames, postLaunchSchema, runPostLaunch, type PostLaunchResult } from "./post-launch.js";
 import { IMAGE_CHUNK_BYTES, imageReadRoots, putImage, readImage, readImagePiece, uploadImages, type PutResult } from "./remote-image.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
@@ -1619,6 +1620,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   // A remote that does not know the harness cannot name the refusal itself (its schema rejects the value): say it here, before anything is sent.
   const needs = harness === "claude-machine" ? { minimum: CLAUDE_MACHINE_HARNESS_MINIMUM_VERSION, what: "harness claude-machine" }
     : args.fork_from ? { minimum: FORK_MINIMUM_VERSION, what: "fork_from" }
+    : args.post_launch !== undefined ? { minimum: POST_LAUNCH_MINIMUM_VERSION, what: "post_launch" }
     : args.settings_env !== undefined ? { minimum: SETTINGS_ENV_MINIMUM_VERSION, what: "settings_env" }
     : harness === "codex-cli" && (args.append_system_prompt !== undefined || args.mcp_config !== undefined)
       ? { minimum: CODEX_REMOTE_MINIMUM_VERSION, what: "append_system_prompt / mcp_config for codex-cli" } : null;
@@ -1636,7 +1638,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
   // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
   // claude_agent has no fork_from, so a fork always goes through agent_launch.
-  const result = target.trusted_ref && harness === "claude-code" && !args.fork_from
+  const result = target.trusted_ref && harness === "claude-code" && !args.fork_from && args.post_launch === undefined
     ? await callRemoteTool(target, "claude_agent", args, 600_000, privateEnv)
     : await callRemoteTool(target, "agent_launch", { harness, ...args }, 600_000, privateEnv);
   const structured = result.structuredContent as any;
@@ -1664,6 +1666,8 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   };
 }
 
+/** First release whose agent_launch knows post_launch (a532b1). An older terminal strips the unknown field silently, so it is refused here. */
+const POST_LAUNCH_MINIMUM_VERSION = "0.70.100";
 /** First release whose agent_launch knows fork_from (ADR 0140). */
 const FORK_MINIMUM_VERSION = "0.70.6";
 const callerMcpOutputSchema = z.object({ dropped: z.array(z.string()), replaced: z.array(z.string()) }).optional()
@@ -1707,7 +1711,7 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${minimum} or later is required (update Aiterm on the terminal)`, 2);
     const privateEnv: Record<string, string> = {};
     for (const name of args.env_vars ?? []) { const value = launchEnvValue(name); if (value !== undefined) privateEnv[name] = value; }
-    let mcpConfig = args.mcp_config;
+    let mcpConfig = args.mcp_config, seatPort: number | undefined;
     if (mcpConfig) {
       const extracted = extractMcpHeaders(mcpConfig);
       Object.assign(privateEnv, extracted.env);
@@ -1715,15 +1719,25 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
       // Codex cannot say every header shape: refuse here, not on the terminal after the private line was sent.
       if (harness === "codex-cli") try { codexMcpOverrides(mcpConfig); } catch (e) { throw launchInputRefusal(harness, (e as Error).message); }
       const ingress = seatIngressPort(mcpConfig);
-      if (ingress) mcpConfig = rewriteSeatMcpConfig(mcpConfig, await ensureSeatForward(target.trusted_ref, ingress));
+      if (ingress) { seatPort = await ensureSeatForward(target.trusted_ref, ingress); mcpConfig = rewriteSeatMcpConfig(mcpConfig, seatPort); }
     }
     const envVars = [...new Set([...(args.env_vars ?? []), ...Object.keys(privateEnv)])];
     const result = await launchRemoteAgent(target, harness,
-      { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra, privateEnv);
+      { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra,
+      // P goes on the private line only for the hook (a532b1): it is not in env_vars, so the seat's own environment never gets it.
+      { ...privateEnv, ...(seatPort !== undefined && args.post_launch !== undefined ? { AITERM_SEAT_FORWARD_PORT: String(seatPort) } : {}) });
     const session = result?.structuredContent?.session_id;
     if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
     return withErrorCode(withTerminalLaunchAction(result, harness));
   } catch (e) { return withErrorCode(withTerminalLaunchAction(fail(e), harness)); }
+}
+
+/** a532b1: the caller's post_launch command after this seat was launched or resumed. Never fails the launch; undefined when none was given. */
+async function postLaunchFor(session: string, spec: unknown, args: { env_vars?: string[]; mcp_config?: any }): Promise<PostLaunchResult | undefined> {
+  if (spec === undefined || spec === null) return undefined;
+  let meta: ReturnType<typeof loadAgentMetadata> | null = null;
+  try { meta = loadAgentMetadata(session); } catch { /* the seat exists but its record is unreadable: still run the command as a launch */ }
+  return runPostLaunch(spec as any, { session, event: meta?.resumed_from ? "resume" : "launch", cwd: meta?.cwd, names: consumedPrivateNames(args) });
 }
 
 /** A bound terminal's launch or resume: the seat's route and bearer go to the Approval Box door (remote-terminal.md R22). Never fails the launch. */
@@ -1734,7 +1748,7 @@ async function registerDoor(session: string, mcpConfig: Record<string, unknown> 
 }
 
 async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unknown }, claudeHarness?: "claude-code" | "claude-machine"): Promise<any> {
-  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, settings_env, fork_from } = args;
+  const { prompt, image, throughline_source_session, throughline_supplement_file, model, reasoning_effort, fast, env_vars, cwd, session_name, launch_operation_id, write_scope, trust_project, require_existing_resume, configuration_root, append_system_prompt, mcp_config, settings_env, fork_from, post_launch } = args;
   const supportsWriteScope = kind !== "claude";
   let delivery: DeliveryRequest | null = null;
   try {
@@ -1770,6 +1784,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
       ...(fork_from ? { fork_from } : {}),
     });
     await registerDoor(sid, mcp_config);
+    const postResult = await postLaunchFor(sid, post_launch, { env_vars, mcp_config });
     const forkOf = fork_from ? loadAgentMetadata(sid).fork_of : undefined;
     const structured = {
       schema: "aiterm.agent-launch-result.v1" as const,
@@ -1797,6 +1812,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
         : {}),
       ...(forkOf ? { fork_of: { session_id: forkOf.session_id, vendor_session_id: forkOf.vendor_session_id, write_ban: forkOf.write_ban } } : {}),
       ...(mcp_config != null ? { caller_mcp: loadAgentMetadata(sid).caller_mcp ?? { dropped: [], replaced: [] } } : {}),
+      ...(postResult ? { post_launch: postResult } : {}),
     };
     // 開始未確認（submitted_unconfirmed）は誤りにしない。sessionは立ち、promptは入力欄を離れ、配送も登録済み。
     // 誤りで返すとClaude Code親は受け口のhookを走らせず、子の回答が届かない（ADR 0093）。状態はinitial_promptと本文で伝える。
@@ -1811,6 +1827,7 @@ async function launchAgent(kind: core.AgentKind, args: any, extra: { _meta?: unk
     delivery?.failed(e);
     if (e instanceof core.AgentLaunchPromptError) {
       await registerDoor(e.session_id, mcp_config);
+      await postLaunchFor(e.session_id, post_launch, { env_vars, mcp_config });
       return {
         ...fail(e),
         structuredContent: {
@@ -1945,6 +1962,7 @@ server.registerTool(
       append_system_prompt: z.string().min(1).optional().describe("Launch instructions added to the system prompt; kept in Aiterm state, not in the project or home. Never put secrets here. Codex: appended to developer_instructions after Aiterm's marker; Grok: appended to --rules; Antigravity: an always-on rule in the seat's own --add-dir folder; at most 64 KiB for these. Cursor has no system-prompt channel: the text goes in front of the first prompt, or of the first input sent to a promptless seat (at most 64 KiB)"),
       mcp_config: z.object({ mcpServers: z.record(z.string(), z.unknown()) }).strict().optional().describe("Extra MCP servers for this seat. Secret header values: write ${NAME} and list NAME in env_vars. Codex, Grok, Cursor and Antigravity take only http servers {type?: \"http\", url, headers, replace?: boolean}: a literal header, 'Authorization: Bearer ${NAME}' or a header whose whole value is ${NAME}; other shapes, and a ${NAME} with no value at launch, are refused before the seat starts. A server the seat's own harness config already defines under the same name is dropped for this seat (listed in caller_mcp.dropped) unless its entry has replace: true; then it replaces that server (Codex: a user stdio server of that name runs Aiterm's relay to the given url instead). Cursor runs a server as plugin-aiterm-caller-<name> beside a same-name user server, so nothing is dropped there"),
       settings_env: z.record(z.string(), z.string()).optional().describe("claude-code only. Environment values (name -> value) written into this seat's per-launch Claude settings `env` block on every machine, and again on resume. Nothing is set when omitted. Not for secrets: AITERM_*, CLAUDE_CONFIG_DIR and names ending TOKEN/KEY/SECRET/PASSWORD/CREDENTIAL/AUTH are refused (use env_vars by name). A remote below 0.70.76 refuses with REMOTE_AITERM_TOO_OLD"),
+      post_launch: postLaunchSchema.optional().describe("A command {command: string[]} run once after every launch and resume of this seat, by the Aiterm that created the native seat (a terminal-bound launch: the terminal's), as the seat's user in its cwd, no shell, 10 s (argv[0] \"node\" = the Node this Aiterm runs on). Environment: AITERM_SESSION_ID, AITERM_HOOK_EVENT (launch/resume), AITERM_SEAT_FORWARD_PORT (terminal-bound, when the seat has a route back), AITERM_SESSION_ALIVE (JSON argv of aiterm-session-alive), and the private values this launch consumed (env_vars, ${NAME} header references): never argv. It never fails the launch; the result carries post_launch {status, exit_code}. Not saved: send it on every launch and resume. Needs Aiterm 0.70.100 on the terminal."),
       fork_from: z.object({
         session_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("The main Aiterm seat on the same machine (the terminal or remote when given)"),
         fork_id: z.string().min(1).max(200).optional().describe("Caller's fork ID, passed to the seat as THROUGHLINE_FORK_ID"),
@@ -1971,6 +1989,7 @@ server.registerTool(
       write_scope: z.string().optional(),
       write_scope_enforcement: z.enum(["enforced_read_only", "declaration_only_unsupported"]).optional(),
       caller_mcp: callerMcpOutputSchema,
+      post_launch: z.object({ status: z.enum(["ok", "failed", "timeout"]), exit_code: z.number().int().nullable() }).optional().describe("The result of the caller's post_launch command (absent when none was given)"),
       fork_of: z.object({ session_id: z.string(), vendor_session_id: z.string(),
         write_ban: z.object({ path: z.string(), method: z.enum(["landlock", "seatbelt", "restricted-token"]) }) }).optional().describe("The seat this fork copies and the folder it cannot write"),
     },

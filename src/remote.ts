@@ -11,7 +11,7 @@ import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartP
 import { ensureStateRoot, stateRoot } from "./agent-shared.js";
 import { currentUid } from "./state-root.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
-import { RemoteTerminalError, SshStdioTransport, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
+import { RemoteTerminalError, SshStdioTransport, classifySshFailure, pinnedSshArguments, trustedSshArguments } from "./remote-terminal.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string; bin: Record<string, string> };
 
@@ -22,16 +22,23 @@ export { remoteTargetSchema, remoteInputSchema, remoteInputDescription, type Rem
 const passphrases = new Map<string, string>();
 
 export function remoteKey(target: RemoteTarget): string {
-  return createHash("sha256").update(JSON.stringify([target.host, target.user ?? null, target.port ?? null, target.trusted_ref ?? null])).digest("hex").slice(0, 12);
+  return createHash("sha256").update(JSON.stringify([target.host, target.user ?? null, target.port ?? null, target.trusted_ref ?? null, ...(target.ssh ? [target.ssh] : [])])).digest("hex").slice(0, 12);
 }
 
 export function remoteLabel(target: RemoteTarget): string {
   return `${target.user ? `${target.user}@` : ""}${target.host}${target.port ? `:${target.port}` : ""}`;
 }
 
+/** `ssh` is the whole identity and host-key policy: no second source of either (remote-terminal.md R27). */
+function assertPinnedAlone(target: { ssh?: unknown; identity_file?: unknown; ssh_options?: unknown[]; passphrase?: unknown; passphrase_env?: unknown }): void {
+  if (target.ssh && (target.identity_file || target.ssh_options?.length || target.passphrase || target.passphrase_env))
+    throw new AitermError("REMOTE_SSH_OPTIONS_CONFLICT: remote.ssh cannot be combined with identity_file, ssh_options, passphrase or passphrase_env", 2);
+}
+
 /** 入力から記録用の接続情報を取り出し、平文パスフレーズはメモリへ退避する。 */
 export function acceptRemote(input: RemoteInput): RemoteTarget {
   const { passphrase, ...target } = input;
+  assertPinnedAlone(input);
   if (passphrase) passphrases.set(remoteKey(target), passphrase);
   return target;
 }
@@ -81,6 +88,11 @@ export function sshInvocation(target: RemoteTarget, remoteCommand: string, optio
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (typeof value === "string" && !key.startsWith("AITERM_SSH_")) env[key] = value;
   if (target.trusted_ref) return { args: trustedSshArguments(target.trusted_ref, remoteCommand, process.platform === "win32" ? null : controlPath(target.trusted_ref)), env };
+  if (target.ssh) {
+    assertPinnedAlone(target);
+    // "p" is not a hex digit, so a pinned master never shares a socket with a binding's (t-<ref>) one.
+    return { args: pinnedSshArguments(target, target.ssh, remoteCommand, process.platform === "win32" ? null : controlPath(`p${remoteKey(target).slice(0, 7)}`)), env };
+  }
   const args = ["-T", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
   // 同じ接続先への後続呼び出しと完了待ちを一本のSSHに相乗りさせる。Windows版OpenSSHはControlMaster非対応。
   if (process.platform !== "win32") {
@@ -128,7 +140,7 @@ export function remoteShell(target: RemoteTarget): Promise<RemoteShell> {
   if (!shell) {
     shell = runSsh(target, REMOTE_SHELL_PROBE).then(({ code, stdout, stderr }) => {
       if (code === 255) {
-        if (target.trusted_ref) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
+        if (target.trusted_ref || target.ssh) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
         const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
         throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
       }
@@ -166,7 +178,7 @@ export function remotePlatform(target: RemoteTarget): Promise<RemotePlatform | n
   if (!platform) {
     platform = runSsh(target, REMOTE_PLATFORM_PROBE).then(({ code, stdout, stderr }) => {
       if (code === 255) {
-        if (target.trusted_ref) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
+        if (target.trusted_ref || target.ssh) { const failure = classifySshFailure(stderr); throw new RemoteTerminalError(failure.code, failure.message, failure.action); }
         const detail = stderr.trim().split("\n").slice(-3).join(" / ") || "exit 255";
         throw new AitermError(`REMOTE_CONNECT_FAILED: ${remoteLabel(target)} へ接続できません（${detail}）`, 2);
       }

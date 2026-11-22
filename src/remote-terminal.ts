@@ -16,6 +16,7 @@ import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
 import { powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
+import { FORWARD_ID, type PinnedSsh } from "./remote-contract.js";
 import { liveNodeExecutable } from "./live-node.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -645,6 +646,25 @@ export function terminalRemoteTarget(input: TerminalArgument): TrustedRemoteTarg
   return trustedTarget(b);
 }
 
+/** The one ssh argv shape for a pinned peer: no user config, one known_hosts file checked strictly, one identity. */
+function pinnedArguments(peer: { host: string; user?: string; port?: number }, hosts: { known_hosts_file: string; host_key_alias?: string | null }, identity: string[],
+  remoteCommand: string | null, controlPath: string | null, extra: string[]): string[] {
+  return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+    "-o", `UserKnownHostsFile=${hosts.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
+    ...(hosts.host_key_alias ? ["-o", `HostKeyAlias=${hosts.host_key_alias}`] : []),
+    ...identity,
+    ...(controlPath ? ["-o", "ControlMaster=auto", "-o", `ControlPath=${controlPath}`, "-o", "ControlPersist=600"] : ["-o", "ControlMaster=no", "-o", "ControlPath=none"]),
+    "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", ...extra,
+    ...(peer.user ? ["-l", peer.user] : []), ...(peer.port ? ["-p", String(peer.port)] : []), "--", peer.host, ...(remoteCommand === null ? [] : [remoteCommand])];
+}
+
+/** ssh argv for a caller-pinned peer (`remote.ssh`, generic forward): a dedicated agent socket, or one key file. */
+export function pinnedSshArguments(peer: { host: string; user?: string; port?: number }, pin: PinnedSsh, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
+  const identity = pin.identity_agent ? ["-o", `IdentityAgent=${pin.identity_agent}`]
+    : ["-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${pin.identity_file}`];
+  return pinnedArguments(peer, pin, identity, remoteCommand, controlPath, extra);
+}
+
 /** ssh argv for a trusted target: no user config, the binding's known_hosts only, its key file only. */
 export function trustedSshArguments(ref: string, remoteCommand: string | null, controlPath: string | null, extra: string[] = []): string[] {
   const b = binding(ref);
@@ -657,13 +677,7 @@ export function trustedSshArguments(ref: string, remoteCommand: string | null, c
       throw new RemoteTerminalError("CREDENTIAL_NOT_LOADED", "the terminal's credential is not loaded; resolve the handle and run credential-load");
     identity = ["-o", `IdentityAgent=${loaded.socket}`, "-o", "IdentitiesOnly=yes", "-o", `IdentityFile=${credentialPublicKeyFile(ref)}`];
   }
-  return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-    "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
-    ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
-    ...identity,
-    ...(controlPath ? ["-o", "ControlMaster=auto", "-o", `ControlPath=${controlPath}`, "-o", "ControlPersist=600"] : ["-o", "ControlMaster=no", "-o", "ControlPath=none"]),
-    "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", ...extra,
-    "-l", b.target.user, "-p", String(b.target.port), "--", b.target.host, ...(remoteCommand === null ? [] : [remoteCommand])];
+  return pinnedArguments(b.target, b, identity, remoteCommand, controlPath, extra);
 }
 
 // T2: which sessions live on which terminal. Small; read on every call so every Aiterm process sees the same map.
@@ -750,6 +764,36 @@ function writeBinding(ref: string, change: Partial<Binding>): void {
   writeJson0600(storePath(), { schema: "aiterm.remote-bindings.v1", bindings });
 }
 
+// The forward's source: a registered binding (D and P live in it) or the caller's per-id record T6 (remote-terminal.md "Generic remote surface").
+export interface ForwardRecord { schema: "aiterm.forward-record.v1"; id: string; target: { host: string; user: string; port?: number }; ssh: PinnedSsh;
+  to: { host: "127.0.0.1"; port: number }; remote_port?: number; seat_forward_port?: number }
+const recordFile = (id: string) => path.join(ensureStateRoot(), `terminal-forward-${id}.json`);
+function readRecord(id: string): ForwardRecord | null {
+  try { const r = JSON.parse(fs.readFileSync(recordFile(id), "utf8")); return r?.schema === "aiterm.forward-record.v1" && r.id === id ? r : null; } catch { return null; }
+}
+function boundBinding(id: string): Binding | null { try { return binding(id); } catch { return null; /* not a registered ref */ } }
+function forwardRecordIds(): string[] {
+  try { return fs.readdirSync(ensureStateRoot()).flatMap(name => /^terminal-forward-(.+)\.json$/.exec(name)?.[1] ?? []).filter(id => FORWARD_ID.test(id)); } catch { return []; }
+}
+
+interface ForwardSource { ingress: number | undefined; port: number | undefined; pinnedPort: boolean; probe: Parameters<typeof remoteShell>[0]; sshArgs: (command: string, extra: string[]) => string[] }
+function forwardSource(id: string): ForwardSource {
+  const b = boundBinding(id);
+  if (b) return { ingress: b.seat_ingress_port, port: b.seat_forward_port, pinnedPort: false, probe: trustedTarget(b), sshArgs: (command, extra) => trustedSshArguments(id, command, null, extra) };
+  const r = readRecord(id);
+  if (!r) throw new RemoteTerminalError("FORWARD_UNKNOWN", "no terminal binding or forward record has this id");
+  return { ingress: r.to.port, port: r.seat_forward_port, pinnedPort: r.remote_port !== undefined, probe: { ...r.target, ssh: r.ssh },
+    sshArgs: (command, extra) => pinnedSshArguments(r.target, r.ssh, command, null, extra) };
+}
+/** Writes D and/or P back to where the source keeps them (fresh read, so a concurrent record rewrite is not lost). */
+function changeForward(id: string, change: { seat_ingress_port?: number; seat_forward_port?: number | undefined }): void {
+  if (boundBinding(id)) { writeBinding(id, change); return; }
+  const r = readRecord(id);
+  if (!r) return;
+  const port = "seat_forward_port" in change ? change.seat_forward_port ?? r.remote_port : r.seat_forward_port; // a pinned remote_port is never cleared
+  writeJson0600(recordFile(id), { ...r, ...(change.seat_ingress_port !== undefined ? { to: { ...r.to, port: change.seat_ingress_port } } : {}), seat_forward_port: port });
+}
+
 function lockFile(ref: string): string { return path.join(ensureStateRoot(), `terminal-forward-${ref}.lock`); }
 interface LockOwner { pid?: unknown; boot?: unknown; start?: unknown; ready?: unknown; ready_at?: unknown }
 function lockOwner(ref: string): LockOwner | null {
@@ -812,7 +856,7 @@ function forwardReady(ref: string, port: number): boolean {
 }
 /** E9: when the seats' current reverse forward was established; null when it is not ready or the time is unknown. */
 export function forwardRouteSince(ref: string): string | null {
-  const port = binding(ref).seat_forward_port, readyAt = lockOwner(ref)?.ready_at;
+  const port = forwardSource(ref).port, readyAt = lockOwner(ref)?.ready_at;
   return port && typeof readyAt === "string" && forwardReady(ref, port) ? readyAt : null;
 }
 
@@ -825,7 +869,7 @@ function forwardNeeded(ref: string): boolean {
 }
 
 function storedIngress(ref: string): number | undefined {
-  try { return binding(ref).seat_ingress_port; } catch { return undefined; }
+  try { return forwardSource(ref).ingress; } catch { return undefined; }
 }
 
 // Only the detached keeper process (`forward-keeper --ref R`) holds the ssh. BellTeam launches through a one-shot Aiterm,
@@ -849,7 +893,7 @@ function startForwardKeeper(ref: string): void {
 
 /** `aiterm-remote-terminal forward-keeper --ref R`: hold R's forward while it is needed; exit when this process has nothing to hold. */
 export function runForwardKeeper(ref: string): void {
-  binding(ref);
+  forwardSource(ref);
   keeperProcess = true;
   keeperHold = setInterval(() => { keep(ref); settleKeeper(ref); }, 5_000);
   try { // a key that lands while this keeper waits for it: retry at once, not at the next 5 s turn
@@ -878,12 +922,12 @@ function keep(ref: string): void {
   if (keeper.timer || keeper.starting) return;
   if (!forwardNeeded(ref)) { releaseLock(ref); keepers.delete(ref); releaseIdleCredential(ref); return; }
   if (!holdLock(ref)) return;
-  let b: Binding;
-  try { b = binding(ref); } catch { releaseLock(ref); return; }
+  let src: ForwardSource;
+  try { src = forwardSource(ref); } catch { releaseLock(ref); return; }
   // No D in the binding (written before 0.70.3): no forward until a launch writes D; never a default port.
-  if (!b.seat_ingress_port) { releaseLock(ref); return; }
-  const requested = b.seat_forward_port ?? 0;
-  keeper.ingress = b.seat_ingress_port;
+  if (!src.ingress) { releaseLock(ref); return; }
+  const requested = src.port ?? 0, ingress = src.ingress;
+  keeper.ingress = ingress;
   const again = () => {
     keeper.timer = setTimeout(() => { keeper.timer = null; keep(ref); }, FORWARD_RESTART_MS);
     keeper.timer.unref();
@@ -894,14 +938,14 @@ function keep(ref: string): void {
   // Keep the lock and stay (0.70.22): this keeper retries when the key lands. Exiting here left a credential-load
   // that landed while it was still running with no keeper until the 60 s check (other processes saw it alive).
   let probe: Promise<RemoteShell>;
-  try { probe = remoteShell(trustedTarget(b)); } catch { return; }
+  try { probe = remoteShell(src.probe); } catch { return; }
   keeper.starting = true;
   probe.then(shell => {
     keeper.starting = false;
     let args: string[];
     try {
       // The remote command ends when our stdin closes, so the forward dies with this process even on SIGKILL.
-      args = trustedSshArguments(ref, keeperCommand(shell), null, ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, b.seat_ingress_port!)]);
+      args = src.sshArgs(keeperCommand(shell), ["-o", "ExitOnForwardFailure=yes", "-R", seatForwardSpec(requested, ingress)]);
     } catch { return; /* as above: keep the lock, retry when the key lands */ }
     const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     keeper.child = child;
@@ -915,16 +959,16 @@ function keep(ref: string): void {
     child.stderr!.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-4000);
       const forward = parseSeatForward(stderr);
-      if (typeof forward === "number" && forward !== requested) { writeBinding(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
+      if (typeof forward === "number" && forward !== requested) { changeForward(ref, { seat_forward_port: forward }); keeper.refusals = 0; }
       report();
     });
     child.on("error", () => { /* close follows */ });
     child.on("close", () => {
       keeper.child = null;
       markReady(ref, null);
-      if (parseSeatForward(stderr) === "refused" && requested !== 0 && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
+      if (parseSeatForward(stderr) === "refused" && requested !== 0 && !src.pinnedPort && ++keeper.refusals >= FORWARD_REFUSALS_BEFORE_NEW_PORT) {
         // The old P stays taken on the terminal: let sshd pick a new one (seats launched with the old P need a relaunch).
-        writeBinding(ref, { seat_forward_port: undefined });
+        changeForward(ref, { seat_forward_port: undefined });
         keeper.refusals = 0;
       }
       // Stopped because no seat needs it: hand the lock over at once, so a launch in another process starts its own.
@@ -936,7 +980,7 @@ function keep(ref: string): void {
 
 /** Every 60 s in every active process: keep (or take over from an exited holder) the forwards this state root needs. */
 export function maintainSeatForwards(): void {
-  const refs = new Set([...Object.values(readSeats()), ...keepers.keys(), ...loadedCredentialRefs()]);
+  const refs = new Set([...Object.values(readSeats()), ...keepers.keys(), ...loadedCredentialRefs(), ...forwardRecordIds()]);
   for (const ref of refs) keep(ref);
   if (!maintainTimer) { maintainTimer = setInterval(maintainSeatForwards, 60_000); maintainTimer.unref(); }
   // credential-load is a one-shot in another process: start the forward when its <ref>.json lands, not at the next 60 s check.
@@ -950,18 +994,57 @@ export function maintainSeatForwards(): void {
 /** The terminal-local port for seat URLs reaching container port `ingress`; starts the keeper if no process holds it yet. */
 export async function ensureSeatForward(ref: string, ingress: number, timeoutMs = 30_000): Promise<number> {
   // A new D makes the old P (forwarding to the old D) useless: clear it so the wait below sees only a forward to D.
-  if (binding(ref).seat_ingress_port !== ingress) writeBinding(ref, { seat_ingress_port: ingress, seat_forward_port: undefined });
+  if (forwardSource(ref).ingress !== ingress) changeForward(ref, { seat_ingress_port: ingress, seat_forward_port: undefined });
   fs.writeFileSync(launchFile(ref), String(Date.now() + LAUNCH_GRACE_MS), { mode: 0o600 });
   maintainSeatForwards();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     // A stored P without a ready forward (after a restart, or a keeper just stopped) reaches nothing: wait for one.
-    const port = binding(ref).seat_forward_port;
+    const port = forwardSource(ref).port;
     if (port && forwardReady(ref, port)) return port;
     keep(ref); // takes over at once when the owner stopped and released the lock
     if (Date.now() > deadline) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "the seat's MCP route back to this computer is not ready; launch again later");
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+}
+
+/** R26 `ensure_forward`: an id that is a registered binding's ref joins that binding's keeper (D = to.port); another id gets its own record T6. */
+export interface EnsureForwardInput { id: string; remote?: { host: string; user: string; port?: number; ssh: PinnedSsh }; to?: { host: "127.0.0.1"; port: number }; remote_port?: number }
+export async function ensureForward(input: EnsureForwardInput, timeoutMs?: number): Promise<{ id: string; port: number; ready_at: string | null }> {
+  const { id, remote, to, remote_port } = input;
+  if (!FORWARD_ID.test(id)) throw new RemoteTerminalError("FORWARD_ID_INVALID", "id must be 1-64 characters of A-Z a-z 0-9 . _ - and start with a letter or digit");
+  if (!to) throw new RemoteTerminalError("FORWARD_INPUT_INVALID", "to {host: \"127.0.0.1\", port} is required");
+  if (!boundBinding(id)) {
+    if (!remote) throw new RemoteTerminalError("FORWARD_INPUT_INVALID", "an id that is not a terminal binding needs remote with ssh");
+    const old = readRecord(id), pinned = remote_port ?? old?.seat_forward_port;
+    // The old D stays until ensureSeatForward sees the change: it clears P itself, as a new D always did.
+    writeJson0600(recordFile(id), { schema: "aiterm.forward-record.v1", id, target: { host: remote.host, user: remote.user, ...(remote.port ? { port: remote.port } : {}) }, ssh: remote.ssh,
+      to: old?.to ?? to, ...(remote_port !== undefined ? { remote_port } : {}), ...(pinned !== undefined ? { seat_forward_port: pinned } : {}) } satisfies ForwardRecord);
+  }
+  const port = await ensureSeatForward(id, to.port, timeoutMs);
+  return { id, port, ready_at: forwardRouteSince(id) };
+}
+
+/** R26 `release_forward`: only drops the grace; the keeper ends itself when no bound session needs it. */
+export function releaseForward(id: string): { id: string; released: true } {
+  forwardSource(id);
+  fs.rmSync(launchFile(id), { force: true });
+  return { id, released: true };
+}
+
+export function forwardStatus(id: string): { id: string; port: number | null; ready: boolean; ready_at: string | null } {
+  const port = forwardSource(id).port ?? null;
+  return { id, port, ready: port !== null && forwardReady(id, port), ready_at: forwardRouteSince(id) };
+}
+
+/** R28 `aiterm-remote export --ref R`: public binding facts so another registry can copy the trust without a second Owner confirmation. */
+export function exportBinding(ref: string): Record<string, unknown> {
+  const b = binding(ref), status = bindingStatus(ref), entries = trustEntries(b);
+  const name = knownHostName(b);
+  return { schema: "aiterm.remote-binding-export.v1", ref, target: b.target, host_key_alias: b.host_key_alias,
+    known_hosts_lines: Array.isArray(entries) ? entries.map(entry => entry.startsWith("@") ? entry.replace(/^(@\S+) /, `$1 ${name} `) : `${name} ${entry}`) : [],
+    fingerprints: status.trust.fingerprints, trust_revision: status.trust.revision, trust_reason: status.trust.reason,
+    credential_provider: status.credential.provider, seat_forward_port: b.seat_forward_port ?? null, seat_ingress_port: b.seat_ingress_port ?? null };
 }
 
 // ---- R13 credential agent: a keyless terminal's key, loaded by execution over stdin, held only in a private ssh-agent ----

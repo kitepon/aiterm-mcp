@@ -4,6 +4,8 @@
 //   serve        stdio MCP for one bound connection, spawned by BellTeam terminals
 //   credential-load --ref R --terminal-id ID --handle UUID --revision N --purpose ssh-key   (key bytes on stdin; one JSON receipt line)
 //   transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (runs on the terminal)
+//   (aiterm-remote, the same entry) export --ref R | install-key --host H --user U [--port N] --known-hosts F [--host-key-alias A] --public-key-file F [--os windows] (password on stdin)
+//   install-aiterm --host H --user U [--port N] --known-hosts F [--host-key-alias A] (--identity-agent S | --identity-file F)      forward-keeper --id I
 //   authorize-key --ref R [--os macos|linux|windows]   (login password on stdin until EOF; R14)      provision --ref R   (macOS/Linux runtime; R16)
 //   path-status|make-dir --path P | --path-base64 B, list-dirs [--path P | --path-base64 B]   (on the terminal; R15)      runtime-smoke --expect-version V   (on the terminal)
 import { realpathSync } from "node:fs";
@@ -12,12 +14,12 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, loadCredential, registerBinding, runForwardKeeper, type RemoteCommandOp } from "./remote-terminal.js";
+import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, exportBinding, loadCredential, registerBinding, runForwardKeeper, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
-import { credentialHandleSchema, terminalOsSchema } from "./remote-contract.js";
+import { credentialHandleSchema, forwardRemoteSchema, keyInstallPeerSchema, terminalOsSchema } from "./remote-contract.js";
 import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
-import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization } from "./remote-authorize.js";
-import { provision, runtimeSmoke } from "./remote-provision.js";
+import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization, prepareKeyInstall } from "./remote-authorize.js";
+import { provision, provisionPinned, runtimeSmoke } from "./remote-provision.js";
 import { activationMs, retireStaleHere } from "./runtime-retire.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -48,6 +50,19 @@ function readStdin(): Promise<Buffer> {
     process.stdin.on("end", () => { const all = Buffer.concat(chunks); for (const chunk of chunks) chunk.fill(0); resolve(all); });
   });
 }
+
+/** Flags of the generic commands (`aiterm-remote install-key`, `install-aiterm`): a peer and its pinned ssh paths, checked by the same schema the tools use. */
+function peerFlags(rest: string[]): Record<string, unknown> {
+  const port = option(rest, "--port");
+  return { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", ...(port === undefined ? {} : { port: Number(port) }) };
+}
+function parseFlags<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: { path: PropertyKey[]; message: string }[] } } }, value: Record<string, unknown>): T {
+  const parsed = schema.safeParse(JSON.parse(JSON.stringify(value))); // undefined flags are absent, not "undefined"
+  if (!parsed.success) throw new RemoteTerminalError("REMOTE_INVALID", parsed.error.issues.map(issue => `${issue.path.map(String).join(".") || "input"}: ${issue.message}`).join("; "));
+  return parsed.data;
+}
+const sshFlags = (rest: string[]) => ({ known_hosts_file: option(rest, "--known-hosts"), host_key_alias: option(rest, "--host-key-alias"),
+  identity_agent: option(rest, "--identity-agent"), identity_file: option(rest, "--identity-file") });
 
 function pathArgument(rest: string[]): string {
   const encoded = option(rest, "--path-base64");
@@ -108,7 +123,17 @@ export function main(args: string[]): void {
   const [command, ...rest] = args;
   if (command === "serve") return serve();
   // Started detached by Aiterm itself (remote-terminal.md forward keeper); not an operator command.
-  if (command === "forward-keeper") return runForwardKeeper(option(rest, "--ref") ?? "");
+  if (command === "forward-keeper") return runForwardKeeper(option(rest, "--id") ?? option(rest, "--ref") ?? "");
+  // Neutral names (aiterm-remote, a532b4s1): the same code over caller-pinned ssh options, no binding.
+  if (command === "export") return oneShot(() => exportBinding(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
+  if (command === "install-aiterm") return oneShot(() => provisionPinned(parseFlags(forwardRemoteSchema, { ...peerFlags(rest), ssh: sshFlags(rest) })), "aiterm.remote-binding-error.v1");
+  if (command === "install-key") return oneShot(() => {
+    const peer = parseFlags(keyInstallPeerSchema, { ...peerFlags(rest), ...sshFlags(rest), identity_agent: undefined, identity_file: undefined });
+    const system = option(rest, "--os");
+    if (system !== undefined && !terminalOsSchema.safeParse(system).success) throw new RemoteTerminalError("OS_INVALID", "--os must be macos, linux or windows");
+    const prepared = prepareKeyInstall(peer, option(rest, "--public-key-file") ?? "");
+    return readStdin().then(password => authorizeKey(prepared, password, system === "windows" ? "windows" : "posix"));
+  }, "aiterm.remote-binding-error.v1");
   if (command === "status") return oneShot(() => bindingStatus(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
   if (command === "register") return oneShot(() => registerBinding({
     target: { host: option(rest, "--host") ?? "", user: option(rest, "--user") ?? "", port: Number(option(rest, "--port") ?? "22") },
@@ -151,7 +176,7 @@ export function main(args: string[]): void {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale|export|install-key|install-aiterm\n");
   process.exit(64);
 }
 

@@ -112,7 +112,10 @@ export function windowsAuthorizedKeysScript(key: string): string {
 
 export type AuthorizeSystem = "posix" | "windows";
 
-export function passwordSshArguments(b: Binding, system: AuthorizeSystem = "posix"): string[] {
+/** What a password login needs: where to go and which host key file to check strictly (a binding, or caller-given paths). */
+export interface AuthorizePeer { ref?: string; target: { host: string; user: string; port?: number }; known_hosts_file: string; host_key_alias?: string | null }
+
+export function passwordSshArguments(b: AuthorizePeer, system: AuthorizeSystem = "posix"): string[] {
   return ["-F", "/dev/null", "-T", "-o", "BatchMode=no", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
     ...(b.host_key_alias ? ["-o", `HostKeyAlias=${b.host_key_alias}`] : []),
@@ -120,12 +123,23 @@ export function passwordSshArguments(b: Binding, system: AuthorizeSystem = "posi
     "-o", "PreferredAuthentications=password", "-o", "PasswordAuthentication=yes", "-o", "KbdInteractiveAuthentication=no",
     "-o", "GSSAPIAuthentication=no", "-o", "HostbasedAuthentication=no", "-o", "NumberOfPasswordPrompts=1",
     "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ConnectTimeout=15",
-    "-l", b.target.user, "-p", String(b.target.port), "--", b.target.host, system === "windows" ? WINDOWS_STDIN_SCRIPT_COMMAND : "/bin/sh -s"];
+    "-l", b.target.user, ...(b.target.port ? ["-p", String(b.target.port)] : []), "--", b.target.host, system === "windows" ? WINDOWS_STDIN_SCRIPT_COMMAND : "/bin/sh -s"];
 }
 
 const shq = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
-export async function authorizeKey(prepared: { b: Binding; key: string }, password: Buffer, system: AuthorizeSystem = "posix"): Promise<{ schema: string; ref: string; result: "AUTHORIZED" | "ALREADY_AUTHORIZED" }> {
+/** `aiterm-remote install-key`: the checks that need no password, over caller-given paths (no binding): the known_hosts file exists, the public key file is one key. */
+export function prepareKeyInstall(peer: { host: string; user: string; port?: number; known_hosts_file: string; host_key_alias?: string }, publicKeyFile: string): { b: AuthorizePeer; key: string } {
+  if (!fs.existsSync(peer.known_hosts_file)) throw new RemoteTerminalError("HOST_TRUST_MISSING", "the known_hosts file does not exist", "confirm the new host key");
+  let line: string;
+  try { line = fs.readFileSync(publicKeyFile, "utf8").trim().split(/\s+/).slice(0, 2).join(" "); }
+  catch { throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the public key file cannot be read"); }
+  // A file the caller names is not ssh-keygen output: require a real key type and an SSH wire blob (they start with AAAA).
+  if (!PUBLIC_KEY.test(line) || !/^(ssh-[a-z0-9-]+|ecdsa-sha2-nistp\d+|sk-[a-z0-9@.-]+) AAAA/.test(line)) throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", "the public key file does not hold one OpenSSH public key");
+  return { b: { target: { host: peer.host, user: peer.user, port: peer.port }, known_hosts_file: peer.known_hosts_file, host_key_alias: peer.host_key_alias ?? null }, key: line };
+}
+
+export async function authorizeKey(prepared: { b: AuthorizePeer; key: string }, password: Buffer, system: AuthorizeSystem = "posix"): Promise<{ schema: string; ref?: string; host?: string; user?: string; port?: number | null; result: "AUTHORIZED" | "ALREADY_AUTHORIZED" }> {
   const dir = fs.mkdtempSync(path.join("/tmp", "aiterm-ap-"));
   let served = 0;
   const server = net.createServer(connection => { served += 1; if (served === 1) connection.end(password); else connection.end(); });
@@ -150,7 +164,7 @@ export async function authorizeKey(prepared: { b: Binding; key: string }, passwo
       child.stdin.end(system === "windows" ? windowsAuthorizedKeysScript(prepared.key) : authorizedKeysScript(prepared.key));
     });
     const marker = /AITERM_AUTHORIZE (AUTHORIZED|ALREADY_AUTHORIZED)/.exec(run.stdout)?.[1] as "AUTHORIZED" | "ALREADY_AUTHORIZED" | undefined;
-    if (run.code === 0 && marker) return { schema: "aiterm.remote-key-authorization.v1", ref: prepared.b.ref, result: marker };
+    if (run.code === 0 && marker) return { schema: "aiterm.remote-key-authorization.v1", ...(prepared.b.ref ? { ref: prepared.b.ref } : { host: prepared.b.target.host, user: prepared.b.target.user, port: prepared.b.target.port ?? null }), result: marker };
     const failed = Number(/AITERM_AUTHORIZE_ERROR (21|22)/.exec(run.stdout)?.[1] ?? run.code);
     if (failed === 21 || failed === 22) throw new RemoteTerminalError("AUTHORIZED_KEYS_WRITE_FAILED", "~/.ssh/authorized_keys could not be written on the terminal");
     const denied = /Permission denied \(([^)]*)\)/.exec(run.stderr);

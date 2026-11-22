@@ -5,7 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { RemoteTerminalError, binding, bindingStatus, classifySshFailure, sshEnvironment, trustedSshArguments, trustedTarget } from "./remote-terminal.js";
+import { RemoteTerminalError, binding, bindingStatus, classifySshFailure, pinnedSshArguments, sshEnvironment, trustedSshArguments, trustedTarget } from "./remote-terminal.js";
+import type { PinnedSsh } from "./remote-contract.js";
 import { WINDOWS_STDIN_SCRIPT_COMMAND, remotePlatform } from "./remote.js";
 import { verifySetupRuntime } from "./setup.js";
 import { psmuxBin, psmuxVersionSupported } from "./tmux-runtime.js";
@@ -178,15 +179,13 @@ export function parseProvisionOutput(stdout: string): { result: "PROVISIONED" | 
   return error ? { code: error[1] } : null;
 }
 
-export async function provision(ref: string, version = pkg.version): Promise<{ schema: string; ref: string; result: "PROVISIONED" | "ALREADY_CURRENT"; version: string; retire: RetireResult | null }> {
+type ProvisionResult = { result: "PROVISIONED" | "ALREADY_CURRENT"; version: string; retire: RetireResult | null };
+
+/** R16 over any ssh route: `argsFor(command)` is the ssh argv for that remote command, `target` is what the platform probe runs against. */
+async function runProvision(target: Parameters<typeof remotePlatform>[0], argsFor: (command: string) => string[], version: string): Promise<ProvisionResult> {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new RemoteTerminalError("VERSION_INVALID", "the runtime version must be x.y.z");
-  const status = bindingStatus(ref);
-  if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted", "confirm the new host key");
-  if (status.credential.provider === "aiterm.native-ssh-key.v1" && !status.credential.available)
-    throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
-  // Throws CREDENTIAL_NOT_LOADED for a keyless binding whose key is not loaded.
-  const windows = await remotePlatform(trustedTarget(binding(ref))) === "windows";
-  const args = trustedSshArguments(ref, windows ? WINDOWS_STDIN_SCRIPT_COMMAND : `/bin/sh -s -- ${version} ${RUNTIME_RELEASE_BASE}`, null);
+  const windows = await remotePlatform(target) === "windows";
+  const args = argsFor(windows ? WINDOWS_STDIN_SCRIPT_COMMAND : `/bin/sh -s -- ${version} ${RUNTIME_RELEASE_BASE}`);
   const run = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn("ssh", args, { env: sshEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "", stderr = "";
@@ -199,10 +198,26 @@ export async function provision(ref: string, version = pkg.version): Promise<{ s
     child.stdin.end(windows ? windowsProvisionScript(version, RUNTIME_RELEASE_BASE) : PROVISION_SCRIPT);
   });
   const parsed = parseProvisionOutput(run.stdout);
-  if (parsed && "result" in parsed && run.code === 0) return { schema: "aiterm.remote-provision.v1", ref, result: parsed.result, version: parsed.version, retire: parseRetireOutput(run.stdout) };
+  if (parsed && "result" in parsed && run.code === 0) return { result: parsed.result, version: parsed.version, retire: parseRetireOutput(run.stdout) };
   if (parsed && "code" in parsed) throw new RemoteTerminalError(parsed.code, `provisioning the terminal failed (${parsed.code})`);
   if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
   throw new RemoteTerminalError("PROVISION_FAILED", "the terminal returned no provisioning result");
+}
+
+export async function provision(ref: string, version = pkg.version): Promise<{ schema: string; ref: string } & ProvisionResult> {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new RemoteTerminalError("VERSION_INVALID", "the runtime version must be x.y.z");
+  const status = bindingStatus(ref);
+  if (!status.trust.available) throw new RemoteTerminalError(status.trust.reason ?? "HOST_TRUST_MISSING", "the terminal's host key is not trusted", "confirm the new host key");
+  if (status.credential.provider === "aiterm.native-ssh-key.v1" && !status.credential.available)
+    throw new RemoteTerminalError("CREDENTIAL_UNAVAILABLE", status.credential.reason ?? "the key is unavailable");
+  // Throws CREDENTIAL_NOT_LOADED for a keyless binding whose key is not loaded.
+  return { schema: "aiterm.remote-provision.v1", ref, ...await runProvision(trustedTarget(binding(ref)), command => trustedSshArguments(ref, command, null), version) };
+}
+
+/** `aiterm-remote install-aiterm`: the same install over caller-pinned ssh options (no binding). */
+export async function provisionPinned(peer: { host: string; user: string; port?: number; ssh: PinnedSsh }, version = pkg.version): Promise<{ schema: string; host: string; user: string; port: number | null } & ProvisionResult> {
+  return { schema: "aiterm.remote-provision.v1", host: peer.host, user: peer.user, port: peer.port ?? null,
+    ...await runProvision(peer, command => pinnedSshArguments(peer, peer.ssh, command, null), version) };
 }
 
 /** runtime-smoke on the terminal: this runtime's version, its tmux, and the setup probe through its own aiterm-mcp. */

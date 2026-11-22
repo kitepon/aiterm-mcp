@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.96] - 2026-11-22
+
 - Images to and from a terminal seat (a521, N102). `pty_send` with `image` to a seat on a terminal no longer answers `REMOTE_IMAGE_UNSUPPORTED`: the caller's Aiterm checks the files as for a local attachment, uploads each one to the terminal's `image_put` (stored as `<temp>/aiterm-images/<uuid>.<ext>`, 0600, type from the first bytes, 25 MiB each, 8 per message), and the relayed `pty_send` carries the terminal's own paths. A terminal older than 0.70.96 still answers `REMOTE_IMAGE_UNSUPPORTED`, before anything is typed. New public tool `image_read({session_id, path})` returns one png/jpeg/gif/webp (<= 25 MiB) from the seat's terminal as an MCP `image` plus `aiterm.image-read.v1`; it reads only inside the seat's working folder and the temp folders, and refuses with `IMAGE_PATH_INVALID` / `IMAGE_NOT_FOUND` / `IMAGE_PATH_NOT_ALLOWED` / `IMAGE_NOT_AN_IMAGE` / `IMAGE_TOO_LARGE`. Not covered: non-image attachments and `agent_launch image` to a terminal. Contract: `docs/architecture/remote-terminal.md` R23/R24.
 
 ## [0.70.95] - 2026-11-22
@@ -3636,7 +3638,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.96...HEAD
+[0.70.96]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.95...v0.70.96
 [0.70.95]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.94...v0.70.95
 [0.70.94]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.93...v0.70.94
 [0.70.93]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.92...v0.70.93

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.101] - 2026-11-22
+
 - A generic remote surface under neutral names (a532b4 stage 1, Crust's plan, Tronie's ruling), additive: `terminal`, the bindings and `aiterm-remote-terminal` are unchanged. (1) `remote.ssh` `{known_hosts_file, host_key_alias?, identity_agent | identity_file, strict_host_key?: true}` (absolute paths) on every `remote`: the same strict argv a binding gets (no user config, one known_hosts file, one dedicated identity); not combinable with `identity_file`, `ssh_options`, `passphrase` or `passphrase_env` (`REMOTE_SSH_OPTIONS_CONFLICT`). (2) New tools `ensure_forward({id, remote?, to: {host: "127.0.0.1", port}, remote_port?})` -> `{id, port, ready_at}`, `release_forward({id})`, `forward_status({id})`: the existing detached forward keeper, keyed by one opaque id with a per-id record in the state root; an id that is a registered binding's ref joins that binding's running keeper (same lock, same P, no seat touched). (3) New bin `aiterm-remote` (same entry as `aiterm-remote-terminal`) with `export --ref R` (read-only public binding facts: known_hosts lines, fingerprints, trust revision, ports; no key bytes, no key path), `install-key` (authorize-key over caller paths and a public key file) and `install-aiterm` (provision over pinned ssh options), and `forward-keeper --id`. 26 tools now. Contract: `remote-terminal.md` "Generic remote surface", R26-R29. A terminal older than 0.70.101 drops `remote.ssh` silently, so callers send it only when both Aiterms are at this version.
 
 ## [0.70.100] - 2026-11-22
@@ -3658,7 +3660,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.101...HEAD
+[0.70.101]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.100...v0.70.101
 [0.70.100]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.99...v0.70.100
 [0.70.99]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.98...v0.70.99
 [0.70.98]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.97...v0.70.98

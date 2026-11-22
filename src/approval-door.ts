@@ -17,6 +17,8 @@ export const DOOR_BEARER = /^Bearer [A-Za-z0-9_-]{43}$/;
 // The daemon's own line cap is 32 MiB (a516m); this process must never cap below it.
 const LINE_MAX = 64 * 1024 * 1024;
 const SWEEP_MS = 30_000;
+// A client that has not finished its request line in this time is closed (a stranger holding a connection, Windows: Everyone may open a pipe read-only).
+const IDLE_MS = 30_000;
 const CONTROL_PREFIX = '{"aiterm_door":';
 
 export function doorAddress(platform: NodeJS.Platform = process.platform, home = os.homedir(), user = os.userInfo().username): string {
@@ -98,9 +100,10 @@ export class Door {
 }
 
 /** One request per connection (the connector's wire): read the first line, answer it, end. The client may half-close after writing. */
-function serveConnection(door: Door, socket: net.Socket): void {
+function serveConnection(door: Door, socket: net.Socket, idleMs: number): void {
   let buffer = "", taken = false;
   socket.setEncoding("utf8");
+  socket.setTimeout(idleMs, () => socket.destroy());
   socket.on("error", () => socket.destroy());
   socket.on("data", (chunk: string) => {
     if (taken) return;
@@ -111,6 +114,7 @@ function serveConnection(door: Door, socket: net.Socket): void {
       return;
     }
     taken = true;
+    socket.setTimeout(0); // the body's answer may take longer than the idle limit
     void door.handle(buffer.slice(0, at).replace(/\r$/, "")).then(reply => { if (!socket.destroyed) socket.end(`${reply}\n`); });
   });
 }
@@ -134,9 +138,9 @@ function answers(address: string): Promise<boolean> {
 }
 
 /** Starts serving; resolves to null when another door already holds the address. */
-export async function serveDoor(door: Door, address = doorAddress(), onEmpty: () => void = () => {}, sweepMs = SWEEP_MS): Promise<net.Server | null> {
+export async function serveDoor(door: Door, address = doorAddress(), onEmpty: () => void = () => {}, sweepMs = SWEEP_MS, idleMs = IDLE_MS): Promise<net.Server | null> {
   if (process.platform !== "win32") fs.mkdirSync(path.dirname(address), { recursive: true, mode: 0o700 });
-  const server = net.createServer({ allowHalfOpen: true }, socket => serveConnection(door, socket));
+  const server = net.createServer({ allowHalfOpen: true }, socket => serveConnection(door, socket, idleMs));
   try { await listen(server, address); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
@@ -144,7 +148,9 @@ export async function serveDoor(door: Door, address = doorAddress(), onEmpty: ()
     if (process.platform !== "win32") fs.rmSync(address, { force: true }); // a stale file from a door that died
     await listen(server, address);
   }
+  // The listening server keeps the door process alive; the sweep must not keep a test process alive.
   const timer = setInterval(() => { if (door.sweep() === 0) { clearInterval(timer); server.close(); if (process.platform !== "win32") fs.rmSync(address, { force: true }); onEmpty(); } }, sweepMs);
+  timer.unref();
   return server;
 }
 

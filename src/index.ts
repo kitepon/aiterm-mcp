@@ -25,7 +25,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readPrivateEnvLine, setPrivateEnv, privateEnvValue, privateEnvLoaded } from "./private-env.js";
 import { registerApprovalDoor, seatRegistration } from "./approval-door.js";
-import { imageReadRoots, putImage, readImage, uploadImages } from "./remote-image.js";
+import { IMAGE_CHUNK_BYTES, imageReadRoots, putImage, readImage, readImagePiece, uploadImages, type PutResult } from "./remote-image.js";
 import { withTerminalLaunchAction, withErrorCode, launchNotStartedMeta, ERROR_CODE_META } from "./terminal-launch-error.js";
 import { readSeatTurnsOffLoop } from "./seat-turns-worker.js";
 import { codexMcpOverrides } from "./harnesses/codex.js";
@@ -395,6 +395,7 @@ function remoteToolHandler(name: string): RemoteToolHandler {
       return forwardRemote(target, name, args, extra);
     };
     case "pty_send": return sendRemote;
+    case "image_read": return readRemoteImage;
     case "pty_close": return async (target, args, extra) => {
       await remoteParentDelivery?.beforeChange(deliveryKey(args.session_id, target));
       return forwardRemote(target, name, args, extra);
@@ -412,25 +413,50 @@ function remoteToolHandler(name: string): RemoteToolHandler {
   }
 }
 
-/** The terminal's `image_put` for each image; the paths there replace the caller's (remote-terminal.md R23). */
+/** The terminal's `image_put` for each image (in pieces over 5 MiB); the paths there replace the caller's (remote-terminal.md R23). */
 async function uploadRemoteImages(target: RemoteTarget, images: string[]): Promise<string[]> {
-  return uploadImages(images, async data => {
+  const unsupported = () => new AitermError("REMOTE_IMAGE_UNSUPPORTED: the terminal's Aiterm has no image_put (needs 0.70.96 or later). Nothing was typed.", 2);
+  return uploadImages(images, async (args): Promise<PutResult> => {
     let result: RemoteCallResult;
-    try { result = await callRemoteTool(target, "image_put", { data_base64: data }, 600_000); }
+    try { result = await callRemoteTool(target, "image_put", args, 600_000); }
     catch (error) {
       // A terminal older than 0.70.96 has no such tool.
-      if (/image_put/.test(String(error instanceof Error ? error.message : error)) && /not found|unknown tool|method not found/i.test(String(error instanceof Error ? error.message : error)))
-        throw new AitermError("REMOTE_IMAGE_UNSUPPORTED: the terminal's Aiterm has no image_put (needs 0.70.96 or later). Nothing was typed.", 2);
+      const message = String(error instanceof Error ? error.message : error);
+      if (/image_put/.test(message) && /not found|unknown tool|method not found/i.test(message)) throw unsupported();
       throw error;
     }
     const text = result.content.find(item => item.type === "text")?.text ?? "";
-    const stored = (result.structuredContent as { path?: unknown } | undefined)?.path;
-    if (result.isError || typeof stored !== "string") {
-      if (/image_put/i.test(text) && /not found|unknown tool/i.test(text)) throw new AitermError("REMOTE_IMAGE_UNSUPPORTED: the terminal's Aiterm has no image_put (needs 0.70.96 or later). Nothing was typed.", 2);
+    if (result.isError || !result.structuredContent) {
+      if (/image_put/i.test(text) && /not found|unknown tool/i.test(text)) throw unsupported();
       throw new AitermError(text.replace(/^aiterm: /, "") || "IMAGE_UPLOAD_FAILED: the terminal did not store the image", 2);
     }
-    return stored;
+    return result.structuredContent as PutResult;
   });
+}
+
+/** `image_read` on a terminal seat: the image comes in pieces under the message cap and is handed on as one MCP image (remote-terminal.md R24). */
+async function readRemoteImage(target: RemoteTarget, args: any, extra: any): Promise<any> {
+  if (args.length !== undefined) return forwardRemote(target, "image_read", args, extra); // the caller asked for a piece itself
+  const first = await callRemoteTool(target, "image_read", { session_id: args.session_id, path: args.path, offset: 0, length: IMAGE_CHUNK_BYTES }, 600_000, undefined, extra?._meta);
+  const head = first.structuredContent as { chunk_base64?: unknown; total_bytes?: number; mime_type?: string; path?: string; sha256?: string } | undefined;
+  // An error, or a terminal on 0.70.96 that answered the whole image in one message: unchanged.
+  if (first.isError || typeof head?.chunk_base64 !== "string") return remoteResult(target, first);
+  const pieces = [Buffer.from(head.chunk_base64, "base64")];
+  let have = pieces[0]!.length;
+  while (have < head.total_bytes!) {
+    const next = await callRemoteTool(target, "image_read", { session_id: args.session_id, path: args.path, offset: have, length: IMAGE_CHUNK_BYTES }, 600_000, undefined, extra?._meta);
+    const piece = (next.structuredContent as { chunk_base64?: unknown } | undefined)?.chunk_base64;
+    if (next.isError || typeof piece !== "string") return remoteResult(target, next);
+    const bytes = Buffer.from(piece, "base64");
+    if (bytes.length === 0) throw new AitermError("IMAGE_NOT_FOUND: the terminal's file changed while it was read", 2);
+    pieces.push(bytes); have += bytes.length;
+  }
+  const whole = Buffer.concat(pieces);
+  if (whole.length !== head.total_bytes || createHash("sha256").update(whole).digest("hex") !== head.sha256)
+    throw new AitermError("IMAGE_NOT_FOUND: the terminal's file changed while it was read", 2);
+  return remoteResult(target, { content: [{ type: "image" as any, data: whole.toString("base64"), mimeType: head.mime_type } as any, { type: "text", text: `${head.path} ${head.mime_type} ${whole.length} bytes` }],
+    structuredContent: { schema: "aiterm.image-read.v1", session_id: args.session_id, path: head.path, mime_type: head.mime_type, bytes: whole.length, sha256: head.sha256 },
+    remote_version: first.remote_version });
 }
 
 async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<any> {
@@ -512,14 +538,22 @@ server.registerTool(
 server.registerTool(
   "image_put",
   {
-    description: "Aiterm同士の中継用。画像のバイト列（base64、png/jpeg/gif/webp、25 MiBまで）をこの端末の一時フォルダへ保存し、その絶対パスを返す。呼び手は pty_send の image を使い、直接は呼ばない。",
-    inputSchema: { data_base64: z.string().describe("画像のバイト列（base64）") },
-    outputSchema: { schema: z.literal("aiterm.image-put.v1"), path: z.string(), mime_type: z.string(), bytes: z.number().int() },
+    description: "Aiterm同士の中継用。画像のバイト列（base64、png/jpeg/gif/webp、全体で25 MiBまで）をこの端末の一時フォルダへ保存し、その絶対パスを返す。" +
+      "1通は10 MiB未満に収めるため、5 MiBを超える画像は upload_id（UUID）・offset（受け取り済みのバイト数）・final で順に送る。呼び手は pty_send の image を使い、直接は呼ばない。",
+    inputSchema: {
+      data_base64: z.string().describe("画像のバイト列（base64）。分けて送る時はその一片"),
+      upload_id: z.string().optional().describe("分けて送る時の組の印（UUID）"),
+      offset: z.number().int().optional().describe("分けて送る時、この一片の前までに受け取ったバイト数（一致しなければ IMAGE_UPLOAD_OFFSET）"),
+      final: z.boolean().optional().describe("分けて送る時、最後の一片ならtrue（この時に画像かを見て名前を付ける）"),
+    },
+    outputSchema: { schema: z.literal("aiterm.image-put.v1"), path: z.string().optional(), mime_type: z.string().optional(), bytes: z.number().int().optional(),
+      upload_id: z.string().optional(), received: z.number().int().optional() },
   },
-  async ({ data_base64 }) => {
+  async ({ data_base64, upload_id, offset, final }) => {
     try {
-      const stored = putImage(data_base64);
-      return { content: [{ type: "text" as const, text: `${stored.path} ${stored.mime_type} ${stored.bytes} bytes` }], structuredContent: { schema: "aiterm.image-put.v1" as const, ...stored } };
+      const stored = putImage(data_base64, upload_id === undefined ? undefined : { upload_id, offset: offset ?? 0, final: final ?? false });
+      return { content: [{ type: "text" as const, text: stored.path ? `${stored.path} ${stored.mime_type} ${stored.bytes} bytes` : `received ${stored.received}` }],
+        structuredContent: { schema: "aiterm.image-put.v1" as const, ...stored } };
     } catch (e) { return withErrorCode(fail(e)); }
   },
 );
@@ -528,15 +562,24 @@ registerRemoteAwareTool(
   "image_read",
   {
     description:
-      "席の端末にある画像ファイル1枚（絶対path、png/jpeg/gif/webp、25 MiBまで）のバイト列を返す。別端末の席はsession_idだけで現地のファイルを読む。" +
-      "読める場所は、席の作業フォルダと一時フォルダの中だけ（symlinkは解いてから見る）。誤りのcode: IMAGE_PATH_INVALID / IMAGE_NOT_FOUND / IMAGE_PATH_NOT_ALLOWED / IMAGE_NOT_AN_IMAGE / IMAGE_TOO_LARGE。",
-    inputSchema: { session_id: z.string(), path: z.string().describe("画像ファイルの絶対path（席の端末の上のpath）") },
-    outputSchema: { schema: z.literal("aiterm.image-read.v1"), session_id: z.string(), path: z.string(), mime_type: z.string(), bytes: z.number().int(), sha256: z.string() },
+      "席の端末にある画像ファイル1枚（絶対path、png/jpeg/gif/webp、25 MiBまで）のバイト列を返す。別端末の席はsession_idだけで現地のファイルを読む（1通の上限を超えないよう、現地とは一片ずつやり取りして1枚にして返す）。" +
+      "読める場所は、席の作業フォルダと一時フォルダの中だけ（symlinkは解いてから見る）。誤りのcode: IMAGE_PATH_INVALID / IMAGE_NOT_FOUND / IMAGE_PATH_NOT_ALLOWED / IMAGE_NOT_AN_IMAGE / IMAGE_TOO_LARGE。" +
+      "length を付けると、offsetから最大 length バイトの一片をchunk_base64で返す（Aiterm同士の中継用）。",
+    inputSchema: { session_id: z.string(), path: z.string().describe("画像ファイルの絶対path（席の端末の上のpath）"),
+      offset: z.number().int().optional().describe("一片で読む時の開始バイト"), length: z.number().int().optional().describe("一片で読む時の長さ（6 MiBまで）。省略すると画像1枚をimageで返す") },
+    outputSchema: { schema: z.literal("aiterm.image-read.v1"), session_id: z.string(), path: z.string(), mime_type: z.string(), bytes: z.number().int().optional(), sha256: z.string(),
+      total_bytes: z.number().int().optional(), offset: z.number().int().optional(), chunk_base64: z.string().optional() },
   },
-  async ({ session_id, path: file }) => {
+  async ({ session_id, path: file, offset, length }) => {
     try {
       let cwd: string | null = null;
       try { cwd = loadAgentMetadata(session_id).cwd; } catch { /* a plain session has no working folder of its own */ }
+      if (length !== undefined) {
+        const piece = readImagePiece(file, imageReadRoots(cwd), offset ?? 0, length);
+        return { content: [{ type: "text" as const, text: `${piece.path} ${piece.mime_type} ${piece.offset}+${piece.piece.length} of ${piece.total_bytes}` }],
+          structuredContent: { schema: "aiterm.image-read.v1" as const, session_id, path: piece.path, mime_type: piece.mime_type, sha256: piece.sha256, total_bytes: piece.total_bytes,
+            offset: piece.offset, chunk_base64: piece.piece.toString("base64") } };
+      }
       const image = readImage(file, imageReadRoots(cwd));
       return {
         content: [{ type: "image" as const, data: image.bytes.toString("base64"), mimeType: image.mime_type }, { type: "text" as const, text: `${image.path} ${image.mime_type} ${image.bytes.length} bytes` }],

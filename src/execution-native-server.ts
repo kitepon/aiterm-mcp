@@ -7,15 +7,9 @@ import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type * as steer from "aiterm-steer-delivery";
 import * as core from "./core.js";
-import { localParentWorkerRuntime, createExecutionParentWorker, type ParentWorkerRuntime } from "./execution-parent-worker.js";
-import type { ParentProducerRuntime } from "./execution-parent-producer.js";
-import { createExecutionParticipant } from "./execution-participant.js";
 import { interruptKnownSessions, interruptKnownSessionsAndGoals } from "./execution-immediate-stop.js";
 import { goalOriginFromHost } from "./agent-goal.js";
-import { registerExecutionTools } from "./execution-tools.js";
 import { AITERM_PROFILE } from "./steer-profile.js";
-import { EXECUTION_SOURCE_ENV_NAMES, EXECUTION_SCOPE_ENV_NAMES } from "./execution-runtime.js";
-import { observeExecutionActor } from "./process-runtime.js";
 import { ExecutionError } from "./execution-wire.js";
 import { createAitermServer } from "./index.js";
 import { immediateStopInputSchema, immediateStopResultSchema } from "./execution-immediate-stop.js";
@@ -82,99 +76,8 @@ export function createNativeDeliveryServer(dependencies: {
   return server;
 }
 
-type ParticipantOptions = Parameters<typeof createExecutionParticipant>[0];
-export type NativeProvider = NonNullable<ParticipantOptions["provider"]> & Pick<typeof steer,
-  "codexParentFromRequest" | "claudeParentFromRequest" | "cursorParentFromRequest"
+export type NativeProvider = Pick<typeof steer, "codexParentFromRequest" | "claudeParentFromRequest" | "cursorParentFromRequest"
   | "verifyCodexParent" | "verifyClaudeParent" | "verifyCursorParent">;
-/** Historical injected tracking composition. Normal CLI delivery does not
- * construct this participant or register its execution controls. */
-export function createNativeExecutionServer(input: {
-  interruptCurrentRun: true; expectedScope: ParticipantOptions["expectedScope"]; provider: NativeProvider;
-  // Complete injected fake runtime only; missing primitives never use live OS.
-  runtime?: ParentProducerRuntime;
-  immediateStop?: Pick<Parameters<typeof interruptKnownSessions>[1], "currentLaunchId" | "sendKey">;
-  parentDependencies?: ParticipantOptions["parentDependencies"];
-  claudeRuntime?: ParticipantOptions["claudeRuntime"];
-}) {
-  if (input.interruptCurrentRun !== true || !input.expectedScope || !path.isAbsolute(input.expectedScope.state_root)
-    || input.expectedScope.multiplexer?.kind !== "socket" || !path.isAbsolute(input.expectedScope.multiplexer.key))
-    throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const expectedScope = structuredClone(input.expectedScope), provider = { ...input.provider };
-  for (const name of ["codexParentFromRequest", "claudeParentFromRequest", "cursorParentFromRequest",
-    "verifyCodexParent", "verifyClaudeParent", "verifyCursorParent"] as const)
-    if (typeof provider[name] !== "function") throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  if (input.runtime && ["selectInterruptionSync", "observeInterruptionSync", "interruptKeySync"]
-    .some(name => typeof input.runtime![name as keyof ParentProducerRuntime] !== "function"))
-    throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const profile = { ...AITERM_PROFILE, state_root: () => expectedScope.state_root };
-  const runtime: ParentProducerRuntime = input.runtime ?? {
-    ...localParentWorkerRuntime,
-    sourceEnvironment: () => Object.fromEntries([...EXECUTION_SOURCE_ENV_NAMES, ...EXECUTION_SCOPE_ENV_NAMES].map(name => [name, process.env[name]])),
-    decodeParent: (client, meta) => provider.codexParentFromRequest(client, meta)
-      ?? provider.claudeParentFromRequest(profile, client, meta, path.join(expectedScope.state_root, "claude-parent-hooks"))
-      ?? provider.cursorParentFromRequest(profile, client, { hookRoot: path.join(expectedScope.state_root, "cursor-parent-hooks") }),
-    observeDone: core.observeAgentDone,
-    observeNativeSessions: core.observeExecutionNativeCreationScope,
-    selectAuthSessionName: core.selectExecutionAuthSessionName,
-    observeAuthSessionGeneration: core.observeExecutionAuthSessionGeneration,
-
-    observeCreatedLaunchSync: core.observeExecutionCreatedLaunch,
-    observeExitedCreatedLaunchSync: core.observeExecutionExitedCreatedLaunch,
-    closeExpectedSession: core.closeExpectedAgentSession, // explicit management only, never stop fallback
-    observeInterruptionSync: core.observeExpectedAgentRunInterruption,
-    selectInterruptionSync: core.selectExpectedAgentRunInterruption,
-    interruptKeySync: core.interruptExpectedAgentRun,
-    observeOriginOwner: observeExecutionActor,
-  };
-  // Both native and fake compositions supply every I/O dependency explicitly.
-  // An injected runtime never inherits individual native functions.
-  const participant = input.runtime
-    ? createExecutionParticipant({ profile, expectedScope, provider, runtime, deferEnrollment: !input.runtime || !!input.immediateStop,
-      parentDependencies: input.parentDependencies, claudeRuntime: input.claudeRuntime })
-    : createExecutionParticipant({ profile, expectedScope, provider, runtime, deferEnrollment: !input.runtime || !!input.immediateStop,
-      parentDependencies: nativeParentDependencies(provider, profile), claudeRuntime: { running: nativeProcessRunning } });
-  registerExecutionTools(participant.server, participant.service, { interruptCurrentRun: true,
-    // The stop button uses this direct path, not the old v2 proof controller.
-    ...(!input.runtime || input.immediateStop ? { interruptSessionsNow: (args: unknown) => interruptKnownSessions(args, {
-      relations: () => participant.store.snapshot().records.map(record => record.relation),
-      currentLaunchId: input.immediateStop?.currentLaunchId ?? core.interruptionLaunchId,
-      sendKey: input.immediateStop?.sendKey ?? core.interruptSessionNow,
-    }) } : {}),
-  });
-  return participant;
-}
-
-// Existing native functions, not alternate queue/transport implementations.
-import { observeAnywhere, answerAnywhere } from "./remote.js";
-import { readProcessIdentities } from "./process-runtime.js";
-function nativeProcessExists(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return false; throw error; }
-}
-function nativeProcessRunning(pid: number, start: string): boolean {
-  return readProcessIdentities([pid]).some(row => row.pid === pid && row.started_identity === start);
-}
-function nativeParentDependencies(provider: NativeProvider, profile: steer.ProductProfile): NonNullable<ParticipantOptions["parentDependencies"]> {
-  return { observe: observeAnywhere, answer: answerAnywhere, verify: async parent => {
-    if ("kind" in parent && parent.kind === "claude") provider.verifyClaudeParent(profile, parent);
-    else if ("kind" in parent && parent.kind === "cursor") provider.verifyCursorParent(profile, parent);
-    else await provider.verifyCodexParent(profile, parent as steer.CodexParent);
-  },
-    processes: readProcessIdentities, exists: nativeProcessExists, childGone: core.deliveryChildGone, childCheckMs: 30_000,
-    now: () => performance.now(), wall: () => Date.now() };
-}
-/** Historical injected worker; normal parent-hook CLI no longer uses it. */
-export function createNativeExecutionWorker(input: {
-  interruptCurrentRun: true; expectedScope: ParticipantOptions["expectedScope"]; provider: NativeProvider;
-  runtime?: ParentWorkerRuntime; codexHome?: string;
-}) {
-  if (input.interruptCurrentRun !== true || !input.expectedScope || !path.isAbsolute(input.expectedScope.state_root)
-    || input.expectedScope.multiplexer?.kind !== "socket" || !path.isAbsolute(input.expectedScope.multiplexer.key))
-    throw new ExecutionError("EXECUTION_UNSUPPORTED");
-  const expectedScope = structuredClone(input.expectedScope), provider = { ...input.provider };
-  return createExecutionParentWorker({ expectedScope, provider, runtime: input.runtime,
-    profile: { ...AITERM_PROFILE, state_root: () => expectedScope.state_root }, codexHome: input.codexHome });
-}
 export function parseNativeExecutionArguments(args: string[]) {
   const { values } = parseArgs({ args, strict: true, allowPositionals: false, options: {
     "execution-interrupt": { type: "boolean" }, "state-root": { type: "string" },

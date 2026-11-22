@@ -163,10 +163,13 @@ test("動いている番の席も、番を止めてから自分で終わる", { 
   try {
     for (let waited = 0; waited < 30000 && core.observeSession(sid).state !== "busy"; waited += 100) await sleep(100);
     assert.equal(core.observeSession(sid).state, "busy");
-    const started = Date.now();
     assert.equal(core.closeSessionResult(sid).outcome, "closed");
     assert.deepEqual(events("busy"), ["C-c", "C-c", "C-c", "SessionEnd"]);
-    assert.ok(Date.now() - started < 1400, "入力待ちに戻ったのを見て、上限（1.5秒）を待たずに進む");
+    // 席自身の時計で、1回目と2回目の鍵の間を測る。上限（1.5秒）を待てば鍵の間隔は上限＋0.2秒以上になる。
+    // 呼び手の全体の時間で測ると、混んだ端末で他の手間が足されて、待っていないのに超える（macOS hosted、2026-11-23）。
+    const stamps = fs.readFileSync(seatLog("busy"), "utf8").split("\n").filter(line => / C-c$/.test(line)).map(line => Number(line.split(" ")[0]));
+    assert.equal(stamps.length, 3);
+    assert.ok(stamps[1] - stamps[0] < 1600, "入力待ちに戻ったのを見て、上限（1.5秒）を待たずに進む");
   } finally { core.__testSetClaudeExitBeforeClose(null); try { core.closeSession(sid); } catch { /* noop */ } }
 });
 

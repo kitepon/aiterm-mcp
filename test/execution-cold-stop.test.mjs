@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { localParentWorkerRuntime } from '../dist/execution-parent-worker.js';
-import { executionStoreDirectory } from '../dist/execution-store.js';
+import { createHash } from 'node:crypto';
 
 // This file's seat-env owns an empty state/socket scope. Never bootstrap a
 // server, CLI or PTY: the actual native listing must encounter ENOENT.
@@ -18,7 +18,8 @@ test('native SDK stop is idle before any tmux server or socket has ever existed'
   const scope = localParentWorkerRuntime.scope();
   assert.equal(scope.multiplexer.kind, 'socket');
   const socket = scope.multiplexer.key;
-  const graph = join(executionStoreDirectory(scope.state_root, scope.multiplexer), 'relations.json');
+  // The execution store directory that no longer exists (0.70.104): a cold stop must not create it.
+  const graph = join(scope.state_root, 'execution', createHash('sha256').update(JSON.stringify([scope.multiplexer.kind, scope.multiplexer.key])).digest('hex'), 'relations.json');
   assert.equal(existsSync(socket), false); assert.equal(existsSync(graph), false);
   const require = createRequire(import.meta.url);
   const transport = new StdioClientTransport({ command: process.execPath,

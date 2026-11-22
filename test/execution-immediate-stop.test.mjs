@@ -7,7 +7,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { interruptKnownSessions, interruptKnownSessionsAndGoals, immediateStopInputSchema } from '../dist/execution-immediate-stop.js';
-import { FileExecutionStore } from '../dist/execution-store.js';
 const launches = Object.fromEntries(['a','b','c','d'].map(x => [x, {session_id:x,launch_id:x.repeat(32)}]));
 const point = x => ({launch:launches[x],boundary:{event_cursor:0,turn_id:null,operation_id:null,steer_id:null}});
 const edge = (a,b) => ({request:{kind:'delivery',delivery_id:a+b,target_session_id:b},source_session_id:a,
@@ -42,12 +41,6 @@ test('only normal transport receipt counts as sent; idle is distinct and no nati
  for(const fake of [undefined,{outcome:'accepted',session_id:'other'},{status:'confirmed'}])
   assert.equal(stop({session_id:'a'},[],()=>fake).result.status,'failed');
  const result=stop({session_id:'a'},[]).result;assert.deepEqual(Object.keys(result),['session_id','status','targets']);
-});
-test('snapshot reads do not wait for held writer lock or change graph bytes',{ skip: posixCheckpoint }, t=>{
- const root=mkdtempSync(join(tmpdir(),'immediate-snapshot-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
- const store=new FileExecutionStore(root);store.transactionSync(state=>{});
- const path=join(root,'relations.json'),before=readFileSync(path);mkdirSync(join(root,'transaction.lock'));
- assert.deepEqual(store.snapshot().records,[]);assert.deepEqual(readFileSync(path),before);
 });
 test('session request is strict: no legacy proof or mixed forms accepted',()=>{
  for(const args of [{},{session_ids:[]},{session_id:'a',session_ids:['b']},{session_id:'a',roots:[]},{schema:'aiterm.cascade-stop-request.v2',mode:'interrupt',roots:[launches.a]}])

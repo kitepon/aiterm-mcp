@@ -43,8 +43,8 @@ machine席の出力は**データ**で渡す（[ADR 0143](../adr/0143-machine-se
 | --- | --- | --- | --- |
 | `aiterm-mcp/setup-node` | `mcpRegistration()` → `{command, args}`（nodeの絶対path＋このpackageの`dist/index.js`。`aiterm-setup` が書く形と同じ。npmを呼ばない）、`setupNodeExecutable()` | Aitermが自分の起動の形を返す。各CLIの設定へ書くのはBellTeam（mcp-lazyの中継で包むかもBellTeam） | aiterm-hooks.mjs・harness-config.mjs（16・19行目のMCP登録の形） |
 | `aiterm-mcp/setup-integrations` | `mergeClaudeParentHooks(file, registration)`、`mergeCursorParentHooks(file, registration)`、`ensureCodexParentSteer(home, {binary})` | 渡されたfile（`~/.claude/settings.json`・`~/.cursor/hooks.json`）とCodexのhook設定を、Aitermが書く | aiterm-hooks.mjs の予備の分岐だけ（nativeの登録が作れなかった時。モリー氏がその分岐を外すまで残す、2026-11-14） |
-| `aiterm-mcp/execution-parent-worker` | `localParentWorkerRuntime.scope()` → `{state_root, multiplexer.key}` | 読むだけ | aiterm-hooks.mjs（実行の席の登録） |
-| `aiterm-mcp/execution-native-server` | `parseNativeExecutionArguments(args)`。このファイル自体が実行の席のMCPの入口（`--execution-interrupt --state-root --socket --steer-provider`）。pathは `exports` の値から得る | 読むだけ（読み込んでも起動しない） | aiterm-hooks.mjs |
+| `aiterm-mcp/execution-parent-worker` | `localParentWorkerRuntime.scope()` → `{state_root, multiplexer: {kind, key}}`（0.70.104からこの1つだけ。worker本体は消した） | 読むだけ | aiterm-hooks.mjs（実行の席の登録） |
+| `aiterm-mcp/execution-native-server` | `parseNativeExecutionArguments(args)`、`createNativeDeliveryServer`（通常配送と `agent_stop`。0.70.104から実行の記録を載せた `createNativeExecutionServer` / `createNativeExecutionWorker` は無い）。このファイル自体が実行の席のMCPの入口（`--execution-interrupt --state-root --socket --steer-provider`）。pathは `exports` の値から得る | 読むだけ（読み込んでも起動しない） | aiterm-hooks.mjs |
 | `aiterm-mcp/child-result` | `CHILD_RESULT_PREFACE`（子の結果を親へ渡す文の1行目の頭）、`answerMessage(record)` | Aitermが親の席へ送る文の頭。BellTeamは比べるだけ | self-turns.mjs（23行目） |
 | `aiterm-mcp/resume-state-cli` | node で走らせるCLI（読み込まない）。`restore --session <席名> --launch <32桁hex> --sha256 <64桁hex>`：標準入力にcheckpointのbytes、成功は終了0と標準出力に1行のJSON `aiterm.resume-state-result.v1` `{operation, session_id, launch_id, checkpoint_sha256, outcome: restored｜already_restored}`。`checkpoint --session --launch`：標準出力にbytes、標準エラーに同じ形の1行（outcome saved）。失敗は終了2と標準エラーに1行の誤り（本文を出さない）。同じbinは `aiterm-resume-state` | 本体の起動時に、BellTeamが席の利用者で走らせる。checkpointの中身はAitermが読み書きする | runtime-resume.mjs（28行目）・compose.aiterm-checkpoint.yaml |
 | `aiterm-setup harness-entries --json`（bin、0.70.58、bd14。0.70.60で `execution-native-setup` の入口を置き換えた） | CLIの設定ファイルへ入れるAitermのhookを `bellteam.harness-entries.v1`（E1 v1.1）で返す。引数・出力・書く物は setup-update.md「CLIのhookの項目を返す」 | Aitermは自分の置き場（codex-parent-hooks/config.json）だけ書く。CLIのファイルとCodexの承認はBellTeamが1人で書く | BellTeamのCLI登録（モリー氏 bd14。aiterm-hooks.mjs の hook設定の呼び出しを置き換える） |
@@ -92,7 +92,7 @@ BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]`
 
 | BellTeam側（担当） | 呼ぶAitermの部品 | 段階 | Aitermが外す条件 |
 | --- | --- | --- | --- |
-| `execution-bridge.mjs`（キロ。本番では `executionBridge: null`、試験だけ） | `agent_execution`、`agent_execution_roots`、execution store（`execution-*.ts` の大半） | 1b | キロ氏がBellTeamの橋の道を消した版を本番に出し（1a）、その印を受けた後 |
+| `execution-bridge.mjs`（キロ。本番では `executionBridge: null`、試験だけ） | `agent_execution`、`agent_execution_roots`、execution store（`execution-*.ts` の大半） | 1b | 済み: キロ氏の1a（BellTeam PR #2368）が本番で動き、Aiterm側は0.70.104で削除。消した物と残した物は [private-execution.md](private-execution.md) の頭 |
 | なし（`src` に呼び手なし。他製品の呼び手も確認できず） | `throughline_source_session` / `throughline_supplement_file` | 1 | 外さない。BellTeamの名前を持たない汎用のforkとして残す（トロニー氏の裁定） |
 | `remote-seats.mjs`（キロ・クラスト） | `mcp_config` の席への道の書き換え（`rewriteSeatMcpConfig`、`ensureSeatForward`） | 2 | BellTeamが最終のconfigを作り、Aitermは書き換えずに渡す形が本番で動いた後（端末の席の仕組みはb4でクラスト氏へ） |
 | `#seatTurns`・route resume（キロ） | `pty_list` の `seat_turns` / `route_since` / `unread` | 3 | BellTeamが汎用の事実（`pty_list`、`pty_observe`、席のeventと`aiterm-transcript-read`）から同じ値を出し、影の比較で差が0になった後 |

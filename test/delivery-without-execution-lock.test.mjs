@@ -10,14 +10,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createNativeDeliveryServer } from '../dist/execution-native-server.js';
-import { executionStoreDirectory } from '../dist/execution-store.js';
+import { createHash } from 'node:crypto';
 import { ensureStateRoot } from '../dist/agent-shared.js';
 import { SOCK } from '../dist/tmux-runtime.js';
 import { closeSession } from '../dist/core.js';
 
 const skip = process.platform === 'win32' ? 'isolated POSIX native CLI fixture' : false;
 const entry = fileURLToPath(new URL('../dist/execution-native-server.js', import.meta.url));
-const graph = () => executionStoreDirectory(ensureStateRoot(), { kind: 'socket', key: SOCK });
+const graph = () => join(ensureStateRoot(), 'execution', createHash('sha256').update(JSON.stringify(['socket', SOCK])).digest('hex')); // the removed store's directory
 function heldGraph() {
   const directory = graph(); mkdirSync(join(directory, 'transaction.lock'), { recursive: true });
   writeFileSync(join(directory, 'relations.json'), 'unreadable tracking is not delivery admission');

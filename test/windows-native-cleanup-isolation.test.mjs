@@ -40,7 +40,7 @@ test('Windows: POSIX試験の全件除外後も別namespaceのnative sessionを�
     pid = before.stdout.trim();
     const child = spawnSync(process.execPath, [
       '--import', './test/seat-env.mjs', '--test', '--test-reporter=tap',
-      'test/execution-launch-create-contention.test.mjs',
+      'test/execution-cold-stop.test.mjs',
     ], { cwd: fileURLToPath(new URL('..', import.meta.url)), env, encoding: 'utf8', timeout: 30000 });
     assert.equal(child.status, 0, child.stderr || child.stdout);
     assert.match(child.stdout, /# skipped [1-9]\d*/);

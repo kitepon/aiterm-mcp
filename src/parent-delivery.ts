@@ -16,7 +16,7 @@ import { cursorReceiveProcess } from "./cursor-parent-receive.js";
 import { AitermError } from "./errors.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
 import { answerAnywhere, observeAnywhere, remoteKey } from "./remote.js";
-import type { ParentManagerExecution } from "./execution-parent-manager.js";
+import type { ExecutionRequest, ExecutionPoint } from "./execution-contract.js";
 import { currentExecutionRequest } from "./execution-context.js";
 import { ExecutionError } from "./execution-wire.js";
 import { withExecutionPreparation } from "./execution-effect.js";
@@ -125,6 +125,21 @@ function receipt(record: DeliveryRecord): ParentDeliveryReceipt {
 
 
 /** ownerごとのディレクトリ間renameで、再起動後の回収者を一つに決める。 */
+/** The optional execution-tracking hooks of the manager. Nothing supplies them in production (the execution store is gone, 0.70.104);
+ * the branches that read them stay until the dormant execution paths of parent delivery are stripped (a separate refactor). */
+export interface ParentManagerExecution {
+  observeOriginOwner?(pid: number): unknown;
+  parentFromIngress?(): CodexParent | ClaudeParent | CursorParent | null;
+  captureEndpointEvidence?(endpoint: unknown): unknown;
+  bind(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): Promise<unknown>;
+  verifyRecovery?(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence: unknown): Promise<true>;
+  diagnoseClaim?(id: string, request: ExecutionRequest, child: ExecutionPoint, endpoint: unknown, evidence?: unknown): unknown;
+  prepareCompanion?(id: string, parent: CodexParent | ClaudeParent | CursorParent, evidence?: unknown): void;
+  submit(parent: CodexParent | ClaudeParent | CursorParent, id: string, text: string): Promise<{ queued_submission_id: string | null }>;
+  outcomeUnknown?(error: unknown): boolean | null;
+  recordChildCompletion?(id: string): Promise<unknown>;
+}
+
 export class ParentDeliveryManager {
   private readonly deps: ParentDeliveryDependencies;
   private readonly execution?: ParentManagerExecution;

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.111] - 2026-11-23
+
 - `agent_launch` with `remote` + `remote.ssh` (a pinned host key, no `terminal`) now carries private values like a terminal launch does (a532b2s2e, remote-terminal.md R30): the values of `env_vars` and the `mcp_config` header values go on the private line (`${AITERM_MCP_HEADER_n}` in the config), `AITERM_SEAT_FORWARD_PORT` reaches `post_launch` when the caller lists it in `env_vars`, and the remote must be at the harness minimum before the line is sent. `mcp_config` is passed exactly as written: no seat-URL rewrite, no D->P mapping (the caller runs `ensure_forward` and writes P). A `remote` without `ssh` still refuses private values (`REMOTE_PRIVATE_ENV_UNSUPPORTED`). `agent_stop` takes an optional `remote` for every id it lists (the stop key over that ssh). A seat launched this way has no session binding: later calls pass the same `remote`.
 
 ## [0.70.110] - 2026-11-23
@@ -3698,7 +3700,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.110...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.111...HEAD
+[0.70.111]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.110...v0.70.111
 [0.70.110]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.109...v0.70.110
 [0.70.109]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.108...v0.70.109
 [0.70.108]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...v0.70.108

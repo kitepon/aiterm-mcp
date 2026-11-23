@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // aiterm-transcript-read --session S [--cursor-session ID --offset N] [--max-bytes N]   (remote-terminal.md "One launch path")
-// One JSON line. A local seat is read here; a terminal seat is read by the same reader on its terminal over the trusted SSH.
+// One JSON line. A local seat is read here; a terminal seat is read by the same reader on its terminal over the trusted SSH;
+// a seat launched on `remote`+`ssh` (R32) is read with --host --user [--port] --known-hosts [--host-key-alias] --identity-agent|--identity-file (the pinned ssh of agent_launch's `remote`).
 import { realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { boundTerminalTarget, classifySshFailure, trustedSshArguments } from "./remote-terminal.js";
-import { remoteShell, terminalCommand, terminalProgram } from "./remote.js";
+import { remoteShell, sshInvocation, terminalCommand, terminalProgram } from "./remote.js";
+import { forwardRemoteSchema } from "./remote-contract.js";
 
 const ERROR = "aiterm.transcript-read-error.v1";
 
@@ -31,16 +33,29 @@ export function transcriptFlags(args: string[]): string[] {
   return flags;
 }
 
+/** The pinned `remote` of a seat launched without a binding, from the same flag names as `aiterm-remote`; null when --host is absent. */
+export function pinnedRemoteFlags(args: string[]) {
+  if (option(args, "--host") === undefined) return null;
+  const port = option(args, "--port");
+  const parsed = forwardRemoteSchema.safeParse(JSON.parse(JSON.stringify({ host: option(args, "--host"), user: option(args, "--user"), ...(port === undefined ? {} : { port: Number(port) }),
+    ssh: { known_hosts_file: option(args, "--known-hosts"), host_key_alias: option(args, "--host-key-alias"), identity_agent: option(args, "--identity-agent"), identity_file: option(args, "--identity-file") } })));
+  if (!parsed.success) throw new Error(`REMOTE_INVALID: ${parsed.error.issues.map(issue => `${issue.path.map(String).join(".") || "input"}: ${issue.message}`).join("; ")}`);
+  return parsed.data;
+}
+
 async function run(args: string[]): Promise<{ line: string; code: number }> {
   const flags = transcriptFlags(args);
-  const target = boundTerminalTarget(flags[1]);
-  if (!target) {
+  const pinned = pinnedRemoteFlags(args);
+  const target = pinned ? null : boundTerminalTarget(flags[1]);
+  if (!pinned && !target) {
     const id = option(flags, "--cursor-session"), max = option(flags, "--max-bytes");
     return { line: JSON.stringify(readCompletedTranscript(flags[1], id ? { claudeSessionId: id, offset: Number(option(flags, "--offset")) } : null,
       max ? Number(max) : undefined)), code: 0 };
   }
-  const ssh = spawnSync("ssh", trustedSshArguments(target.trusted_ref, terminalCommand(await remoteShell(target), terminalProgram(["aiterm-remote-terminal", "transcript-read", ...flags])), null),
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const reached = pinned ?? target!, command = terminalCommand(await remoteShell(reached), terminalProgram(["aiterm-remote-terminal", "transcript-read", ...flags]));
+  const invocation = pinned ? sshInvocation(pinned, command) : { args: trustedSshArguments(target!.trusted_ref, command, null), env: undefined };
+  const ssh = spawnSync("ssh", invocation.args,
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, maxBuffer: 64 * 1024 * 1024, ...(invocation.env ? { env: invocation.env } : {}) });
   const line = (ssh.stdout ?? "").trim().split("\n").pop() ?? "";
   let parsed: { schema?: string } | null = null;
   try { parsed = JSON.parse(line); } catch { /* classified below */ }

@@ -65,3 +65,19 @@ exit 1
   assert.match(wait.args.at(-1), /runtime/, wait.args.at(-1));
   assert.match(wait.args.at(-1), /aiterm-wait/);
 });
+
+test("aiterm-transcript-read with the pinned ssh flags reads on that machine (R32); a malformed pin is one error line", { skip }, () => {
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh
+case "$*" in *aiterm-probe*) echo posix; exit 0;; esac
+case "$*" in *transcript-read*) echo '{"schema":"aiterm.transcript-read.v1","lines":[],"cursor":null}'; exit 0;; esac
+exit 1
+`, { mode: 0o755 });
+  const cli = new URL("../dist/transcript-read-cli.js", import.meta.url).pathname;
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  const ok = spawnSync(process.execPath, [cli, "--session", "seat_a", "--host", "10.7.0.3", "--user", "kite", "--known-hosts", "/k/kh", "--identity-agent", "/run/agent.sock"], { encoding: "utf8", env });
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.equal(JSON.parse(ok.stdout.trim()).schema, "aiterm.transcript-read.v1");
+  const bad = spawnSync(process.execPath, [cli, "--session", "seat_a", "--host", "10.7.0.3", "--user", "kite"], { encoding: "utf8", env });
+  assert.equal(bad.status, 2);
+  assert.equal(JSON.parse(bad.stdout.trim()).code, "REMOTE_INVALID");
+});

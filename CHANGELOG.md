@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_launch` with `remote` + `remote.ssh` (a pinned host key, no `terminal`) now carries private values like a terminal launch does (a532b2s2e, remote-terminal.md R30): the values of `env_vars` and the `mcp_config` header values go on the private line (`${AITERM_MCP_HEADER_n}` in the config), `AITERM_SEAT_FORWARD_PORT` reaches `post_launch` when the caller lists it in `env_vars`, and the remote must be at the harness minimum before the line is sent. `mcp_config` is passed exactly as written: no seat-URL rewrite, no D->P mapping (the caller runs `ensure_forward` and writes P). A `remote` without `ssh` still refuses private values (`REMOTE_PRIVATE_ENV_UNSUPPORTED`). `agent_stop` takes an optional `remote` for every id it lists (the stop key over that ssh). A seat launched this way has no session binding: later calls pass the same `remote`.
+
 ## [0.70.110] - 2026-11-23
 
 - `agent_stop` is now a tool of the default server (a532b2s5r, Tronie ruling A; bellteam-boundary.md stage 5). It sends the ordinary stop key to the named session and the sessions it called, leaf first; input and result shapes are unchanged, and it carries no BellTeam wording and no caller gating. The delivery composition (`createNativeDeliveryServer`, `native-entry`, `execution-native-server`) now builds the same default server, so the default list has 27 tools. New `src/agent-stop.ts` holds the registration.

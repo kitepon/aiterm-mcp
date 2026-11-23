@@ -1661,7 +1661,7 @@ async function launchRemoteAgent(target: RemoteTarget, harness: core.AgentHarnes
   const delivery = args.prompt || args.throughline_source_session ? await deliveryForRequest(extra, true) : null;
   // A terminal's claude_agent takes append_system_prompt / mcp_config since 0.65.0; its agent_launch drops them until this release.
   // claude_agent has no fork_from, so a fork always goes through agent_launch.
-  const result = target.trusted_ref && harness === "claude-code" && !args.fork_from && args.post_launch === undefined
+  const result = (target.trusted_ref || target.ssh) && harness === "claude-code" && !args.fork_from && args.post_launch === undefined
     ? await callRemoteTool(target, "claude_agent", args, 600_000, privateEnv)
     : await callRemoteTool(target, "agent_launch", { harness, ...args }, 600_000, privateEnv);
   const structured = result.structuredContent as any;
@@ -1711,6 +1711,21 @@ const TERMINAL_MINIMUM_VERSION: Record<string, string> = {
   "grok-cli": REMOTE_CLI_OPS_VERSION, "cursor-cli": REMOTE_CLI_OPS_VERSION, "antigravity-cli": REMOTE_CLI_OPS_VERSION,
 };
 const terminalVersions = new Map<string, string>();
+/** The private side of a remote launch (R5): env_vars values read from this process, and mcp_config header values moved to the private line. */
+function remotePrivateInputs(harness: core.AgentHarness, args: any): { privateEnv: Record<string, string>; mcpConfig: any } {
+  const privateEnv: Record<string, string> = {};
+  for (const name of args.env_vars ?? []) { const value = launchEnvValue(name); if (value !== undefined) privateEnv[name] = value; }
+  let mcpConfig = args.mcp_config;
+  if (mcpConfig) {
+    const extracted = extractMcpHeaders(mcpConfig);
+    Object.assign(privateEnv, extracted.env);
+    mcpConfig = extracted.config;
+    // Codex cannot say every header shape: refuse here, not on the remote after the private line was sent.
+    if (harness === "codex-cli") try { codexMcpOverrides(mcpConfig); } catch (e) { throw launchInputRefusal(harness, (e as Error).message); }
+  }
+  return { privateEnv, mcpConfig };
+}
+
 /** A seat on a BellTeam terminal (remote-terminal.md "One launch path"). Same launch arguments plus terminal + cwd. */
 async function launchTerminalAgent(harness: core.AgentHarness, terminal: TerminalArgument, args: any, extra: { _meta?: unknown }): Promise<any> {
   try {
@@ -1732,15 +1747,9 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
     }
     if (!versionAtLeast(version, minimum))
       throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${minimum} or later is required (update Aiterm on the terminal)`, 2);
-    const privateEnv: Record<string, string> = {};
-    for (const name of args.env_vars ?? []) { const value = launchEnvValue(name); if (value !== undefined) privateEnv[name] = value; }
-    let mcpConfig = args.mcp_config, seatPort: number | undefined;
+    const { privateEnv, mcpConfig: extractedConfig } = remotePrivateInputs(harness, args);
+    let mcpConfig = extractedConfig, seatPort: number | undefined;
     if (mcpConfig) {
-      const extracted = extractMcpHeaders(mcpConfig);
-      Object.assign(privateEnv, extracted.env);
-      mcpConfig = extracted.config;
-      // Codex cannot say every header shape: refuse here, not on the terminal after the private line was sent.
-      if (harness === "codex-cli") try { codexMcpOverrides(mcpConfig); } catch (e) { throw launchInputRefusal(harness, (e as Error).message); }
       const ingress = seatIngressPort(mcpConfig);
       if (ingress) { seatPort = await ensureSeatForward(target.trusted_ref, ingress); mcpConfig = rewriteSeatMcpConfig(mcpConfig, seatPort); }
     }
@@ -2014,8 +2023,20 @@ server.registerTool(
       ? new AgentResumeUnavailableError(args.session_name)
       : launchInputRefusal(harness, "require_existing_resume requires session_name"));
     if (!remote) return launchAgent(kindForHarness(harness), args, extra, harness === "claude-code" || harness === "claude-machine" ? harness : undefined);
-    try { return withErrorCode(await launchRemoteAgent(acceptRemote(remote), harness, args, extra)); }
-    catch (e) { return withErrorCode(fail(e)); }
+    try {
+      const target = acceptRemote(remote);
+      // R30: a pinned ssh (verified host key) carries private values like a terminal does; the mcp_config is passed as the caller wrote it.
+      if (!target.ssh || (!args.env_vars?.length && !args.mcp_config)) return withErrorCode(await launchRemoteAgent(target, harness, args, extra));
+      const minimum = TERMINAL_MINIMUM_VERSION[harness];
+      const version = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
+      if (minimum && !versionAtLeast(version, minimum))
+        throw new AitermError(`REMOTE_AITERM_TOO_OLD: the remote runs Aiterm ${version}; ${minimum} or later is required (update Aiterm there)`, 2);
+      const { privateEnv, mcpConfig } = remotePrivateInputs(harness, args);
+      const envVars = [...new Set([...(args.env_vars ?? []), ...Object.keys(privateEnv)])];
+      return withErrorCode(await launchRemoteAgent(target, harness,
+        { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra,
+        Object.keys(privateEnv).length ? privateEnv : undefined));
+    } catch (e) { return withErrorCode(fail(e)); }
   },
 );
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - `aiterm-remote probe` and `aiterm-remote command` (a532b2s2f, remote-terminal.md R31): the C8 / folder operations of `remote_terminal_open` and `remote_terminal_command` over a caller-pinned ssh, with no binding. `probe --host --user [--port] --known-hosts [--host-key-alias] --identity-agent|--identity-file` prints `{remoteVersion, platform}`; `command --op <cli_version|cli_install|cli_update|cli_auth_status|claude_*|path_status|make_dir|list_dirs> [--harness H] [--path-base64 B]` plus the same flags prints exactly the object the binding path returns, with the same version gates and error codes (an `aiterm.remote-binding-error.v1` line and exit 2 on failure). The operations moved to `runRemoteCommand`, shared by both paths.
+- A pinned ssh (`remote.ssh`) now starts the machine's `aiterm-mcp` and `aiterm-wait` from its runtime first in every shell, like a terminal binding (it was the plain name on PATH for a Windows machine); `wait_process` of a `remote` call is built the same way (remote-terminal.md R30).
 
 ## [0.70.111] - 2026-11-23
 

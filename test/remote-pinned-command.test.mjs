@@ -22,9 +22,9 @@ await s.connect(new StdioServerTransport());
 `);
 const bin = path.join(tmp, "bin");
 fs.mkdirSync(bin);
-// The remote command decides the answer: the platform probe, the Aiterm server (the line ending in `exec aiterm-mcp'`), or the CLI version script.
+// The remote command decides the answer: the platform probe, the Aiterm server (the line ending in `exec "$p"`), or the CLI version script.
 fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh
-case "$*" in *'exec aiterm-mcp'*) FAKE_VERSION=\${FAKE_REMOTE_VERSION:-0.70.111} exec ${JSON.stringify(process.execPath)} ${JSON.stringify(serverFile)};; esac
+case "$*" in *'exec "$p"'*) FAKE_VERSION=\${FAKE_REMOTE_VERSION:-0.70.111} exec ${JSON.stringify(process.execPath)} ${JSON.stringify(serverFile)};; esac
 case "$*" in *uname*) printf 'aiterm-probe %%OS%%\\nLinux\\n'; exit 0;; *aiterm-probe*) echo posix; exit 0;; esac
 case "$*" in *--version*) echo "grok 2.3.4"; exit 0;; esac
 exit 1
@@ -50,4 +50,18 @@ test("command: cli_version over the pinned ssh returns the binding path's result
   assert.equal(bad.status, 2); assert.equal(last(bad).code, "COMMAND_UNSUPPORTED");
   const noPin = spawnSync(process.execPath, [new URL("../dist/remote-terminal-cli.js", import.meta.url).pathname, "probe", "--host", "h", "--user", "u"], { encoding: "utf8" });
   assert.equal(noPin.status, 2);
+});
+
+test("a pinned ssh waits and calls through the machine's runtime like a binding does, in a Windows shell too", { skip }, async () => {
+  const pinned = { host: "10.7.0.2", user: "kite", ssh: { known_hosts_file: "/k/kh", identity_agent: "/run/agent.sock" } };
+  const { remoteWaitProcess, runtimeFirst } = await import("../dist/remote.js");
+  assert.equal(runtimeFirst(pinned), true); assert.equal(runtimeFirst({ host: "h" }), false);
+  fs.writeFileSync(path.join(bin, "ssh"), `#!/bin/sh
+case "$*" in *aiterm-probe*) echo 'aiterm-probe %OS% C:\\\\Program Files\\\\PowerShell\\\\7'; exit 0;; esac
+exit 1
+`, { mode: 0o755 });
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
+  const wait = await remoteWaitProcess(pinned, "seat_a", 1);
+  assert.match(wait.args.at(-1), /runtime/, wait.args.at(-1));
+  assert.match(wait.args.at(-1), /aiterm-wait/);
 });

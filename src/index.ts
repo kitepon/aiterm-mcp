@@ -982,6 +982,8 @@ registerRemoteAwareTool(
     description: "握っているセッション一覧（名前 / 現在の前面コマンド / attach 状態 / サイズ / agent 情報）。",
     inputSchema: {
       env_keys: z.array(z.string()).optional().describe("帰属確認用の非秘密環境変数名。指定したキーだけを返す"),
+      include: z.array(z.enum(["turn", "own_work"])).max(2).optional().describe(
+        "agent席の行へ足す事実。turn: 席の今の番（running／idle／読めない時はnull）。own_work: 席が自分で始めて終わっていない仕事（processes、child_results、tasks）。省略した呼び出しは従来どおりで、計算しない（版の確認などで呼ぶ時に重くしない）"),
     },
     outputSchema: {
       schema: z.literal("aiterm.pty-list-result.v1"),
@@ -1006,14 +1008,32 @@ registerRemoteAwareTool(
         }).nullable().optional().describe(
           "Claude agent rows: the usage limit that ended the turn after last_input_at (that turn is over; no Stop follows). " +
             "continued: Claude recorded work after it. hold: Claude's automatic continue is armed, or was cancelled (pty_key Escape cancels an armed hold)"),
+        // include: ["turn"] (0.70.108). null = not readable now (another reader holds the seat, or the harness gives no record).
+        turn: z.union([
+          z.object({ state: z.literal("running"), turn_id: z.string().nullable(), started_at: z.string().nullable(), event_cursor: z.number().nullable(), interim_from: z.string().nullable() }),
+          z.object({ state: z.literal("idle") }),
+        ]).nullable().optional().describe("include:[\"turn\"]のagent行だけ。席の今の番。nullは今は読めない"),
+        // include: ["own_work"] (0.70.108).
+        own_work: z.object({
+          processes: z.number().nullable(), excluded: z.number(), child_results: z.number().nullable(), exclusions_digest: z.string().nullable(),
+          oldest: z.object({ exe: z.string(), args: z.array(z.string()), since: z.string() }).nullable(),
+          tasks: z.number().nullable(), task: z.object({ kind: z.string(), label: z.string(), since: z.string() }).nullable(),
+        }).optional().describe("include:[\"own_work\"]のagent行だけ。席が自分で始めて終わっていない仕事。nullは根拠が無い"),
       })),
     },
   },
-  async ({ env_keys }, extra) => {
+  async ({ env_keys, include }, extra) => {
     try {
       await core.maintainAgentIdleClocks();
       const result = core.listSessionsResult(env_keys, undefined, { vanished: true });
-      return { ...ok(core.listSessions(result)), structuredContent: { ...result }, ...await seatTurnsMeta(result.sessions, extra._meta) };
+      // One read of each seat per call, shared by `include` and the caller-marked seat_turns meta (two readers of one seat leave one without the span lock).
+      const agents = result.sessions.filter(session => session.harness !== null).map(session => session.session_id);
+      const exclusions = extra._meta && typeof extra._meta === "object" ? (extra._meta as Record<string, unknown>)["aiterm/own_work_exclusions"] : undefined;
+      let turnsRead: Promise<core.SeatTurnsResult> | null = null, workRead: Promise<Map<string, core.OwnWork>> | null = null;
+      const shared = { turns: () => (turnsRead ??= readSeatTurnsOffLoop(agents, core.readSeatTurns)), ownWork: () => (workRead ??= core.seatOwnWork(agents, exclusions)) };
+      let sessions = result.sessions;
+      if (include?.length) sessions = await withSeatFacts(result.sessions, include, shared);
+      return { ...ok(core.listSessions(result)), structuredContent: { ...result, sessions }, ...await seatTurnsMeta(result.sessions, extra._meta, shared) };
     } catch (e) {
       return fail(e);
     }
@@ -1030,7 +1050,29 @@ const REMOTE_SEAT_TURNS_LATE_MAX_MS = 60_000;
 
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
-async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown): Promise<{ _meta?: Record<string, unknown> }> {
+type SharedSeatReads = { turns: () => Promise<core.SeatTurnsResult>; ownWork: () => Promise<Map<string, core.OwnWork>> };
+
+/** pty_list include (0.70.108): the seat's turn and own work as plain fields of its row, the same reads seat_turns uses. */
+async function withSeatFacts<T extends { session_id: string; harness: string | null }>(sessions: T[], include: Array<"turn" | "own_work">, shared: SharedSeatReads): Promise<T[]> {
+  const turns = include.includes("turn") ? await shared.turns() : null;
+  const work = include.includes("own_work") ? await shared.ownWork().catch(() => new Map<string, core.OwnWork>()) : null;
+  const byName = new Map((turns?.seats ?? []).map(seat => [seat.session_id, seat]));
+  return sessions.map(session => {
+    if (session.harness === null) return session;
+    const extra: Record<string, unknown> = {};
+    if (turns) {
+      const turn: any = byName.get(session.session_id)?.turn ?? null;
+      extra.turn = turn === null ? null : turn.state === "running"
+        ? { state: "running", turn_id: turn.turn_id ?? null, started_at: turn.started_at ?? null, event_cursor: turn.event_cursor ?? null, interim_from: turn.interim_from ?? null }
+        : { state: "idle" };
+    }
+    const own = work?.get(session.session_id);
+    if (own) extra.own_work = { processes: own.processes, excluded: own.excluded, child_results: own.child_results, exclusions_digest: own.exclusions_digest, oldest: own.oldest, tasks: own.tasks, task: own.task };
+    return { ...session, ...extra };
+  });
+}
+
+async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown, shared: SharedSeatReads): Promise<{ _meta?: Record<string, unknown> }> {
   if (!interimCallerFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities())) return {};
   try {
     // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
@@ -1078,11 +1120,11 @@ async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: stri
     }));
     // callRemoteTool spawns its ssh only after an await: let the relays start before the local read.
     await new Promise(resolve => setImmediate(resolve));
-    const local = await readSeatTurnsOffLoop(sessions.filter(session => session.harness !== null).map(session => session.session_id), core.readSeatTurns);
+    const local = await shared.turns();
     // a41: own_work only for a caller that sends its exclusion list (observation-results.md); terminals compute their own rows.
     const ownWork = requestMeta && typeof requestMeta === "object" ? (requestMeta as Record<string, unknown>)["aiterm/own_work_exclusions"] : undefined;
     if (ownWork !== undefined) {
-      const work = await core.seatOwnWork(local.seats.map(seat => seat.session_id), ownWork);
+      const work = await shared.ownWork();
       for (const seat of local.seats) { const value = work.get(seat.session_id); if (value) Object.assign(seat, { own_work: value }); }
     }
     const remote = await relays;

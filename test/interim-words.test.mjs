@@ -150,7 +150,8 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
     // No steer word is published: pty_read's argument is input_ref since 0.70.107 (steer_id, Kiro's a445a contract, is gone).
     const readSchema = tools.tools.find(tool => tool.name === "pty_read").inputSchema.properties;
     assert.ok(readSchema.input_ref && !readSchema.steer_id, "pty_read takes input_ref only");
-    const published = JSON.stringify(tools.tools);
+    // 0.70.108: `interim_from` (a position token) is a published field of pty_list's turn row (a generic fact, a532b2 stage 3); nothing else about interim words is.
+    const published = JSON.stringify(tools.tools).replaceAll("interim_from", "");
     assert.ok(!/BellTeam|interim|aiterm\/caller|aiterm\/steer|seat_turns|steer_id/i.test(published), "説明にも引数にも出さない");
 
     const plain = await client.callTool({ name: "pty_observe", arguments: { session_id: session } });

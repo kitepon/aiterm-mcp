@@ -310,13 +310,16 @@ async function callWarm(target: RemoteTarget, sshArgs: string[], request: Parame
   }
 }
 
+/** A terminal binding and a pinned ssh (a switched terminal, R30) start the machine's Aiterm from its runtime first, in the shell's own form; an ad-hoc remote keeps the plain command. */
+export const runtimeFirst = (target: RemoteTarget): boolean => !!target.trusted_ref || !!target.ssh;
+
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
   privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
   // Private values go only where the host key is verified: a terminal binding or a pinned ssh (R30).
   if (privateEnv && !target.trusted_ref && !target.ssh) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding or a remote with ssh (a pinned host key)", 2);
   const shell = await remoteShell(target);
   // 信頼済み端末と固定sshはshellごとの正規のコマンド（runtimeの優先と終了codeを含む）。個別指定のremoteは従来のまま。
-  const command = target.trusted_ref || privateEnv ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
+  const command = runtimeFirst(target) ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
     : remoteServerCommand(shell);
   const { args: sshArgs, env } = sshInvocation(target, command);
   // Request _meta is opaque to the relay; progressToken belongs to this hop's client, not the caller's.
@@ -382,7 +385,7 @@ export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: n
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */
 export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number, inputId?: string, steerId?: string, followFlag: "--input-ref" | "--steer" = "--input-ref"): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
   // 別processには鍵のパスフレーズを渡せない。ssh-agentか、張ってあるControlMasterの接続に相乗りする。
-  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId, !!target.trusted_ref, steerId, followFlag), { passphrase: false });
+  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId, runtimeFirst(target), steerId, followFlag), { passphrase: false });
   return { executable: "ssh", args, windows_start_process_argument_list: process.platform === "win32" ? windowsStartProcessArgumentList(args) : null };
 }
 
@@ -412,7 +415,7 @@ export async function observeRemoteAgentDone(target: RemoteTarget, session: stri
   for (;;) {
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const remaining = infinite ? 86_400 : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400), options.input_id, !!target.trusted_ref);
+    const command = remoteWaitCommand(await remoteShell(target), session, options.cursor ?? null, options.operation_id ?? null, Math.min(remaining, 86_400), options.input_id, runtimeFirst(target));
     const { code, stdout, stderr } = await runSsh(target, command, options.signal);
     if (options.signal?.aborted) throw new AitermError("REMOTE_OBSERVE_ABORTED: 観測を停止しました", 2);
     const line = stdout.trim().split("\n").pop() ?? "";

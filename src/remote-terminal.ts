@@ -13,10 +13,10 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { ensureStateRoot, writeJson0600 } from "./agent-shared.js";
-import { powershellForShell, remotePlatform, remoteShell, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
+import { callRemoteTool, powershellForShell, remotePlatform, remoteShell, sshInvocation, terminalCommand, terminalProgram, type RemotePlatform, type RemoteShell, type TerminalScript } from "./remote.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
 import { checkRemotePath } from "./remote-path.js";
-import { FORWARD_ID, type PinnedSsh } from "./remote-contract.js";
+import { FORWARD_ID, type PinnedSsh, type RemoteTarget as SshTarget } from "./remote-contract.js";
 import { liveNodeExecutable } from "./live-node.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -375,6 +375,29 @@ export const REMOTE_WINDOWS_PATH_VERSION = "0.70.8";
 // The first release of the harness-generic cli_* ops, and the first a terminal may run Grok, Cursor and Antigravity seats on.
 export const REMOTE_CLI_OPS_VERSION = "0.70.9";
 
+function execSsh(args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("ssh", args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    signal?.addEventListener("abort", () => child.kill(), { once: true });
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-4000); });
+    child.on("error", reject);
+    child.on("close", code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+}
+
+/** R31: the same fixed operations on a machine reached by a caller-pinned ssh (`remote.ssh`), with no binding. */
+export async function pinnedCommandHost(target: SshTarget): Promise<CommandHost> {
+  if (!target.ssh) throw new RemoteTerminalError("REMOTE_INVALID", "ssh (a pinned host key) is required");
+  const platform = await remotePlatform(target);
+  if (platform === null) throw new RemoteTerminalError("TERMINAL_PLATFORM_UNSUPPORTED", "the machine is not a macOS, Linux or Windows system (the platform probe printed nothing recognisable)");
+  const shell = await remoteShell(target);
+  const remoteVersion = (await callRemoteTool(target, "pty_list", {}, 60_000)).remote_version ?? "0.0.0";
+  return { remoteVersion, platform, shell, exec: (script, timeoutMs) => { const { args, env } = sshInvocation(target, terminalCommand(shell, script)); return execSsh(args, env as NodeJS.ProcessEnv, timeoutMs); } };
+}
+
 export class RemoteTerminalConnection extends EventEmitter {
   private closing = false;
   private constructor(private readonly b: Binding, private readonly dir: string, private readonly agent: ChildProcess,
@@ -464,16 +487,7 @@ export class RemoteTerminalConnection extends EventEmitter {
   }
 
   private exec(script: TerminalScript, timeoutMs: number, signal?: AbortSignal): Promise<{ code: number | null; stdout: string; stderr: string }> {
-    return new Promise((resolve, reject) => {
-      const child = spawn("ssh", sshArguments(this.b, this.socket, this.identity, terminalCommand(this.shell, script)), { env: sshEnvironment(), stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "", stderr = "";
-      const timer = setTimeout(() => child.kill(), timeoutMs);
-      signal?.addEventListener("abort", () => child.kill(), { once: true });
-      child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-      child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-4000); });
-      child.on("error", reject);
-      child.on("close", code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
-    });
+    return execSsh(sshArguments(this.b, this.socket, this.identity, terminalCommand(this.shell, script)), sshEnvironment(), timeoutMs, signal);
   }
 
   async transcriptRead(input: { sessionName: string; cursor: { claudeSessionId: string; offset: number } | null; maxBytes?: number }): Promise<unknown> {
@@ -510,81 +524,8 @@ export class RemoteTerminalConnection extends EventEmitter {
     }
   }
 
-  async command(op: RemoteCommandOp, targetPath?: string, harness?: string): Promise<unknown> {
-    if (harness !== undefined && !op.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no harness`);
-    if (op === "path_status" || op === "make_dir") return this.pathCommand(op, targetPath);
-    if (op === "list_dirs") return this.listDirs(targetPath);
-    if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
-    const alias = CLAUDE_ALIASES[op];
-    const cliOp = alias ?? op;
-    if (!cliOp.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
-    const h = alias ? "claude-code" : harness;
-    if (!h || !Object.hasOwn(CLI, h)) throw new RemoteTerminalError("COMMAND_INVALID", `${op} needs harness: one of ${CLI_HARNESSES.join(", ")}`);
-    if (!alias && !versionAtLeast(this.remoteVersion, REMOTE_CLI_OPS_VERSION))
-      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${REMOTE_CLI_OPS_VERSION} or later is required (update Aiterm on the terminal)`);
-    const spec = CLI[h as CliHarness];
-    if (cliOp === "cli_auth_status") return this.cliAuthStatus(h as CliHarness, spec);
-    const cell = this.shell === "posix" ? "posix" : "windows";
-    const installer = spec.install[cell];
-    if (cliOp === "cli_install" && installer === null) throw new RemoteTerminalError("CLI_INSTALL_UNSUPPORTED", `no official one-line installer is known for ${h} on ${this.platform}`);
-    const script = cliOp === "cli_version" ? cliVersionScript(spec) : cliOp === "cli_update" ? cliUpdateScript(spec) : { posix: spec.install.posix ?? "", windows: spec.install.windows ?? "" };
-    const run = await this.exec(script, cliOp === "cli_version" ? 60_000 : 900_000);
-    if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-    const probe = cliOp === "cli_version" ? run : await this.exec(cliVersionScript(spec), 60_000);
-    const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
-    const result = { exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
-    return alias ? { op, ...result } : { op, harness: h, ...result };
-  }
-
-  /** The login state and nothing of the CLI's own answer: `{op, harness, logged_in}`. */
-  private async cliAuthStatus(h: CliHarness, spec: CliSpec): Promise<{ op: string; harness: string; logged_in: boolean }> {
-    const ask = async () => {
-      const r = await this.exec(cliAuthScript(spec), 60_000);
-      if (r.code === 255) { const f = classifySshFailure(r.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
-      if (r.code === 127) throw new RemoteTerminalError("CLI_NOT_INSTALLED", `${h} is not installed on the terminal (neither on PATH nor in its installer's place)`);
-      return spec.classify(r.code, r.stdout, r.stderr);
-    };
-    let answer = await ask();
-    // A live login can answer "not authenticated" once while it refreshes an old token (grokAuthStatus asks again the same way).
-    if (answer === false && spec.recheckMs) { await new Promise(resolve => setTimeout(resolve, spec.recheckMs)); answer = await ask(); }
-    if (answer === null) throw new RemoteTerminalError("AUTH_STATUS_UNCONFIRMED", `the login state of ${h} could not be read from its status answer`);
-    return { op: "cli_auth_status", harness: h, logged_in: answer };
-  }
-
-  /** R15: the terminal's own fs answers; the path travels as base64 so no shell reads it. */
-  private async pathCommand(op: "path_status" | "make_dir", targetPath: string | undefined): Promise<{ op: string; exists: boolean; directory: boolean; writable: boolean }> {
-    checkRemotePath(targetPath, this.platform === "windows" ? "windows" : "posix");
-    const minimum = this.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_PATH_OPS_VERSION;
-    if (!versionAtLeast(this.remoteVersion, minimum))
-      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (provision the terminal)`);
-    const sub = op === "path_status" ? "path-status" : "make-dir";
-    const result = await this.exec(terminalProgram(["aiterm-remote-terminal", sub, "--path-base64", Buffer.from(targetPath, "utf8").toString("base64")]), 60_000);
-    { const f = failedRun(result); if (f) throw f; }
-    let parsed: any = null;
-    try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
-    if (result.code === 0 && parsed?.schema === "aiterm.remote-path.v1")
-      return { op, exists: parsed.exists === true, directory: parsed.directory === true, writable: parsed.writable === true };
-    if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "path operation failed");
-    throw new RemoteTerminalError("COMMAND_FAILED", "the path operation failed on the terminal");
-  }
-
-  /** R15 list-dirs: read-only folder picker listing; no path lists the SSH user's home. */
-  private async listDirs(targetPath: string | undefined): Promise<unknown> {
-    if (targetPath !== undefined) checkRemotePath(targetPath, this.platform === "windows" ? "windows" : "posix");
-    const minimum = this.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_LIST_DIRS_VERSION;
-    if (!versionAtLeast(this.remoteVersion, minimum))
-      throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${this.remoteVersion}; ${minimum} or later is required (update or provision the terminal)`);
-    const flag = targetPath === undefined ? [] : ["--path-base64", Buffer.from(targetPath, "utf8").toString("base64")];
-    const result = await this.exec(terminalProgram(["aiterm-remote-terminal", "list-dirs", ...flag]), 60_000);
-    { const f = failedRun(result); if (f) throw f; }
-    let parsed: any = null;
-    try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
-    if (result.code === 0 && parsed?.schema === "aiterm.remote-dirs.v1") {
-      const { home, path: listed, exists, directory, entries, truncated } = parsed;
-      return { op: "list_dirs", home, path: listed, exists, directory, entries, truncated };
-    }
-    if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "folder listing failed");
-    throw new RemoteTerminalError("COMMAND_FAILED", "the folder listing failed on the terminal");
+  command(op: RemoteCommandOp, targetPath?: string, harness?: string): Promise<unknown> {
+    return runRemoteCommand({ exec: (script, timeoutMs) => this.exec(script, timeoutMs), remoteVersion: this.remoteVersion, platform: this.platform, shell: this.shell }, op, targetPath, harness);
   }
 
   async close(): Promise<{ closed: true }> {
@@ -592,6 +533,89 @@ export class RemoteTerminalConnection extends EventEmitter {
     await this.client.close().catch(() => {});
     return { closed: true };
   }
+}
+
+/** What the fixed operations need from a machine: one remote command runner, the Aiterm version there, its platform and shell (R15, R31). */
+export interface CommandHost {
+  exec(script: TerminalScript, timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string }>;
+  remoteVersion: string; platform: RemotePlatform; shell: RemoteShell;
+}
+
+export async function runRemoteCommand(host: CommandHost, op: RemoteCommandOp, targetPath?: string, harness?: string): Promise<unknown> {
+  if (harness !== undefined && !op.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no harness`);
+  if (op === "path_status" || op === "make_dir") return pathCommand(host, op, targetPath);
+  if (op === "list_dirs") return listDirs(host, targetPath);
+  if (targetPath !== undefined) throw new RemoteTerminalError("COMMAND_INVALID", `${op} takes no path`);
+  const alias = CLAUDE_ALIASES[op];
+  const cliOp = alias ?? op;
+  if (!cliOp.startsWith("cli_")) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
+  const h = alias ? "claude-code" : harness;
+  if (!h || !Object.hasOwn(CLI, h)) throw new RemoteTerminalError("COMMAND_INVALID", `${op} needs harness: one of ${CLI_HARNESSES.join(", ")}`);
+  if (!alias && !versionAtLeast(host.remoteVersion, REMOTE_CLI_OPS_VERSION))
+    throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${host.remoteVersion}; ${REMOTE_CLI_OPS_VERSION} or later is required (update Aiterm on the terminal)`);
+  const spec = CLI[h as CliHarness];
+  if (cliOp === "cli_auth_status") return cliAuthStatus(host, h as CliHarness, spec);
+  const cell = host.shell === "posix" ? "posix" : "windows";
+  const installer = spec.install[cell];
+  if (cliOp === "cli_install" && installer === null) throw new RemoteTerminalError("CLI_INSTALL_UNSUPPORTED", `no official one-line installer is known for ${h} on ${host.platform}`);
+  const script = cliOp === "cli_version" ? cliVersionScript(spec) : cliOp === "cli_update" ? cliUpdateScript(spec) : { posix: spec.install.posix ?? "", windows: spec.install.windows ?? "" };
+  const run = await host.exec(script, cliOp === "cli_version" ? 60_000 : 900_000);
+  if (run.code === 255) { const f = classifySshFailure(run.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+  const probe = cliOp === "cli_version" ? run : await host.exec(cliVersionScript(spec), 60_000);
+  const version = probe.code === 0 ? (/\d+\.\d+\.\d+\S*/.exec(probe.stdout)?.[0] ?? null) : null;
+  const result = { exit_code: run.code, version, output_tail: run.stdout.slice(-2000) };
+  return alias ? { op, ...result } : { op, harness: h, ...result };
+}
+
+/** The login state and nothing of the CLI's own answer: `{op, harness, logged_in}`. */
+async function cliAuthStatus(host: CommandHost, h: CliHarness, spec: CliSpec): Promise<{ op: string; harness: string; logged_in: boolean }> {
+  const ask = async () => {
+    const r = await host.exec(cliAuthScript(spec), 60_000);
+    if (r.code === 255) { const f = classifySshFailure(r.stderr); throw new RemoteTerminalError(f.code, f.message, f.action); }
+    if (r.code === 127) throw new RemoteTerminalError("CLI_NOT_INSTALLED", `${h} is not installed on the terminal (neither on PATH nor in its installer's place)`);
+    return spec.classify(r.code, r.stdout, r.stderr);
+  };
+  let answer = await ask();
+  // A live login can answer "not authenticated" once while it refreshes an old token (grokAuthStatus asks again the same way).
+  if (answer === false && spec.recheckMs) { await new Promise(resolve => setTimeout(resolve, spec.recheckMs)); answer = await ask(); }
+  if (answer === null) throw new RemoteTerminalError("AUTH_STATUS_UNCONFIRMED", `the login state of ${h} could not be read from its status answer`);
+  return { op: "cli_auth_status", harness: h, logged_in: answer };
+}
+
+/** R15: the terminal's own fs answers; the path travels as base64 so no shell reads it. */
+async function pathCommand(host: CommandHost, op: "path_status" | "make_dir", targetPath: string | undefined): Promise<{ op: string; exists: boolean; directory: boolean; writable: boolean }> {
+  checkRemotePath(targetPath, host.platform === "windows" ? "windows" : "posix");
+  const minimum = host.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_PATH_OPS_VERSION;
+  if (!versionAtLeast(host.remoteVersion, minimum))
+    throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${host.remoteVersion}; ${minimum} or later is required (provision the terminal)`);
+  const sub = op === "path_status" ? "path-status" : "make-dir";
+  const result = await host.exec(terminalProgram(["aiterm-remote-terminal", sub, "--path-base64", Buffer.from(targetPath, "utf8").toString("base64")]), 60_000);
+  { const f = failedRun(result); if (f) throw f; }
+  let parsed: any = null;
+  try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
+  if (result.code === 0 && parsed?.schema === "aiterm.remote-path.v1")
+    return { op, exists: parsed.exists === true, directory: parsed.directory === true, writable: parsed.writable === true };
+  if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "path operation failed");
+  throw new RemoteTerminalError("COMMAND_FAILED", "the path operation failed on the terminal");
+}
+
+/** R15 list-dirs: read-only folder picker listing; no path lists the SSH user's home. */
+async function listDirs(host: CommandHost, targetPath: string | undefined): Promise<unknown> {
+  if (targetPath !== undefined) checkRemotePath(targetPath, host.platform === "windows" ? "windows" : "posix");
+  const minimum = host.platform === "windows" ? REMOTE_WINDOWS_PATH_VERSION : REMOTE_LIST_DIRS_VERSION;
+  if (!versionAtLeast(host.remoteVersion, minimum))
+    throw new RemoteTerminalError("REMOTE_AITERM_TOO_OLD", `the terminal runs Aiterm ${host.remoteVersion}; ${minimum} or later is required (update or provision the terminal)`);
+  const flag = targetPath === undefined ? [] : ["--path-base64", Buffer.from(targetPath, "utf8").toString("base64")];
+  const result = await host.exec(terminalProgram(["aiterm-remote-terminal", "list-dirs", ...flag]), 60_000);
+  { const f = failedRun(result); if (f) throw f; }
+  let parsed: any = null;
+  try { parsed = JSON.parse(result.stdout.trim().split("\n").pop() ?? ""); } catch { /* classified below */ }
+  if (result.code === 0 && parsed?.schema === "aiterm.remote-dirs.v1") {
+    const { home, path: listed, exists, directory, entries, truncated } = parsed;
+    return { op: "list_dirs", home, path: listed, exists, directory, entries, truncated };
+  }
+  if (parsed?.code) throw new RemoteTerminalError(parsed.code, parsed.message ?? "folder listing failed");
+  throw new RemoteTerminalError("COMMAND_FAILED", "the folder listing failed on the terminal");
 }
 
 // ---- terminal seats: the launch tools' `terminal` argument (remote-terminal.md "One launch path") ----

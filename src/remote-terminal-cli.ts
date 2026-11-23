@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, exportBinding, loadCredential, registerBinding, runForwardKeeper, type RemoteCommandOp } from "./remote-terminal.js";
+import { REMOTE_COMMAND_OPS, RemoteTerminalConnection, RemoteTerminalError, bindingStatus, confirmHostKey, exportBinding, loadCredential, pinnedCommandHost, registerBinding, runForwardKeeper, runRemoteCommand, type RemoteCommandOp } from "./remote-terminal.js";
 import { readCompletedTranscript } from "./transcript-read.js";
 import { credentialHandleSchema, forwardRemoteSchema, keyInstallPeerSchema, terminalOsSchema } from "./remote-contract.js";
 import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
@@ -126,6 +126,17 @@ export function main(args: string[]): void {
   if (command === "forward-keeper") return runForwardKeeper(option(rest, "--id") ?? option(rest, "--ref") ?? "");
   // Neutral names (aiterm-remote, a532b4s1): the same code over caller-pinned ssh options, no binding.
   if (command === "export") return oneShot(() => exportBinding(option(rest, "--ref") ?? ""), "aiterm.remote-binding-error.v1");
+  // R31: the C8 / folder operations on a caller-pinned ssh, same results as remote_terminal_open / remote_terminal_command.
+  if (command === "probe") return oneShot(async () => {
+    const host = await pinnedCommandHost(parseFlags(forwardRemoteSchema, { ...peerFlags(rest), ssh: sshFlags(rest) }));
+    return { remoteVersion: host.remoteVersion, platform: host.platform };
+  }, "aiterm.remote-binding-error.v1");
+  if (command === "command") return oneShot(async () => {
+    const op = option(rest, "--op") ?? "";
+    if (!(REMOTE_COMMAND_OPS as readonly string[]).includes(op)) throw new RemoteTerminalError("COMMAND_UNSUPPORTED", "unknown op");
+    const given = option(rest, "--path-base64") !== undefined || option(rest, "--path") !== undefined;
+    return runRemoteCommand(await pinnedCommandHost(parseFlags(forwardRemoteSchema, { ...peerFlags(rest), ssh: sshFlags(rest) })), op as RemoteCommandOp, given ? pathArgument(rest) : undefined, option(rest, "--harness"));
+  }, "aiterm.remote-binding-error.v1");
   if (command === "install-aiterm") return oneShot(() => provisionPinned(parseFlags(forwardRemoteSchema, { ...peerFlags(rest), ssh: sshFlags(rest) })), "aiterm.remote-binding-error.v1");
   if (command === "install-key") return oneShot(() => {
     const peer = parseFlags(keyInstallPeerSchema, { ...peerFlags(rest), ...sshFlags(rest), identity_agent: undefined, identity_file: undefined });
@@ -176,7 +187,7 @@ export function main(args: string[]): void {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale|export|install-key|install-aiterm\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale|export|install-key|install-aiterm|probe|command\n");
   process.exit(64);
 }
 

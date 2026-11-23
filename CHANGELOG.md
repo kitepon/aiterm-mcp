@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.106] - 2026-11-23
+
 - The three origins of an optional vendor launch failure are now three recorded kinds (a532, BugHub factory::mac-kite::aiterm-mcp::92d5a562..., ADR 0102 addendum). `AITERM.VENDOR_LAUNCHER_FAILED` was raised for an explicit launcher path that points at nothing, for a CLI that is not installed, and for a launch command that could not be typed into the pane, with only a fixed template stored, so a recurrence (count 269, 2026-11-21 19:45 JST, 0.70.90 on the Mac) could not be attributed. Now: `AITERM.VENDOR_LAUNCHER_UNRESOLVED` ("Optional vendor launcher path is not usable": `CLAUDE_BIN` / `CODEX_BIN` / `GROK_BIN` ... name a missing file), `AITERM.VENDOR_CLI_UNAVAILABLE` ("Optional vendor CLI is not available": not in the default place or on PATH; Windows grok that is not `grok.exe`), and `AITERM.VENDOR_LAUNCHER_FAILED` narrowed to the launch command that could not be typed (the 0.70.59 repair class). All `warn`, component `vendor-launcher`; the body sent to BugHub keeps its shape. The origin of the 2026-11-21 occurrence stays unknown.
 
 ## [0.70.105] - 2026-11-22
@@ -3678,7 +3680,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...HEAD
+[0.70.106]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...v0.70.106
 [0.70.105]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...v0.70.105
 [0.70.104]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...v0.70.104
 [0.70.103]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.102...v0.70.103

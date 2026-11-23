@@ -43,7 +43,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { failureObservationSchema } from "./parent-delivery-record.js";
-import { acceptRemote, callRemoteTool, REMOTE_CLIENT_NAME, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
+import { acceptRemote, callRemoteTool, followFlagFor, REMOTE_CLIENT_NAME, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
@@ -204,8 +204,8 @@ function fail(e: unknown): ToolResult {
   if (e instanceof AgentResumeSecretsError) return typed("aiterm/resume_secrets", { ...e.resumeSecrets });
   if (e instanceof AgentResumeError) return typed("aiterm/resume_error", { ...e.resumeFailure });
   const sendFailure = e instanceof AitermError ? e.sendFailure : undefined;
-  if (sendFailure) return typed("aiterm/send_error", { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.steer_id
-    ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.steer_id) : null });
+  if (sendFailure) return typed("aiterm/send_error", { ...sendFailure, wait_process: sendFailure.event_cursor !== null && sendFailure.input_ref
+    ? core.agentWaitProcess(sendFailure.session_id, sendFailure.event_cursor, { launchId: sendFailure.launch_id }, sendFailure.input_ref) : null });
   const configurationFailure = e instanceof Error ? (e as AitermError).configurationFailure : undefined;
   if (configurationFailure) return {
     content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
@@ -438,14 +438,15 @@ async function relayedTurnWaiter(target: RemoteTarget, seat: any): Promise<{ tur
 /** 現地の差し込みの返りのwait_processは現地のNodeとpathなので、ここで走らない。同じ差し込みの番の終わりをssh越しに待つものへ替える。 */
 async function relaySteerWait(target: RemoteTarget, result: RemoteCallResult): Promise<any> {
   const structured = result.structuredContent as any;
+  // A terminal older than 0.70.105 names it steer_id only; one from 0.70.107 names it input_ref only.
   const steerRef = (result._meta?.[STEER_RESULT_META_KEY] as any) ?? {};
-  const steerId = structured.steer_id ?? structured.input_ref ?? steerRef.steer_id ?? steerRef.input_ref;
+  const steerId = structured.input_ref ?? structured.steer_id ?? steerRef.input_ref ?? steerRef.steer_id;
   // 番を特定できない待ちは返さない。呼び手は追えない差し込みとして扱う（steer-refも外す）。
   if (structured.event_cursor === null || typeof steerId !== "string") {
     const { [STEER_RESULT_META_KEY]: _dropped, ...meta } = (result._meta ?? {}) as Record<string, unknown>;
     return remoteResult(target, { ...result, _meta: Object.keys(meta).length ? meta : undefined }, { ...structured, event_cursor: null, wait_process: null });
   }
-  return remoteResult(target, result, { ...structured, wait_process: await remoteWaitProcess(target, structured.session_id, structured.event_cursor, undefined, steerId) });
+  return remoteResult(target, result, { ...structured, wait_process: await remoteWaitProcess(target, structured.session_id, structured.event_cursor, undefined, steerId, followFlagFor(result.remote_version)) });
 }
 
 /** 別端末の子の依頼を、この端末の親への配送に登録する。launch_idは現地の完了観測から取る。 */
@@ -712,7 +713,7 @@ registerRemoteAwareTool(
               submit_residue: null,
               pane_input_recovery: receipt.pane_input_recovery,
             },
-            ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", steer_id: follow.steer_id, input_ref: follow.steer_id, interim_from: follow.interim_from } } } : {}),
+            ...(follow ? { _meta: { [STEER_RESULT_META_KEY]: { schema: "aiterm.steer-ref.v1", input_ref: follow.steer_id, interim_from: follow.interim_from } } } : {}),
           };
         }
         const waited = completionWait(delivery, receipt.session_id, receipt.event_cursor, receipt.launch_id, receipt.input_id);
@@ -807,11 +808,6 @@ registerRemoteAwareTool(
         .regex(/^sha256:[0-9a-f]{64}$/)
         .nullish()
         .describe("Claude operationの期待ID。agent_transcript:true時だけ指定し、古い別operationの結果を拒否する"),
-      steer_id: z
-        .string()
-        .regex(/^[0-9a-f]{16}$/)
-        .nullish()
-        .describe("Claudeの差し込みが始めた番の回答を読むID。agent_transcript:true時だけ指定する。後の番が動いていても拒否しない。未完了はAITERM_TRANSCRIPT_INPUT_PENDING、置換済みはAITERM_TRANSCRIPT_INPUT_REPLACED、動いていた番が取った差し込みはAITERM_TRANSCRIPT_STEER_SAME_TURN、控え無しはSTEER_NOT_FOUND。operation_id・input_idと併用不可"),
       input_ref: z
         .string()
         .regex(/^[0-9a-f]{16}$/)
@@ -840,11 +836,9 @@ registerRemoteAwareTool(
         .describe("agent_transcriptで、完了したturnの回答が空だった時だけtrue（textは空文字列）。回答を読めなかった時は誤りを返す。terminalではnull"),
     },
   },
-  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id, steer_id: oldSteerId, input_ref }) => {
+  async ({ session_id, wait, until, until_regex, timeout, screen, full, lines, line_range, raw, rtk, agent_transcript, operation_id, input_id, input_ref }) => {
     try {
-      // input_ref is the neutral name of steer_id (0.70.105): the same value; two different values are a caller mistake.
-      if (oldSteerId != null && input_ref != null && oldSteerId !== input_ref) throw new Error("steer_idとinput_refは同じ意味です。両方を渡す時は同じ値にしてください");
-      const steer_id = input_ref ?? oldSteerId;
+      const steer_id = input_ref;
       if (agent_transcript) {
         if (screen || full || rtk || wait || line_range != null) {
           throw new Error("agent_transcript:true は screen / full / rtk / line_range / wait と併用できません。lines のみ指定できます。");
@@ -874,7 +868,7 @@ registerRemoteAwareTool(
       }
       if (operation_id != null) throw new Error("operation_idはagent_transcript:true時だけ指定できます");
       if (input_id != null) throw new Error("input_idはagent_transcript:true時だけ指定できます");
-      if (steer_id != null) throw new Error("steer_id（input_ref）はagent_transcript:true時だけ指定できます");
+      if (steer_id != null) throw new Error("input_refはagent_transcript:true時だけ指定できます");
       let range: [number, number | null] | null = null;
       if (line_range) {
         const idx = line_range.indexOf(":");

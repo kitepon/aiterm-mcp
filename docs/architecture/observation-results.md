@@ -57,11 +57,11 @@ wait CLIはdone0/running5/timeout3/closed4/rate_limited6/error7/not_taken8、自
 
 ### Claude answer bound to one steer (Kiro request, 2026-11-19)
 
-`pty_read(agent_transcript:true, steer_id)` (0.70.105: `input_ref` is the same argument under a neutral name; both together must be equal) reads the answer of the turn that a `pty_send` steer (_meta `aiterm/steer`) started, when `aiterm-wait --steer` ended with placement `next_turn`. Under a flood the next steered message has already started another turn, so the unbound read answered `TRANSCRIPT_TURN_ACTIVE` and the seat's answer never reached the chat (Z111: 61 of 293).
+`pty_read(agent_transcript:true, input_ref)` (0.70.107: the argument `steer_id` is gone; 0.70.105-0.70.106 took both under one meaning) reads the answer of the turn that a `pty_send` steer (_meta `aiterm/steer`) started, when `aiterm-wait --steer` ended with placement `next_turn`. Under a flood the next steered message has already started another turn, so the unbound read answered `TRANSCRIPT_TURN_ACTIVE` and the seat's answer never reached the chat (Z111: 61 of 293).
 
 | Step | Owner | Result |
 | --- | --- | --- |
-| Validate | index pty_read schema → readAgentTranscriptResult | `steer_id` is 16 lowercase hex, Claude session only, not with `operation_id` / `input_id`; otherwise argument error |
+| Validate | index pty_read schema → readAgentTranscriptResult | `input_ref` is 16 lowercase hex, Claude session only, not with `operation_id` / `input_id`; otherwise argument error |
 | Find | steer-follow.readSteerEntry | no ledger entry → `STEER_NOT_FOUND` |
 | Follow | steer-follow.observeSteerDone (timeout 0, reads the whole backlog) | same words and rules as `aiterm-wait --steer`; the active operation marker is not consulted |
 | Not an answer | readAgentTranscriptResult | `same_turn` → `AITERM_TRANSCRIPT_STEER_SAME_TURN`; `not_taken` → `AITERM_TRANSCRIPT_STEER_NOT_TAKEN`; turn error → `AITERM_TRANSCRIPT_STEER_TURN_FAILED` |

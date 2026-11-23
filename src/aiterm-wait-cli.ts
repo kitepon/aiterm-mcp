@@ -3,7 +3,8 @@
 // 完了/timeout/close を1行のJSON receiptで返してexitする。lock・PTY・dispatch状態には一切触れない。
 // 親AIホストのバックグラウンドタスクとして起動し、exitを「観測終了の通知」として使う。
 // exit≠完了: exit code は outcome を映す（0=done / 5=running=未完了 / 3=timeout=未完了 / 4=closed / 6=rate_limited=harness利用上限 / 7=error=turnがエラー終了 / 8=not_taken=差し込んだ文が会話に入っていない / 1=waiter自身のエラー）。
-// --steer（中立な名前は --input-ref）は、差し込みの返り（ADR 0122）のwait_processが付ける。その差し込みを取った番の終わりを待つ。
+// --input-ref は、差し込みの返り（ADR 0122）のwait_processが付ける。その差し込みを取った番の終わりを待つ。--steer は同じ意味の古い名前で、
+// 返さず説明にも出さないが、版の差（古いコンテナが出した待ちを新しい端末が受ける）のために受け続ける。
 // --timeout 0 は待たずに一度だけ観測する照会で、未完了は running（timeout と混同させない）。
 // receipt の outcome が正で、done 以外は未完了。timeout の既定は core の DEFAULT_AGENT_DONE_TIMEOUT（600秒）。
 import { fileURLToPath } from "node:url";

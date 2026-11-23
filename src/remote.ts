@@ -11,7 +11,7 @@ import { AitermError, observeAgentDone, readAgentTranscriptResult, windowsStartP
 import { ensureStateRoot, stateRoot } from "./agent-shared.js";
 import { currentUid } from "./state-root.js";
 import { PRIVATE_ENV_SCHEMA } from "./private-env.js";
-import { RemoteTerminalError, SshStdioTransport, classifySshFailure, pinnedSshArguments, trustedSshArguments } from "./remote-terminal.js";
+import { RemoteTerminalError, SshStdioTransport, classifySshFailure, pinnedSshArguments, trustedSshArguments, versionAtLeast } from "./remote-terminal.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string; bin: Record<string, string> };
 
@@ -359,7 +359,11 @@ export async function callRemoteTool(target: RemoteTarget, name: string, args: R
 const SESSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPERATION_RE = /^sha256:[0-9a-f]{64}$/;
 
-export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number, inputId?: string, trusted = false, steerId?: string): string {
+/** The flag that names a followed steer on the terminal's aiterm-wait: --input-ref from 0.70.105, --steer before (an older terminal does not know the new name). */
+export const followFlagFor = (terminalVersion: string | null | undefined): "--input-ref" | "--steer" =>
+  terminalVersion && versionAtLeast(terminalVersion, "0.70.105") ? "--input-ref" : "--steer";
+
+export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: number | null, operationId: string | null, timeout: number, inputId?: string, trusted = false, steerId?: string, followFlag: "--input-ref" | "--steer" = "--input-ref"): string {
   if (!SESSION_RE.test(session)) throw new AitermError("REMOTE_SESSION_INVALID: session名が不正です", 2);
   if (operationId !== null && !OPERATION_RE.test(operationId)) throw new AitermError("REMOTE_OPERATION_INVALID: operation_idが不正です", 2);
   if (inputId !== undefined && (!/^[a-f0-9]{32}$/.test(inputId) || cursor === null)) throw new AitermError("REMOTE_INPUT_INVALID: input_id requires its original cursor", 2);
@@ -368,16 +372,16 @@ export function remoteWaitCommand(shell: RemoteShell, session: string, cursor: n
   if (cursor !== null) parts.push("--cursor", String(cursor));
   if (operationId !== null) parts.push("--operation", operationId);
   if (inputId !== undefined) parts.push("--input", inputId);
-  if (steerId !== undefined) parts.push("--steer", steerId);
+  if (steerId !== undefined) parts.push(followFlag, steerId);
   if (trusted) return terminalCommand(shell, terminalProgram(["aiterm-wait", ...parts]));
   if (shell !== "posix") return `aiterm-wait ${parts.join(" ")}`;
   return posixCommand(terminalProgram(["aiterm-wait", ...parts]).posix);
 }
 
 /** 親が別processで起動する完了待ち。ssh越しのaiterm-waitで、exit codeは現地のaiterm-waitをそのまま返す。 */
-export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number, inputId?: string, steerId?: string): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
+export async function remoteWaitProcess(target: RemoteTarget, session: string, cursor: number, inputId?: string, steerId?: string, followFlag: "--input-ref" | "--steer" = "--input-ref"): Promise<{ executable: string; args: string[]; windows_start_process_argument_list: string | null }> {
   // 別processには鍵のパスフレーズを渡せない。ssh-agentか、張ってあるControlMasterの接続に相乗りする。
-  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId, !!target.trusted_ref, steerId), { passphrase: false });
+  const { args } = sshInvocation(target, remoteWaitCommand(await remoteShell(target), session, cursor, null, 600, inputId, !!target.trusted_ref, steerId, followFlag), { passphrase: false });
   return { executable: "ssh", args, windows_start_process_argument_list: process.platform === "win32" ? windowsStartProcessArgumentList(args) : null };
 }
 

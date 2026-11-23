@@ -147,10 +147,9 @@ test("合間の言葉: pty_observeは_metaのBellTeamの印がある時だけ、
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/index.js")], env, stderr: "pipe" }));
     const tools = await client.listTools();
-    // The one published steer word is pty_read's steer_id argument (Kiro's public contract, a445a); nothing else about steers is shown.
+    // No steer word is published: pty_read's argument is input_ref since 0.70.107 (steer_id, Kiro's a445a contract, is gone).
     const readSchema = tools.tools.find(tool => tool.name === "pty_read").inputSchema.properties;
-    assert.ok(readSchema.steer_id, "pty_read takes steer_id");
-    delete readSchema.steer_id;
+    assert.ok(readSchema.input_ref && !readSchema.steer_id, "pty_read takes input_ref only");
     const published = JSON.stringify(tools.tools);
     assert.ok(!/BellTeam|interim|aiterm\/caller|aiterm\/steer|seat_turns|steer_id/i.test(published), "説明にも引数にも出さない");
 

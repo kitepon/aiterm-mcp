@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.109] - 2026-11-23
+
 - The generic entry of the parent's own Aiterm, beside the old one (a532b2 stage 5, Molly's row a532b2s5m; bellteam-boundary.md "汎用の入口"). `aiterm-mcp/native-entry` (`dist/native-entry.js`, package export `./native-entry`): the delivery MCP with `agent_stop` and the hook modes, started with the old argument list minus `--execution-interrupt` (accepted and ignored, so one command line starts either entry); exports `parseNativeEntryArguments`, `createNativeDeliveryServer`, `localScope()` (what `localParentWorkerRuntime.scope()` returned). `aiterm-setup hook-entries --json --home --state-root --socket --steer-provider [--codex-binary] [--clients]` prints the same hook items as `harness-entries` under the schema `aiterm.hook-entries.v1` (`owns.commandIncludes` also names `native-entry.js`). `execution-native-server`, `execution-parent-worker`, `execution-native-setup` and `harness-entries` (`bellteam.harness-entries.v1`) keep working unchanged on the same code and go in one later release, after Molly's runtime has run on the new entry for a working period and Kiro's stop is live.
 
 ## [0.70.108] - 2026-11-23
@@ -3690,7 +3692,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.108...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.109...HEAD
+[0.70.109]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.108...v0.70.109
 [0.70.108]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...v0.70.108
 [0.70.107]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...v0.70.107
 [0.70.106]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...v0.70.106

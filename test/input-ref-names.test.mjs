@@ -33,22 +33,16 @@ async function connect() {
   return client;
 }
 
-test("pty_read: input_ref is steer_id; two different values are refused, equal ones are one value", async () => {
+test("pty_read takes input_ref only (steer_id was removed in 0.70.107); without agent_transcript it is refused", async () => {
   const client = await connect();
   try {
     const tools = await client.listTools();
     const props = tools.tools.find(tool => tool.name === "pty_read").inputSchema.properties;
-    assert.ok(props.steer_id && props.input_ref, "both names are published on pty_read");
+    assert.ok(props.input_ref && !props.steer_id, "only the neutral name is published");
     const text = result => result.content.map(part => part.text ?? "").join("\n");
-    const conflict = await client.callTool({ name: "pty_read", arguments: { session_id: "no-such-seat", agent_transcript: true, steer_id: ref, input_ref: other } });
-    assert.equal(conflict.isError, true);
-    assert.match(text(conflict), /同じ値/);
-    // Both names without agent_transcript are refused with the same words (the value is read as one).
     const alone = await client.callTool({ name: "pty_read", arguments: { session_id: "no-such-seat", input_ref: ref } });
     assert.equal(alone.isError, true);
     assert.match(text(alone), /agent_transcript:true時だけ/);
-    const same = await client.callTool({ name: "pty_read", arguments: { session_id: "no-such-seat", steer_id: ref, input_ref: ref } });
-    assert.equal(same.isError, true);
-    assert.doesNotMatch(text(same), /同じ値/, "equal values are not a conflict");
+    assert.equal(other.length, 16);
   } finally { await client.close(); }
 });

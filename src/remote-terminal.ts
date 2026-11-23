@@ -345,7 +345,7 @@ export function keeperCommand(shell: RemoteShell): string {
     : powershellForShell(shell, `[Console]::Out.WriteLine('${FORWARD_READY_MARK}'); [Console]::In.ReadToEnd() | Out-Null`);
 }
 
-const WAIT_FLAGS = new Set(["--session", "--operation", "--timeout", "--cursor", "--steer", "--launch", "--input"]);
+const WAIT_FLAGS = new Set(["--session", "--operation", "--timeout", "--cursor", "--steer", "--input-ref", "--launch", "--input"]);
 const WAIT_VALUE = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 /** wait_process.args minus the CLI path: only aiterm-wait's own flag/value pairs, each value a plain token. */

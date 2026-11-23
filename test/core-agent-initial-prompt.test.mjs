@@ -876,7 +876,7 @@ test("sendAgentMessage: followを頼んだ差し込みは、打つ直前の位�
       assert.equal(entries[0].steer_id, receipt.follow.steer_id);
       assert.equal(entries[0].needle, "echoSTEER_FOLLOWED");
       assert.deepEqual(core.agentWaitProcess(sid, receipt.follow.event_cursor, {}, receipt.follow.steer_id).args.slice(-6),
-        ["--session", sid, "--cursor", "0", "--steer", receipt.follow.steer_id]);
+        ["--session", sid, "--cursor", "0", "--input-ref", receipt.follow.steer_id]);
       const observed = await core.observeAgentDone(sid, { steer: receipt.follow.steer_id, cursor: 0, timeout: 0 });
       assert.equal(observed.outcome, "running");
       assert.deepEqual(observed.steer, { placement: "unknown", taken_at: null });
@@ -1063,7 +1063,7 @@ for (const race of ["accepted", "unknown", "delivery-failure"]) test(`Grok busy/
             failure = error.sendFailure;
             return true;
           });
-          const result = await core.observeAgentDone(sid, { timeout: 2, cursor: failure.event_cursor, steer: failure.steer_id, expected_launch_id: failure.launch_id });
+          const result = await core.observeAgentDone(sid, { timeout: 2, cursor: failure.event_cursor, steer: failure.input_ref, expected_launch_id: failure.launch_id });
           assert.equal(result.turn_id, "new");
         } else {
           const client = new Client({ name: "steer-race-regression", version: "1" });
@@ -1081,7 +1081,8 @@ for (const race of ["accepted", "unknown", "delivery-failure"]) test(`Grok busy/
             assert.equal(failure.effect, "possible");
             assert.equal(failure.outcome, "outcome_unknown");
             assert.equal(failure.launch_id, readAgentMeta(sid).launch_id);
-            assert.equal(typeof failure.steer_id, "string");
+            assert.equal(typeof failure.input_ref, "string");
+            assert.equal(failure.steer_id, undefined, "the old name is gone (0.70.107)");
             assert.ok(failure.wait_process.args.includes(failure.launch_id));
             const waited = spawnSync(failure.wait_process.executable, [...failure.wait_process.args, "--timeout", "0"], { env: process.env, encoding: "utf8" });
             assert.equal(waited.status, 5, waited.stderr);

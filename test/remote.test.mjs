@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { acceptRemote, callRemoteTool, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
+import { acceptRemote, callRemoteTool, classifyRemoteShell, remoteInputSchema, remoteServerCommand, remoteShell, remoteWaitCommand, followFlagFor, sshInvocation, observeRemoteAgentDone, remoteWaitProcess } from "../dist/remote.js";
 import * as remoteContract from "../dist/remote-contract.js";
 import { TelemetryOwnedError } from "../dist/errors.js";
 import { ParentDeliveryManager, deliveryKey } from "../dist/parent-delivery.js";
@@ -136,8 +136,13 @@ test("完了待ちはPATHに無いaiterm-waitも同じpackageから探し、不�
   assert.match(command, /--session t1 --timeout 600 --cursor 3/);
   assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600), "aiterm-wait --session t1 --timeout 600 --cursor 3");
   assert.throws(() => remoteWaitCommand("posix", "t1;rm", 0, null, 1), /REMOTE_SESSION_INVALID/);
-  assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, false, "0123456789abcdef"), "aiterm-wait --session t1 --timeout 600 --cursor 3 --steer 0123456789abcdef");
-  assert.match(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, true, "0123456789abcdef"), /'--steer' '0123456789abcdef'/);
+  assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, false, "0123456789abcdef"), "aiterm-wait --session t1 --timeout 600 --cursor 3 --input-ref 0123456789abcdef");
+  assert.match(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, true, "0123456789abcdef"), /'--input-ref' '0123456789abcdef'/);
+  // A terminal older than 0.70.105 does not know the new name: the flag follows the terminal's version (0.70.107).
+  assert.equal(followFlagFor("0.70.105"), "--input-ref");
+  assert.equal(followFlagFor("0.70.106"), "--input-ref");
+  for (const old of ["0.70.104", "0.70.18", "", null, undefined]) assert.equal(followFlagFor(old), "--steer", String(old));
+  assert.equal(remoteWaitCommand("powershell", "t1", 3, null, 600, undefined, false, "0123456789abcdef", followFlagFor("0.70.98")), "aiterm-wait --session t1 --timeout 600 --cursor 3 --steer 0123456789abcdef");
   assert.throws(() => remoteWaitCommand("posix", "t1", 3, null, 600, undefined, false, "x; rm"), /REMOTE_STEER_INVALID/);
 });
 

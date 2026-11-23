@@ -21,23 +21,25 @@ const steerId = "0123456789abcdef";
 const terminalWait = { executable: "/Users/kite/.aiterm/runtime/current/node/bin/node", args: ["/Users/kite/aiterm-wait-cli.js", "--session", "seat_s", "--cursor", "7", "--steer", steerId], windows_start_process_argument_list: null };
 const sdk = name => JSON.stringify(new URL(`../node_modules/@modelcontextprotocol/sdk/dist/esm/${name}`, import.meta.url).href);
 const serverFile = path.join(tmp, "server.mjs");
-fs.writeFileSync(serverFile, `import { Server } from ${sdk("server/index.js")};
+const versionFile = path.join(tmp, "fake-version"); // the ssh stub passes no custom environment, so the fake terminal reads its version from a file
+fs.writeFileSync(serverFile, `import fs from "node:fs";
+import { Server } from ${sdk("server/index.js")};
 import { StdioServerTransport } from ${sdk("server/stdio.js")};
 import { CallToolRequestSchema, ListToolsRequestSchema } from ${sdk("types.js")};
-const s = new Server({ name: "aiterm-mcp", version: "0.70.18" }, { capabilities: { tools: {} } });
+const fakeVersion = fs.existsSync(${JSON.stringify(versionFile)}) ? fs.readFileSync(${JSON.stringify(versionFile)}, "utf8").trim() : "0.70.18";
+const s = new Server({ name: "aiterm-mcp", version: fakeVersion }, { capabilities: { tools: {} } });
 s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }));
 const wait = ${JSON.stringify(terminalWait)};
 s.setRequestHandler(CallToolRequestSchema, async (r) => {
   const steer = { schema: "aiterm.pty-send-result.v1", mode: "agent_steer", session_id: r.params.arguments.session_id, event_cursor: 7, wait_process: wait,
     launch_id: "a".repeat(32), vendor: "claude", harness: "claude-code", submit_residue: null, pane_input_recovery: [] };
-  const ref = { "aiterm/steer": { schema: "aiterm.steer-ref.v1", steer_id: ${JSON.stringify(steerId)}, interim_from: null } };
+  // From 0.70.105 the terminal names it input_ref; before, steer_id (the relay must follow both).
+  const fresh = fakeVersion === "0.70.106";
+  const ref = { "aiterm/steer": { schema: "aiterm.steer-ref.v1", ...(fresh ? { input_ref: ${JSON.stringify(steerId)} } : { steer_id: ${JSON.stringify(steerId)} }), interim_from: null } };
   if (r.params.arguments.text === "followed") return { content: [{ type: "text", text: "steered" }], structuredContent: steer, _meta: ref };
-  // A terminal on a later version that names it input_ref only (the steer_id name dropped): the relay must still follow it.
-  if (r.params.arguments.text === "new-name") return { content: [{ type: "text", text: "steered" }], structuredContent: steer,
-    _meta: { "aiterm/steer": { schema: "aiterm.steer-ref.v1", input_ref: ${JSON.stringify(steerId)}, interim_from: null } } };
   if (r.params.arguments.text === "no-ref") return { content: [{ type: "text", text: "steered" }], structuredContent: steer, _meta: { other: 1 } };
   return { content: [{ type: "text", text: "aiterm: steer unconfirmed" }], isError: true,
-    structuredContent: { session_id: r.params.arguments.session_id, event_cursor: 7, steer_id: ${JSON.stringify(steerId)}, interim_from: null, wait_process: wait } };
+    structuredContent: { session_id: r.params.arguments.session_id, event_cursor: 7, ...(fresh ? { input_ref: ${JSON.stringify(steerId)} } : { steer_id: ${JSON.stringify(steerId)} }), interim_from: null, wait_process: wait } };
 });
 await s.connect(new StdioServerTransport());
 `);
@@ -48,15 +50,17 @@ case "$*" in *aiterm-probe*) echo posix; exit 0;; esac
 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(serverFile)}
 `, { mode: 0o755 });
 
-test("relayed steer: wait_process waits for the steer's turn over ssh, or is dropped with the steer-ref when it cannot be followed", { skip }, async t => {
+async function scenario(t, { version, flag, host, session }) {
+  fs.writeFileSync(versionFile, version);
+  t.after(() => { fs.rmSync(versionFile, { force: true }); });
   const savedPath = process.env.PATH;
   process.env.PATH = `${fakeBin}${path.delimiter}${savedPath}`;
   t.after(() => { process.env.PATH = savedPath; });
-  const key = path.join(tmp, "id"), known = path.join(tmp, "known");
+  const key = path.join(tmp, `id-${version}`), known = path.join(tmp, `known-${version}`);
   assert.equal(spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]).status, 0);
   const [type, blob] = fs.readFileSync(`${key}.pub`, "utf8").trim().split(/\s+/);
-  fs.writeFileSync(known, `10.8.1.1 ${type} ${blob}\n`);
-  const { ref } = rt.registerBinding({ target: { host: "10.8.1.1", user: "kite", port: 22 }, keyFile: key, knownHostsFile: known });
+  fs.writeFileSync(known, `${host} ${type} ${blob}\n`);
+  const { ref } = rt.registerBinding({ target: { host, user: "kite", port: 22 }, keyFile: key, knownHostsFile: known });
   rt.bindTerminalSession("seat_s", ref);
   const server = createAitermServer(), client = new Client({ name: "steer-relay-test", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -65,17 +69,14 @@ test("relayed steer: wait_process waits for the steer's turn over ssh, or is dro
   const sshWait = wait => {
     assert.equal(wait.executable, "ssh");
     assert.equal(wait.args.some(arg => arg.includes("/Users/kite")), false, "not the terminal's node path");
-    assert.match(wait.args.at(-1), new RegExp(`aiterm-wait.*--session seat_s .*--cursor 7 --steer ${steerId}`));
+    assert.match(wait.args.at(-1), new RegExp(`aiterm-wait.*--session seat_s .*--cursor 7 ${flag} ${steerId}`));
   };
   try {
     const followed = await send("followed");
+    assert.match(followed.content.map(part => part.text).join("\n"), new RegExp(`remote_aiterm=${version.replaceAll(".", "\\.")}`), "the relay saw the terminal's version");
     assert.equal(followed.structuredContent.event_cursor, 7);
     sshWait(followed.structuredContent.wait_process);
-    assert.equal(followed._meta["aiterm/steer"].steer_id, steerId);
-
-    const renamed = await send("new-name");
-    assert.equal(renamed.structuredContent.event_cursor, 7);
-    sshWait(renamed.structuredContent.wait_process);
+    assert.equal(followed._meta["aiterm/steer"][flag === "--steer" ? "steer_id" : "input_ref"], steerId, "the terminal's own name passes through unchanged");
 
     const noRef = await send("no-ref");
     assert.equal(noRef.structuredContent.event_cursor, null);
@@ -87,4 +88,9 @@ test("relayed steer: wait_process waits for the steer's turn over ssh, or is dro
     assert.equal(failed.isError, true);
     sshWait(failed.structuredContent.wait_process);
   } finally { await client.close(); }
-});
+}
+
+test("relayed steer, terminal 0.70.18 (names it steer_id): the relay follows it with --steer", { skip }, t =>
+  scenario(t, { version: "0.70.18", flag: "--steer", host: "10.8.1.1" }));
+test("relayed steer, terminal 0.70.106 (names it input_ref only): the relay follows it with --input-ref", { skip }, t =>
+  scenario(t, { version: "0.70.106", flag: "--input-ref", host: "10.8.1.2" }));

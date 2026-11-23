@@ -109,6 +109,16 @@ Codexの完了待ちは、読み始めの位置から16MiBを超えて書いた�
 - `wait_process` が付ける引数は、今のまま `--steer`。端末や席のruntimeが1つ前の版でも動かすため。BellTeamが `input_ref` へ切り替えて本番で動いたら、次の版で古い名前を外し、`--input-ref` へ替える。
 - 差し込みの追い方の出し分け（呼び手が `aiterm/caller` の印を付けた時だけ返す）を外した。印の無い呼び手にも `event_cursor`・`wait_process`・`aiterm/steer` が付く（付いていなかった所はnullだった。足すだけ）。合間の言葉（ADR 0071）の出し分けは別の機能なので、そのまま。
 
+## 追記2（a532b2、0.70.107）: 古い名前を外す
+
+キロ氏がBellTeamの切り替えを本番に出した（PR #2393、main 7a51f2d5。`input_ref` だけを読み、`pty_read` へ `input_ref` だけを送る）。コンテナは0.70.106、3台のruntimeは0.70.105以上。
+
+- 返り: `_meta["aiterm/steer"]` は `{schema, input_ref, interim_from}`、`aiterm/send_error` は `input_ref` だけ。`steer_id` は返さない。
+- `pty_read`: `steer_id` の引数を外した（`input_ref` だけ）。
+- `wait_process`: 引数は `--input-ref`。別端末へ中継する待ちは、端末のAitermが0.70.105以上なら `--input-ref`、それより古いか版が分からなければ `--steer`（古い端末は新しい名前を知らない）。
+- `aiterm-wait` は `--steer` を、書かれていない別名として受け続ける（返さない、説明に出さない）。版の差で、古いコンテナが出した待ちを新しい端末が受ける時のため。外す条件: 全てのruntimeとコンテナが0.70.107以上になって1版が過ぎたあと。
+- 中継は、古い端末の返り（`steer_id` だけ）も追う。
+
 ## 根拠
 
 - BellTeam側の経緯と使い方: トロニー（bot-7b140b27）の`docs/owner-turns-lost-20261013.md`

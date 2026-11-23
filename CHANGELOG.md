@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.108] - 2026-11-23
+
 - `pty_list` can put each agent seat's turn and own work in its row of `sessions[]` under generic names (a532b2 stage 3, Kiro; docs: observation-results.md, bellteam-boundary.md). `pty_list({include: ["turn", "own_work"]})`, either or both, a plain argument with no caller mark: `turn` = `{state: "running", turn_id, started_at, event_cursor, interim_from}` or `{state: "idle"}` or `null` (not readable now, or another reader holds the seat); `own_work` = `{processes, excluded, child_results, exclusions_digest, oldest, tasks, task}` (the same values the caller-marked `seat_turns` meta carries; `_meta["aiterm/own_work_exclusions"]` stays the input filter). A call without `include` is unchanged and computes nothing more. Both ways in one call share one read of each seat. A terminal older than 0.70.108 ignores `include`. `interim_from` and `own_work` stay in Aiterm as generic facts; the `seat_turns` meta, `route_since` and `unread` are dropped later, after BellTeam has built its own.
 
 ## [0.70.107] - 2026-11-23
@@ -3686,7 +3688,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.108...HEAD
+[0.70.108]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...v0.70.108
 [0.70.107]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...v0.70.107
 [0.70.106]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...v0.70.106
 [0.70.105]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...v0.70.105

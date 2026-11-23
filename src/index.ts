@@ -6,6 +6,7 @@ import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureFor
   checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
+import { registerAgentStop, type StopDependencies } from "./agent-stop.js";
 import { checkSettingsEnv } from "./settings-env.js";
 import { AuthResponseError, authUiSchema, authBindingSchema, authResponseSchema } from "./agent-auth-ui.js";
 import { configurationRequestSchema, configurationToolOutputSchema, applyConfigurationRequest, reconcileConfigurationRequest } from "./configure-request.js";
@@ -93,6 +94,8 @@ export function createAitermServer(options: {
   goalOrigin?: (extra: { _meta?: unknown; requestId?: unknown }) => "user" | "automatic";
   // Trusted host composition only (never a tool argument). Absent = unchanged default server.
   runtimeAdoption?: RuntimeAdoptionConfig;
+  // agent_stop's keys and goal pause: injectable for tests; the real ones when absent.
+  stop?: StopDependencies;
 } = {}): McpServer {
 const server = new McpServer({ name: "aiterm", version: pkg.version });
 // Assigned below once manager closure exists; the request wrapper only reads it.
@@ -2079,6 +2082,7 @@ registerAgentTool(
     });
     registerRuntimeAdoptionTool(server, adoption);
   }
+  registerAgentStop(server, { stop: options.stop, goalOrigin: options.goalOrigin });
   return server;
 }
 

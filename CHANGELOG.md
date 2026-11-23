@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agent_stop` is now a tool of the default server (a532b2s5r, Tronie ruling A; bellteam-boundary.md stage 5). It sends the ordinary stop key to the named session and the sessions it called, leaf first; input and result shapes are unchanged, and it carries no BellTeam wording and no caller gating. The delivery composition (`createNativeDeliveryServer`, `native-entry`, `execution-native-server`) now builds the same default server, so the default list has 27 tools. New `src/agent-stop.ts` holds the registration.
+
 ## [0.70.109] - 2026-11-23
 
 - The generic entry of the parent's own Aiterm, beside the old one (a532b2 stage 5, Molly's row a532b2s5m; bellteam-boundary.md "汎用の入口"). `aiterm-mcp/native-entry` (`dist/native-entry.js`, package export `./native-entry`): the delivery MCP with `agent_stop` and the hook modes, started with the old argument list minus `--execution-interrupt` (accepted and ignored, so one command line starts either entry); exports `parseNativeEntryArguments`, `createNativeDeliveryServer`, `localScope()` (what `localParentWorkerRuntime.scope()` returned). `aiterm-setup hook-entries --json --home --state-root --socket --steer-provider [--codex-binary] [--clients]` prints the same hook items as `harness-entries` under the schema `aiterm.hook-entries.v1` (`owns.commandIncludes` also names `native-entry.js`). `execution-native-server`, `execution-parent-worker`, `execution-native-setup` and `harness-entries` (`bellteam.harness-entries.v1`) keep working unchanged on the same code and go in one later release, after Molly's runtime has run on the new entry for a working period and Kiro's stop is live.

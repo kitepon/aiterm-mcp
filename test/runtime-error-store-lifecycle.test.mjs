@@ -231,16 +231,16 @@ test("明示指定のCLIが存在しない時は VENDOR_LAUNCHER_UNRESOLVED を 
 test("AIのCLIが既定の場所にもPATHにも無い時は VENDOR_CLI_UNAVAILABLE を一度だけ記録し、別の種類と混ぜない", {
   skip: process.platform === "win32" ? "POSIX の空PATH fixture は Windows の bin 解決（where）と噛み合わない（POSIX 3 環境で検証）" : undefined,
 }, () => {
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-empty-path-"));
-  try {
-    // HOME is the fixture's own folder (no ~/.local/bin/agy) and PATH holds nothing, so no CLI can be found.
-    const { result, snapshot } = runOwnedFailure('core.openAgent("antigravity", {})', { PATH: empty, ANTIGRAVITY_BIN: "" });
+  {
+    // HOME is the fixture's own folder (no ~/.local/bin/agy) and PATH is the system's only (no agy there), so no CLI can be found.
+    // An empty PATH is not used: the recording worker needs the system tools on macOS.
+    const { result, snapshot } = runOwnedFailure('core.openAgent("antigravity", {})', { PATH: "/usr/bin:/bin", ANTIGRAVITY_BIN: "" });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(snapshot.records.length, 1);
     assert.equal(snapshot.records[0].error_code, "AITERM.VENDOR_CLI_UNAVAILABLE");
     assert.equal(snapshot.records[0].message_template, "Optional vendor CLI is not available");
     assert.equal(snapshot.records[0].occurrence_count, 1);
-  } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+  }
 });
 
 test("tmux mid-run ENOENT は typed telemetry-owned PTY failure 1件だけで上位vendorへ再計上しない", {

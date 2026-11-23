@@ -24,7 +24,7 @@ for (const symlink of [false, true]) test(`isolated stdio entry initializes the 
     try {
       await client.connect(transport);
       const tools = (await client.listTools()).tools;
-      assert.equal(tools.length, 26); assert.equal(tools.some(tool => tool.name === 'agent_stop'), false);
+      assert.equal(tools.length, 27); assert.equal(tools.some(tool => tool.name === 'agent_stop'), true);
       assert.ok(tools.some(tool => tool.name === 'agent_launch')); assert.ok(tools.some(tool => tool.name === 'pty_observe'));
     } catch (error) {
       throw new Error('isolated stdio startup failed: '+stderr, { cause: error });

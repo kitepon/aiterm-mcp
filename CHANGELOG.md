@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.110] - 2026-11-23
+
 - `agent_stop` is now a tool of the default server (a532b2s5r, Tronie ruling A; bellteam-boundary.md stage 5). It sends the ordinary stop key to the named session and the sessions it called, leaf first; input and result shapes are unchanged, and it carries no BellTeam wording and no caller gating. The delivery composition (`createNativeDeliveryServer`, `native-entry`, `execution-native-server`) now builds the same default server, so the default list has 27 tools. New `src/agent-stop.ts` holds the registration.
 
 ## [0.70.109] - 2026-11-23
@@ -3694,7 +3696,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.109...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.110...HEAD
+[0.70.110]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.109...v0.70.110
 [0.70.109]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.108...v0.70.109
 [0.70.108]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...v0.70.108
 [0.70.107]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...v0.70.107

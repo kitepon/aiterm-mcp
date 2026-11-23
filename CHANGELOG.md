@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.107] - 2026-11-23
+
 - The old steer names are gone; BellTeam runs on the new ones (a532b2 stage 4 step 2; Kiro's PR #2393 / main 7a51f2d5 is live, the container is 0.70.106, the runtimes 0.70.105 or later). `_meta["aiterm/steer"]` is now `{schema, input_ref, interim_from}` and `aiterm/send_error` carries `input_ref` only (no `steer_id`); `pty_read` takes `input_ref` only (a caller that still sends `steer_id` has it ignored by the schema, so it reads the latest turn: only BellTeam called it); `wait_process` names the followed steer with `--input-ref`. A relayed wait for a terminal older than 0.70.105, or of unknown version, still uses `--steer` (it does not know the new name), and the relay still follows a result that names only `steer_id`. `aiterm-wait` keeps `--steer` as an undocumented alias for version skew (never emitted); it goes once every runtime and the container are on 0.70.107 or later for a release. The persisted record fields named `steer_id` (steer entries, parent delivery boundaries) are internal and unchanged. Contract: ADR 0122 addendum 2.
 
 ## [0.70.106] - 2026-11-23
@@ -3682,7 +3684,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.107...HEAD
+[0.70.107]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.106...v0.70.107
 [0.70.106]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.105...v0.70.106
 [0.70.105]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.104...v0.70.105
 [0.70.104]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.103...v0.70.104

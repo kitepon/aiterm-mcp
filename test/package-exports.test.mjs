@@ -12,6 +12,7 @@ const PROMISED = {
   "aiterm-mcp/setup-integrations": ["mergeClaudeParentHooks", "mergeCursorParentHooks", "ensureCodexParentSteer"],
   "aiterm-mcp/execution-parent-worker": ["localParentWorkerRuntime"],
   "aiterm-mcp/execution-native-server": ["parseNativeExecutionArguments"],
+  "aiterm-mcp/native-entry": ["parseNativeEntryArguments", "createNativeDeliveryServer", "localScope"],
   "aiterm-mcp/child-result": ["CHILD_RESULT_PREFACE", "answerMessage"],
 };
 

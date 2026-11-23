@@ -41,7 +41,7 @@ after(() => { if (hasTmux) { try { core.killAll(); } catch {} } });
 
 // 前面コマンドが cmd になるまでポーリングする（固定 sleep は負荷の高い runner で不安定＝C8）。
 // listSessions の各行は "name\tcurrent_command\t...\t..."。
-async function waitForForeground(name, cmd, timeoutMs = 3000) {
+async function waitForForeground(name, cmd, timeoutMs = 15000) { // a poll that returns at once when it holds: the bound only matters on a loaded runner (windows-native, 2026-11-23)
   const t0 = performance.now();
   while (performance.now() - t0 < timeoutMs) {
     const line = core.listSessions().split("\n").find((l) => l.startsWith(name + "\t"));

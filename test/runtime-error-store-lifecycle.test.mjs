@@ -213,7 +213,8 @@ test("PTY dependency failure は core owner layer で固定 code を一度だけ
   assert.equal(snapshot.records[0].occurrence_count, 1);
 });
 
-test("vendor launcher failure は openAgent owner layer で固定 code を一度だけ記録する", {
+// ADR 0102 追記（0.70.106）: AI起動の失敗は、出どころごとの種類で一度だけ記録する。
+test("明示指定のCLIが存在しない時は VENDOR_LAUNCHER_UNRESOLVED を openAgent owner layer で一度だけ記録する", {
   skip: process.platform === "win32" ? "/definitely/missing 形の POSIX パス fixture は Windows の bin 解決と噛み合わない（POSIX 3 環境で検証）" : undefined,
 }, () => {
   const { result, snapshot } = runOwnedFailure(
@@ -222,8 +223,24 @@ test("vendor launcher failure は openAgent owner layer で固定 code を一度
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(snapshot.records.length, 1);
-  assert.equal(snapshot.records[0].error_code, "AITERM.VENDOR_LAUNCHER_FAILED");
+  assert.equal(snapshot.records[0].error_code, "AITERM.VENDOR_LAUNCHER_UNRESOLVED");
+  assert.equal(snapshot.records[0].message_template, "Optional vendor launcher path is not usable");
   assert.equal(snapshot.records[0].occurrence_count, 1);
+});
+
+test("AIのCLIが既定の場所にもPATHにも無い時は VENDOR_CLI_UNAVAILABLE を一度だけ記録し、別の種類と混ぜない", {
+  skip: process.platform === "win32" ? "POSIX の空PATH fixture は Windows の bin 解決（where）と噛み合わない（POSIX 3 環境で検証）" : undefined,
+}, () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "aiterm-empty-path-"));
+  try {
+    // HOME is the fixture's own folder (no ~/.local/bin/agy) and PATH holds nothing, so no CLI can be found.
+    const { result, snapshot } = runOwnedFailure('core.openAgent("antigravity", {})', { PATH: empty, ANTIGRAVITY_BIN: "" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(snapshot.records.length, 1);
+    assert.equal(snapshot.records[0].error_code, "AITERM.VENDOR_CLI_UNAVAILABLE");
+    assert.equal(snapshot.records[0].message_template, "Optional vendor CLI is not available");
+    assert.equal(snapshot.records[0].occurrence_count, 1);
+  } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 });
 
 test("tmux mid-run ENOENT は typed telemetry-owned PTY failure 1件だけで上位vendorへ再計上しない", {

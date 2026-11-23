@@ -29,8 +29,15 @@ export const RUNTIME_ERROR_DEFINITIONS = Object.freeze({
   "AITERM.PERSISTENCE_WRITE_FAILED": Object.freeze({
     component: "persistence", message_template: "PTY persistence operation failed", severity: "high",
   }),
+  // The launch command could not be typed into the pane (ADR 0102 addendum, 0.70.106: the two kinds below split off the other origins).
   "AITERM.VENDOR_LAUNCHER_FAILED": Object.freeze({
     component: "vendor-launcher", message_template: "Optional vendor launcher failed", severity: "warn",
+  }),
+  "AITERM.VENDOR_LAUNCHER_UNRESOLVED": Object.freeze({
+    component: "vendor-launcher", message_template: "Optional vendor launcher path is not usable", severity: "warn",
+  }),
+  "AITERM.VENDOR_CLI_UNAVAILABLE": Object.freeze({
+    component: "vendor-launcher", message_template: "Optional vendor CLI is not available", severity: "warn",
   }),
 } as const);
 

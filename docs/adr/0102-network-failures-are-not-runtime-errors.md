@@ -15,14 +15,16 @@ Aitermの作りを読み直した（0.57.1）。直す所は無かった。た�
 
 ## 今の作り（変えない）
 
-記録する種類は3つ（`src/runtime-error-store.ts`の`RUNTIME_ERROR_DEFINITIONS`）。どれも、Aitermがその端末で動くための前提が欠けて、
+記録する種類は5つ（`src/runtime-error-store.ts`の`RUNTIME_ERROR_DEFINITIONS`。0.70.106でAI起動の失敗を3つに分けた。下の「追記」）。どれも、Aitermがその端末で動くための前提が欠けて、
 呼び出しが失敗した時だけ書く。記録へ進む道は`telemetryOwnedFailure`（`src/errors.ts`）の1本だけ。
 
 | 種類 | 書く時 | 重さ | 重さの根拠 |
 | --- | --- | --- | --- |
 | `AITERM.PTY_DEPENDENCY_UNAVAILABLE` | tmux／psmuxが見つからない・起動できない・版が古い（`src/tmux-runtime.ts`） | `high` | その端末では、端末もAIの席も開けない。置き直すか設定を直すまで戻らない |
 | `AITERM.PERSISTENCE_WRITE_FAILED` | 席の出力の置き場を作れない・書けない・配管できない（`openSession`） | `high` | 出力を読めない席は捨てる。置き場が直るまで、新しい席を開けない |
-| `AITERM.VENDOR_LAUNCHER_FAILED` | AIのCLIが見つからない・起動の命令を席へ入れられない（`openAgent`） | `warn` | その種類のAIだけ起こせない。端末とほかのAIは動く |
+| `AITERM.VENDOR_LAUNCHER_FAILED` | 席は作れたが、AIの起動の命令を席へ入れられない（`openAgent`の送信。0.70.59の修理の対象） | `warn` | その起動は失敗し、席は残らない。呼んだ側が起こし直せる。端末とほかのAIは動く |
+| `AITERM.VENDOR_LAUNCHER_UNRESOLVED` | 起動する実体を決められない: `CLAUDE_BIN`・`GROK_BIN`などの明示指定が、存在しない実体を指す（`resolveAgentBin`が投げる） | `warn` | その種類のAIだけ起こせない。環境の指定を直すまで戻らない。端末とほかのAIは動く |
+| `AITERM.VENDOR_CLI_UNAVAILABLE` | AIのCLIが、既定の場所にもPATHにも無い。Windowsのgrokが `grok.exe` でない（`openAgent`） | `warn` | その種類のAIだけ起こせない。導入するまで戻らない。端末とほかのAIは動く |
 
 通信の失敗は、この道を通らない。呼んだ側へ、理由の分かる返りで返す。
 
@@ -45,6 +47,23 @@ Aitermの作りを読み直した（0.57.1）。直す所は無かった。た�
 4. 記録する種類を足す時は、(a) 通信の値・取消・時間切れではない事、(b) 起きた時の実害、(c) 自力で戻るか、を書いてから足す。
    重さは(b)と(c)で決める。`test/runtime-error-store.test.mjs`が、種類と重さの一覧を留める。
 5. BugHubへ送る本文の形は変えない。契約に無い項目を足さない。
+
+## 追記（a532、0.70.106）: AI起動の失敗の3つの出どころを、別の種類にする
+
+きっかけ: 2026-11-21 19:45 JSTにMacで `AITERM.VENDOR_LAUNCHER_FAILED` が1件増えた（件数269、版0.70.90）。この種類は、出どころが3つ
+（実体を決められない・CLIが無い・起動の命令を入れられない）あり、記録には固定の文面しか無いので、どれか分からなかった。
+修理した0.70.59は3つ目だけを直したので、増えたのが修理の対象かも判別できなかった。
+
+決めた事（上の決めた事の4に従う。5のとおり、BugHubへ送る本文の形と項目は変えない。種類を足すだけ）:
+
+| 種類 | (a) 通信・取消・時間切れではない | (b) 実害 | (c) 自力で戻るか | 重さ |
+| --- | --- | --- | --- | --- |
+| `VENDOR_LAUNCHER_UNRESOLVED` | 環境の指定が存在しない実体を指す | その種類のAIだけ起こせない | 戻らない。指定を直す | `warn` |
+| `VENDOR_CLI_UNAVAILABLE` | CLIが無い・向きが違う | その種類のAIだけ起こせない | 戻らない。導入する | `warn` |
+| `VENDOR_LAUNCHER_FAILED`（意味を狭める） | 席へ命令を入れる所の失敗 | その起動だけ失敗。席は残さない | 呼んだ側が起こし直せる | `warn` |
+
+指紋は種類ごとなので、新しい2つは新しい案件になる。今までの `VENDOR_LAUNCHER_FAILED` の履歴（件数269まで）は、3つの出どころが混ざったまま残り、
+どの出どころだったかは遡れない。以後の増えは、種類で出どころが分かる。
 
 ## 及ばない所
 

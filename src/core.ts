@@ -8979,7 +8979,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   try {
     bin = resolveAgentBin(kind);
   } catch (error) {
-    ownTelemetryFailure("AITERM.VENDOR_LAUNCHER_FAILED", error, 2);
+    ownTelemetryFailure("AITERM.VENDOR_LAUNCHER_UNRESOLVED", error, 2);
   }
   if (!bin) {
     const where = kind === "claude"
@@ -8989,7 +8989,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
         : kind === "cursor"
           ? "~/.local/bin/cursor-agent"
           : kind === "antigravity" ? "~/.local/bin/agy（WindowsはLOCALAPPDATA/agy/bin/agy.exe）" : "~/.grok/bin/grok";
-    ownTelemetryFailure("AITERM.VENDOR_LAUNCHER_FAILED", new AitermError(`${label} の CLI が見つかりません（${where} か PATH が必要）`, 2), 2);
+    ownTelemetryFailure("AITERM.VENDOR_CLI_UNAVAILABLE", new AitermError(`${label} の CLI が見つかりません（${where} か PATH が必要）`, 2), 2);
   }
   // cwd 検証（session を作る前に。cd 失敗はシェル内で静かに死に「起動した」と偽成功を返すため）。
   let cwd: string | null = null;
@@ -9054,7 +9054,7 @@ function prepareAgentLaunch(kind: AgentKind, opts: Parameters<typeof openAgent>[
   // transcript／completion を回収できない（実被弾: 2026-08-15 olc-plan-review-grok2）。
   if (isWin && kind === "grok" && !isWindowsNativeExecutable(bin)) {
     ownTelemetryFailure(
-      "AITERM.VENDOR_LAUNCHER_FAILED",
+      "AITERM.VENDOR_CLI_UNAVAILABLE",
       new AitermError(
         `Windows の ${label} launcher は Windows native の grok.exe だけを起動できます（現在の解決先: ${bin}）。` +
           "Windows 版 Grok CLI を導入するか、GROK_BIN に grok.exe の絶対パスを指定してください。",

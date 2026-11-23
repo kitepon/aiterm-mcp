@@ -23,20 +23,21 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 2;
   }
-} else if (args[0] === "harness-entries") {
+} else if (args[0] === "harness-entries" || args[0] === "hook-entries") {
   // bd14 (setup-update.md): print the hooks Aiterm needs; the caller writes the CLI files. Errors: exit 2, nothing on stdout.
+  // hook-entries (0.70.109) is the generic name and schema (aiterm.hook-entries.v1); harness-entries keeps the old output until it is dropped.
   try {
     const flags = new Map<string, string>(); let json = false;
     for (let i = 1; i < args.length; i++) {
       if (args[i] === "--json" && !json) json = true;
       else if (["--home", "--state-root", "--socket", "--steer-provider", "--codex-binary", "--clients"].includes(args[i])
         && !flags.has(args[i]) && args[i + 1] !== undefined) flags.set(args[i], args[++i]);
-      else throw new Error("使い方: aiterm-setup harness-entries --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]");
+      else throw new Error(`使い方: aiterm-setup ${args[0]} --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]`);
     }
     if (!json || !flags.has("--home") || !flags.has("--state-root") || !flags.has("--socket") || !flags.has("--steer-provider"))
       throw new Error("--json --home --state-root --socket --steer-provider が要ります");
-    const { nativeExecutionHarnessEntries } = await import("./execution-native-setup.js");
-    const entries = await nativeExecutionHarnessEntries(flags.get("--home")!, { stateRoot: flags.get("--state-root")!, socket: flags.get("--socket")!,
+    const entriesFor = args[0] === "hook-entries" ? (await import("./native-setup.js")).nativeHookEntries : (await import("./execution-native-setup.js")).nativeExecutionHarnessEntries;
+    const entries = await entriesFor(flags.get("--home")!, { stateRoot: flags.get("--state-root")!, socket: flags.get("--socket")!,
       providerFile: flags.get("--steer-provider")!, codexBinary: flags.get("--codex-binary"),
       clients: flags.get("--clients")?.split(",") as ("claude" | "cursor" | "codex")[] | undefined });
     process.stdout.write(`${JSON.stringify(entries)}\n`);

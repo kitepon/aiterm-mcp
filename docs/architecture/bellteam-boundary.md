@@ -114,3 +114,17 @@ steer-followは機械の口の機能（動いているCLIの番へ文を差し�
 ## 起動後の汎用hook（a532b1、0.70.100）
 
 決裁箱のドアをBellTeamへ移すため（トロニー氏の裁定 a532）、`agent_launch` に任意の `post_launch {command: string[]}` を足す。席が起きた後（起動・復帰のどちらも）に、席を作ったAitermがその端末の上で1つだけ走らせる汎用の口で、BellTeamの語も決裁箱の語も持たない。環境の事実（席の名前、席への道の番号、生存確認の命令、起動が使った秘密の値）は[launch-identity-input.md](launch-identity-input.md)と[remote-terminal.md](remote-terminal.md) R25。移行後に `approval-door.ts` と `registerDoor` を外す（BellTeamの新しいドアが3台で動いた後の版）。
+
+## 汎用の入口（a532b2 段階5、0.70.109。モリー氏の登録とhookの項目の置き換え先）
+
+BellTeamのruntimeが、親のAiterm接続と席のhookの登録に使う口を、BellTeamの名前の無い入口へ移す（トロニー氏の裁定 a532、モリー氏の要請）。0.70.109から両方を出し、モリー氏が新しい入口で1作業期間動かしてから、古い方を1回の版で外す。
+
+| 用途 | 今（外す） | 汎用（0.70.109から） |
+| --- | --- | --- |
+| 親のAitermの入口（MCPとhookの各mode） | `aiterm-mcp/execution-native-server`（`--execution-interrupt --state-root --socket --steer-provider [--mode ...]`） | `aiterm-mcp/native-entry`（`dist/native-entry.js`、`exports` に `./native-entry`）。引数は同じで `--execution-interrupt` が要らない（古い引数列も受けて無視するので、移行中は同じ列で両方を起こせる） |
+| 引数の読み取り | `parseNativeExecutionArguments(args)` | `parseNativeEntryArguments(args)`（戻りは同じ形: `{mode, codexHome, hookDirectory, expectedScope: {state_root, multiplexer: {kind, key}}, providerFile, runtimeAdoption?}`） |
+| 場所の読み取り | `aiterm-mcp/execution-parent-worker` の `localParentWorkerRuntime.scope()` | `aiterm-mcp/native-entry` の `localScope()`（戻りは同じ `{state_root, multiplexer: {kind, key}}`） |
+| CLIのhookの項目 | `aiterm-setup harness-entries --json ...` → `bellteam.harness-entries.v1`（`aiterm-mcp/execution-native-setup`） | `aiterm-setup hook-entries --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]` → `aiterm.hook-entries.v1`。中身（hooks、書く物、失敗の形）は同じ。`owns.commandIncludes` は hookのscript 3つに加えて `native-entry.js` と、移行中だけ `execution-native-server.js` |
+
+外す版: モリー氏が新しい入口で1作業期間動かしたと伝え、キロ氏の停止（段階5）が本番に出た後の、最初の版。番号はその時に私が決めて伝える（それより前の版は両方を持つ）。imageは、0.70.109以上を取っていれば新しい入口を使える。古い入口を使い続ける間、imageの版の下限は要らない。
+

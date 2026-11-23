@@ -20,6 +20,8 @@ provider descriptorは同global登録のnode/parent-delivery-cli絶対pathと版
 
 ## CLIのhookの項目を返す（`aiterm-setup harness-entries`、0.70.58、bd14）
 
+0.70.109から、同じ項目を汎用の名前でも返す: `aiterm-setup hook-entries --json ...`（同じ引数と中身。出力のschemaは `aiterm.hook-entries.v1`、`owns.commandIncludes` に `native-entry.js` が加わる）。`harness-entries` の出力は今のまま（`bellteam.harness-entries.v1`）で、外す版まで残す。定義は bellteam-boundary.md の「汎用の入口」。
+
 BellTeamのCLI登録（BellTeam PR #1396 `cli-registration.md`「One writer per CLI file」、E1 v1.1）では、CLIの設定ファイル（`~/.claude/settings.json` のhook、`~/.codex/hooks.json`、`~/.cursor/hooks.json`）を書くのはBellTeamだけ。Aitermは自分が要るhookを返すだけで、それらのファイルを書かない（モリー氏と合意 2026-11-14）。
 
 `aiterm-setup harness-entries --json --home <席のHOME> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]`

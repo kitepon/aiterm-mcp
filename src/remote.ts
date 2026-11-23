@@ -312,11 +312,12 @@ async function callWarm(target: RemoteTarget, sshArgs: string[], request: Parame
 
 export async function callRemoteTool(target: RemoteTarget, name: string, args: Record<string, unknown>, timeoutMs = 600_000,
   privateEnv?: Record<string, string>, meta?: Record<string, unknown>): Promise<RemoteCallResult> {
-  if (privateEnv && !target.trusted_ref) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding", 2);
+  // Private values go only where the host key is verified: a terminal binding or a pinned ssh (R30).
+  if (privateEnv && !target.trusted_ref && !target.ssh) throw new AitermError("REMOTE_PRIVATE_ENV_UNSUPPORTED: private values travel only to a terminal binding or a remote with ssh (a pinned host key)", 2);
   const shell = await remoteShell(target);
-  // 信頼済み端末はshellごとの正規のコマンド（runtimeの優先と終了codeを含む）。個別指定のremoteは従来のまま。
-  const command = target.trusted_ref ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
-    : privateEnv ? posixCommand("exec aiterm-mcp --private-env-stdin") : remoteServerCommand(shell);
+  // 信頼済み端末と固定sshはshellごとの正規のコマンド（runtimeの優先と終了codeを含む）。個別指定のremoteは従来のまま。
+  const command = target.trusted_ref || privateEnv ? terminalCommand(shell, terminalProgram(privateEnv ? ["aiterm-mcp", "--private-env-stdin"] : ["aiterm-mcp"]))
+    : remoteServerCommand(shell);
   const { args: sshArgs, env } = sshInvocation(target, command);
   // Request _meta is opaque to the relay; progressToken belongs to this hop's client, not the caller's.
   const { progressToken: _hop, ...forwarded } = meta ?? {};

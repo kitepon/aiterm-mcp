@@ -36,10 +36,13 @@ function errorDto(error: unknown, schema: string): { schema: string; code: strin
   return { schema, code, message };
 }
 
+// process.exit drops what a pipe has not taken yet (64 KiB over ssh), so exit only after the write is flushed.
+function finish(value: unknown, code: number): void { process.stdout.write(`${JSON.stringify(value)}\n`, () => process.exit(code)); }
+
 function oneShot(run: () => unknown, errorSchema: string): void {
-  const fail = (error: unknown) => { process.stdout.write(`${JSON.stringify(errorDto(error, errorSchema))}\n`); process.exit(2); };
+  const fail = (error: unknown) => finish(errorDto(error, errorSchema), 2);
   try {
-    Promise.resolve(run()).then(value => { process.stdout.write(`${JSON.stringify(value)}\n`); process.exit(0); }, fail);
+    Promise.resolve(run()).then(value => finish(value, 0), fail);
   } catch (error) { fail(error); }
 }
 
@@ -159,8 +162,8 @@ export function main(args: string[]): void {
       for (const chunk of chunks) chunk.fill(0);
       loadCredential({ ref: option(rest, "--ref") ?? "", terminalId: option(rest, "--terminal-id") ?? "", handle: option(rest, "--handle") ?? "",
         revision: option(rest, "--revision") ?? "", purpose: option(rest, "--purpose") ?? "" }, key)
-        .then(receipt => { process.stdout.write(`${JSON.stringify(receipt)}\n`); process.exit(0); })
-        .catch(error => { process.stdout.write(`${JSON.stringify(errorDto(error, "aiterm.remote-binding-error.v1"))}\n`); process.exit(2); });
+        .then(receipt => finish(receipt, 0))
+        .catch(error => finish(errorDto(error, "aiterm.remote-binding-error.v1"), 2));
     });
     return;
   }

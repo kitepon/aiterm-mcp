@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `aiterm-remote-terminal` and `aiterm-transcript-read` no longer lose what a pipe has not taken when they exit: the result is written, then the process exits. 0.70.112 cut `transcript-read` at exactly 64 KiB when its stdout was an ssh pipe (a real Mac: 429,516 bytes to a file, 65,536 through ssh), so the reader answered `COMMAND_FAILED` for any page larger than that. The same exit was in every one-shot command and in `credential-load`; all go through one `finish`. A test pipes a result larger than 64 KiB to a slow reader (Kiro, a532b2s2w).
+
 ## [0.70.112] - 2026-11-23
 
 - `aiterm-remote probe` and `aiterm-remote command` (a532b2s2f, remote-terminal.md R31): the C8 / folder operations of `remote_terminal_open` and `remote_terminal_command` over a caller-pinned ssh, with no binding. `probe --host --user [--port] --known-hosts [--host-key-alias] --identity-agent|--identity-file` prints `{remoteVersion, platform}`; `command --op <cli_version|cli_install|cli_update|cli_auth_status|claude_*|path_status|make_dir|list_dirs> [--harness H] [--path-base64 B]` plus the same flags prints exactly the object the binding path returns, with the same version gates and error codes (an `aiterm.remote-binding-error.v1` line and exit 2 on failure). The operations moved to `runRemoteCommand`, shared by both paths.

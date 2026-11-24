@@ -68,9 +68,9 @@ async function run(args: string[]): Promise<{ line: string; code: number }> {
 let entry = false;
 try { entry = !!process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { /* imported */ }
 if (entry) {
-  run(process.argv.slice(2)).then(({ line, code }) => { process.stdout.write(`${line}\n`); process.exit(code); }, (error) => {
+  // process.exit drops what a pipe has not taken yet, so exit only after the write is flushed.
+  run(process.argv.slice(2)).then(({ line, code }) => { process.stdout.write(`${line}\n`, () => process.exit(code)); }, (error) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stdout.write(`${JSON.stringify({ schema: ERROR, code: /^([A-Z][A-Z0-9_]+):/.exec(message)?.[1] ?? "AITERM_FAILED", message })}\n`);
-    process.exit(2);
+    process.stdout.write(`${JSON.stringify({ schema: ERROR, code: /^([A-Z][A-Z0-9_]+):/.exec(message)?.[1] ?? "AITERM_FAILED", message })}\n`, () => process.exit(2));
   });
 }

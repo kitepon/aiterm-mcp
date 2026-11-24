@@ -596,3 +596,12 @@ test("a hibernated terminal seat keeps its binding; only a real close unbinds it
   assert.equal(rt.closeEndsTerminalSeat({ hibernate: true }, { content: [] }), false, "an old terminal without structured outcome: the request decides");
   assert.equal(rt.closeEndsTerminalSeat({}, { isError: true, structuredContent: { outcome: "closed" } }), false);
 });
+
+test("a result larger than a pipe buffer reaches a slow reader whole: exit waits for the flush (0.70.112 lost all after 64 KiB over ssh)", { skip: process.platform === "win32" }, () => {
+  const dir = fs.mkdtempSync(path.join(tmp, "big-dirs-"));
+  for (let i = 0; i < 500; i++) fs.mkdirSync(path.join(dir, `${String(i).padStart(3, "0")}-${"d".repeat(200)}`));
+  const cli = new URL("../dist/remote-terminal-cli.js", import.meta.url).pathname;
+  const run = spawnSync("sh", ["-c", 'node "$0" list-dirs --path "$1" | (sleep 1; cat)', cli, dir], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  assert.ok(run.stdout.length > 100_000, `the result is larger than 64 KiB (${run.stdout.length})`);
+  assert.equal(JSON.parse(run.stdout).entries.length, 500);
+});

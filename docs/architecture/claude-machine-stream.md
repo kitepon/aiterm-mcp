@@ -69,12 +69,12 @@
 | 状態 | 入る事象 | 出る事象 |
 | --- | --- | --- |
 | starting | host起動 | `control_response`（initialize）→ idle。失敗 → exited |
-| idle | initialize済み。`result` を受け、始まったStop hookが全部 `hook_response` を返した | 入力の `user`、または入力なしの `assistant`／`stream_event`（asyncRewake等）→ busy |
+| idle | initialize済み。`result` を受け、今のturnで始まったStop hookが全部 `hook_response` を返した | 入力の `user`、または入力なしの `assistant`／`stream_event`（asyncRewake等）→ busy |
 | busy | 同上 | `control_request`（`can_use_tool`）→ blocked。`result`＋Stop hook応答 → idle |
 | blocked | `can_use_tool` を受けた（`pending` に載る） | 答えの `control_response` → busy。`control_cancel_request`・`result` → idle |
 | exited | claudeのprocess終了 | wakeは新しい起動（今と同じ） |
 
-自力で出る道: Stop hookはClaude Codeの既存のtimeoutで終わる。interruptはclaudeが `result` を返す。hostに時計は無い（inboxの見張りは、fileの変化と低頻度の読みで、何も断らない）。
+自力で出る道: 前のturnのStop hookが答えないまま次のturnが始まったら、hostはその答えを待たない（次のturnが始まる＝前のturnのhookは古い）。次のturnの始まりは、claudeの `command_lifecycle`（`state:"started"`）、または、turnが開いていない時にhostが受けた入力の `user`。その時、hostは未応答のStop hookを捨てる。未応答のhookは claude が応答しないまま残る事がある（本番の席4つ、2026-11-24、キロ氏の測定。`hook_started` 4つ・応答2つ・`result`・応答1つ・次の `command_lifecycle started`、1つは最後まで無応答）。それまでは、idleに戻る道が無く、席はbusyのまま残り、BellTeamは稼働中と出す。interruptはclaudeが `result` を返す。hostに時計は無い（inboxの見張りは、fileの変化と低頻度の読みで、何も断らない）。
 
 ## 失敗の扱い
 

@@ -131,6 +131,44 @@ test("host: the caller's line goes to claude unchanged and makes the seat busy; 
   assert.ok(last().input_bytes_consumed > 0);
 });
 
+test("host: a Stop hook claude never answers does not hold the seat busy once the next turn starts (stream order measured 2026-11-24)", () => {
+  const stop = (id, subtype) => ({ type: "system", subtype, hook_event: "Stop", hook_name: "Stop", hook_id: id });
+  const user = id => ({ type: "user", message: { role: "user", content: id }, parent_tool_use_id: null, uuid: id });
+  const turn = (child, hooks, answered, id) => {
+    child({ type: "command_lifecycle", command_uuid: id, state: "started" });
+    for (const h of hooks) child(stop(h, "hook_started"));
+    for (const h of answered) child(stop(h, "hook_response"));
+    child({ type: "result", subtype: "success", terminal_reason: "completed", user_message_uuids: [id] });
+    child({ type: "command_lifecycle", command_uuid: id, state: "completed" });
+  };
+  // A: the caller's next line arrives after the stuck hook (the seat is busy only because of it).
+  const a = makeHost(); a.ready();
+  input(a.host, user("u1"));
+  turn(a.child, ["h1", "h2", "h3", "h4"], ["h2", "h3", "h1"], "u1");
+  assert.equal(a.last().state, "busy", "h4 is still unanswered");
+  input(a.host, user("u2"));
+  turn(a.child, ["g1"], ["g1"], "u2");
+  assert.equal(a.last().state, "idle", "h4 belonged to the previous turn");
+  // B: the next command was queued while the first ran; claude starts it by itself after the first completed.
+  const b = makeHost(); b.ready();
+  input(b.host, user("u1")); input(b.host, user("u2"));
+  turn(b.child, ["h1", "h2"], ["h2", "h1"].slice(0, 1), "u1");
+  b.child({ type: "command_lifecycle", command_uuid: "u2", state: "queued" });
+  assert.equal(b.last().state, "busy");
+  b.child({ type: "command_lifecycle", command_uuid: "u2", state: "started" });
+  b.child({ type: "result", subtype: "success", terminal_reason: "completed", user_message_uuids: ["u2"] });
+  assert.equal(b.last().state, "idle", "h2 never answered, and u2 started after u1 completed");
+  // A hook of the running turn still holds the seat: nothing is dropped inside one turn.
+  const c = makeHost(); c.ready();
+  input(c.host, user("u1"));
+  c.child({ type: "command_lifecycle", command_uuid: "u1", state: "started" });
+  c.child(stop("h1", "hook_started"));
+  c.child({ type: "result", subtype: "success", terminal_reason: "completed", user_message_uuids: ["u1"] });
+  assert.equal(c.last().state, "busy");
+  c.child(stop("h1", "hook_response"));
+  assert.equal(c.last().state, "idle");
+});
+
 test("host: a turn that starts without input (asyncRewake) is busy; an interrupt records its end", () => {
   const { host, child, last, ready } = makeHost();
   ready();

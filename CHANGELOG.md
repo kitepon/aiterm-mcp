@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A `claude-machine` seat no longer stays busy forever when claude never answers one of the Stop hooks of a finished turn (a532b2s2x, Kiro): the host drops the previous turn's unanswered Stop hooks when the next turn starts, that is on claude's `command_lifecycle` `started` or on a caller's `user` line taken while no turn is open. Before, `settle()` waited for that hook for good, so `pty_list` showed the turn as running and BellTeam showed the Bot as working (four seats on 2026-11-24). A seat already stuck leaves busy only when its host is started again (relaunch or wake), because the old host process keeps the old set in memory. The state table in `claude-machine-stream.md` said Stop hooks end by claude's own timeout; that was wrong and is corrected.
+
 ## [0.70.113] - 2026-11-24
 
 - `aiterm-remote-terminal` and `aiterm-transcript-read` no longer lose what a pipe has not taken when they exit: the result is written, then the process exits. 0.70.112 cut `transcript-read` at exactly 64 KiB when its stdout was an ssh pipe (a real Mac: 429,516 bytes to a file, 65,536 through ssh), so the reader answered `COMMAND_FAILED` for any page larger than that. The same exit was in every one-shot command and in `credential-load`; all go through one `finish`. A test pipes a result larger than 64 KiB to a slow reader (Kiro, a532b2s2w).

@@ -32,11 +32,12 @@ claude transcript (<config>/projects/<slug>/<session_id>.jsonl) ─ new attachme
 caller ─ stream_send / pty_send / agent_stop … ─> <launch>.claude-input.jsonl ─ line, unchanged ─> host ─> claude stdin
 host ─ state derived from events ─> <launch>.claude-machine-state.json ─> stream_read.state, pty_observe, send gates
 claude ─ Stop hook (settings) ─> claude-stop-hook ─> result/event files ─> wait / parent delivery (unchanged)
+claude ─ system/hook_started·hook_response (Stop) ─> host (the set of Stop hooks the turn waits for) ; claude ─ command_lifecycle started, or the caller's user line while no turn is open ─> host ─ drops the previous turn's unanswered Stop hooks ─> state (idle after the new turn's result)
 ```
 
 ## 状態遷移・失敗の扱い
 
-[claude-machine-stream](claude-machine-stream.md) の「状態遷移」「失敗の扱い」。要点: idleは `result` と、始まったStop hookの応答がそろってから。blockedは `can_use_tool` の待ち（`pending`）。host／claudeが落ちたら `exited`、次のdeliveryで同じ会話IDからwake。起動に失敗した新規launchは席を閉じて `AGENT_MACHINE_UNAVAILABLE`。
+[claude-machine-stream](claude-machine-stream.md) の「状態遷移」「失敗の扱い」。要点: idleは `result` と、今のturnで始まったStop hookの応答がそろってから（次のturnが始まったら、前のturnの未応答のStop hookは捨てる）。blockedは `can_use_tool` の待ち（`pending`）。host／claudeが落ちたら `exited`、次のdeliveryで同じ会話IDからwake。起動に失敗した新規launchは席を閉じて `AGENT_MACHINE_UNAVAILABLE`。
 
 ## 範囲外・未測定
 

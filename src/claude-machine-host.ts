@@ -119,7 +119,7 @@ export class ClaudeMachineHost {
     let line: Json | null = null;
     try { line = JSON.parse(raw); } catch { /* claude answers a malformed line itself */ }
     this.ports.toClaude(raw);
-    if (line?.type === "user") { this.awaiting++; this.turnOpen = true; this.set("busy"); }
+    if (line?.type === "user") { this.beginTurn(); this.awaiting++; this.turnOpen = true; this.set("busy"); }
     else if (line?.type === "control_response") {
       const before = this.pending.length;
       this.pending = this.pending.filter(p => p.request_id !== line!.response?.request_id);
@@ -127,6 +127,10 @@ export class ClaudeMachineHost {
     }
     this.publish();
   }
+
+  /** A new turn starting while no turn is open: the Stop hooks still unanswered belong to the previous turn. claude can leave one unanswered for good
+   * (measured 2026-11-24), and waiting for it would keep the seat busy forever. */
+  private beginTurn(): void { if (!this.turnOpen) this.stopHooks.clear(); }
 
   private settleAfterAnswer(): void {
     if (this.pending.length === 0) this.set(this.turnOpen ? "busy" : "idle");
@@ -208,6 +212,11 @@ export class ClaudeMachineHost {
         if (this.pending.length !== before) { this.publish(); this.settleAfterAnswer(); }
         return;
       }
+      case "command_lifecycle": {
+        // A queued command starts only after the previous one completed, so what is still unanswered is the previous turn's.
+        if (event.state === "started") this.stopHooks.clear();
+        return;
+      }
       case "system": {
         if (event.subtype === "status" && typeof event.permissionMode === "string") this.permissionMode = event.permissionMode;
         if (event.hook_event === "Stop" && event.subtype === "hook_started") this.stopHooks.add(String(event.hook_id));
@@ -232,7 +241,7 @@ export class ClaudeMachineHost {
   }
 
   private sendUser(text: string): void {
-    this.awaiting++; this.turnOpen = true; this.set("busy");
+    this.beginTurn(); this.awaiting++; this.turnOpen = true; this.set("busy");
     this.ports.toClaude(JSON.stringify({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, uuid: this.id() }));
   }
 

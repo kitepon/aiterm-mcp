@@ -47,6 +47,9 @@ test('auth UI distinguishes empty code, explicit choices and unsupported input w
  assert.equal(claudeAuthPane('Paste code here if prompted >').ui.input,'authorization_code');
  assert.equal(claudeAuthPane('Paste code here if prompted > existing-draft').ui,undefined);
  assert.equal(claudeAuthPane('Press Enter to continue').ui,undefined);
+ const W='─'.repeat(40),box=text=>' Paste code here if prompted\n ╭'+W+'╮\n │ '+text.padEnd(38)+' │\n ╰'+W+'╯';
+ assert.equal(claudeAuthPane(box('')).ui.input,'authorization_code');
+ assert.equal(claudeAuthPane(box('abc')).ui,undefined);
  const select=claudeAuthPane('Choose the text style that looks best with your terminal\n❯ 1. Dark mode\n 2. Light mode');
  assert.deepEqual(select.ui.choices,[{id:'option-1',label:'Dark mode'},{id:'option-2',label:'Light mode'}]);
  const base={status:'blocked',url:null,user_code:null,input_required:true,message:null};

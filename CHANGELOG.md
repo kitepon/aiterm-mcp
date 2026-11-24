@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Claude Code 2.1.331 draws the setup-token code field as a bordered box under "Paste code here if prompted". `claudeAuthInput` counted the box lines as typed text, so `auth_ui` stayed `open_url` and no client showed a code field (Kiro). An empty box now reads as an empty field (`paste_code`); text inside the box still reads as occupied. The public `auth_ui` contract is unchanged.
+
 ## [0.70.114] - 2026-11-24
 
 - A `claude-machine` seat no longer stays busy forever when claude never answers one of the Stop hooks of a finished turn (a532b2s2x, Kiro): the host drops the previous turn's unanswered Stop hooks when the next turn starts, that is on claude's `command_lifecycle` `started` or on a caller's `user` line taken while no turn is open. Before, `settle()` waited for that hook for good, so `pty_list` showed the turn as running and BellTeam showed the Bot as working (four seats on 2026-11-24). A seat already stuck leaves busy only when its host is started again (relaunch or wake), because the old host process keeps the old set in memory. The state table in `claude-machine-stream.md` said Stop hooks end by claude's own timeout; that was wrong and is corrected.

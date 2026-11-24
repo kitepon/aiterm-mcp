@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.113] - 2026-11-24
+
 - `aiterm-remote-terminal` and `aiterm-transcript-read` no longer lose what a pipe has not taken when they exit: the result is written, then the process exits. 0.70.112 cut `transcript-read` at exactly 64 KiB when its stdout was an ssh pipe (a real Mac: 429,516 bytes to a file, 65,536 through ssh), so the reader answered `COMMAND_FAILED` for any page larger than that. The same exit was in every one-shot command and in `credential-load`; all go through one `finish`. A test pipes a result larger than 64 KiB to a slow reader (Kiro, a532b2s2w).
 
 ## [0.70.112] - 2026-11-23
@@ -3708,7 +3710,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.112...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...HEAD
+[0.70.113]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.112...v0.70.113
 [0.70.112]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.111...v0.70.112
 [0.70.111]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.110...v0.70.111
 [0.70.110]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.109...v0.70.110

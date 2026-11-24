@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.115] - 2026-11-24
+
 - Claude Code 2.1.331 draws the setup-token code field as a bordered box under "Paste code here if prompted". `claudeAuthInput` counted the box lines as typed text, so `auth_ui` stayed `open_url` and no client showed a code field (Kiro). An empty box now reads as an empty field (`paste_code`); text inside the box still reads as occupied. The public `auth_ui` contract is unchanged.
 
 ## [0.70.114] - 2026-11-24
@@ -3716,7 +3718,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...HEAD
+[0.70.115]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...v0.70.115
 [0.70.114]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...v0.70.114
 [0.70.113]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.112...v0.70.113
 [0.70.112]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.111...v0.70.112

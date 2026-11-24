@@ -1208,7 +1208,7 @@ export function claudeAuthInput(screen: string): Pick<AgentAuthPane, "ui" | "nat
   if (!phase || phase.kind === "unknown") return {};
   if (phase.kind === "code") {
     const empty = /^(?:Paste (?:the )?code(?: here)?(?: if prompted)?|Enter (?:the )?(?:authorization )?code)\s*[:>]?\s*$/i.test(lines[phase.at].trim())
-      && lines.slice(phase.at + 1).every(line => !line.trim());
+      && lines.slice(phase.at + 1).every(line => !line.replace(/[╭╮╰╯│─]/gu, "").trim()); // 2.1.331 draws the code field as a box; an empty box is empty
     return { native_input: { kind: "authorization_code", empty }, ...(empty ? { ui: {
       stage: "paste_code" as const, title: "公式ページの認証コードを入力", message: "公式ページを開いて認証し、表示されたコードをこの画面の伏せ字欄へ貼り付けてください。",
       input: "authorization_code" as const, choices: [],

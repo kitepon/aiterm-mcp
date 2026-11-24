@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.114] - 2026-11-24
+
 - A `claude-machine` seat no longer stays busy forever when claude never answers one of the Stop hooks of a finished turn (a532b2s2x, Kiro): the host drops the previous turn's unanswered Stop hooks when the next turn starts, that is on claude's `command_lifecycle` `started` or on a caller's `user` line taken while no turn is open. Before, `settle()` waited for that hook for good, so `pty_list` showed the turn as running and BellTeam showed the Bot as working (four seats on 2026-11-24). A seat already stuck leaves busy only when its host is started again (relaunch or wake), because the old host process keeps the old set in memory. The state table in `claude-machine-stream.md` said Stop hooks end by claude's own timeout; that was wrong and is corrected.
 
 ## [0.70.113] - 2026-11-24
@@ -3712,7 +3714,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...HEAD
+[0.70.114]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...v0.70.114
 [0.70.113]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.112...v0.70.113
 [0.70.112]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.111...v0.70.112
 [0.70.111]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.110...v0.70.111

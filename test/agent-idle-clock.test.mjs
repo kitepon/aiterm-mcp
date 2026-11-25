@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import {join} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
-import {armAgentIdleClock,idleClockDeadline,AGENT_IDLE_ENABLED} from '../dist/agent-idle-clock.js';
+import {armAgentIdleClock,idleClockDeadline,IDLE_CLOCK_POLL_MS,AGENT_IDLE_ENABLED} from '../dist/agent-idle-clock.js';
 import {readAgentIdleClock,writeAgentIdleClock,retireAgentIdleClock} from '../dist/agent-lifecycle.js';
 import {readProcessIdentities,readRuntimeProcesses,processSubtree,idleClockCommand} from '../dist/process-runtime.js';
 import {parseIdleArgs} from '../dist/agent-idle-cli.js';
@@ -25,7 +25,8 @@ async function stopOwnClock(){
 test('deadline retains the native end clock and retries busy observations without a resident Node',()=>{
  assert.equal(idleClockDeadline({...base,outcome:'not_due',anchor:'native',due_at:5000},1000),5000);
  for(const reason of ['turn_running','blocked','background_work_or_unknown','input_without_turn_end','superseded_timer'])
-  assert.equal(idleClockDeadline({...base,reason},1000),61000);
+  assert.equal(idleClockDeadline({...base,reason},1000),1000+IDLE_CLOCK_POLL_MS);
+ assert.equal(IDLE_CLOCK_POLL_MS,300000);
  for(const outcome of ['hibernated','unconfirmed'])assert.equal(idleClockDeadline({...base,outcome},1000),null);
  for(const reason of ['dead','missing'])assert.equal(idleClockDeadline({...base,reason},1000),null);
 });

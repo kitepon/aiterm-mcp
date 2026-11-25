@@ -188,8 +188,11 @@ test("openAgentWithInitialPrompt: Claudeの初回案内が未完了ならtimeout
         // 0.70.36: blocked before any prompt byte -> the launch closes its seat and refuses (R18 AGENT_STARTUP_BLOCKED).
         assert.match(error.message, /^AGENT_STARTUP_BLOCKED: .*reason=vendor_onboarding_required/u);
         assert.match(error.message, /初回案内/);
-        assert.deepEqual({ ...error.launchNotStarted, action: typeof error.launchNotStarted.action },
-          { harness: "claude-code", phase: "input", code: "AGENT_STARTUP_BLOCKED", action: "string" });
+        const { startup_screen_excerpt: excerpt, ...rest } = error.launchNotStarted;
+        assert.deepEqual({ ...rest, action: typeof rest.action }, { harness: "claude-code", phase: "input", code: "AGENT_STARTUP_BLOCKED", action: "string" });
+        // The seat is closed, so the masked screen tail is the only trace; the shell line that launched it (its env) is not in it.
+        assert.match(excerpt, /Select login method:/u);
+        assert.doesNotMatch(excerpt, /AITERM_/u);
         return true;
       },
     );

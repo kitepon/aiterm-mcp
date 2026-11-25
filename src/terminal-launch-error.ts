@@ -48,9 +48,12 @@ export const ERROR_CODE_META = "aiterm/error_code";
 
 /** R18 for a local launch: the fresh native creation left no seat (core.freshLaunchFailure). */
 export function launchNotStartedMeta(harness: string, phase: "native_create" | "input" = "native_create",
-  code: "AGENT_LAUNCH_NOT_STARTED" | "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED" = "AGENT_LAUNCH_NOT_STARTED", action?: string): Record<string, unknown> {
+  code: "AGENT_LAUNCH_NOT_STARTED" | "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED" = "AGENT_LAUNCH_NOT_STARTED", action?: string,
+  startupScreenExcerpt?: string): Record<string, unknown> {
   return { [LAUNCH_ERROR_META]: { schema: "aiterm.agent-launch-error.v1", harness, code, phase,
-    effect: "not_started", session_created: false, action: action ?? (code !== "AGENT_LAUNCH_NOT_STARTED" || phase !== "input" ? ACTIONS[code] : INPUT_ACTION) } };
+    effect: "not_started", session_created: false, action: action ?? (code !== "AGENT_LAUNCH_NOT_STARTED" || phase !== "input" ? ACTIONS[code] : INPUT_ACTION),
+    // AGENT_STARTUP_BLOCKED only: the masked tail of the screen the seat stopped on (the seat is closed, so this is the only trace).
+    ...(startupScreenExcerpt ? { startup_screen_excerpt: startupScreenExcerpt } : {}) } };
 }
 // phase "input": refused from the arguments alone; nothing was started, so launching again unchanged fails the same way.
 const INPUT_ACTION = "起動の指定（追加の指示かMCPの設定）をこのAIでは使えません。席は作られていません。指定を見直してください。";

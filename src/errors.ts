@@ -24,7 +24,7 @@ export class AitermError extends Error {
   /** A refusal whose code the caller reads from `_meta["aiterm/error_code"]` (a local seat's fail() adds it; the text keeps "CODE: ..."). */
   refusalCode?: string;
   /** remote-terminal.md R18: a fresh launch that left no seat. */
-  launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED"; action?: string };
+  launchNotStarted?: { harness: string; phase?: "input"; code?: "AGENT_AUTH_REQUIRED" | "AGENT_STARTUP_BLOCKED"; action?: string; startup_screen_excerpt?: string };
   constructor(message: string, code = 1) {
     super(message);
     this.code = code;
@@ -39,9 +39,9 @@ export function launchInputRefusal(harness: string, reason: string): AitermError
 }
 
 /** The launch stopped on a startup screen Aiterm does not answer and closed the seat it created (R18, AGENT_STARTUP_BLOCKED). */
-export function launchStartupBlocked(harness: string, reason: string, action: string): AitermError {
+export function launchStartupBlocked(harness: string, reason: string, action: string, screenExcerpt?: string | null): AitermError {
   const error = new AitermError(`AGENT_STARTUP_BLOCKED: 起動の途中の画面で止まったため、作った席を閉じました。席は残っていません。reason=${reason}\n${action}`, 2);
-  error.launchNotStarted = { harness, phase: "input", code: "AGENT_STARTUP_BLOCKED", action };
+  error.launchNotStarted = { harness, phase: "input", code: "AGENT_STARTUP_BLOCKED", action, ...(screenExcerpt ? { startup_screen_excerpt: screenExcerpt } : {}) };
   return error;
 }
 

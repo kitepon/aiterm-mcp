@@ -67,7 +67,10 @@ test('a launch stopped on a first-run screen closes its seat and refuses as AGEN
     assert.equal(result.isError,true,JSON.stringify(result));
     assert.match(result.content[0].text,/^aiterm: AGENT_STARTUP_BLOCKED: .*reason=vendor_onboarding_required/u);
     const meta=result._meta['aiterm/launch_error'];
-    assert.deepEqual({...meta,action:typeof meta.action},{schema:'aiterm.agent-launch-error.v1',harness:'claude-code',code:'AGENT_STARTUP_BLOCKED',phase:'input',effect:'not_started',session_created:false,action:'string'});
+    // The seat is closed, so the masked tail of its last screen is the only trace of what it stopped on.
+    assert.match(meta.startup_screen_excerpt,/Security notes:[\s\S]*Press Enter to continue/u);
+    const {startup_screen_excerpt:_excerpt,...rest}=meta;
+    assert.deepEqual({...rest,action:typeof meta.action},{schema:'aiterm.agent-launch-error.v1',harness:'claude-code',code:'AGENT_STARTUP_BLOCKED',phase:'input',effect:'not_started',session_created:false,action:'string'});
     assert.match(meta.action,/初回案内/u);
     assert.ok(!(await client.callTool({name:'pty_list',arguments:{}})).structuredContent.sessions.some(row=>row.session_id==='startup_blocked'));
   } finally {

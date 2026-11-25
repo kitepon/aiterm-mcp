@@ -69,6 +69,7 @@ import { recordRuntimeError, type RuntimeErrorCode } from "./runtime-error-store
 import { liveNodeExecutable } from "./live-node.js";
 import { resolveClaudeConfigurationRoot, withClaudeConfigRoot, withClaudeSlotLogin, type ClaudeConfigRoot } from "./claude-config-root.js";
 import { probeWriteBan, writeBanPrefix, windowsWriteBanArgv, type WriteBan } from "./write-ban.js";
+import { startupScreenExcerpt } from "./screen-excerpt.js";
 import { AitermError, launchAuthRequired, launchInputRefusal, launchStartupBlocked, AgentResumeUnavailableError, AgentResumeError, AgentResumeSecretsError, TelemetryOwnedError, telemetryOwnedFailure, ownTelemetryFailure, ptyDependencyError } from "./errors.js";
 import {
   isWin,
@@ -5515,12 +5516,13 @@ function startupBlockedHint(reason: string): string {
 
 /** A fresh launch blocked before any prompt byte closes the seat it created and refuses (launch-identity-input.md).
  * If the close fails, null: the caller keeps its refusal that leaves the seat. */
-function startupBlockedRefusal(name: string, kind: AgentKind, reason: string): AitermError | null {
+function startupBlockedRefusal(name: string, kind: AgentKind, reason: string, screen?: string): AitermError | null {
   const seat = tryLoadAgentMetadata(name);
   const harness = seat ? agentHarness(seat) : agentHarness(kind);
   try { closeSessionInternal(name, true); } catch { return null; }
   return launchStartupBlocked(harness, reason, startupBlockedHint(reason).trim()
-    || `起動の途中の画面（${reason}）で止まりました。端末でそのAIを一度起動して画面を進めてから、起こし直してください。`);
+    || `起動の途中の画面（${reason}）で止まりました。端末でそのAIを一度起動して画面を進めてから、起こし直してください。`,
+    startupScreenExcerpt(screen));
 }
 
 function setInitialDelivery(meta: AgentMetadata, value: InitialPromptDelivery, cursor: number | null): void {
@@ -5544,6 +5546,14 @@ async function waitStartupSelection(name: string, selected: RegExp): Promise<boo
   }
   return false;
 }
+
+/** The raw last screen behind a blocked startup result; kept off the result itself, which is public. Read once, by the refusal. */
+const startupScreens = new WeakMap<AgentStartupResult, string>();
+const blockedStartup = (reason: string, screen: string): AgentStartupResult => {
+  const result: AgentStartupResult = { status: "blocked", reason };
+  startupScreens.set(result, screen);
+  return result;
+};
 
 async function prepareAgentInput(name: string, meta: AgentMetadata, options: InitialAgentPromptOpts,
   acceptRunning = false): Promise<AgentStartupResult> {
@@ -5604,11 +5614,11 @@ async function prepareAgentInput(name: string, meta: AgentMetadata, options: Ini
     }
     ready = await wait();
   }
-  if (!ready.ready && !ready.steer) return { status: "blocked", reason: agentPaneObservation(meta.kind, ready.lastScreen).reason };
+  if (!ready.ready && !ready.steer) return blockedStartup(agentPaneObservation(meta.kind, ready.lastScreen).reason, ready.lastScreen);
   const live = observeNativeSession(name);
   if (live.harness_alive !== true || live.harness_process === null
     || (live.state !== "idle" && !(ready.steer && live.state === "busy" && (meta.kind === "claude" || codexRunningTurn(meta) !== null))))
-    return { status: "blocked", reason: live.reason };
+    return blockedStartup(live.reason, ready.lastScreen);
   return { status: "ready", reason: ready.steer ? "turn_running" : "composer_ready" };
 }
 
@@ -5649,7 +5659,7 @@ async function sendInitialAgentPromptInLock(
         `agent session '${name}' の起動準備が完了していないため、promptは送信していません。reason=${startup.reason}` +
         startupBlockedHint(startup.reason),
       2,
-    ), { startupBlocked: startup.reason });
+    ), { startupBlocked: startup.reason, startupScreen: startupScreens.get(startup) });
   }
   await o.after_ready?.(name, meta);
   const promptText = meta.kind === "cursor" ? cursorPromptWithLineage(meta, text) : text;
@@ -9613,7 +9623,7 @@ export async function openAgentWithInitialPrompt(
           { status: "blocked", reason: "startup_failed" },
         );
       }
-      if (startup.status !== "ready") throw startupBlockedRefusal(sid, kind, startup.reason) ?? new AgentLaunchPromptError(
+      if (startup.status !== "ready") throw startupBlockedRefusal(sid, kind, startup.reason, startupScreens.get(startup)) ?? new AgentLaunchPromptError(
         `session_id: ${sid}\n起動準備を完了できませんでした。reason=${startup.reason}${startupBlockedHint(startup.reason)}`,
         2, sid, delivery, null, startup,
       );
@@ -9636,9 +9646,9 @@ export async function openAgentWithInitialPrompt(
     const message = e instanceof Error ? e.message : String(e);
     const meta = loadAgentMetadata(sid);
     // Blocked before any prompt byte: nothing of the caller's reached the seat, so the seat is closed and the launch refused.
-    const blocked = (e as { startupBlocked?: string }).startupBlocked;
+    const blocked = (e as { startupBlocked?: string }).startupBlocked, blockedScreen = (e as { startupScreen?: string }).startupScreen;
     if (blocked && meta.initial_prompt_delivery?.status === "not_sent") {
-      const refusal = startupBlockedRefusal(sid, kind, blocked);
+      const refusal = startupBlockedRefusal(sid, kind, blocked, blockedScreen);
       if (refusal) throw refusal;
     }
     throw new AgentLaunchPromptError(

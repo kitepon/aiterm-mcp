@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat that is not due to hibernate (turn running, attached, resume needing launch values...) is looked at again every 5 minutes instead of every 60 seconds (incident runtime-supervisor-cpu, Molly). Each look starts a Node checker of about 0.5 CPU-seconds, so about 60 seats cost roughly 0.3 core. The hibernate deadline is still the recorded turn end plus 30 minutes, so hibernation does not move.
+- `AGENT_STARTUP_BLOCKED` now carries an optional `startup_screen_excerpt` in `_meta["aiterm/launch_error"]`: the last 20 non-empty lines of the screen the launch stopped on (at most 3000 characters, URL queries, long opaque runs, secret-named values and e-mail masked, the shell line that started the harness dropped). The seat is closed on this error, so the screen was the only trace and nothing showed what it stopped on (Kiro, Anis on fox-windows, Claude Code 2.1.332).
+
 ## [0.70.115] - 2026-11-24
 
 - Claude Code 2.1.331 draws the setup-token code field as a bordered box under "Paste code here if prompted". `claudeAuthInput` counted the box lines as typed text, so `auth_ui` stayed `open_url` and no client showed a code field (Kiro). An empty box now reads as an empty field (`paste_code`); text inside the box still reads as occupied. The public `auth_ui` contract is unchanged.

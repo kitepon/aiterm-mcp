@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_list({include: ["turn"]})`: a running `turn` in `sessions[]` now carries `wait_process` (`{executable, args, windows_start_process_argument_list}`, the same value the `seat_turns` row has; `null` for a turn without a cursor). A caller that builds its seat list from `sessions[]` no longer needs the `seat_turns` meta for Codex rows (a532b2z, Kiro). Additive; nothing is removed.
+
 ## [0.70.117] - 2026-11-26
 
 - `pty_list` and `pty_observe` cost less on a busy body (incident runtime-supervisor-cpu, Molly): `ensureStateRoot` no longer calls mkdir twice on every state read (an existing `agents` directory is one stat; mkdir was about 10% of the execution server's main thread), and a Claude seat's usage-limit read reuses its answer while the transcript is unchanged for over a second instead of re-parsing its tail on every list.

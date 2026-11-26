@@ -61,6 +61,8 @@ test("pty_list include: turn and own_work are plain fields of the agent row, and
     const r = row(asked);
     assert.ok("turn" in r, "turn is present (null = not readable now)");
     assert.ok(r.turn === null || r.turn.state === "idle" || r.turn.state === "running", JSON.stringify(r.turn));
+    // 0.70.118: a running turn carries the seat_turns row's wait_process (null without a cursor); idle has no such field.
+    if (r.turn?.state === "running") assert.ok("wait_process" in r.turn, "running turn names wait_process");
     assert.ok(r.own_work && typeof r.own_work === "object", "own_work is present");
     for (const key of ["processes", "excluded", "child_results", "exclusions_digest", "oldest", "tasks", "task"]) assert.ok(key in r.own_work, `own_work.${key}`);
     assert.equal(r.own_work.exclusions_digest, null, "no exclusion list was sent");

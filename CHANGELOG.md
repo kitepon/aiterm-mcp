@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.117] - 2026-11-26
+
 - `pty_list` and `pty_observe` cost less on a busy body (incident runtime-supervisor-cpu, Molly): `ensureStateRoot` no longer calls mkdir twice on every state read (an existing `agents` directory is one stat; mkdir was about 10% of the execution server's main thread), and a Claude seat's usage-limit read reuses its answer while the transcript is unchanged for over a second instead of re-parsing its tail on every list.
 
 ## [0.70.116] - 2026-11-26
@@ -3725,7 +3727,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...HEAD
+[0.70.117]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...v0.70.117
 [0.70.116]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...v0.70.116
 [0.70.115]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...v0.70.115
 [0.70.114]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...v0.70.114

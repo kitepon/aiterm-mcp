@@ -320,9 +320,12 @@ export function ensureStateRoot(): string {
   // 前提の防御であり、対応 OS の既定配置では成立しない（オーナー裁定 2026-08-19）。
   // 作成時の 0o700 は検査ではなく妥当な既定として残す。経路の異常は以降の
   // open/stat が OS エラーとしてそのまま露出させる。
-  const root = stateRoot();
+  const root = stateRoot(), agents = path.join(root, "agents");
+  // Called thousands of times a second by pty_list/observe (mkdir was ~10% of the execution server's main thread, incident
+  // runtime-supervisor-cpu): an existing directory needs one stat, not two mkdir calls.
+  if (fs.existsSync(agents)) return root;
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(path.join(root, "agents"), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(agents, { recursive: true, mode: 0o700 });
   return root;
 }
 

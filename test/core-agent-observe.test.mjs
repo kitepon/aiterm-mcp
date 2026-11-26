@@ -111,6 +111,12 @@ test("Claude: a limit hold (no Stop) is a terminal rate_limited end that pty_lis
     assert.equal(row().limit_end.continued, false, "a slash command typed on the seat is not conversation work");
     append({ type: "assistant", uuid: "a2", parentUuid: "e1", message: { content: [{ type: "text", text: "continuing" }] } });
     assert.deepEqual({ ...row().limit_end, at: null, reset_at: null }, { at: null, reset_at: null, continued: true, hold: null });
+    // A transcript untouched for over a second is answered from the cache; growth is read afresh (incident runtime-supervisor-cpu).
+    const backdate = () => { const t = new Date(Date.now() - 10_000); fs.utimesSync(transcript, t, t); };
+    backdate(); const before = row().limit_end; assert.deepEqual(row().limit_end, before);
+    append({ type: "assistant", uuid: "e2", parentUuid: "a2", isApiErrorMessage: true, error: "rate_limit", message: { model: "<synthetic>", content: [{ type: "text", text }] } });
+    backdate();
+    assert.notEqual(row().limit_end.at, before.at, "a transcript that grew is not answered from the cache");
   } finally { core.closeSession(sid); }
 });
 

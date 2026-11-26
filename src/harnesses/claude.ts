@@ -1070,12 +1070,27 @@ export function claudeLimitResetAt(text: string, atMs: number): string | null {
  * Claude Code 2.1.322 holds such a turn without a Stop hook ("Usage limit reached · continuing automatically at 7pm · esc to cancel")
  * and continues it at the reset by itself; only its transcript shows the hold. Null when no such error follows the input.
  */
+// pty_list reads every Claude seat's transcript tail on each call (~10% of the execution server's main thread, incident
+// runtime-supervisor-cpu). The answer depends only on the tail bytes, the seat and sinceMs, so an unchanged file (size, mtime) reuses it.
+const limitEndCache = new Map<string, { size: number; mtimeMs: number; sinceMs: number; session: string | null | undefined; end: ClaudeLimitEnd | null }>();
 export function claudeLimitEnd(meta: AgentMetadata, sinceMs: number): ClaudeLimitEnd | null {
   const file = claudeSessionTranscriptPath(meta);
   if (!file || !Number.isFinite(sinceMs)) return null;
-  let size: number;
-  try { size = fs.statSync(file).size; }
+  let size: number, mtimeMs: number;
+  try { ({ size, mtimeMs } = fs.statSync(file)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  const cached = limitEndCache.get(file);
+  if (cached && cached.size === size && cached.mtimeMs === mtimeMs && cached.sinceMs === sinceMs && cached.session === meta.vendor_session_id)
+    return cached.end && { ...cached.end };
+  const end = readClaudeLimitEnd(meta, sinceMs, file, size);
+  // A file written within the last second may still change inside the same mtime tick: not cached.
+  if (Date.now() - mtimeMs > 1000) {
+    if (limitEndCache.size >= 256) limitEndCache.clear();
+    limitEndCache.set(file, { size, mtimeMs, sinceMs, session: meta.vendor_session_id, end: end && { ...end } });
+  }
+  return end;
+}
+function readClaudeLimitEnd(meta: AgentMetadata, sinceMs: number, file: string, size: number): ClaudeLimitEnd | null {
   const lines = readFileRange(file, Math.max(0, size - AGENT_EVENT_TAIL_BYTES), size).toString("utf8").split("\n");
   lines.pop();
   let end: ClaudeLimitEnd | null = null;

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.118] - 2026-11-26
+
 - `pty_list({include: ["turn"]})`: a running `turn` in `sessions[]` now carries `wait_process` (`{executable, args, windows_start_process_argument_list}`, the same value the `seat_turns` row has; `null` for a turn without a cursor). A caller that builds its seat list from `sessions[]` no longer needs the `seat_turns` meta for Codex rows (a532b2z, Kiro). Additive; nothing is removed.
 
 ## [0.70.117] - 2026-11-26
@@ -3729,7 +3731,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...HEAD
+[0.70.118]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...v0.70.118
 [0.70.117]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...v0.70.117
 [0.70.116]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...v0.70.116
 [0.70.115]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...v0.70.115

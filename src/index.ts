@@ -1013,7 +1013,9 @@ registerRemoteAwareTool(
             "continued: Claude recorded work after it. hold: Claude's automatic continue is armed, or was cancelled (pty_key Escape cancels an armed hold)"),
         // include: ["turn"] (0.70.108). null = not readable now (another reader holds the seat, or the harness gives no record).
         turn: z.union([
-          z.object({ state: z.literal("running"), turn_id: z.string().nullable(), started_at: z.string().nullable(), event_cursor: z.number().nullable(), interim_from: z.string().nullable() }),
+          z.object({ state: z.literal("running"), turn_id: z.string().nullable(), started_at: z.string().nullable(), event_cursor: z.number().nullable(), interim_from: z.string().nullable(),
+            // 0.70.118: the command that waits for this turn's end (Codex rows; null when the turn has no cursor), same value as the seat_turns row.
+            wait_process: z.object({ executable: z.string(), args: z.array(z.string()), windows_start_process_argument_list: z.string().nullable() }).nullable().optional() }),
           z.object({ state: z.literal("idle") }),
         ]).nullable().optional().describe("include:[\"turn\"]のagent行だけ。席の今の番。nullは今は読めない"),
         // include: ["own_work"] (0.70.108).
@@ -1066,7 +1068,7 @@ async function withSeatFacts<T extends { session_id: string; harness: string | n
     if (turns) {
       const turn: any = byName.get(session.session_id)?.turn ?? null;
       extra.turn = turn === null ? null : turn.state === "running"
-        ? { state: "running", turn_id: turn.turn_id ?? null, started_at: turn.started_at ?? null, event_cursor: turn.event_cursor ?? null, interim_from: turn.interim_from ?? null }
+        ? { state: "running", turn_id: turn.turn_id ?? null, started_at: turn.started_at ?? null, event_cursor: turn.event_cursor ?? null, interim_from: turn.interim_from ?? null, wait_process: turn.wait_process ?? null }
         : { state: "idle" };
     }
     const own = work?.get(session.session_id);

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `pty_list` and `pty_observe` cost less on a busy body (incident runtime-supervisor-cpu, Molly): `ensureStateRoot` no longer calls mkdir twice on every state read (an existing `agents` directory is one stat; mkdir was about 10% of the execution server's main thread), and a Claude seat's usage-limit read reuses its answer while the transcript is unchanged for over a second instead of re-parsing its tail on every list.
+
 ## [0.70.116] - 2026-11-26
 
 - A seat that is not due to hibernate (turn running, attached, resume needing launch values...) is looked at again every 5 minutes instead of every 60 seconds (incident runtime-supervisor-cpu, Molly). Each look starts a Node checker of about 0.5 CPU-seconds, so about 60 seats cost roughly 0.3 core. The hibernate deadline is still the recorded turn end plus 30 minutes, so hibernation does not move.

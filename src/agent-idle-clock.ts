@@ -13,9 +13,16 @@ import type { IdleCheckResult } from "./agent-idle.js";
 // Test fixtures drive the controller explicitly, without arming unattended timers.
 export const AGENT_IDLE_ENABLED = !process.env.NODE_TEST_CONTEXT;
 const CLI = fileURLToPath(new URL("./agent-idle-cli.js", import.meta.url));
+/**
+ * A seat that is not due (turn running, attached, resume needs launch values...) is looked at again after this long. Every look starts
+ * a Node checker (~0.5 CPU-second), so 60 s across ~60 seats cost ~0.3 core (incident runtime-supervisor-cpu, 2026-11-26).
+ * Five minutes loses nothing: due_at is anchor + 30 min from the recorded turn end, so a late look still hibernates on time; only a
+ * seat that becomes eligible for a non-time reason (detached, background work done) waits up to this long longer.
+ */
+export const IDLE_CLOCK_POLL_MS = 300_000;
 export function idleClockDeadline(result: IdleCheckResult, now: number): number | null {
   if (result.outcome === "hibernated" || result.outcome === "unconfirmed" || ["dead", "missing"].includes(result.reason)) return null;
-  return result.due_at !== null && result.due_at > now ? result.due_at : now + 60_000;
+  return result.due_at !== null && result.due_at > now ? result.due_at : now + IDLE_CLOCK_POLL_MS;
 }
 async function detached(command: { executable: string; args: string[] }): Promise<AgentIdleClock["owner"]> {
   const env = { ...process.env };

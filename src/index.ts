@@ -217,7 +217,7 @@ function fail(e: unknown): ToolResult {
   if (e instanceof AitermError && e.refusalCode) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
     _meta: { [ERROR_CODE_META]: { schema: "aiterm.error-code.v1", code: e.refusalCode } } };
   if (e instanceof AitermError && e.launchNotStarted) return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true,
-    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code, e.launchNotStarted.action) };
+    _meta: launchNotStartedMeta(e.launchNotStarted.harness, e.launchNotStarted.phase, e.launchNotStarted.code, e.launchNotStarted.action, e.launchNotStarted.startup_screen_excerpt) };
   return { content: [{ type: "text", text: "aiterm: " + msg }], isError: true };
 }
 

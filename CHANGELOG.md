@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.116] - 2026-11-26
+
 - A seat that is not due to hibernate (turn running, attached, resume needing launch values...) is looked at again every 5 minutes instead of every 60 seconds (incident runtime-supervisor-cpu, Molly). Each look starts a Node checker of about 0.5 CPU-seconds, so about 60 seats cost roughly 0.3 core. The hibernate deadline is still the recorded turn end plus 30 minutes, so hibernation does not move.
 - `AGENT_STARTUP_BLOCKED` now carries an optional `startup_screen_excerpt` in `_meta["aiterm/launch_error"]`: the last 20 non-empty lines of the screen the launch stopped on (at most 3000 characters, URL queries, long opaque runs, secret-named values and e-mail masked, the shell line that started the harness dropped). The seat is closed on this error, so the screen was the only trace and nothing showed what it stopped on (Kiro, Anis on fox-windows, Claude Code 2.1.332).
 
@@ -3721,7 +3723,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...HEAD
+[0.70.116]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...v0.70.116
 [0.70.115]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.114...v0.70.115
 [0.70.114]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.113...v0.70.114
 [0.70.113]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.112...v0.70.113

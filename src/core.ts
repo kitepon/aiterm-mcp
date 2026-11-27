@@ -17,6 +17,7 @@ export { launchEchoIsLastOnScreen, __testSetAgentTuiReadyStableSamples } from ".
 export type { AgentSubmitResidueResult, CursorPromptVisibleResult } from "./agent-screen-observation.js";
 import { parseClaudeOperationMarker, type ClaudeOperationMarker } from "./claude-operation-marker.js";
 import { claudeMachineMarker } from "./claude-machine.js";
+import { settleMachineTurnWithoutStop } from "./claude-machine-settle.js";
 import { agentClaudeMachineFilePath, claudeMachineAgentArgv, buildClaudeMachineAgentCmd, claudeMachineResumeArgv, isClaudeMachine, claudeMachineInterruptedAfter, claudeMachineStartedSettings } from "./harnesses/claude-machine.js";
 import { appendClaudeInput, readClaudeStream, claudeControlRequest, claudeMachineObserverScreen, claudeMachineView, readClaudeStreamLine, waitClaudeInputConsumed } from "./claude-machine-stream.js";
 import { harnessBackgroundTasks, type BackgroundTask } from "./background-tasks.js";
@@ -4615,6 +4616,7 @@ export async function readAgentTranscriptResult(
   };
   // 入力に束縛した回収は、その入力の完了だけを読む。後の番のmarkerはこの回収と無関係。
   if (meta.kind === "claude" && !o.completion && bound === null) {
+    settleMachineTurnWithoutStop(meta, () => latestAgentDoneEvent(meta) !== null);
     let active = readClaudeOperationMarker(meta);
     if (active) active = await settlePublishedClaudeCompletionMarker(meta, active);
     if (active) {
@@ -5013,6 +5015,7 @@ async function observeAgentDoneInternal(
   for (;;) {
     o.signal?.throwIfAborted();
     if (!fs.existsSync(metadataFile)) return observation("closed");
+    if (marker && meta.kind === "claude") settleMachineTurnWithoutStop(meta, () => latestAgentDoneEvent(meta, operationId, o.input_id) !== null);
     if (o.input_id && !marker) {
       marker = readClaudeOperationMarker(meta);
       capturedTranscript = marker?.transcript;

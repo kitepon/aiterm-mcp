@@ -56,6 +56,12 @@ remoteは既SSH shell判定を使い、現地の通常aiterm-updateまたは同p
 
 BellTeamの端末（macOS arm64/x86_64、Linux x64/arm64）には、利用者のHomebrew・npm・Nodeを使わない製品所有のruntime（macOSもLinuxもtmuxを同梱し、端末のtmuxは要らない）を`aiterm-remote-terminal provision --ref R`で入れる（[remote terminal](remote-terminal.md) R16/R17）。`aiterm-setup`と`aiterm-update`の経路は変えない。runtimeは公開release assetを端末自身がcurlで取り、sha256を照合し、`~/.aiterm/runtime/.stage-<pid>`で展開・smokeしてから`current`へ入れ替える。直前の`current`は`previous`として次のprovisionまで残す。tmux serverと稼働中の席は止めない。POSIXの遠隔コマンドは`current/bin`をPATHの先頭に置く。assetはrelease公開後に`runtime.yml`がGitHub-hostedのmacOSとLinuxのrunnerで作り、公開用jobが4つのtarballと1つのSHA256SUMSを付ける。
 
+## 席のhookは `runtime/current` を指し、古い版の置き場は席の設定が名指す間は残す（a535、0.70.121）
+
+原因（2026-11-28、フォックスのアニス氏の席）: Windowsでは `runtime\current` が junction で、node は実体 `runtime\aiterm-runtime-<版>-win32-x64` へ解決する。席の `claude-settings.json` の Stop・PermissionRequest・PreToolUse の hook はその実体の版つき path を名指しており、入れ替えは古い置き場を中身ごと消した（使用中の `bin`・`node` だけが残った）。席が走っている間にターンが終わると hook が `Cannot find module` で落ち、`agent_done` が書かれなかった。
+
+直し: (1) 新しい席の3つの hook と node は `runtime/current` 経由の path で書く（`runtime-path.stableRuntimePath`。`current` に同じファイルがある時だけ。Homebrewなど runtime 外の path は変えない）。(2) 休止した席の再開（`claudeResumeArgv`）は、保存済みの `claude-settings.json` の hook を同じ形へ書き直す。(3) 古い置き場の削除は、WindowsのprovisionがPowerShellで直接消す形をやめ、新しいruntimeの `aiterm-remote-terminal prune-runtimes` に任せる。`current`・`previous` と、保存済みの席の設定が名前を挙げる置き場は残し、使用中で消せない物は残す。新しいruntimeが動かなければ何も消さない。POSIXは版つきの置き場を作らず `current` を入れ替えるので、hookは元から `current` を通る。まだ版つきの path を持つ生きた席は、(3)で置き場が残る間は動き、休止して再開した時に(2)で直る。
+
 ## 入れ替え後の旧process整理（`aiterm-remote-terminal retire-stale`、0.70.91、a482r）
 
 原因: runtimeの入れ替え（provision）も`aiterm-update`も、動いている席のaiterm-mcpとclaude-machine-hostを止めない。席は旧版のcodeで数日動き続け、旧hostが新しい状態の形を読めず席が`unknown`と見え、Latticeが毎分促した（2026-11-21、Macで再起動まで直らなかった）。

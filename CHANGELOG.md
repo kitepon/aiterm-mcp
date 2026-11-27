@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A seat's Stop hook no longer dies when an update removes the runtime folder it was started from (a535, Anis on fox, Kiro 11-28). Windows resolves `runtime\current` to the versioned folder and the update deleted it while the seat ran; the hook then failed with "Cannot find module", `agent_done` was never written and `pty_read agent_transcript` said `TRANSCRIPT_TURN_ACTIVE` for hours. New seats' Stop / PermissionRequest / PreToolUse hooks and their node now go through `runtime/current`; a hibernated seat's saved settings are rewritten the same way on resume; the Windows provision leaves old runtime folders to the new `aiterm-remote-terminal prune-runtimes`, which keeps `current`, `previous` and any folder a saved seat settings file still names.
+- A claude-machine turn whose Stop hook failed now settles: when the host says idle, the operation marker is still open and no `agent_done` exists, a waiter or `agent_transcript` runs the current Stop hook once with the stream's last `result` text.
+
 ## [0.70.120] - 2026-11-27
 
 - A claude-machine seat that had finished its turn could read `turn: null` for good in `pty_list` `sessions[]` (a532b2y, Rapi 11-27). The Stop hook's `agent_done` lands before the turn's result, so a read between the two saw the machine still busy and opened a span on the terminal that was already recorded; no later Stop ended it, and the idle state line was refused as a quiet wait. The state line `idle` of a machine seat now settles the span after the usual settle time (`ready_machine`); TUI seats keep the quiet-wait rule.

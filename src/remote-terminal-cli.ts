@@ -21,6 +21,7 @@ import { inspectPath, listDirectories, makeDirectory } from "./remote-path.js";
 import { ASKPASS_SOCKET_ENV, askpass, authorizeKey, prepareAuthorization, prepareKeyInstall } from "./remote-authorize.js";
 import { provision, provisionPinned, runtimeSmoke } from "./remote-provision.js";
 import { activationMs, retireStaleHere } from "./runtime-retire.js";
+import { pruneRuntimes } from "./runtime-path.js";
 
 const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -181,6 +182,7 @@ export function main(args: string[]): void {
     if (since !== undefined && !/^\d+$/u.test(since)) throw new RemoteTerminalError("SINCE_INVALID", "--since is the epoch seconds the new code became active");
     return retireStaleHere(since === undefined ? activationMs() : Number(since) * 1000, rest.includes("--force"));
   }, "aiterm.remote-binding-error.v1");
+  if (command === "prune-runtimes") return oneShot(() => pruneRuntimes(), "aiterm.remote-binding-error.v1");
   if (command === "path-status") return oneShot(() => inspectPath(pathArgument(rest)), "aiterm.remote-binding-error.v1");
   if (command === "make-dir") return oneShot(() => makeDirectory(pathArgument(rest)), "aiterm.remote-binding-error.v1");
   if (command === "list-dirs") return oneShot(() => listDirectories(rest.length ? pathArgument(rest) : undefined), "aiterm.remote-binding-error.v1");
@@ -190,7 +192,7 @@ export function main(args: string[]): void {
     const id = option(rest, "--cursor-session"), offset = option(rest, "--offset"), max = option(rest, "--max-bytes");
     return readCompletedTranscript(option(rest, "--session") ?? "", id ? { claudeSessionId: id, offset: Number(offset) } : null, max ? Number(max) : undefined);
   }, "aiterm.transcript-read-error.v1");
-  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale|export|install-key|install-aiterm|probe|command\n");
+  process.stderr.write("usage: aiterm-remote-terminal serve|status|register|trust-confirm|credential-load|authorize-key|provision|transcript-read|path-status|make-dir|list-dirs|runtime-smoke|retire-stale|prune-runtimes|export|install-key|install-aiterm|probe|command\n");
   process.exit(64);
 }
 

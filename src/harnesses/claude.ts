@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AitermError } from "../errors.js";
+import { stabilizeClaudeSettingsHooks, stableRuntimePath } from "../runtime-path.js";
 import { modeBitsWorldAccessible } from "../tmux-runtime.js";
 import { runAgentProtocolCommand, spawnAgentControlCommand } from "../agent-resolver.js";
 import { claudeCatalogRoot } from "../claude-catalog-root.js";
@@ -101,16 +102,16 @@ export function agentClaudeDispatchReceiptPath(name: string, launchId: string, o
 }
 
 function claudePlanApproveScriptPath(): string {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-approve-hook.js");
+  return stableRuntimePath(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-approve-hook.js"));
 }
 
 function claudePlanSpecScriptPath(): string {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-spec-hook.js");
+  return stableRuntimePath(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-plan-spec-hook.js"));
 }
 
-function claudeHookScriptPath(): string {
+export function claudeHookScriptPath(): string {
   // この module は dist/harnesses/ に置かれるが、stop hook 実体は dist/ 直下に build される。
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-hook.js");
+  return stableRuntimePath(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "claude-stop-hook.js"));
 }
 
 // hook は子の pane の環境で動くので、PATH に node が無い親（Codexが起動したMCP等）でも動くよう絶対pathで呼ぶ。
@@ -118,7 +119,7 @@ function claudeHookScriptPath(): string {
 // 生成済みの hook が exit 127 になる。Cellar の実体は同じ formula の opt（更新でも残る）へ置き換える。
 export function hookNodeExecutable(execPath = process.execPath, exists: (file: string) => boolean = fs.existsSync): string {
   const brew = /^(.*)\/Cellar\/(node(?:@\d+)?)\/[^/]+\/bin\/node$/.exec(execPath);
-  if (!brew) return execPath;
+  if (!brew) return stableRuntimePath(execPath, exists);
   const opt = `${brew[1]}/opt/${brew[2]}/bin/node`;
   return exists(opt) ? opt : "node";
 }
@@ -432,6 +433,8 @@ export function claudeAgentArgv(
 export function claudeResumeArgv(bin: string, model: string | null, effort: string | null, meta: AgentMetadata): string[] {
   if (meta.kind !== "claude" || !meta.vendor_session_id || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(meta.vendor_session_id))
     throw new AitermError("AGENT_RESUME_UNSUPPORTED: Claudeの保存会話IDを確認できません。", 2);
+  // a535: a saved settings file from before the hooks went through `runtime/current` may name a runtime folder that is gone.
+  if (meta.claude_settings) stabilizeClaudeSettingsHooks(meta.claude_settings);
   const argv = claudeAgentArgv(bin, model, effort, null, meta);
   // A fork resumes its own conversation: drop `--resume <main> --fork-session`.
   if (meta.fork_of) argv.splice(argv.indexOf("--fork-session") - 2, 3);

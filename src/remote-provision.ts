@@ -152,9 +152,9 @@ export function windowsProvisionScript(version: string, base: string): string {
     "  Unlink $current",
     "  try { New-Item -ItemType Junction -Path $current -Target $dest | Out-Null }",
     "  catch { if ($old) { New-Item -ItemType Junction -Path $current -Target $old | Out-Null }; Fail 'RUNTIME_ACTIVATE_FAILED' }",
-    // Older runtime folders go when nothing uses them; a folder a running aiterm-mcp holds stays (the delete fails and is ignored).
-    "  $keep = @($dest, (Target $previous))",
-    "  Get-ChildItem -LiteralPath $ROOT -Directory -Filter 'aiterm-runtime-*' -ErrorAction SilentlyContinue | Where-Object { $keep -notcontains $_.FullName } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
+    // Older runtime folders go when nothing uses them: not current/previous, not one a seat's saved settings still names (its hooks run from there),
+    // and a folder a running aiterm-mcp holds stays (the delete fails and is ignored). The new runtime decides, so a failure deletes nothing.
+    "  $null = Native (Join-Path $current 'bin\\aiterm-remote-terminal.cmd') @('prune-runtimes')",
     "  [IO.File]::WriteAllText((Join-Path $ROOT 'ACTIVATED'), ([string]$T + ' ' + $NAME))",
     "  Write-Output ('AITERM_PROVISION PROVISIONED ' + $V + ' x64')",
     "  Retire",

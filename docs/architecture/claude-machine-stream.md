@@ -74,6 +74,8 @@
 | blocked | `can_use_tool` を受けた（`pending` に載る） | 答えの `control_response` → busy。`control_cancel_request`・`result` → idle |
 | exited | claudeのprocess終了 | wakeは新しい起動（今と同じ） |
 
+Stop hookが失敗した番（a535、0.70.121）: `agent_done` を書くのはStop hookだけなので、hookが落ちた（入れ替えで消えた置き場を指した、など）番は、待つ側にとって終わらない。hostの状態が `idle`（`pending` 空、`last_result` が今の入力の印より新しく、状態の更新から3秒以上）で、番の印（`claude-operation.json`）が残り、その番の `agent_done` が無い時、待つ側と `agent_transcript` の読み手（`claude-machine-settle.settleMachineTurnWithoutStop`）は、streamの最後の `result` の本文を `last_assistant_message` にして、現行codeのStop hookを一度走らせる。書かれるeventと結果fileと印の消費はhookの通常の出力と同じ。hostがidleと出すのは、その番のStop hookが全部答えた後（上の表）なので、生きたhookとは競合しない。
+
 自力で出る道: 前のturnのStop hookが答えないまま次のturnが始まったら、hostはその答えを待たない（次のturnが始まる＝前のturnのhookは古い）。次のturnの始まりは、claudeの `command_lifecycle`（`state:"started"`）、または、turnが開いていない時にhostが受けた入力の `user`。その時、hostは未応答のStop hookを捨てる。未応答のhookは claude が応答しないまま残る事がある（本番の席4つ、2026-11-24、キロ氏の測定。`hook_started` 4つ・応答2つ・`result`・応答1つ・次の `command_lifecycle started`、1つは最後まで無応答）。それまでは、idleに戻る道が無く、席はbusyのまま残り、BellTeamは稼働中と出す。interruptはclaudeが `result` を返す。hostに時計は無い（inboxの見張りは、fileの変化と低頻度の読みで、何も断らない）。
 
 ## 失敗の扱い

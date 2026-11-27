@@ -1,6 +1,6 @@
 // The native entry of the parent's own Aiterm (generic name, 0.70.109; bellteam-boundary.md "汎用の入口"): the delivery MCP (the default server),
-// and the hook modes of the CLIs. execution-native-server.ts is its old name (same code, the old argument list that requires
-// --execution-interrupt) until the release that drops it. Ordinary index main stays unchanged.
+// and the hook modes of the CLIs. Its old name execution-native-server.js is gone (a532b2z); the old --execution-interrupt argument is still
+// accepted and ignored. Ordinary index main stays unchanged.
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,7 +31,7 @@ export function localScope(): { state_root: string; multiplexer: { kind: "socket
   return { state_root: stateRoot(), multiplexer: isWin ? { kind: "namespace", key: WIN_NS } : { kind: "socket", key: SOCK } };
 }
 
-/** `--execution-interrupt` is accepted and ignored: the old entry required it, and one command line may start either entry during the move. */
+/** `--execution-interrupt` is accepted and ignored: the old entry required it, so an old registered command line still starts. */
 export function parseNativeEntryArguments(args: string[]) {
   const { values } = parseArgs({ args, strict: true, allowPositionals: false, options: {
     "execution-interrupt": { type: "boolean" }, "state-root": { type: "string" },

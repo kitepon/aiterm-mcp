@@ -11,47 +11,34 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const entry = await import("../dist/native-entry.js");
-const oldEntry = await import("../dist/execution-native-server.js");
-const { localParentWorkerRuntime } = await import("../dist/execution-parent-worker.js");
 const { nativeHookEntries } = await import("../dist/native-setup.js");
-const { nativeExecutionHarnessEntries } = await import("../dist/execution-native-setup.js");
 
 const base = ["--state-root", "/synthetic/state", "--socket", "/synthetic/socket", "--steer-provider", "/synthetic/provider.mjs"];
 
 test("the generic entry takes the old argument list without --execution-interrupt, and ignores that flag when it is given", () => {
   const plain = entry.parseNativeEntryArguments(base);
   assert.deepEqual(plain, { mode: "mcp", codexHome: undefined, hookDirectory: undefined, expectedScope: { state_root: "/synthetic/state", multiplexer: { kind: "socket", key: "/synthetic/socket" } }, providerFile: "/synthetic/provider.mjs" });
-  assert.deepEqual(entry.parseNativeEntryArguments(["--execution-interrupt", ...base]), plain, "one command line may start either entry");
+  assert.deepEqual(entry.parseNativeEntryArguments(["--execution-interrupt", ...base]), plain, "the old flag is accepted and ignored");
   for (const bad of [[], base.slice(2), base.slice(0, -2), base.map(value => value === "/synthetic/state" ? "relative" : value), [...base, "--mode", "unknown"], [...base, "--unknown"]])
     assert.throws(() => entry.parseNativeEntryArguments(bad));
 });
 
-test("the old entry keeps its rule (--execution-interrupt is required) and returns what the generic one returns", () => {
-  assert.throws(() => oldEntry.parseNativeExecutionArguments(base), /EXECUTION_INVALID/);
-  assert.deepEqual(oldEntry.parseNativeExecutionArguments(["--execution-interrupt", ...base]), entry.parseNativeEntryArguments(base));
-});
-
-test("localScope() is the scope the old worker export reports", () => {
+test("localScope() names a state root and a multiplexer", () => {
   const scope = entry.localScope();
-  assert.deepEqual(localParentWorkerRuntime.scope(), scope);
   assert.ok(["socket", "namespace"].includes(scope.multiplexer.kind) && scope.multiplexer.key && scope.state_root);
 });
 
-test("hook-entries: the same content as harness-entries under the generic schema; the old output is unchanged", { skip: process.platform === "win32" }, async () => {
+test("hook-entries: aiterm.hook-entries.v1 owns native-entry.js and no longer the old entry name", { skip: process.platform === "win32" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "native-entry-"));
   try {
     const home = join(dir, "home"); mkdirSync(home);
     const provider = fileURLToPath(new URL("../node_modules/aiterm-steer-delivery/dist/index.js", import.meta.url));
     const options = { stateRoot: join(dir, "state"), socket: join(dir, "sock"), providerFile: provider, clients: ["claude", "cursor"] };
     mkdirSync(options.stateRoot);
-    const generic = await nativeHookEntries(home, options), old = await nativeExecutionHarnessEntries(home, options);
+    const generic = await nativeHookEntries(home, options);
     assert.equal(generic.schema, "aiterm.hook-entries.v1");
-    assert.equal(old.schema, "bellteam.harness-entries.v1");
-    assert.deepEqual(generic.hooks, old.hooks);
-    assert.deepEqual([generic.product, generic.mcpServers, generic.settings, generic.version], [old.product, old.mcpServers, old.settings, old.version]);
-    assert.ok(generic.owns.commandIncludes.includes("native-entry.js") && generic.owns.commandIncludes.includes("execution-native-server.js"));
-    assert.ok(!old.owns.commandIncludes.includes("native-entry.js"), "the old output is what 0.70.58 to 0.70.108 printed");
-    assert.equal(old.owns.commandIncludes.at(-1), "execution-native-server.js");
+    assert.ok(generic.owns.commandIncludes.includes("native-entry.js") && !generic.owns.commandIncludes.includes("execution-native-server.js"));
+    assert.ok(generic.hooks && typeof generic.hooks === "object");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

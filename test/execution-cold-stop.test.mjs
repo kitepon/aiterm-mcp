@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { localParentWorkerRuntime } from '../dist/execution-parent-worker.js';
+import { localScope } from '../dist/native-entry.js';
 import { createHash } from 'node:crypto';
 
 // This file's seat-env owns an empty state/socket scope. Never bootstrap a
@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 test('native SDK stop is idle before any tmux server or socket has ever existed', {
   skip: process.platform === 'win32' ? 'native socket entry is POSIX-only' : false, timeout: 15000,
 }, async t => {
-  const scope = localParentWorkerRuntime.scope();
+  const scope = localScope();
   assert.equal(scope.multiplexer.kind, 'socket');
   const socket = scope.multiplexer.key;
   // The execution store directory that no longer exists (0.70.104): a cold stop must not create it.
@@ -23,7 +23,7 @@ test('native SDK stop is idle before any tmux server or socket has ever existed'
   assert.equal(existsSync(socket), false); assert.equal(existsSync(graph), false);
   const require = createRequire(import.meta.url);
   const transport = new StdioClientTransport({ command: process.execPath,
-    args: [fileURLToPath(new URL('../dist/execution-native-server.js', import.meta.url)), '--execution-interrupt',
+    args: [fileURLToPath(new URL('../dist/native-entry.js', import.meta.url)),
       '--state-root', scope.state_root, '--socket', socket, '--steer-provider', require.resolve('aiterm-steer-delivery')],
     env: Object.fromEntries(Object.entries(process.env).filter(([,value]) => value !== undefined)), stderr: 'pipe' });
   let stderr = ''; transport.stderr.on('data', chunk => { stderr += chunk; });

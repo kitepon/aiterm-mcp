@@ -6,7 +6,7 @@ Codex会話復帰のreadinessは既定50秒を割り当て、部分描画の後�
 
 通常MCPの21 toolsは既存のterminal/harnessへ直接渡す。execution graphへの登録、participant宣言、
 shared writer lockの取得・待機を配送条件にしない。記録の欠測や旧lock fileで本文を拒否しない。
-旧execution-native-serverのMCP互換入口も標準の配送handlerを使い、agent_stopだけを追加する。
+旧execution-native-server（0.70.119で削除）の後は、native-entryが標準の配送handlerを使い、agent_stopだけを追加する。
 agent_executionとagent_execution_rootsをこの入口へ登録しない。本体は旧ExecutionBridgeの先行登録を要求しない。
 
 親hookのClaude/Cursor/Codex入口は通常providerを直接呼ぶ。execution workerやdelivery_admissionを渡さない。

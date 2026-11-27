@@ -23,9 +23,9 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     process.stderr.write(`aiterm-setup: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 2;
   }
-} else if (args[0] === "harness-entries" || args[0] === "hook-entries") {
+} else if (args[0] === "hook-entries") {
   // bd14 (setup-update.md): print the hooks Aiterm needs; the caller writes the CLI files. Errors: exit 2, nothing on stdout.
-  // hook-entries (0.70.109) is the generic name and schema (aiterm.hook-entries.v1); harness-entries keeps the old output until it is dropped.
+  // aiterm.hook-entries.v1 (0.70.109). The old name harness-entries (bellteam.harness-entries.v1) is gone since the final drop (a532b2z).
   try {
     const flags = new Map<string, string>(); let json = false;
     for (let i = 1; i < args.length; i++) {
@@ -36,8 +36,7 @@ if (args.length === 1 && args[0] === "--remove-claude-parent-hooks") {
     }
     if (!json || !flags.has("--home") || !flags.has("--state-root") || !flags.has("--socket") || !flags.has("--steer-provider"))
       throw new Error("--json --home --state-root --socket --steer-provider が要ります");
-    const entriesFor = args[0] === "hook-entries" ? (await import("./native-setup.js")).nativeHookEntries : (await import("./execution-native-setup.js")).nativeExecutionHarnessEntries;
-    const entries = await entriesFor(flags.get("--home")!, { stateRoot: flags.get("--state-root")!, socket: flags.get("--socket")!,
+    const entries = await (await import("./native-setup.js")).nativeHookEntries(flags.get("--home")!, { stateRoot: flags.get("--state-root")!, socket: flags.get("--socket")!,
       providerFile: flags.get("--steer-provider")!, codexBinary: flags.get("--codex-binary"),
       clients: flags.get("--clients")?.split(",") as ("claude" | "cursor" | "codex")[] | undefined });
     process.stdout.write(`${JSON.stringify(entries)}\n`);

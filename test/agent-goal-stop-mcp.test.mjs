@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
-import {createNativeDeliveryServer} from '../dist/execution-native-server.js';
+import {createNativeDeliveryServer} from '../dist/native-entry.js';
 
 async function fixture(t,name){
  const effects=[];const server=createNativeDeliveryServer({children:()=>[],currentLaunchId:()=> 'a'.repeat(32),

@@ -43,15 +43,15 @@ machine席の出力は**データ**で渡す（[ADR 0143](../adr/0143-machine-se
 | --- | --- | --- | --- |
 | `aiterm-mcp/setup-node` | `mcpRegistration()` → `{command, args}`（nodeの絶対path＋このpackageの`dist/index.js`。`aiterm-setup` が書く形と同じ。npmを呼ばない）、`setupNodeExecutable()` | Aitermが自分の起動の形を返す。各CLIの設定へ書くのはBellTeam（mcp-lazyの中継で包むかもBellTeam） | aiterm-hooks.mjs・harness-config.mjs（16・19行目のMCP登録の形） |
 | `aiterm-mcp/setup-integrations` | `mergeClaudeParentHooks(file, registration)`、`mergeCursorParentHooks(file, registration)`、`ensureCodexParentSteer(home, {binary})` | 渡されたfile（`~/.claude/settings.json`・`~/.cursor/hooks.json`）とCodexのhook設定を、Aitermが書く | aiterm-hooks.mjs の予備の分岐だけ（nativeの登録が作れなかった時。モリー氏がその分岐を外すまで残す、2026-11-14） |
-| `aiterm-mcp/execution-parent-worker` | `localParentWorkerRuntime.scope()` → `{state_root, multiplexer: {kind, key}}`（0.70.104からこの1つだけ。worker本体は消した） | 読むだけ | aiterm-hooks.mjs（実行の席の登録） |
-| `aiterm-mcp/execution-native-server` | `parseNativeExecutionArguments(args)`、`createNativeDeliveryServer`（通常配送と `agent_stop`。0.70.104から実行の記録を載せた `createNativeExecutionServer` / `createNativeExecutionWorker` は無い）。このファイル自体が実行の席のMCPの入口（`--execution-interrupt --state-root --socket --steer-provider`）。pathは `exports` の値から得る | 読むだけ（読み込んでも起動しない） | aiterm-hooks.mjs |
+| `aiterm-mcp/execution-parent-worker` | **0.70.119で削除**。同じ値は `aiterm-mcp/native-entry` の `localScope()`（0.70.109から） | 読むだけ | aiterm-hooks.mjs（実行の席の登録。モリー氏のZ186で native-entry へ移り済み） |
+| `aiterm-mcp/execution-native-server` | **0.70.119で削除**。入口は `aiterm-mcp/native-entry`（`parseNativeEntryArguments(args)`、`createNativeDeliveryServer`。通常配送と `agent_stop`）。引数 `--state-root --socket --steer-provider` は同じで、古い `--execution-interrupt` は受けて無視する。pathは `exports` の値から得る | 読むだけ（読み込んでも起動しない） | aiterm-hooks.mjs |
 | `aiterm-mcp/child-result` | `CHILD_RESULT_PREFACE`（子の結果を親へ渡す文の1行目の頭）、`answerMessage(record)` | Aitermが親の席へ送る文の頭。BellTeamは比べるだけ | self-turns.mjs（23行目） |
 | `aiterm-mcp/resume-state-cli` | node で走らせるCLI（読み込まない）。`restore --session <席名> --launch <32桁hex> --sha256 <64桁hex>`：標準入力にcheckpointのbytes、成功は終了0と標準出力に1行のJSON `aiterm.resume-state-result.v1` `{operation, session_id, launch_id, checkpoint_sha256, outcome: restored｜already_restored}`。`checkpoint --session --launch`：標準出力にbytes、標準エラーに同じ形の1行（outcome saved）。失敗は終了2と標準エラーに1行の誤り（本文を出さない）。同じbinは `aiterm-resume-state` | 本体の起動時に、BellTeamが席の利用者で走らせる。checkpointの中身はAitermが読み書きする | runtime-resume.mjs（28行目）・compose.aiterm-checkpoint.yaml |
-| `aiterm-setup harness-entries --json`（bin、0.70.58、bd14。0.70.60で `execution-native-setup` の入口を置き換えた） | CLIの設定ファイルへ入れるAitermのhookを `bellteam.harness-entries.v1`（E1 v1.1）で返す。引数・出力・書く物は setup-update.md「CLIのhookの項目を返す」 | Aitermは自分の置き場（codex-parent-hooks/config.json）だけ書く。CLIのファイルとCodexの承認はBellTeamが1人で書く | BellTeamのCLI登録（モリー氏 bd14。aiterm-hooks.mjs の hook設定の呼び出しを置き換える） |
+| `aiterm-setup hook-entries --json`（bin、0.70.109。`harness-entries` と `bellteam.harness-entries.v1` は0.70.119で削除） | CLIの設定ファイルへ入れるAitermのhookを `aiterm.hook-entries.v1` で返す。引数・出力・書く物は setup-update.md「CLIのhookの項目を返す」 | Aitermは自分の置き場（codex-parent-hooks/config.json）だけ書く。CLIのファイルとCodexの承認はBellTeamが1人で書く | BellTeamのCLI登録（モリー氏。`config/harness-products.json` の `aiterm` が使う） |
 | `aiterm-mcp/state-compat.json` | `aiterm.state-compat.v1` | Aitermが宣言し、BellTeamが読んで置き場を移す | aiterm-state-compat.mjs（20行目） |
 | `aiterm-mcp/package.json` | 版 | 読むだけ | 配布の確かめ |
 
-`--steer-provider` に渡すSteer（`aiterm-steer-delivery`）は、aiterm-mcpの依存packageとして、`execution-native-server` の場所から解決してよい（Steerの公開入口。Steerの約束はSteerの製品正本）。
+`--steer-provider` に渡すSteer（`aiterm-steer-delivery`）は、aiterm-mcpの依存packageとして、`native-entry` の場所から解決してよい（Steerの公開入口。Steerの約束はSteerの製品正本）。
 
 約束しない物：
 - `model-handoff-transport.js`・`model-handoff-control-transport.js`・`model-handoff-control.js`（17・18行目）。公開の版に無い（取り込んでいない私の枝 `feat/handoff-platform-elegg-20261105` などにだけある）。BellTeamは外すか、`ai.aiterm/handoff.*.v1` の能力の確かめの後ろに置く（bd05）。
@@ -59,7 +59,7 @@ machine席の出力は**データ**で渡す（[ADR 0143](../adr/0143-machine-se
 - 子の結果の文の2行目以降（`delivery_id=` などの並び）。頭だけが約束。
 
 BellTeamがやめる事（キロ氏 bd05・モリー氏 bd06 が移す）：
-- `dist/*.js` を絶対パスで決め打ちする事（16行目）→ 選んだ版の根の `exports` から入口の値を読んで、そのファイルを読む（`execution-native-server` と `resume-state-cli` のpathも同じ）。
+- `dist/*.js` を絶対パスで決め打ちする事（16行目）→ 選んだ版の根の `exports` から入口の値を読んで、そのファイルを読む（`native-entry` と `resume-state-cli` のpathも同じ）。
 - `model-handoff-*` を読む事（17・18行目）→ 外す（公開の版に無い）。
 - Aitermの起動の形を手で組む事（19行目）→ `mcpRegistration()` の `{command, args}` を使う。mcp-lazyの中継で包む事と各CLIの設定へ書く事はBellTeamの受け持ちのまま。
 - 子の結果の文の頭を写して持つ事（23行目）→ `CHILD_RESULT_PREFACE`。
@@ -94,11 +94,11 @@ BellTeamは今までどおり `pty_send` に `image:[本体の上の絶対path]`
 | --- | --- | --- | --- |
 | `execution-bridge.mjs`（キロ。本番では `executionBridge: null`、試験だけ） | `agent_execution`、`agent_execution_roots`、execution store（`execution-*.ts` の大半） | 1b | 済み: キロ氏の1a（BellTeam PR #2368）が本番で動き、Aiterm側は0.70.104で削除。消した物と残した物は [private-execution.md](private-execution.md) の頭 |
 | なし（`src` に呼び手なし。他製品の呼び手も確認できず） | `throughline_source_session` / `throughline_supplement_file` | 1 | 外さない。BellTeamの名前を持たない汎用のforkとして残す（トロニー氏の裁定） |
-| `remote-seats.mjs`（キロ・クラスト） | `mcp_config` の席への道の書き換え（`rewriteSeatMcpConfig`、`ensureSeatForward`） | 2 | BellTeamが最終のconfigを作り、Aitermは書き換えずに渡す形が本番で動いた後（端末の席の仕組みはb4でクラスト氏へ） |
-| `#seatTurns`・route resume（キロ） | `pty_list` の `seat_turns` / `route_since` / `unread` | 3 | 0.70.108で、番と `own_work` を `pty_list` の `sessions[]` へ汎用の名前で足した（`include: ["turn", "own_work"]`、呼び手の印なし）。BellTeamが `sessions[]`・`forward_status`・`pty_observe` から同じ値を出し、影の比較で差が0になった後に、`seat_turns` の `_meta` と `route_since`・`unread` を外す。`interim_from` と `own_work` はAitermに残す（汎用の事実。裁定、キロ氏との往復 2026-11-23） |
+| `remote-seats.mjs`（キロ・クラスト） | `mcp_config` の席への道の書き換え（`rewriteSeatMcpConfig`、`agent_launch` の `terminal` 入力の中の `ensureSeatForward` 呼び出し、`seatIngressPort`） | 2 | **済み（0.70.119で削除）**: BellTeamが `ensure_forward` を先に呼んで最終のconfigを作る形が本番で動いた（0.70.114、キロ氏）。`ensure_forward` と `ensureSeatForward`（R26の入口の中身）は残す。`terminal` 入力へ戻す手段（`set_terminal_launch_input input=terminal`）はこの版で無くなる（トロニー氏 a532b2 4番、キロ氏の了承 2026-11-27）。端末の席の仕組み一式はb4でクラスト氏へ |
+| `#seatTurns`・route resume（キロ） | `pty_list` の `seat_turns` / `route_since` / `unread` | 3 | **済み（0.70.119で削除）**: 0.70.108で番と `own_work` を `sessions[]` へ汎用の名前で足し、0.70.118で実行中の `turn` に `wait_process` も足した。BellTeamは席の一覧を `sessions[]`、`route_since` を `forward_status`/`ensure_forward` の `ready_at` から作り、影の比較で差が0（トロニー氏の裁定 2026-11-27、main a571977c）。`_meta["aiterm/seat_turns"]`、その中継（端末ごとの `pty_list` 中継）、`route_since`、`unread` を外した。`interim_from` と `own_work` はAitermに残す（汎用の事実） |
 | `waitProcess`・`steerFollow`・`waitUntilDone`（キロ） | steer-follow（`wait_process`、`steer_id`、`input_id`、`aiterm-wait --steer`） | 4 | **Aitermに残す（裁定A）**。外さず、名前だけ中立にする（下の「steer-followの裁定A」）。0.70.105で `input_ref` / `--input-ref` を足し（古い名前も併存、出し分けは外した）、キロ氏の切り替え後の0.70.107で `steer_id` と `wait_process` の `--steer` を外した（ADR 0122 追記2）。BellTeamは自分の消費側だけを持つ |
 | `sendSessionStop`（キロ） | `agent_stop` | 5 | **Aitermに残す（トロニー氏の裁定A、キロ氏経由 2026-11-23）**。BellTeamの入口だけにあった `agent_stop` を、0.70.110から既定のサーバーの中立な公開toolにする（BellTeamの語も呼び手の絞り込みも無い。入力 `{session_id \| session_ids, pause_goals?}`、全体の停止の `_meta["aiterm/goal"] {origin:"user"}`、結果の形は変えない） |
-| `aiterm-hooks.mjs`・`harness-entries.mjs`（モリー） | `execution-native-server`、`execution-parent-worker`、`execution-native-setup`、`bellteam.harness-entries.v1` | 5 | ランタイムが汎用のAitermの入口で動く形（モリー氏）が本番に出た後 |
+| `aiterm-hooks.mjs`・`harness-entries.mjs`（モリー） | `execution-native-server`、`execution-parent-worker`、`execution-native-setup`、`bellteam.harness-entries.v1` | 5 | **済み（0.70.119で削除）**: 汎用の入口 `native-entry` と `hook-entries` はモリー氏のZ186（11-23、0.70.109）から本番で動く |
 | クラスト（a532b1） | 決裁箱のドア（`approval-door.ts`、`registerDoor`） | b1 | 済み: BellTeamのドアが3台で動き、Aiterm側は0.70.103で削除（`post_launch` は0.70.100） |
 | クラスト（a532b4、最後） | 端末の席の仕組み一式（`remote-terminal*.ts`、`aiterm-remote-terminal`） | b4 | クラストの計画（最後に決める）が本番に出た後 |
 
@@ -127,4 +127,6 @@ BellTeamのruntimeが、親のAiterm接続と席のhookの登録に使う口を�
 | CLIのhookの項目 | `aiterm-setup harness-entries --json ...` → `bellteam.harness-entries.v1`（`aiterm-mcp/execution-native-setup`） | `aiterm-setup hook-entries --json --home <p> --state-root <p> --socket <p> --steer-provider <p> [--codex-binary <p>] [--clients claude,cursor,codex]` → `aiterm.hook-entries.v1`。中身（hooks、書く物、失敗の形）は同じ。`owns.commandIncludes` は hookのscript 3つに加えて `native-entry.js` と、移行中だけ `execution-native-server.js` |
 
 外す版: モリー氏が新しい入口で1作業期間動かしたと伝え、キロ氏の停止（段階5）が本番に出た後の、最初の版。番号はその時に私が決めて伝える（それより前の版は両方を持つ）。imageは、0.70.109以上を取っていれば新しい入口を使える。古い入口を使い続ける間、imageの版の下限は要らない。
+
+**済み（0.70.119）**: 古い入口 `execution-native-server`・`execution-parent-worker`・`execution-native-setup` と `aiterm-setup harness-entries`（`bellteam.harness-entries.v1`）を外した。`agent_stop` は裁定Aで残る。
 

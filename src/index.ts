@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { loadAgentMetadata } from "./agent-metadata-reader.js";
 import { FORWARD_ID, forwardRemoteSchema, remoteInputDescription, remoteInputSchema, terminalArgumentDescription, terminalArgumentSchema, type RemoteTarget, type TerminalArgument } from "./remote-contract.js";
-import { boundTerminalTarget, bindTerminalSession, terminalSeatGroups, ensureForward, ensureSeatForward, extractMcpHeaders, forwardStatus, releaseForward, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION, seatIngressPort,
-  checkTerminalPlatform, closeEndsTerminalSeat, rewriteSeatMcpConfig, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
+import { boundTerminalTarget, bindTerminalSession, ensureForward, extractMcpHeaders, forwardStatus, releaseForward, maintainSeatForwards, REMOTE_MINIMUM_VERSION, REMOTE_CLI_OPS_VERSION,
+  checkTerminalPlatform, closeEndsTerminalSeat, terminalRemoteTarget, unbindTerminalSession, versionAtLeast } from "./remote-terminal.js";
 import { terminalCwdFits } from "./remote-path.js";
 import { launchEnvValue } from "./private-env.js";
 import { registerAgentStop, type StopDependencies } from "./agent-stop.js";
@@ -44,15 +44,15 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ParentDeliveryManager, deliveryKey } from "./parent-delivery.js";
 import { failureObservationSchema } from "./parent-delivery-record.js";
-import { acceptRemote, callRemoteTool, followFlagFor, REMOTE_CLIENT_NAME, loopDeadline, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
+import { acceptRemote, callRemoteTool, followFlagFor, REMOTE_CLIENT_NAME, observeRemoteAgentDone, remoteLabel, remoteWaitProcess, type RemoteCallResult } from "./remote.js";
 import { codexParentFromRequest, type CodexParent } from "./codex-parent-receiver.js";
 import { claudeParentFromRequest, discardClaudeHookRequest, type ClaudeParent } from "./claude-parent-receiver.js";
 import { parentDeliveryDiagnostic } from "./parent-hook-diagnostic.js";
 import { createRuntimeAdoption, RuntimeAdoptionError, type RuntimeAdoptionConfig, type RuntimeAdoption } from "./runtime-adoption.js";
 import { cursorParentFromRequest, isCursorMcpClient, type CursorParent } from "./cursor-parent-receiver.js";
 import { waitProcessCommandLine } from "./cursor-parent-receive.js";
-import { INTERIM_RESULT_META_KEY, interimCallerFromMeta, interimRequestFromMeta } from "./interim-words.js";
-import { SEAT_TURNS_RESULT_META_KEY, STEER_RESULT_META_KEY } from "./steer-follow.js";
+import { INTERIM_RESULT_META_KEY, interimRequestFromMeta } from "./interim-words.js";
+import { STEER_RESULT_META_KEY } from "./steer-follow.js";
 
 // package.json の version を実行時に読み、MCP initialize で配るサーバ版と一致させる。
 // createRequire を使うのは、import 属性 `with { type: "json" }` が Node 18.20+ 限定で
@@ -427,15 +427,6 @@ async function sendRemote(target: RemoteTarget, args: any, extra: any): Promise<
   const waited = await remoteCompletionWait(delivery, target, structured.session_id, structured.event_cursor, structured.input_id);
   const relayed = remoteResult(target, result, { ...structured, wait_process: waited.wait_process, ...(delivery?.result() ? { parent_delivery: delivery.result() } : {}) });
   return { ...relayed, content: [...relayed.content, { type: "text" as const, text: deliveryIdLine(delivery).trim() || "completion=wait_process" }] };
-}
-
-/** 別端末の席の行のwait_processは現地のNodeのpathを持ち、呼び手の端末では走らない（ENOENT）。実行中の番にはssh越しの待ちを、作れなければnullを返す（a464）。 */
-async function relayedTurnWaiter(target: RemoteTarget, seat: any): Promise<{ turn?: unknown }> {
-  const turn = seat?.turn;
-  if (!turn || typeof turn !== "object" || !("wait_process" in turn)) return {};
-  const waiter = turn.state === "running" && typeof turn.event_cursor === "number"
-    ? await remoteWaitProcess(target, seat.session_id, turn.event_cursor).catch(() => null) : null;
-  return { turn: { ...turn, wait_process: waiter } };
 }
 
 /** 現地の差し込みの返りのwait_processは現地のNodeとpathなので、ここで走らない。同じ差し込みの番の終わりをssh越しに待つものへ替える。 */
@@ -1038,20 +1029,12 @@ registerRemoteAwareTool(
       const shared = { turns: () => (turnsRead ??= readSeatTurnsOffLoop(agents, core.readSeatTurns)), ownWork: () => (workRead ??= core.seatOwnWork(agents, exclusions)) };
       let sessions = result.sessions;
       if (include?.length) sessions = await withSeatFacts(result.sessions, include, shared);
-      return { ...ok(core.listSessions(result)), structuredContent: { ...result, sessions }, ...await seatTurnsMeta(result.sessions, extra._meta, shared) };
+      return { ...ok(core.listSessions(result)), structuredContent: { ...result, sessions } };
     } catch (e) {
       return fail(e);
     }
   },
 );
-
-const remoteSeatTurnsInFlight = new Map<string, Promise<any>>();
-// A terminal's answer that came after its caller's 4 s (a busy terminal, Lumani's build on fox 11/14): the next poll for
-// that terminal takes it once instead of listing the seats unread again, so rows age by one slow read, not by the whole
-// time the terminal stays slow. Each relayed row carries `observed_at`, when its terminal answered.
-const remoteSeatTurnsLate = new Map<string, { answer: any; at: number }>();
-const REMOTE_SEAT_TURNS_LATE_MAX_MS = 60_000;
-
 
 // Declared controller caller markers opt into current-turn metadata (ADR 0122).
 // 説明と引数には出さない（steer-follow.ts の冒頭）。それ以外の呼び手には何も足さない。
@@ -1075,68 +1058,6 @@ async function withSeatFacts<T extends { session_id: string; harness: string | n
     if (own) extra.own_work = { processes: own.processes, excluded: own.excluded, child_results: own.child_results, exclusions_digest: own.exclusions_digest, oldest: own.oldest, tasks: own.tasks, task: own.task };
     return { ...session, ...extra };
   });
-}
-
-async function seatTurnsMeta(sessions: Array<{ session_id: string; harness: string | null }>, requestMeta: unknown, shared: SharedSeatReads): Promise<{ _meta?: Record<string, unknown> }> {
-  if (!interimCallerFromMeta(requestMeta, server.server.getClientVersion()?.name, server.server.getClientCapabilities())) return {};
-  try {
-    // Terminal seats: the same call relayed with the same _meta; each terminal answers only for its own bound sessions.
-    // Inside the caller's 5 s pty_list budget (tool catalog timeout_ms): a terminal that fails or is slow contributes
-    // no rows, and its sessions are listed in `unread` so the caller keeps their last state instead of reading them as gone.
-    // Overlapping callers share one in-flight relay per terminal: each relay starts its own reader on the terminal, and
-    // two readers of one seat at once leave one of them without the span lock (that seat comes back in its `unread`).
-    // Relays start before the synchronous local read so the terminal works meanwhile; their 4 s counts only time this
-    // process's event loop was free (loopDeadline), since a blocked loop cannot take the answer however soon it came.
-    const relays = Promise.all(terminalSeatGroups().map(({ target, sessions: bound, route_since }) => {
-      const key = JSON.stringify([target, requestMeta]);
-      let call = remoteSeatTurnsInFlight.get(key);
-      if (!call) {
-        // The request's own timeout is wall-clock: keep it well above the loop-time budget below.
-        call = callRemoteTool(target, "pty_list", {}, 15_000, undefined, requestMeta as Record<string, unknown>)
-          .then(result => (result._meta?.[SEAT_TURNS_RESULT_META_KEY] as any) ?? null, () => null)
-          .then(answer => ({ answer, at: Date.now() }))
-          .finally(() => remoteSeatTurnsInFlight.delete(key));
-        remoteSeatTurnsInFlight.set(key, call);
-        void call.then(answered => { if (Array.isArray(answered.answer?.seats)) remoteSeatTurnsLate.set(key, answered); });
-      }
-      const rows = async ({ answer, at }: { answer: any; at: number }) => Array.isArray(answer?.seats)
-        ? { seats: await Promise.all(answer.seats.filter((seat: any) => bound.includes(seat?.session_id))
-              .map(async (seat: any) => ({ ...seat, ...await relayedTurnWaiter(target, seat), route_since, observed_at: new Date(at).toISOString() }))),
-            unread: Array.isArray(answer.unread) ? answer.unread.filter((name: unknown) => bound.includes(name as string)) : [] }
-        : { seats: [] as any[], unread: bound };
-      // Only the side that decides this poll touches the late answer: the losing side still runs afterwards.
-      let decided = false;
-      return Promise.race([
-        call.then(answered => {
-          if (decided) return null as never;
-          decided = true;
-          if (remoteSeatTurnsLate.get(key) === answered) remoteSeatTurnsLate.delete(key);
-          return rows(answered);
-        }),
-        loopDeadline(4_000, null).then(() => {
-          if (decided) return null as never;
-          decided = true;
-          const late = remoteSeatTurnsLate.get(key);
-          if (!late || Date.now() - late.at > REMOTE_SEAT_TURNS_LATE_MAX_MS) return { seats: [] as any[], unread: bound };
-          remoteSeatTurnsLate.delete(key);
-          return rows(late);
-        }),
-      ]);
-    }));
-    // callRemoteTool spawns its ssh only after an await: let the relays start before the local read.
-    await new Promise(resolve => setImmediate(resolve));
-    const local = await shared.turns();
-    // a41: own_work only for a caller that sends its exclusion list (observation-results.md); terminals compute their own rows.
-    const ownWork = requestMeta && typeof requestMeta === "object" ? (requestMeta as Record<string, unknown>)["aiterm/own_work_exclusions"] : undefined;
-    if (ownWork !== undefined) {
-      const work = await shared.ownWork();
-      for (const seat of local.seats) { const value = work.get(seat.session_id); if (value) Object.assign(seat, { own_work: value }); }
-    }
-    const remote = await relays;
-    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { ...local, seats: [...local.seats, ...remote.flatMap(r => r.seats)], unread: [...local.unread, ...remote.flatMap(r => r.unread)] } } };
-  } catch (e) {
-    return { _meta: { [SEAT_TURNS_RESULT_META_KEY]: { schema: "aiterm.seat-turns.v1", error: e instanceof Error ? e.message : String(e) } } };
-  }
 }
 
 const nativeProcessIdentitySchema = z.object({
@@ -1750,16 +1671,11 @@ async function launchTerminalAgent(harness: core.AgentHarness, terminal: Termina
     if (!versionAtLeast(version, minimum))
       throw new AitermError(`REMOTE_AITERM_TOO_OLD: the terminal runs Aiterm ${version}; ${minimum} or later is required (update Aiterm on the terminal)`, 2);
     const { privateEnv, mcpConfig: extractedConfig } = remotePrivateInputs(harness, args);
-    let mcpConfig = extractedConfig, seatPort: number | undefined;
-    if (mcpConfig) {
-      const ingress = seatIngressPort(mcpConfig);
-      if (ingress) { seatPort = await ensureSeatForward(target.trusted_ref, ingress); mcpConfig = rewriteSeatMcpConfig(mcpConfig, seatPort); }
-    }
+    const mcpConfig = extractedConfig;
     const envVars = [...new Set([...(args.env_vars ?? []), ...Object.keys(privateEnv)])];
     const result = await launchRemoteAgent(target, harness,
       { ...args, ...(envVars.length ? { env_vars: envVars } : {}), ...(mcpConfig ? { mcp_config: mcpConfig } : {}) }, extra,
-      // P goes on the private line only for the hook (a532b1): it is not in env_vars, so the seat's own environment never gets it.
-      { ...privateEnv, ...(seatPort !== undefined && args.post_launch !== undefined ? { AITERM_SEAT_FORWARD_PORT: String(seatPort) } : {}) });
+      privateEnv);
     const session = result?.structuredContent?.session_id;
     if (typeof session === "string") bindTerminalSession(session, target.trusted_ref);
     return withErrorCode(withTerminalLaunchAction(result, harness));

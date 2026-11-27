@@ -59,9 +59,7 @@
     "./state-compat.json": "./state-compat.json",
     "./setup-node": "./dist/setup-node.js",
     "./setup-integrations": "./dist/setup-integrations.js",
-    "./execution-parent-worker": "./dist/execution-parent-worker.js",
     "./native-entry": "./dist/native-entry.js",
-    "./execution-native-server": "./dist/execution-native-server.js",
     "./child-result": "./dist/parent-delivery-record.js",
     "./resume-state-cli": "./dist/resume-state-cli.js"
   },

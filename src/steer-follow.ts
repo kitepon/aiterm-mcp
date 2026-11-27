@@ -47,8 +47,6 @@ import type { InterimFrom } from "./interim-words.js";
 
 /** 差し込みの返りの_metaで返すキー。 */
 export const STEER_RESULT_META_KEY = "aiterm/steer";
-/** pty_listの結果の_metaで返すキー。 */
-export const SEAT_TURNS_RESULT_META_KEY = "aiterm/seat_turns";
 
 // ---------------------------------------------------------------- 差し込みの控え
 

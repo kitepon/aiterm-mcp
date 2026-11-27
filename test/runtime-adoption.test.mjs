@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { decideRuntimeOverlap, RUNTIME_OVERLAP_STORES } from '../dist/runtime-compatibility.js';
 import { createRuntimeAdoption, activationRecordPath } from '../dist/runtime-adoption.js';
-import { createNativeDeliveryServer, parseNativeExecutionArguments } from '../dist/execution-native-server.js';
+import { createNativeDeliveryServer, parseNativeEntryArguments as parseNativeExecutionArguments } from '../dist/native-entry.js';
 
 const candidate = JSON.parse(readFileSync(new URL('../runtime-overlap.json', import.meta.url), 'utf8'));
 const withWrites = (store, writes, reads) => ({ ...structuredClone(candidate), stores: { ...structuredClone(candidate.stores), [store]: { writes, reads } } });

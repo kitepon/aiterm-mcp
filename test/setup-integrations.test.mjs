@@ -251,20 +251,19 @@ test('installation capsule with its marker counts as the same Aiterm registratio
   mkdirSync(capsule, { recursive: true }); mkdirSync(stray);
   writeFileSync(join(capsule, 'aiterm-capsule.json'), JSON.stringify({ schema: 'aiterm.installation-capsule.v1', package: 'aiterm-mcp',
     entries: ['index.js', 'execution-native-server.js'] }));
-  const native = [join(capsule, 'execution-native-server.js'), '--execution-interrupt', '--state-root', '/s', '--socket', '/k', '--steer-provider', '/p.js'];
-  assert.equal(sameRegistration(registration.command, native, registration), true);
-  assert.equal(sameRegistration(registration.command, [join(capsule, 'index.js')], registration), true);
-  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', ['--idle-stop', '0', '--', registration.command, ...native], registration), true, 'lazy-wrapped capsule');
-  assert.equal(sameRegistration('/other/node', native, registration), false, 'different node');
-  assert.equal(sameRegistration(registration.command, [...native, '--runtime-adoption', 'standby'], registration), false, 'standby never persistent');
-  assert.equal(sameRegistration(registration.command, [...native, '--mode', 'claude-hook'], registration), false);
+  const index = [join(capsule, 'index.js')];
+  assert.equal(sameRegistration(registration.command, index, registration), true);
+  assert.equal(sameRegistration('/usr/local/bin/mcp-lazy', ['--idle-stop', '0', '--', registration.command, ...index], registration), true, 'lazy-wrapped capsule');
+  assert.equal(sameRegistration('/other/node', index, registration), false, 'different node');
   assert.equal(sameRegistration(registration.command, [join(capsule, 'other.js')], registration), false, 'unlisted entry');
-  assert.equal(sameRegistration(registration.command, [join(stray, 'execution-native-server.js'), ...native.slice(1)], registration), false, 'no marker');
-  writeFileSync(join(stray, 'aiterm-capsule.json'), JSON.stringify({ schema: 'aiterm.installation-capsule.v1', package: 'aiterm-mcp', entries: ['index.js'] }));
-  assert.equal(sameRegistration(registration.command, [join(stray, 'execution-native-server.js'), ...native.slice(1)], registration), false, 'entry not in marker');
+  // execution-native-server.js is gone (a532b2z): even a marker that lists it does not make it Aiterm's own registration.
+  assert.equal(sameRegistration(registration.command, [join(capsule, 'execution-native-server.js'), '--execution-interrupt', '--state-root', '/s', '--socket', '/k', '--steer-provider', '/p.js'], registration), false, 'retired entry');
+  assert.equal(sameRegistration(registration.command, [join(stray, 'index.js')], registration), false, 'no marker');
+  writeFileSync(join(stray, 'aiterm-capsule.json'), JSON.stringify({ schema: 'aiterm.installation-capsule.v1', package: 'aiterm-mcp', entries: ['other.js'] }));
+  assert.equal(sameRegistration(registration.command, [join(stray, 'index.js')], registration), false, 'entry not in marker');
   // JSON clients keep the capsule entry with its env/timeout instead of rewriting to package dist.
   const claude = join(dir, '.claude.json');
-  const entry = { type: 'stdio', command: registration.command, args: native, env: { A: '1' }, timeout: 120000 };
+  const entry = { type: 'stdio', command: registration.command, args: index, env: { A: '1' }, timeout: 120000 };
   writeFileSync(claude, JSON.stringify({ mcpServers: { aiterm: entry } }));
   assert.equal(mergeJsonMcp(claude, { type: 'stdio', ...registration }), 'unchanged');
   assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers.aiterm, entry);

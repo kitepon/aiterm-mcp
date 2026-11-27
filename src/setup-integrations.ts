@@ -47,11 +47,7 @@ export function installationCapsuleEntry(args: unknown[]): boolean {
   if (typeof entry !== "string" || !isAbsolute(entry)) return false;
   const name = basename(entry);
   if (name === "index.js") { if (rest.length) return false; }
-  else if (name === "execution-native-server.js") {
-    // Persistent registrations are ordinary MCP; lifecycle standby is never written to HOME.
-    const mode = rest.indexOf("--mode");
-    if (rest[0] !== "--execution-interrupt" || rest.includes("--runtime-adoption") || (mode >= 0 && rest[mode + 1] !== "mcp")) return false;
-  } else return false;
+  else return false;
   try {
     const marker = JSON.parse(readFileSync(join(dirname(entry), INSTALLATION_CAPSULE_FILE), "utf8"));
     return record(marker) && marker.schema === INSTALLATION_CAPSULE_SCHEMA && marker.package === "aiterm-mcp"

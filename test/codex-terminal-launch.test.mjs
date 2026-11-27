@@ -157,8 +157,6 @@ test("codex terminal launch: needs Aiterm 0.70.7 on the terminal, then goes to i
     assert.deepEqual(codex.codexMcpOverrides(launch.arguments.mcp_config), [
       'mcp_servers.bellteam={url="http://127.0.0.1:4181/mcp",bearer_token_env_var="BELLTEAM_MCP_TOKEN",env_http_headers={"X-Bellteam-Seat"="AITERM_SESSION_ID"}}',
       'mcp_servers.literal={url="http://127.0.0.1:4181/mcp/x",env_http_headers={"Authorization"="AITERM_MCP_HEADER_0"}}']);
-    // The session is bound to the terminal like a Claude seat, so pty_list seat_turns rows are relayed for it (index.ts seatTurnsMeta).
-    assert.deepEqual(rt.terminalSeatGroups().find(group => group.sessions.includes("fake_codex"))?.sessions.includes("fake_codex"), true);
     rt.unbindTerminalSession("fake_codex");
 
     // A shape Codex cannot say is refused here as an input refusal, without sending anything to launch.

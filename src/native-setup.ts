@@ -50,7 +50,6 @@ export async function nativeHookEntries(home: string, options: {
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
   const version = (JSON.parse(fs.readFileSync(path.join(dist, "..", "package.json"), "utf8")) as { version: string }).version;
-  // native-entry.js is the entry; execution-native-server.js stays in the list while the old entry exists (the caller may still have it registered).
   return { schema: "aiterm.hook-entries.v1" as const, product: "aiterm", version, mcpServers: {}, settings: {},
-    owns: { commandIncludes: [profile.hooks.claude, profile.hooks.cursor, profile.hooks.codex, "native-entry.js", "execution-native-server.js"] }, hooks };
+    owns: { commandIncludes: [profile.hooks.claude, profile.hooks.cursor, profile.hooks.codex, "native-entry.js"] }, hooks };
 }

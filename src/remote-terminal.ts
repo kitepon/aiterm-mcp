@@ -214,22 +214,6 @@ export function parseSeatForward(stderr: string): number | "refused" | null {
   return /remote port forwarding failed/i.test(stderr) ? "refused" : null;
 }
 
-/** Seat MCP URLs (path /api/seat-mcp...) get the forward's terminal-local origin; everything else stays as given. */
-export function rewriteSeatMcpConfig(config: Record<string, unknown>, port: number): Record<string, unknown> {
-  const servers = config.mcpServers;
-  if (!servers || typeof servers !== "object") return config;
-  const rewritten: Record<string, unknown> = {};
-  for (const [name, server] of Object.entries(servers as Record<string, unknown>)) {
-    const url = (server as { url?: unknown } | null)?.url;
-    let parsed: URL | null = null;
-    try { parsed = typeof url === "string" ? new URL(url) : null; } catch { /* not a URL: unchanged */ }
-    rewritten[name] = parsed && /^\/api\/seat-mcp(\/|$)/.test(parsed.pathname)
-      ? { ...(server as object), url: `http://127.0.0.1:${port}${parsed.pathname}${parsed.search}` }
-      : server;
-  }
-  return { ...config, mcpServers: rewritten };
-}
-
 export function sshArguments(b: Binding, agentSocket: string, identityFile: string, remoteCommand: string): string[] {
   return ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
     "-o", `UserKnownHostsFile=${b.known_hosts_file}`, "-o", "GlobalKnownHostsFile=/dev/null", "-o", "CheckHostIP=no",
@@ -726,33 +710,11 @@ export function unbindTerminalSession(session: string): void {
   delete seats[session];
   writeSeats(seats);
 }
-/** Bound sessions grouped by terminal, for relaying a session-less call (pty_list seat_turns). An unreadable binding is skipped. */
-export function terminalSeatGroups(): Array<{ target: TrustedRemoteTarget; sessions: string[]; route_since: string | null }> {
-  const groups = new Map<string, string[]>();
-  for (const [session, ref] of Object.entries(readSeats())) groups.set(ref, [...groups.get(ref) ?? [], session]);
-  return [...groups].flatMap(([ref, sessions]) => { try { return [{ target: trustedTarget(binding(ref)), sessions, route_since: forwardRouteSince(ref) }]; } catch { return []; } });
-}
 /** A later call's target, by session only. null = a local session. */
 export function boundTerminalTarget(session: unknown): TrustedRemoteTarget | null {
   if (typeof session !== "string") return null;
   const ref = readSeats()[session];
   return ref ? trustedTarget(binding(ref)) : null;
-}
-
-const SEAT_PATH = /^\/api\/seat-mcp(\/|$)/;
-/** The one container port D of the seat URLs (R12), or null without seat URLs. */
-export function seatIngressPort(config: Record<string, unknown>): number | null {
-  const ports = new Set<number>();
-  for (const server of Object.values((config.mcpServers ?? {}) as Record<string, { url?: unknown }>)) {
-    let url: URL;
-    try { if (typeof server?.url !== "string") continue; url = new URL(server.url); } catch { continue; }
-    if (!SEAT_PATH.test(url.pathname)) continue;
-    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1")
-      throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "seat MCP URLs must be http://127.0.0.1:<port>/api/seat-mcp");
-    ports.add(Number(url.port || 80));
-  }
-  if (ports.size > 1) throw new RemoteTerminalError("SEAT_FORWARD_UNAVAILABLE", "seat MCP URLs name different ports");
-  return ports.size ? [...ports][0] : null;
 }
 
 /** Header values leave the config file: each becomes ${AITERM_MCP_HEADER_n}, its value goes to the private env line. */

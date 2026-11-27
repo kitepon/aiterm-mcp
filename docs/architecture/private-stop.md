@@ -20,7 +20,7 @@ core.interruptSessionNowは登録harness/name/launchを使い、認証準備やt
 
 graph読取失敗でも明示rootへの通常keyは残し、結果をpartialとする。キー失敗はtargetごとにfailed、他rootを巻き込んで失敗値を消さない。pause_goalsはtrustedなuser originだけが使える非同期口で、子の目標停止を待って親を処理する。独立rootは並行し、一方の期限を他方へ継がない。goal停止がunknownでも明示keyを残し、goal結果を別fieldで返す。同期口でpause_goalsを指定すれば拒否する。
 
-`execution-native-server` のCLI mainのmode=mcpは現在createNativeDeliveryServerを起動し、tracking participantを作らない。hook modeも通常Steer mainを呼ぶ。parseArgsにexecution-interrupt/scope/providerが存在しても、trackingが有効になった証拠ではない。`configureNativeExecutionHooks`も旧private登録を外して通常index/hookへ戻す構造で、返却relation_scope=untracked。今回はこれらを実行していない。
+`native-entry`（旧 `execution-native-server`、0.70.119で削除）のCLI mainのmode=mcpは現在createNativeDeliveryServerを起動し、tracking participantを作らない。hook modeも通常Steer mainを呼ぶ。parseArgsにexecution-interrupt/scope/providerが存在しても、trackingが有効になった証拠ではない。`configureNativeExecutionHooks`も旧private登録を外して通常index/hookへ戻す構造で、返却relation_scope=untracked。今回はこれらを実行していない。
 
 ## Privateのrunとjournal
 

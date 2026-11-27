@@ -1,5 +1,7 @@
 # ADR 0122: BellTeamが、差し込んだ文を取った番と、自分で始めていない番を追える口を置く
 
+> 0.70.119（a532b2z）: `pty_list` の `_meta["aiterm/seat_turns"]`（下の項4）は外した。席の番は `include: ["turn", "own_work"]` の `sessions[]` で返す（0.70.108、`wait_process` は0.70.118）。
+
 日付: 2026-10-13
 
 ## 起きた事

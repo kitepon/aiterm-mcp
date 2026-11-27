@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.120] - 2026-11-27
+
 - A claude-machine seat that had finished its turn could read `turn: null` for good in `pty_list` `sessions[]` (a532b2y, Rapi 11-27). The Stop hook's `agent_done` lands before the turn's result, so a read between the two saw the machine still busy and opened a span on the terminal that was already recorded; no later Stop ended it, and the idle state line was refused as a quiet wait. The state line `idle` of a machine seat now settles the span after the usual settle time (`ready_machine`); TUI seats keep the quiet-wait rule.
 
 ## [0.70.119] - 2026-11-27
@@ -3737,7 +3739,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.120...HEAD
+[0.70.120]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...v0.70.120
 [0.70.119]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...v0.70.119
 [0.70.118]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...v0.70.118
 [0.70.117]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...v0.70.117

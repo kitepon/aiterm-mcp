@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.119] - 2026-11-27
+
 - The final drop of the BellTeam-shaped parts of a532b2 stages 2, 3 and 5 (a532b2z, Tronie's order, after BellTeam ran without them in production: stage 5 since Z186 11-23, stage 2 since 0.70.114 11-24, stage 3 since Z206 11-26). Removed: the seat-route rewriting of `mcp_config` in the `terminal` input of `agent_launch` (`rewriteSeatMcpConfig`, `seatIngressPort`, the `ensureSeatForward` call and the `AITERM_SEAT_FORWARD_PORT` it fed; `ensure_forward` / `forward_status` stay, and BellTeam calls them before it builds the config); the `pty_list` metadata `_meta["aiterm/seat_turns"]` with its per-terminal relay, `route_since` and `unread` (use `include: ["turn", "own_work"]` on `sessions[]`; `route_since` is the `ready_at` of `ensure_forward` / `forward_status`); the entries `aiterm-mcp/execution-native-server` and `aiterm-mcp/execution-parent-worker` (use `aiterm-mcp/native-entry`, which still accepts and ignores `--execution-interrupt`); `aiterm-setup harness-entries` and `bellteam.harness-entries.v1` (use `aiterm-setup hook-entries`, `aiterm.hook-entries.v1`). `agent_stop`, `interim_from` and `own_work` stay. A `terminal`-input launch no longer rewrites the seat URLs (it is not used by BellTeam since the `remote` input).
 
 ## [0.70.118] - 2026-11-26
@@ -3733,7 +3735,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...HEAD
+[0.70.119]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...v0.70.119
 [0.70.118]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...v0.70.118
 [0.70.117]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.116...v0.70.117
 [0.70.116]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.115...v0.70.116

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.121] - 2026-11-27
+
 - A seat's Stop hook no longer dies when an update removes the runtime folder it was started from (a535, Anis on fox, Kiro 11-28). Windows resolves `runtime\current` to the versioned folder and the update deleted it while the seat ran; the hook then failed with "Cannot find module", `agent_done` was never written and `pty_read agent_transcript` said `TRANSCRIPT_TURN_ACTIVE` for hours. New seats' Stop / PermissionRequest / PreToolUse hooks and their node now go through `runtime/current`; a hibernated seat's saved settings are rewritten the same way on resume; the Windows provision leaves old runtime folders to the new `aiterm-remote-terminal prune-runtimes`, which keeps `current`, `previous` and any folder a saved seat settings file still names.
 - A claude-machine turn whose Stop hook failed now settles: when the host says idle, the operation marker is still open and no `agent_done` exists, a waiter or `agent_transcript` runs the current Stop hook once with the stream's last `result` text.
 
@@ -3742,7 +3744,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.120...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.121...HEAD
+[0.70.121]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.120...v0.70.121
 [0.70.120]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...v0.70.120
 [0.70.119]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...v0.70.119
 [0.70.118]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.117...v0.70.118

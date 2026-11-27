@@ -370,8 +370,10 @@ export function __testSetAgentTuiReadyStableSamples(value: number | null): void 
  * ready_compacted: Claude's idle-compaction notice is the last block above the composer. Claude compacts only while
  * idle and sends no Stop for it, so this ends whatever its spinner opened.
  * ready_background: Antigravity's ready composer over a footer counting `N task(s)`: the turn is over, its Stop waits for
- * the background task, so this ends the span like ready_compacted. */
-export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "ready_compacted" | "ready_background" | "unknown";
+ * the background task, so this ends the span like ready_compacted.
+ * ready_machine: a claude-machine seat's own state line says idle. Its Stop can land before the turn's result, so a sample taken
+ * between the two opens a span on the same terminal that no later Stop ends: the state, not a terminal, ends the span (a532b2y). */
+export type ParentPaneEvidence = "busy" | "ready" | "ready_no_completion" | "ready_compacted" | "ready_background" | "ready_machine" | "unknown";
 
 /** Only the current native composer/progress/footer can establish occupancy. */
 // shortcut: pane snapshots cannot certify hidden native turn boundaries, use a continuous native lifecycle when that distinction is required.
@@ -380,7 +382,7 @@ export function parentPaneEvidence(kind: AgentKind, screen: string): ParentPaneE
   if (kind === "codex") return "unknown";
   // A claude-machine seat's observer screen is the one marker line, no composer: its state is the evidence (idle settles like a TUI ready).
   const machine = kind === "claude" ? claudeMachineMarker(screen) : null;
-  if (machine) return machine.state === "busy" ? "busy" : machine.state === "idle" ? "ready" : "unknown";
+  if (machine) return machine.state === "busy" ? "busy" : machine.state === "idle" ? "ready_machine" : "unknown";
   if (agentPaneObservation(kind, lines.slice(-32).join("\n")).state === "blocked") return "unknown";
   let marker = -1;
   const composer = kind === "claude" ? /^\s*❯(?:\s|$)/u

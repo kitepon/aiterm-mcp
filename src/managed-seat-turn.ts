@@ -97,7 +97,7 @@ export function observeManagedSpan(file: string, binding: string, evidence: Pare
   // A launch that never showed busy nor any terminal has no turn to hide: its settled ready is idle.
   // An idle compaction has no Stop of its own; its notice settles the span its spinner opened. So does agy's ready composer
   // over a background-task count: its Stop waits for the task, and the rerun that follows opens a new span.
-  if (evidence !== "ready_compacted" && evidence !== "ready_background" && (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal)) return null;
+  if (evidence !== "ready_compacted" && evidence !== "ready_background" && evidence !== "ready_machine" && (!terminal && (record?.span || record?.terminal) || record?.span && terminal === record.terminal)) return null;
   if (!record) record = { binding, span: null, terminal, ready: null };
   if (!record.ready || record.ready.terminal !== terminal || Date.parse(at) < Date.parse(record.ready.since)) {
     record.ready = { since: at, terminal }; writeJson0600(file, record); return null;

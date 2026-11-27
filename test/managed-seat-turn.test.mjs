@@ -53,7 +53,7 @@ test('four existing native frame routes exclude quoted old hints, preprompt hook
 test('a claude-machine seat reads busy then idle from its one-line state, not from a composer (a474)',()=>{
  const line=(state,reason)=>claudeMachineMarkerLine(state,reason);
  assert.equal(parentPaneEvidence('claude',line('busy')),'busy');
- assert.equal(parentPaneEvidence('claude',line('idle')),'ready');
+ assert.equal(parentPaneEvidence('claude',line('idle')),'ready_machine');
  for(const [state,reason] of [['blocked','tool_approval'],['starting'],['exited']])assert.equal(parentPaneEvidence('claude',line(state,reason)),'unknown',state);
  const file=path.join(directory(),'span.json');
  const running=observeManagedSpan(file,'machine',parentPaneEvidence('claude',line('busy')),null,at(0));
@@ -62,6 +62,21 @@ test('a claude-machine seat reads busy then idle from its one-line state, not fr
  const ready=parentPaneEvidence('claude',line('idle'));
  assert.equal(observeManagedSpan(file,'machine',ready,'stop-1',at(1000)),null);
  assert.deepEqual(observeManagedSpan(file,'machine',ready,'stop-1',at(1000+MANAGED_SPAN_SETTLE_MS)),{state:'idle'});
+});
+
+test('a claude-machine span opened after the turn\'s Stop on the same terminal still ends on the idle state (a532b2y, Rapi 11-27)',()=>{
+ const ready=parentPaneEvidence('claude',claudeMachineMarkerLine('idle')),busy=parentPaneEvidence('claude',claudeMachineMarkerLine('busy'));
+ const file=path.join(directory(),'span.json');
+ // The Stop hook's agent_done landed first; a read then saw the machine still busy (hooks, result) and opened a span on that terminal.
+ assert.equal(observeManagedSpan(file,'machine',ready,'stop-4',at(0)),null,'a seat that never ran: first ready starts the clock');
+ assert.deepEqual(observeManagedSpan(file,'machine',ready,'stop-4',at(MANAGED_SPAN_SETTLE_MS)),{state:'idle'});
+ assert.equal(observeManagedSpan(file,'machine',busy,'stop-4',at(5000)).state,'running');
+ // No new Stop ever comes: the same terminal, the state says idle.
+ assert.equal(observeManagedSpan(file,'machine',ready,'stop-4',at(6000)),null,'first idle sighting only starts the clock');
+ assert.deepEqual(observeManagedSpan(file,'machine',ready,'stop-4',at(6000+MANAGED_SPAN_SETTLE_MS)),{state:'idle'});
+ // A TUI composer in the same position stays a quiet wait.
+ assert.equal(observeManagedSpan(file,'machine',busy,'stop-4',at(9000)).state,'running');
+ assert.equal(observeManagedSpan(file,'machine','ready_no_completion','stop-4',at(9500)),null);
 });
 
 test('fresh unchanged 12min parent wait retains first observed ID/start without heartbeat; busy wins over completion',()=>{

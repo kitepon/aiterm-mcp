@@ -160,7 +160,7 @@ export function signViaModule(config: SigningConfig, text: string, platform: Nod
   return new Promise((resolve, reject) => {
     const child = config.ssh === undefined
       ? spawn(config.auth, ["sign", config.item], { cwd: config.cwd, stdio: [fd, "pipe", "ignore"], windowsHide: true })
-      : spawn(ssh, ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", config.ssh, `cd ${config.cwd} && exec ${config.auth} sign ${config.item}`], { stdio: [fd, "pipe", "ignore"], windowsHide: true });
+      : spawn(ssh, ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", config.ssh, `cd ${config.cwd} && exec ${config.auth} sign ${config.item}`], { stdio: [fd, "pipe", "ignore"], windowsHide: true });
     let out = "";
     let settled = false;
     const timer = setTimeout(() => forceKill(child), SIGN_TIMEOUT_MS);

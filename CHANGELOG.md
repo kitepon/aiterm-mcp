@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- ES256 signing on Windows (fox): `ssh.exe` hangs when its standard input is a pipe or a handle and does not exit after it answers. The signing call now passes the input file through `cmd /c ssh ... < file` and takes the signature as soon as the 64-byte answer is complete, then stops the child; a leftover temp file (time and body hash only) no longer fails the report. The ssh call also checks the host key strictly.
+
 ## [0.70.122] - 2026-11-28
 
 - Runtime-error reports to BugHub are signed with BugHub-ES256 through the authentication module (ADR 0145, Sakura's switch of BugHub's product keys). A host with `runtime-error-signing.json` (url, key_id, item, auth, cwd, optional ssh; no secret) sends `Authorization: BugHub-ES256`: Aiterm runs `auth sign <item>` (directly, or over ssh to the main server) and checks the response signature (`sig_alg ES256`) with BugHub's public key before it acknowledges. A host without the file keeps the HMAC credential file until it is switched. A report that cannot be signed ends as `signing_unavailable` and acknowledges nothing; `aiterm-runtime-errors reporting status` adds `signing`.

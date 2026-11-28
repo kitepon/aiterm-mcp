@@ -158,20 +158,31 @@ export function signViaModule(config: SigningConfig, text: string, platform: Nod
   const fd = fs.openSync(input, "r");
   const ssh = platform === "win32" ? path.win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "OpenSSH", "ssh.exe") : "ssh";
   return new Promise((resolve, reject) => {
+    const remote = `cd ${config.cwd} && exec ${config.auth} sign ${config.item}`;
+    const sshArgs = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", config.ssh ?? "", remote];
+    // Windowsのssh.exeはfdもpipeも標準入力に渡すと止まるので、cmdの`<`で渡す（実機foxで確認）。
     const child = config.ssh === undefined
       ? spawn(config.auth, ["sign", config.item], { cwd: config.cwd, stdio: [fd, "pipe", "ignore"], windowsHide: true })
-      : spawn(ssh, ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", config.ssh, `cd ${config.cwd} && exec ${config.auth} sign ${config.item}`], { stdio: [fd, "pipe", "ignore"], windowsHide: true });
+      : platform === "win32"
+        ? spawn("cmd.exe", ["/d", "/s", "/c", `"${[ssh, ...sshArgs.slice(0, -1)].map((a) => `"${a}"`).join(" ")} "${remote}" < "${input}""`], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true, windowsVerbatimArguments: true })
+        : spawn(ssh, sshArgs, { stdio: [fd, "pipe", "ignore"], windowsHide: true });
     let out = "";
     let settled = false;
     const timer = setTimeout(() => forceKill(child), SIGN_TIMEOUT_MS);
     const settle = (error: Error | null) => {
       if (settled) return;
-      settled = true; clearTimeout(timer); fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true });
+      settled = true; clearTimeout(timer); fs.closeSync(fd);
+      // 子がまだfileを握っていると消せない（Windows）。中身は時刻と本文のSHA-256だけで秘密は無いので、消せなければ残す。
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* shortcut: 残った一時fileは次のOS掃除に任せる */ }
       const signature = out.trim();
       if (error || !/^[A-Za-z0-9+/]{86}==$/.test(signature)) reject(error ?? new Error("署名を得られませんでした"));
       else resolve(signature);
     };
-    child.stdout?.on("data", (chunk: Buffer) => { if (out.length < 1024) out += chunk.toString("utf8"); });
+    // Windowsのssh.exeは、出力を返した後も終わらないことがある。署名が丸ごと届いた時点で受け取り、子を止める。
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (out.length < 1024) out += chunk.toString("utf8");
+      if (/^[A-Za-z0-9+/]{86}==$/.test(out.trim())) { settle(null); forceKill(child); }
+    });
     child.once("error", (error) => settle(error));
     child.once("close", (code) => settle(code === 0 ? null : new Error("署名の呼び出しが失敗しました")));
   });

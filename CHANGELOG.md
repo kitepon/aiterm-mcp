@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.123] - 2026-11-28
+
 - ES256 signing on Windows (fox): `ssh.exe` hangs when its standard input is a pipe or a handle and does not exit after it answers. The signing call now passes the input file through `cmd /c ssh ... < file` and takes the signature as soon as the 64-byte answer is complete, then stops the child; a leftover temp file (time and body hash only) no longer fails the report. The ssh call also checks the host key strictly.
 
 ## [0.70.122] - 2026-11-28
@@ -3750,7 +3752,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.122...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.123...HEAD
+[0.70.123]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.122...v0.70.123
 [0.70.122]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.121...v0.70.122
 [0.70.121]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.120...v0.70.121
 [0.70.120]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...v0.70.120

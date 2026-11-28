@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.122] - 2026-11-28
+
 - Runtime-error reports to BugHub are signed with BugHub-ES256 through the authentication module (ADR 0145, Sakura's switch of BugHub's product keys). A host with `runtime-error-signing.json` (url, key_id, item, auth, cwd, optional ssh; no secret) sends `Authorization: BugHub-ES256`: Aiterm runs `auth sign <item>` (directly, or over ssh to the main server) and checks the response signature (`sig_alg ES256`) with BugHub's public key before it acknowledges. A host without the file keeps the HMAC credential file until it is switched. A report that cannot be signed ends as `signing_unavailable` and acknowledges nothing; `aiterm-runtime-errors reporting status` adds `signing`.
 
 ## [0.70.121] - 2026-11-27
@@ -3746,7 +3748,8 @@ prototype (preserved under `prototype/python/` as the porting source and referen
   `ubuntu-latest` for Node 18/20/22, publishing to npm on `v*` tags with
   provenance.
 
-[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.121...HEAD
+[Unreleased]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.122...HEAD
+[0.70.122]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.121...v0.70.122
 [0.70.121]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.120...v0.70.121
 [0.70.120]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.119...v0.70.120
 [0.70.119]: https://github.com/kitepon/aiterm-mcp/compare/v0.70.118...v0.70.119

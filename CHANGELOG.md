@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Runtime-error reports to BugHub are signed with BugHub-ES256 through the authentication module (ADR 0145, Sakura's switch of BugHub's product keys). A host with `runtime-error-signing.json` (url, key_id, item, auth, cwd, optional ssh; no secret) sends `Authorization: BugHub-ES256`: Aiterm runs `auth sign <item>` (directly, or over ssh to the main server) and checks the response signature (`sig_alg ES256`) with BugHub's public key before it acknowledges. A host without the file keeps the HMAC credential file until it is switched. A report that cannot be signed ends as `signing_unavailable` and acknowledges nothing; `aiterm-runtime-errors reporting status` adds `signing`.
+
 ## [0.70.121] - 2026-11-27
 
 - A seat's Stop hook no longer dies when an update removes the runtime folder it was started from (a535, Anis on fox, Kiro 11-28). Windows resolves `runtime\current` to the versioned folder and the update deleted it while the seat ran; the hook then failed with "Cannot find module", `agent_done` was never written and `pty_read agent_transcript` said `TRANSCRIPT_TURN_ACTIVE` for hours. New seats' Stop / PermissionRequest / PreToolUse hooks and their node now go through `runtime/current`; a hibernated seat's saved settings are rewritten the same way on resume; the Windows provision leaves old runtime folders to the new `aiterm-remote-terminal prune-runtimes`, which keeps `current`, `previous` and any folder a saved seat settings file still names.

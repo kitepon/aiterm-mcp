@@ -643,7 +643,7 @@ consumer は `aiterm-runtime-errors snapshot` を読み、durable ingestion 後�
 Aitermは、既定では実行時エラーをどこへも送らない。送るのは、次の2つがそろった端末だけ。
 
 1. `aiterm-runtime-errors reporting enable` で明示して有効にした。
-2. BugHubの持ち主が置いた合鍵のファイルがある（POSIXは `~/.config/bughub/product-credentials/aiterm-mcp.json`、Windowsは `%LOCALAPPDATA%\bughub\product-credentials\aiterm-mcp.json`）。本人だけが読める通常のファイルでなければ読まない。
+2. 署名の手段がある。優先は署名設定 `~/.config/aiterm-mcp/runtime-error-signing.json`（Windowsは `%LOCALAPPDATA%\aiterm-mcp\runtime-error-signing.json`）。秘密は無く、鍵は認証仲介の中にだけある（ADR 0145、ES256）。端末を切り替えるまでの予備として、BugHubの持ち主が置いた合鍵のファイルがある（POSIXは `~/.config/bughub/product-credentials/aiterm-mcp.json`、Windowsは `%LOCALAPPDATA%\bughub\product-credentials\aiterm-mcp.json`）。本人だけが読める通常のファイルでなければ読まない。
 
 宛先は合鍵のファイルから読む。送る中身は、エラーのコード・回数・最初と最後の時刻・版・重さ・解決の印だけで、prompt・path・stackは保存も送信もしない。送るのは別processで、MCP processは通信しない。きっかけは、エラーを記録した時・解決や開き直しをした時・MCPの起動時（未報告がある時だけ、多くても1時間に1回）と、`aiterm-runtime-errors report`（その場で1回、1分に1回まで）。応答の署名まで確かめた時だけ受け取り済みにし、確かめられない時は次の機会に送り直す。
 

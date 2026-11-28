@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { RuntimeErrorStore } from "./runtime-error-store.js";
 import { defaultRuntimeErrorReportPaths, runtimeErrorReportingStatus } from "./runtime-error-os.js";
 import {
-  readProductCredential, readReportState, reportRuntimeErrors, setRuntimeErrorReporting, triggerRuntimeErrorReport,
+  readProductCredential, readReportState, readSigningConfig, reportRuntimeErrors, setRuntimeErrorReporting, triggerRuntimeErrorReport,
 } from "./runtime-error-report.js";
 
 type Command =
@@ -45,6 +45,7 @@ function reportingStatus(): Record<string, unknown> {
   return {
     reporting: runtimeErrorReportingStatus(paths.reportingConfigPath),
     credential: readProductCredential(paths.credentialPath).status,
+    signing: readSigningConfig(paths.signingPath).status,
     collection: snapshot.collection,
     unreported: Math.max(0, snapshot.cursor - snapshot.acknowledged_cursor),
     last_attempt_at: state.last_attempt_at, last_status: state.last_status,

@@ -5,8 +5,10 @@ digraph runtime_errors {
  worker [label="Record worker: spawn receipt ≠ committed record\nPOSIX / Windows bounded deadline\nFixed failure diagnostic; worker-only cleanup"];
  store [label="Private aggregate store + ticket queue\nValidate schema / fingerprint / sequence / ack\nCapacity preserves unacknowledged records\nWindows state reads ALSO apply/read back DACL"];
  diagnostic [label="Diagnostic worker → exact small result\nready / not_applicable / unverified\nCLI snapshot / ack / resolve / reopen are distinct"];
- report [label="Separate report worker, reporting opt-in\nPrivate credential read validates without repair\nFixed report fields / cumulative snapshot / report ID\nHMAC request; intervals + dedicated report lock"];
- server [label="Configured BugHub report endpoint\n200 alone is not receipt\naccepted + same report ID + response HMAC"];
+ report [label="Separate report worker, reporting opt-in\nSigning config (no secret) preferred; HMAC credential file only as fallback\nFixed report fields / cumulative snapshot / report ID\nES256 request; intervals + dedicated report lock"];
+ signer [label="Auth module: auth sign ITEM (text on stdin, from a file)\nlocal: container / main-server; ssh to main-server: rabbit / Mac / fox\nPrivate key never leaves the module; answer = base64 raw r||s",fillcolor="#eaf7ed"];
+ signer -> report [label="signature"]; report -> signer [label="timestamp + body SHA"];
+ server [label="Configured BugHub report endpoint\n200 alone is not receipt\naccepted + same report ID + response ES256 (BugHub public key) or HMAC (fallback)"];
  ack [label="Only verified receipt advances snapshot ack cursor\nConcurrent later records remain pending\nOperator resolved is not repair verification",fillcolor="#eeeeee"];
  unknown [label="Timeout / transport / unverifiable response → unknown\n401/403 halt until credential changes; 429 rate-limited\nNo ack; later report uses new ID + current aggregate",fillcolor="#fff0dd"];
  event -> worker;worker -> store;store -> diagnostic;store -> report;report -> server;server -> ack;ack -> store [label="monotonic ack"];server -> unknown;report -> unknown;

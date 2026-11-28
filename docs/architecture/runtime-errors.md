@@ -26,9 +26,9 @@ MCP診断は別workerのexact小結果を待ち、timeout/未知schema/巨大std
 
 ## 報告・結果不明・受領
 
-有効switchとprivate credentialが揃った場合だけreporterが通信する。宛先/合鍵の実値はreport payloadやCLI表示へ出さない。送るのは定義済み記録fieldと解決情報で、host名/OS/arch/保存sequenceを送らない。最大500件/送信512KiB。応答は取得後64KiBへsliceする既処理で、stream全体のメモリ上限とは主張しない。
+有効switchと、署名設定（`runtime-error-signing.json`）かprivate credentialが揃った場合だけreporterが通信する。署名設定があればそちらを使う（ES256）。無い時だけ従来の合鍵file（HMAC）を使う（全端末のES256切替が済むまでの予備）。宛先/合鍵の実値はreport payloadやCLI表示へ出さない。送るのは定義済み記録fieldと解決情報で、host名/OS/arch/保存sequenceを送らない。最大500件/送信512KiB。応答は取得後64KiBへsliceする既処理で、stream全体のメモリ上限とは主張しない。
 
-送信はreport_idと累計snapshotを固定し、timestamp+body SHAをHMAC署名する。HTTP200だけでackせず、accepted=true・同report_id・応答HMACを照合した時だけsnapshot cursorをackする。途中に新しい発生があれば後のsequenceは未受領として残る。timeout/通信断/署名不明/5xxはdelivery_unknown、429はrate_limited、401/403はcredential更新まで自動halt（skew例外あり）。
+送信はreport_idと累計snapshotを固定し、timestamp+body SHAに署名する。ES256では秘密鍵は端末に無く、認証仲介の`auth sign <品目>`へ「ts\n本文SHA-256のhex」を渡し、base64の生r‖s（64バイト）を受けて`Authorization: BugHub-ES256 key_id, ts, sig`にする。呼び出しは、container・main-serverでは設定の`cwd`で直接、rabbit・Mac・foxでは`ssh <設定のtarget>`でmain-serverの`cwd`へ入って行う（品目・folder・命令は設定の厳しい正規表現で縛り、shellへ渡す文字を絞る。入力は一時fileからのredirect。Windowsのsshはpipeで止まる）。署名できなければ`signing_unavailable`で何も進めない。HTTP200だけでackせず、accepted=true・同report_id・応答署名（ES256はBugHubの公開鍵で`report_id\nreceived_at`を確かめる。HMAC予備は従来どおり）を照合した時だけsnapshot cursorをackする。途中に新しい発生があれば後のsequenceは未受領として残る。timeout/通信断/署名不明/5xxはdelivery_unknown、429はrate_limited、401/403はcredential更新まで自動halt（skew例外あり）。
 
 manual最短1分/auto1時間、送信mutexの2分stale引取は**reporter専用**。execution/native lock回復へ同じ時間基準を流用しない。受領不明時はackを進めず、次機会に現累計を新report_idで送る。これは本文配送再送とは違い、累計報告の既契約である。
 

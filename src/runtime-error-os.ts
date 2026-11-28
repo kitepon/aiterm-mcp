@@ -30,7 +30,7 @@ export function defaultRuntimeErrorPaths(options: {
 // BugHubへの報告で使う場所。有効スイッチはAiterm自身の設定、合鍵はBugHubの持ち主が端末へ置くファイル。
 export function defaultRuntimeErrorReportPaths(options: {
   platform?: NodeJS.Platform; home?: string; localAppData?: string; xdgConfigHome?: string; xdgStateHome?: string;
-} = {}): { reportingConfigPath: string; credentialPath: string; reportStatePath: string } {
+} = {}): { reportingConfigPath: string; credentialPath: string; reportStatePath: string; signingPath: string } {
   const platform = options.platform ?? process.platform;
   const home = options.home ?? os.homedir();
   if (platform === "win32") {
@@ -38,6 +38,7 @@ export function defaultRuntimeErrorReportPaths(options: {
     return {
       reportingConfigPath: path.win32.join(base, "aiterm-mcp", "runtime-error-reporting.json"),
       credentialPath: path.win32.join(base, "bughub", "product-credentials", "aiterm-mcp.json"),
+      signingPath: path.win32.join(base, "aiterm-mcp", "runtime-error-signing.json"),
       reportStatePath: path.win32.join(base, "aiterm-mcp", "runtime-errors-report.json"),
     };
   }
@@ -46,6 +47,7 @@ export function defaultRuntimeErrorReportPaths(options: {
   return {
     reportingConfigPath: path.join(configHome, "aiterm-mcp", "runtime-error-reporting.json"),
     credentialPath: path.join(configHome, "bughub", "product-credentials", "aiterm-mcp.json"),
+    signingPath: path.join(configHome, "aiterm-mcp", "runtime-error-signing.json"),
     reportStatePath: path.join(stateHome, "aiterm-mcp", "runtime-errors-report.json"),
   };
 }
